@@ -17,8 +17,9 @@ public final class AxMCPScriptedToolsExample {
     ));
     AxMCPClient client = new AxMCPClient(transport);
     client.init();
-    Object result = client.toFunction().get(0).call(Map.of("text", "hello"));
-    if (!"hello".equals(((Map<?, ?>) result).get("echo"))) throw new AssertionError("unexpected MCP result");
+    Object result = client.nativeTools().get(0).call(Map.of("text", "hello"));
+    Object structured = ((Map<?, ?>) result).get("structuredContent");
+    if (!"hello".equals(((Map<?, ?>) structured).get("echo"))) throw new AssertionError("unexpected MCP result");
     System.out.println("java-mcp-ok");
   }
 }

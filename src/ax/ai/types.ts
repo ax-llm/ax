@@ -264,6 +264,10 @@ export type AxFunctionHandler = (
     step?: import('../dsp/types.js').AxStepContext;
     abortSignal?: AbortSignal;
     protocol?: AxAgentCompletionProtocol;
+    /** Immutable event provenance for autonomous or resumed execution. */
+    eventContext?: import('../event/types.js').AxEventContext;
+    /** @internal Shared native MCP state for nested programmable functions. */
+    _mcpExecutionContext?: import('../mcp/execution.js').AxMCPExecutionContext;
   }>
 ) => unknown;
 
@@ -298,6 +302,21 @@ export type AxFunction = {
   parameters?: AxFunctionJSONSchema;
   returns?: AxFunctionJSONSchema;
   namespace?: string;
+  /** Native protocol identity retained independently of provider tool names. */
+  protocol?:
+    | {
+        kind: 'mcp';
+        namespace: string;
+        name: string;
+        annotations?: Record<string, unknown>;
+        meta?: Record<string, unknown>;
+      }
+    | {
+        kind: 'ucp';
+        namespace: string;
+        name: string;
+        meta?: Record<string, unknown>;
+      };
   func: AxFunctionHandler;
 };
 
@@ -407,6 +426,26 @@ export type AxEmbedResponse = {
 
 export type AxModelInfoWithProvider = AxModelInfo & { provider: string };
 
+export type AxFunctionResultContent = readonly (
+  | { type: 'text'; text: string }
+  | { type: 'image'; mimeType: string; image: string; altText?: string }
+  | { type: 'audio'; data: string; mimeType?: string; transcription?: string }
+  | {
+      type: 'file';
+      data: string;
+      filename?: string;
+      mimeType: string;
+      extractedText?: string;
+    }
+  | {
+      type: 'url';
+      url: string;
+      title?: string;
+      description?: string;
+      cachedContent?: string;
+    }
+)[];
+
 export type AxChatRequest<TModel = string> = {
   chatPrompt: (
     | { role: 'system'; content: string; cache?: boolean }
@@ -507,8 +546,15 @@ export type AxChatRequest<TModel = string> = {
     | {
         role: 'function';
         result: string;
+        /** Native structured/multimodal tool content, mapped by each provider. */
+        content?: AxFunctionResultContent;
         isError?: boolean;
         functionId: string;
+        /** Raw structured protocol result retained in memory and continuation state. */
+        protocolResult?: {
+          protocol: NonNullable<AxFunction['protocol']>;
+          value: unknown;
+        };
         cache?: boolean;
       }
   )[];

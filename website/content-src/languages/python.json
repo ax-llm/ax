@@ -136,6 +136,60 @@
         "    }],",
         "})"
       ]
+    },
+    "mcp": {
+      "native": {
+        "sourcePath": "src/examples/python/mcp/native-mcp-tools.py",
+        "code": [
+          "mcp = AxMCPClient(AxMCPStreamableHTTPTransport(endpoint), {\"namespace\": \"inventory\"})",
+          "    catalog = mcp.inspect_catalog()",
+          "    {\"mcp\": mcp},",
+          "    mcp.close()"
+        ]
+      },
+      "resourceWake": {
+        "sourcePath": "src/examples/python/mcp/resource-wake-agent.py",
+        "code": [
+          "transport = AxMCPStreamableHTTPTransport(",
+          "source = AxMCPEventSource(",
+          "    resource_subscriptions=\"all\",",
+          "runtime.start()",
+          "if not completed.wait(60):"
+        ]
+      },
+      "taskResume": {
+        "sourcePath": "src/examples/python/mcp/task-resume-flow.py",
+        "code": [
+          "task_id = client.call_tool(\"start_reindex\", {\"scope\": \"all\"})[\"task\"][\"taskId\"]",
+          "started.publish(",
+          "if not completed.wait(60):"
+        ]
+      }
+    },
+    "event": {
+      "wake": {
+        "sourcePath": "src/examples/python/mcp/resource-wake-agent.py",
+        "code": [
+          "runtime.start()",
+          "if not completed.wait(60):",
+          "runtime.close()"
+        ]
+      },
+      "resume": {
+        "sourcePath": "src/examples/python/mcp/task-resume-flow.py",
+        "code": [
+          "runtime.start()",
+          "started.publish(",
+          "if not completed.wait(60):"
+        ]
+      },
+      "ucp": {
+        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
+        "code": [
+          "  const receipt = await source.ingest(request);",
+          "  if (!receipt.accepted) return new Response(null, { status: 503 });"
+        ]
+      }
     }
   }
 }

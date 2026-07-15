@@ -20,7 +20,8 @@ func main() {
 	})
 	client := ax.NewAxMCPClient(transport, nil)
 	if err := client.Init(); err != nil { panic(err) }
-	result := client.ToFunction()[0].Call(map[string]ax.Value{"text":"hello"})
-	if result.(map[string]ax.Value)["echo"] != "hello" { panic("unexpected MCP result") }
+	result := client.NativeTools()[0].Call(map[string]ax.Value{"text":"hello"})
+	structured := result.(map[string]ax.Value)["structuredContent"].(map[string]ax.Value)
+	if structured["echo"] != "hello" { panic("unexpected MCP result") }
 	fmt.Println("go-mcp-ok")
 }

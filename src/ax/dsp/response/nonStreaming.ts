@@ -37,6 +37,8 @@ export async function* processResponse<OUT extends AxGenOut>({
   stepContext,
   abortSignal,
   onFunctionCall,
+  mcpExecutionContext,
+  eventContext,
 }: ProcessResponseBaseArgs): AsyncGenDeltaOut<OUT> {
   const results = res.results ?? [];
   const treatAllFieldsOptional = signatureToolCallingManager !== undefined;
@@ -125,6 +127,8 @@ export async function* processResponse<OUT extends AxGenOut>({
             step: stepContext,
             abortSignal,
             onFunctionCall,
+            mcpExecutionContext,
+            eventContext,
           });
         } catch (e) {
           mem.addRequest(

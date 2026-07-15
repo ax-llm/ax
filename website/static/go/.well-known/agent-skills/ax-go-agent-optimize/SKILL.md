@@ -1,7 +1,7 @@
 ---
 name: "ax-go-agent-optimize"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA."
-version: "23.0.0"
+version: "23.0.1"
 ---
 # AxAgent Optimize For Go
 

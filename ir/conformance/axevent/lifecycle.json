@@ -1,0 +1,22 @@
+{
+  "name": "event-runtime-inline-lifecycle",
+  "kind": "event",
+  "operation": "lifecycle",
+  "event": {
+    "specversion": "1.0",
+    "id": "lifecycle-1",
+    "source": "test://axevent",
+    "type": "event.lifecycle",
+    "subject": "instance-1",
+    "data": { "message": "wake" }
+  },
+  "route": {
+    "id": "lifecycle-route",
+    "action": "wake",
+    "match": { "types": ["event.lifecycle"] },
+    "targetId": "lifecycle-target"
+  },
+  "identity_scope": "tenant:test",
+  "trust": "authenticated",
+  "expected_output": { "handled": "wake" }
+}

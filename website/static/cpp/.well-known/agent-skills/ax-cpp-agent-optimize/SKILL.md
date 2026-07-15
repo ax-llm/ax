@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-agent-optimize"
 description: "Use when writing C++ code with `axllm` for agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA."
-version: "23.0.0"
+version: "23.0.1"
 ---
 # AxAgent Optimize For C++
 

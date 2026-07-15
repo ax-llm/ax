@@ -24,7 +24,7 @@ const mcpClient = new AxMCPClient(transport, { debug: false });
 await mcpClient.init();
 
 const linearAgent = agent(
-  'request:string -> response:string "Use Linear MCP tools to inspect and update Linear data. Do not guess issue details; call the available Linear tools when needed."',
+  'userRequest:string -> response:string "Use Linear MCP tools to inspect and update Linear data. Do not guess issue details; call the available Linear tools when needed."',
   {
     functions: [mcpClient],
     functionDiscovery: true,
@@ -39,7 +39,7 @@ const llm = ai({
 });
 
 const result = await linearAgent.forward(llm, {
-  request: 'Summarize my highest priority assigned Linear issues.',
+  userRequest: 'Summarize my highest priority assigned Linear issues.',
 });
 
 console.log(result.response);

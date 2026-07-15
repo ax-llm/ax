@@ -1,5 +1,5 @@
 {
-  "name": "mcp prompts resources and templates become functions",
+  "name": "mcp prompts resources and templates remain native catalogs",
   "kind": "mcp",
   "operation": "prompts_resources",
   "responses": [
@@ -59,9 +59,7 @@
       }
     }
   ],
-  "expected_function_names": [
-    "prompt_ask",
-    "resource_doc",
-    "resource_template_page"
-  ]
+  "expected_prompt_names": ["ask"],
+  "expected_resource_names": ["doc"],
+  "expected_resource_template_names": ["page"]
 }

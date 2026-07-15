@@ -187,6 +187,8 @@ export type AxAgentState = {
   checkpointState?: AxAgentStateCheckpointState;
   provenance: Record<string, RuntimeStateVariableProvenance>;
   actorModelState?: AxAgentStateExecutorModelState;
+  /** Logical MCP references only; never credentials, sessions, or transports. */
+  mcp?: import('../../mcp/execution.js').AxMCPContinuationState;
 };
 
 export class AxAgentClarificationError extends Error {

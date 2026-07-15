@@ -1,0 +1,55 @@
+{
+  "kind": "mcp",
+  "name": "native shared execution context with UCP outcome",
+  "operation": "execution_context_ucp",
+  "responses": [
+    {
+      "method": "initialize",
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": { "tools": {} },
+        "serverInfo": { "name": "inventory", "version": "1.0.0" }
+      }
+    },
+    {
+      "method": "tools/list",
+      "result": {
+        "tools": [
+          {
+            "name": "lookup",
+            "description": "Look up inventory",
+            "inputSchema": { "type": "object" }
+          }
+        ]
+      }
+    }
+  ],
+  "client_options": { "namespace": "inventory" },
+  "ucp_profile": {
+    "name": "merchant",
+    "version": "2026-04-08",
+    "services": { "checkout": { "version": "2026-04-08" } },
+    "capabilities": { "payments": ["card"] }
+  },
+  "ucp_options": { "namespace": "merchant" },
+  "ucp_response": {
+    "checkout_id": "checkout-1",
+    "warnings": [{ "code": "address_review" }],
+    "partial_success": true,
+    "continuation_url": "https://merchant.example/continue"
+  },
+  "expected_namespaces": ["inventory", "merchant"],
+  "expected_native_tools": ["lookup", "merchant_catalog_search"],
+  "call_ucp": {
+    "operation": "checkout.create",
+    "payload": { "currency": "USD" }
+  },
+  "expected_ucp_outcome": {
+    "operation": "checkout.create",
+    "value": { "checkout_id": "checkout-1" },
+    "warnings": [{ "code": "address_review" }],
+    "partialSuccess": true,
+    "continuationUrl": "https://merchant.example/continue",
+    "idempotencyKey": "fixture-key"
+  }
+}

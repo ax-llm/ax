@@ -9,8 +9,8 @@ fn main() -> AxResult<()> {
     ];
     let mut client = AxMCPClient::new(Box::new(AxMCPScriptedTransport::new(responses)), json!({}));
     client.init()?;
-    let result = client.to_function()[0].call(json!({"text":"hello"}))?;
-    assert_eq!(result["echo"], "hello");
+    let result = client.native_tools()[0].call(json!({"text":"hello"}))?;
+    assert_eq!(result["structuredContent"]["echo"], "hello");
     println!("rust-mcp-ok");
     Ok(())
 }

@@ -1,12 +1,15 @@
 ---
 name: ax-gen
-description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs.
-version: "23.0.0"
+description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.
+version: "23.0.1"
 ---
 
 # AxGen Codegen Rules (@ax-llm/ax)
 
 Use this skill to generate `AxGen` code. Prefer short, modern, copyable patterns. Do not write tutorial prose unless the user explicitly asks for explanation.
+
+Use the `ax-mcp` skill when AxGen attaches native MCP clients or consumes MCP
+prompts, resources, tools, tasks, subscriptions, authentication, or events.
 
 ## Use These Defaults
 
@@ -484,6 +487,51 @@ Fetch these for full working code:
 - [Fibonacci](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/fibonacci.ts) — streaming with thinking
 - [Extraction](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/extract.ts) — information extraction
 - [Multi-Sampling](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/sample-count.ts) — sample count usage
+
+## Native MCP/UCP
+
+Use `ax-mcp` for client construction, transports, authentication, catalog and
+task APIs, subscriptions, event routing, and recording/replay. This section
+only covers the AxGen attachment boundary.
+
+Pass live clients directly to constructor or forward options:
+
+```typescript
+const gen = ax('question:string -> answer:string', { mcp: [docs, search] });
+const result = await gen.forward(llm, { question }, {
+  mcpContext: [
+    { client: 'docs', resource: { uri: 'docs://guide' } },
+  ],
+});
+```
+
+The model receives native tool definitions. Structured, image, audio, resource-link, embedded-resource, metadata, task, and error results are preserved until the provider adapter maps supported content. Streaming keeps MCP progress/task events separate from Ax output. Never call `toFunction()` for native integration.
+
+Use `client.inspectCatalog()` when an endpoint is the only configuration. It
+discovers server-owned tool/prompt names, concrete resource URIs, and URI
+templates. Event sources require an explicit none/all/URI/selector resource
+subscription policy and never create a wake route implicitly.
+
+Under an event target, a required task-backed MCP tool registers the owning
+`namespace:taskId` continuation automatically. Use `AxMCPEventSource` plus
+`axMCPEventRoutes` to observe progress and resume the target on
+`input_required` or a terminal state.
+
+## Event Targets
+
+Wrap an AxGen with
+`eventTarget('id').program(gen).ai(ai).input(...).build()` to invoke it from an
+explicit `wake` or `resume` route. Use segment-safe `eventPath` selectors;
+projection and explicit fields are validated against the AxGen signature before
+invocation. Use `.wakeInput()` and `.resumeInput()` for different action
+contracts. Streaming targets persist each chunk before optional chunk sinks and
+persist the final result before final sinks.
+
+Use a reusable `eventInput().project(...).field(...)` plan when mapping should
+be callback-free. Callback `mapInput` remains available, but its result is
+cloned, stripped to declared AxGen inputs, and signature-validated before the
+first model call; mapper exceptions become non-retryable
+`event_input_invalid` deliveries.
 
 ## Do Not Generate
 

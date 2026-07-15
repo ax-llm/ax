@@ -3184,6 +3184,9 @@ type AxGen struct {
 	Signature           AxSignature
 	Options             map[string]Value
 	Functions           []Tool
+	BaseFunctions       []Tool
+	ExecutionContext    *AxExecutionContext
+	ExecutionContextError error
 	Examples            Value
 	Demos               Value
 	Assertions          Value
@@ -3203,10 +3206,18 @@ func NewAx(signature string, options map[string]Value) *AxGen {
 	if options == nil {
 		options = Object()
 	}
-	return &AxGen{Signature: NewSignature(signature), Options: options, Examples: Array(), Demos: Array(), Assertions: coreGet(options, "assertions", Array()), StreamingAssertions: coreGet(options, "streaming_assertions", coreGet(options, "streamingAssertions", Array())), FieldProcessors: Object(), StopFunctions: Array(), Memory: Array(), ChatLog: Array(), FunctionCallTraces: Array(), Traces: Array(), ProgramID: display(coreGet(options, "id", coreGet(options, "program_id", coreGet(options, "programId", "root")))), Instruction: display(coreGet(options, "instruction", ""))}
+	g := &AxGen{Signature: NewSignature(signature), Options: options, Examples: Array(), Demos: Array(), Assertions: coreGet(options, "assertions", Array()), StreamingAssertions: coreGet(options, "streaming_assertions", coreGet(options, "streamingAssertions", Array())), FieldProcessors: Object(), StopFunctions: Array(), Memory: Array(), ChatLog: Array(), FunctionCallTraces: Array(), Traces: Array(), ProgramID: display(coreGet(options, "id", coreGet(options, "program_id", coreGet(options, "programId", "root")))), Instruction: display(coreGet(options, "instruction", ""))}
+	for _, raw := range asSlice(coreGet(options, "functions", Array())) { if tool, ok := raw.(Tool); ok { g.BaseFunctions=append(g.BaseFunctions,tool) } }
+	g.Functions=append([]Tool(nil),g.BaseFunctions...)
+	g.ExecutionContext,g.ExecutionContextError=ResolveAxExecutionContext(options,nil)
+	if g.ExecutionContextError==nil && g.ExecutionContext!=nil { tools,err:=g.ExecutionContext.NativeTools();g.ExecutionContextError=err;g.Functions=append(g.Functions,tools...) }
+	return g
 }
 func NewGen(signature string, options map[string]Value) *AxGen { return NewAx(signature, options) }
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	if g.ExecutionContextError!=nil{return nil,g.ExecutionContextError}
+	callContext,err:=ResolveAxExecutionContext(options,g.ExecutionContext);if err!=nil{return nil,err}
+	if callContext!=g.ExecutionContext { clone:=*g;clone.ExecutionContext=callContext;clone.Functions=append([]Tool(nil),g.BaseFunctions...);if callContext!=nil{tools,toolErr:=callContext.NativeTools();if toolErr!=nil{return nil,toolErr};clone.Functions=append(clone.Functions,tools...)};return clone.Forward(ctx,client,values,map[string]Value{"executionContext":callContext}) }
 	return safeValue(func() Value { return mustCore(_forward_impl(g, bindAIClientContext(ctx, client), values, options)) })
 }
 func (g *AxGen) AddAssert(assertion Value) *AxGen {
@@ -3312,6 +3323,8 @@ type AxAgent struct {
 	Responder *AxGen
 	Distiller *AxGen
 	LlmQuery  *AxGen
+	ExecutionContext *AxExecutionContext
+	ExecutionContextError error
 }
 
 // AxMemoriesSearchFn / AxSkillsSearchFn are native host callbacks the agent invokes (from the agent
@@ -3332,6 +3345,8 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	if options == nil {
 		options = Object()
 	}
+	executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
+	if executionContext!=nil { functions:=asSlice(coreGet(options,"functions",Array()));functions=append(functions,executionContext.RuntimeModules()...);options["functions"]=functions;options["executionContext"]=executionContext }
 	state := asMap(mustCore(_agent_factory(signature, options)))
 	sig := NewSignature(signature)
 	distillerOptions := Object("validation_retries", 0, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
@@ -3341,8 +3356,9 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
+	if executionContext!=nil { distillerOptions["executionContext"]=executionContext;executorOptions["executionContext"]=executionContext;responderOptions["executionContext"]=executionContext;llmQueryOptions["executionContext"]=executionContext }
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
-	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions)}
+	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions),ExecutionContext:executionContext,ExecutionContextError:contextErr}
 }
 func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, a.Options)))
@@ -3363,18 +3379,19 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	return a
 }
 func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	if a.ExecutionContextError!=nil{return nil,a.ExecutionContextError};callOptions:=map[string]Value{};for key,value:=range options{callOptions[key]=value};executionContext,err:=ResolveAxExecutionContext(callOptions,a.ExecutionContext);if err!=nil{return nil,err};if executionContext!=nil{callOptions["executionContext"]=executionContext;functions:=asSlice(coreGet(callOptions,"functions",Array()));functions=append(functions,executionContext.RuntimeModules()...);callOptions["functions"]=functions}
 	boundClient := bindAIClientContext(ctx, client)
 	// Wire the built-in llmQuery primitive: a focused sub-query the model can
 	// await inside the runtime. The logic lives in the AxIR-generated helper;
 	// this wrapper only registers the host callable that closes over this client.
-	runtime := coreGet(options, "runtime", coreGet(a.Options, "runtime", nil))
+	runtime := coreGet(callOptions, "runtime", coreGet(a.Options, "runtime", nil))
 	if reg, ok := runtime.(runtimeCallableRegistrar); ok {
 		reg.RegisterHostCallable("llmQuery", func(params Value) (Value, error) {
 			return _agent_run_llm_query(a.LlmQuery, boundClient, params)
 		})
 	}
 	return safeValue(func() Value {
-		return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, options))
+		return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, callOptions))
 	})
 }
 func (a *AxAgent) get(k string, fallback Value) Value {
@@ -3719,6 +3736,8 @@ type AxFlow struct {
 	State   map[string]Value
 	Steps   Value
 	Options map[string]Value
+	ExecutionContext *AxExecutionContext
+	ExecutionContextError error
 }
 
 func NewFlow(options map[string]Value) *AxFlow {
@@ -3726,7 +3745,8 @@ func NewFlow(options map[string]Value) *AxFlow {
 		options = Object()
 	}
 	state := asMap(mustCore(_flow_factory(options)))
-	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options}
+	executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
+	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options,ExecutionContext:executionContext,ExecutionContextError:contextErr}
 }
 func (f *AxFlow) Execute(name string, program AxProgram, options map[string]Value) *AxFlow {
 	if options == nil {
@@ -3743,8 +3763,9 @@ func (f *AxFlow) Returns(mapping map[string]Value) *AxFlow {
 }
 func (f *AxFlow) GetPlan() Value { return mustCore(_flow_plan(f.State)) }
 func (f *AxFlow) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	if f.ExecutionContextError!=nil{return nil,f.ExecutionContextError};callOptions:=map[string]Value{};for key,value:=range options{callOptions[key]=value};executionContext,err:=ResolveAxExecutionContext(callOptions,f.ExecutionContext);if err!=nil{return nil,err};if executionContext!=nil{callOptions["executionContext"]=executionContext;callOptions["mcp"]=executionContext.MCP;callOptions["ucp"]=executionContext.UCP}
 	return safeValue(func() Value {
-		return mustCore(_flow_forward(f.State, bindAIClientContext(ctx, client), values, options))
+		return mustCore(_flow_forward(f.State, bindAIClientContext(ctx, client), values, callOptions))
 	})
 }
 func (f *AxFlow) GetOptimizableComponents() Value {
@@ -6112,6 +6133,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceOptimize(fixture)
 	case "mcp":
 		runMCPConformanceFixture(fixture)
+	case "event":
+		runConformanceEvent(fixture)
 	case "agent_forward":
 		runConformanceAgentForward(fixture)
 	case "agent_runtime_policy":
@@ -6128,6 +6151,49 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAgentRuntimeReal(fixture)
 	default:
 		panic(AxError{Category: "fixture", Message: "unsupported Go conformance fixture kind " + kind})
+	}
+}
+
+type conformanceEventSink struct { id string; calls int; failFirst bool }
+func (s *conformanceEventSink) Write(output Value, context map[string]Value) error {s.calls++;if s.failFirst&&s.calls==1{return fmt.Errorf("sink once")};run,_:=context["run"].(*AxEventRun);if run==nil{return fmt.Errorf("output was not persisted before sink")};assertEqual(run.Output,output,"output persisted before sink");return nil}
+
+func runConformanceEvent(fixture map[string]Value) {
+	operation:=display(coreGet(fixture,"operation",""))
+	switch operation {
+	case "routing":
+		actual:=mustCore(event_route_commands(coreGet(fixture,"event",Object()),coreGet(fixture,"routes",Array()),coreGet(fixture,"identity_scope",""),coreGet(fixture,"trust","untrusted")))
+		assertEqual(actual,coreGet(fixture,"expected",Array()),"event routing")
+	case "retry":
+		for _,item:=range asSlice(coreGet(fixture,"cases",Array())){c:=asMap(item);actual:=mustCore(event_retry_transition(coreGet(c,"invocation_started",false),coreGet(c,"retry_safety","unknown"),coreGet(c,"attempt",float64(0)),coreGet(c,"max_attempts",float64(1))));assertEqual(actual,coreGet(c,"expected",Object()),"event retry")}
+	case "continuation":
+		key:=asMap(coreGet(fixture,"correlation",Object()));actual:=mustCore(event_continuation_match(coreGet(fixture,"continuations",Array()),coreGet(fixture,"identity_scope",""),coreGet(key,"kind",""),coreGet(key,"value",""),coreGet(fixture,"now",float64(0))));assertEqual(coreGet(asMap(actual),"id",nil),coreGet(fixture,"expected_id",nil),"event continuation")
+	case "mcp_normalization":
+		actual:=mustCore(event_normalize_mcp(coreGet(fixture,"namespace",""),coreGet(fixture,"method",""),coreGet(fixture,"params",Object())));assertEqual(actual,coreGet(fixture,"expected",Object()),"event MCP normalization")
+	case "mapping":
+		actual:=mustCore(event_map_input(coreGet(fixture,"ingress",Object()),coreGet(fixture,"plan",Object()),coreGet(fixture,"signature_fields",Array()),nil));assertEqual(actual,coreGet(fixture,"expected",Object()),"event input mapping")
+	case "lifecycle":
+		routeValue:=asMap(coreGet(fixture,"route",Object()));eventValue:=asMap(coreGet(fixture,"event",Object()));route:=AxEventRoute{ID:display(routeValue["id"]),Action:display(routeValue["action"]),Match:asMap(routeValue["match"]),TargetID:display(routeValue["targetId"]),Ordering:"strict"};runtime,err:=NewAxEventRuntime([]AxEventRoute{route},nil);if err!=nil{panic(err)};runtime.RegisterTarget(AxEventTarget{ID:route.TargetID,Invoke:func(input Value,_ map[string]Value)(Value,error){return map[string]Value{"handled":coreGet(input,"message",nil)},nil},RetrySafety:"idempotent"});source:=&AxPushEventSource{ID:"fixture"};runtime.AddSource(source);if err:=runtime.Start();err!=nil{panic(err)};event:=AxEventEnvelope{SpecVersion:"1.0",ID:display(eventValue["id"]),Source:display(eventValue["source"]),Type:display(eventValue["type"]),Subject:display(eventValue["subject"]),Data:eventValue["data"]};if err:=source.Publish(event);err!=nil{panic(err)};receiptEvent:=event;receiptEvent.ID+="-receipt";receipt,err:=runtime.Publish(receiptEvent,display(fixture["identity_scope"]),display(fixture["trust"]));if err!=nil{panic(err)};run:=runtime.GetRun("run:"+route.ID+":"+event.ID+":1");if !receipt.Accepted||run==nil{panic(AxError{Category:"fixture",Message:"event lifecycle did not dispatch"})};assertEqual(run.Output,fixture["expected_output"],"event automatic dispatch");_ = runtime.Close()
+
+		makeEvent:=func(id,eventType string,data Value,correlation []map[string]string)AxEventEnvelope{return AxEventEnvelope{SpecVersion:"1.0",ID:id,Source:"test://axevent",Type:eventType,Data:data,Correlation:correlation}}
+		retryCalls:=0;retryClock:=NewAxManualEventClock(1_000);retryRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"retry-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.retry"}},TargetID:"retry-target",Ordering:"strict"}},map[string]Value{"clock":retryClock,"retryBackoffMs":int64(500)});retryRuntime.RegisterTarget(AxEventTarget{ID:"retry-target",RetrySafety:"idempotent",Invoke:func(_ Value,_ map[string]Value)(Value,error){retryCalls++;if retryCalls==1{return nil,fmt.Errorf("retry once")};return map[string]Value{"attempt":retryCalls},nil}});_ = retryRuntime.Start();_,_ = retryRuntime.Publish(makeEvent("retry-1","event.retry",map[string]Value{},nil),"anonymous","untrusted");retryRun:=retryRuntime.GetRun("run:retry-route:retry-1:1");assertEqual([]Value{retryRun.Attempt,retryRun.Status,*retryRuntime.NextDueAt()},[]Value{1,"queued",int64(1_500)},"event delayed retry");retryClock.Advance(500);retryRuntime.RunDue();assertEqual([]Value{retryRun.Attempt,retryRun.Status},[]Value{2,"succeeded"},"event retry dispatch")
+		strictCalls:=[]string{};strictClock:=NewAxManualEventClock(1_000);strictRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"strict-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.strict"}},TargetID:"strict-target",Ordering:"strict"}},map[string]Value{"clock":strictClock,"retryBackoffMs":int64(500)});strictRuntime.RegisterTarget(AxEventTarget{ID:"strict-target",RetrySafety:"idempotent",Invoke:func(value Value,_ map[string]Value)(Value,error){name:=display(coreGet(value,"name",""));strictCalls=append(strictCalls,name);if name=="first"&&len(strictCalls)==1{return nil,fmt.Errorf("retry first")};return value,nil}});_=strictRuntime.Start();_,_=strictRuntime.Publish(makeEvent("strict-1","event.strict",map[string]Value{"name":"first"},nil),"anonymous","untrusted");_,_=strictRuntime.Publish(makeEvent("strict-2","event.strict",map[string]Value{"name":"second"},nil),"anonymous","untrusted");assertEqual(strictCalls,[]string{"first"},"event strict ordering while retry waits");strictClock.Advance(500);strictRuntime.RunDue();assertEqual(strictCalls,[]string{"first","first","second"},"event strict retry release ordering")
+		debounceClock:=NewAxManualEventClock(2_000);debounceValues:=[]Value{};debounceRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"debounce-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.debounce"}},TargetID:"debounce-target",Ordering:"strict",DebounceMs:250}},map[string]Value{"clock":debounceClock});debounceRuntime.RegisterTarget(AxEventTarget{ID:"debounce-target",Invoke:func(value Value,_ map[string]Value)(Value,error){debounceValues=append(debounceValues,value);return value,nil}});_ = debounceRuntime.Start();_,_=debounceRuntime.Publish(makeEvent("debounce-1","event.debounce",map[string]Value{"revision":1},nil),"anonymous","untrusted");_,_=debounceRuntime.Publish(makeEvent("debounce-2","event.debounce",map[string]Value{"revision":2},nil),"anonymous","untrusted");assertEqual([]Value{debounceValues,*debounceRuntime.NextDueAt()},[]Value{[]Value{},int64(2_250)},"event debounce scheduling");debounceClock.Advance(250);debounceRuntime.RunDue();assertEqual(debounceValues,[]Value{map[string]Value{"revision":2}},"event latest-value coalescing")
+		capacityRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"capacity-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.capacity"}},TargetID:"debounce-target",Ordering:"strict"}},map[string]Value{"maxEnvelopeBytes":int64(16)});capacityRuntime.RegisterTarget(AxEventTarget{ID:"debounce-target",Invoke:func(value Value,_ map[string]Value)(Value,error){return value,nil}});_=capacityRuntime.Start();_,capacityErr:=capacityRuntime.Publish(makeEvent("capacity-1","event.capacity",map[string]Value{"payload":"too-large"},nil),"anonymous","untrusted");if capacityErr==nil{panic(AxError{Category:"fixture",Message:"event envelope backpressure was not enforced"})}
+
+		state:=0;stateRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"state-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.state"}},TargetID:"state-target",Ordering:"strict"}},nil);stateRuntime.RegisterTarget(AxEventTarget{ID:"state-target",RetrySafety:"idempotent",Invoke:func(_ Value,_ map[string]Value)(Value,error){state++;return map[string]Value{"state":state},nil},CaptureState:func()(Value,error){return state,nil},RestoreState:func(value Value)error{state=int(num(value));return nil}});_ = stateRuntime.Start();_,_ = stateRuntime.Publish(makeEvent("state-1","event.state",map[string]Value{},nil),"anonymous","untrusted");state=0;_,_ = stateRuntime.Publish(makeEvent("state-2","event.state",map[string]Value{},nil),"anonymous","untrusted");assertEqual(stateRuntime.GetRun("run:state-route:state-2:2").Output,map[string]Value{"state":2},"event state restore")
+
+		cancelRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"cancel-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.cancel"}},TargetID:"cancel-target",Ordering:"strict"}},nil);cancelRuntime.RegisterTarget(AxEventTarget{ID:"cancel-target",Invoke:func(_ Value,context map[string]Value)(Value,error){context["cancellation"].(*AxEventCancellationToken).Cancel("fixture");return map[string]Value{"should":"not persist"},nil}});_ = cancelRuntime.Start();_,_ = cancelRuntime.Publish(makeEvent("cancel-1","event.cancel",map[string]Value{},nil),"anonymous","untrusted");cancelRun:=cancelRuntime.GetRun("run:cancel-route:cancel-1:1");assertEqual([]Value{cancelRun.Status,cancelRun.Output},[]Value{"cancelled",nil},"event cooperative cancellation")
+
+		sink:=&conformanceEventSink{id:"fixture-sink",failFirst:true};modelCalls:=0;sinkRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"sink-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.sink"}},TargetID:"sink-target",Ordering:"strict"}},nil);sinkRuntime.RegisterTarget(AxEventTarget{ID:"sink-target",RetrySafety:"idempotent",Sinks:map[string]AxEventSink{"fixture-sink":sink},Invoke:func(value Value,_ map[string]Value)(Value,error){modelCalls++;return value,nil}});_ = sinkRuntime.Start();_,_ = sinkRuntime.Publish(makeEvent("sink-1","event.sink",map[string]Value{"ok":true},nil),"anonymous","untrusted");dead:=sinkRuntime.ListDeadLetters()[0];if err:=sinkRuntime.Redrive(dead.ID);err!=nil{panic(err)};assertEqual([]Value{modelCalls,sink.calls,len(sinkRuntime.ListDeadLetters())},[]Value{1,2,0},"event sink-only redrive")
+
+		continuationCalls:=0;continuationRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"continuation-wake",Action:"wake",Match:map[string]Value{"types":[]Value{"event.continuation.start"}},TargetID:"continuation-target",Ordering:"strict"},{ID:"continuation-resume",Action:"resume",Match:map[string]Value{"types":[]Value{"event.continuation.done"}},Ordering:"strict"}},nil);continuationRuntime.RegisterTarget(AxEventTarget{ID:"continuation-target",WaitFor:[]map[string]Value{{"kind":"job","value":"job"}},Invoke:func(value Value,_ map[string]Value)(Value,error){continuationCalls++;return value,nil}});_ = continuationRuntime.Start();_,_ = continuationRuntime.Publish(makeEvent("continuation-1","event.continuation.start",map[string]Value{"job":"job-1"},nil),"tenant:test","authenticated");_,_ = continuationRuntime.Publish(makeEvent("continuation-2","event.continuation.done",map[string]Value{"job":"job-1"},[]map[string]string{{"kind":"job","value":"job-1"}}),"tenant:test","authenticated");assertEqual(continuationCalls,2,"event continuation resume")
+
+		mcpTransport:=NewAxMCPScriptedTransport([]Value{map[string]Value{"method":"initialize","result":map[string]Value{"protocolVersion":"2025-11-25","capabilities":map[string]Value{"resources":map[string]Value{"subscribe":true}}}}});mcpClient:=NewAxMCPClient(mcpTransport,map[string]Value{"namespace":"inventory"});lifecycleCalls:=0;mcpClient.AddLifecycleListener(func(string){lifecycleCalls++});mcpCalls:=0;mcpSource:=NewAxMCPEventSource(mcpClient,"inventory","tenant:test","authenticated",[]string{"demo://inventory"});mcpRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"mcp-wake",Action:"wake",Match:map[string]Value{"types":[]Value{"mcp.resource.updated"}},TargetID:"mcp-target",RequireAuthenticated:true,Ordering:"strict"}},nil);mcpRuntime.RegisterTarget(AxEventTarget{ID:"mcp-target",Invoke:func(value Value,_ map[string]Value)(Value,error){mcpCalls++;return value,nil}});mcpRuntime.AddSource(mcpSource);_ = mcpRuntime.Start();mcpTransport.Emit(map[string]Value{"jsonrpc":"2.0","method":"notifications/resources/updated","params":map[string]Value{"uri":"demo://inventory"}});mcpClient.EmitLifecycle("reconnected");_ = mcpRuntime.Close();mcpTransport.Emit(map[string]Value{"jsonrpc":"2.0","method":"notifications/resources/updated","params":map[string]Value{"uri":"demo://inventory"}});subscribeCalls:=0;for _,request:=range mcpTransport.Requests{if request["method"]=="resources/subscribe"{subscribeCalls++}};assertEqual([]Value{mcpCalls,lifecycleCalls,subscribeCalls},[]Value{1,1,2},"MCP listener composition and resubscription")
+		ownership:=asMap(mustCore(mcp_resource_subscription_ownership([]string{},"source-a","acquire")));ownership=asMap(mustCore(mcp_resource_subscription_ownership(ownership["owners"],"source-b","acquire")));ownership=asMap(mustCore(mcp_resource_subscription_ownership(ownership["owners"],"source-a","release")));assertEqual(ownership,map[string]Value{"owners":[]Value{"source-b"},"wireAction":"none","changed":true},"MCP subscription ownership transition")
+		selectionResources:=[]Value{map[string]Value{"uri":"demo://b"},map[string]Value{"uri":"demo://a"},map[string]Value{"uri":"demo://b"},map[string]Value{"uri":""}};assertEqual([]Value{mustCore(mcp_resource_subscription_selection(selectionResources,"all",[]string{})),mustCore(mcp_resource_subscription_selection([]Value{},"explicit",[]string{"demo://x","demo://y","demo://x"})),mustCore(mcp_resource_subscription_selection([]Value{selectionResources[1]},"selector",[]string{}))},[]Value{[]Value{"demo://b","demo://a"},[]Value{"demo://x","demo://y"},[]Value{"demo://a"}},"MCP subscription selection modes")
+		mappedInputs:=[]Value{};mappedTarget,err:=EventTarget("mapped-target").Signature(NewSignature("url:string, revision:number -> ok:boolean")).Invoke(func(value Value,_ map[string]Value)(Value,error){mappedInputs=append(mappedInputs,value);return value,nil}).WakeInput(func(input *AxEventInputBuilder){input.Field("url",EventData("uri")).Field("revision",EventData("revision"))}).Build();if err!=nil{panic(err)};mappedRoute,err:=EventRoute("mapped-route").Types("event.mapped").InstanceKey(EventData("uri")).Wake(mappedTarget).Build();if err!=nil{panic(err)};mappedRuntime,_:=NewAxEventRuntime([]AxEventRoute{mappedRoute},nil);mappedRuntime.RegisterTarget(mappedTarget);_ = mappedRuntime.Start();_,_ = mappedRuntime.Publish(makeEvent("mapped-1","event.mapped",map[string]Value{"uri":"demo://one","revision":2},nil),"anonymous","untrusted");_,_ = mappedRuntime.Publish(makeEvent("mapped-2","event.mapped",map[string]Value{"uri":"demo://two","revision":"bad"},nil),"anonymous","untrusted");assertEqual([]Value{mappedInputs,len(mappedRuntime.ListDeadLetters())},[]Value{[]Value{map[string]Value{"url":"demo://one","revision":2}},1},"signature-aware event mapping")
+		callbackInputs:=[]Value{};callbackSignature:=NewSignature("url:string -> ok:boolean");callbackRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"callback-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.callback"}},TargetID:"callback-target",Ordering:"strict"}},nil);callbackRuntime.RegisterTarget(AxEventTarget{ID:"callback-target",Signature:&callbackSignature,MapInput:func(event AxEventEnvelope,_ *AxEventContinuation)(Value,error){return map[string]Value{"url":coreGet(event.Data,"uri",""),"secret":"drop-me"},nil},Invoke:func(value Value,_ map[string]Value)(Value,error){callbackInputs=append(callbackInputs,value);return value,nil}});_=callbackRuntime.Start();_,_=callbackRuntime.Publish(makeEvent("callback-1","event.callback",map[string]Value{"uri":"demo://callback"},nil),"anonymous","untrusted");assertEqual(callbackInputs,[]Value{map[string]Value{"url":"demo://callback"}},"event callback signature normalization")
+	default: panic(AxError{Category:"fixture",Message:"unsupported event operation "+operation})
 	}
 }
 

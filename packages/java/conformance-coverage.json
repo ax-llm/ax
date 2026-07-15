@@ -148,6 +148,50 @@
         "category": "validation-error"
       }
     ],
+    "axevent": [
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "routing",
+        "runner": "java:axevent.routing",
+        "category": "semantic"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "retry",
+        "runner": "java:axevent.retry",
+        "category": "semantic"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "continuation",
+        "runner": "java:axevent.continuation",
+        "category": "semantic"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "mcp_normalization",
+        "runner": "java:axevent.mcp_normalization",
+        "category": "semantic"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "mapping",
+        "runner": "java:axevent.mapping",
+        "category": "semantic"
+      },
+      {
+        "suite": "axevent",
+        "kind": "event",
+        "operation": "lifecycle",
+        "runner": "java:axevent.lifecycle",
+        "category": "semantic"
+      }
+    ],
     "axflow": [
       {
         "suite": "axflow",

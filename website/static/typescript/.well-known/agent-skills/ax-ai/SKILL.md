@@ -1,7 +1,7 @@
 ---
 name: ax-ai
 description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
-version: "23.0.0"
+version: "23.0.1"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -341,6 +341,16 @@ const transport = axCreateMCPStdioTransport({
 });
 const client = new AxMCPClient(transport);
 ```
+
+For server notifications, call `client.startListening({ signal, onError })` or
+attach the client through `AxMCPEventSource`. The event adapter is preferred
+for autonomous work because protocol callbacks only enqueue; explicit routes
+decide whether to observe, invalidate, resume, or wake.
+
+For signed UCP lifecycle requests, mount
+`AxUCPWebhookEventSource.ingest(request)` in application-owned HTTP hosting.
+Signature, profile, digest, freshness, and replay verification completes before
+the event runtime sees the request.
 
 ## Critical Rules
 

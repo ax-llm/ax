@@ -32,6 +32,8 @@ export interface AxResponseHandlerArgs<T> {
   onFunctionCall?: (
     call: Readonly<import('../types.js').AxFunctionCallTrace>
   ) => void | Promise<void>;
+  mcpExecutionContext?: import('../../mcp/execution.js').AxMCPExecutionContext;
+  eventContext?: import('../../event/types.js').AxEventContext;
 }
 
 export type InternalAxGenState = {

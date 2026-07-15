@@ -1,5 +1,5 @@
 pub mod mcp;
-pub use mcp::{AxMCPClient, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport};
+pub use mcp::{event_route, event_target, AxEventCancellationToken, AxEventClock, AxEventCommand, AxEventContinuation, AxEventCorrelationKey, AxEventDeadLetter, AxEventEnvelope, AxEventInputBuilder, AxEventInputPlan, AxEventInvocationContext, AxEventPath, AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime, AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxExecutionContext, AxInMemoryEventStore, AxManualEventClock, AxMCPCatalogSnapshot, AxMCPClient, AxMCPContinuationState, AxMCPEventSource, AxMCPOAuthOptions, AxMCPResourceSubscriptionPolicy, AxMCPScriptedTransport, AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport, AxSystemEventClock, AxUCPBinding, AxUCPClient};
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -1999,11 +1999,14 @@ impl ToolBuilder {
     }
 }
 
+#[derive(Clone)]
 pub struct AxGen {
     pub signature: AxSignature,
     pub options: Value,
     pub function_call_traces: Vec<Value>,
     pub tools: Vec<Tool>,
+    pub base_tools: Vec<Tool>,
+    pub execution_context: Option<AxExecutionContext>,
     pub assertions: Vec<Value>,
     pub examples: Vec<Value>,
     pub demos: Vec<Value>,
@@ -2025,6 +2028,8 @@ impl AxGen {
             options: json!({}),
             function_call_traces: Vec::new(),
             tools: Vec::new(),
+            base_tools: Vec::new(),
+            execution_context: None,
             assertions: Vec::new(),
             examples: Vec::new(),
             demos: Vec::new(),
@@ -2037,8 +2042,16 @@ impl AxGen {
     }
 
     pub fn with_tool(mut self, tool: Tool) -> Self {
+        self.base_tools.push(tool.clone());
         self.tools.push(tool);
         self
+    }
+
+    pub fn with_execution_context(mut self, context: AxExecutionContext) -> AxResult<Self> {
+        self.tools = self.base_tools.clone();
+        self.tools.extend(context.native_tools()?);
+        self.execution_context = Some(context);
+        Ok(self)
     }
 
     pub fn with_assertion(mut self, assertion: Value) -> Self {
@@ -2076,6 +2089,19 @@ impl AxGen {
         input: Value,
         options: Value,
     ) -> AxResult<Value> {
+        if options.get("mcpInheritance").and_then(Value::as_str) == Some("none") && self.execution_context.is_some() {
+            let mut detached = self.clone();
+            detached.execution_context = None;
+            detached.tools = detached.base_tools.clone();
+            detached.chat_log.clear();
+            detached.function_call_traces.clear();
+            detached.traces.clear();
+            let result = detached.forward_with_options(client, input, json!({}))?;
+            self.chat_log.extend(detached.chat_log);
+            self.function_call_traces.extend(detached.function_call_traces);
+            self.traces.extend(detached.traces);
+            return Ok(result);
+        }
         let state = core_gen_state(self)?;
         let mut chat = |method: &str, request: Value| -> AxResult<Value> {
             if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
@@ -2105,6 +2131,7 @@ impl AxGen {
     pub(crate) fn with_options_and_tools(spec: &str, options: Value, tools: Vec<Tool>) -> AxResult<Self> {
         let mut gen = Self::new(spec)?;
         gen.options = if options.is_object() { options } else { json!({}) };
+        gen.base_tools = tools.clone();
         gen.tools = tools;
         Ok(gen)
     }
@@ -2553,6 +2580,7 @@ pub struct AxAgent {
     // sub-gen per call without capturing a non-Send CoreValue.
     llm_query_signature: String,
     llm_query_instruction: Value,
+    execution_context: Option<AxExecutionContext>,
 }
 
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
@@ -2561,6 +2589,34 @@ pub fn agent(spec: &str) -> AxResult<AxAgent> {
 
 pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
     agent_with_core_options(spec, core_value_from_json(&options))
+}
+
+pub fn agent_with_execution_context(spec: &str, options: Value, context: AxExecutionContext) -> AxResult<AxAgent> {
+    let options = core_value_from_json(&options);
+    let modules = CoreValue::new_list();
+    for client in &context.mcp {
+        let locked = client.lock().unwrap();
+        let module = CoreValue::new_map();
+        let module_name = format!("mcp.{}", locked.namespace());
+        core_set(&module, CoreValue::from("name"), CoreValue::from(module_name.as_str()))?;
+        let functions = CoreValue::new_list();
+        for tool in locked.native_tools() { core_append(&functions, core_tool_host(tool))?; }
+        core_set(&module, CoreValue::from("functions"), functions)?;
+        core_append(&modules, module)?;
+    }
+    for client in &context.ucp {
+        let module = CoreValue::new_map();
+        let module_name = format!("ucp.{}", client.namespace());
+        core_set(&module, CoreValue::from("name"), CoreValue::from(module_name.as_str()))?;
+        let functions = CoreValue::new_list();
+        for tool in client.native_tools() { core_append(&functions, core_tool_host(tool))?; }
+        core_set(&module, CoreValue::from("functions"), functions)?;
+        core_append(&modules, module)?;
+    }
+    core_set(&options, CoreValue::from("functions"), modules)?;
+    let mut agent = agent_with_core_options(spec, options)?;
+    agent.execution_context = Some(context);
+    Ok(agent)
 }
 
 /// Construct an agent with native host search callbacks for memories and skills.
@@ -2648,6 +2704,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         ),
         llm_query_signature,
         llm_query_instruction,
+        execution_context: None,
     })
 }
 
@@ -3228,17 +3285,27 @@ impl AxProgram for AxAgent {
 
 pub struct AxFlow {
     state: CoreValue,
+    execution_context: Option<AxExecutionContext>,
 }
 
 pub fn flow(id: &str) -> AxFlow {
     let options = CoreValue::new_map();
     let _ = core_set(&options, CoreValue::from("id"), CoreValue::from(id));
     let state = _flow_factory(&[options]).unwrap_or_else(|_| CoreValue::new_map());
-    AxFlow { state }
+    AxFlow { state, execution_context: None }
+}
+
+pub fn flow_with_execution_context(id: &str, context: AxExecutionContext) -> AxFlow {
+    let mut out = flow(id);
+    out.execution_context = Some(context);
+    out
 }
 
 impl AxFlow {
-    pub fn execute(self, name: &str, program: AxGen) -> Self {
+    pub fn execute(self, name: &str, mut program: AxGen) -> Self {
+        if program.execution_context.is_none() {
+            if let Some(context) = &self.execution_context { if let Ok(with_context) = program.clone().with_execution_context(context.clone()) { program = with_context; } }
+        }
         let step = _flow_step(&[
             CoreValue::from("execute"),
             CoreValue::from(name),
@@ -5429,9 +5496,61 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "optimize" => run_optimize_fixture(&fixture)?,
         "program_contract" => run_program_contract_fixture(&fixture)?,
         "mcp" => mcp::run_mcp_conformance_fixture(&fixture)?,
+        "event" => run_event_fixture(&fixture)?,
         _ => run_explicit_non_ai_conformance_fixture(kind, &fixture)?,
     }
     Ok(())
+}
+
+fn run_event_fixture(fixture:&Value)->AxResult<()>{
+    let operation=fixture.get("operation").and_then(Value::as_str).unwrap_or_default();
+    let call=|result:Result<CoreValue,AxError>,expected:&Value,label:&str|->AxResult<()>{let actual=core_value_to_json(&result?);if &actual!=expected{return Err(AxError::new("fixture",format!("{label} mismatch: expected {expected}, got {actual}")));}Ok(())};
+    match operation {
+        "routing"=>call(event_route_commands(&[core_value_from_json(&fixture["event"]),core_value_from_json(&fixture["routes"]),core_value_from_json(&fixture["identity_scope"]),core_value_from_json(&fixture["trust"])]),&fixture["expected"],"event routing"),
+        "retry"=>{for case in fixture["cases"].as_array().cloned().unwrap_or_default(){call(event_retry_transition(&[core_value_from_json(&case["invocation_started"]),core_value_from_json(&case["retry_safety"]),core_value_from_json(&case["attempt"]),core_value_from_json(&case["max_attempts"])]),&case["expected"],"event retry")?;}Ok(())},
+        "continuation"=>{let actual=core_value_to_json(&event_continuation_match(&[core_value_from_json(&fixture["continuations"]),core_value_from_json(&fixture["identity_scope"]),core_value_from_json(&fixture["correlation"]["kind"]),core_value_from_json(&fixture["correlation"]["value"]),core_value_from_json(&fixture["now"])])?);if actual.get("id")!=fixture.get("expected_id"){return Err(AxError::new("fixture","event continuation mismatch"));}Ok(())},
+        "mcp_normalization"=>call(event_normalize_mcp(&[core_value_from_json(&fixture["namespace"]),core_value_from_json(&fixture["method"]),core_value_from_json(&fixture["params"])]),&fixture["expected"],"event MCP normalization"),
+        "mapping"=>call(event_map_input(&[core_value_from_json(&fixture["ingress"]),core_value_from_json(&fixture["plan"]),core_value_from_json(&fixture["signature_fields"]),core_value_from_json(&Value::Null)]),&fixture["expected"],"event input mapping"),
+        "lifecycle"=>{
+            struct FixtureSource(Option<AxEventEnvelope>);
+            impl AxEventSource for FixtureSource{fn start(&mut self,publish:&mut dyn FnMut(AxEventEnvelope)->AxResult<()>)->AxResult<()>{publish(self.0.take().unwrap())}}
+            let make_event=|id:&str,event_type:&str,data:Value,correlation:Vec<AxEventCorrelationKey>|AxEventEnvelope{specversion:"1.0".into(),id:id.into(),source:"test://axevent".into(),r#type:event_type.into(),subject:Some("fixture".into()),data,extensions:Map::new(),correlation};
+            let route_value=&fixture["route"];let event_value=&fixture["event"];
+            let route=AxEventRoute{id:route_value["id"].as_str().unwrap().into(),action:route_value["action"].as_str().unwrap().into(),r#match:route_value["match"].clone(),target_id:Some(route_value["targetId"].as_str().unwrap().into()),require_authenticated:false,ordering:"strict".into(),debounce_ms:0,instance_key:None};
+            let mut target=AxEventTarget::new(route.target_id.clone().unwrap(),|input,_|Ok(json!({"handled":input["message"]})));target.retry_safety="idempotent".into();
+            let event=AxEventEnvelope{specversion:"1.0".into(),id:event_value["id"].as_str().unwrap().into(),source:event_value["source"].as_str().unwrap().into(),r#type:event_value["type"].as_str().unwrap().into(),subject:event_value.get("subject").and_then(Value::as_str).map(str::to_string),data:event_value["data"].clone(),extensions:Map::new(),correlation:vec![]};
+            let mut runtime=AxEventRuntime::new(vec![route.clone()],json!({}))?;runtime.register_target(target);runtime.start()?;let receipts=runtime.start_source(&mut FixtureSource(Some(event.clone())),fixture["identity_scope"].as_str().unwrap(),fixture["trust"].as_str().unwrap())?;let run_id=format!("run:{}:{}:1",route.id,event.id);let run=runtime.get_run(&run_id).ok_or_else(||AxError::new("fixture","event lifecycle did not dispatch"))?;if !receipts.first().map(|value|value.accepted).unwrap_or(false)||run.output.as_ref()!=Some(&fixture["expected_output"]){return Err(AxError::new("fixture","event lifecycle mismatch"))}runtime.close()?;
+
+            let retry_calls=std::sync::Arc::new(std::sync::Mutex::new(0usize));let retry_state=retry_calls.clone();
+            let mut retry_target=AxEventTarget::new("retry-target",move|_,_|{let mut calls=retry_state.lock().unwrap();*calls+=1;if *calls==1{return Err(AxError::new("fixture","retry once"))}Ok(json!({"attempt":*calls}))});retry_target.retry_safety="idempotent".into();
+            let retry_clock=std::sync::Arc::new(AxManualEventClock::new(1_000));let mut retry_runtime=AxEventRuntime::new(vec![AxEventRoute{id:"retry-route".into(),action:"wake".into(),r#match:json!({"types":["event.retry"]}),target_id:Some("retry-target".into()),require_authenticated:false,ordering:"strict".into(),debounce_ms:0,instance_key:None}],json!({}))?;retry_runtime.set_clock(retry_clock.clone());retry_runtime.register_target(retry_target);retry_runtime.start()?;retry_runtime.publish(make_event("retry-1","event.retry",json!({}),vec![]),"anonymous","untrusted")?;let retry_run=retry_runtime.get_run("run:retry-route:retry-1:1").unwrap();if retry_run.attempt!=1||retry_run.status!="queued"||retry_runtime.next_due_at()!=Some(2_000){return Err(AxError::new("fixture","event delayed retry mismatch"))}retry_clock.advance(1_000);retry_runtime.run_due();let retry_run=retry_runtime.get_run("run:retry-route:retry-1:1").unwrap();if retry_run.attempt!=2||retry_run.status!="succeeded"{return Err(AxError::new("fixture","event retry dispatch mismatch"))}
+
+            let strict_calls=std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));let strict_state=strict_calls.clone();let mut strict_target=AxEventTarget::new("strict-target",move|value,_|{let name=value["name"].as_str().unwrap_or_default().to_string();let mut calls=strict_state.lock().unwrap();calls.push(name.clone());if name=="first"&&calls.len()==1{return Err(AxError::new("fixture","retry first"))}Ok(value)});strict_target.retry_safety="idempotent".into();let strict_clock=std::sync::Arc::new(AxManualEventClock::new(1_000));let mut strict_runtime=AxEventRuntime::new(vec![AxEventRoute{id:"strict-route".into(),action:"wake".into(),r#match:json!({"types":["event.strict"]}),target_id:Some("strict-target".into()),require_authenticated:false,ordering:"strict".into(),debounce_ms:0,instance_key:None}],json!({}))?;strict_runtime.set_clock(strict_clock.clone());strict_runtime.register_target(strict_target);strict_runtime.start()?;strict_runtime.publish(make_event("strict-1","event.strict",json!({"name":"first"}),vec![]),"anonymous","untrusted")?;strict_runtime.publish(make_event("strict-2","event.strict",json!({"name":"second"}),vec![]),"anonymous","untrusted")?;if *strict_calls.lock().unwrap()!=vec!["first".to_string()]{return Err(AxError::new("fixture","event strict ordering while retry waits mismatch"))}strict_clock.advance(1_000);strict_runtime.run_due();if *strict_calls.lock().unwrap()!=vec!["first".to_string(),"first".to_string(),"second".to_string()]{return Err(AxError::new("fixture","event strict retry release ordering mismatch"))}
+
+            let debounce_clock=std::sync::Arc::new(AxManualEventClock::new(2_000));let debounce_values=std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));let debounce_state=debounce_values.clone();let debounce_target=AxEventTarget::new("debounce-target",move|value,_|{debounce_state.lock().unwrap().push(value.clone());Ok(value)});let mut debounce_runtime=AxEventRuntime::new(vec![AxEventRoute{id:"debounce-route".into(),action:"wake".into(),r#match:json!({"types":["event.debounce"]}),target_id:Some("debounce-target".into()),require_authenticated:false,ordering:"strict".into(),debounce_ms:250,instance_key:None}],json!({}))?;debounce_runtime.set_clock(debounce_clock.clone());debounce_runtime.register_target(debounce_target);debounce_runtime.start()?;debounce_runtime.publish(make_event("debounce-1","event.debounce",json!({"revision":1}),vec![]),"anonymous","untrusted")?;debounce_runtime.publish(make_event("debounce-2","event.debounce",json!({"revision":2}),vec![]),"anonymous","untrusted")?;if !debounce_values.lock().unwrap().is_empty()||debounce_runtime.next_due_at()!=Some(2_250){return Err(AxError::new("fixture","event debounce scheduling mismatch"))}debounce_clock.advance(250);debounce_runtime.run_due();if *debounce_values.lock().unwrap()!=vec![json!({"revision":2})]{return Err(AxError::new("fixture","event latest-value coalescing mismatch"))}
+
+            let capacity_target=AxEventTarget::new("capacity-target",|value,_|Ok(value));let mut capacity_runtime=AxEventRuntime::new(vec![AxEventRoute{id:"capacity-route".into(),action:"wake".into(),r#match:json!({"types":["event.capacity"]}),target_id:Some("capacity-target".into()),require_authenticated:false,ordering:"strict".into(),debounce_ms:0,instance_key:None}],json!({"maxEnvelopeBytes":16}))?;capacity_runtime.register_target(capacity_target);capacity_runtime.start()?;if capacity_runtime.publish(make_event("capacity-1","event.capacity",json!({"payload":"too-large"}),vec![]),"anonymous","untrusted").is_ok(){return Err(AxError::new("fixture","event envelope backpressure mismatch"))}
+
+            let state=std::sync::Arc::new(std::sync::Mutex::new(0i64));let invoke_state=state.clone();let capture_state=state.clone();let restore_state=state.clone();
+            let mut state_target=AxEventTarget::new("state-target",move|_,_|{let mut value=invoke_state.lock().unwrap();*value+=1;Ok(json!({"state":*value}))});state_target.retry_safety="idempotent".into();state_target.capture_state=Some(std::sync::Arc::new(std::sync::Mutex::new(move||Ok(json!(*capture_state.lock().unwrap())))));state_target.restore_state=Some(std::sync::Arc::new(std::sync::Mutex::new(move|value:Value|{*restore_state.lock().unwrap()=value.as_i64().unwrap();Ok(())})));
+            let mut state_runtime=AxEventRuntime::new(vec![AxEventRoute{id:"state-route".into(),action:"wake".into(),r#match:json!({"types":["event.state"]}),target_id:Some("state-target".into()),require_authenticated:false,ordering:"strict".into(),debounce_ms:0,instance_key:None}],json!({}))?;state_runtime.register_target(state_target);state_runtime.start()?;state_runtime.publish(make_event("state-1","event.state",json!({}),vec![]),"anonymous","untrusted")?;*state.lock().unwrap()=0;state_runtime.publish(make_event("state-2","event.state",json!({}),vec![]),"anonymous","untrusted")?;if state_runtime.get_run("run:state-route:state-2:2").and_then(|run|run.output.as_ref())!=Some(&json!({"state":2})){return Err(AxError::new("fixture","event state restore mismatch"))}
+
+            let cancel_target=AxEventTarget::new("cancel-target",|_,context|{context.cancellation.cancel("fixture");Ok(json!({"should":"not persist"}))});let mut cancel_runtime=AxEventRuntime::new(vec![AxEventRoute{id:"cancel-route".into(),action:"wake".into(),r#match:json!({"types":["event.cancel"]}),target_id:Some("cancel-target".into()),require_authenticated:false,ordering:"strict".into(),debounce_ms:0,instance_key:None}],json!({}))?;cancel_runtime.register_target(cancel_target);cancel_runtime.start()?;cancel_runtime.publish(make_event("cancel-1","event.cancel",json!({}),vec![]),"anonymous","untrusted")?;let cancel_run=cancel_runtime.get_run("run:cancel-route:cancel-1:1").unwrap();if cancel_run.status!="cancelled"||cancel_run.output.is_some(){return Err(AxError::new("fixture","event cancellation mismatch"))}
+
+            let model_calls=std::sync::Arc::new(std::sync::Mutex::new(0usize));let model_state=model_calls.clone();let sink_calls=std::sync::Arc::new(std::sync::Mutex::new(0usize));let sink_state=sink_calls.clone();let mut sink_target=AxEventTarget::new("sink-target",move|value,_|{*model_state.lock().unwrap()+=1;Ok(value)});sink_target.retry_safety="idempotent".into();sink_target.sinks.push(("fixture-sink".into(),std::sync::Arc::new(std::sync::Mutex::new(move|output:Value,context:Value|{let mut calls=sink_state.lock().unwrap();*calls+=1;if *calls==1{return Err(AxError::new("fixture","sink once"))}if context["run"]["output"]!=output{return Err(AxError::new("fixture","output-before-sink"))}Ok(())}))));
+            let mut sink_runtime=AxEventRuntime::new(vec![AxEventRoute{id:"sink-route".into(),action:"wake".into(),r#match:json!({"types":["event.sink"]}),target_id:Some("sink-target".into()),require_authenticated:false,ordering:"strict".into(),debounce_ms:0,instance_key:None}],json!({}))?;sink_runtime.register_target(sink_target);sink_runtime.start()?;sink_runtime.publish(make_event("sink-1","event.sink",json!({"ok":true}),vec![]),"anonymous","untrusted")?;let dead=sink_runtime.list_dead_letters().into_iter().next().unwrap();sink_runtime.redrive(&dead.id)?;if *model_calls.lock().unwrap()!=1||*sink_calls.lock().unwrap()!=2||!sink_runtime.list_dead_letters().is_empty(){return Err(AxError::new("fixture","event sink-only redrive mismatch"))}
+
+            let continuation_calls=std::sync::Arc::new(std::sync::Mutex::new(0usize));let continuation_state=continuation_calls.clone();let mut continuation_target=AxEventTarget::new("continuation-target",move|value,_|{*continuation_state.lock().unwrap()+=1;Ok(value)});continuation_target.wait_for=vec![json!({"kind":"job","value":"job"})];let mut continuation_runtime=AxEventRuntime::new(vec![AxEventRoute{id:"continuation-wake".into(),action:"wake".into(),r#match:json!({"types":["event.continuation.start"]}),target_id:Some("continuation-target".into()),require_authenticated:false,ordering:"strict".into(),debounce_ms:0,instance_key:None},AxEventRoute{id:"continuation-resume".into(),action:"resume".into(),r#match:json!({"types":["event.continuation.done"]}),target_id:None,require_authenticated:false,ordering:"strict".into(),debounce_ms:0,instance_key:None}],json!({}))?;continuation_runtime.register_target(continuation_target);continuation_runtime.start()?;continuation_runtime.publish(make_event("continuation-1","event.continuation.start",json!({"job":"job-1"}),vec![]),"tenant:test","authenticated")?;continuation_runtime.publish(make_event("continuation-2","event.continuation.done",json!({"job":"job-1"}),vec![AxEventCorrelationKey{kind:"job".into(),value:"job-1".into()}]),"tenant:test","authenticated")?;if *continuation_calls.lock().unwrap()!=2{return Err(AxError::new("fixture","event continuation resume mismatch"))}
+
+            let mcp_client=std::sync::Arc::new(std::sync::Mutex::new(AxMCPClient::new(Box::new(AxMCPScriptedTransport::new(vec![json!({"method":"initialize","result":{"protocolVersion":"2025-11-25","capabilities":{"resources":{"subscribe":true}}}})])),json!({"namespace":"inventory"}))));let lifecycle_calls=std::sync::Arc::new(std::sync::Mutex::new(0usize));let lifecycle_state=lifecycle_calls.clone();mcp_client.lock().unwrap().add_lifecycle_listener(move|_|*lifecycle_state.lock().unwrap()+=1);let mcp_calls=std::sync::Arc::new(std::sync::Mutex::new(0usize));let mcp_state=mcp_calls.clone();let mcp_target=AxEventTarget::new("mcp-target",move|value,_|{*mcp_state.lock().unwrap()+=1;Ok(value)});let mut mcp_runtime=AxEventRuntime::new(vec![AxEventRoute{id:"mcp-wake".into(),action:"wake".into(),r#match:json!({"types":["mcp.resource.updated"]}),target_id:Some("mcp-target".into()),require_authenticated:true,ordering:"strict".into(),debounce_ms:0,instance_key:None}],json!({}))?;mcp_runtime.register_target(mcp_target);mcp_runtime.start()?;let mcp_runtime=std::sync::Arc::new(std::sync::Mutex::new(mcp_runtime));let mut mcp_source=AxMCPEventSource::new(mcp_client.clone(),mcp_runtime.clone(),"inventory","tenant:test","authenticated",vec!["demo://inventory".into()]);mcp_source.start()?;mcp_client.lock().unwrap().emit_notification(json!({"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"uri":"demo://inventory"}}));mcp_client.lock().unwrap().emit_lifecycle("reconnected");mcp_source.poll();mcp_source.close()?;mcp_client.lock().unwrap().emit_notification(json!({"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"uri":"demo://inventory"}}));if *mcp_calls.lock().unwrap()!=1||*lifecycle_calls.lock().unwrap()!=1{return Err(AxError::new("fixture","MCP listener composition mismatch"))}
+            let mut ownership=core_value_to_json(&mcp_resource_subscription_ownership(&[core_value_from_json(&json!([])),core_value_from_json(&json!("source-a")),core_value_from_json(&json!("acquire"))])?);ownership=core_value_to_json(&mcp_resource_subscription_ownership(&[core_value_from_json(&ownership["owners"]),core_value_from_json(&json!("source-b")),core_value_from_json(&json!("acquire"))])?);ownership=core_value_to_json(&mcp_resource_subscription_ownership(&[core_value_from_json(&ownership["owners"]),core_value_from_json(&json!("source-a")),core_value_from_json(&json!("release"))])?);if ownership!=json!({"owners":["source-b"],"wireAction":"none","changed":true}){return Err(AxError::new("fixture","MCP subscription ownership transition mismatch"))}
+            let selection_resources=json!([{"uri":"demo://b"},{"uri":"demo://a"},{"uri":"demo://b"},{"uri":""}]);let selection_modes=json!([core_value_to_json(&mcp_resource_subscription_selection(&[core_value_from_json(&selection_resources),core_value_from_json(&json!("all")),core_value_from_json(&json!([]))])?),core_value_to_json(&mcp_resource_subscription_selection(&[core_value_from_json(&json!([])),core_value_from_json(&json!("explicit")),core_value_from_json(&json!(["demo://x","demo://y","demo://x"]))])?),core_value_to_json(&mcp_resource_subscription_selection(&[core_value_from_json(&json!([selection_resources[1].clone()])),core_value_from_json(&json!("selector")),core_value_from_json(&json!([]))])?)]);if selection_modes!=json!([["demo://b","demo://a"],["demo://x","demo://y"],["demo://a"]]){return Err(AxError::new("fixture","MCP subscription selection modes mismatch"))}
+            let mapped_inputs=std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));let mapped_state=mapped_inputs.clone();let mapped_target=event_target("mapped-target",move|value,_|{mapped_state.lock().unwrap().push(value.clone());Ok(value)}).signature(AxSignature::parse("url:string, revision:number -> ok:boolean")?).wake_input(|input|{input.field("url",AxEventPath::data(vec![json!("uri")])).field("revision",AxEventPath::data(vec![json!("revision")]));});let mapped_route=event_route("mapped-route").types(&["event.mapped"]).instance_key(AxEventPath::data(vec![json!("uri")])).wake(&mapped_target).build()?;let mut mapped_runtime=AxEventRuntime::new(vec![mapped_route],json!({}))?;mapped_runtime.register_target(mapped_target);mapped_runtime.start()?;mapped_runtime.publish(make_event("mapped-1","event.mapped",json!({"uri":"demo://one","revision":2}),vec![]),"anonymous","untrusted")?;mapped_runtime.publish(make_event("mapped-2","event.mapped",json!({"uri":"demo://two","revision":"bad"}),vec![]),"anonymous","untrusted")?;if *mapped_inputs.lock().unwrap()!=vec![json!({"url":"demo://one","revision":2})]||mapped_runtime.list_dead_letters().len()!=1{return Err(AxError::new("fixture","signature-aware event mapping mismatch"))}
+            let callback_inputs=std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));let callback_state=callback_inputs.clone();let callback_target=AxEventTarget::new("callback-target",move|value,_|{callback_state.lock().unwrap().push(value.clone());Ok(value)}).signature(AxSignature::parse("url:string -> ok:boolean")?).map_input(|event,_|Ok(json!({"url":event.data["uri"],"secret":"drop-me"})));let mut callback_runtime=AxEventRuntime::new(vec![AxEventRoute{id:"callback-route".into(),action:"wake".into(),r#match:json!({"types":["event.callback"]}),target_id:Some("callback-target".into()),require_authenticated:false,ordering:"strict".into(),debounce_ms:0,instance_key:None}],json!({}))?;callback_runtime.register_target(callback_target);callback_runtime.start()?;callback_runtime.publish(make_event("callback-1","event.callback",json!({"uri":"demo://callback"}),vec![]),"anonymous","untrusted")?;if *callback_inputs.lock().unwrap()!=vec![json!({"url":"demo://callback"})]{return Err(AxError::new("fixture","event callback signature normalization mismatch"))}
+            Ok(())
+        },
+        _=>Err(AxError::new("fixture",format!("unsupported event operation {operation}"))),
+    }
 }
 
 fn run_explicit_non_ai_conformance_fixture(kind: &str, _fixture: &Value) -> AxResult<()> {
@@ -8638,7 +8757,7 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                         .map(ToString::to_string)
                         .unwrap_or_else(|| format!("root.{name}"));
                     let nested_state = conformance_build_flow_state_from_spec(step, &nested_id)?;
-                    FlowHost::new(AxFlow { state: nested_state })
+                    FlowHost::new(AxFlow { state: nested_state, execution_context: None })
                 }
                 "agent" => {
                     let agent = agent_with_options(signature, options.clone())?;
@@ -10244,7 +10363,9 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         signature,
         options: fixture.get("options").cloned().unwrap_or_else(|| json!({})),
         function_call_traces: Vec::new(),
+        base_tools: fixture_tools.clone(),
         tools: fixture_tools,
+        execution_context: None,
         assertions: fixture
             .get("assertions")
             .and_then(Value::as_array)
@@ -11688,7 +11809,7 @@ fn core_fields_value(fields: &[Field]) -> Result<CoreValue, AxError> {
     Ok(out)
 }
 
-fn validate_fields_native(fields: &[Field], values: &Value) -> AxResult<()> {
+pub(crate) fn validate_fields_native(fields: &[Field], values: &Value) -> AxResult<()> {
     validate_fields(&[core_fields_value(fields)?, core_value_from_json(values)])?;
     Ok(())
 }
@@ -15650,6 +15771,8 @@ fn agent_stage_gen(signature: AxSignature, options: Value) -> CoreValue {
         options,
         function_call_traces: Vec::new(),
         tools: Vec::new(),
+        base_tools: Vec::new(),
+        execution_context: None,
         assertions: Vec::new(),
         examples: Vec::new(),
         demos: Vec::new(),

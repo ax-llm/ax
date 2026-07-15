@@ -1,10 +1,4 @@
-import {
-  type AxFunction,
-  AxJSRuntime,
-  AxMCPClient,
-  agent,
-  ai,
-} from '@ax-llm/ax';
+import { AxJSRuntime, AxMCPClient, agent, ai } from '@ax-llm/ax';
 import { AxMCPStreamableHTTPTransport } from '@ax-llm/ax/mcp/transports/httpStreamTransport.js';
 
 /*
@@ -27,7 +21,7 @@ async function createNotionAgent() {
         scopes: process.env.MCP_OAUTH_SCOPES?.split(',')
           .map((s) => s.trim())
           .filter(Boolean),
-        onAuthCode: async (authorizationUrl: string) => {
+        onAuthCode: async (authorizationUrl: string, context) => {
           console.log('\n=== Authorization Required ===');
           console.log('Open this URL in your browser to authorize:');
           console.log(authorizationUrl);
@@ -46,8 +40,14 @@ async function createNotionAgent() {
             const code = url.searchParams.get('code');
             if (!code)
               throw new Error('No "code" parameter found in redirect URL');
+            const state = url.searchParams.get('state');
+            if (state !== context.state) {
+              throw new Error(
+                'OAuth state did not match the authorization request'
+              );
+            }
             const redirectUri = `${url.origin}${url.pathname}`;
-            return { code, redirectUri };
+            return { code, state, redirectUri };
           } catch (err) {
             throw new Error(`Invalid redirect URL: ${String(err)}`);
           }
@@ -64,17 +64,11 @@ Using HTTP transport for communication with Notion MCP server.
   const client = new AxMCPClient(httpTransport, { debug: false });
   await client.init();
 
-  const toAgentFunctions = (functions: AxFunction[]): AxFunction[] =>
-    functions.map((fn) => ({
-      ...fn,
-      parameters: fn.parameters ?? { type: 'object', properties: {} },
-    }));
-
   // Create a Notion-augmented agent that can interact with Notion docs
   const notionAgent = agent(
     'userRequest:string -> assistantResponse:string "You are an assistant that can interact with Notion documents and data via HTTP. Execute the user\'s request without question and to the best of your abilities."',
     {
-      functions: toAgentFunctions(client.toFunction()),
+      mcp: client,
       contextFields: [],
       runtime: new AxJSRuntime(),
     }

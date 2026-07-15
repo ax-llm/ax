@@ -34976,6 +34976,123 @@ func _flow_optimize_with(args ...Value) (Value, error) {
 	return v_request, nil
 }
 
+func ucp_negotiate_profile(args ...Value) (Value, error) {
+	axirCoverageMark("ucp_negotiate_profile")
+	var v_profile Value
+	var v_supportedVersions Value
+	var v_requestedServices Value
+	var v_capabilities Value
+	var v_out Value
+	var v_services Value
+	var v_version Value
+	if len(args) > 0 { v_profile = args[0] }
+	_ = v_profile
+	if len(args) > 1 { v_supportedVersions = args[1] }
+	_ = v_supportedVersions
+	if len(args) > 2 { v_requestedServices = args[2] }
+	_ = v_requestedServices
+	_ = v_capabilities
+	_ = v_out
+	_ = v_services
+	_ = v_version
+	v_version = coreGet(v_profile, "version", nil)
+	v_services = coreGet(v_profile, "services", nil)
+	v_capabilities = coreGet(v_profile, "capabilities", nil)
+	v_out = Object()
+	if err := coreSet(v_out, "version", v_version); err != nil { return nil, err }
+	if err := coreSet(v_out, "services", v_services); err != nil { return nil, err }
+	if err := coreSet(v_out, "capabilities", v_capabilities); err != nil { return nil, err }
+	if err := coreSet(v_out, "supportedVersions", v_supportedVersions); err != nil { return nil, err }
+	if err := coreSet(v_out, "requestedServices", v_requestedServices); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func ucp_normalize_outcome(args ...Value) (Value, error) {
+	axirCoverageMark("ucp_normalize_outcome")
+	var v_operation Value
+	var v_response Value
+	var v_continuation Value
+	var v_out Value
+	var v_partial Value
+	var v_warnings Value
+	if len(args) > 0 { v_operation = args[0] }
+	_ = v_operation
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	_ = v_continuation
+	_ = v_out
+	_ = v_partial
+	_ = v_warnings
+	v_out = Object()
+	if err := coreSet(v_out, "operation", v_operation); err != nil { return nil, err }
+	if err := coreSet(v_out, "value", v_response); err != nil { return nil, err }
+	v_warnings = coreGet(v_response, "warnings", nil)
+	v_continuation = coreGet(v_response, "continuation_url", nil)
+	v_partial = coreGet(v_response, "partial_success", false)
+	if err := coreSet(v_out, "warnings", v_warnings); err != nil { return nil, err }
+	if err := coreSet(v_out, "continuationUrl", v_continuation); err != nil { return nil, err }
+	if err := coreSet(v_out, "partialSuccess", v_partial); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func mcp_execution_context_descriptor(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_execution_context_descriptor")
+	var v_namespaces Value
+	var v_inheritance Value
+	var v_missing Value
+	var v_out Value
+	if len(args) > 0 { v_namespaces = args[0] }
+	_ = v_namespaces
+	if len(args) > 1 { v_inheritance = args[1] }
+	_ = v_inheritance
+	_ = v_missing
+	_ = v_out
+	v_out = Object()
+	if err := coreSet(v_out, "namespaces", v_namespaces); err != nil { return nil, err }
+	v_missing = _core_is_none(v_inheritance)
+	if coreTruthy(v_missing) {
+		if err := coreSet(v_out, "inheritance", "all"); err != nil { return nil, err }
+	} else {
+		if err := coreSet(v_out, "inheritance", v_inheritance); err != nil { return nil, err }
+	}
+	if err := coreSet(v_out, "native", true); err != nil { return nil, err }
+	if err := coreSet(v_out, "lossyAdapter", false); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func event_runtime_descriptor(args ...Value) (Value, error) {
+	axirCoverageMark("event_runtime_descriptor")
+	var v_routes Value
+	var v_options Value
+	var v_empty Value
+	var v_missing Value
+	var v_opts Value
+	var v_out Value
+	if len(args) > 0 { v_routes = args[0] }
+	_ = v_routes
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_empty
+	_ = v_missing
+	_ = v_opts
+	_ = v_out
+	v_empty = Object()
+	v_missing = _core_is_none(v_options)
+	v_opts = v_options
+	if coreTruthy(v_missing) {
+		v_opts = v_empty
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "routes", v_routes); err != nil { return nil, err }
+	if err := coreSet(v_out, "options", v_opts); err != nil { return nil, err }
+	if err := coreSet(v_out, "durability", "volatile"); err != nil { return nil, err }
+	if err := coreSet(v_out, "coordination", "single-worker"); err != nil { return nil, err }
+	if err := coreSet(v_out, "implicitWake", false); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func mcp_protocol_constants(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_protocol_constants")
 	var v_out Value
@@ -34991,6 +35108,132 @@ func mcp_protocol_constants(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "protocolVersion", "2025-11-25"); err != nil { return nil, err }
 	if err := coreSet(v_out, "supportedProtocolVersions", v_versions); err != nil { return nil, err }
 	return v_out, nil
+}
+
+func event_route_commands(args ...Value) (Value, error) {
+	axirCoverageMark("event_route_commands")
+	var v_event Value
+	var v_routes Value
+	var v_identity_scope Value
+	var v_trust Value
+	var v_action Value
+	var v_allowed Value
+	var v_auth_allowed Value
+	var v_authenticated Value
+	var v_command Value
+	var v_commands Value
+	var v_event_id Value
+	var v_event_source Value
+	var v_event_type Value
+	var v_key Value
+	var v_match Value
+	var v_matched Value
+	var v_requires_auth Value
+	var v_route Value
+	var v_route_id Value
+	var v_source_count Value
+	var v_source_listed Value
+	var v_source_match Value
+	var v_source_open Value
+	var v_sources Value
+	var v_sources_empty Value
+	var v_subject Value
+	var v_target_id Value
+	var v_trusted Value
+	var v_type_count Value
+	var v_type_listed Value
+	var v_type_match Value
+	var v_type_open Value
+	var v_types Value
+	var v_types_empty Value
+	var v_verified Value
+	if len(args) > 0 { v_event = args[0] }
+	_ = v_event
+	if len(args) > 1 { v_routes = args[1] }
+	_ = v_routes
+	if len(args) > 2 { v_identity_scope = args[2] }
+	_ = v_identity_scope
+	if len(args) > 3 { v_trust = args[3] }
+	_ = v_trust
+	_ = v_action
+	_ = v_allowed
+	_ = v_auth_allowed
+	_ = v_authenticated
+	_ = v_command
+	_ = v_commands
+	_ = v_event_id
+	_ = v_event_source
+	_ = v_event_type
+	_ = v_key
+	_ = v_match
+	_ = v_matched
+	_ = v_requires_auth
+	_ = v_route
+	_ = v_route_id
+	_ = v_source_count
+	_ = v_source_listed
+	_ = v_source_match
+	_ = v_source_open
+	_ = v_sources
+	_ = v_sources_empty
+	_ = v_subject
+	_ = v_target_id
+	_ = v_trusted
+	_ = v_type_count
+	_ = v_type_listed
+	_ = v_type_match
+	_ = v_type_open
+	_ = v_types
+	_ = v_types_empty
+	_ = v_verified
+	v_commands = MutableArray()
+	v_event_type = coreGet(v_event, "type", "")
+	v_event_source = coreGet(v_event, "source", "")
+	v_subject = coreGet(v_event, "subject", v_identity_scope)
+	for _, v_route = range coreIter(v_routes) {
+		v_match = coreGet(v_route, "match", nil)
+		v_types_empty = MutableArray()
+		v_sources_empty = MutableArray()
+		v_types = coreGet(v_match, "types", v_types_empty)
+		v_sources = coreGet(v_match, "sources", v_sources_empty)
+		v_type_count = _core_len(v_types)
+		v_source_count = _core_len(v_sources)
+		v_type_open = _core_eq(v_type_count, 0)
+		v_source_open = _core_eq(v_source_count, 0)
+		v_type_listed = _core_contains(v_types, v_event_type)
+		v_source_listed = _core_contains(v_sources, v_event_source)
+		v_type_match = _core_or(v_type_open, v_type_listed)
+		v_source_match = _core_or(v_source_open, v_source_listed)
+		v_matched = _core_and(v_type_match, v_source_match)
+		v_requires_auth = coreGet(v_route, "requireAuthenticated", false)
+		v_authenticated = _core_eq(v_trust, "authenticated")
+		v_trusted = _core_eq(v_trust, "trusted")
+		v_verified = _core_or(v_authenticated, v_trusted)
+		v_auth_allowed = true
+		if coreTruthy(v_requires_auth) {
+			v_auth_allowed = v_verified
+		} else {
+		// empty
+		}
+		v_allowed = _core_and(v_matched, v_auth_allowed)
+		if coreTruthy(v_allowed) {
+			v_route_id = coreGet(v_route, "id", "")
+			v_action = coreGet(v_route, "action", "observe")
+			v_target_id = coreGet(v_route, "targetId", nil)
+			v_command = Object()
+			if err := coreSet(v_command, "routeId", v_route_id); err != nil { return nil, err }
+			if err := coreSet(v_command, "action", v_action); err != nil { return nil, err }
+			if err := coreSet(v_command, "targetId", v_target_id); err != nil { return nil, err }
+			if err := coreSet(v_command, "instanceKey", v_subject); err != nil { return nil, err }
+			v_event_id = coreGet(v_event, "id", "")
+			v_key = _core_string_format("{}:{}", v_route_id, v_event_id)
+			if err := coreSet(v_command, "idempotencyKey", v_key); err != nil { return nil, err }
+			v_commands = coreAppend(v_commands, v_command)
+		} else {
+		// empty
+		}
+	}
+	return v_commands, nil
 }
 
 func mcp_jsonrpc_request(args ...Value) (Value, error) {
@@ -35086,6 +35329,952 @@ func mcp_normalize_error(args ...Value) (Value, error) {
 		if err := coreSet(v_out, "data", v_data); err != nil { return nil, err }
 		return v_out, nil
 	}
+}
+
+func event_retry_transition(args ...Value) (Value, error) {
+	axirCoverageMark("event_retry_transition")
+	var v_invocation_started Value
+	var v_retry_safety Value
+	var v_attempt Value
+	var v_max_attempts Value
+	var v_can_retry Value
+	var v_idempotent Value
+	var v_out Value
+	var v_pre_invocation Value
+	var v_retry Value
+	var v_safe Value
+	if len(args) > 0 { v_invocation_started = args[0] }
+	_ = v_invocation_started
+	if len(args) > 1 { v_retry_safety = args[1] }
+	_ = v_retry_safety
+	if len(args) > 2 { v_attempt = args[2] }
+	_ = v_attempt
+	if len(args) > 3 { v_max_attempts = args[3] }
+	_ = v_max_attempts
+	_ = v_can_retry
+	_ = v_idempotent
+	_ = v_out
+	_ = v_pre_invocation
+	_ = v_retry
+	_ = v_safe
+	v_out = Object()
+	v_idempotent = _core_eq(v_retry_safety, "idempotent")
+	v_can_retry = _core_lt(v_attempt, v_max_attempts)
+	v_pre_invocation = _core_not(v_invocation_started)
+	v_safe = _core_or(v_pre_invocation, v_idempotent)
+	v_retry = _core_and(v_safe, v_can_retry)
+	if err := coreSet(v_out, "retry", v_retry); err != nil { return nil, err }
+	if err := coreSet(v_out, "status", "failed"); err != nil { return nil, err }
+	if coreTruthy(v_invocation_started) {
+		if coreTruthy(v_idempotent) {
+		// empty
+		} else {
+			if err := coreSet(v_out, "status", "outcome_unknown"); err != nil { return nil, err }
+			if err := coreSet(v_out, "retry", false); err != nil { return nil, err }
+		}
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
+func event_resolve_path(args ...Value) (Value, error) {
+	axirCoverageMark("event_resolve_path")
+	var v_ingress Value
+	var v_path Value
+	var v_continuation Value
+	var v_array Value
+	var v_candidate Value
+	var v_container Value
+	var v_current Value
+	var v_event Value
+	var v_is_constant Value
+	var v_is_continuation Value
+	var v_is_correlation Value
+	var v_is_data Value
+	var v_is_envelope Value
+	var v_is_extensions Value
+	var v_is_identity Value
+	var v_is_trust Value
+	var v_key Value
+	var v_keys Value
+	var v_keys_empty Value
+	var v_kind Value
+	var v_matches Value
+	var v_none Value
+	var v_object Value
+	var v_root Value
+	var v_segment Value
+	var v_segments Value
+	var v_segments_empty Value
+	if len(args) > 0 { v_ingress = args[0] }
+	_ = v_ingress
+	if len(args) > 1 { v_path = args[1] }
+	_ = v_path
+	if len(args) > 2 { v_continuation = args[2] }
+	_ = v_continuation
+	_ = v_array
+	_ = v_candidate
+	_ = v_container
+	_ = v_current
+	_ = v_event
+	_ = v_is_constant
+	_ = v_is_continuation
+	_ = v_is_correlation
+	_ = v_is_data
+	_ = v_is_envelope
+	_ = v_is_extensions
+	_ = v_is_identity
+	_ = v_is_trust
+	_ = v_key
+	_ = v_keys
+	_ = v_keys_empty
+	_ = v_kind
+	_ = v_matches
+	_ = v_none
+	_ = v_object
+	_ = v_root
+	_ = v_segment
+	_ = v_segments
+	_ = v_segments_empty
+	v_none = _core_none()
+	v_root = coreGet(v_path, "root", "data")
+	v_event = coreGet(v_ingress, "event", v_ingress)
+	v_current = v_none
+	v_is_data = _core_eq(v_root, "data")
+	v_is_envelope = _core_eq(v_root, "envelope")
+	v_is_extensions = _core_eq(v_root, "extensions")
+	v_is_identity = _core_eq(v_root, "identity")
+	v_is_trust = _core_eq(v_root, "trust")
+	v_is_continuation = _core_eq(v_root, "continuation")
+	v_is_constant = _core_eq(v_root, "constant")
+	v_is_correlation = _core_eq(v_root, "correlation")
+	if coreTruthy(v_is_data) {
+		v_current = coreGet(v_event, "data", v_none)
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_envelope) {
+		v_current = v_event
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_extensions) {
+		v_current = coreGet(v_event, "extensions", v_none)
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_identity) {
+		v_current = coreGet(v_ingress, "identity", v_none)
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_trust) {
+		v_current = coreGet(v_ingress, "trust", "untrusted")
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_continuation) {
+		v_current = coreGet(v_continuation, "metadata", v_none)
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_constant) {
+		v_current = coreGet(v_path, "value", v_none)
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_correlation) {
+		v_kind = coreGet(v_path, "correlationKind", "")
+		v_keys_empty = MutableArray()
+		v_keys = coreGet(v_ingress, "correlation", v_keys_empty)
+		for _, v_key = range coreIter(v_keys) {
+			v_candidate = coreGet(v_key, "kind", "")
+			v_matches = _core_eq(v_candidate, v_kind)
+			if coreTruthy(v_matches) {
+				v_current = coreGet(v_key, "value", v_none)
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_segments_empty = MutableArray()
+	v_segments = coreGet(v_path, "segments", v_segments_empty)
+	for _, v_segment = range coreIter(v_segments) {
+		v_object = coreTypeIs(v_current, "object")
+		v_array = coreTypeIs(v_current, "array")
+		v_container = _core_or(v_object, v_array)
+		if coreTruthy(v_container) {
+			v_current = coreGet(v_current, v_segment, v_none)
+		} else {
+			v_current = v_none
+		}
+	}
+	return v_current, nil
+}
+
+func mcp_resource_subscription_selection(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_resource_subscription_selection")
+	var v_resources Value
+	var v_mode Value
+	var v_explicit_uris Value
+	var v_duplicate Value
+	var v_empty Value
+	var v_is_all Value
+	var v_is_explicit Value
+	var v_is_selector Value
+	var v_resource Value
+	var v_selected Value
+	var v_skip Value
+	var v_uri Value
+	var v_uses_resources Value
+	if len(args) > 0 { v_resources = args[0] }
+	_ = v_resources
+	if len(args) > 1 { v_mode = args[1] }
+	_ = v_mode
+	if len(args) > 2 { v_explicit_uris = args[2] }
+	_ = v_explicit_uris
+	_ = v_duplicate
+	_ = v_empty
+	_ = v_is_all
+	_ = v_is_explicit
+	_ = v_is_selector
+	_ = v_resource
+	_ = v_selected
+	_ = v_skip
+	_ = v_uri
+	_ = v_uses_resources
+	v_selected = MutableArray()
+	v_is_explicit = _core_eq(v_mode, "explicit")
+	if coreTruthy(v_is_explicit) {
+		for _, v_uri = range coreIter(v_explicit_uris) {
+			v_empty = _core_eq(v_uri, "")
+			v_duplicate = _core_contains(v_selected, v_uri)
+			v_skip = _core_or(v_empty, v_duplicate)
+			if coreTruthy(v_skip) {
+			// empty
+			} else {
+				v_selected = coreAppend(v_selected, v_uri)
+			}
+		}
+	} else {
+		v_is_all = _core_eq(v_mode, "all")
+		v_is_selector = _core_eq(v_mode, "selector")
+		v_uses_resources = _core_or(v_is_all, v_is_selector)
+		if coreTruthy(v_uses_resources) {
+			for _, v_resource = range coreIter(v_resources) {
+				v_uri = coreGet(v_resource, "uri", "")
+				v_empty = _core_eq(v_uri, "")
+				v_duplicate = _core_contains(v_selected, v_uri)
+				v_skip = _core_or(v_empty, v_duplicate)
+				if coreTruthy(v_skip) {
+				// empty
+				} else {
+					v_selected = coreAppend(v_selected, v_uri)
+				}
+			}
+		} else {
+		// empty
+		}
+	}
+	return v_selected, nil
+}
+
+func mcp_resource_subscription_plan(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_resource_subscription_plan")
+	var v_desired Value
+	var v_current Value
+	var v_additions Value
+	var v_duplicate Value
+	var v_out Value
+	var v_owned Value
+	var v_removals Value
+	var v_selected Value
+	var v_uri Value
+	var v_wanted Value
+	if len(args) > 0 { v_desired = args[0] }
+	_ = v_desired
+	if len(args) > 1 { v_current = args[1] }
+	_ = v_current
+	_ = v_additions
+	_ = v_duplicate
+	_ = v_out
+	_ = v_owned
+	_ = v_removals
+	_ = v_selected
+	_ = v_uri
+	_ = v_wanted
+	v_selected = MutableArray()
+	for _, v_uri = range coreIter(v_desired) {
+		v_duplicate = _core_contains(v_selected, v_uri)
+		if coreTruthy(v_duplicate) {
+		// empty
+		} else {
+			v_selected = coreAppend(v_selected, v_uri)
+		}
+	}
+	v_additions = MutableArray()
+	for _, v_uri = range coreIter(v_selected) {
+		v_owned = _core_contains(v_current, v_uri)
+		if coreTruthy(v_owned) {
+		// empty
+		} else {
+			v_additions = coreAppend(v_additions, v_uri)
+		}
+	}
+	v_removals = MutableArray()
+	for _, v_uri = range coreIter(v_current) {
+		v_wanted = _core_contains(v_selected, v_uri)
+		if coreTruthy(v_wanted) {
+		// empty
+		} else {
+			v_removals = coreAppend(v_removals, v_uri)
+		}
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "selected", v_selected); err != nil { return nil, err }
+	if err := coreSet(v_out, "additions", v_additions); err != nil { return nil, err }
+	if err := coreSet(v_out, "removals", v_removals); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func event_map_input(args ...Value) (Value, error) {
+	axirCoverageMark("event_map_input")
+	var v_ingress Value
+	var v_plan Value
+	var v_signature_fields Value
+	var v_continuation Value
+	var v_destination Value
+	var v_error Value
+	var v_failed Value
+	var v_field Value
+	var v_has_project Value
+	var v_has_selector Value
+	var v_mapping Value
+	var v_mappings Value
+	var v_mappings_empty Value
+	var v_matches Value
+	var v_missing Value
+	var v_name Value
+	var v_none Value
+	var v_optional Value
+	var v_out Value
+	var v_project_object Value
+	var v_project_path Value
+	var v_projection Value
+	var v_result Value
+	var v_selector Value
+	var v_value Value
+	if len(args) > 0 { v_ingress = args[0] }
+	_ = v_ingress
+	if len(args) > 1 { v_plan = args[1] }
+	_ = v_plan
+	if len(args) > 2 { v_signature_fields = args[2] }
+	_ = v_signature_fields
+	if len(args) > 3 { v_continuation = args[3] }
+	_ = v_continuation
+	_ = v_destination
+	_ = v_error
+	_ = v_failed
+	_ = v_field
+	_ = v_has_project
+	_ = v_has_selector
+	_ = v_mapping
+	_ = v_mappings
+	_ = v_mappings_empty
+	_ = v_matches
+	_ = v_missing
+	_ = v_name
+	_ = v_none
+	_ = v_optional
+	_ = v_out
+	_ = v_project_object
+	_ = v_project_path
+	_ = v_projection
+	_ = v_result
+	_ = v_selector
+	_ = v_value
+	v_none = _core_none()
+	v_out = Object()
+	v_result = Object()
+	v_error = v_none
+	v_project_path = coreGet(v_plan, "project", v_none)
+	v_projection = v_none
+	v_has_project = _core_is_not_none(v_project_path)
+	if coreTruthy(v_has_project) {
+		{ v, err := event_resolve_path(v_ingress, v_project_path, v_continuation); if err != nil { return nil, err }; v_projection = v }
+	} else {
+	// empty
+	}
+	v_mappings_empty = MutableArray()
+	v_mappings = coreGet(v_plan, "fields", v_mappings_empty)
+	for _, v_field = range coreIter(v_signature_fields) {
+		v_name = coreGet(v_field, "name", "")
+		v_optional = coreGet(v_field, "optional", false)
+		v_selector = v_none
+		for _, v_mapping = range coreIter(v_mappings) {
+			v_destination = coreGet(v_mapping, "field", "")
+			v_matches = _core_eq(v_destination, v_name)
+			if coreTruthy(v_matches) {
+				v_selector = coreGet(v_mapping, "path", v_none)
+			} else {
+			// empty
+			}
+		}
+		v_value = v_none
+		v_has_selector = _core_is_not_none(v_selector)
+		if coreTruthy(v_has_selector) {
+			{ v, err := event_resolve_path(v_ingress, v_selector, v_continuation); if err != nil { return nil, err }; v_value = v }
+		} else {
+			v_project_object = coreTypeIs(v_projection, "object")
+			if coreTruthy(v_project_object) {
+				v_value = coreGet(v_projection, v_name, v_none)
+			} else {
+			// empty
+			}
+		}
+		v_missing = _core_is_none(v_value)
+		if coreTruthy(v_missing) {
+			if coreTruthy(v_optional) {
+			// empty
+			} else {
+				v_error = _core_string_format("Required signature input {} was not present", v_name)
+			}
+		} else {
+			if err := coreSet(v_out, v_name, v_value); err != nil { return nil, err }
+		}
+	}
+	v_failed = _core_is_not_none(v_error)
+	if err := coreSet(v_result, "ok", true); err != nil { return nil, err }
+	if err := coreSet(v_result, "value", v_out); err != nil { return nil, err }
+	if coreTruthy(v_failed) {
+		if err := coreSet(v_result, "ok", false); err != nil { return nil, err }
+		if err := coreSet(v_result, "error", v_error); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_result, nil
+}
+
+func mcp_resource_subscription_ownership(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_resource_subscription_ownership")
+	var v_owners Value
+	var v_owner Value
+	var v_operation Value
+	var v_before Value
+	var v_current Value
+	var v_has_owner Value
+	var v_is_acquire Value
+	var v_matches Value
+	var v_now_empty Value
+	var v_out Value
+	var v_out_owners Value
+	var v_remaining Value
+	var v_was_empty Value
+	if len(args) > 0 { v_owners = args[0] }
+	_ = v_owners
+	if len(args) > 1 { v_owner = args[1] }
+	_ = v_owner
+	if len(args) > 2 { v_operation = args[2] }
+	_ = v_operation
+	_ = v_before
+	_ = v_current
+	_ = v_has_owner
+	_ = v_is_acquire
+	_ = v_matches
+	_ = v_now_empty
+	_ = v_out
+	_ = v_out_owners
+	_ = v_remaining
+	_ = v_was_empty
+	v_out_owners = MutableArray()
+	v_out = Object()
+	if err := coreSet(v_out, "wireAction", "none"); err != nil { return nil, err }
+	if err := coreSet(v_out, "changed", false); err != nil { return nil, err }
+	v_has_owner = _core_contains(v_owners, v_owner)
+	v_is_acquire = _core_eq(v_operation, "acquire")
+	if coreTruthy(v_is_acquire) {
+		for _, v_current = range coreIter(v_owners) {
+			v_out_owners = coreAppend(v_out_owners, v_current)
+		}
+		if coreTruthy(v_has_owner) {
+		// empty
+		} else {
+			v_before = _core_len(v_owners)
+			v_was_empty = _core_eq(v_before, 0)
+			if coreTruthy(v_was_empty) {
+				if err := coreSet(v_out, "wireAction", "subscribe"); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_out_owners = coreAppend(v_out_owners, v_owner)
+			if err := coreSet(v_out, "changed", true); err != nil { return nil, err }
+		}
+	} else {
+		for _, v_current = range coreIter(v_owners) {
+			v_matches = _core_eq(v_current, v_owner)
+			if coreTruthy(v_matches) {
+			// empty
+			} else {
+				v_out_owners = coreAppend(v_out_owners, v_current)
+			}
+		}
+		if coreTruthy(v_has_owner) {
+			v_remaining = _core_len(v_out_owners)
+			v_now_empty = _core_eq(v_remaining, 0)
+			if coreTruthy(v_now_empty) {
+				if err := coreSet(v_out, "wireAction", "unsubscribe"); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			if err := coreSet(v_out, "changed", true); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	if err := coreSet(v_out, "owners", v_out_owners); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func event_normalize_input(args ...Value) (Value, error) {
+	axirCoverageMark("event_normalize_input")
+	var v_input Value
+	var v_signature_fields Value
+	var v_clone Value
+	var v_encoded Value
+	var v_error Value
+	var v_failed Value
+	var v_field Value
+	var v_is_object Value
+	var v_missing Value
+	var v_name Value
+	var v_none Value
+	var v_optional Value
+	var v_out Value
+	var v_result Value
+	var v_value Value
+	if len(args) > 0 { v_input = args[0] }
+	_ = v_input
+	if len(args) > 1 { v_signature_fields = args[1] }
+	_ = v_signature_fields
+	_ = v_clone
+	_ = v_encoded
+	_ = v_error
+	_ = v_failed
+	_ = v_field
+	_ = v_is_object
+	_ = v_missing
+	_ = v_name
+	_ = v_none
+	_ = v_optional
+	_ = v_out
+	_ = v_result
+	_ = v_value
+	v_none = _core_none()
+	v_out = Object()
+	v_result = Object()
+	v_error = v_none
+	v_is_object = coreTypeIs(v_input, "object")
+	if coreTruthy(v_is_object) {
+		for _, v_field = range coreIter(v_signature_fields) {
+			v_name = coreGet(v_field, "name", "")
+			v_optional = coreGet(v_field, "optional", false)
+			v_value = coreGet(v_input, v_name, v_none)
+			v_missing = _core_is_none(v_value)
+			if coreTruthy(v_missing) {
+				if coreTruthy(v_optional) {
+				// empty
+				} else {
+					v_error = _core_string_format("Required signature input {} was not present", v_name)
+				}
+			} else {
+				v_encoded = _core_json_stringify(v_value)
+				{ v, err := _core_json_parse(v_encoded); if err != nil { return nil, err }; v_clone = v }
+				if err := coreSet(v_out, v_name, v_clone); err != nil { return nil, err }
+			}
+		}
+	} else {
+		v_error = "Mapped event input must be an object"
+	}
+	v_failed = _core_is_not_none(v_error)
+	if err := coreSet(v_result, "ok", true); err != nil { return nil, err }
+	if err := coreSet(v_result, "value", v_out); err != nil { return nil, err }
+	if coreTruthy(v_failed) {
+		if err := coreSet(v_result, "ok", false); err != nil { return nil, err }
+		if err := coreSet(v_result, "error", v_error); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_result, nil
+}
+
+func event_continuation_match(args ...Value) (Value, error) {
+	axirCoverageMark("event_continuation_match")
+	var v_continuations Value
+	var v_identity_scope Value
+	var v_kind Value
+	var v_value Value
+	var v_now Value
+	var v_active Value
+	var v_candidate_kind Value
+	var v_candidate_value Value
+	var v_continuation Value
+	var v_correlation Value
+	var v_correlations Value
+	var v_correlations_empty Value
+	var v_expires Value
+	var v_key_match Value
+	var v_kind_match Value
+	var v_match Value
+	var v_no_expiry Value
+	var v_result Value
+	var v_scope Value
+	var v_scope_active Value
+	var v_scope_match Value
+	var v_value_match Value
+	if len(args) > 0 { v_continuations = args[0] }
+	_ = v_continuations
+	if len(args) > 1 { v_identity_scope = args[1] }
+	_ = v_identity_scope
+	if len(args) > 2 { v_kind = args[2] }
+	_ = v_kind
+	if len(args) > 3 { v_value = args[3] }
+	_ = v_value
+	if len(args) > 4 { v_now = args[4] }
+	_ = v_now
+	_ = v_active
+	_ = v_candidate_kind
+	_ = v_candidate_value
+	_ = v_continuation
+	_ = v_correlation
+	_ = v_correlations
+	_ = v_correlations_empty
+	_ = v_expires
+	_ = v_key_match
+	_ = v_kind_match
+	_ = v_match
+	_ = v_no_expiry
+	_ = v_result
+	_ = v_scope
+	_ = v_scope_active
+	_ = v_scope_match
+	_ = v_value_match
+	v_result = _core_none()
+	for _, v_continuation = range coreIter(v_continuations) {
+		v_scope = coreGet(v_continuation, "identityScope", "")
+		v_scope_match = _core_eq(v_scope, v_identity_scope)
+		v_expires = coreGet(v_continuation, "expiresAt", nil)
+		v_no_expiry = _core_is_none(v_expires)
+		v_active = v_no_expiry
+		if coreTruthy(v_no_expiry) {
+		// empty
+		} else {
+			v_active = _core_lt(v_now, v_expires)
+		}
+		v_correlations_empty = MutableArray()
+		v_correlations = coreGet(v_continuation, "correlation", v_correlations_empty)
+		for _, v_correlation = range coreIter(v_correlations) {
+			v_candidate_kind = coreGet(v_correlation, "kind", "")
+			v_candidate_value = coreGet(v_correlation, "value", "")
+			v_kind_match = _core_eq(v_candidate_kind, v_kind)
+			v_value_match = _core_eq(v_candidate_value, v_value)
+			v_key_match = _core_and(v_kind_match, v_value_match)
+			v_scope_active = _core_and(v_scope_match, v_active)
+			v_match = _core_and(v_scope_active, v_key_match)
+			if coreTruthy(v_match) {
+				v_result = v_continuation
+			} else {
+			// empty
+			}
+		}
+	}
+	return v_result, nil
+}
+
+func event_delivery_due(args ...Value) (Value, error) {
+	axirCoverageMark("event_delivery_due")
+	var v_status Value
+	var v_available_at Value
+	var v_now Value
+	var v_due Value
+	var v_queued Value
+	var v_ready Value
+	if len(args) > 0 { v_status = args[0] }
+	_ = v_status
+	if len(args) > 1 { v_available_at = args[1] }
+	_ = v_available_at
+	if len(args) > 2 { v_now = args[2] }
+	_ = v_now
+	_ = v_due
+	_ = v_queued
+	_ = v_ready
+	v_queued = _core_eq(v_status, "queued")
+	v_ready = _core_lte(v_available_at, v_now)
+	v_due = _core_and(v_queued, v_ready)
+	return v_due, nil
+}
+
+func event_strict_delivery_eligible(args ...Value) (Value, error) {
+	axirCoverageMark("event_strict_delivery_eligible")
+	var v_candidate Value
+	var v_deliveries Value
+	var v_blocking Value
+	var v_candidate_instance Value
+	var v_candidate_sequence Value
+	var v_candidate_target Value
+	var v_delivery Value
+	var v_earlier Value
+	var v_eligible Value
+	var v_instance Value
+	var v_is_terminal Value
+	var v_nonterminal Value
+	var v_ordering Value
+	var v_predecessor Value
+	var v_same_instance Value
+	var v_same_queue Value
+	var v_same_target Value
+	var v_sequence Value
+	var v_status Value
+	var v_strict Value
+	var v_target Value
+	var v_terminal Value
+	if len(args) > 0 { v_candidate = args[0] }
+	_ = v_candidate
+	if len(args) > 1 { v_deliveries = args[1] }
+	_ = v_deliveries
+	_ = v_blocking
+	_ = v_candidate_instance
+	_ = v_candidate_sequence
+	_ = v_candidate_target
+	_ = v_delivery
+	_ = v_earlier
+	_ = v_eligible
+	_ = v_instance
+	_ = v_is_terminal
+	_ = v_nonterminal
+	_ = v_ordering
+	_ = v_predecessor
+	_ = v_same_instance
+	_ = v_same_queue
+	_ = v_same_target
+	_ = v_sequence
+	_ = v_status
+	_ = v_strict
+	_ = v_target
+	_ = v_terminal
+	v_ordering = coreGet(v_candidate, "ordering", "strict")
+	v_strict = _core_eq(v_ordering, "strict")
+	v_eligible = true
+	if coreTruthy(v_strict) {
+		v_candidate_sequence = coreGet(v_candidate, "sequence", 0)
+		v_candidate_target = coreGet(v_candidate, "targetId", "")
+		v_candidate_instance = coreGet(v_candidate, "instanceKey", "")
+		v_terminal = MutableArray()
+		v_terminal = coreAppend(v_terminal, "succeeded")
+		v_terminal = coreAppend(v_terminal, "failed")
+		v_terminal = coreAppend(v_terminal, "cancelled")
+		v_terminal = coreAppend(v_terminal, "dead_lettered")
+		v_terminal = coreAppend(v_terminal, "output_persistence_failed")
+		v_terminal = coreAppend(v_terminal, "outcome_unknown")
+		v_terminal = coreAppend(v_terminal, "waiting_event")
+		v_terminal = coreAppend(v_terminal, "coalesced")
+		for _, v_delivery = range coreIter(v_deliveries) {
+			v_sequence = coreGet(v_delivery, "sequence", 0)
+			v_earlier = _core_lt(v_sequence, v_candidate_sequence)
+			v_target = coreGet(v_delivery, "targetId", "")
+			v_instance = coreGet(v_delivery, "instanceKey", "")
+			v_same_target = _core_eq(v_target, v_candidate_target)
+			v_same_instance = _core_eq(v_instance, v_candidate_instance)
+			v_same_queue = _core_and(v_same_target, v_same_instance)
+			v_status = coreGet(v_delivery, "status", "queued")
+			v_is_terminal = _core_contains(v_terminal, v_status)
+			v_nonterminal = _core_not(v_is_terminal)
+			v_predecessor = _core_and(v_earlier, v_same_queue)
+			v_blocking = _core_and(v_predecessor, v_nonterminal)
+			if coreTruthy(v_blocking) {
+				v_eligible = false
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	return v_eligible, nil
+}
+
+func event_capacity_transition(args ...Value) (Value, error) {
+	axirCoverageMark("event_capacity_transition")
+	var v_pending Value
+	var v_queued_bytes Value
+	var v_envelope_bytes Value
+	var v_max_pending Value
+	var v_max_queued_bytes Value
+	var v_max_envelope_bytes Value
+	var v_accepted Value
+	var v_envelope_ok Value
+	var v_next_bytes Value
+	var v_next_pending Value
+	var v_out Value
+	var v_pending_ok Value
+	var v_queue_capacity Value
+	var v_queue_ok Value
+	if len(args) > 0 { v_pending = args[0] }
+	_ = v_pending
+	if len(args) > 1 { v_queued_bytes = args[1] }
+	_ = v_queued_bytes
+	if len(args) > 2 { v_envelope_bytes = args[2] }
+	_ = v_envelope_bytes
+	if len(args) > 3 { v_max_pending = args[3] }
+	_ = v_max_pending
+	if len(args) > 4 { v_max_queued_bytes = args[4] }
+	_ = v_max_queued_bytes
+	if len(args) > 5 { v_max_envelope_bytes = args[5] }
+	_ = v_max_envelope_bytes
+	_ = v_accepted
+	_ = v_envelope_ok
+	_ = v_next_bytes
+	_ = v_next_pending
+	_ = v_out
+	_ = v_pending_ok
+	_ = v_queue_capacity
+	_ = v_queue_ok
+	v_out = Object()
+	v_next_pending = _core_add(v_pending, 1)
+	v_next_bytes = _core_add(v_queued_bytes, v_envelope_bytes)
+	v_pending_ok = _core_lte(v_next_pending, v_max_pending)
+	v_queue_ok = _core_lte(v_next_bytes, v_max_queued_bytes)
+	v_envelope_ok = _core_lte(v_envelope_bytes, v_max_envelope_bytes)
+	v_queue_capacity = _core_and(v_pending_ok, v_queue_ok)
+	v_accepted = _core_and(v_queue_capacity, v_envelope_ok)
+	if err := coreSet(v_out, "accepted", v_accepted); err != nil { return nil, err }
+	if err := coreSet(v_out, "nextPending", v_next_pending); err != nil { return nil, err }
+	if err := coreSet(v_out, "nextQueuedBytes", v_next_bytes); err != nil { return nil, err }
+	if err := coreSet(v_out, "reason", "capacity"); err != nil { return nil, err }
+	if coreTruthy(v_envelope_ok) {
+	// empty
+	} else {
+		if err := coreSet(v_out, "reason", "envelope_too_large"); err != nil { return nil, err }
+	}
+	return v_out, nil
+}
+
+func event_debounce_transition(args ...Value) (Value, error) {
+	axirCoverageMark("event_debounce_transition")
+	var v_now Value
+	var v_debounce_ms Value
+	var v_has_queued_predecessor Value
+	var v_available_at Value
+	var v_out Value
+	if len(args) > 0 { v_now = args[0] }
+	_ = v_now
+	if len(args) > 1 { v_debounce_ms = args[1] }
+	_ = v_debounce_ms
+	if len(args) > 2 { v_has_queued_predecessor = args[2] }
+	_ = v_has_queued_predecessor
+	_ = v_available_at
+	_ = v_out
+	v_out = Object()
+	v_available_at = _core_add(v_now, v_debounce_ms)
+	if err := coreSet(v_out, "availableAt", v_available_at); err != nil { return nil, err }
+	if err := coreSet(v_out, "coalescePredecessor", v_has_queued_predecessor); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func event_normalize_mcp(args ...Value) (Value, error) {
+	axirCoverageMark("event_normalize_mcp")
+	var v_namespace Value
+	var v_method Value
+	var v_params Value
+	var v_correlation Value
+	var v_logging Value
+	var v_out Value
+	var v_progress Value
+	var v_prompts Value
+	var v_resource Value
+	var v_resources Value
+	var v_source Value
+	var v_task Value
+	var v_task_id Value
+	var v_task_key Value
+	var v_task_value Value
+	var v_tools Value
+	if len(args) > 0 { v_namespace = args[0] }
+	_ = v_namespace
+	if len(args) > 1 { v_method = args[1] }
+	_ = v_method
+	if len(args) > 2 { v_params = args[2] }
+	_ = v_params
+	_ = v_correlation
+	_ = v_logging
+	_ = v_out
+	_ = v_progress
+	_ = v_prompts
+	_ = v_resource
+	_ = v_resources
+	_ = v_source
+	_ = v_task
+	_ = v_task_id
+	_ = v_task_key
+	_ = v_task_value
+	_ = v_tools
+	v_out = Object()
+	v_source = _core_string_format("mcp://{}", v_namespace)
+	if err := coreSet(v_out, "source", v_source); err != nil { return nil, err }
+	if err := coreSet(v_out, "type", "mcp.notification"); err != nil { return nil, err }
+	if err := coreSet(v_out, "data", v_params); err != nil { return nil, err }
+	v_resource = _core_eq(v_method, "notifications/resources/updated")
+	v_tools = _core_eq(v_method, "notifications/tools/list_changed")
+	v_prompts = _core_eq(v_method, "notifications/prompts/list_changed")
+	v_resources = _core_eq(v_method, "notifications/resources/list_changed")
+	v_progress = _core_eq(v_method, "notifications/progress")
+	v_logging = _core_eq(v_method, "notifications/message")
+	v_task = _core_eq(v_method, "notifications/tasks/status")
+	if coreTruthy(v_resource) {
+		if err := coreSet(v_out, "type", "mcp.resource.updated"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_tools) {
+		if err := coreSet(v_out, "type", "mcp.catalog.changed"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_prompts) {
+		if err := coreSet(v_out, "type", "mcp.catalog.changed"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_resources) {
+		if err := coreSet(v_out, "type", "mcp.catalog.changed"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_progress) {
+		if err := coreSet(v_out, "type", "mcp.progress"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_logging) {
+		if err := coreSet(v_out, "type", "mcp.logging"); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_task) {
+		if err := coreSet(v_out, "type", "mcp.task.status"); err != nil { return nil, err }
+		v_task_value = coreGet(v_params, "task", v_params)
+		v_task_id = coreGet(v_task_value, "taskId", "")
+		v_task_key = _core_string_format("{}:{}", v_namespace, v_task_id)
+		v_correlation = Object()
+		if err := coreSet(v_correlation, "kind", "mcp.task"); err != nil { return nil, err }
+		if err := coreSet(v_correlation, "value", v_task_key); err != nil { return nil, err }
+		if err := coreSet(v_out, "correlation", v_correlation); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 // END AXIR CORE EMITTED FUNCTIONS
@@ -37009,6 +38198,9 @@ type AxGen struct {
 	Signature           AxSignature
 	Options             map[string]Value
 	Functions           []Tool
+	BaseFunctions       []Tool
+	ExecutionContext    *AxExecutionContext
+	ExecutionContextError error
 	Examples            Value
 	Demos               Value
 	Assertions          Value
@@ -37028,10 +38220,18 @@ func NewAx(signature string, options map[string]Value) *AxGen {
 	if options == nil {
 		options = Object()
 	}
-	return &AxGen{Signature: NewSignature(signature), Options: options, Examples: Array(), Demos: Array(), Assertions: coreGet(options, "assertions", Array()), StreamingAssertions: coreGet(options, "streaming_assertions", coreGet(options, "streamingAssertions", Array())), FieldProcessors: Object(), StopFunctions: Array(), Memory: Array(), ChatLog: Array(), FunctionCallTraces: Array(), Traces: Array(), ProgramID: display(coreGet(options, "id", coreGet(options, "program_id", coreGet(options, "programId", "root")))), Instruction: display(coreGet(options, "instruction", ""))}
+	g := &AxGen{Signature: NewSignature(signature), Options: options, Examples: Array(), Demos: Array(), Assertions: coreGet(options, "assertions", Array()), StreamingAssertions: coreGet(options, "streaming_assertions", coreGet(options, "streamingAssertions", Array())), FieldProcessors: Object(), StopFunctions: Array(), Memory: Array(), ChatLog: Array(), FunctionCallTraces: Array(), Traces: Array(), ProgramID: display(coreGet(options, "id", coreGet(options, "program_id", coreGet(options, "programId", "root")))), Instruction: display(coreGet(options, "instruction", ""))}
+	for _, raw := range asSlice(coreGet(options, "functions", Array())) { if tool, ok := raw.(Tool); ok { g.BaseFunctions=append(g.BaseFunctions,tool) } }
+	g.Functions=append([]Tool(nil),g.BaseFunctions...)
+	g.ExecutionContext,g.ExecutionContextError=ResolveAxExecutionContext(options,nil)
+	if g.ExecutionContextError==nil && g.ExecutionContext!=nil { tools,err:=g.ExecutionContext.NativeTools();g.ExecutionContextError=err;g.Functions=append(g.Functions,tools...) }
+	return g
 }
 func NewGen(signature string, options map[string]Value) *AxGen { return NewAx(signature, options) }
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	if g.ExecutionContextError!=nil{return nil,g.ExecutionContextError}
+	callContext,err:=ResolveAxExecutionContext(options,g.ExecutionContext);if err!=nil{return nil,err}
+	if callContext!=g.ExecutionContext { clone:=*g;clone.ExecutionContext=callContext;clone.Functions=append([]Tool(nil),g.BaseFunctions...);if callContext!=nil{tools,toolErr:=callContext.NativeTools();if toolErr!=nil{return nil,toolErr};clone.Functions=append(clone.Functions,tools...)};return clone.Forward(ctx,client,values,map[string]Value{"executionContext":callContext}) }
 	return safeValue(func() Value { return mustCore(_forward_impl(g, bindAIClientContext(ctx, client), values, options)) })
 }
 func (g *AxGen) AddAssert(assertion Value) *AxGen {
@@ -37137,6 +38337,8 @@ type AxAgent struct {
 	Responder *AxGen
 	Distiller *AxGen
 	LlmQuery  *AxGen
+	ExecutionContext *AxExecutionContext
+	ExecutionContextError error
 }
 
 // AxMemoriesSearchFn / AxSkillsSearchFn are native host callbacks the agent invokes (from the agent
@@ -37157,6 +38359,8 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	if options == nil {
 		options = Object()
 	}
+	executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
+	if executionContext!=nil { functions:=asSlice(coreGet(options,"functions",Array()));functions=append(functions,executionContext.RuntimeModules()...);options["functions"]=functions;options["executionContext"]=executionContext }
 	state := asMap(mustCore(_agent_factory(signature, options)))
 	sig := NewSignature(signature)
 	distillerOptions := Object("validation_retries", 0, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
@@ -37166,8 +38370,9 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
+	if executionContext!=nil { distillerOptions["executionContext"]=executionContext;executorOptions["executionContext"]=executionContext;responderOptions["executionContext"]=executionContext;llmQueryOptions["executionContext"]=executionContext }
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
-	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions)}
+	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions),ExecutionContext:executionContext,ExecutionContextError:contextErr}
 }
 func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, a.Options)))
@@ -37188,18 +38393,19 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	return a
 }
 func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	if a.ExecutionContextError!=nil{return nil,a.ExecutionContextError};callOptions:=map[string]Value{};for key,value:=range options{callOptions[key]=value};executionContext,err:=ResolveAxExecutionContext(callOptions,a.ExecutionContext);if err!=nil{return nil,err};if executionContext!=nil{callOptions["executionContext"]=executionContext;functions:=asSlice(coreGet(callOptions,"functions",Array()));functions=append(functions,executionContext.RuntimeModules()...);callOptions["functions"]=functions}
 	boundClient := bindAIClientContext(ctx, client)
 	// Wire the built-in llmQuery primitive: a focused sub-query the model can
 	// await inside the runtime. The logic lives in the AxIR-generated helper;
 	// this wrapper only registers the host callable that closes over this client.
-	runtime := coreGet(options, "runtime", coreGet(a.Options, "runtime", nil))
+	runtime := coreGet(callOptions, "runtime", coreGet(a.Options, "runtime", nil))
 	if reg, ok := runtime.(runtimeCallableRegistrar); ok {
 		reg.RegisterHostCallable("llmQuery", func(params Value) (Value, error) {
 			return _agent_run_llm_query(a.LlmQuery, boundClient, params)
 		})
 	}
 	return safeValue(func() Value {
-		return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, options))
+		return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, callOptions))
 	})
 }
 func (a *AxAgent) get(k string, fallback Value) Value {
@@ -37544,6 +38750,8 @@ type AxFlow struct {
 	State   map[string]Value
 	Steps   Value
 	Options map[string]Value
+	ExecutionContext *AxExecutionContext
+	ExecutionContextError error
 }
 
 func NewFlow(options map[string]Value) *AxFlow {
@@ -37551,7 +38759,8 @@ func NewFlow(options map[string]Value) *AxFlow {
 		options = Object()
 	}
 	state := asMap(mustCore(_flow_factory(options)))
-	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options}
+	executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
+	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options,ExecutionContext:executionContext,ExecutionContextError:contextErr}
 }
 func (f *AxFlow) Execute(name string, program AxProgram, options map[string]Value) *AxFlow {
 	if options == nil {
@@ -37568,8 +38777,9 @@ func (f *AxFlow) Returns(mapping map[string]Value) *AxFlow {
 }
 func (f *AxFlow) GetPlan() Value { return mustCore(_flow_plan(f.State)) }
 func (f *AxFlow) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	if f.ExecutionContextError!=nil{return nil,f.ExecutionContextError};callOptions:=map[string]Value{};for key,value:=range options{callOptions[key]=value};executionContext,err:=ResolveAxExecutionContext(callOptions,f.ExecutionContext);if err!=nil{return nil,err};if executionContext!=nil{callOptions["executionContext"]=executionContext;callOptions["mcp"]=executionContext.MCP;callOptions["ucp"]=executionContext.UCP}
 	return safeValue(func() Value {
-		return mustCore(_flow_forward(f.State, bindAIClientContext(ctx, client), values, options))
+		return mustCore(_flow_forward(f.State, bindAIClientContext(ctx, client), values, callOptions))
 	})
 }
 func (f *AxFlow) GetOptimizableComponents() Value {
@@ -39937,6 +41147,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceOptimize(fixture)
 	case "mcp":
 		runMCPConformanceFixture(fixture)
+	case "event":
+		runConformanceEvent(fixture)
 	case "agent_forward":
 		runConformanceAgentForward(fixture)
 	case "agent_runtime_policy":
@@ -39953,6 +41165,49 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAgentRuntimeReal(fixture)
 	default:
 		panic(AxError{Category: "fixture", Message: "unsupported Go conformance fixture kind " + kind})
+	}
+}
+
+type conformanceEventSink struct { id string; calls int; failFirst bool }
+func (s *conformanceEventSink) Write(output Value, context map[string]Value) error {s.calls++;if s.failFirst&&s.calls==1{return fmt.Errorf("sink once")};run,_:=context["run"].(*AxEventRun);if run==nil{return fmt.Errorf("output was not persisted before sink")};assertEqual(run.Output,output,"output persisted before sink");return nil}
+
+func runConformanceEvent(fixture map[string]Value) {
+	operation:=display(coreGet(fixture,"operation",""))
+	switch operation {
+	case "routing":
+		actual:=mustCore(event_route_commands(coreGet(fixture,"event",Object()),coreGet(fixture,"routes",Array()),coreGet(fixture,"identity_scope",""),coreGet(fixture,"trust","untrusted")))
+		assertEqual(actual,coreGet(fixture,"expected",Array()),"event routing")
+	case "retry":
+		for _,item:=range asSlice(coreGet(fixture,"cases",Array())){c:=asMap(item);actual:=mustCore(event_retry_transition(coreGet(c,"invocation_started",false),coreGet(c,"retry_safety","unknown"),coreGet(c,"attempt",float64(0)),coreGet(c,"max_attempts",float64(1))));assertEqual(actual,coreGet(c,"expected",Object()),"event retry")}
+	case "continuation":
+		key:=asMap(coreGet(fixture,"correlation",Object()));actual:=mustCore(event_continuation_match(coreGet(fixture,"continuations",Array()),coreGet(fixture,"identity_scope",""),coreGet(key,"kind",""),coreGet(key,"value",""),coreGet(fixture,"now",float64(0))));assertEqual(coreGet(asMap(actual),"id",nil),coreGet(fixture,"expected_id",nil),"event continuation")
+	case "mcp_normalization":
+		actual:=mustCore(event_normalize_mcp(coreGet(fixture,"namespace",""),coreGet(fixture,"method",""),coreGet(fixture,"params",Object())));assertEqual(actual,coreGet(fixture,"expected",Object()),"event MCP normalization")
+	case "mapping":
+		actual:=mustCore(event_map_input(coreGet(fixture,"ingress",Object()),coreGet(fixture,"plan",Object()),coreGet(fixture,"signature_fields",Array()),nil));assertEqual(actual,coreGet(fixture,"expected",Object()),"event input mapping")
+	case "lifecycle":
+		routeValue:=asMap(coreGet(fixture,"route",Object()));eventValue:=asMap(coreGet(fixture,"event",Object()));route:=AxEventRoute{ID:display(routeValue["id"]),Action:display(routeValue["action"]),Match:asMap(routeValue["match"]),TargetID:display(routeValue["targetId"]),Ordering:"strict"};runtime,err:=NewAxEventRuntime([]AxEventRoute{route},nil);if err!=nil{panic(err)};runtime.RegisterTarget(AxEventTarget{ID:route.TargetID,Invoke:func(input Value,_ map[string]Value)(Value,error){return map[string]Value{"handled":coreGet(input,"message",nil)},nil},RetrySafety:"idempotent"});source:=&AxPushEventSource{ID:"fixture"};runtime.AddSource(source);if err:=runtime.Start();err!=nil{panic(err)};event:=AxEventEnvelope{SpecVersion:"1.0",ID:display(eventValue["id"]),Source:display(eventValue["source"]),Type:display(eventValue["type"]),Subject:display(eventValue["subject"]),Data:eventValue["data"]};if err:=source.Publish(event);err!=nil{panic(err)};receiptEvent:=event;receiptEvent.ID+="-receipt";receipt,err:=runtime.Publish(receiptEvent,display(fixture["identity_scope"]),display(fixture["trust"]));if err!=nil{panic(err)};run:=runtime.GetRun("run:"+route.ID+":"+event.ID+":1");if !receipt.Accepted||run==nil{panic(AxError{Category:"fixture",Message:"event lifecycle did not dispatch"})};assertEqual(run.Output,fixture["expected_output"],"event automatic dispatch");_ = runtime.Close()
+
+		makeEvent:=func(id,eventType string,data Value,correlation []map[string]string)AxEventEnvelope{return AxEventEnvelope{SpecVersion:"1.0",ID:id,Source:"test://axevent",Type:eventType,Data:data,Correlation:correlation}}
+		retryCalls:=0;retryClock:=NewAxManualEventClock(1_000);retryRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"retry-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.retry"}},TargetID:"retry-target",Ordering:"strict"}},map[string]Value{"clock":retryClock,"retryBackoffMs":int64(500)});retryRuntime.RegisterTarget(AxEventTarget{ID:"retry-target",RetrySafety:"idempotent",Invoke:func(_ Value,_ map[string]Value)(Value,error){retryCalls++;if retryCalls==1{return nil,fmt.Errorf("retry once")};return map[string]Value{"attempt":retryCalls},nil}});_ = retryRuntime.Start();_,_ = retryRuntime.Publish(makeEvent("retry-1","event.retry",map[string]Value{},nil),"anonymous","untrusted");retryRun:=retryRuntime.GetRun("run:retry-route:retry-1:1");assertEqual([]Value{retryRun.Attempt,retryRun.Status,*retryRuntime.NextDueAt()},[]Value{1,"queued",int64(1_500)},"event delayed retry");retryClock.Advance(500);retryRuntime.RunDue();assertEqual([]Value{retryRun.Attempt,retryRun.Status},[]Value{2,"succeeded"},"event retry dispatch")
+		strictCalls:=[]string{};strictClock:=NewAxManualEventClock(1_000);strictRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"strict-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.strict"}},TargetID:"strict-target",Ordering:"strict"}},map[string]Value{"clock":strictClock,"retryBackoffMs":int64(500)});strictRuntime.RegisterTarget(AxEventTarget{ID:"strict-target",RetrySafety:"idempotent",Invoke:func(value Value,_ map[string]Value)(Value,error){name:=display(coreGet(value,"name",""));strictCalls=append(strictCalls,name);if name=="first"&&len(strictCalls)==1{return nil,fmt.Errorf("retry first")};return value,nil}});_=strictRuntime.Start();_,_=strictRuntime.Publish(makeEvent("strict-1","event.strict",map[string]Value{"name":"first"},nil),"anonymous","untrusted");_,_=strictRuntime.Publish(makeEvent("strict-2","event.strict",map[string]Value{"name":"second"},nil),"anonymous","untrusted");assertEqual(strictCalls,[]string{"first"},"event strict ordering while retry waits");strictClock.Advance(500);strictRuntime.RunDue();assertEqual(strictCalls,[]string{"first","first","second"},"event strict retry release ordering")
+		debounceClock:=NewAxManualEventClock(2_000);debounceValues:=[]Value{};debounceRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"debounce-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.debounce"}},TargetID:"debounce-target",Ordering:"strict",DebounceMs:250}},map[string]Value{"clock":debounceClock});debounceRuntime.RegisterTarget(AxEventTarget{ID:"debounce-target",Invoke:func(value Value,_ map[string]Value)(Value,error){debounceValues=append(debounceValues,value);return value,nil}});_ = debounceRuntime.Start();_,_=debounceRuntime.Publish(makeEvent("debounce-1","event.debounce",map[string]Value{"revision":1},nil),"anonymous","untrusted");_,_=debounceRuntime.Publish(makeEvent("debounce-2","event.debounce",map[string]Value{"revision":2},nil),"anonymous","untrusted");assertEqual([]Value{debounceValues,*debounceRuntime.NextDueAt()},[]Value{[]Value{},int64(2_250)},"event debounce scheduling");debounceClock.Advance(250);debounceRuntime.RunDue();assertEqual(debounceValues,[]Value{map[string]Value{"revision":2}},"event latest-value coalescing")
+		capacityRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"capacity-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.capacity"}},TargetID:"debounce-target",Ordering:"strict"}},map[string]Value{"maxEnvelopeBytes":int64(16)});capacityRuntime.RegisterTarget(AxEventTarget{ID:"debounce-target",Invoke:func(value Value,_ map[string]Value)(Value,error){return value,nil}});_=capacityRuntime.Start();_,capacityErr:=capacityRuntime.Publish(makeEvent("capacity-1","event.capacity",map[string]Value{"payload":"too-large"},nil),"anonymous","untrusted");if capacityErr==nil{panic(AxError{Category:"fixture",Message:"event envelope backpressure was not enforced"})}
+
+		state:=0;stateRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"state-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.state"}},TargetID:"state-target",Ordering:"strict"}},nil);stateRuntime.RegisterTarget(AxEventTarget{ID:"state-target",RetrySafety:"idempotent",Invoke:func(_ Value,_ map[string]Value)(Value,error){state++;return map[string]Value{"state":state},nil},CaptureState:func()(Value,error){return state,nil},RestoreState:func(value Value)error{state=int(num(value));return nil}});_ = stateRuntime.Start();_,_ = stateRuntime.Publish(makeEvent("state-1","event.state",map[string]Value{},nil),"anonymous","untrusted");state=0;_,_ = stateRuntime.Publish(makeEvent("state-2","event.state",map[string]Value{},nil),"anonymous","untrusted");assertEqual(stateRuntime.GetRun("run:state-route:state-2:2").Output,map[string]Value{"state":2},"event state restore")
+
+		cancelRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"cancel-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.cancel"}},TargetID:"cancel-target",Ordering:"strict"}},nil);cancelRuntime.RegisterTarget(AxEventTarget{ID:"cancel-target",Invoke:func(_ Value,context map[string]Value)(Value,error){context["cancellation"].(*AxEventCancellationToken).Cancel("fixture");return map[string]Value{"should":"not persist"},nil}});_ = cancelRuntime.Start();_,_ = cancelRuntime.Publish(makeEvent("cancel-1","event.cancel",map[string]Value{},nil),"anonymous","untrusted");cancelRun:=cancelRuntime.GetRun("run:cancel-route:cancel-1:1");assertEqual([]Value{cancelRun.Status,cancelRun.Output},[]Value{"cancelled",nil},"event cooperative cancellation")
+
+		sink:=&conformanceEventSink{id:"fixture-sink",failFirst:true};modelCalls:=0;sinkRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"sink-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.sink"}},TargetID:"sink-target",Ordering:"strict"}},nil);sinkRuntime.RegisterTarget(AxEventTarget{ID:"sink-target",RetrySafety:"idempotent",Sinks:map[string]AxEventSink{"fixture-sink":sink},Invoke:func(value Value,_ map[string]Value)(Value,error){modelCalls++;return value,nil}});_ = sinkRuntime.Start();_,_ = sinkRuntime.Publish(makeEvent("sink-1","event.sink",map[string]Value{"ok":true},nil),"anonymous","untrusted");dead:=sinkRuntime.ListDeadLetters()[0];if err:=sinkRuntime.Redrive(dead.ID);err!=nil{panic(err)};assertEqual([]Value{modelCalls,sink.calls,len(sinkRuntime.ListDeadLetters())},[]Value{1,2,0},"event sink-only redrive")
+
+		continuationCalls:=0;continuationRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"continuation-wake",Action:"wake",Match:map[string]Value{"types":[]Value{"event.continuation.start"}},TargetID:"continuation-target",Ordering:"strict"},{ID:"continuation-resume",Action:"resume",Match:map[string]Value{"types":[]Value{"event.continuation.done"}},Ordering:"strict"}},nil);continuationRuntime.RegisterTarget(AxEventTarget{ID:"continuation-target",WaitFor:[]map[string]Value{{"kind":"job","value":"job"}},Invoke:func(value Value,_ map[string]Value)(Value,error){continuationCalls++;return value,nil}});_ = continuationRuntime.Start();_,_ = continuationRuntime.Publish(makeEvent("continuation-1","event.continuation.start",map[string]Value{"job":"job-1"},nil),"tenant:test","authenticated");_,_ = continuationRuntime.Publish(makeEvent("continuation-2","event.continuation.done",map[string]Value{"job":"job-1"},[]map[string]string{{"kind":"job","value":"job-1"}}),"tenant:test","authenticated");assertEqual(continuationCalls,2,"event continuation resume")
+
+		mcpTransport:=NewAxMCPScriptedTransport([]Value{map[string]Value{"method":"initialize","result":map[string]Value{"protocolVersion":"2025-11-25","capabilities":map[string]Value{"resources":map[string]Value{"subscribe":true}}}}});mcpClient:=NewAxMCPClient(mcpTransport,map[string]Value{"namespace":"inventory"});lifecycleCalls:=0;mcpClient.AddLifecycleListener(func(string){lifecycleCalls++});mcpCalls:=0;mcpSource:=NewAxMCPEventSource(mcpClient,"inventory","tenant:test","authenticated",[]string{"demo://inventory"});mcpRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"mcp-wake",Action:"wake",Match:map[string]Value{"types":[]Value{"mcp.resource.updated"}},TargetID:"mcp-target",RequireAuthenticated:true,Ordering:"strict"}},nil);mcpRuntime.RegisterTarget(AxEventTarget{ID:"mcp-target",Invoke:func(value Value,_ map[string]Value)(Value,error){mcpCalls++;return value,nil}});mcpRuntime.AddSource(mcpSource);_ = mcpRuntime.Start();mcpTransport.Emit(map[string]Value{"jsonrpc":"2.0","method":"notifications/resources/updated","params":map[string]Value{"uri":"demo://inventory"}});mcpClient.EmitLifecycle("reconnected");_ = mcpRuntime.Close();mcpTransport.Emit(map[string]Value{"jsonrpc":"2.0","method":"notifications/resources/updated","params":map[string]Value{"uri":"demo://inventory"}});subscribeCalls:=0;for _,request:=range mcpTransport.Requests{if request["method"]=="resources/subscribe"{subscribeCalls++}};assertEqual([]Value{mcpCalls,lifecycleCalls,subscribeCalls},[]Value{1,1,2},"MCP listener composition and resubscription")
+		ownership:=asMap(mustCore(mcp_resource_subscription_ownership([]string{},"source-a","acquire")));ownership=asMap(mustCore(mcp_resource_subscription_ownership(ownership["owners"],"source-b","acquire")));ownership=asMap(mustCore(mcp_resource_subscription_ownership(ownership["owners"],"source-a","release")));assertEqual(ownership,map[string]Value{"owners":[]Value{"source-b"},"wireAction":"none","changed":true},"MCP subscription ownership transition")
+		selectionResources:=[]Value{map[string]Value{"uri":"demo://b"},map[string]Value{"uri":"demo://a"},map[string]Value{"uri":"demo://b"},map[string]Value{"uri":""}};assertEqual([]Value{mustCore(mcp_resource_subscription_selection(selectionResources,"all",[]string{})),mustCore(mcp_resource_subscription_selection([]Value{},"explicit",[]string{"demo://x","demo://y","demo://x"})),mustCore(mcp_resource_subscription_selection([]Value{selectionResources[1]},"selector",[]string{}))},[]Value{[]Value{"demo://b","demo://a"},[]Value{"demo://x","demo://y"},[]Value{"demo://a"}},"MCP subscription selection modes")
+		mappedInputs:=[]Value{};mappedTarget,err:=EventTarget("mapped-target").Signature(NewSignature("url:string, revision:number -> ok:boolean")).Invoke(func(value Value,_ map[string]Value)(Value,error){mappedInputs=append(mappedInputs,value);return value,nil}).WakeInput(func(input *AxEventInputBuilder){input.Field("url",EventData("uri")).Field("revision",EventData("revision"))}).Build();if err!=nil{panic(err)};mappedRoute,err:=EventRoute("mapped-route").Types("event.mapped").InstanceKey(EventData("uri")).Wake(mappedTarget).Build();if err!=nil{panic(err)};mappedRuntime,_:=NewAxEventRuntime([]AxEventRoute{mappedRoute},nil);mappedRuntime.RegisterTarget(mappedTarget);_ = mappedRuntime.Start();_,_ = mappedRuntime.Publish(makeEvent("mapped-1","event.mapped",map[string]Value{"uri":"demo://one","revision":2},nil),"anonymous","untrusted");_,_ = mappedRuntime.Publish(makeEvent("mapped-2","event.mapped",map[string]Value{"uri":"demo://two","revision":"bad"},nil),"anonymous","untrusted");assertEqual([]Value{mappedInputs,len(mappedRuntime.ListDeadLetters())},[]Value{[]Value{map[string]Value{"url":"demo://one","revision":2}},1},"signature-aware event mapping")
+		callbackInputs:=[]Value{};callbackSignature:=NewSignature("url:string -> ok:boolean");callbackRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"callback-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.callback"}},TargetID:"callback-target",Ordering:"strict"}},nil);callbackRuntime.RegisterTarget(AxEventTarget{ID:"callback-target",Signature:&callbackSignature,MapInput:func(event AxEventEnvelope,_ *AxEventContinuation)(Value,error){return map[string]Value{"url":coreGet(event.Data,"uri",""),"secret":"drop-me"},nil},Invoke:func(value Value,_ map[string]Value)(Value,error){callbackInputs=append(callbackInputs,value);return value,nil}});_=callbackRuntime.Start();_,_=callbackRuntime.Publish(makeEvent("callback-1","event.callback",map[string]Value{"uri":"demo://callback"},nil),"anonymous","untrusted");assertEqual(callbackInputs,[]Value{map[string]Value{"url":"demo://callback"}},"event callback signature normalization")
+	default: panic(AxError{Category:"fixture",Message:"unsupported event operation "+operation})
 	}
 }
 

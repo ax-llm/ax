@@ -148,3 +148,21 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-04
   - Completed by: `working-tree`
   - Verification: `go -C tools/axir test -count=1 ./... (all 5 language conformance incl. the 3 new direct-respond fixtures and the G2 anti-facade self-test); packages/go: go run ./conformance ir/conformance/axagent-real (real goja engine executes model-authored respond() and skips the executor); npx vitest run src/ax/agent (663 tests incl. agent.directRespond.test.ts 20 cases + rlmPromptsSync primitives-parity test); node scripts/axir-prompt-sync-check.mjs`
+- `axir-2026-07-12-port-axeventruntime-deterministic-single-worker-semantics` [axprogram] Port AxEventRuntime deterministic single-worker semantics
+  - Status: done
+  - Source commit: `9c0520371669a553eed605351fdd5417a734da1f`
+  - TS paths: `src/ax/event`
+  - Impact: Generated Python, Java, C++, Go, and Rust now enforce strict same-instance retry ordering and normalize callback/default event input through the destination signature, including cloning accepted values, stripping undeclared fields, and rejecting invalid values before invocation.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-14
+  - Completed by: `working-tree`
+  - Verification: `npm run test:axir; five generated axevent lifecycle runners; npm run axir:check-packages`
+- `axir-2026-07-12-port-mcp-event-listening-and-axeventruntime-adapter-semantics` [axmcp] Port MCP event listening and AxEventRuntime adapter semantics
+  - Status: done
+  - Source commit: `47856347b35aed15f2ec0f7884c235f0868c3f88`
+  - TS paths: `src/ax/mcp/client.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust now expose catalog snapshots, explicit/all/selector subscription policies, logical ownership, dynamic catalog reconciliation, reconnect restoration, and real Streamable HTTP/SSE wake/resume behavior.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-14
+  - Completed by: `working-tree`
+  - Verification: `npm run test:axir; node --import=tsx scripts/test-generated-mcp-events.ts --languages=python,java,cpp,go,rust; npm run axir:check-packages`

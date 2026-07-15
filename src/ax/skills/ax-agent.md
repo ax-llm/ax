@@ -1,6 +1,6 @@
 ---
 name: ax-agent
-description: This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.
+description: This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.
 version: "__VERSION__"
 ---
 
@@ -15,6 +15,8 @@ Your job is to choose the smallest correct `AxAgent` shape for the user's needs:
 - If the user wants callbacks, logs, tracing, or usage data, use the `ax-agent-observability` skill.
 - If the user wants dynamic memory retrieval or skill-guide loading, use the `ax-agent-memory-skills` skill.
 - If the user wants tuning or eval with `agent.optimize(...)`, use the `ax-agent-optimize` skill.
+- If the user wants MCP transports, authentication, catalogs, subscriptions,
+  tasks, Apps, or event-driven wake/resume, use the `ax-mcp` skill.
 
 ## Use These Defaults
 
@@ -237,24 +239,22 @@ const parent = agent('query:string -> answer:string', {
 });
 ```
 
-MCP clients and other `toFunction()` providers can be placed directly inside a group after initialization:
+Attach MCP/UCP clients through the native execution context. Ax initializes them once, exposes `mcp.<namespace>` / `ucp.<namespace>` runtime modules, and propagates them through actor stages, `llmQuery`, RLM, and child agents:
+
+Use `ax-mcp` for constructing those clients, transport/authentication policy,
+server-initiated handlers, resource subscriptions, task continuations, and
+recording/replay. Keep this section focused on Agent attachment and discovery.
 
 ```typescript
-await mcpClient.init();
-
 const parent = agent('query:string -> answer:string', {
-  functions: [
-    {
-      namespace: 'memory',
-      title: 'Memory MCP',
-      description: 'Memory server tools',
-      selectionCriteria: 'Use for persistent memory lookup and updates.',
-      functions: [mcpClient],
-    },
-  ],
+  mcp: [memoryClient, searchClient],
+  mcpInheritance: 'all',
   functionDiscovery: true,
   contextFields: [],
 });
+
+// A child can restrict inheritance to selected namespaces or `none`.
+await parent.forward(llm, { query }, { mcpInheritance: ['memory'] });
 ```
 
 Rules:
@@ -265,8 +265,23 @@ Rules:
 - `relevanceRanking` (default ON — set `false` to opt out): a deterministic local ranker that injects an advisory `### Likely Relevant` shortlist into the executor turn (dynamic, non-cached field — the cached prompt stays byte-stable). Enabled by default after its A/B gate passed on both small and frontier models and implemented in the generated language ports through AxIR Core. Details in `ax-agent-memory-skills`; outcomes observable via the `relevance_ranking` context event (`ax-agent-observability`).
 - Add `alwaysInclude: true` to a group when discovery mode is on but the actor should always see that group's full callable definitions inline in the prompt.
 - Keep `functions: [...]` either flat or grouped. Runtime validation rejects mixed plain function entries and group objects.
-- In flat mode, pass `fn(...)` tools, child agents, and `toFunction()` providers directly.
-- In grouped mode, put callable entries and `toFunction()` providers inside groups. To expose a child agent inside a group, use `childAgent.getFunction()`.
+- In flat mode, pass `fn(...)` tools and child agents directly.
+- In grouped mode, put callable entries inside groups. To expose a child agent inside a group, use `childAgent.getFunction()`.
+- Do not place MCP clients in `functions`; use `mcp` so tasks, resources, subscriptions, elicitation, sampling, authorization, cancellation, and protocol metadata remain available.
+- To wake an Agent from a resource subscription, use `AxMCPEventSource` and an
+  explicit authenticated `wake` route. MCP sessions are not tenant identity;
+  supply identity from the application's authenticated token mapping.
+- An endpoint does not imply a resource URI. Inspect `client.inspectCatalog()`
+  and choose an explicit `resourceSubscriptions` policy. Omission means none;
+  `'all'` selects all discovered concrete resources; selectors can use names,
+  descriptions, MIME types, URIs, and annotations. Templates are not expanded.
+- Map the event with a signature-aware `.wakeInput(...)` plan, or reuse an
+  `eventInput()` plan. Callback `mapInput` is still signature-validated and
+  cannot inject undeclared Agent fields. Use multiple matching routes to wake
+  multiple Agents with independent state, authorization, retries, and runs.
+- To wake from a UCP lifecycle webhook, use `AxUCPWebhookEventSource` and map
+  verified profile/account state to Ax tenant identity after request
+  verification. Never derive tenant identity from the order payload.
 
 ## Host-Side Completion From Functions
 
@@ -627,6 +642,20 @@ Fetch these for full working code:
 - [Smart Defaults Agent](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/smart-defaults-agent.ts) - auto-upgrade context promotion, relevance hints, and runtime tools
 
 RLM examples are listed in `ax-agent-rlm`. Memory/skills examples are listed in `ax-agent-memory-skills`.
+
+## Event-Driven Agents
+
+`AxEventRuntime` can wake or resume an Agent while preserving its logical
+state. Use `createProgram(instance)` for multi-tenant Agents; one mutable Agent
+object must not serve multiple instance keys concurrently. Clarification and
+remote task completion are represented as owned continuations, not synthetic
+user turns.
+
+Declare the Agent signature on
+`eventTarget('id').createProgram(signature, factory)` and map event values with
+`eventPath`. The runtime verifies every created Agent against that signature
+before invoking it. Fan-out uses multiple matching routes so each Agent keeps
+its own authorization, instance serialization, retry policy, and run record.
 
 ## Do Not Generate
 

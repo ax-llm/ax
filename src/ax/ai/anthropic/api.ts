@@ -1334,6 +1334,47 @@ type AnthropicMsgRoleUserToolResult = Extract<
   { type: 'tool_result' }
 >;
 
+function anthropicToolResultContent(
+  msg: Extract<AxChatRequest['chatPrompt'][number], { role: 'function' }>
+): AnthropicMsgRoleUserToolResult['content'] {
+  if (!msg.content?.length) return msg.result;
+  return msg.content.map((part) => {
+    if (part.type === 'text') return { type: 'text' as const, text: part.text };
+    if (part.type === 'image') {
+      return {
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: part.mimeType,
+          data: part.image,
+        },
+      };
+    }
+    if (part.type === 'audio') {
+      return {
+        type: 'text' as const,
+        text:
+          part.transcription ??
+          `[MCP audio result: ${part.mimeType ?? 'application/octet-stream'}]`,
+      };
+    }
+    if (part.type === 'url') {
+      return {
+        type: 'text' as const,
+        text:
+          part.cachedContent ??
+          [part.title, part.description, part.url].filter(Boolean).join('\n'),
+      };
+    }
+    return {
+      type: 'text' as const,
+      text:
+        part.extractedText ??
+        `[MCP file result: ${part.filename ?? 'file'} (${part.mimeType})]`,
+    };
+  });
+}
+
 function createMessages(
   chatPrompt: Readonly<AxChatRequest['chatPrompt']>,
   _thinkingEnabled?: boolean
@@ -1358,7 +1399,7 @@ function createMessages(
         const content: AnthropicMsgRoleUserToolResult[] = [
           {
             type: 'tool_result' as const,
-            content: msg.result,
+            content: anthropicToolResultContent(msg),
             tool_use_id: msg.functionId,
             ...(msg.isError ? { is_error: true } : {}),
             ...(msg.cache

@@ -99,6 +99,7 @@ struct Core {
   static Value add(Value left, Value right);
   static Value mul(Value left, Value right);
   static Value div(Value left, Value right);
+  static double number(Value value);
   static Value contains(Value container, Value item);
   static Value len(Value value);
   static Value is_none(Value value);
@@ -651,10 +652,28 @@ struct Core {
   static Value _flow_restore_components(Value flow, Value snapshot);
   static Value _flow_evaluate_optimization(Value flow, Value client, Value dataset, Value candidate_map, Value options);
   static Value _flow_optimize_with(Value flow, Value dataset, Value options, Value evaluator_available);
+  static Value ucp_negotiate_profile(Value profile, Value supportedVersions, Value requestedServices);
+  static Value ucp_normalize_outcome(Value operation, Value response);
+  static Value mcp_execution_context_descriptor(Value namespaces, Value inheritance);
+  static Value event_runtime_descriptor(Value routes, Value options);
   static Value mcp_protocol_constants();
+  static Value event_route_commands(Value event, Value routes, Value identity_scope, Value trust);
   static Value mcp_jsonrpc_request(Value id, Value method, Value params);
   static Value mcp_jsonrpc_notification(Value method, Value params);
   static Value mcp_normalize_error(Value response);
+  static Value event_retry_transition(Value invocation_started, Value retry_safety, Value attempt, Value max_attempts);
+  static Value event_resolve_path(Value ingress, Value path, Value continuation);
+  static Value mcp_resource_subscription_selection(Value resources, Value mode, Value explicit_uris);
+  static Value mcp_resource_subscription_plan(Value desired, Value current);
+  static Value event_map_input(Value ingress, Value plan, Value signature_fields, Value continuation);
+  static Value mcp_resource_subscription_ownership(Value owners, Value owner, Value operation);
+  static Value event_normalize_input(Value input, Value signature_fields);
+  static Value event_continuation_match(Value continuations, Value identity_scope, Value kind, Value value, Value now);
+  static Value event_delivery_due(Value status, Value available_at, Value now);
+  static Value event_strict_delivery_eligible(Value candidate, Value deliveries);
+  static Value event_capacity_transition(Value pending, Value queued_bytes, Value envelope_bytes, Value max_pending, Value max_queued_bytes, Value max_envelope_bytes);
+  static Value event_debounce_transition(Value now, Value debounce_ms, Value has_queued_predecessor);
+  static Value event_normalize_mcp(Value namespace_, Value method, Value params);
   // END AXIR CORE EMITTED DECLARATIONS
 
 };
@@ -1322,6 +1341,7 @@ class AxAgent : public AxProgram {
   Value recall(Value request);
   Value used(Value id, Value reason = Value(""), Value stage = Value("executor"));
   Value invoke_callable(Value qualified_name, Value args = Value::object(), Value options = Value::object());
+  AxAgent& add_tool_module(std::string name, const std::vector<Tool>& tools);
   Value export_runtime_state() const;
   Value restore_runtime_state(Value snapshot);
   Value get_optimizer_metadata() const;

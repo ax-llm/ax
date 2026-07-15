@@ -22,6 +22,7 @@ var knownDialects = map[string]bool{
 	"ax.agent":     true,
 	"ax.flow":      true,
 	"ax.mcp":       true,
+	"ax.event":     true,
 }
 
 var coreBodyOps = map[string]bool{
@@ -80,6 +81,9 @@ var knownOperationNames = map[string]bool{
 	"ax.mcp.interface":      true,
 	"ax.mcp.record":         true,
 	"ax.mcp.semantic":       true,
+	"ax.event.interface":    true,
+	"ax.event.record":       true,
+	"ax.event.semantic":     true,
 	"ax.optimize.artifact":  true,
 	"ax.optimize.component": true,
 	"ax.optimize.semantic":  true,

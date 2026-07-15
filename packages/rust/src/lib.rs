@@ -1,7 +1,14 @@
 pub mod mcp;
 pub use mcp::{
-    AxMCPClient, AxMCPOAuthOptions, AxMCPStdioTransport, AxMCPStreamableHTTPTransport,
-    AxMCPTokenSet, AxMCPTransport,
+    event_route, event_target, AxEventCancellationToken, AxEventClock, AxEventCommand,
+    AxEventContinuation, AxEventCorrelationKey, AxEventDeadLetter, AxEventEnvelope,
+    AxEventInputBuilder, AxEventInputPlan, AxEventInvocationContext, AxEventPath,
+    AxEventPublishReceipt, AxEventRoute, AxEventRouteBuilder, AxEventRun, AxEventRuntime,
+    AxEventSink, AxEventSource, AxEventStore, AxEventTarget, AxExecutionContext,
+    AxInMemoryEventStore, AxMCPCatalogSnapshot, AxMCPClient, AxMCPContinuationState,
+    AxMCPEventSource, AxMCPOAuthOptions, AxMCPResourceSubscriptionPolicy, AxMCPScriptedTransport,
+    AxMCPStdioTransport, AxMCPStreamableHTTPTransport, AxMCPTokenSet, AxMCPTransport,
+    AxManualEventClock, AxSystemEventClock, AxUCPBinding, AxUCPClient,
 };
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -2173,11 +2180,14 @@ impl ToolBuilder {
     }
 }
 
+#[derive(Clone)]
 pub struct AxGen {
     pub signature: AxSignature,
     pub options: Value,
     pub function_call_traces: Vec<Value>,
     pub tools: Vec<Tool>,
+    pub base_tools: Vec<Tool>,
+    pub execution_context: Option<AxExecutionContext>,
     pub assertions: Vec<Value>,
     pub examples: Vec<Value>,
     pub demos: Vec<Value>,
@@ -2199,6 +2209,8 @@ impl AxGen {
             options: json!({}),
             function_call_traces: Vec::new(),
             tools: Vec::new(),
+            base_tools: Vec::new(),
+            execution_context: None,
             assertions: Vec::new(),
             examples: Vec::new(),
             demos: Vec::new(),
@@ -2211,8 +2223,16 @@ impl AxGen {
     }
 
     pub fn with_tool(mut self, tool: Tool) -> Self {
+        self.base_tools.push(tool.clone());
         self.tools.push(tool);
         self
+    }
+
+    pub fn with_execution_context(mut self, context: AxExecutionContext) -> AxResult<Self> {
+        self.tools = self.base_tools.clone();
+        self.tools.extend(context.native_tools()?);
+        self.execution_context = Some(context);
+        Ok(self)
     }
 
     pub fn with_assertion(mut self, assertion: Value) -> Self {
@@ -2251,6 +2271,22 @@ impl AxGen {
         input: Value,
         options: Value,
     ) -> AxResult<Value> {
+        if options.get("mcpInheritance").and_then(Value::as_str) == Some("none")
+            && self.execution_context.is_some()
+        {
+            let mut detached = self.clone();
+            detached.execution_context = None;
+            detached.tools = detached.base_tools.clone();
+            detached.chat_log.clear();
+            detached.function_call_traces.clear();
+            detached.traces.clear();
+            let result = detached.forward_with_options(client, input, json!({}))?;
+            self.chat_log.extend(detached.chat_log);
+            self.function_call_traces
+                .extend(detached.function_call_traces);
+            self.traces.extend(detached.traces);
+            return Ok(result);
+        }
         let state = core_gen_state(self)?;
         let mut chat = |method: &str, request: Value| -> AxResult<Value> {
             if method == "transcribe" {
@@ -2292,6 +2328,7 @@ impl AxGen {
         } else {
             json!({})
         };
+        gen.base_tools = tools.clone();
         gen.tools = tools;
         Ok(gen)
     }
@@ -2808,6 +2845,7 @@ pub struct AxAgent {
     // sub-gen per call without capturing a non-Send CoreValue.
     llm_query_signature: String,
     llm_query_instruction: Value,
+    execution_context: Option<AxExecutionContext>,
 }
 
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
@@ -2816,6 +2854,50 @@ pub fn agent(spec: &str) -> AxResult<AxAgent> {
 
 pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
     agent_with_core_options(spec, core_value_from_json(&options))
+}
+
+pub fn agent_with_execution_context(
+    spec: &str,
+    options: Value,
+    context: AxExecutionContext,
+) -> AxResult<AxAgent> {
+    let options = core_value_from_json(&options);
+    let modules = CoreValue::new_list();
+    for client in &context.mcp {
+        let locked = client.lock().unwrap();
+        let module = CoreValue::new_map();
+        let module_name = format!("mcp.{}", locked.namespace());
+        core_set(
+            &module,
+            CoreValue::from("name"),
+            CoreValue::from(module_name.as_str()),
+        )?;
+        let functions = CoreValue::new_list();
+        for tool in locked.native_tools() {
+            core_append(&functions, core_tool_host(tool))?;
+        }
+        core_set(&module, CoreValue::from("functions"), functions)?;
+        core_append(&modules, module)?;
+    }
+    for client in &context.ucp {
+        let module = CoreValue::new_map();
+        let module_name = format!("ucp.{}", client.namespace());
+        core_set(
+            &module,
+            CoreValue::from("name"),
+            CoreValue::from(module_name.as_str()),
+        )?;
+        let functions = CoreValue::new_list();
+        for tool in client.native_tools() {
+            core_append(&functions, core_tool_host(tool))?;
+        }
+        core_set(&module, CoreValue::from("functions"), functions)?;
+        core_append(&modules, module)?;
+    }
+    core_set(&options, CoreValue::from("functions"), modules)?;
+    let mut agent = agent_with_core_options(spec, options)?;
+    agent.execution_context = Some(context);
+    Ok(agent)
 }
 
 /// Construct an agent with native host search callbacks for memories and skills.
@@ -2927,6 +3009,7 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         ),
         llm_query_signature,
         llm_query_instruction,
+        execution_context: None,
     })
 }
 
@@ -3617,17 +3700,34 @@ impl AxProgram for AxAgent {
 
 pub struct AxFlow {
     state: CoreValue,
+    execution_context: Option<AxExecutionContext>,
 }
 
 pub fn flow(id: &str) -> AxFlow {
     let options = CoreValue::new_map();
     let _ = core_set(&options, CoreValue::from("id"), CoreValue::from(id));
     let state = _flow_factory(&[options]).unwrap_or_else(|_| CoreValue::new_map());
-    AxFlow { state }
+    AxFlow {
+        state,
+        execution_context: None,
+    }
+}
+
+pub fn flow_with_execution_context(id: &str, context: AxExecutionContext) -> AxFlow {
+    let mut out = flow(id);
+    out.execution_context = Some(context);
+    out
 }
 
 impl AxFlow {
-    pub fn execute(self, name: &str, program: AxGen) -> Self {
+    pub fn execute(self, name: &str, mut program: AxGen) -> Self {
+        if program.execution_context.is_none() {
+            if let Some(context) = &self.execution_context {
+                if let Ok(with_context) = program.clone().with_execution_context(context.clone()) {
+                    program = with_context;
+                }
+            }
+        }
         let step = _flow_step(&[
             CoreValue::from("execute"),
             CoreValue::from(name),
@@ -6064,9 +6164,766 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "optimize" => run_optimize_fixture(&fixture)?,
         "program_contract" => run_program_contract_fixture(&fixture)?,
         "mcp" => mcp::run_mcp_conformance_fixture(&fixture)?,
+        "event" => run_event_fixture(&fixture)?,
         _ => run_explicit_non_ai_conformance_fixture(kind, &fixture)?,
     }
     Ok(())
+}
+
+fn run_event_fixture(fixture: &Value) -> AxResult<()> {
+    let operation = fixture
+        .get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let call =
+        |result: Result<CoreValue, AxError>, expected: &Value, label: &str| -> AxResult<()> {
+            let actual = core_value_to_json(&result?);
+            if &actual != expected {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("{label} mismatch: expected {expected}, got {actual}"),
+                ));
+            }
+            Ok(())
+        };
+    match operation {
+        "routing" => call(
+            event_route_commands(&[
+                core_value_from_json(&fixture["event"]),
+                core_value_from_json(&fixture["routes"]),
+                core_value_from_json(&fixture["identity_scope"]),
+                core_value_from_json(&fixture["trust"]),
+            ]),
+            &fixture["expected"],
+            "event routing",
+        ),
+        "retry" => {
+            for case in fixture["cases"].as_array().cloned().unwrap_or_default() {
+                call(
+                    event_retry_transition(&[
+                        core_value_from_json(&case["invocation_started"]),
+                        core_value_from_json(&case["retry_safety"]),
+                        core_value_from_json(&case["attempt"]),
+                        core_value_from_json(&case["max_attempts"]),
+                    ]),
+                    &case["expected"],
+                    "event retry",
+                )?;
+            }
+            Ok(())
+        }
+        "continuation" => {
+            let actual = core_value_to_json(&event_continuation_match(&[
+                core_value_from_json(&fixture["continuations"]),
+                core_value_from_json(&fixture["identity_scope"]),
+                core_value_from_json(&fixture["correlation"]["kind"]),
+                core_value_from_json(&fixture["correlation"]["value"]),
+                core_value_from_json(&fixture["now"]),
+            ])?);
+            if actual.get("id") != fixture.get("expected_id") {
+                return Err(AxError::new("fixture", "event continuation mismatch"));
+            }
+            Ok(())
+        }
+        "mcp_normalization" => call(
+            event_normalize_mcp(&[
+                core_value_from_json(&fixture["namespace"]),
+                core_value_from_json(&fixture["method"]),
+                core_value_from_json(&fixture["params"]),
+            ]),
+            &fixture["expected"],
+            "event MCP normalization",
+        ),
+        "mapping" => call(
+            event_map_input(&[
+                core_value_from_json(&fixture["ingress"]),
+                core_value_from_json(&fixture["plan"]),
+                core_value_from_json(&fixture["signature_fields"]),
+                core_value_from_json(&Value::Null),
+            ]),
+            &fixture["expected"],
+            "event input mapping",
+        ),
+        "lifecycle" => {
+            struct FixtureSource(Option<AxEventEnvelope>);
+            impl AxEventSource for FixtureSource {
+                fn start(
+                    &mut self,
+                    publish: &mut dyn FnMut(AxEventEnvelope) -> AxResult<()>,
+                ) -> AxResult<()> {
+                    publish(self.0.take().unwrap())
+                }
+            }
+            let make_event =
+                |id: &str,
+                 event_type: &str,
+                 data: Value,
+                 correlation: Vec<AxEventCorrelationKey>| AxEventEnvelope {
+                    specversion: "1.0".into(),
+                    id: id.into(),
+                    source: "test://axevent".into(),
+                    r#type: event_type.into(),
+                    subject: Some("fixture".into()),
+                    data,
+                    extensions: Map::new(),
+                    correlation,
+                };
+            let route_value = &fixture["route"];
+            let event_value = &fixture["event"];
+            let route = AxEventRoute {
+                id: route_value["id"].as_str().unwrap().into(),
+                action: route_value["action"].as_str().unwrap().into(),
+                r#match: route_value["match"].clone(),
+                target_id: Some(route_value["targetId"].as_str().unwrap().into()),
+                require_authenticated: false,
+                ordering: "strict".into(),
+                debounce_ms: 0,
+                instance_key: None,
+            };
+            let mut target = AxEventTarget::new(route.target_id.clone().unwrap(), |input, _| {
+                Ok(json!({"handled":input["message"]}))
+            });
+            target.retry_safety = "idempotent".into();
+            let event = AxEventEnvelope {
+                specversion: "1.0".into(),
+                id: event_value["id"].as_str().unwrap().into(),
+                source: event_value["source"].as_str().unwrap().into(),
+                r#type: event_value["type"].as_str().unwrap().into(),
+                subject: event_value
+                    .get("subject")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                data: event_value["data"].clone(),
+                extensions: Map::new(),
+                correlation: vec![],
+            };
+            let mut runtime = AxEventRuntime::new(vec![route.clone()], json!({}))?;
+            runtime.register_target(target);
+            runtime.start()?;
+            let receipts = runtime.start_source(
+                &mut FixtureSource(Some(event.clone())),
+                fixture["identity_scope"].as_str().unwrap(),
+                fixture["trust"].as_str().unwrap(),
+            )?;
+            let run_id = format!("run:{}:{}:1", route.id, event.id);
+            let run = runtime
+                .get_run(&run_id)
+                .ok_or_else(|| AxError::new("fixture", "event lifecycle did not dispatch"))?;
+            if !receipts
+                .first()
+                .map(|value| value.accepted)
+                .unwrap_or(false)
+                || run.output.as_ref() != Some(&fixture["expected_output"])
+            {
+                return Err(AxError::new("fixture", "event lifecycle mismatch"));
+            }
+            runtime.close()?;
+
+            let retry_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let retry_state = retry_calls.clone();
+            let mut retry_target = AxEventTarget::new("retry-target", move |_, _| {
+                let mut calls = retry_state.lock().unwrap();
+                *calls += 1;
+                if *calls == 1 {
+                    return Err(AxError::new("fixture", "retry once"));
+                }
+                Ok(json!({"attempt":*calls}))
+            });
+            retry_target.retry_safety = "idempotent".into();
+            let retry_clock = std::sync::Arc::new(AxManualEventClock::new(1_000));
+            let mut retry_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "retry-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.retry"]}),
+                    target_id: Some("retry-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            retry_runtime.set_clock(retry_clock.clone());
+            retry_runtime.register_target(retry_target);
+            retry_runtime.start()?;
+            retry_runtime.publish(
+                make_event("retry-1", "event.retry", json!({}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            let retry_run = retry_runtime.get_run("run:retry-route:retry-1:1").unwrap();
+            if retry_run.attempt != 1
+                || retry_run.status != "queued"
+                || retry_runtime.next_due_at() != Some(2_000)
+            {
+                return Err(AxError::new("fixture", "event delayed retry mismatch"));
+            }
+            retry_clock.advance(1_000);
+            retry_runtime.run_due();
+            let retry_run = retry_runtime.get_run("run:retry-route:retry-1:1").unwrap();
+            if retry_run.attempt != 2 || retry_run.status != "succeeded" {
+                return Err(AxError::new("fixture", "event retry dispatch mismatch"));
+            }
+
+            let strict_calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+            let strict_state = strict_calls.clone();
+            let mut strict_target = AxEventTarget::new("strict-target", move |value, _| {
+                let name = value["name"].as_str().unwrap_or_default().to_string();
+                let mut calls = strict_state.lock().unwrap();
+                calls.push(name.clone());
+                if name == "first" && calls.len() == 1 {
+                    return Err(AxError::new("fixture", "retry first"));
+                }
+                Ok(value)
+            });
+            strict_target.retry_safety = "idempotent".into();
+            let strict_clock = std::sync::Arc::new(AxManualEventClock::new(1_000));
+            let mut strict_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "strict-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.strict"]}),
+                    target_id: Some("strict-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            strict_runtime.set_clock(strict_clock.clone());
+            strict_runtime.register_target(strict_target);
+            strict_runtime.start()?;
+            strict_runtime.publish(
+                make_event("strict-1", "event.strict", json!({"name":"first"}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            strict_runtime.publish(
+                make_event("strict-2", "event.strict", json!({"name":"second"}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            if *strict_calls.lock().unwrap() != vec!["first".to_string()] {
+                return Err(AxError::new(
+                    "fixture",
+                    "event strict ordering while retry waits mismatch",
+                ));
+            }
+            strict_clock.advance(1_000);
+            strict_runtime.run_due();
+            if *strict_calls.lock().unwrap()
+                != vec![
+                    "first".to_string(),
+                    "first".to_string(),
+                    "second".to_string(),
+                ]
+            {
+                return Err(AxError::new(
+                    "fixture",
+                    "event strict retry release ordering mismatch",
+                ));
+            }
+
+            let debounce_clock = std::sync::Arc::new(AxManualEventClock::new(2_000));
+            let debounce_values = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+            let debounce_state = debounce_values.clone();
+            let debounce_target = AxEventTarget::new("debounce-target", move |value, _| {
+                debounce_state.lock().unwrap().push(value.clone());
+                Ok(value)
+            });
+            let mut debounce_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "debounce-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.debounce"]}),
+                    target_id: Some("debounce-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 250,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            debounce_runtime.set_clock(debounce_clock.clone());
+            debounce_runtime.register_target(debounce_target);
+            debounce_runtime.start()?;
+            debounce_runtime.publish(
+                make_event(
+                    "debounce-1",
+                    "event.debounce",
+                    json!({"revision":1}),
+                    vec![],
+                ),
+                "anonymous",
+                "untrusted",
+            )?;
+            debounce_runtime.publish(
+                make_event(
+                    "debounce-2",
+                    "event.debounce",
+                    json!({"revision":2}),
+                    vec![],
+                ),
+                "anonymous",
+                "untrusted",
+            )?;
+            if !debounce_values.lock().unwrap().is_empty()
+                || debounce_runtime.next_due_at() != Some(2_250)
+            {
+                return Err(AxError::new(
+                    "fixture",
+                    "event debounce scheduling mismatch",
+                ));
+            }
+            debounce_clock.advance(250);
+            debounce_runtime.run_due();
+            if *debounce_values.lock().unwrap() != vec![json!({"revision":2})] {
+                return Err(AxError::new(
+                    "fixture",
+                    "event latest-value coalescing mismatch",
+                ));
+            }
+
+            let capacity_target = AxEventTarget::new("capacity-target", |value, _| Ok(value));
+            let mut capacity_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "capacity-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.capacity"]}),
+                    target_id: Some("capacity-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({"maxEnvelopeBytes":16}),
+            )?;
+            capacity_runtime.register_target(capacity_target);
+            capacity_runtime.start()?;
+            if capacity_runtime
+                .publish(
+                    make_event(
+                        "capacity-1",
+                        "event.capacity",
+                        json!({"payload":"too-large"}),
+                        vec![],
+                    ),
+                    "anonymous",
+                    "untrusted",
+                )
+                .is_ok()
+            {
+                return Err(AxError::new(
+                    "fixture",
+                    "event envelope backpressure mismatch",
+                ));
+            }
+
+            let state = std::sync::Arc::new(std::sync::Mutex::new(0i64));
+            let invoke_state = state.clone();
+            let capture_state = state.clone();
+            let restore_state = state.clone();
+            let mut state_target = AxEventTarget::new("state-target", move |_, _| {
+                let mut value = invoke_state.lock().unwrap();
+                *value += 1;
+                Ok(json!({"state":*value}))
+            });
+            state_target.retry_safety = "idempotent".into();
+            state_target.capture_state =
+                Some(std::sync::Arc::new(std::sync::Mutex::new(move || {
+                    Ok(json!(*capture_state.lock().unwrap()))
+                })));
+            state_target.restore_state = Some(std::sync::Arc::new(std::sync::Mutex::new(
+                move |value: Value| {
+                    *restore_state.lock().unwrap() = value.as_i64().unwrap();
+                    Ok(())
+                },
+            )));
+            let mut state_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "state-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.state"]}),
+                    target_id: Some("state-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            state_runtime.register_target(state_target);
+            state_runtime.start()?;
+            state_runtime.publish(
+                make_event("state-1", "event.state", json!({}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            *state.lock().unwrap() = 0;
+            state_runtime.publish(
+                make_event("state-2", "event.state", json!({}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            if state_runtime
+                .get_run("run:state-route:state-2:2")
+                .and_then(|run| run.output.as_ref())
+                != Some(&json!({"state":2}))
+            {
+                return Err(AxError::new("fixture", "event state restore mismatch"));
+            }
+
+            let cancel_target = AxEventTarget::new("cancel-target", |_, context| {
+                context.cancellation.cancel("fixture");
+                Ok(json!({"should":"not persist"}))
+            });
+            let mut cancel_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "cancel-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.cancel"]}),
+                    target_id: Some("cancel-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            cancel_runtime.register_target(cancel_target);
+            cancel_runtime.start()?;
+            cancel_runtime.publish(
+                make_event("cancel-1", "event.cancel", json!({}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            let cancel_run = cancel_runtime
+                .get_run("run:cancel-route:cancel-1:1")
+                .unwrap();
+            if cancel_run.status != "cancelled" || cancel_run.output.is_some() {
+                return Err(AxError::new("fixture", "event cancellation mismatch"));
+            }
+
+            let model_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let model_state = model_calls.clone();
+            let sink_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let sink_state = sink_calls.clone();
+            let mut sink_target = AxEventTarget::new("sink-target", move |value, _| {
+                *model_state.lock().unwrap() += 1;
+                Ok(value)
+            });
+            sink_target.retry_safety = "idempotent".into();
+            sink_target.sinks.push((
+                "fixture-sink".into(),
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    move |output: Value, context: Value| {
+                        let mut calls = sink_state.lock().unwrap();
+                        *calls += 1;
+                        if *calls == 1 {
+                            return Err(AxError::new("fixture", "sink once"));
+                        }
+                        if context["run"]["output"] != output {
+                            return Err(AxError::new("fixture", "output-before-sink"));
+                        }
+                        Ok(())
+                    },
+                )),
+            ));
+            let mut sink_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "sink-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.sink"]}),
+                    target_id: Some("sink-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            sink_runtime.register_target(sink_target);
+            sink_runtime.start()?;
+            sink_runtime.publish(
+                make_event("sink-1", "event.sink", json!({"ok":true}), vec![]),
+                "anonymous",
+                "untrusted",
+            )?;
+            let dead = sink_runtime.list_dead_letters().into_iter().next().unwrap();
+            sink_runtime.redrive(&dead.id)?;
+            if *model_calls.lock().unwrap() != 1
+                || *sink_calls.lock().unwrap() != 2
+                || !sink_runtime.list_dead_letters().is_empty()
+            {
+                return Err(AxError::new("fixture", "event sink-only redrive mismatch"));
+            }
+
+            let continuation_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let continuation_state = continuation_calls.clone();
+            let mut continuation_target =
+                AxEventTarget::new("continuation-target", move |value, _| {
+                    *continuation_state.lock().unwrap() += 1;
+                    Ok(value)
+                });
+            continuation_target.wait_for = vec![json!({"kind":"job","value":"job"})];
+            let mut continuation_runtime = AxEventRuntime::new(
+                vec![
+                    AxEventRoute {
+                        id: "continuation-wake".into(),
+                        action: "wake".into(),
+                        r#match: json!({"types":["event.continuation.start"]}),
+                        target_id: Some("continuation-target".into()),
+                        require_authenticated: false,
+                        ordering: "strict".into(),
+                        debounce_ms: 0,
+                        instance_key: None,
+                    },
+                    AxEventRoute {
+                        id: "continuation-resume".into(),
+                        action: "resume".into(),
+                        r#match: json!({"types":["event.continuation.done"]}),
+                        target_id: None,
+                        require_authenticated: false,
+                        ordering: "strict".into(),
+                        debounce_ms: 0,
+                        instance_key: None,
+                    },
+                ],
+                json!({}),
+            )?;
+            continuation_runtime.register_target(continuation_target);
+            continuation_runtime.start()?;
+            continuation_runtime.publish(
+                make_event(
+                    "continuation-1",
+                    "event.continuation.start",
+                    json!({"job":"job-1"}),
+                    vec![],
+                ),
+                "tenant:test",
+                "authenticated",
+            )?;
+            continuation_runtime.publish(
+                make_event(
+                    "continuation-2",
+                    "event.continuation.done",
+                    json!({"job":"job-1"}),
+                    vec![AxEventCorrelationKey {
+                        kind: "job".into(),
+                        value: "job-1".into(),
+                    }],
+                ),
+                "tenant:test",
+                "authenticated",
+            )?;
+            if *continuation_calls.lock().unwrap() != 2 {
+                return Err(AxError::new(
+                    "fixture",
+                    "event continuation resume mismatch",
+                ));
+            }
+
+            let mcp_client = std::sync::Arc::new(std::sync::Mutex::new(AxMCPClient::new(
+                Box::new(AxMCPScriptedTransport::new(vec![
+                    json!({"method":"initialize","result":{"protocolVersion":"2025-11-25","capabilities":{"resources":{"subscribe":true}}}}),
+                ])),
+                json!({"namespace":"inventory"}),
+            )));
+            let lifecycle_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let lifecycle_state = lifecycle_calls.clone();
+            mcp_client
+                .lock()
+                .unwrap()
+                .add_lifecycle_listener(move |_| *lifecycle_state.lock().unwrap() += 1);
+            let mcp_calls = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+            let mcp_state = mcp_calls.clone();
+            let mcp_target = AxEventTarget::new("mcp-target", move |value, _| {
+                *mcp_state.lock().unwrap() += 1;
+                Ok(value)
+            });
+            let mut mcp_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "mcp-wake".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["mcp.resource.updated"]}),
+                    target_id: Some("mcp-target".into()),
+                    require_authenticated: true,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            mcp_runtime.register_target(mcp_target);
+            mcp_runtime.start()?;
+            let mcp_runtime = std::sync::Arc::new(std::sync::Mutex::new(mcp_runtime));
+            let mut mcp_source = AxMCPEventSource::new(
+                mcp_client.clone(),
+                mcp_runtime.clone(),
+                "inventory",
+                "tenant:test",
+                "authenticated",
+                vec!["demo://inventory".into()],
+            );
+            mcp_source.start()?;
+            mcp_client.lock().unwrap().emit_notification(json!({"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"uri":"demo://inventory"}}));
+            mcp_client.lock().unwrap().emit_lifecycle("reconnected");
+            mcp_source.poll();
+            mcp_source.close()?;
+            mcp_client.lock().unwrap().emit_notification(json!({"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"uri":"demo://inventory"}}));
+            if *mcp_calls.lock().unwrap() != 1 || *lifecycle_calls.lock().unwrap() != 1 {
+                return Err(AxError::new("fixture", "MCP listener composition mismatch"));
+            }
+            let mut ownership = core_value_to_json(&mcp_resource_subscription_ownership(&[
+                core_value_from_json(&json!([])),
+                core_value_from_json(&json!("source-a")),
+                core_value_from_json(&json!("acquire")),
+            ])?);
+            ownership = core_value_to_json(&mcp_resource_subscription_ownership(&[
+                core_value_from_json(&ownership["owners"]),
+                core_value_from_json(&json!("source-b")),
+                core_value_from_json(&json!("acquire")),
+            ])?);
+            ownership = core_value_to_json(&mcp_resource_subscription_ownership(&[
+                core_value_from_json(&ownership["owners"]),
+                core_value_from_json(&json!("source-a")),
+                core_value_from_json(&json!("release")),
+            ])?);
+            if ownership != json!({"owners":["source-b"],"wireAction":"none","changed":true}) {
+                return Err(AxError::new(
+                    "fixture",
+                    "MCP subscription ownership transition mismatch",
+                ));
+            }
+            let selection_resources =
+                json!([{"uri":"demo://b"},{"uri":"demo://a"},{"uri":"demo://b"},{"uri":""}]);
+            let selection_modes = json!([
+                core_value_to_json(&mcp_resource_subscription_selection(&[
+                    core_value_from_json(&selection_resources),
+                    core_value_from_json(&json!("all")),
+                    core_value_from_json(&json!([]))
+                ])?),
+                core_value_to_json(&mcp_resource_subscription_selection(&[
+                    core_value_from_json(&json!([])),
+                    core_value_from_json(&json!("explicit")),
+                    core_value_from_json(&json!(["demo://x", "demo://y", "demo://x"]))
+                ])?),
+                core_value_to_json(&mcp_resource_subscription_selection(&[
+                    core_value_from_json(&json!([selection_resources[1].clone()])),
+                    core_value_from_json(&json!("selector")),
+                    core_value_from_json(&json!([]))
+                ])?)
+            ]);
+            if selection_modes
+                != json!([
+                    ["demo://b", "demo://a"],
+                    ["demo://x", "demo://y"],
+                    ["demo://a"]
+                ])
+            {
+                return Err(AxError::new(
+                    "fixture",
+                    "MCP subscription selection modes mismatch",
+                ));
+            }
+            let mapped_inputs = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+            let mapped_state = mapped_inputs.clone();
+            let mapped_target = event_target("mapped-target", move |value, _| {
+                mapped_state.lock().unwrap().push(value.clone());
+                Ok(value)
+            })
+            .signature(AxSignature::parse(
+                "url:string, revision:number -> ok:boolean",
+            )?)
+            .wake_input(|input| {
+                input
+                    .field("url", AxEventPath::data(vec![json!("uri")]))
+                    .field("revision", AxEventPath::data(vec![json!("revision")]));
+            });
+            let mapped_route = event_route("mapped-route")
+                .types(&["event.mapped"])
+                .instance_key(AxEventPath::data(vec![json!("uri")]))
+                .wake(&mapped_target)
+                .build()?;
+            let mut mapped_runtime = AxEventRuntime::new(vec![mapped_route], json!({}))?;
+            mapped_runtime.register_target(mapped_target);
+            mapped_runtime.start()?;
+            mapped_runtime.publish(
+                make_event(
+                    "mapped-1",
+                    "event.mapped",
+                    json!({"uri":"demo://one","revision":2}),
+                    vec![],
+                ),
+                "anonymous",
+                "untrusted",
+            )?;
+            mapped_runtime.publish(
+                make_event(
+                    "mapped-2",
+                    "event.mapped",
+                    json!({"uri":"demo://two","revision":"bad"}),
+                    vec![],
+                ),
+                "anonymous",
+                "untrusted",
+            )?;
+            if *mapped_inputs.lock().unwrap() != vec![json!({"url":"demo://one","revision":2})]
+                || mapped_runtime.list_dead_letters().len() != 1
+            {
+                return Err(AxError::new(
+                    "fixture",
+                    "signature-aware event mapping mismatch",
+                ));
+            }
+            let callback_inputs = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+            let callback_state = callback_inputs.clone();
+            let callback_target = AxEventTarget::new("callback-target", move |value, _| {
+                callback_state.lock().unwrap().push(value.clone());
+                Ok(value)
+            })
+            .signature(AxSignature::parse("url:string -> ok:boolean")?)
+            .map_input(|event, _| Ok(json!({"url":event.data["uri"],"secret":"drop-me"})));
+            let mut callback_runtime = AxEventRuntime::new(
+                vec![AxEventRoute {
+                    id: "callback-route".into(),
+                    action: "wake".into(),
+                    r#match: json!({"types":["event.callback"]}),
+                    target_id: Some("callback-target".into()),
+                    require_authenticated: false,
+                    ordering: "strict".into(),
+                    debounce_ms: 0,
+                    instance_key: None,
+                }],
+                json!({}),
+            )?;
+            callback_runtime.register_target(callback_target);
+            callback_runtime.start()?;
+            callback_runtime.publish(
+                make_event(
+                    "callback-1",
+                    "event.callback",
+                    json!({"uri":"demo://callback"}),
+                    vec![],
+                ),
+                "anonymous",
+                "untrusted",
+            )?;
+            if *callback_inputs.lock().unwrap() != vec![json!({"url":"demo://callback"})] {
+                return Err(AxError::new(
+                    "fixture",
+                    "event callback signature normalization mismatch",
+                ));
+            }
+            Ok(())
+        }
+        _ => Err(AxError::new(
+            "fixture",
+            format!("unsupported event operation {operation}"),
+        )),
+    }
 }
 
 fn run_explicit_non_ai_conformance_fixture(kind: &str, _fixture: &Value) -> AxResult<()> {
@@ -9805,6 +10662,7 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                     let nested_state = conformance_build_flow_state_from_spec(step, &nested_id)?;
                     FlowHost::new(AxFlow {
                         state: nested_state,
+                        execution_context: None,
                     })
                 }
                 "agent" => {
@@ -11655,7 +12513,9 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         signature,
         options: fixture.get("options").cloned().unwrap_or_else(|| json!({})),
         function_call_traces: Vec::new(),
+        base_tools: fixture_tools.clone(),
         tools: fixture_tools,
+        execution_context: None,
         assertions: fixture
             .get("assertions")
             .and_then(Value::as_array)
@@ -13297,7 +14157,7 @@ fn core_fields_value(fields: &[Field]) -> Result<CoreValue, AxError> {
     Ok(out)
 }
 
-fn validate_fields_native(fields: &[Field], values: &Value) -> AxResult<()> {
+pub(crate) fn validate_fields_native(fields: &[Field], values: &Value) -> AxResult<()> {
     validate_fields(&[core_fields_value(fields)?, core_value_from_json(values)])?;
     Ok(())
 }
@@ -17523,6 +18383,8 @@ fn agent_stage_gen(signature: AxSignature, options: Value) -> CoreValue {
         options,
         function_call_traces: Vec::new(),
         tools: Vec::new(),
+        base_tools: Vec::new(),
+        execution_context: None,
         assertions: Vec::new(),
         examples: Vec::new(),
         demos: Vec::new(),
@@ -56294,6 +57156,169 @@ fn _flow_optimize_with(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn ucp_negotiate_profile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ucp_negotiate_profile");
+    let mut v_profile = core_arg(args, 0);
+    let mut v_supportedVersions = core_arg(args, 1);
+    let mut v_requestedServices = core_arg(args, 2);
+    let mut v_capabilities = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_services = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    v_version = core_get(&v_profile, &CoreValue::from("version"), CoreValue::Null);
+    v_services = core_get(&v_profile, &CoreValue::from("services"), CoreValue::Null);
+    v_capabilities = core_get(
+        &v_profile,
+        &CoreValue::from("capabilities"),
+        CoreValue::Null,
+    );
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("version"), v_version.clone())?;
+    core_set(&v_out, CoreValue::from("services"), v_services.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("capabilities"),
+        v_capabilities.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("supportedVersions"),
+        v_supportedVersions.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("requestedServices"),
+        v_requestedServices.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn ucp_normalize_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ucp_normalize_outcome");
+    let mut v_operation = core_arg(args, 0);
+    let mut v_response = core_arg(args, 1);
+    let mut v_continuation = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_partial = CoreValue::Null;
+    let mut v_warnings = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("operation"), v_operation.clone())?;
+    core_set(&v_out, CoreValue::from("value"), v_response.clone())?;
+    v_warnings = core_get(&v_response, &CoreValue::from("warnings"), CoreValue::Null);
+    v_continuation = core_get(
+        &v_response,
+        &CoreValue::from("continuation_url"),
+        CoreValue::Null,
+    );
+    v_partial = core_get(
+        &v_response,
+        &CoreValue::from("partial_success"),
+        CoreValue::Bool(false),
+    );
+    core_set(&v_out, CoreValue::from("warnings"), v_warnings.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("continuationUrl"),
+        v_continuation.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("partialSuccess"), v_partial.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_execution_context_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_execution_context_descriptor");
+    let mut v_namespaces = core_arg(args, 0);
+    let mut v_inheritance = core_arg(args, 1);
+    let mut v_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("namespaces"), v_namespaces.clone())?;
+    v_missing = core_is_none(&[v_inheritance.clone()])?;
+    if core_truthy(&v_missing) {
+        core_set(
+            &v_out,
+            CoreValue::from("inheritance"),
+            CoreValue::from("all"),
+        )?;
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("inheritance"),
+            v_inheritance.clone(),
+        )?;
+    }
+    core_set(&v_out, CoreValue::from("native"), CoreValue::Bool(true))?;
+    core_set(
+        &v_out,
+        CoreValue::from("lossyAdapter"),
+        CoreValue::Bool(false),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_runtime_descriptor(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_runtime_descriptor");
+    let mut v_routes = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_empty = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_missing = core_is_none(&[v_options.clone()])?;
+    v_opts = v_options.clone();
+    if core_truthy(&v_missing) {
+        v_opts = v_empty.clone();
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("routes"), v_routes.clone())?;
+    core_set(&v_out, CoreValue::from("options"), v_opts.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("durability"),
+        CoreValue::from("volatile"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("coordination"),
+        CoreValue::from("single-worker"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("implicitWake"),
+        CoreValue::Bool(false),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_protocol_constants");
     let mut v_out = CoreValue::Null;
@@ -56315,6 +57340,121 @@ fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_versions.clone(),
     )?;
     return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_route_commands(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_route_commands");
+    let mut v_event = core_arg(args, 0);
+    let mut v_routes = core_arg(args, 1);
+    let mut v_identity_scope = core_arg(args, 2);
+    let mut v_trust = core_arg(args, 3);
+    let mut v_action = CoreValue::Null;
+    let mut v_allowed = CoreValue::Null;
+    let mut v_auth_allowed = CoreValue::Null;
+    let mut v_authenticated = CoreValue::Null;
+    let mut v_command = CoreValue::Null;
+    let mut v_commands = CoreValue::Null;
+    let mut v_event_id = CoreValue::Null;
+    let mut v_event_source = CoreValue::Null;
+    let mut v_event_type = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_match = CoreValue::Null;
+    let mut v_matched = CoreValue::Null;
+    let mut v_requires_auth = CoreValue::Null;
+    let mut v_route = CoreValue::Null;
+    let mut v_route_id = CoreValue::Null;
+    let mut v_source_count = CoreValue::Null;
+    let mut v_source_listed = CoreValue::Null;
+    let mut v_source_match = CoreValue::Null;
+    let mut v_source_open = CoreValue::Null;
+    let mut v_sources = CoreValue::Null;
+    let mut v_sources_empty = CoreValue::Null;
+    let mut v_subject = CoreValue::Null;
+    let mut v_target_id = CoreValue::Null;
+    let mut v_trusted = CoreValue::Null;
+    let mut v_type_count = CoreValue::Null;
+    let mut v_type_listed = CoreValue::Null;
+    let mut v_type_match = CoreValue::Null;
+    let mut v_type_open = CoreValue::Null;
+    let mut v_types = CoreValue::Null;
+    let mut v_types_empty = CoreValue::Null;
+    let mut v_verified = CoreValue::Null;
+    v_commands = CoreValue::new_list();
+    v_event_type = core_get(&v_event, &CoreValue::from("type"), CoreValue::from(""));
+    v_event_source = core_get(&v_event, &CoreValue::from("source"), CoreValue::from(""));
+    v_subject = core_get(
+        &v_event,
+        &CoreValue::from("subject"),
+        v_identity_scope.clone(),
+    );
+    for v_route in core_iter(&v_routes)? {
+        let mut v_route = v_route;
+        v_match = core_get(&v_route, &CoreValue::from("match"), CoreValue::Null);
+        v_types_empty = CoreValue::new_list();
+        v_sources_empty = CoreValue::new_list();
+        v_types = core_get(&v_match, &CoreValue::from("types"), v_types_empty.clone());
+        v_sources = core_get(
+            &v_match,
+            &CoreValue::from("sources"),
+            v_sources_empty.clone(),
+        );
+        v_type_count = core_len(&[v_types.clone()])?;
+        v_source_count = core_len(&[v_sources.clone()])?;
+        v_type_open = core_eq(&[v_type_count.clone(), CoreValue::Num(0f64)])?;
+        v_source_open = core_eq(&[v_source_count.clone(), CoreValue::Num(0f64)])?;
+        v_type_listed = core_contains(&[v_types.clone(), v_event_type.clone()])?;
+        v_source_listed = core_contains(&[v_sources.clone(), v_event_source.clone()])?;
+        v_type_match = core_or(&[v_type_open.clone(), v_type_listed.clone()])?;
+        v_source_match = core_or(&[v_source_open.clone(), v_source_listed.clone()])?;
+        v_matched = core_and(&[v_type_match.clone(), v_source_match.clone()])?;
+        v_requires_auth = core_get(
+            &v_route,
+            &CoreValue::from("requireAuthenticated"),
+            CoreValue::Bool(false),
+        );
+        v_authenticated = core_eq(&[v_trust.clone(), CoreValue::from("authenticated")])?;
+        v_trusted = core_eq(&[v_trust.clone(), CoreValue::from("trusted")])?;
+        v_verified = core_or(&[v_authenticated.clone(), v_trusted.clone()])?;
+        v_auth_allowed = CoreValue::Bool(true);
+        if core_truthy(&v_requires_auth) {
+            v_auth_allowed = v_verified.clone();
+        }
+        v_allowed = core_and(&[v_matched.clone(), v_auth_allowed.clone()])?;
+        if core_truthy(&v_allowed) {
+            v_route_id = core_get(&v_route, &CoreValue::from("id"), CoreValue::from(""));
+            v_action = core_get(
+                &v_route,
+                &CoreValue::from("action"),
+                CoreValue::from("observe"),
+            );
+            v_target_id = core_get(&v_route, &CoreValue::from("targetId"), CoreValue::Null);
+            v_command = CoreValue::new_map();
+            core_set(&v_command, CoreValue::from("routeId"), v_route_id.clone())?;
+            core_set(&v_command, CoreValue::from("action"), v_action.clone())?;
+            core_set(&v_command, CoreValue::from("targetId"), v_target_id.clone())?;
+            core_set(
+                &v_command,
+                CoreValue::from("instanceKey"),
+                v_subject.clone(),
+            )?;
+            v_event_id = core_get(&v_event, &CoreValue::from("id"), CoreValue::from(""));
+            v_key = core_string_format(&[
+                CoreValue::from("{}:{}"),
+                v_route_id.clone(),
+                v_event_id.clone(),
+            ])?;
+            core_set(&v_command, CoreValue::from("idempotencyKey"), v_key.clone())?;
+            core_append(&v_commands, v_command.clone())?;
+        }
+    }
+    return Ok(v_commands.clone());
 }
 
 #[allow(
@@ -56412,4 +57552,946 @@ fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_response.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (436 of 436 core functions)
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_retry_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_retry_transition");
+    let mut v_invocation_started = core_arg(args, 0);
+    let mut v_retry_safety = core_arg(args, 1);
+    let mut v_attempt = core_arg(args, 2);
+    let mut v_max_attempts = core_arg(args, 3);
+    let mut v_can_retry = CoreValue::Null;
+    let mut v_idempotent = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_pre_invocation = CoreValue::Null;
+    let mut v_retry = CoreValue::Null;
+    let mut v_safe = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_idempotent = core_eq(&[v_retry_safety.clone(), CoreValue::from("idempotent")])?;
+    v_can_retry = core_lt(&[v_attempt.clone(), v_max_attempts.clone()])?;
+    v_pre_invocation = core_not(&[v_invocation_started.clone()])?;
+    v_safe = core_or(&[v_pre_invocation.clone(), v_idempotent.clone()])?;
+    v_retry = core_and(&[v_safe.clone(), v_can_retry.clone()])?;
+    core_set(&v_out, CoreValue::from("retry"), v_retry.clone())?;
+    core_set(&v_out, CoreValue::from("status"), CoreValue::from("failed"))?;
+    if core_truthy(&v_invocation_started) {
+        if core_truthy(&v_idempotent) {
+        } else {
+            core_set(
+                &v_out,
+                CoreValue::from("status"),
+                CoreValue::from("outcome_unknown"),
+            )?;
+            core_set(&v_out, CoreValue::from("retry"), CoreValue::Bool(false))?;
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_resolve_path(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_resolve_path");
+    let mut v_ingress = core_arg(args, 0);
+    let mut v_path = core_arg(args, 1);
+    let mut v_continuation = core_arg(args, 2);
+    let mut v_array = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_container = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_is_constant = CoreValue::Null;
+    let mut v_is_continuation = CoreValue::Null;
+    let mut v_is_correlation = CoreValue::Null;
+    let mut v_is_data = CoreValue::Null;
+    let mut v_is_envelope = CoreValue::Null;
+    let mut v_is_extensions = CoreValue::Null;
+    let mut v_is_identity = CoreValue::Null;
+    let mut v_is_trust = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_keys_empty = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_object = CoreValue::Null;
+    let mut v_root = CoreValue::Null;
+    let mut v_segment = CoreValue::Null;
+    let mut v_segments = CoreValue::Null;
+    let mut v_segments_empty = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_root = core_get(&v_path, &CoreValue::from("root"), CoreValue::from("data"));
+    v_event = core_get(&v_ingress, &CoreValue::from("event"), v_ingress.clone());
+    v_current = v_none.clone();
+    v_is_data = core_eq(&[v_root.clone(), CoreValue::from("data")])?;
+    v_is_envelope = core_eq(&[v_root.clone(), CoreValue::from("envelope")])?;
+    v_is_extensions = core_eq(&[v_root.clone(), CoreValue::from("extensions")])?;
+    v_is_identity = core_eq(&[v_root.clone(), CoreValue::from("identity")])?;
+    v_is_trust = core_eq(&[v_root.clone(), CoreValue::from("trust")])?;
+    v_is_continuation = core_eq(&[v_root.clone(), CoreValue::from("continuation")])?;
+    v_is_constant = core_eq(&[v_root.clone(), CoreValue::from("constant")])?;
+    v_is_correlation = core_eq(&[v_root.clone(), CoreValue::from("correlation")])?;
+    if core_truthy(&v_is_data) {
+        v_current = core_get(&v_event, &CoreValue::from("data"), v_none.clone());
+    }
+    if core_truthy(&v_is_envelope) {
+        v_current = v_event.clone();
+    }
+    if core_truthy(&v_is_extensions) {
+        v_current = core_get(&v_event, &CoreValue::from("extensions"), v_none.clone());
+    }
+    if core_truthy(&v_is_identity) {
+        v_current = core_get(&v_ingress, &CoreValue::from("identity"), v_none.clone());
+    }
+    if core_truthy(&v_is_trust) {
+        v_current = core_get(
+            &v_ingress,
+            &CoreValue::from("trust"),
+            CoreValue::from("untrusted"),
+        );
+    }
+    if core_truthy(&v_is_continuation) {
+        v_current = core_get(
+            &v_continuation,
+            &CoreValue::from("metadata"),
+            v_none.clone(),
+        );
+    }
+    if core_truthy(&v_is_constant) {
+        v_current = core_get(&v_path, &CoreValue::from("value"), v_none.clone());
+    }
+    if core_truthy(&v_is_correlation) {
+        v_kind = core_get(
+            &v_path,
+            &CoreValue::from("correlationKind"),
+            CoreValue::from(""),
+        );
+        v_keys_empty = CoreValue::new_list();
+        v_keys = core_get(
+            &v_ingress,
+            &CoreValue::from("correlation"),
+            v_keys_empty.clone(),
+        );
+        for v_key in core_iter(&v_keys)? {
+            let mut v_key = v_key;
+            v_candidate = core_get(&v_key, &CoreValue::from("kind"), CoreValue::from(""));
+            v_matches = core_eq(&[v_candidate.clone(), v_kind.clone()])?;
+            if core_truthy(&v_matches) {
+                v_current = core_get(&v_key, &CoreValue::from("value"), v_none.clone());
+            }
+        }
+    }
+    v_segments_empty = CoreValue::new_list();
+    v_segments = core_get(
+        &v_path,
+        &CoreValue::from("segments"),
+        v_segments_empty.clone(),
+    );
+    for v_segment in core_iter(&v_segments)? {
+        let mut v_segment = v_segment;
+        v_object = core_type_is(&v_current, CoreValue::from("object"));
+        v_array = core_type_is(&v_current, CoreValue::from("array"));
+        v_container = core_or(&[v_object.clone(), v_array.clone()])?;
+        if core_truthy(&v_container) {
+            v_current = core_get(&v_current, &v_segment.clone(), v_none.clone());
+        } else {
+            v_current = v_none.clone();
+        }
+    }
+    return Ok(v_current.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_resource_subscription_selection(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_resource_subscription_selection");
+    let mut v_resources = core_arg(args, 0);
+    let mut v_mode = core_arg(args, 1);
+    let mut v_explicit_uris = core_arg(args, 2);
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_is_all = CoreValue::Null;
+    let mut v_is_explicit = CoreValue::Null;
+    let mut v_is_selector = CoreValue::Null;
+    let mut v_resource = CoreValue::Null;
+    let mut v_selected = CoreValue::Null;
+    let mut v_skip = CoreValue::Null;
+    let mut v_uri = CoreValue::Null;
+    let mut v_uses_resources = CoreValue::Null;
+    v_selected = CoreValue::new_list();
+    v_is_explicit = core_eq(&[v_mode.clone(), CoreValue::from("explicit")])?;
+    if core_truthy(&v_is_explicit) {
+        for v_uri in core_iter(&v_explicit_uris)? {
+            let mut v_uri = v_uri;
+            v_empty = core_eq(&[v_uri.clone(), CoreValue::from("")])?;
+            v_duplicate = core_contains(&[v_selected.clone(), v_uri.clone()])?;
+            v_skip = core_or(&[v_empty.clone(), v_duplicate.clone()])?;
+            if core_truthy(&v_skip) {
+            } else {
+                core_append(&v_selected, v_uri.clone())?;
+            }
+        }
+    } else {
+        v_is_all = core_eq(&[v_mode.clone(), CoreValue::from("all")])?;
+        v_is_selector = core_eq(&[v_mode.clone(), CoreValue::from("selector")])?;
+        v_uses_resources = core_or(&[v_is_all.clone(), v_is_selector.clone()])?;
+        if core_truthy(&v_uses_resources) {
+            for v_resource in core_iter(&v_resources)? {
+                let mut v_resource = v_resource;
+                v_uri = core_get(&v_resource, &CoreValue::from("uri"), CoreValue::from(""));
+                v_empty = core_eq(&[v_uri.clone(), CoreValue::from("")])?;
+                v_duplicate = core_contains(&[v_selected.clone(), v_uri.clone()])?;
+                v_skip = core_or(&[v_empty.clone(), v_duplicate.clone()])?;
+                if core_truthy(&v_skip) {
+                } else {
+                    core_append(&v_selected, v_uri.clone())?;
+                }
+            }
+        }
+    }
+    return Ok(v_selected.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_resource_subscription_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_resource_subscription_plan");
+    let mut v_desired = core_arg(args, 0);
+    let mut v_current = core_arg(args, 1);
+    let mut v_additions = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_owned = CoreValue::Null;
+    let mut v_removals = CoreValue::Null;
+    let mut v_selected = CoreValue::Null;
+    let mut v_uri = CoreValue::Null;
+    let mut v_wanted = CoreValue::Null;
+    v_selected = CoreValue::new_list();
+    for v_uri in core_iter(&v_desired)? {
+        let mut v_uri = v_uri;
+        v_duplicate = core_contains(&[v_selected.clone(), v_uri.clone()])?;
+        if core_truthy(&v_duplicate) {
+        } else {
+            core_append(&v_selected, v_uri.clone())?;
+        }
+    }
+    v_additions = CoreValue::new_list();
+    for v_uri in core_iter(&v_selected)? {
+        let mut v_uri = v_uri;
+        v_owned = core_contains(&[v_current.clone(), v_uri.clone()])?;
+        if core_truthy(&v_owned) {
+        } else {
+            core_append(&v_additions, v_uri.clone())?;
+        }
+    }
+    v_removals = CoreValue::new_list();
+    for v_uri in core_iter(&v_current)? {
+        let mut v_uri = v_uri;
+        v_wanted = core_contains(&[v_selected.clone(), v_uri.clone()])?;
+        if core_truthy(&v_wanted) {
+        } else {
+            core_append(&v_removals, v_uri.clone())?;
+        }
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("selected"), v_selected.clone())?;
+    core_set(&v_out, CoreValue::from("additions"), v_additions.clone())?;
+    core_set(&v_out, CoreValue::from("removals"), v_removals.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_map_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_map_input");
+    let mut v_ingress = core_arg(args, 0);
+    let mut v_plan = core_arg(args, 1);
+    let mut v_signature_fields = core_arg(args, 2);
+    let mut v_continuation = core_arg(args, 3);
+    let mut v_destination = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_has_project = CoreValue::Null;
+    let mut v_has_selector = CoreValue::Null;
+    let mut v_mapping = CoreValue::Null;
+    let mut v_mappings = CoreValue::Null;
+    let mut v_mappings_empty = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_optional = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_project_object = CoreValue::Null;
+    let mut v_project_path = CoreValue::Null;
+    let mut v_projection = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_selector = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_out = CoreValue::new_map();
+    v_result = CoreValue::new_map();
+    v_error = v_none.clone();
+    v_project_path = core_get(&v_plan, &CoreValue::from("project"), v_none.clone());
+    v_projection = v_none.clone();
+    v_has_project = core_is_not_none(&[v_project_path.clone()])?;
+    if core_truthy(&v_has_project) {
+        v_projection = event_resolve_path(&[
+            v_ingress.clone(),
+            v_project_path.clone(),
+            v_continuation.clone(),
+        ])?;
+    }
+    v_mappings_empty = CoreValue::new_list();
+    v_mappings = core_get(
+        &v_plan,
+        &CoreValue::from("fields"),
+        v_mappings_empty.clone(),
+    );
+    for v_field in core_iter(&v_signature_fields)? {
+        let mut v_field = v_field;
+        v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+        v_optional = core_get(
+            &v_field,
+            &CoreValue::from("optional"),
+            CoreValue::Bool(false),
+        );
+        v_selector = v_none.clone();
+        for v_mapping in core_iter(&v_mappings)? {
+            let mut v_mapping = v_mapping;
+            v_destination = core_get(&v_mapping, &CoreValue::from("field"), CoreValue::from(""));
+            v_matches = core_eq(&[v_destination.clone(), v_name.clone()])?;
+            if core_truthy(&v_matches) {
+                v_selector = core_get(&v_mapping, &CoreValue::from("path"), v_none.clone());
+            }
+        }
+        v_value = v_none.clone();
+        v_has_selector = core_is_not_none(&[v_selector.clone()])?;
+        if core_truthy(&v_has_selector) {
+            v_value = event_resolve_path(&[
+                v_ingress.clone(),
+                v_selector.clone(),
+                v_continuation.clone(),
+            ])?;
+        } else {
+            v_project_object = core_type_is(&v_projection, CoreValue::from("object"));
+            if core_truthy(&v_project_object) {
+                v_value = core_get(&v_projection, &v_name.clone(), v_none.clone());
+            }
+        }
+        v_missing = core_is_none(&[v_value.clone()])?;
+        if core_truthy(&v_missing) {
+            if core_truthy(&v_optional) {
+            } else {
+                v_error = core_string_format(&[
+                    CoreValue::from("Required signature input {} was not present"),
+                    v_name.clone(),
+                ])?;
+            }
+        } else {
+            core_set(&v_out, v_name.clone(), v_value.clone())?;
+        }
+    }
+    v_failed = core_is_not_none(&[v_error.clone()])?;
+    core_set(&v_result, CoreValue::from("ok"), CoreValue::Bool(true))?;
+    core_set(&v_result, CoreValue::from("value"), v_out.clone())?;
+    if core_truthy(&v_failed) {
+        core_set(&v_result, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(&v_result, CoreValue::from("error"), v_error.clone())?;
+    }
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_resource_subscription_ownership(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_resource_subscription_ownership");
+    let mut v_owners = core_arg(args, 0);
+    let mut v_owner = core_arg(args, 1);
+    let mut v_operation = core_arg(args, 2);
+    let mut v_before = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_has_owner = CoreValue::Null;
+    let mut v_is_acquire = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_now_empty = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_out_owners = CoreValue::Null;
+    let mut v_remaining = CoreValue::Null;
+    let mut v_was_empty = CoreValue::Null;
+    v_out_owners = CoreValue::new_list();
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("wireAction"),
+        CoreValue::from("none"),
+    )?;
+    core_set(&v_out, CoreValue::from("changed"), CoreValue::Bool(false))?;
+    v_has_owner = core_contains(&[v_owners.clone(), v_owner.clone()])?;
+    v_is_acquire = core_eq(&[v_operation.clone(), CoreValue::from("acquire")])?;
+    if core_truthy(&v_is_acquire) {
+        for v_current in core_iter(&v_owners)? {
+            let mut v_current = v_current;
+            core_append(&v_out_owners, v_current.clone())?;
+        }
+        if core_truthy(&v_has_owner) {
+        } else {
+            v_before = core_len(&[v_owners.clone()])?;
+            v_was_empty = core_eq(&[v_before.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_was_empty) {
+                core_set(
+                    &v_out,
+                    CoreValue::from("wireAction"),
+                    CoreValue::from("subscribe"),
+                )?;
+            }
+            core_append(&v_out_owners, v_owner.clone())?;
+            core_set(&v_out, CoreValue::from("changed"), CoreValue::Bool(true))?;
+        }
+    } else {
+        for v_current in core_iter(&v_owners)? {
+            let mut v_current = v_current;
+            v_matches = core_eq(&[v_current.clone(), v_owner.clone()])?;
+            if core_truthy(&v_matches) {
+            } else {
+                core_append(&v_out_owners, v_current.clone())?;
+            }
+        }
+        if core_truthy(&v_has_owner) {
+            v_remaining = core_len(&[v_out_owners.clone()])?;
+            v_now_empty = core_eq(&[v_remaining.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_now_empty) {
+                core_set(
+                    &v_out,
+                    CoreValue::from("wireAction"),
+                    CoreValue::from("unsubscribe"),
+                )?;
+            }
+            core_set(&v_out, CoreValue::from("changed"), CoreValue::Bool(true))?;
+        }
+    }
+    core_set(&v_out, CoreValue::from("owners"), v_out_owners.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_normalize_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_normalize_input");
+    let mut v_input = core_arg(args, 0);
+    let mut v_signature_fields = core_arg(args, 1);
+    let mut v_clone = CoreValue::Null;
+    let mut v_encoded = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_optional = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_none = core_none(&[])?;
+    v_out = CoreValue::new_map();
+    v_result = CoreValue::new_map();
+    v_error = v_none.clone();
+    v_is_object = core_type_is(&v_input, CoreValue::from("object"));
+    if core_truthy(&v_is_object) {
+        for v_field in core_iter(&v_signature_fields)? {
+            let mut v_field = v_field;
+            v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+            v_optional = core_get(
+                &v_field,
+                &CoreValue::from("optional"),
+                CoreValue::Bool(false),
+            );
+            v_value = core_get(&v_input, &v_name.clone(), v_none.clone());
+            v_missing = core_is_none(&[v_value.clone()])?;
+            if core_truthy(&v_missing) {
+                if core_truthy(&v_optional) {
+                } else {
+                    v_error = core_string_format(&[
+                        CoreValue::from("Required signature input {} was not present"),
+                        v_name.clone(),
+                    ])?;
+                }
+            } else {
+                v_encoded = core_json_stringify(&[v_value.clone()])?;
+                v_clone = core_json_parse(&[v_encoded.clone()])?;
+                core_set(&v_out, v_name.clone(), v_clone.clone())?;
+            }
+        }
+    } else {
+        v_error = CoreValue::from("Mapped event input must be an object");
+    }
+    v_failed = core_is_not_none(&[v_error.clone()])?;
+    core_set(&v_result, CoreValue::from("ok"), CoreValue::Bool(true))?;
+    core_set(&v_result, CoreValue::from("value"), v_out.clone())?;
+    if core_truthy(&v_failed) {
+        core_set(&v_result, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(&v_result, CoreValue::from("error"), v_error.clone())?;
+    }
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_continuation_match(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_continuation_match");
+    let mut v_continuations = core_arg(args, 0);
+    let mut v_identity_scope = core_arg(args, 1);
+    let mut v_kind = core_arg(args, 2);
+    let mut v_value = core_arg(args, 3);
+    let mut v_now = core_arg(args, 4);
+    let mut v_active = CoreValue::Null;
+    let mut v_candidate_kind = CoreValue::Null;
+    let mut v_candidate_value = CoreValue::Null;
+    let mut v_continuation = CoreValue::Null;
+    let mut v_correlation = CoreValue::Null;
+    let mut v_correlations = CoreValue::Null;
+    let mut v_correlations_empty = CoreValue::Null;
+    let mut v_expires = CoreValue::Null;
+    let mut v_key_match = CoreValue::Null;
+    let mut v_kind_match = CoreValue::Null;
+    let mut v_match = CoreValue::Null;
+    let mut v_no_expiry = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_scope = CoreValue::Null;
+    let mut v_scope_active = CoreValue::Null;
+    let mut v_scope_match = CoreValue::Null;
+    let mut v_value_match = CoreValue::Null;
+    v_result = core_none(&[])?;
+    for v_continuation in core_iter(&v_continuations)? {
+        let mut v_continuation = v_continuation;
+        v_scope = core_get(
+            &v_continuation,
+            &CoreValue::from("identityScope"),
+            CoreValue::from(""),
+        );
+        v_scope_match = core_eq(&[v_scope.clone(), v_identity_scope.clone()])?;
+        v_expires = core_get(
+            &v_continuation,
+            &CoreValue::from("expiresAt"),
+            CoreValue::Null,
+        );
+        v_no_expiry = core_is_none(&[v_expires.clone()])?;
+        v_active = v_no_expiry.clone();
+        if core_truthy(&v_no_expiry) {
+        } else {
+            v_active = core_lt(&[v_now.clone(), v_expires.clone()])?;
+        }
+        v_correlations_empty = CoreValue::new_list();
+        v_correlations = core_get(
+            &v_continuation,
+            &CoreValue::from("correlation"),
+            v_correlations_empty.clone(),
+        );
+        for v_correlation in core_iter(&v_correlations)? {
+            let mut v_correlation = v_correlation;
+            v_candidate_kind = core_get(
+                &v_correlation,
+                &CoreValue::from("kind"),
+                CoreValue::from(""),
+            );
+            v_candidate_value = core_get(
+                &v_correlation,
+                &CoreValue::from("value"),
+                CoreValue::from(""),
+            );
+            v_kind_match = core_eq(&[v_candidate_kind.clone(), v_kind.clone()])?;
+            v_value_match = core_eq(&[v_candidate_value.clone(), v_value.clone()])?;
+            v_key_match = core_and(&[v_kind_match.clone(), v_value_match.clone()])?;
+            v_scope_active = core_and(&[v_scope_match.clone(), v_active.clone()])?;
+            v_match = core_and(&[v_scope_active.clone(), v_key_match.clone()])?;
+            if core_truthy(&v_match) {
+                v_result = v_continuation.clone();
+            }
+        }
+    }
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_delivery_due(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_delivery_due");
+    let mut v_status = core_arg(args, 0);
+    let mut v_available_at = core_arg(args, 1);
+    let mut v_now = core_arg(args, 2);
+    let mut v_due = CoreValue::Null;
+    let mut v_queued = CoreValue::Null;
+    let mut v_ready = CoreValue::Null;
+    v_queued = core_eq(&[v_status.clone(), CoreValue::from("queued")])?;
+    v_ready = core_lte(&[v_available_at.clone(), v_now.clone()])?;
+    v_due = core_and(&[v_queued.clone(), v_ready.clone()])?;
+    return Ok(v_due.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_strict_delivery_eligible(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_strict_delivery_eligible");
+    let mut v_candidate = core_arg(args, 0);
+    let mut v_deliveries = core_arg(args, 1);
+    let mut v_blocking = CoreValue::Null;
+    let mut v_candidate_instance = CoreValue::Null;
+    let mut v_candidate_sequence = CoreValue::Null;
+    let mut v_candidate_target = CoreValue::Null;
+    let mut v_delivery = CoreValue::Null;
+    let mut v_earlier = CoreValue::Null;
+    let mut v_eligible = CoreValue::Null;
+    let mut v_instance = CoreValue::Null;
+    let mut v_is_terminal = CoreValue::Null;
+    let mut v_nonterminal = CoreValue::Null;
+    let mut v_ordering = CoreValue::Null;
+    let mut v_predecessor = CoreValue::Null;
+    let mut v_same_instance = CoreValue::Null;
+    let mut v_same_queue = CoreValue::Null;
+    let mut v_same_target = CoreValue::Null;
+    let mut v_sequence = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_strict = CoreValue::Null;
+    let mut v_target = CoreValue::Null;
+    let mut v_terminal = CoreValue::Null;
+    v_ordering = core_get(
+        &v_candidate,
+        &CoreValue::from("ordering"),
+        CoreValue::from("strict"),
+    );
+    v_strict = core_eq(&[v_ordering.clone(), CoreValue::from("strict")])?;
+    v_eligible = CoreValue::Bool(true);
+    if core_truthy(&v_strict) {
+        v_candidate_sequence = core_get(
+            &v_candidate,
+            &CoreValue::from("sequence"),
+            CoreValue::Num(0f64),
+        );
+        v_candidate_target = core_get(
+            &v_candidate,
+            &CoreValue::from("targetId"),
+            CoreValue::from(""),
+        );
+        v_candidate_instance = core_get(
+            &v_candidate,
+            &CoreValue::from("instanceKey"),
+            CoreValue::from(""),
+        );
+        v_terminal = CoreValue::new_list();
+        core_append(&v_terminal, CoreValue::from("succeeded"))?;
+        core_append(&v_terminal, CoreValue::from("failed"))?;
+        core_append(&v_terminal, CoreValue::from("cancelled"))?;
+        core_append(&v_terminal, CoreValue::from("dead_lettered"))?;
+        core_append(&v_terminal, CoreValue::from("output_persistence_failed"))?;
+        core_append(&v_terminal, CoreValue::from("outcome_unknown"))?;
+        core_append(&v_terminal, CoreValue::from("waiting_event"))?;
+        core_append(&v_terminal, CoreValue::from("coalesced"))?;
+        for v_delivery in core_iter(&v_deliveries)? {
+            let mut v_delivery = v_delivery;
+            v_sequence = core_get(
+                &v_delivery,
+                &CoreValue::from("sequence"),
+                CoreValue::Num(0f64),
+            );
+            v_earlier = core_lt(&[v_sequence.clone(), v_candidate_sequence.clone()])?;
+            v_target = core_get(
+                &v_delivery,
+                &CoreValue::from("targetId"),
+                CoreValue::from(""),
+            );
+            v_instance = core_get(
+                &v_delivery,
+                &CoreValue::from("instanceKey"),
+                CoreValue::from(""),
+            );
+            v_same_target = core_eq(&[v_target.clone(), v_candidate_target.clone()])?;
+            v_same_instance = core_eq(&[v_instance.clone(), v_candidate_instance.clone()])?;
+            v_same_queue = core_and(&[v_same_target.clone(), v_same_instance.clone()])?;
+            v_status = core_get(
+                &v_delivery,
+                &CoreValue::from("status"),
+                CoreValue::from("queued"),
+            );
+            v_is_terminal = core_contains(&[v_terminal.clone(), v_status.clone()])?;
+            v_nonterminal = core_not(&[v_is_terminal.clone()])?;
+            v_predecessor = core_and(&[v_earlier.clone(), v_same_queue.clone()])?;
+            v_blocking = core_and(&[v_predecessor.clone(), v_nonterminal.clone()])?;
+            if core_truthy(&v_blocking) {
+                v_eligible = CoreValue::Bool(false);
+            }
+        }
+    }
+    return Ok(v_eligible.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_capacity_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_capacity_transition");
+    let mut v_pending = core_arg(args, 0);
+    let mut v_queued_bytes = core_arg(args, 1);
+    let mut v_envelope_bytes = core_arg(args, 2);
+    let mut v_max_pending = core_arg(args, 3);
+    let mut v_max_queued_bytes = core_arg(args, 4);
+    let mut v_max_envelope_bytes = core_arg(args, 5);
+    let mut v_accepted = CoreValue::Null;
+    let mut v_envelope_ok = CoreValue::Null;
+    let mut v_next_bytes = CoreValue::Null;
+    let mut v_next_pending = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_pending_ok = CoreValue::Null;
+    let mut v_queue_capacity = CoreValue::Null;
+    let mut v_queue_ok = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_next_pending = core_add(&[v_pending.clone(), CoreValue::Num(1f64)])?;
+    v_next_bytes = core_add(&[v_queued_bytes.clone(), v_envelope_bytes.clone()])?;
+    v_pending_ok = core_lte(&[v_next_pending.clone(), v_max_pending.clone()])?;
+    v_queue_ok = core_lte(&[v_next_bytes.clone(), v_max_queued_bytes.clone()])?;
+    v_envelope_ok = core_lte(&[v_envelope_bytes.clone(), v_max_envelope_bytes.clone()])?;
+    v_queue_capacity = core_and(&[v_pending_ok.clone(), v_queue_ok.clone()])?;
+    v_accepted = core_and(&[v_queue_capacity.clone(), v_envelope_ok.clone()])?;
+    core_set(&v_out, CoreValue::from("accepted"), v_accepted.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("nextPending"),
+        v_next_pending.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("nextQueuedBytes"),
+        v_next_bytes.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("reason"),
+        CoreValue::from("capacity"),
+    )?;
+    if core_truthy(&v_envelope_ok) {
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("reason"),
+            CoreValue::from("envelope_too_large"),
+        )?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_debounce_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_debounce_transition");
+    let mut v_now = core_arg(args, 0);
+    let mut v_debounce_ms = core_arg(args, 1);
+    let mut v_has_queued_predecessor = core_arg(args, 2);
+    let mut v_available_at = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_available_at = core_add(&[v_now.clone(), v_debounce_ms.clone()])?;
+    core_set(
+        &v_out,
+        CoreValue::from("availableAt"),
+        v_available_at.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("coalescePredecessor"),
+        v_has_queued_predecessor.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_normalize_mcp");
+    let mut v_namespace = core_arg(args, 0);
+    let mut v_method = core_arg(args, 1);
+    let mut v_params = core_arg(args, 2);
+    let mut v_correlation = CoreValue::Null;
+    let mut v_logging = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_progress = CoreValue::Null;
+    let mut v_prompts = CoreValue::Null;
+    let mut v_resource = CoreValue::Null;
+    let mut v_resources = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
+    let mut v_task = CoreValue::Null;
+    let mut v_task_id = CoreValue::Null;
+    let mut v_task_key = CoreValue::Null;
+    let mut v_task_value = CoreValue::Null;
+    let mut v_tools = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_source = core_string_format(&[CoreValue::from("mcp://{}"), v_namespace.clone()])?;
+    core_set(&v_out, CoreValue::from("source"), v_source.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("type"),
+        CoreValue::from("mcp.notification"),
+    )?;
+    core_set(&v_out, CoreValue::from("data"), v_params.clone())?;
+    v_resource = core_eq(&[
+        v_method.clone(),
+        CoreValue::from("notifications/resources/updated"),
+    ])?;
+    v_tools = core_eq(&[
+        v_method.clone(),
+        CoreValue::from("notifications/tools/list_changed"),
+    ])?;
+    v_prompts = core_eq(&[
+        v_method.clone(),
+        CoreValue::from("notifications/prompts/list_changed"),
+    ])?;
+    v_resources = core_eq(&[
+        v_method.clone(),
+        CoreValue::from("notifications/resources/list_changed"),
+    ])?;
+    v_progress = core_eq(&[v_method.clone(), CoreValue::from("notifications/progress")])?;
+    v_logging = core_eq(&[v_method.clone(), CoreValue::from("notifications/message")])?;
+    v_task = core_eq(&[
+        v_method.clone(),
+        CoreValue::from("notifications/tasks/status"),
+    ])?;
+    if core_truthy(&v_resource) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.resource.updated"),
+        )?;
+    }
+    if core_truthy(&v_tools) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.catalog.changed"),
+        )?;
+    }
+    if core_truthy(&v_prompts) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.catalog.changed"),
+        )?;
+    }
+    if core_truthy(&v_resources) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.catalog.changed"),
+        )?;
+    }
+    if core_truthy(&v_progress) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.progress"),
+        )?;
+    }
+    if core_truthy(&v_logging) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.logging"),
+        )?;
+    }
+    if core_truthy(&v_task) {
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("mcp.task.status"),
+        )?;
+        v_task_value = core_get(&v_params, &CoreValue::from("task"), v_params.clone());
+        v_task_id = core_get(
+            &v_task_value,
+            &CoreValue::from("taskId"),
+            CoreValue::from(""),
+        );
+        v_task_key = core_string_format(&[
+            CoreValue::from("{}:{}"),
+            v_namespace.clone(),
+            v_task_id.clone(),
+        ])?;
+        v_correlation = CoreValue::new_map();
+        core_set(
+            &v_correlation,
+            CoreValue::from("kind"),
+            CoreValue::from("mcp.task"),
+        )?;
+        core_set(&v_correlation, CoreValue::from("value"), v_task_key.clone())?;
+        core_set(
+            &v_out,
+            CoreValue::from("correlation"),
+            v_correlation.clone(),
+        )?;
+    }
+    return Ok(v_out.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (454 of 454 core functions)

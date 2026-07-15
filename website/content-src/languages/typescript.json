@@ -470,6 +470,35 @@
       ]
     },
     "mcp": {
+      "native": {
+        "sourcePath": "src/examples/typescript/mcp/native-mcp-tools.ts",
+        "code": [
+          "const mcp = new AxMCPClient(",
+          "  const catalog = await mcp.inspectCatalog();",
+          "const program = ax(",
+          "await program.forward(llm, { taskRequest: 'Reindex inventory.' })"
+        ]
+      },
+      "resourceWake": {
+        "sourcePath": "src/examples/typescript/mcp/resource-wake-agent.ts",
+        "code": [
+          "    new AxMCPEventSource({",
+          "      resourceSubscriptions: 'all',",
+          "const target = eventTarget('inventory-agent')",
+          "  .program(program)",
+          "  .ai(llm)",
+          "  .input((input) => input.field('uri', eventPath.data('uri')))",
+          "  .build();"
+        ]
+      },
+      "taskResume": {
+        "sourcePath": "src/examples/mcp-task-resume-flow.ts",
+        "code": [
+          "const taskId = await server.waitForTask();",
+          "server.completeTask(taskId);",
+          "await waitForDemoSignal(resumeCompleted, 'the MCP task continuation');"
+        ]
+      },
       "stdio": [
         "import { AxMCPClient } from '@ax-llm/ax';",
         "import { AxMCPStdioTransport } from '@ax-llm/ax-tools';",
@@ -511,6 +540,7 @@
       "scripted": [
         "import { AxMCPClient, type AxMCPTransport } from '@ax-llm/ax';",
         "",
+        "// Compatibility only: this adapter loses native MCP identity/content.",
         "const transport: AxMCPTransport = createScriptedWeatherTransport();",
         "const client = new AxMCPClient(transport);",
         "await client.init();",
@@ -520,10 +550,10 @@
       ],
       "capabilities": [
         "const caps = mcpClient.getCapabilities();",
-        "const functions = mcpClient.toFunction();",
+        "const tools = mcpClient.getTools();",
         "",
         "console.log(caps.tools, caps.prompts, caps.resources);",
-        "console.log(functions.map((fn) => fn.name));"
+        "console.log(tools.map((tool) => tool.name));"
       ],
       "overrides": [
         "const mcpClient = new AxMCPClient(transport, {",
@@ -541,11 +571,10 @@
         "const mcpClient = new AxMCPClient(transport);",
         "await mcpClient.init();",
         "",
-        "const answer = ax('question:string -> answer:string');",
+        "const answer = ax('question:string -> answer:string', { mcp: mcpClient });",
         "const out = await answer.forward(",
         "  llm,",
-        "  { question: 'What did we store about the release plan?' },",
-        "  { functions: mcpClient.toFunction() }",
+        "  { question: 'What did we store about the release plan?' }",
         ");"
       ],
       "agentFlat": [
@@ -555,7 +584,7 @@
         "await mcpClient.init();",
         "",
         "const assistant = agent('request:string -> response:string', {",
-        "  functions: [mcpClient],",
+        "  mcp: mcpClient,",
         "  functionDiscovery: true,",
         "  contextFields: [],",
         "  runtime: new AxJSRuntime(),",
@@ -563,19 +592,39 @@
       ],
       "agentGrouped": [
         "const assistant = agent('request:string -> response:string', {",
-        "  functions: [",
-        "    {",
-        "      namespace: 'memory',",
-        "      title: 'Memory MCP',",
-        "      description: 'Persistent memory tools',",
-        "      selectionCriteria: 'Use for memory lookup and updates.',",
-        "      functions: [mcpClient],",
-        "    },",
-        "  ],",
+        "  mcp: [memoryClient, searchClient],",
         "  functionDiscovery: true,",
         "  contextFields: [],",
         "});"
       ]
+    },
+    "event": {
+      "wake": {
+        "sourcePath": "src/examples/typescript/mcp/resource-wake-agent.ts",
+        "code": [
+          "await runtime.start();",
+          "server.updateResource();",
+          "await runtime.waitForIdle();"
+        ]
+      },
+      "resume": {
+        "sourcePath": "src/examples/mcp-task-resume-flow.ts",
+        "code": [
+          "const taskId = await server.waitForTask();",
+          "server.completeTask(taskId);",
+          "await waitForDemoSignal(resumeCompleted, 'the MCP task continuation');"
+        ]
+      },
+      "ucp": {
+        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
+        "code": [
+          "export async function handleUCPWebhook(request: Request): Promise<Response> {",
+          "  const receipt = await source.ingest(request);",
+          "  if (!receipt.accepted) return new Response(null, { status: 503 });",
+          "  return new Response(null, { status: 202 });",
+          "}"
+        ]
+      }
     }
   }
 }

@@ -1,0 +1,52 @@
+{
+  "name": "event routing is explicit and identity aware",
+  "kind": "event",
+  "operation": "routing",
+  "event": {
+    "specversion": "1.0",
+    "id": "event-1",
+    "source": "app://orders",
+    "type": "order.created",
+    "subject": "order-42"
+  },
+  "identity_scope": "tenant:acme",
+  "trust": "authenticated",
+  "routes": [
+    {
+      "id": "observe-orders",
+      "action": "observe",
+      "match": { "types": ["order.created"] }
+    },
+    {
+      "id": "wake-order-agent",
+      "action": "wake",
+      "targetId": "order-agent",
+      "requireAuthenticated": true,
+      "match": {
+        "sources": ["app://orders"],
+        "types": ["order.created"]
+      }
+    },
+    {
+      "id": "never-match",
+      "action": "wake",
+      "match": { "types": ["other"] }
+    }
+  ],
+  "expected": [
+    {
+      "routeId": "observe-orders",
+      "action": "observe",
+      "targetId": null,
+      "instanceKey": "order-42",
+      "idempotencyKey": "observe-orders:event-1"
+    },
+    {
+      "routeId": "wake-order-agent",
+      "action": "wake",
+      "targetId": "order-agent",
+      "instanceKey": "order-42",
+      "idempotencyKey": "wake-order-agent:event-1"
+    }
+  ]
+}

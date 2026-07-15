@@ -7,6 +7,7 @@ import type {
   AxProgramTrace,
   AxProgramUsage,
 } from '../dsp/types.js';
+import { mergeAbortSignals } from '../util/abort.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
 import { processBatches } from './batchUtil.js';
 import { AxFlowExecutionPlanner } from './executionPlanner.js';
@@ -226,40 +227,71 @@ export async function executeFlowSteps(
 
     context.checkAbort(`flow-parallel-group-${group.level}`);
     const groupStartState = state;
-    const results = await processBatches(
-      group.steps,
-      async (planStep) => {
-        const step = steps[planStep.stepIndex];
-        if (!step) return groupStartState;
-        const previousFields = Object.keys(groupStartState);
-        logStepStart(options.logger, step, planStep.stepIndex, groupStartState);
-        const startedAt = Date.now();
-        try {
-          const result = await step.run(groupStartState, context);
-          logStepComplete(
+    const groupAbort = new AbortController();
+    const taskSnapshot = context.captureRemoteTasks?.();
+    const parallelContext: AxFlowExecutionContext = {
+      ...context,
+      mainOptions: {
+        ...context.mainOptions,
+        abortSignal: mergeAbortSignals(
+          context.mainOptions?.abortSignal,
+          groupAbort.signal
+        ),
+      },
+      checkAbort: (location) => {
+        context.checkAbort(location);
+        checkAbortSignal(groupAbort.signal, location);
+      },
+    };
+    let results: AxFlowState[];
+    try {
+      results = await processBatches(
+        group.steps,
+        async (planStep) => {
+          const step = steps[planStep.stepIndex];
+          if (!step) return groupStartState;
+          const previousFields = Object.keys(groupStartState);
+          logStepStart(
             options.logger,
             step,
             planStep.stepIndex,
-            result,
-            previousFields,
-            Date.now() - startedAt
+            groupStartState
           );
-          return result;
-        } catch (error) {
-          options.logger?.({
-            name: 'FlowError',
-            timestamp: Date.now(),
-            error: error instanceof Error ? error.message : String(error),
-            stepIndex: planStep.stepIndex,
-            stepType: step.kind as AxFlowStepKind,
-            nodeName: step.nodeName,
-            state: { ...groupStartState },
-          } as any);
-          throw error;
-        }
-      },
-      options.batchSize
-    );
+          const startedAt = Date.now();
+          try {
+            const result = await step.run(groupStartState, parallelContext);
+            logStepComplete(
+              options.logger,
+              step,
+              planStep.stepIndex,
+              result,
+              previousFields,
+              Date.now() - startedAt
+            );
+            return result;
+          } catch (error) {
+            options.logger?.({
+              name: 'FlowError',
+              timestamp: Date.now(),
+              error: error instanceof Error ? error.message : String(error),
+              stepIndex: planStep.stepIndex,
+              stepType: step.kind as AxFlowStepKind,
+              nodeName: step.nodeName,
+              state: { ...groupStartState },
+            } as any);
+            groupAbort.abort(error);
+            throw error;
+          }
+        },
+        options.batchSize
+      );
+    } catch (error) {
+      groupAbort.abort(error);
+      if (taskSnapshot !== undefined) {
+        await context.cancelRemoteTasksSince?.(taskSnapshot);
+      }
+      throw error;
+    }
 
     for (const result of results) {
       state = { ...state, ...result };

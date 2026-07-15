@@ -1,0 +1,13 @@
+[package]
+name = "ax-generated-mcp-event-smoke"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "ax-generated-mcp-event-smoke"
+path = "rust.rs"
+
+[dependencies]
+axllm = { path = "../../../../packages/rust" }
+serde_json = "1"

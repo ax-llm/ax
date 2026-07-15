@@ -4,6 +4,7 @@ import type {
   AxGenOut,
   AxProgramForwardOptionsWithModels,
 } from '../../dsp/types.js';
+import { axResolveMCPExecutionContext } from '../../mcp/execution.js';
 import { mergeAbortSignals } from '../../util/abort.js';
 import { normalizeClarificationForError } from '../completion.js';
 import { cloneAgentState } from '../state.js';
@@ -49,6 +50,13 @@ export async function forwardPipelineForEvaluation<
 ): Promise<AxAgentEvalPrediction<OUT>> {
   const p = pipeline as any;
   const primary = p.primaryAgent;
+  const mcpExecutionContext = await axResolveMCPExecutionContext(
+    options ?? {},
+    p.options ?? {}
+  );
+  const evaluationOptions = mcpExecutionContext
+    ? { ...options, _mcpExecutionContext: mcpExecutionContext }
+    : options;
 
   const savedState = primary.state ? cloneAgentState(primary.state) : undefined;
   const savedStateError = primary.stateError;
@@ -65,7 +73,7 @@ export async function forwardPipelineForEvaluation<
   }
   const effectiveAbortSignal = mergeAbortSignals(
     abortController.signal,
-    options?.abortSignal
+    evaluationOptions?.abortSignal
   );
 
   primary.activeAbortControllers.add(abortController);
@@ -107,7 +115,7 @@ export async function forwardPipelineForEvaluation<
     const distillerRun = await p.distiller._runActorLoop(
       ai,
       task.input,
-      { ...options, abortSignal: effectiveAbortSignal },
+      { ...evaluationOptions, abortSignal: effectiveAbortSignal },
       effectiveAbortSignal,
       functionCalls
     );
@@ -138,7 +146,7 @@ export async function forwardPipelineForEvaluation<
       const executorRun = await p.executor._runActorLoop(
         ai,
         executorInputs,
-        { ...options, abortSignal: effectiveAbortSignal },
+        { ...evaluationOptions, abortSignal: effectiveAbortSignal },
         effectiveAbortSignal,
         functionCalls
       );
@@ -193,7 +201,7 @@ export async function forwardPipelineForEvaluation<
     const responderResult = await p.responder.forward(ai, {
       nonContextValues: nonCtxForResponder,
       executorResult,
-      options: { ...options, abortSignal: effectiveAbortSignal },
+      options: { ...evaluationOptions, abortSignal: effectiveAbortSignal },
     });
     return {
       completionType: 'final',

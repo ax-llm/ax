@@ -46,6 +46,62 @@ module @ax.mcp version "0.1" {
     type signature = "(command:string, args?:list<string>, options?:json) -> AxMCPStdioTransport"
   }
 
+  op ax.mcp.record @AxExecutionContext {
+    attr core_kind = "record"
+    attr public = true
+    tag "axmcp"
+    type signature = "(mcp?:list<AxMCPClient>, ucp?:list<AxUCPClient>, options?:json) -> AxExecutionContext"
+  }
+
+  op ax.mcp.record @AxMCPContinuationState {
+    attr core_kind = "record"
+    attr public = true
+    tag "axmcp"
+    type fields = "namespaces:list<string>,tasks:list<json>,subscriptions:list<json>,catalogFingerprint:string"
+  }
+
+  op ax.mcp.record @AxMCPCatalogSnapshot {
+    attr core_kind = "record"
+    attr public = true
+    tag "axmcp"
+    type fields = "namespace:string,protocolVersion?:string,revision:number,serverInfo?:json,serverCapabilities:json,tools:list<json>,prompts:list<json>,resources:list<json>,resourceTemplates:list<json>,subscriptions:list<string>"
+  }
+
+  op ax.mcp.record @AxMCPResourceSubscriptionPlan {
+    attr core_kind = "record"
+    attr public = true
+    tag "axmcp"
+    type fields = "selected:list<string>,additions:list<string>,removals:list<string>"
+  }
+
+  op ax.mcp.record @AxMCPResourceSubscriptionOwnershipTransition {
+    attr core_kind = "record"
+    attr public = true
+    tag "axmcp"
+    type fields = "owners:list<string>,wireAction:string,changed:bool"
+  }
+
+  op ax.mcp.semantic @mcp_execution_context_descriptor {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp"
+    type signature = "(namespaces:list<string>, inheritance?:json) -> json"
+    body @entry(%namespaces: list<json>, %inheritance: json) {
+      %out = core.map
+      core.set %out["namespaces"] = %namespaces
+      %missing = core.call intrinsic.is_none(%inheritance)
+      core.if %missing {
+        core.set %out["inheritance"] = "all"
+      } else {
+        core.set %out["inheritance"] = %inheritance
+      }
+      core.set %out["native"] = true
+      core.set %out["lossyAdapter"] = false
+      core.return %out
+    }
+  }
+
   op ax.mcp.semantic @mcp_protocol_constants {
     attr body_source = "core"
     attr core_kind = "func"
@@ -132,6 +188,137 @@ module @ax.mcp version "0.1" {
         core.return %out
       }
       core.return %response
+    }
+  }
+
+  op ax.mcp.semantic @mcp_resource_subscription_selection {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axmcp"
+    type signature = "(resources:list<json>, mode:string, explicit_uris:list<string>) -> list<string>"
+    body @entry(%resources: list<json>, %mode: string, %explicit_uris: list<json>) {
+      %selected = core.list
+      %is_explicit = core.call intrinsic.eq(%mode, "explicit")
+      core.if %is_explicit {
+        core.for %uri in %explicit_uris {
+          %empty = core.call intrinsic.eq(%uri, "")
+          %duplicate = core.call intrinsic.contains(%selected, %uri)
+          %skip = core.call intrinsic.or(%empty, %duplicate)
+          core.if %skip {
+          } else {
+            core.append %selected, %uri
+          }
+        }
+      } else {
+        %is_all = core.call intrinsic.eq(%mode, "all")
+        %is_selector = core.call intrinsic.eq(%mode, "selector")
+        %uses_resources = core.call intrinsic.or(%is_all, %is_selector)
+        core.if %uses_resources {
+          core.for %resource in %resources {
+            %uri = core.get %resource["uri"] default ""
+            %empty = core.call intrinsic.eq(%uri, "")
+            %duplicate = core.call intrinsic.contains(%selected, %uri)
+            %skip = core.call intrinsic.or(%empty, %duplicate)
+            core.if %skip {
+            } else {
+              core.append %selected, %uri
+            }
+          }
+        }
+      }
+      core.return %selected
+    }
+  }
+
+  op ax.mcp.semantic @mcp_resource_subscription_plan {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axmcp"
+    type signature = "(desired:list<string>, current:list<string>) -> json"
+    body @entry(%desired: list<json>, %current: list<json>) {
+      %selected = core.list
+      core.for %uri in %desired {
+        %duplicate = core.call intrinsic.contains(%selected, %uri)
+        core.if %duplicate {
+        } else {
+          core.append %selected, %uri
+        }
+      }
+      %additions = core.list
+      core.for %uri in %selected {
+        %owned = core.call intrinsic.contains(%current, %uri)
+        core.if %owned {
+        } else {
+          core.append %additions, %uri
+        }
+      }
+      %removals = core.list
+      core.for %uri in %current {
+        %wanted = core.call intrinsic.contains(%selected, %uri)
+        core.if %wanted {
+        } else {
+          core.append %removals, %uri
+        }
+      }
+      %out = core.map
+      core.set %out["selected"] = %selected
+      core.set %out["additions"] = %additions
+      core.set %out["removals"] = %removals
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_resource_subscription_ownership {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axmcp"
+    type signature = "(owners:list<string>, owner:string, operation:string) -> json"
+    body @entry(%owners: list<json>, %owner: string, %operation: string) {
+      %out_owners = core.list
+      %out = core.map
+      core.set %out["wireAction"] = "none"
+      core.set %out["changed"] = false
+      %has_owner = core.call intrinsic.contains(%owners, %owner)
+      %is_acquire = core.call intrinsic.eq(%operation, "acquire")
+      core.if %is_acquire {
+        core.for %current in %owners {
+          core.append %out_owners, %current
+        }
+        core.if %has_owner {
+        } else {
+          %before = core.call intrinsic.len(%owners)
+          %was_empty = core.call intrinsic.eq(%before, 0)
+          core.if %was_empty {
+            core.set %out["wireAction"] = "subscribe"
+          }
+          core.append %out_owners, %owner
+          core.set %out["changed"] = true
+        }
+      } else {
+        core.for %current in %owners {
+          %matches = core.call intrinsic.eq(%current, %owner)
+          core.if %matches {
+          } else {
+            core.append %out_owners, %current
+          }
+        }
+        core.if %has_owner {
+          %remaining = core.call intrinsic.len(%out_owners)
+          %now_empty = core.call intrinsic.eq(%remaining, 0)
+          core.if %now_empty {
+            core.set %out["wireAction"] = "unsubscribe"
+          }
+          core.set %out["changed"] = true
+        }
+      }
+      core.set %out["owners"] = %out_owners
+      core.return %out
     }
   }
 }

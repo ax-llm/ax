@@ -2,6 +2,7 @@ import type { AxAIService } from '../../ai/types.js';
 import { AxGen } from '../../dsp/generate.js';
 import type { AxSignature } from '../../dsp/sig.js';
 import type { AxFieldValue, AxProgramForwardOptions } from '../../dsp/types.js';
+import { axMCPChildExecutionOptions } from '../../mcp/execution.js';
 import { mergeAbortSignals } from '../../util/abort.js';
 import { AxAIServiceAbortedError } from '../../util/apicall.js';
 import {
@@ -157,6 +158,16 @@ export function buildLlmQueryBindings(
               [k: string]: unknown;
             };
           const recursionAi = recursionAiOverride ?? ai;
+          const childOptions = axMCPChildExecutionOptions({
+            ...(parentForwardOptions as Partial<
+              Omit<AxProgramForwardOptions<string>, 'functions'>
+            >),
+            ...(recursionRestOptions as Partial<
+              Omit<AxProgramForwardOptions<string>, 'functions'>
+            >),
+            abortSignal,
+            debug,
+          });
           const simpleResult = await simpleSubAgent.forward(
             recursionAi,
             {
@@ -165,16 +176,7 @@ export function buildLlmQueryBindings(
                 ? { context: normalizedCtx }
                 : {}),
             },
-            {
-              ...(parentForwardOptions as Partial<
-                Omit<AxProgramForwardOptions<string>, 'functions'>
-              >),
-              ...(recursionRestOptions as Partial<
-                Omit<AxProgramForwardOptions<string>, 'functions'>
-              >),
-              abortSignal,
-              debug,
-            }
+            childOptions
           );
           return normalizeSubAgentAnswer(simpleResult.answer);
         } catch (err) {

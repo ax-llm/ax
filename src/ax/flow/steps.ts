@@ -23,6 +23,8 @@ export interface AxFlowExecutionContext {
     initialState: AxFlowState
   ) => Promise<AxFlowState>;
   checkAbort: (location: string) => void;
+  captureRemoteTasks?: () => unknown;
+  cancelRemoteTasksSince?: (snapshot: unknown) => Promise<void>;
 }
 
 export type AxFlowStepRunner = (

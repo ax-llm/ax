@@ -63,6 +63,7 @@ if (!env.AXIR_AXJS_RUNTIME_SERVER) {
   );
 }
 const args = process.argv.slice(2);
+const compileOnly = args.includes('--compile-only');
 const publicExampleCatalog = await readPublicExampleCatalog({ repoRoot });
 
 if (args.length === 0) usage(1);
@@ -74,10 +75,10 @@ let exampleArgs;
 
 if (language) {
   exampleArg = args[1];
-  exampleArgs = args.slice(2);
+  exampleArgs = args.slice(2).filter((value) => value !== '--compile-only');
 } else {
   exampleArg = args[0];
-  exampleArgs = args.slice(1);
+  exampleArgs = args.slice(1).filter((value) => value !== '--compile-only');
   language = inferLanguage(exampleArg);
 }
 
@@ -118,6 +119,7 @@ function usage(code) {
   npm run example -- rust src/examples/rust/generation/axgen_openai.rs
   npm run example -- list
   npm run example -- list --json
+  npm run example -- <language> <path> --compile-only
 
 You can also pass a full example path and let the runner infer the language.
 Generated package fixtures under packages/<language>/examples can still be run by explicit path for verification.`);
@@ -225,6 +227,24 @@ function resolveExample(language, exampleArg, catalog) {
 }
 
 function runTs(examplePath, rest) {
+  if (compileOnly) {
+    run(
+      path.join(repoRoot, 'node_modules', '.bin', 'tsc'),
+      [
+        '--noEmit',
+        '--target',
+        'ES2022',
+        '--module',
+        'NodeNext',
+        '--moduleResolution',
+        'NodeNext',
+        '--skipLibCheck',
+        examplePath,
+      ],
+      { cwd: repoRoot, env }
+    );
+    return;
+  }
   run(process.execPath, ['--import=tsx', examplePath, ...rest], {
     cwd: repoRoot,
     env,
@@ -235,10 +255,14 @@ async function runPython(examplePath, rest) {
   const outDir = languagePackageDir('python');
   const python = findCommand(['python3', 'python'], ['--version']);
   const pythonPath = prependEnvPath(env.PYTHONPATH, outDir);
-  run(python, [examplePath, ...rest], {
-    cwd: repoRoot,
-    env: { ...env, PYTHONPATH: pythonPath },
-  });
+  run(
+    python,
+    compileOnly ? ['-m', 'py_compile', examplePath] : [examplePath, ...rest],
+    {
+      cwd: repoRoot,
+      env: { ...env, PYTHONPATH: pythonPath },
+    }
+  );
 }
 
 async function runJava(examplePath, rest) {
@@ -265,6 +289,8 @@ async function runJava(examplePath, rest) {
     cwd: repoRoot,
     env,
   });
+
+  if (compileOnly) return;
 
   run(java, ['-cp', runCp, className, ...rest], {
     cwd: repoRoot,
@@ -346,6 +372,7 @@ ${wantsRuntime ? `target_compile_options(${stem} PRIVATE ${qjs.cflags})` : ''}
       cwd: repoRoot,
       env,
     });
+    if (compileOnly) return;
     run(path.join(scratchBuildDir, stem), rest, { cwd: repoRoot, env });
     return;
   }
@@ -368,6 +395,7 @@ ${wantsRuntime ? `target_compile_options(${stem} PRIVATE ${qjs.cflags})` : ''}
   cxxArgs.push(...cppSources, examplePath, '-o', bin);
   if (wantsRuntime) cxxArgs.push(...qjs.ldflags.split(/\s+/).filter(Boolean));
   run(cxx, cxxArgs, { cwd: repoRoot, env });
+  if (compileOnly) return;
   run(bin, rest, { cwd: repoRoot, env });
 }
 
@@ -409,6 +437,7 @@ replace github.com/ax-llm/ax/packages/go => ${escapeGoModPath(outDir)}
       GOFLAGS: [env.GOFLAGS, '-mod=mod'].filter(Boolean).join(' '),
     },
   });
+  if (compileOnly) return;
   run(goBin, [...rest], { cwd: repoRoot, env });
 }
 
@@ -439,7 +468,14 @@ serde_json = "1"
     await readFile(examplePath)
   );
   const manifestPath = path.join(scratchDir, 'Cargo.toml');
-  const args = ['run', '--quiet', '--manifest-path', manifestPath, ...rest];
+  const cargoAction = compileOnly ? 'check' : 'run';
+  const args = [
+    cargoAction,
+    '--quiet',
+    '--manifest-path',
+    manifestPath,
+    ...rest,
+  ];
   const result = spawnSync('cargo', args, {
     cwd: repoRoot,
     env,
@@ -455,7 +491,14 @@ serde_json = "1"
   }
   run(
     'cargo',
-    ['run', '--offline', '--quiet', '--manifest-path', manifestPath, ...rest],
+    [
+      cargoAction,
+      '--offline',
+      '--quiet',
+      '--manifest-path',
+      manifestPath,
+      ...rest,
+    ],
     {
       cwd: repoRoot,
       env,
@@ -488,8 +531,11 @@ async function javaBaseSources(outDir) {
 function exampleNeedsJsRuntime(examplePath) {
   // Only agent examples drive the embedded JS runtime; non-agent examples
   // (generation, flows, ...) must not pull in the optional runtime build.
-  return /\/(short|long)-agents\//.test(
-    String(examplePath).replace(/\\/g, '/')
+  const normalized = String(examplePath).replace(/\\/g, '/');
+  if (/\/(short|long)-agents\//.test(normalized)) return true;
+  const source = readFileSync(examplePath, 'utf8');
+  return /(?:runtime[/.]quickjs|AxQuickJs|QuickJsCodeRuntime|axgoja)/.test(
+    source
   );
 }
 

@@ -12,6 +12,9 @@ import type {
   AxProgramTrace,
   AxProgramUsage,
 } from '../dsp/types.js';
+import { AxMCPClient } from '../mcp/client.js';
+import type { AxMCPExecutionContext } from '../mcp/execution.js';
+import type { AxMCPTransport } from '../mcp/transport.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
 import { flow } from './flow.js';
 
@@ -24,6 +27,8 @@ class TestProgram
   public seenTracer: unknown | undefined;
   public seenTraceContext: unknown | undefined;
   public seenAbortSignal: AbortSignal | undefined;
+  public seenMCPExecutionContext: AxMCPExecutionContext | undefined;
+  public seenEventContext: unknown | undefined;
   public usage: AxProgramUsage[] = [];
   public traces: AxProgramTrace<any, any>[] = [];
   public chatLog: AxChatLogEntry[] = [];
@@ -46,6 +51,8 @@ class TestProgram
     this.seenTracer = (options as any)?.tracer;
     this.seenTraceContext = (options as any)?.traceContext;
     this.seenAbortSignal = options?.abortSignal;
+    this.seenMCPExecutionContext = options?._mcpExecutionContext;
+    this.seenEventContext = options?.eventContext;
     return { outputText: `seen:${values.inputText}` };
   }
 
@@ -222,6 +229,70 @@ describe('AxFlow propagation and instrumentation', () => {
     expect(prog.seenTracer).toBe(tracer);
     expect(prog.seenTraceContext).toBeDefined();
     expect(spanEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates event context to nodes unless inheritance is none', async () => {
+    const eventContext = { runId: 'event-run' } as any;
+    const inherited = new TestProgram();
+    const inheritedFlow = flow<{ userInput: string }>();
+    inheritedFlow
+      .node('p', inherited)
+      .execute('p', (state) => ({ inputText: state.userInput }));
+    const ai = { name: 'mock' } as unknown as AxAIService;
+    await inheritedFlow.forward(ai, { userInput: 'hi' }, { eventContext });
+    expect(inherited.seenEventContext).toBe(eventContext);
+
+    const blocked = new TestProgram();
+    const blockedFlow = flow<{ userInput: string }>();
+    blockedFlow
+      .node('p', blocked)
+      .execute('p', (state) => ({ inputText: state.userInput }));
+    await blockedFlow.forward(
+      ai,
+      { userInput: 'hi' },
+      { eventContext, eventInheritance: 'none' }
+    );
+    expect(blocked.seenEventContext).toBeUndefined();
+  });
+
+  it('shares native MCP context with nodes and enforces flow inheritance', async () => {
+    const transport: AxMCPTransport = {
+      send: async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result:
+          request.method === 'initialize'
+            ? {
+                protocolVersion: '2025-11-25',
+                capabilities: { tools: {} },
+                serverInfo: { name: 'inventory', version: '1.0.0' },
+              }
+            : { tools: [] },
+      }),
+      sendNotification: async () => {},
+    };
+    const client = new AxMCPClient(transport, { namespace: 'inventory' });
+    const inherited = new TestProgram();
+    const isolated = new TestProgram();
+    const ai = { name: 'mock' } as unknown as AxAIService;
+
+    await flow<{ userInput: string }>()
+      .node('p', inherited)
+      .execute('p', (s) => ({ inputText: s.userInput }))
+      .forward(ai, { userInput: 'hi' }, { mcp: client });
+    await flow<{ userInput: string }>()
+      .node('p', isolated)
+      .execute('p', (s) => ({ inputText: s.userInput }))
+      .forward(
+        ai,
+        { userInput: 'hi' },
+        { mcp: client, mcpInheritance: 'none' }
+      );
+
+    expect(inherited.seenMCPExecutionContext?.getClient('inventory')).toBe(
+      client
+    );
+    expect(isolated.seenMCPExecutionContext).toBeUndefined();
   });
 
   it('parallel map merges outputs from all transforms', async () => {

@@ -1,7 +1,7 @@
 ---
 name: ax-flow
 description: This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.
-version: "23.0.0"
+version: "23.0.1"
 ---
 
 # AxFlow Codegen Rules (@ax-llm/ax)
@@ -417,6 +417,20 @@ Common errors:
 - `"merge() without matching branch()"` -- every `.branch()` needs `.merge()`.
 - `"Label 'x' not found"` -- define `.label()` before `.feedback()` references it.
 
+## Native MCP/UCP
+
+Use `ax-mcp` for MCP client construction, transport/authentication policy,
+subscriptions, tasks, event routing, and replay. This section covers how Flow
+inherits and coordinates the resulting live execution context.
+
+Set `mcp`/`ucp` on the flow or a node. Sequential nodes reuse sessions; parallel nodes multiplex through each client's concurrency policy. Branch cancellation and flow aborts propagate to outstanding requests and newly created remote tasks. Structured protocol values stay structured in flow state.
+
+```typescript
+const wf = flow({ mcp: [inventory], ucp: [merchant] })
+  .node('lookup', lookupProgram)
+  .node('checkout', checkoutProgram, { mcpInheritance: ['merchant'] });
+```
+
 ## Examples
 
 Fetch these for full working code:
@@ -428,6 +442,38 @@ Fetch these for full working code:
 - [Flow as Function](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/ax-flow-to-function.ts) — flow as callable function
 - [Fluent Builder](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/fluent-flow-example.ts) — fluent builder pattern
 - [Load Balancing](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/balancer.ts) — load balancing
+
+## Event-Triggered Flows
+
+An AxFlow is an `AxProgrammable` event target. The runtime maps an event into
+the Flow's typed initial state and propagates `eventContext`, cancellation, and
+idempotency metadata to every node. Abandoned branches still use normal Flow
+cancellation semantics.
+
+Task-backed MCP tools called by a Flow node register a continuation on the
+shared event context. `axMCPEventRoutes` observes progress and resumes the Flow
+on input-required or terminal task notifications.
+
+For resource-driven wake, discover the endpoint with `inspectCatalog()` and
+give `AxMCPEventSource` an explicit `resourceSubscriptions` policy. Managed
+subscriptions reconcile list changes and reconnect separately from the Flow;
+subscription alone never starts or resumes a Flow.
+
+UCP lifecycle webhooks use the same continuation boundary through
+`AxUCPWebhookEventSource`. Correlate on `ucp.checkout` or `ucp.order` only after
+the signed request has been verified and mapped to application identity.
+
+Use `eventTarget('id').program(flow).wakeInput(...).resumeInput(...)` when wake
+and resume events have different shapes. Segment-safe `eventPath` mappings are
+validated against the Flow signature before any node executes; a declarative
+`.waitFor(kind, path)` creates the owned continuation consumed by the resume
+route.
+
+Reusable `eventInput()` plans are the preferred callback-free boundary.
+Callback `mapInput` is normalized against the Flow signature before any node
+runs. In generated hosts, immediate publications dispatch inline; the host uses
+`nextDueAt()` and `runDue()` for delayed retries, debounce, and continuation
+expiry.
 
 ## Do Not Generate
 

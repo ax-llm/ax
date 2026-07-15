@@ -31,7 +31,8 @@
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
-    "@ax-llm/ax": "23.0.1"
+    "@ax-llm/ax": "23.0.1",
+    "better-sqlite3": "^12.11.1"
   },
   "files": [
     "**/*"
@@ -41,5 +42,7 @@
   },
   "homepage": "https://github.com/ax-llm/ax#readme",
   "author": "Vikram <https://twitter.com/dosco>",
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13"
+  }
 }

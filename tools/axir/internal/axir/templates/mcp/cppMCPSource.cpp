@@ -1,7 +1,12 @@
 #include "mcp.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
+
+#if defined(AXLLM_ENABLE_CURL)
+#include <curl/curl.h>
+#endif
 
 namespace axllm {
 
@@ -77,9 +82,10 @@ static void expect_subset_local(Value actual, Value expected, const std::string&
 }
 
 AxMCPClient::AxMCPClient(std::shared_ptr<AxMCPTransport> transport, Value options)
-    : transport_(std::move(transport)), options_(std::move(options)) {}
+    : transport_(std::move(transport)), options_(std::move(options)) { transport_->set_message_handler([this](Value message){auto method=display(Core::get(message,"method",""));if(method=="notifications/tools/list_changed"||method=="notifications/prompts/list_changed"||method=="notifications/resources/list_changed")refresh();emit_notification(std::move(message));});transport_->set_lifecycle_handler([this](std::string state){emit_lifecycle(state);}); }
 
 void AxMCPClient::init() {
+  if(initialized_)return;
   transport_->connect();
   Value capabilities = Core::get(options_, "capabilities", Value::object());
   if (!Core::get(options_, "roots", Value()).is_null() && Core::get(capabilities, "roots", Value()).is_null()) {
@@ -96,22 +102,32 @@ void AxMCPClient::init() {
   if (!supported) throw AxError("mcp", "Unsupported MCP protocol version " + negotiated_protocol_version_);
   transport_->set_protocol_version(negotiated_protocol_version_);
   server_capabilities_ = Core::get(result, "capabilities", Value::object());
+  server_info_ = Core::get(result, "serverInfo", Value::object());
   notify("notifications/initialized");
   refresh();
+  initialized_=true;
+  transport_->start_listening();
 }
+
+void AxMCPClient::close(){initialized_=false;subscription_owners_.clear();transport_->close();}
 
 void AxMCPClient::refresh() {
   tools_.clear();
   prompts_.clear();
   resources_.clear();
   resource_templates_.clear();
-  if (capability("tools")) tools_ = as_array_local(Core::get(list_tools(), "tools", Value::array()));
-  if (capability("prompts")) prompts_ = as_array_local(Core::get(list_prompts(), "prompts", Value::array()));
+  if (capability("tools")) tools_ = collect_catalog("tools/list","tools");
+  if (capability("prompts")) prompts_ = collect_catalog("prompts/list","prompts");
   if (capability("resources")) {
-    resources_ = as_array_local(Core::get(list_resources(), "resources", Value::array()));
-    resource_templates_ = as_array_local(Core::get(list_resource_templates(), "resourceTemplates", Value::array()));
+    resources_ = collect_catalog("resources/list","resources");
+    resource_templates_ = collect_catalog("resources/templates/list","resourceTemplates");
   }
+  ++catalog_revision_;
 }
+
+std::vector<Value> AxMCPClient::collect_catalog(const std::string& method,const std::string& field){std::vector<Value> out;std::string cursor;std::set<std::string> seen;auto max_pages=static_cast<int>(Core::number(Core::get(options_,"maxPaginationPages",1000)));for(int page=0;page<max_pages;++page){auto result=request(method,cursor_params(cursor));for(auto item:as_array_local(Core::get(result,field,Value::array())))out.push_back(item);cursor=display(Core::get(result,"nextCursor",""));if(cursor.empty())return out;if(!seen.insert(cursor).second)throw AxError("mcp","MCP "+method+" repeated pagination cursor "+cursor);}throw AxError("mcp","MCP "+method+" exceeded pagination limit");}
+
+AxMCPCatalogSnapshot AxMCPClient::inspect_catalog(bool refresh_catalog){init();if(refresh_catalog)refresh();AxMCPCatalogSnapshot out;out.namespace_name=namespace_name();out.protocol_version=negotiated_protocol_version_;out.revision=catalog_revision_;out.server_info=server_info_;out.server_capabilities=server_capabilities_;out.tools=Value(Array(tools_.begin(),tools_.end()));out.prompts=Value(Array(prompts_.begin(),prompts_.end()));out.resources=Value(Array(resources_.begin(),resources_.end()));out.resource_templates=Value(Array(resource_templates_.begin(),resource_templates_.end()));for(const auto& item:subscription_owners_)out.subscriptions.push_back(item.first);return out;}
 
 std::string AxMCPClient::protocol_version() const { return negotiated_protocol_version_; }
 Value AxMCPClient::ping() { return request("ping"); }
@@ -121,6 +137,13 @@ Value AxMCPClient::list_prompts(const std::string& cursor) { return request("pro
 Value AxMCPClient::get_prompt(const std::string& name, Value arguments) { return request("prompts/get", object({{"name", name}, {"arguments", arguments}})); }
 Value AxMCPClient::list_resources(const std::string& cursor) { return request("resources/list", cursor_params(cursor)); }
 Value AxMCPClient::read_resource(const std::string& uri) { return request("resources/read", object({{"uri", uri}})); }
+Value AxMCPClient::acquire_resource_subscription(const std::string& uri,const std::string& owner){if(!Core::truthy(Core::get(Core::get(server_capabilities_,"resources",Value::object()),"subscribe",false)))throw AxError("mcp","Resource subscriptions are not supported");Value current=Value::array();for(const auto& value:subscription_owners_[uri])Core::append(current,value);auto transition=Core::mcp_resource_subscription_ownership(current,owner,"acquire");Value result=display(Core::get(transition,"wireAction","none"))=="subscribe"?request("resources/subscribe",object({{"uri",uri}})):Value::object();std::set<std::string> owners;for(const auto& value:Core::iter(Core::get(transition,"owners",Value::array())))owners.insert(display(value));subscription_owners_[uri]=std::move(owners);return result;}
+Value AxMCPClient::release_resource_subscription(const std::string& uri,const std::string& owner){if(!Core::truthy(Core::get(Core::get(server_capabilities_,"resources",Value::object()),"subscribe",false)))throw AxError("mcp","Resource subscriptions are not supported");Value current=Value::array();auto found=subscription_owners_.find(uri);if(found!=subscription_owners_.end())for(const auto& value:found->second)Core::append(current,value);auto transition=Core::mcp_resource_subscription_ownership(current,owner,"release");Value result=display(Core::get(transition,"wireAction","none"))=="unsubscribe"?request("resources/unsubscribe",object({{"uri",uri}})):Value::object();std::set<std::string> owners;for(const auto& value:Core::iter(Core::get(transition,"owners",Value::array())))owners.insert(display(value));if(owners.empty())subscription_owners_.erase(uri);else subscription_owners_[uri]=std::move(owners);return result;}
+void AxMCPClient::restore_resource_subscriptions(){for(const auto& item:subscription_owners_)request("resources/subscribe",object({{"uri",item.first}}));}
+Value AxMCPClient::subscribe_resource(const std::string& uri) { return acquire_resource_subscription(uri,"manual"); }
+Value AxMCPClient::unsubscribe_resource(const std::string& uri) { return release_resource_subscription(uri,"manual"); }
+Value AxMCPClient::get_task(const std::string& task_id) { return request("tasks/get", object({{"taskId", task_id}})); }
+Value AxMCPClient::cancel_task(const std::string& task_id) { return request("tasks/cancel", object({{"taskId", task_id}})); }
 Value AxMCPClient::list_resource_templates(const std::string& cursor) { return request("resources/templates/list", cursor_params(cursor)); }
 
 void AxMCPClient::notify(const std::string& method, Value params) {
@@ -157,6 +180,134 @@ std::vector<Tool> AxMCPClient::to_function() {
   for (auto item : resource_templates_) out.push_back(resource_template_to_function(item));
   return out;
 }
+
+std::vector<Tool> AxMCPClient::native_tools() {
+  std::vector<Tool> out;
+  for (auto spec : tools_) {
+    std::string original = display(Core::get(spec, "name", ""));
+    auto self = this;
+    out.emplace_back(original, display(Core::get(spec, "description", original)), Core::get(spec, "inputSchema", Value::object()), [self, original](Value args) {
+      return self->call_tool(original, args);
+    });
+  }
+  return out;
+}
+
+Value AxMCPClient::prompts() const { return Value(Array(prompts_.begin(), prompts_.end())); }
+Value AxMCPClient::resources() const { return Value(Array(resources_.begin(), resources_.end())); }
+Value AxMCPClient::resource_templates() const { return Value(Array(resource_templates_.begin(), resource_templates_.end())); }
+
+std::string AxMCPClient::namespace_name() const {
+  std::string configured = display(Core::get(options_, "namespace", ""));
+  if(!configured.empty())return configured;auto server=display(Core::get(server_info_,"name",""));return server.empty()?"mcp":server;
+}
+
+static const std::vector<std::string>& ax_ucp_operations() {
+  static const std::vector<std::string> operations = {
+      "catalog.search", "catalog.lookup", "catalog.product", "cart.create", "cart.get", "cart.update", "cart.cancel",
+      "checkout.create", "checkout.get", "checkout.update", "checkout.complete", "checkout.cancel", "fulfillment.quote",
+      "discounts.apply", "payments.create", "payments.confirm", "orders.get", "identity.link", "attribution.record", "handoff.create"};
+  return operations;
+}
+
+AxUCPClient::AxUCPClient(Value profile, std::shared_ptr<AxUCPBinding> binding, Value options)
+    : profile_(std::move(profile)), binding_(std::move(binding)), options_(std::move(options)) {
+  version_ = display(Core::get(profile_, "version", Core::get(options_, "version", "2026-04-08")));
+  Value supported = Core::get(options_, "supportedVersions", array({"2026-04-08"}));
+  bool found = false;
+  for (auto item : as_array_local(supported)) found = found || display(item) == version_;
+  if (!found) throw std::runtime_error("Unsupported UCP version " + version_);
+}
+
+std::string AxUCPClient::namespace_name() const {
+  std::string configured = display(Core::get(options_, "namespace", ""));
+  if (!configured.empty()) return configured;
+  configured = display(Core::get(profile_, "name", ""));
+  return configured.empty() ? "ucp" : configured;
+}
+std::string AxUCPClient::version() const { return version_; }
+Value AxUCPClient::profile() const { return profile_; }
+
+Value AxUCPClient::call(const std::string& operation, Value payload, const std::string& idempotency_key) {
+  if (std::find(ax_ucp_operations().begin(), ax_ucp_operations().end(), operation) == ax_ucp_operations().end())
+    throw std::runtime_error("Unsupported UCP operation " + operation);
+  std::string key = idempotency_key.empty() ? "ax-ucp-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) : idempotency_key;
+  Value value = binding_->call(operation, std::move(payload), object({{"version", version_}, {"idempotencyKey", key}}));
+  return object({{"operation", operation}, {"value", value}, {"warnings", Core::get(value, "warnings", Value())},
+                 {"partialSuccess", Core::get(value, "partial_success", Core::get(value, "partialSuccess", false))},
+                 {"continuationUrl", Core::get(value, "continuation_url", Core::get(value, "continuationUrl", Value()))}, {"idempotencyKey", key}});
+}
+
+std::vector<Tool> AxUCPClient::native_tools() {
+  std::vector<Tool> out;
+  for (const auto& operation : ax_ucp_operations()) {
+    std::string name = namespace_name() + "_" + operation;
+    std::replace(name.begin(), name.end(), '.', '_');
+    out.emplace_back(name, "UCP " + operation + " operation", Value::object(), [this, operation](Value args) { return call(operation, args); });
+  }
+  return out;
+}
+
+Value AxUCPClient::catalog_search(Value payload) { return call("catalog.search", payload); }
+Value AxUCPClient::catalog_lookup(Value payload) { return call("catalog.lookup", payload); }
+Value AxUCPClient::catalog_product(Value payload) { return call("catalog.product", payload); }
+Value AxUCPClient::cart_create(Value payload) { return call("cart.create", payload); }
+Value AxUCPClient::cart_get(Value payload) { return call("cart.get", payload); }
+Value AxUCPClient::cart_update(Value payload) { return call("cart.update", payload); }
+Value AxUCPClient::cart_cancel(Value payload) { return call("cart.cancel", payload); }
+Value AxUCPClient::checkout_create(Value payload) { return call("checkout.create", payload); }
+Value AxUCPClient::checkout_get(Value payload) { return call("checkout.get", payload); }
+Value AxUCPClient::checkout_update(Value payload) { return call("checkout.update", payload); }
+Value AxUCPClient::checkout_complete(Value payload) { return call("checkout.complete", payload); }
+Value AxUCPClient::checkout_cancel(Value payload) { return call("checkout.cancel", payload); }
+Value AxUCPClient::order_get(Value payload) { return call("orders.get", payload); }
+Value AxUCPClient::identity_link(Value payload) { return call("identity.link", payload); }
+
+AxExecutionContext::AxExecutionContext(std::vector<std::shared_ptr<AxMCPClient>> mcp, std::vector<std::shared_ptr<AxUCPClient>> ucp)
+    : mcp_(std::move(mcp)), ucp_(std::move(ucp)) {
+  auto names = namespaces();
+  std::set<std::string> unique(names.begin(), names.end());
+  if (unique.size() != names.size()) throw std::runtime_error("MCP/UCP namespace collision");
+}
+
+void AxExecutionContext::initialize() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (auto& client : mcp_) if (initialized_.insert(client.get()).second) client->init();
+}
+
+std::vector<Tool> AxExecutionContext::native_tools() {
+  initialize();
+  std::vector<Tool> out;
+  for (auto& client : mcp_) { auto tools = client->native_tools(); out.insert(out.end(), tools.begin(), tools.end()); }
+  for (auto& client : ucp_) { auto tools = client->native_tools(); out.insert(out.end(), tools.begin(), tools.end()); }
+  std::set<std::string> names;
+  for (const auto& tool : out) if (!names.insert(tool.name).second) throw std::runtime_error("MCP/UCP tool collision " + tool.name);
+  return out;
+}
+
+Value AxExecutionContext::runtime_modules() {
+  Array out;
+  for (auto& client : mcp_) { Array functions; for (auto& tool : client->native_tools()) functions.push_back(tool.name); out.push_back(object({{"name", "mcp." + client->namespace_name()}, {"functions", Value(functions)}})); }
+  for (auto& client : ucp_) { Array functions; for (auto& tool : client->native_tools()) functions.push_back(tool.name); out.push_back(object({{"name", "ucp." + client->namespace_name()}, {"functions", Value(functions)}})); }
+  return Value(out);
+}
+
+std::vector<std::string> AxExecutionContext::namespaces() const { std::vector<std::string> out; for (auto& client : mcp_) out.push_back(client->namespace_name()); for (auto& client : ucp_) out.push_back(client->namespace_name()); return out; }
+
+AxExecutionContext AxExecutionContext::derive(Value inheritance) const {
+  if (display(inheritance) == "none") return AxExecutionContext();
+  auto allowed_values = as_array_local(inheritance);
+  if (allowed_values.empty()) return AxExecutionContext(mcp_, ucp_);
+  std::set<std::string> allowed; for (auto value : allowed_values) allowed.insert(display(value));
+  std::vector<std::shared_ptr<AxMCPClient>> mcp; std::vector<std::shared_ptr<AxUCPClient>> ucp;
+  for (auto& client : mcp_) if (allowed.count(client->namespace_name())) mcp.push_back(client);
+  for (auto& client : ucp_) if (allowed.count(client->namespace_name())) ucp.push_back(client);
+  return AxExecutionContext(std::move(mcp), std::move(ucp));
+}
+
+AxMCPContinuationState AxExecutionContext::continuation_state() const { auto names = namespaces(); std::string joined; for (auto& name : names) joined += name + "\n"; return {names, Value::array(), Value::array(), ax_mcp_pkce_challenge(joined)}; }
+void AxExecutionContext::attach(AxGen& gen) { for (const auto& tool : native_tools()) gen.add_tool(tool); }
+void AxExecutionContext::attach(AxAgent& agent) { initialize(); for (auto& client : mcp_) agent.add_tool_module("mcp." + client->namespace_name(), client->native_tools()); for (auto& client : ucp_) agent.add_tool_module("ucp." + client->namespace_name(), client->native_tools()); }
 
 Tool AxMCPClient::tool_to_function(Value spec) {
   std::string original = display(Core::get(spec, "name", ""));
@@ -216,13 +367,15 @@ static std::vector<Value> ax_mcp_parse_sse(const std::string& body) {
   return messages;
 }
 
-static Value ax_mcp_select_sse_response(const std::vector<Value>& messages, const Value& request_id) {
-  // Return the JSON-RPC response whose id matches the request. The C++ MCP
-  // transports expose no inbound message handler, so interleaved server->client
-  // notifications on the POST stream are not dispatched.
+static Value ax_mcp_select_sse_response(const std::vector<Value>& messages, const Value& request_id,
+                                        const std::function<void(Value)>& handler) {
+  // Return the matching response and dispatch interleaved inbound messages.
+  Value response;
   for (const auto& message : messages) {
-    if (value_has(message, "id") && equal(Core::get(message, "id", Value()), request_id)) return message;
+    if (response.is_null()&&value_has(message, "id") && equal(Core::get(message, "id", Value()), request_id)) response=message;
+    else if(handler)handler(message);
   }
+  if(!response.is_null())return response;
   if (!messages.empty()) return messages.back();
   return object({{"jsonrpc", "2.0"}, {"id", request_id}, {"result", Value::object()}});
 }
@@ -237,13 +390,16 @@ Value AxMCPStreamableHTTPTransport::send(Value message) {
   // JSON-decoded. Otherwise keep the JSON path. (The optional standalone GET
   // stream for unsolicited server->client messages is out of scope here.)
   Value response = http_.call(object({{"url", endpoint_}, {"method", "POST"}, {"headers", headers}, {"json", message}, {"stream", true}}));
+  auto response_headers=Core::get(response,"headers",Value::object());
+  auto session=display(Core::get(response_headers,"MCP-Session-Id",Core::get(response_headers,"mcp-session-id","")));
+  if(!session.empty())session_id_=session;
   Value request_id = Core::get(message, "id", Value());
   std::string body = display(Core::get(response, "body", ""));
   if (body.empty()) return object({{"jsonrpc", "2.0"}, {"id", request_id}, {"result", Value::object()}});
   std::string content_type = display(Core::get(response, "contentType", ""));
   std::transform(content_type.begin(), content_type.end(), content_type.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   if (content_type.find("text/event-stream") != std::string::npos) {
-    return ax_mcp_select_sse_response(ax_mcp_parse_sse(body), request_id);
+    return ax_mcp_select_sse_response(ax_mcp_parse_sse(body), request_id, message_handler_);
   }
   return Core::json_parse(body);
 }
@@ -251,6 +407,66 @@ Value AxMCPStreamableHTTPTransport::send(Value message) {
 void AxMCPStreamableHTTPTransport::send_notification(Value message) { (void)send(std::move(message)); }
 void AxMCPStreamableHTTPTransport::set_protocol_version(const std::string& protocol_version) { protocol_version_ = protocol_version; }
 void AxMCPStreamableHTTPTransport::set_session_id(std::string session_id) { session_id_ = std::move(session_id); }
+
+void AxMCPStreamableHTTPTransport::start_listening(){
+  std::lock_guard<std::mutex> lock(listen_mutex_);
+  if(listen_thread_.joinable())return;
+  listen_stop_=false;
+  listen_thread_=std::thread([this]{listen_loop();});
+}
+
+void AxMCPStreamableHTTPTransport::close(){
+  listen_stop_=true;
+  std::thread thread;
+  {std::lock_guard<std::mutex> lock(listen_mutex_);if(listen_thread_.joinable())thread=std::move(listen_thread_);}
+  if(thread.joinable())thread.join();
+}
+
+void AxMCPStreamableHTTPTransport::consume_sse_chunk(const char* data,std::size_t size){
+  for(std::size_t i=0;i<size;++i)if(data[i]!='\r')sse_buffer_.push_back(data[i]);
+  while(true){
+    auto end=sse_buffer_.find("\n\n");
+    if(end==std::string::npos)break;
+    auto frame=sse_buffer_.substr(0,end);sse_buffer_.erase(0,end+2);
+    std::string event_id;std::string payload;std::size_t pos=0;
+    while(pos<=frame.size()){
+      auto eol=frame.find('\n',pos);auto line=frame.substr(pos,eol==std::string::npos?std::string::npos:eol-pos);
+      if(line.rfind("id:",0)==0){event_id=line.substr(3);auto begin=event_id.find_first_not_of(" \t");event_id=begin==std::string::npos?std::string():event_id.substr(begin);}
+      else if(line.rfind("data:",0)==0){auto value=line.substr(5);auto begin=value.find_first_not_of(" \t");value=begin==std::string::npos?std::string():value.substr(begin);if(!payload.empty())payload+='\n';payload+=value;}
+      if(eol==std::string::npos)break;pos=eol+1;
+    }
+    if(!event_id.empty())last_event_id_=event_id;
+    if(!payload.empty()&&message_handler_){try{message_handler_(Core::json_parse(payload));}catch(...){}}
+  }
+}
+
+void AxMCPStreamableHTTPTransport::listen_loop(){
+#if !defined(AXLLM_ENABLE_CURL)
+  listen_stop_=true;
+  return;
+#else
+  static bool curl_initialized=[](){curl_global_init(CURL_GLOBAL_DEFAULT);return true;}();(void)curl_initialized;
+  bool connected_once=false;
+  auto delay=static_cast<long>(Core::number(Core::get(options_,"reconnectDelayMs",100)));
+  while(!listen_stop_){
+    CURL* curl=curl_easy_init();if(!curl)break;
+    struct ListenContext{AxMCPStreamableHTTPTransport* self;bool* connected_once;bool announced=false;} context{this,&connected_once,false};
+    auto header_values=build_headers(object({{"Accept","text/event-stream"}}),true);
+    if(!last_event_id_.empty())Core::set(header_values,"Last-Event-ID",last_event_id_);
+    curl_slist* headers=nullptr;for(const auto& entry:as_object_local(header_values)){if(entry.first=="__order")continue;headers=curl_slist_append(headers,(entry.first+": "+display(entry.second)).c_str());}
+    curl_easy_setopt(curl,CURLOPT_URL,endpoint_.c_str());curl_easy_setopt(curl,CURLOPT_HTTPGET,1L);curl_easy_setopt(curl,CURLOPT_HTTPHEADER,headers);
+    curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,+[](char* ptr,size_t size,size_t nmemb,void* raw)->size_t{auto* ctx=static_cast<ListenContext*>(raw);if(ctx->self->listen_stop_)return 0;if(!ctx->announced){if(*ctx->connected_once&&ctx->self->lifecycle_handler_)ctx->self->lifecycle_handler_("reconnected");*ctx->connected_once=true;ctx->announced=true;}auto count=size*nmemb;ctx->self->consume_sse_chunk(ptr,count);return count;});
+    curl_easy_setopt(curl,CURLOPT_WRITEDATA,&context);
+    curl_easy_setopt(curl,CURLOPT_HEADERFUNCTION,+[](char* ptr,size_t size,size_t nmemb,void* raw)->size_t{auto* self=static_cast<AxMCPStreamableHTTPTransport*>(raw);std::string line(ptr,size*nmemb);auto colon=line.find(':');if(colon!=std::string::npos){auto name=line.substr(0,colon);std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});if(name=="mcp-session-id"){auto value=line.substr(colon+1);auto begin=value.find_first_not_of(" \t");auto end=value.find_last_not_of(" \t\r\n");if(begin!=std::string::npos)self->session_id_=value.substr(begin,end-begin+1);}}return size*nmemb;});
+    curl_easy_setopt(curl,CURLOPT_HEADERDATA,this);curl_easy_setopt(curl,CURLOPT_NOPROGRESS,0L);
+    curl_easy_setopt(curl,CURLOPT_XFERINFOFUNCTION,+[](void* raw,curl_off_t,curl_off_t,curl_off_t,curl_off_t)->int{return static_cast<AxMCPStreamableHTTPTransport*>(raw)->listen_stop_?1:0;});curl_easy_setopt(curl,CURLOPT_XFERINFODATA,this);
+    auto result=curl_easy_perform(curl);curl_slist_free_all(headers);curl_easy_cleanup(curl);
+    if(!listen_stop_&&connected_once&&lifecycle_handler_)lifecycle_handler_("disconnected");
+    if(listen_stop_)break;
+    if(result!=CURLE_OK||context.announced)std::this_thread::sleep_for(std::chrono::milliseconds(std::max(1L,delay)));
+  }
+#endif
+}
 
 Value AxMCPStreamableHTTPTransport::build_headers(Value base, bool include_protocol) const {
   Value out = Core::map_merge(headers_, base);
@@ -337,6 +553,14 @@ std::string ax_mcp_validate_endpoint(const std::string& endpoint, Value options)
   return endpoint;
 }
 
+class FixtureUCPBinding final : public AxUCPBinding {
+ public:
+  explicit FixtureUCPBinding(Value response) : response_(std::move(response)) {}
+  Value call(const std::string&, Value, Value) override { return response_; }
+ private:
+  Value response_;
+};
+
 void run_mcp_conformance_fixture(Value fixture) {
   std::string op = display(Core::get(fixture, "operation", "initialize"));
   std::string expected_error = display(Core::get(fixture, "expected_error_contains", ""));
@@ -368,6 +592,24 @@ void run_mcp_conformance_fixture(Value fixture) {
       expect_subset_local(transport.build_headers(object({{"Accept", "application/json"}})), Core::get(fixture, "expected_headers", Value::object()), "headers");
       return;
     }
+    if (op == "execution_context_ucp") {
+      auto transport = std::make_shared<AxMCPScriptedTransport>(Core::get(fixture, "responses", Value::array()));
+      auto mcp = std::make_shared<AxMCPClient>(transport, Core::get(fixture, "client_options", Value::object()));
+      auto ucp = std::make_shared<AxUCPClient>(Core::get(fixture, "ucp_profile", Value::object()), std::make_shared<FixtureUCPBinding>(Core::get(fixture, "ucp_response", Value::object())), Core::get(fixture, "ucp_options", Value::object()));
+      AxExecutionContext context({mcp}, {ucp}); context.initialize();
+      Array actual_names; for (auto& name : context.namespaces()) actual_names.push_back(name);
+      expect_subset_local(Value(actual_names), Core::get(fixture, "expected_namespaces", Value::array()), "context namespaces");
+      auto tools = context.native_tools();
+      for (auto expected : as_array_local(Core::get(fixture, "expected_native_tools", Value::array()))) {
+        bool found = false; for (auto& tool : tools) found = found || tool.name == display(expected);
+        if (!found) throw AxError("fixture", "missing native context tool " + display(expected));
+      }
+      Value call = Core::get(fixture, "call_ucp", Value::object());
+      Value outcome = ucp->call(display(Core::get(call, "operation", "catalog.search")), Core::get(call, "payload", Value::object()), "fixture-key");
+      expect_subset_local(outcome, Core::get(fixture, "expected_ucp_outcome", Value::object()), "UCP outcome");
+      if (context.continuation_state().catalog_fingerprint.empty()) throw AxError("fixture", "invalid execution context continuation state");
+      return;
+    }
     auto transport = std::make_shared<AxMCPScriptedTransport>(Core::get(fixture, "responses", Core::get(fixture, "transport_responses", Value::array())));
     AxMCPClient client(transport, Core::get(fixture, "client_options", Value::object()));
     client.init();
@@ -378,7 +620,7 @@ void run_mcp_conformance_fixture(Value fixture) {
     if (op == "ping") {
       client.ping();
     } else if (op == "tools") {
-      auto functions = client.to_function();
+      auto functions = client.native_tools();
       if (!Core::get(fixture, "call_function", Value()).is_null()) {
         Value call = Core::get(fixture, "call_function");
         for (auto& fn : functions) {
@@ -391,7 +633,16 @@ void run_mcp_conformance_fixture(Value fixture) {
       client.cancel_request(Core::get(fixture, "request_id", "1"), display(Core::get(fixture, "reason", "cancelled")));
       if (transport->notifications.empty()) throw AxError("fixture", "expected a cancel notification");
       expect_subset_local(transport->notifications.back(), Core::get(fixture, "expected_notification", Value::object()), "cancel notification");
-    } else if (op == "initialize" || op == "protocol_negotiation" || op == "prompts_resources" || op == "roots_notifications") {
+    } else if (op == "prompts_resources") {
+      auto catalog_names = [](Value catalog) {
+        Array names;
+        for (auto item : as_array_local(catalog)) names.push_back(display(Core::get(item, "name", "")));
+        return Value(names);
+      };
+      expect_subset_local(catalog_names(client.prompts()), Core::get(fixture, "expected_prompt_names", Value::array()), "prompt names");
+      expect_subset_local(catalog_names(client.resources()), Core::get(fixture, "expected_resource_names", Value::array()), "resource names");
+      expect_subset_local(catalog_names(client.resource_templates()), Core::get(fixture, "expected_resource_template_names", Value::array()), "resource template names");
+    } else if (op == "initialize" || op == "protocol_negotiation" || op == "roots_notifications") {
       return;
     } else {
       throw AxError("fixture", "unsupported MCP conformance operation " + op);

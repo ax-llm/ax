@@ -34,9 +34,13 @@ class FakeTransport {
   ): Promise<AxMCPJSONRPCResponse<unknown>> => {
     const response = this.sendResponses[request.method];
     if (response) {
-      return Promise.resolve(response);
+      return Promise.resolve({ ...response, id: request.id as string });
     }
-    return Promise.resolve({ jsonrpc: '2.0', id: 'default-id', result: {} });
+    return Promise.resolve({
+      jsonrpc: '2.0',
+      id: request.id as string,
+      result: {},
+    });
   };
   sendNotification = vi.fn(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -346,10 +350,10 @@ describe('AxMCPClient', () => {
 
     it('should handle RPC errors', async () => {
       // Override the send method to return an error
-      vi.mocked(mockTransport.send).mockImplementationOnce(async () => {
+      vi.mocked(mockTransport.send).mockImplementationOnce(async (request) => {
         return {
           jsonrpc: '2.0',
-          id: 1,
+          id: request.id,
           error: {
             code: 123,
             message: 'Test error',
@@ -365,10 +369,10 @@ describe('AxMCPClient', () => {
 
     it('should handle invalid responses', async () => {
       // Override the send method to return an invalid response
-      vi.mocked(mockTransport.send).mockImplementationOnce(async () => {
+      vi.mocked(mockTransport.send).mockImplementationOnce(async (request) => {
         return {
           jsonrpc: '2.0',
-          id: 1,
+          id: request.id,
           // No result or error property
         } as AxMCPJSONRPCResponse;
       });
@@ -507,13 +511,16 @@ describe('AxMCPClient', () => {
       let callCount = 0;
       pagedTransport.send = vi.fn((request) => {
         if (request.method === 'initialize') {
-          return Promise.resolve(pagedTransport.sendResponses.initialize);
+          return Promise.resolve({
+            ...pagedTransport.sendResponses.initialize,
+            id: request.id as string,
+          });
         }
         if (request.method === 'tools/list') {
           callCount++;
           return Promise.resolve({
             jsonrpc: '2.0',
-            id: 'tools-id',
+            id: request.id as string,
             result:
               callCount === 1
                 ? {
@@ -788,7 +795,7 @@ describe('AxMCPClient', () => {
         ) {
           return Promise.resolve({
             jsonrpc: '2.0',
-            id: 'prompts-list-id',
+            id: request.id as string,
             result: {
               prompts: [{ name: 'next-page-prompt' }],
             },
@@ -831,7 +838,7 @@ describe('AxMCPClient', () => {
           expect(params.arguments).toEqual({ name: 'John' });
           return Promise.resolve({
             jsonrpc: '2.0',
-            id: 'prompts-get-id',
+            id: request.id as string,
             result: promptResult,
           });
         }
@@ -929,7 +936,7 @@ describe('AxMCPClient', () => {
         if (request.method === 'prompts/get') {
           return Promise.resolve({
             jsonrpc: '2.0',
-            id: 'prompts-get-id',
+            id: request.id as string,
             result: promptResult,
           });
         }
@@ -956,7 +963,7 @@ describe('AxMCPClient', () => {
           if (callCount === 1) {
             return Promise.resolve({
               jsonrpc: '2.0',
-              id: 'prompts-list-id-1',
+              id: request.id as string,
               result: {
                 prompts: [{ name: 'prompt1', description: 'First prompt' }],
                 nextCursor: 'page2',
@@ -965,7 +972,7 @@ describe('AxMCPClient', () => {
           } else {
             return Promise.resolve({
               jsonrpc: '2.0',
-              id: 'prompts-list-id-2',
+              id: request.id as string,
               result: {
                 prompts: [{ name: 'prompt2', description: 'Second prompt' }],
               },
@@ -1048,6 +1055,63 @@ describe('AxMCPClient', () => {
       await expect(noResourcesClient.listResources()).rejects.toThrow(
         'Resources are not supported'
       );
+    });
+
+    it('returns isolated catalog snapshots and refreshes only when requested', async () => {
+      resourcesTransport.sendResponses['resources/list'] = {
+        jsonrpc: '2.0',
+        id: 'resources-list-id',
+        result: {
+          resources: [{ uri: 'demo://a', name: 'a' }],
+        },
+      };
+      resourcesTransport.sendResponses['resources/templates/list'] = {
+        jsonrpc: '2.0',
+        id: 'templates-list-id',
+        result: {
+          resourceTemplates: [
+            { uriTemplate: 'demo://items/{id}', name: 'item' },
+          ],
+        },
+      };
+      const originalSend = resourcesTransport.send.bind(resourcesTransport);
+      resourcesTransport.send = vi.fn((request) => originalSend(request));
+
+      const first = await resourcesEnabledClient.inspectCatalog();
+      expect(first).toMatchObject({
+        namespace: 'mcp',
+        protocolVersion: '2025-11-25',
+        revision: 1,
+        resources: [{ uri: 'demo://a', name: 'a' }],
+        resourceTemplates: [{ uriTemplate: 'demo://items/{id}', name: 'item' }],
+        subscriptions: [],
+      });
+      (first.resources[0] as AxMCPResource).name = 'mutated';
+      const cached = await resourcesEnabledClient.inspectCatalog();
+      expect(cached.resources[0]?.name).toBe('a');
+      expect(
+        vi
+          .mocked(resourcesTransport.send)
+          .mock.calls.filter(([request]) => request.method === 'resources/list')
+      ).toHaveLength(1);
+
+      resourcesTransport.sendResponses['resources/list'] = {
+        jsonrpc: '2.0',
+        id: 'resources-list-id',
+        result: { resources: [{ uri: 'demo://b', name: 'b' }] },
+      };
+      const refreshed = await resourcesEnabledClient.inspectCatalog({
+        refresh: true,
+      });
+      expect(refreshed.revision).toBe(2);
+      expect(refreshed.resources.map((resource) => resource.uri)).toEqual([
+        'demo://b',
+      ]);
+
+      await resourcesEnabledClient.subscribeResource('demo://b');
+      expect(
+        (await resourcesEnabledClient.inspectCatalog()).subscriptions
+      ).toEqual(['demo://b']);
     });
 
     it('should list resources when capability is enabled', async () => {
@@ -1182,7 +1246,7 @@ describe('AxMCPClient', () => {
           expect(params.uri).toBe('file:///path/to/watched.txt');
           return Promise.resolve({
             jsonrpc: '2.0',
-            id: 'subscribe-id',
+            id: request.id as string,
             result: {},
           });
         }
@@ -1203,7 +1267,7 @@ describe('AxMCPClient', () => {
           expect(params.uri).toBe('file:///path/to/watched.txt');
           return Promise.resolve({
             jsonrpc: '2.0',
-            id: 'unsubscribe-id',
+            id: request.id as string,
             result: {},
           });
         }
@@ -1400,7 +1464,7 @@ describe('AxMCPClient', () => {
           expect(params.uri).toBe('file:///documents/report.txt');
           return Promise.resolve({
             jsonrpc: '2.0',
-            id: 'resources-read-id',
+            id: request.id as string,
             result: {
               contents: [{ uri: params.uri, text: 'Report content' }],
             },
@@ -1428,7 +1492,7 @@ describe('AxMCPClient', () => {
           if (resourceCallCount === 1) {
             return Promise.resolve({
               jsonrpc: '2.0',
-              id: 'resources-list-id-1',
+              id: request.id as string,
               result: {
                 resources: [{ uri: 'file:///a.txt', name: 'a.txt' }],
                 nextCursor: 'page2',
@@ -1437,7 +1501,7 @@ describe('AxMCPClient', () => {
           } else {
             return Promise.resolve({
               jsonrpc: '2.0',
-              id: 'resources-list-id-2',
+              id: request.id as string,
               result: {
                 resources: [{ uri: 'file:///b.txt', name: 'b.txt' }],
               },
@@ -1449,7 +1513,7 @@ describe('AxMCPClient', () => {
           if (templateCallCount === 1) {
             return Promise.resolve({
               jsonrpc: '2.0',
-              id: 'templates-list-id-1',
+              id: request.id as string,
               result: {
                 resourceTemplates: [
                   { uriTemplate: 'tmpl:///{x}', name: 'tmpl1' },
@@ -1460,7 +1524,7 @@ describe('AxMCPClient', () => {
           } else {
             return Promise.resolve({
               jsonrpc: '2.0',
-              id: 'templates-list-id-2',
+              id: request.id as string,
               result: {
                 resourceTemplates: [
                   { uriTemplate: 'tmpl:///{y}', name: 'tmpl2' },
@@ -1591,6 +1655,533 @@ describe('AxMCPClient', () => {
       const overriddenFn = functions.find((f) => f.name === 'get_config');
       expect(overriddenFn).toBeDefined();
       expect(overriddenFn?.description).toBe('Get application configuration');
+    });
+  });
+});
+
+describe('AxMCPClient full consumer primitives', () => {
+  it('negotiates only extensions advertised by both peers', async () => {
+    const transport: AxMCPTransport = {
+      send: async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          protocolVersion: '2025-11-25',
+          capabilities: {
+            extensions: {
+              'io.modelcontextprotocol/ui': { version: '1' },
+              'com.example/server-only': {},
+            },
+          },
+          serverInfo: { name: 'extensions', version: '1' },
+        },
+      }),
+      sendNotification: async () => {},
+    };
+    const client = new AxMCPClient(transport, {
+      extensions: {
+        'io.modelcontextprotocol/ui': {},
+        'io.modelcontextprotocol/oauth-client-credentials': {},
+      },
+    });
+    await client.init();
+
+    expect(client.hasExtension('io.modelcontextprotocol/ui')).toBe(true);
+    expect(
+      client.hasExtension('io.modelcontextprotocol/oauth-client-credentials')
+    ).toBe(false);
+    expect(client.getNegotiatedExtensions()).toEqual({
+      'io.modelcontextprotocol/ui': { version: '1' },
+    });
+  });
+
+  it('rejects mismatched JSON-RPC response IDs', async () => {
+    const mismatched: AxMCPTransport = {
+      send: async () => ({ jsonrpc: '2.0', id: 'wrong-id', result: {} }),
+      sendNotification: async () => {},
+    };
+    await expect(new AxMCPClient(mismatched).init()).rejects.toThrow(
+      'MCP response ID mismatch'
+    );
+  });
+
+  it('handles server sampling, elicitation, and progress', async () => {
+    const transport = new FakeTransport();
+    transport.sendResponses.initialize = {
+      jsonrpc: '2.0',
+      id: 'init-id',
+      result: {
+        protocolVersion: '2025-11-25',
+        capabilities: {},
+        serverInfo: { name: 'server', version: '1' },
+      },
+    };
+    const sampling = vi.fn(async () => ({
+      role: 'assistant' as const,
+      content: { type: 'text' as const, text: 'sampled' },
+      model: 'test-model',
+    }));
+    const elicitation = vi.fn(async () => ({
+      action: 'accept' as const,
+      content: { email: 'a@example.com' },
+    }));
+    const onProgress = vi.fn();
+    const client = new AxMCPClient(transport, {
+      sampling,
+      elicitation,
+      onProgress,
+    });
+    await client.init();
+
+    await transport.messageHandler?.({
+      jsonrpc: '2.0',
+      id: 'sample-1',
+      method: 'sampling/createMessage',
+      params: { messages: [], maxTokens: 20 },
+    });
+    await transport.messageHandler?.({
+      jsonrpc: '2.0',
+      id: 'elicit-1',
+      method: 'elicitation/create',
+      params: {
+        mode: 'form',
+        message: 'Email?',
+        requestedSchema: { type: 'object' },
+      },
+    });
+    await transport.messageHandler?.({
+      jsonrpc: '2.0',
+      method: 'notifications/progress',
+      params: { progressToken: 'p1', progress: 1, total: 2 },
+    });
+
+    expect(sampling).toHaveBeenCalledOnce();
+    expect(elicitation).toHaveBeenCalledOnce();
+    expect(onProgress).toHaveBeenCalledWith({
+      progressToken: 'p1',
+      progress: 1,
+      total: 2,
+    });
+    expect(transport.sentResponses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'sample-1' }),
+        expect.objectContaining({ id: 'elicit-1' }),
+      ])
+    );
+  });
+
+  it('runs task-backed tool calls through terminal result retrieval', async () => {
+    let polls = 0;
+    const transport: AxMCPTransport = {
+      send: async (request) => {
+        const results: Record<string, unknown> = {
+          initialize: {
+            protocolVersion: '2025-11-25',
+            capabilities: {
+              tools: {},
+              tasks: { requests: { tools: { call: {} } } },
+            },
+            serverInfo: { name: 'tasks', version: '1' },
+          },
+          'tools/list': {
+            tools: [
+              {
+                name: 'slow_tool',
+                inputSchema: { type: 'object' },
+                execution: { taskSupport: 'required' },
+              },
+            ],
+          },
+          'tools/call': {
+            task: {
+              taskId: 'task-1',
+              status: 'working',
+              createdAt: '2026-01-01T00:00:00Z',
+              lastUpdatedAt: '2026-01-01T00:00:00Z',
+              ttl: 10_000,
+              pollInterval: 0,
+            },
+          },
+          'tasks/result': {
+            content: [{ type: 'text', text: 'done' }],
+            structuredContent: { done: true },
+          },
+        };
+        if (request.method === 'tasks/get') {
+          polls++;
+          results['tasks/get'] = {
+            taskId: 'task-1',
+            status: polls > 1 ? 'completed' : 'working',
+            createdAt: '2026-01-01T00:00:00Z',
+            lastUpdatedAt: '2026-01-01T00:00:01Z',
+            ttl: 10_000,
+            pollInterval: 0,
+          };
+        }
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: results[request.method] ?? {},
+        } as AxMCPJSONRPCResponse<unknown>;
+      },
+      sendNotification: async () => {},
+    };
+    const client = new AxMCPClient(transport);
+    await client.init();
+    const created = await client.callToolTask('slow_tool', {});
+    const result = await client.waitForTask(created.task.taskId, {
+      defaultPollIntervalMs: 0,
+    });
+    expect(result).toMatchObject({ structuredContent: { done: true } });
+  });
+
+  it('enforces per-client tool concurrency limits', async () => {
+    let started = 0;
+    let active = 0;
+    let maxActive = 0;
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const transport: AxMCPTransport = {
+      send: async (request) => {
+        if (request.method === 'initialize') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              protocolVersion: '2025-11-25',
+              capabilities: { tools: {} },
+              serverInfo: { name: 'serial', version: '1' },
+            },
+          };
+        }
+        if (request.method === 'tools/list') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              tools: [{ name: 'work', inputSchema: { type: 'object' } }],
+            },
+          };
+        }
+        started++;
+        active++;
+        maxActive = Math.max(maxActive, active);
+        if (started === 1) await firstGate;
+        active--;
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: { content: [{ type: 'text', text: 'done' }] },
+        };
+      },
+      sendNotification: async () => {},
+    };
+    const client = new AxMCPClient(transport, { maxConcurrency: 1 });
+    await client.init();
+
+    const first = client.callTool('work');
+    const second = client.callTool('work');
+    await vi.waitFor(() => expect(started).toBe(1));
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(maxActive).toBe(1);
+  });
+
+  it('automatically serializes destructive tools from MCP annotations', async () => {
+    let started = 0;
+    let active = 0;
+    let maxActive = 0;
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const transport: AxMCPTransport = {
+      send: async (request) => {
+        if (request.method === 'initialize') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              protocolVersion: '2025-11-25',
+              capabilities: { tools: {} },
+              serverInfo: { name: 'destructive', version: '1' },
+            },
+          };
+        }
+        if (request.method === 'tools/list') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              tools: [
+                {
+                  name: 'delete_item',
+                  inputSchema: { type: 'object' },
+                  annotations: { destructiveHint: true },
+                },
+              ],
+            },
+          };
+        }
+        started++;
+        active++;
+        maxActive = Math.max(maxActive, active);
+        if (started === 1) await firstGate;
+        active--;
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: { content: [{ type: 'text', text: 'deleted' }] },
+        };
+      },
+      sendNotification: async () => {},
+    };
+    const client = new AxMCPClient(transport);
+    await client.init();
+
+    const first = client.callTool('delete_item');
+    const second = client.callTool('delete_item');
+    await vi.waitFor(() => expect(started).toBe(1));
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(maxActive).toBe(1);
+  });
+
+  it('rejects repeated pagination cursors', async () => {
+    const transport: AxMCPTransport = {
+      send: async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result:
+          request.method === 'initialize'
+            ? {
+                protocolVersion: '2025-11-25',
+                capabilities: { tools: {} },
+                serverInfo: { name: 'loop', version: '1' },
+              }
+            : { tools: [], nextCursor: 'same' },
+      }),
+      sendNotification: async () => {},
+    };
+
+    await expect(new AxMCPClient(transport).init()).rejects.toThrow(
+      'repeated pagination cursor same'
+    );
+  });
+
+  it('records task status notifications for continuation state', async () => {
+    const transport = new FakeTransport();
+    transport.sendResponses.initialize = {
+      jsonrpc: '2.0',
+      id: 'init-id',
+      result: {
+        protocolVersion: '2025-11-25',
+        capabilities: { tasks: {} },
+        serverInfo: { name: 'tasks', version: '1' },
+      },
+    };
+    const onTaskStatus = vi.fn();
+    const client = new AxMCPClient(transport, { onTaskStatus });
+    await client.init();
+    await transport.messageHandler?.({
+      jsonrpc: '2.0',
+      method: 'notifications/tasks/status',
+      params: {
+        taskId: 'task-live',
+        status: 'working',
+        createdAt: '2026-01-01T00:00:00Z',
+        lastUpdatedAt: '2026-01-01T00:00:01Z',
+        ttl: 10_000,
+      },
+    });
+
+    expect(client.getKnownTasks()).toEqual([
+      expect.objectContaining({ taskId: 'task-live', status: 'working' }),
+    ]);
+    expect(onTaskStatus).toHaveBeenCalledOnce();
+  });
+
+  it('exposes batching only for the protocol version that permits it', async () => {
+    const transport: AxMCPTransport = {
+      send: async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result:
+          request.method === 'initialize'
+            ? {
+                protocolVersion: '2025-03-26',
+                capabilities: {},
+                serverInfo: { name: 'batch', version: '1' },
+              }
+            : {},
+      }),
+      sendBatch: async (messages) =>
+        messages.map((message) => ({
+          jsonrpc: '2.0' as const,
+          id: message.id,
+          result: { method: message.method },
+        })),
+      sendNotification: async () => {},
+    };
+    const client = new AxMCPClient(transport, {
+      protocolVersion: '2025-03-26',
+    });
+    await client.init();
+
+    await expect(
+      client.batch([{ method: 'ping' }, { method: 'tools/list' }])
+    ).resolves.toEqual([
+      expect.objectContaining({
+        response: expect.objectContaining({ result: { method: 'ping' } }),
+      }),
+      expect.objectContaining({
+        response: expect.objectContaining({
+          result: { method: 'tools/list' },
+        }),
+      }),
+    ]);
+  });
+
+  it('reinitializes an expired session and retries only safe requests', async () => {
+    let initializeCount = 0;
+    let expirePing = true;
+    const transport: AxMCPTransport = {
+      send: async (request) => {
+        if (request.method === 'initialize') {
+          initializeCount++;
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              protocolVersion: '2025-11-25',
+              capabilities: {},
+              serverInfo: { name: 'recover', version: '1' },
+            },
+          };
+        }
+        if (request.method === 'ping' && expirePing) {
+          expirePing = false;
+          throw new Error('MCP session expired');
+        }
+        return { jsonrpc: '2.0', id: request.id, result: {} };
+      },
+      sendNotification: async () => {},
+    };
+    const client = new AxMCPClient(transport);
+    await client.init();
+
+    await expect(client.ping()).resolves.toBeUndefined();
+    expect(initializeCount).toBe(2);
+  });
+
+  it('never replays side-effecting tool calls after session expiry', async () => {
+    let initializeCount = 0;
+    const transport: AxMCPTransport = {
+      send: async (request) => {
+        if (request.method === 'initialize') {
+          initializeCount++;
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              protocolVersion: '2025-11-25',
+              capabilities: { tools: {} },
+              serverInfo: { name: 'no-replay', version: '1' },
+            },
+          };
+        }
+        if (request.method === 'tools/list') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              tools: [{ name: 'charge', inputSchema: { type: 'object' } }],
+            },
+          };
+        }
+        throw new Error('MCP session expired');
+      },
+      sendNotification: async () => {},
+    };
+    const client = new AxMCPClient(transport);
+    await client.init();
+
+    await expect(client.callTool('charge')).rejects.toThrow(
+      'will not replay an ambiguous side-effecting request'
+    );
+    expect(initializeCount).toBe(1);
+  });
+
+  it('emits sanitized protocol spans with version, server, method, and retries', async () => {
+    const spans: Array<{
+      name: string;
+      attributes: Record<string, unknown>;
+      status?: unknown;
+      ended?: boolean;
+    }> = [];
+    const tracer = {
+      startSpan: (
+        name: string,
+        options?: { attributes?: Record<string, unknown> }
+      ) => {
+        const record = {
+          name,
+          attributes: { ...(options?.attributes ?? {}) },
+          status: undefined as unknown,
+          ended: false,
+        };
+        spans.push(record);
+        return {
+          setAttribute: (key: string, value: unknown) => {
+            record.attributes[key] = value;
+          },
+          setStatus: (status: unknown) => {
+            record.status = status;
+          },
+          end: () => {
+            record.ended = true;
+          },
+        };
+      },
+    };
+    const transport: AxMCPTransport = {
+      send: async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result:
+          request.method === 'initialize'
+            ? {
+                protocolVersion: '2025-11-25',
+                capabilities: {},
+                serverInfo: { name: 'traced-server', version: '1' },
+              }
+            : {},
+      }),
+      takeRequestMetadata: () => ({ retryCount: 2 }),
+      sendNotification: async () => {},
+    };
+    const client = new AxMCPClient(transport, {
+      namespace: 'traced',
+      tracer: tracer as any,
+    });
+    await client.init();
+    await client.ping();
+
+    expect(spans.at(-1)).toMatchObject({
+      name: 'MCP ping',
+      ended: true,
+      attributes: {
+        'rpc.system': 'jsonrpc',
+        'rpc.method': 'ping',
+        'mcp.namespace': 'traced',
+        'mcp.protocol.version': '2025-11-25',
+        'mcp.server.name': 'traced-server',
+        'mcp.retry_count': 2,
+      },
     });
   });
 });

@@ -1,7 +1,7 @@
 ---
 name: ax-playbook
 description: This skill helps an LLM generate correct playbook code using @ax-llm/ax. Use when the user asks about playbook(), AxPlaybook, context playbooks, evolving context, ACE / Agentic Context Engineering, agent.playbook(), or growing/applying task knowledge offline and online with evolve() and update().
-version: "23.0.0"
+version: "23.0.1"
 ---
 
 # Playbook Codegen Rules (@ax-llm/ax)

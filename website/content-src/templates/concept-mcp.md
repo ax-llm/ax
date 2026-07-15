@@ -1,80 +1,54 @@
 # MCP
 
-Model Context Protocol is the clean boundary between Ax programs and external tool servers. An MCP server can expose tools, prompts, resources, and resource templates. Ax connects to the server, negotiates the protocol version, lists the available capabilities, and turns them into normal Ax functions.
-
-That means MCP does not need a special prompt path. Once connected, MCP tools can be passed to `ax()` generation, grouped for `agent()` discovery, traced like other tools, and optimized as part of the same program behavior.
+MCP is a native Ax execution surface. Attach a live `AxMCPClient` with `mcp`; AxGen, AxAgent, and AxFlow retain the owning session, qualified tool identity, structured content, tasks, cancellation, and tracing. The compatibility-only function adapter is lossy and is not used by native execution.
 
 {{< svg "mcp-bridge" "MCP bridge" >}}
 
-## Mental Model
-
 ```mermaid
 flowchart LR
-  App["App code"] --> Client["AxMCPClient"]
-  Client --> Transport["stdio / HTTP / SSE transport"]
-  Transport --> Server["MCP server"]
-  Server --> Capabilities["tools, prompts, resources"]
-  Capabilities --> Functions["Ax functions"]
-  Functions --> Program["ax() or agent()"]
+  Server["MCP server"] --> Session["AxMCPClient session"]
+  Session --> Program["AxGen, AxAgent, or AxFlow"]
+  Session --> Events["AxMCPEventSource"]
+  Events --> Inbox["AxEventRuntime inbox"]
+  Inbox --> Program
 ```
 
-MCP tools become typed host functions. Prompts get a `prompt_` prefix, resources get a `resource_` prefix, and resource templates become callable lookups. Function overrides let you rename or clarify server-provided names without editing the server.
+## Native Tools
 
-## Local Stdio Servers
+The client negotiates capabilities once and Ax maps native tool definitions at each model step. Catalog-change notifications refresh only the affected definitions.
 
-Use stdio for local MCP servers started as child processes. This is the common path for local memory, filesystem, or desktop-style tools.
+{{mcpNativeExample}}
 
-{{mcpStdioExample}}
+## Subscriptions Can Wake Programs
 
-## Streamable HTTP Servers
+`AxMCPEventSource` converts protocol notifications into normal event ingress. A notification is durable before acknowledgement when the configured store supports it. Nothing wakes a model until an explicit authenticated route selects `wake`.
 
-Use streamable HTTP for remote services. This keeps Ax on the MCP wire protocol while the transport owns HTTP headers, session IDs, protocol headers, and provider-specific auth details.
+The endpoint is only the address. `inspectCatalog()` discovers server-owned
+resource names and URIs, while an explicit none/all/URI/selector policy decides
+what the source maintains. See [MCP Subscriptions]({{langRoot}}/concepts/mcp-subscriptions/) for catalog selection, URI templates, ownership, reconnect, and troubleshooting.
 
-{{mcpHttpExample}}
+{{mcpResourceWakeExample}}
 
-## OAuth-Capable Remote MCP
+MCP sessions do not establish application tenant identity. Supply identity from the OAuth-token or account mapping. Unmapped notifications remain anonymous and cannot match routes requiring authentication.
 
-Remote MCP services can require OAuth. Keep client credentials in environment variables, use a real redirect endpoint in production, and persist tokens through the transport token store when the package surface supports it.
+## Tasks Resume Continuations
 
-{{mcpOAuthExample}}
+Task progress and logs default to `observe`. An `input_required` or terminal task event correlates as `namespace:taskId` and can atomically consume the continuation owned by a prior AxFlow or Agent run. Polling remains available because MCP task notifications are optional.
 
-## No-Key Scripted Tests
+{{mcpTaskResumeExample}}
 
-Scripted transports are useful for deterministic examples, conformance, and docs. They exercise initialize, capability discovery, tool listing, tool calls, and `toFunction()` without hitting a network or needing provider credentials.
+## Transports, Authentication, And Server Requests
 
-{{mcpScriptedExample}}
+Ax supports stdio, Streamable HTTP, legacy HTTP/SSE, resumable SSE, and custom WebSocket transports. Native clients also expose prompts, resources, templates, subscriptions, completions, roots, sampling, elicitation, progress, cancellation, experimental tasks, OAuth, MCP Apps, client credentials, and enterprise-managed authorization.
 
-## Capabilities And Overrides
+Transport listeners are supervised and nonblocking. Reconnect restores logical subscriptions; caller-owned clients remain caller-owned and must be closed.
 
-Capabilities tell you what the server exposed after initialization. Use them for diagnostics and for deciding whether the current server is usable for a workflow.
+## Safety
 
-{{mcpCapabilitiesExample}}
+- Treat prompt and resource content as attributed, untrusted context.
+- Require application identity for tenant routes; never derive it from an MCP session id.
+- Authorize side-effecting tools from annotations, arguments, task context, and caller identity.
+- Do not blindly replay an uncertain post-side-effect failure.
+- Use recording/replay or a sandbox for optimization and evaluation.
 
-Overrides let the application rename awkward MCP tool names, improve descriptions, or make a server fit an agent namespace without changing the MCP server.
-
-{{mcpOverridesExample}}
-
-## Use MCP With ax()
-
-For direct structured generation, initialize the client and pass its functions to the program run. This is best when the task is one typed request and the model only needs a small tool set.
-
-{{axMCPExample}}
-
-## Use MCP With agent()
-
-Agents can receive MCP tools directly or through grouped discovery modules. Use flat functions when the tool list is small. Use groups when a server exposes many tools and the actor should discover the right module before seeing every schema.
-
-{{agentMCPFlatExample}}
-
-{{agentMCPGroupedExample}}
-
-## Production Notes
-
-- Keep remote MCP endpoints on an allowlist and use SSRF protection for user-supplied URLs.
-- Prefer narrow namespaces and clear selection criteria so small models can choose tools correctly.
-- Treat MCP tools as side-effect boundaries: validate inputs, log calls, and make destructive operations explicit.
-- Refresh capabilities when the server sends list-changed notifications.
-- Trace MCP initialize, list, call, retry, error, and token-refresh behavior alongside model usage.
-- Keep scripted MCP examples in the docs and test suite so package conformance does not depend on external servers.
-
-See [Tools]({{langRoot}}/concepts/tools/), [ax() generation]({{langRoot}}/subsystems/ax/), [agent() agents]({{langRoot}}/subsystems/agent/), and [agent() API]({{langRoot}}/api/agent/).
+See [MCP Subscriptions]({{langRoot}}/concepts/mcp-subscriptions/), [Event Runtime]({{langRoot}}/concepts/event-runtime/), [Tools]({{langRoot}}/concepts/tools/), [ax() generation]({{langRoot}}/subsystems/ax/), and [agent() agents]({{langRoot}}/subsystems/agent/).

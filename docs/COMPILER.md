@@ -64,6 +64,9 @@ lowering:
 - `ax.flow` owns AxFlow as an Ax program graph: steps, planning barriers,
   control flow, cache keys, state merge, `.returns()`, child program
   aggregation, stop/abort checkpoints, and parallel merge errors.
+- `ax.event` owns the protocol-neutral event state machine: route selection,
+  identity and trust gates, retry classification, continuation matching, and
+  normalized event trace envelopes.
 - `ax.optimize` owns optimizer components, evaluator rows, artifacts,
   apply/rollback, evidence batches, and the engine boundary.
 
@@ -84,6 +87,11 @@ Core-owned behavior is deterministic and language-agnostic:
   action logs, trace events, and actor-visible policy vocabulary
 - AxFlow planning, control flow, cache behavior, state merge, trace/usage/chat
   aggregation, and return projection
+- event route commands, strict same-instance eligibility, signature input
+  normalization, retry safety, continuation correlation, and protocol adapter
+  normalization
+- MCP catalog snapshots, concrete-resource subscription selection and diffing,
+  and logical URI ownership transitions
 - optimizer request/evaluator/artifact shape and generated `AxGEPA` algorithm
   state
 
@@ -93,6 +101,8 @@ Target-owned behavior is host integration:
   packaging, and examples
 - HTTP, SSE, WebSocket, auth, retries, binary upload, media conversion, clocks,
   timers, filesystem/process access, and live network execution
+- event source supervision, inbox polling, durable stores, leases, background
+  workers, and sink delivery loops
 - native callback bodies for tools, metrics, judges, runtime host functions,
   provider transports, and child program execution
 - interpreter/sandbox implementation, runtime profile dependency loading,
@@ -136,6 +146,23 @@ their package trees instead of being auto-installed into user projects as npm
 skills. The committed package output lives under `packages/python`,
 `packages/java`, `packages/cpp`, `packages/go`, and `packages/rust`; AxIR
 remains the source of truth.
+
+Every generated package advertises `axevent.single-worker` and
+`axevent-lifecycle-dispatch` and exposes the same event envelope, route,
+command, source, sink, clock, store, target, and runtime boundaries. The five
+generated conformance runners prove due scheduling, capacity limits, state
+restore, continuation consumption, cancellation, run inspection, dead letters,
+sink-only redrive, strict ordering across delayed retries, and callback/default
+signature normalization. Generated path/input builders use the host signature
+type as the destination contract and validate inputs before invoking the typed
+target callback. Generated MCP clients expose deep-cloned catalog snapshots and
+managed none/all/URI/selector subscription policies; real HTTP/SSE smoke tests
+cover catalog changes, reconciliation, reconnect, and automatic event dispatch.
+AxIR owns the deterministic state machines; each host owns its timer, transport,
+and asynchronous listening loop.
+Persistent multi-worker capability is not inferred from this baseline and is
+advertised only for a store that passes the language's event-store conformance
+runner.
 
 Public examples remain under `src/examples/<language>/<group>/` and are
 generated from each file's `ax-example` header. Generated Python, Java, C++,

@@ -745,7 +745,33 @@ function createMessages<TModel>(
       case 'function':
         return {
           role: 'tool' as const,
-          content: msg.result,
+          content:
+            msg.content
+              ?.map((part) => {
+                if (part.type === 'text') return part.text;
+                if (part.type === 'image') {
+                  return part.altText ?? `[MCP image result: ${part.mimeType}]`;
+                }
+                if (part.type === 'audio') {
+                  return (
+                    part.transcription ??
+                    `[MCP audio result: ${part.mimeType ?? 'application/octet-stream'}]`
+                  );
+                }
+                if (part.type === 'url') {
+                  return (
+                    part.cachedContent ??
+                    [part.title, part.description, part.url]
+                      .filter(Boolean)
+                      .join('\n')
+                  );
+                }
+                return (
+                  part.extractedText ??
+                  `[MCP file result: ${part.filename ?? 'file'} (${part.mimeType})]`
+                );
+              })
+              .join('\n') ?? msg.result,
           tool_call_id: msg.functionId,
         };
       default:

@@ -1,9 +1,12 @@
 use crate::{tool, AxError, AxResult, Tool};
 use serde_json::{json, Map, Value};
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const AX_MCP_PROTOCOL_VERSION: &str = "2025-11-25";
@@ -48,7 +51,15 @@ pub trait AxMCPTransport: Send {
         self.send_notification(message)
     }
     fn set_protocol_version(&mut self, _protocol_version: &str) {}
+    fn set_message_handler(&mut self, _handler: Arc<dyn Fn(Value) + Send + Sync>) {}
+    fn set_lifecycle_handler(&mut self, _handler: Arc<dyn Fn(String) + Send + Sync>) {}
     fn connect(&mut self) -> AxResult<()> {
+        Ok(())
+    }
+    fn start_listening(&mut self) -> AxResult<()> {
+        Ok(())
+    }
+    fn close(&mut self) -> AxResult<()> {
         Ok(())
     }
     fn sent_notifications(&self) -> Vec<Value> {
@@ -56,17 +67,40 @@ pub trait AxMCPTransport: Send {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AxMCPCatalogSnapshot {
+    pub namespace: String,
+    pub protocol_version: Option<String>,
+    pub revision: u64,
+    pub server_info: Value,
+    pub server_capabilities: Value,
+    pub tools: Vec<Value>,
+    pub prompts: Vec<Value>,
+    pub resources: Vec<Value>,
+    pub resource_templates: Vec<Value>,
+    pub subscriptions: Vec<String>,
+}
+
 #[derive(Clone)]
 pub struct AxMCPClient {
     transport: Arc<Mutex<Box<dyn AxMCPTransport>>>,
     options: Value,
     server_capabilities: Value,
+    server_info: Value,
     negotiated_protocol_version: Option<String>,
     tools: Vec<Value>,
     prompts: Vec<Value>,
     resources: Vec<Value>,
     resource_templates: Vec<Value>,
     next_id: Arc<Mutex<u64>>,
+    notification_listeners: Arc<Mutex<HashMap<usize, Arc<dyn Fn(Value)>>>>,
+    lifecycle_listeners: Arc<Mutex<HashMap<usize, Arc<dyn Fn(String)>>>>,
+    inbound_messages: Arc<Mutex<Vec<Value>>>,
+    inbound_lifecycle: Arc<Mutex<Vec<String>>>,
+    next_listener_id: Arc<Mutex<usize>>,
+    subscription_owners: Arc<Mutex<HashMap<String, HashSet<String>>>>,
+    catalog_revision: u64,
+    initialized: bool,
 }
 
 impl AxMCPClient {
@@ -75,16 +109,28 @@ impl AxMCPClient {
             transport: Arc::new(Mutex::new(transport)),
             options,
             server_capabilities: json!({}),
+            server_info: json!({}),
             negotiated_protocol_version: None,
             tools: Vec::new(),
             prompts: Vec::new(),
             resources: Vec::new(),
             resource_templates: Vec::new(),
             next_id: Arc::new(Mutex::new(1)),
+            notification_listeners: Arc::new(Mutex::new(HashMap::new())),
+            lifecycle_listeners: Arc::new(Mutex::new(HashMap::new())),
+            inbound_messages: Arc::new(Mutex::new(Vec::new())),
+            inbound_lifecycle: Arc::new(Mutex::new(Vec::new())),
+            next_listener_id: Arc::new(Mutex::new(1)),
+            subscription_owners: Arc::new(Mutex::new(HashMap::new())),
+            catalog_revision: 0,
+            initialized: false,
         }
     }
 
     pub fn init(&mut self) -> AxResult<()> {
+        if self.initialized {
+            return Ok(());
+        }
         self.transport.lock().unwrap().connect()?;
         let protocol = self
             .options
@@ -136,8 +182,34 @@ impl AxMCPClient {
             .get("capabilities")
             .cloned()
             .unwrap_or_else(|| json!({}));
+        self.server_info = result
+            .get("serverInfo")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         self.notify("notifications/initialized", Value::Null)?;
-        self.refresh()
+        self.refresh()?;
+        let inbound_messages = self.inbound_messages.clone();
+        self.transport
+            .lock()
+            .unwrap()
+            .set_message_handler(Arc::new(move |message| {
+                inbound_messages.lock().unwrap().push(message)
+            }));
+        let inbound_lifecycle = self.inbound_lifecycle.clone();
+        self.transport
+            .lock()
+            .unwrap()
+            .set_lifecycle_handler(Arc::new(move |state| {
+                inbound_lifecycle.lock().unwrap().push(state)
+            }));
+        self.initialized = true;
+        self.transport.lock().unwrap().start_listening()
+    }
+
+    pub fn close(&mut self) -> AxResult<()> {
+        self.initialized = false;
+        self.subscription_owners.lock().unwrap().clear();
+        self.transport.lock().unwrap().close()
     }
 
     pub fn refresh(&mut self) -> AxResult<()> {
@@ -146,36 +218,89 @@ impl AxMCPClient {
         self.resources.clear();
         self.resource_templates.clear();
         if self.capability("tools") {
-            self.tools = self
-                .list_tools(None)?
-                .get("tools")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
+            self.tools = self.collect_catalog("tools/list", "tools")?;
         }
         if self.capability("prompts") {
-            self.prompts = self
-                .list_prompts(None)?
-                .get("prompts")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
+            self.prompts = self.collect_catalog("prompts/list", "prompts")?;
         }
         if self.capability("resources") {
-            self.resources = self
-                .list_resources(None)?
-                .get("resources")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            self.resource_templates = self
-                .list_resource_templates(None)?
-                .get("resourceTemplates")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
+            self.resources = self.collect_catalog("resources/list", "resources")?;
+            self.resource_templates =
+                self.collect_catalog("resources/templates/list", "resourceTemplates")?;
         }
+        self.catalog_revision += 1;
         Ok(())
+    }
+
+    fn collect_catalog(&self, method: &str, field: &str) -> AxResult<Vec<Value>> {
+        let mut out = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut seen = HashSet::new();
+        let max = self
+            .options
+            .get("maxPaginationPages")
+            .and_then(Value::as_u64)
+            .unwrap_or(1000);
+        for _ in 0..max {
+            let result = self.request(
+                method,
+                cursor
+                    .as_deref()
+                    .map(|value| json!({"cursor":value}))
+                    .unwrap_or_else(|| json!({})),
+            )?;
+            out.extend(
+                result
+                    .get(field)
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            cursor = result
+                .get("nextCursor")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let Some(value) = cursor.as_ref() else {
+                return Ok(out);
+            };
+            if !seen.insert(value.clone()) {
+                return Err(AxError::new(
+                    "mcp",
+                    format!("MCP {method} repeated pagination cursor {value}"),
+                ));
+            }
+        }
+        Err(AxError::new(
+            "mcp",
+            format!("MCP {method} exceeded {max} pagination pages"),
+        ))
+    }
+
+    pub fn inspect_catalog(&mut self, refresh: bool) -> AxResult<AxMCPCatalogSnapshot> {
+        self.init()?;
+        if refresh {
+            self.refresh()?
+        }
+        let mut subscriptions = self
+            .subscription_owners
+            .lock()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        subscriptions.sort();
+        Ok(AxMCPCatalogSnapshot {
+            namespace: self.namespace(),
+            protocol_version: self.negotiated_protocol_version.clone(),
+            revision: self.catalog_revision,
+            server_info: self.server_info.clone(),
+            server_capabilities: self.server_capabilities.clone(),
+            tools: self.tools.clone(),
+            prompts: self.prompts.clone(),
+            resources: self.resources.clone(),
+            resource_templates: self.resource_templates.clone(),
+            subscriptions,
+        })
     }
 
     pub fn protocol_version(&self) -> Option<&str> {
@@ -202,6 +327,126 @@ impl AxMCPClient {
     pub fn read_resource(&mut self, uri: &str) -> AxResult<Value> {
         self.request("resources/read", json!({"uri": uri}))
     }
+    fn assert_resource_subscriptions(&self) -> AxResult<()> {
+        if self
+            .server_capabilities
+            .get("resources")
+            .and_then(|value| value.get("subscribe"))
+            .and_then(Value::as_bool)
+            != Some(true)
+        {
+            return Err(AxError::new(
+                "mcp",
+                "Resource subscriptions are not supported",
+            ));
+        }
+        Ok(())
+    }
+    pub fn acquire_resource_subscription(&mut self, uri: &str, owner: &str) -> AxResult<Value> {
+        self.assert_resource_subscriptions()?;
+        let mut current = self
+            .subscription_owners
+            .lock()
+            .unwrap()
+            .get(uri)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<Vec<_>>();
+        current.sort();
+        let transition = crate::mcp_resource_subscription_ownership(&[
+            crate::core_value_from_json(&json!(current)),
+            crate::core_value_from_json(&json!(owner)),
+            crate::core_value_from_json(&json!("acquire")),
+        ])?;
+        let transition = crate::core_value_to_json(&transition);
+        let result = if transition.get("wireAction").and_then(Value::as_str) == Some("subscribe") {
+            self.request("resources/subscribe", json!({"uri":uri}))?
+        } else {
+            json!({})
+        };
+        let owners = transition
+            .get("owners")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect::<HashSet<_>>();
+        self.subscription_owners
+            .lock()
+            .unwrap()
+            .insert(uri.into(), owners);
+        Ok(result)
+    }
+    pub fn release_resource_subscription(&mut self, uri: &str, owner: &str) -> AxResult<Value> {
+        self.assert_resource_subscriptions()?;
+        let mut current = self
+            .subscription_owners
+            .lock()
+            .unwrap()
+            .get(uri)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<Vec<_>>();
+        current.sort();
+        let transition = crate::mcp_resource_subscription_ownership(&[
+            crate::core_value_from_json(&json!(current)),
+            crate::core_value_from_json(&json!(owner)),
+            crate::core_value_from_json(&json!("release")),
+        ])?;
+        let transition = crate::core_value_to_json(&transition);
+        let result = if transition.get("wireAction").and_then(Value::as_str) == Some("unsubscribe")
+        {
+            self.request("resources/unsubscribe", json!({"uri":uri}))?
+        } else {
+            json!({})
+        };
+        let owners = transition
+            .get("owners")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect::<HashSet<_>>();
+        if owners.is_empty() {
+            self.subscription_owners.lock().unwrap().remove(uri);
+        } else {
+            self.subscription_owners
+                .lock()
+                .unwrap()
+                .insert(uri.into(), owners);
+        }
+        Ok(result)
+    }
+    pub fn restore_resource_subscriptions(&self) -> AxResult<()> {
+        let mut uris = self
+            .subscription_owners
+            .lock()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        uris.sort();
+        for uri in uris {
+            self.request("resources/subscribe", json!({"uri":uri}))?;
+        }
+        Ok(())
+    }
+    pub fn subscribe_resource(&mut self, uri: &str) -> AxResult<Value> {
+        self.acquire_resource_subscription(uri, "manual")
+    }
+    pub fn unsubscribe_resource(&mut self, uri: &str) -> AxResult<Value> {
+        self.release_resource_subscription(uri, "manual")
+    }
+    pub fn get_task(&mut self, task_id: &str) -> AxResult<Value> {
+        self.request("tasks/get", json!({"taskId":task_id}))
+    }
+    pub fn cancel_task(&mut self, task_id: &str) -> AxResult<Value> {
+        self.request("tasks/cancel", json!({"taskId":task_id}))
+    }
     pub fn list_resource_templates(&mut self, cursor: Option<&str>) -> AxResult<Value> {
         self.request("resources/templates/list", cursor_params(cursor))
     }
@@ -221,6 +466,71 @@ impl AxMCPClient {
         }
         self.notify("notifications/cancelled", params)
     }
+    pub fn add_notification_listener(&self, listener: impl Fn(Value) + 'static) -> usize {
+        let mut next = self.next_listener_id.lock().unwrap();
+        let id = *next;
+        *next += 1;
+        self.notification_listeners
+            .lock()
+            .unwrap()
+            .insert(id, Arc::new(listener));
+        id
+    }
+    pub fn remove_notification_listener(&self, id: usize) {
+        self.notification_listeners.lock().unwrap().remove(&id);
+    }
+    pub fn emit_notification(&self, message: Value) {
+        let listeners = self
+            .notification_listeners
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for listener in listeners {
+            listener(message.clone())
+        }
+    }
+    pub fn add_lifecycle_listener(&self, listener: impl Fn(String) + 'static) -> usize {
+        let mut next = self.next_listener_id.lock().unwrap();
+        let id = *next;
+        *next += 1;
+        self.lifecycle_listeners
+            .lock()
+            .unwrap()
+            .insert(id, Arc::new(listener));
+        id
+    }
+    pub fn remove_lifecycle_listener(&self, id: usize) {
+        self.lifecycle_listeners.lock().unwrap().remove(&id);
+    }
+    pub fn emit_lifecycle(&self, state: &str) {
+        if state == "reconnected" {
+            let _ = self.restore_resource_subscriptions();
+        }
+        let listeners = self
+            .lifecycle_listeners
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for listener in listeners {
+            listener(state.into())
+        }
+    }
+    pub fn drain_inbound(&self) -> usize {
+        let messages = std::mem::take(&mut *self.inbound_messages.lock().unwrap());
+        let states = std::mem::take(&mut *self.inbound_lifecycle.lock().unwrap());
+        let count = messages.len() + states.len();
+        for state in states {
+            self.emit_lifecycle(&state)
+        }
+        for message in messages {
+            self.emit_notification(message)
+        }
+        count
+    }
 
     pub fn to_function(&self) -> Vec<Tool> {
         let mut out = Vec::new();
@@ -239,7 +549,50 @@ impl AxMCPClient {
         out
     }
 
-    fn request(&self, method: &str, params: Value) -> AxResult<Value> {
+    pub fn native_tools(&self) -> Vec<Tool> {
+        let mut out = Vec::new();
+        for spec in &self.tools {
+            let original = spec
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let name = override_name(&self.options, &original);
+            let description = override_description(&self.options, spec);
+            let transport = self.transport.clone();
+            let next_id = self.next_id.clone();
+            out.push(tool(&name).description(description).handler(move |args| {
+                mcp_transport_request(
+                    &transport,
+                    &next_id,
+                    "tools/call",
+                    json!({"name": original, "arguments": args}),
+                )
+            }));
+        }
+        out
+    }
+
+    pub fn prompts(&self) -> &[Value] {
+        &self.prompts
+    }
+    pub fn resources(&self) -> &[Value] {
+        &self.resources
+    }
+    pub fn resource_templates(&self) -> &[Value] {
+        &self.resource_templates
+    }
+
+    pub fn namespace(&self) -> String {
+        self.options
+            .get("namespace")
+            .and_then(Value::as_str)
+            .or_else(|| self.server_info.get("name").and_then(Value::as_str))
+            .unwrap_or("mcp")
+            .to_string()
+    }
+
+    pub fn request(&self, method: &str, params: Value) -> AxResult<Value> {
         mcp_transport_request(&self.transport, &self.next_id, method, params)
     }
 
@@ -337,6 +690,1978 @@ impl AxMCPClient {
     }
 }
 
+pub trait AxUCPBinding: Send + Sync {
+    fn call(&self, operation: &str, payload: Value, options: Value) -> AxResult<Value>;
+}
+
+impl<F> AxUCPBinding for F
+where
+    F: Fn(&str, Value, Value) -> AxResult<Value> + Send + Sync,
+{
+    fn call(&self, operation: &str, payload: Value, options: Value) -> AxResult<Value> {
+        self(operation, payload, options)
+    }
+}
+
+pub const AX_UCP_OPERATIONS: &[&str] = &[
+    "catalog.search",
+    "catalog.lookup",
+    "catalog.product",
+    "cart.create",
+    "cart.get",
+    "cart.update",
+    "cart.cancel",
+    "checkout.create",
+    "checkout.get",
+    "checkout.update",
+    "checkout.complete",
+    "checkout.cancel",
+    "fulfillment.quote",
+    "discounts.apply",
+    "payments.create",
+    "payments.confirm",
+    "orders.get",
+    "identity.link",
+    "attribution.record",
+    "handoff.create",
+];
+
+#[derive(Clone)]
+pub struct AxUCPClient {
+    pub profile: Value,
+    binding: Arc<dyn AxUCPBinding>,
+    pub options: Value,
+    pub version: String,
+}
+
+impl AxUCPClient {
+    pub fn new(profile: Value, binding: Arc<dyn AxUCPBinding>, options: Value) -> AxResult<Self> {
+        let version = profile
+            .get("version")
+            .or_else(|| options.get("version"))
+            .and_then(Value::as_str)
+            .unwrap_or("2026-04-08")
+            .to_string();
+        let supported = options
+            .get("supportedVersions")
+            .and_then(Value::as_array)
+            .map(|v| v.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+            .unwrap_or_else(|| vec!["2026-04-08"]);
+        if !supported.iter().any(|candidate| *candidate == version) {
+            return Err(AxError::new(
+                "ucp",
+                format!("Unsupported UCP version {version}"),
+            ));
+        }
+        Ok(Self {
+            profile,
+            binding,
+            options,
+            version,
+        })
+    }
+
+    pub fn namespace(&self) -> String {
+        self.options
+            .get("namespace")
+            .or_else(|| self.profile.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or("ucp")
+            .to_string()
+    }
+
+    pub fn call(
+        &self,
+        operation: &str,
+        payload: Value,
+        idempotency_key: Option<&str>,
+    ) -> AxResult<Value> {
+        if !AX_UCP_OPERATIONS.contains(&operation) {
+            return Err(AxError::new(
+                "ucp",
+                format!("Unsupported UCP operation {operation}"),
+            ));
+        }
+        let key = idempotency_key.map(str::to_string).unwrap_or_else(|| {
+            format!(
+                "ax-ucp-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            )
+        });
+        let value = self.binding.call(
+            operation,
+            if payload.is_null() {
+                json!({})
+            } else {
+                payload
+            },
+            json!({"version":self.version,"idempotencyKey":key}),
+        )?;
+        Ok(
+            json!({"operation":operation,"warnings":value.get("warnings"),"partialSuccess":value.get("partial_success").or_else(||value.get("partialSuccess")).cloned().unwrap_or(json!(false)),"continuationUrl":value.get("continuation_url").or_else(||value.get("continuationUrl")),"idempotencyKey":key,"value":value}),
+        )
+    }
+
+    pub fn native_tools(&self) -> Vec<Tool> {
+        AX_UCP_OPERATIONS
+            .iter()
+            .map(|operation| {
+                let op = operation.to_string();
+                let client = self.clone();
+                tool(&format!("{}_{}", self.namespace(), op.replace('.', "_")))
+                    .description(format!("UCP {op} operation"))
+                    .handler(move |args| client.call(&op, args, None))
+            })
+            .collect()
+    }
+
+    pub fn catalog_search(&self, payload: Value) -> AxResult<Value> {
+        self.call("catalog.search", payload, None)
+    }
+    pub fn catalog_lookup(&self, payload: Value) -> AxResult<Value> {
+        self.call("catalog.lookup", payload, None)
+    }
+    pub fn catalog_product(&self, payload: Value) -> AxResult<Value> {
+        self.call("catalog.product", payload, None)
+    }
+    pub fn cart_create(&self, payload: Value) -> AxResult<Value> {
+        self.call("cart.create", payload, None)
+    }
+    pub fn cart_get(&self, payload: Value) -> AxResult<Value> {
+        self.call("cart.get", payload, None)
+    }
+    pub fn cart_update(&self, payload: Value) -> AxResult<Value> {
+        self.call("cart.update", payload, None)
+    }
+    pub fn cart_cancel(&self, payload: Value) -> AxResult<Value> {
+        self.call("cart.cancel", payload, None)
+    }
+    pub fn checkout_create(&self, payload: Value) -> AxResult<Value> {
+        self.call("checkout.create", payload, None)
+    }
+    pub fn checkout_get(&self, payload: Value) -> AxResult<Value> {
+        self.call("checkout.get", payload, None)
+    }
+    pub fn checkout_update(&self, payload: Value) -> AxResult<Value> {
+        self.call("checkout.update", payload, None)
+    }
+    pub fn checkout_complete(&self, payload: Value) -> AxResult<Value> {
+        self.call("checkout.complete", payload, None)
+    }
+    pub fn checkout_cancel(&self, payload: Value) -> AxResult<Value> {
+        self.call("checkout.cancel", payload, None)
+    }
+    pub fn order_get(&self, payload: Value) -> AxResult<Value> {
+        self.call("orders.get", payload, None)
+    }
+    pub fn identity_link(&self, payload: Value) -> AxResult<Value> {
+        self.call("identity.link", payload, None)
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AxMCPContinuationState {
+    pub namespaces: Vec<String>,
+    pub tasks: Vec<Value>,
+    pub subscriptions: Vec<Value>,
+    pub catalog_fingerprint: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AxEventEnvelope {
+    pub specversion: String,
+    pub id: String,
+    pub source: String,
+    #[serde(rename = "type")]
+    pub r#type: String,
+    pub subject: Option<String>,
+    pub data: Value,
+    #[serde(default)]
+    pub extensions: Map<String, Value>,
+    #[serde(default)]
+    pub correlation: Vec<AxEventCorrelationKey>,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AxEventPath {
+    pub root: String,
+    #[serde(default)]
+    pub segments: Vec<Value>,
+    #[serde(default, rename = "correlationKind")]
+    pub correlation_kind: Option<String>,
+    #[serde(default)]
+    pub value: Option<Value>,
+}
+impl AxEventPath {
+    fn new(root: &str, segments: Vec<Value>) -> Self {
+        for segment in &segments {
+            if segment.as_i64().is_some_and(|value| value < 0)
+                || segment.as_str().is_some_and(|value| {
+                    value.is_empty() || matches!(value, "__proto__" | "constructor" | "prototype")
+                })
+            {
+                panic!("unsafe event path segment: {segment}")
+            }
+        }
+        Self {
+            root: root.into(),
+            segments,
+            correlation_kind: None,
+            value: None,
+        }
+    }
+    pub fn data(segments: Vec<Value>) -> Self {
+        Self::new("data", segments)
+    }
+    pub fn envelope(segments: Vec<Value>) -> Self {
+        Self::new("envelope", segments)
+    }
+    pub fn subject() -> Self {
+        Self::envelope(vec![json!("subject")])
+    }
+    pub fn extension(name: &str) -> Self {
+        Self::new("extensions", vec![json!(name)])
+    }
+    pub fn identity(segments: Vec<Value>) -> Self {
+        Self::new("identity", segments)
+    }
+    pub fn trust() -> Self {
+        Self::new("trust", vec![])
+    }
+    pub fn correlation(kind: &str) -> Self {
+        let mut out = Self::new("correlation", vec![]);
+        out.correlation_kind = Some(kind.into());
+        out
+    }
+    pub fn continuation(segments: Vec<Value>) -> Self {
+        Self::new("continuation", segments)
+    }
+    pub fn constant(value: Value) -> Self {
+        let mut out = Self::new("constant", vec![]);
+        out.value = Some(value);
+        out
+    }
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct AxEventInputPlan {
+    pub project: Option<AxEventPath>,
+    pub fields: Vec<(String, AxEventPath)>,
+}
+pub struct AxEventInputBuilder {
+    plan: AxEventInputPlan,
+}
+impl AxEventInputBuilder {
+    pub fn new() -> Self {
+        Self {
+            plan: AxEventInputPlan::default(),
+        }
+    }
+    pub fn project(&mut self, path: AxEventPath) -> &mut Self {
+        if self.plan.project.is_some() {
+            panic!("an event input plan may project only one path")
+        }
+        self.plan.project = Some(path);
+        self
+    }
+    pub fn field(&mut self, name: &str, path: AxEventPath) -> &mut Self {
+        if self.plan.fields.iter().any(|(value, _)| value == name) {
+            panic!("event input field {name} is mapped more than once")
+        }
+        self.plan.fields.push((name.into(), path));
+        self
+    }
+    pub fn build(self) -> AxEventInputPlan {
+        self.plan
+    }
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct AxEventCorrelationKey {
+    pub kind: String,
+    pub value: String,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AxEventRoute {
+    pub id: String,
+    pub action: String,
+    pub r#match: Value,
+    pub target_id: Option<String>,
+    pub require_authenticated: bool,
+    pub ordering: String,
+    pub debounce_ms: i64,
+    #[serde(default)]
+    pub instance_key: Option<Value>,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AxEventCommand {
+    pub route_id: String,
+    pub action: String,
+    pub target_id: Option<String>,
+    pub instance_key: String,
+    pub idempotency_key: String,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AxEventPublishReceipt {
+    pub event_id: String,
+    pub accepted: bool,
+    pub duplicate: bool,
+    pub durability: String,
+    pub delivery_ids: Vec<String>,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AxEventRun {
+    pub id: String,
+    pub delivery_id: String,
+    pub route_id: String,
+    pub target_id: Option<String>,
+    pub instance_key: String,
+    pub status: String,
+    pub attempt: usize,
+    pub output: Option<Value>,
+    pub error: Option<String>,
+    pub continuation_ids: Vec<String>,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AxEventDeadLetter {
+    pub id: String,
+    pub delivery_id: String,
+    pub run_id: Option<String>,
+    pub sink_id: Option<String>,
+    pub reason: String,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AxEventContinuation {
+    pub id: String,
+    pub target_id: String,
+    pub instance_key: String,
+    pub identity_scope: String,
+    pub correlation: Vec<AxEventCorrelationKey>,
+    pub metadata: Value,
+    pub completed: bool,
+    pub expires_at: Option<i64>,
+}
+#[derive(Debug, Clone, Default)]
+pub struct AxEventCancellationToken {
+    state: Arc<Mutex<(bool, String)>>,
+}
+impl AxEventCancellationToken {
+    pub fn cancel(&self, reason: &str) {
+        *self.state.lock().unwrap() = (true, reason.into())
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.state.lock().unwrap().0
+    }
+}
+#[derive(Debug, Clone)]
+pub struct AxEventInvocationContext {
+    pub run_id: String,
+    pub delivery_id: String,
+    pub instance_key: String,
+    pub identity_scope: String,
+    pub idempotency_key: String,
+    pub cancellation: AxEventCancellationToken,
+    pub continuation: Option<AxEventContinuation>,
+}
+pub type AxEventInvoker = Arc<Mutex<dyn FnMut(Value, AxEventInvocationContext) -> AxResult<Value>>>;
+pub type AxEventMapper =
+    Arc<dyn Fn(&AxEventEnvelope, Option<&AxEventContinuation>) -> AxResult<Value>>;
+pub type AxEventSinkFn = Arc<Mutex<dyn FnMut(Value, Value) -> AxResult<()>>>;
+#[derive(Clone)]
+pub struct AxEventTarget {
+    pub id: String,
+    pub invoke: AxEventInvoker,
+    pub map_input: Option<AxEventMapper>,
+    pub sinks: Vec<(String, AxEventSinkFn)>,
+    pub retry_safety: String,
+    pub wait_for: Vec<Value>,
+    pub capture_state: Option<Arc<Mutex<dyn FnMut() -> AxResult<Value>>>>,
+    pub restore_state: Option<Arc<Mutex<dyn FnMut(Value) -> AxResult<()>>>>,
+    pub signature: Option<crate::AxSignature>,
+    pub input: Option<AxEventInputPlan>,
+    pub wake_input: Option<AxEventInputPlan>,
+    pub resume_input: Option<AxEventInputPlan>,
+}
+impl AxEventTarget {
+    pub fn new(
+        id: impl Into<String>,
+        invoke: impl FnMut(Value, AxEventInvocationContext) -> AxResult<Value> + 'static,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            invoke: Arc::new(Mutex::new(invoke)),
+            map_input: None,
+            sinks: vec![],
+            retry_safety: "unknown".into(),
+            wait_for: vec![],
+            capture_state: None,
+            restore_state: None,
+            signature: None,
+            input: None,
+            wake_input: None,
+            resume_input: None,
+        }
+    }
+    pub fn signature(mut self, value: crate::AxSignature) -> Self {
+        self.signature = Some(value);
+        self
+    }
+    pub fn map_input(
+        mut self,
+        value: impl Fn(&AxEventEnvelope, Option<&AxEventContinuation>) -> AxResult<Value> + 'static,
+    ) -> Self {
+        self.map_input = Some(Arc::new(value));
+        self
+    }
+    pub fn input(mut self, mapping: impl FnOnce(&mut AxEventInputBuilder)) -> Self {
+        let mut value = AxEventInputBuilder::new();
+        mapping(&mut value);
+        self.input = Some(value.build());
+        self
+    }
+    pub fn wake_input(mut self, mapping: impl FnOnce(&mut AxEventInputBuilder)) -> Self {
+        let mut value = AxEventInputBuilder::new();
+        mapping(&mut value);
+        self.wake_input = Some(value.build());
+        self
+    }
+    pub fn resume_input(mut self, mapping: impl FnOnce(&mut AxEventInputBuilder)) -> Self {
+        let mut value = AxEventInputBuilder::new();
+        mapping(&mut value);
+        self.resume_input = Some(value.build());
+        self
+    }
+    pub fn sink(
+        mut self,
+        id: &str,
+        value: impl FnMut(Value, Value) -> AxResult<()> + 'static,
+    ) -> Self {
+        self.sinks.push((id.into(), Arc::new(Mutex::new(value))));
+        self
+    }
+    pub fn retry_safety(mut self, value: &str) -> Self {
+        self.retry_safety = value.into();
+        self
+    }
+    pub fn wait_for(mut self, kind: &str, path: AxEventPath, metadata: Value) -> Self {
+        self.wait_for
+            .push(json!({"kind":kind,"value":path,"metadata":metadata}));
+        self
+    }
+}
+pub fn event_target(
+    id: impl Into<String>,
+    invoke: impl FnMut(Value, AxEventInvocationContext) -> AxResult<Value> + 'static,
+) -> AxEventTarget {
+    AxEventTarget::new(id, invoke)
+}
+pub struct AxEventRouteBuilder {
+    route: AxEventRoute,
+}
+impl AxEventRouteBuilder {
+    pub fn new(id: &str) -> Self {
+        Self {
+            route: AxEventRoute {
+                id: id.into(),
+                action: String::new(),
+                r#match: json!({}),
+                target_id: None,
+                require_authenticated: false,
+                ordering: "strict".into(),
+                debounce_ms: 0,
+                instance_key: None,
+            },
+        }
+    }
+    pub fn types(mut self, values: &[&str]) -> Self {
+        self.route.r#match["types"] = json!(values);
+        self
+    }
+    pub fn sources(mut self, values: &[&str]) -> Self {
+        self.route.r#match["sources"] = json!(values);
+        self
+    }
+    pub fn authenticated(mut self) -> Self {
+        self.route.require_authenticated = true;
+        self
+    }
+    pub fn instance_key(mut self, path: AxEventPath) -> Self {
+        self.route.instance_key = Some(serde_json::to_value(path).unwrap());
+        self
+    }
+    pub fn wake(mut self, target: &AxEventTarget) -> Self {
+        self.route.action = "wake".into();
+        self.route.target_id = Some(target.id.clone());
+        self
+    }
+    pub fn resume(mut self) -> Self {
+        self.route.action = "resume".into();
+        self
+    }
+    pub fn observe(mut self) -> Self {
+        self.route.action = "observe".into();
+        self
+    }
+    pub fn invalidate(mut self) -> Self {
+        self.route.action = "invalidate".into();
+        self
+    }
+    pub fn build(self) -> AxResult<AxEventRoute> {
+        if self.route.action.is_empty() {
+            return Err(AxError::new("event", "event route requires one action"));
+        }
+        Ok(self.route)
+    }
+}
+pub fn event_route(id: &str) -> AxEventRouteBuilder {
+    AxEventRouteBuilder::new(id)
+}
+fn event_resolve_path_value(
+    path: &AxEventPath,
+    event: &AxEventEnvelope,
+    identity_scope: &str,
+    trust: &str,
+    continuation: Option<&AxEventContinuation>,
+) -> Value {
+    let mut value = match path.root.as_str() {
+        "data" => event.data.clone(),
+        "envelope" => serde_json::to_value(event).unwrap_or(Value::Null),
+        "extensions" => Value::Object(event.extensions.clone()),
+        "identity" => json!({"scope":identity_scope}),
+        "trust" => json!(trust),
+        "continuation" => continuation
+            .map(|value| value.metadata.clone())
+            .unwrap_or(Value::Null),
+        "constant" => path.value.clone().unwrap_or(Value::Null),
+        "correlation" => event
+            .correlation
+            .iter()
+            .find(|value| Some(value.kind.as_str()) == path.correlation_kind.as_deref())
+            .map(|value| json!(value.value))
+            .unwrap_or(Value::Null),
+        _ => Value::Null,
+    };
+    for segment in &path.segments {
+        value = match segment {
+            Value::String(key) => value.get(key).cloned().unwrap_or(Value::Null),
+            Value::Number(index) => index
+                .as_u64()
+                .and_then(|position| {
+                    value
+                        .as_array()
+                        .and_then(|items| items.get(position as usize).cloned())
+                })
+                .unwrap_or(Value::Null),
+            _ => Value::Null,
+        }
+    }
+    value
+}
+fn map_event_target_input(
+    target: &AxEventTarget,
+    event: &AxEventEnvelope,
+    continuation: Option<&AxEventContinuation>,
+    action: &str,
+    identity_scope: &str,
+    trust: &str,
+) -> AxResult<Value> {
+    let plan = if action == "resume" {
+        target.resume_input.as_ref()
+    } else {
+        target.wake_input.as_ref()
+    }
+    .or(target.input.as_ref());
+    let mut input = if let Some(plan) = plan {
+        let signature = target.signature.as_ref().ok_or_else(|| {
+            AxError::new(
+                "event",
+                format!(
+                    "target {} requires a signature for declarative input mapping",
+                    target.id
+                ),
+            )
+        })?;
+        let projection = plan
+            .project
+            .as_ref()
+            .map(|path| event_resolve_path_value(path, event, identity_scope, trust, continuation));
+        if plan.project.is_some() && !projection.as_ref().is_some_and(Value::is_object) {
+            return Err(AxError::new(
+                "event",
+                "projected event input must be an object",
+            ));
+        }
+        let mut output = Map::new();
+        for field in &signature.inputs {
+            let explicit = plan
+                .fields
+                .iter()
+                .find(|(name, _)| name == &field.name)
+                .map(|(_, path)| path);
+            let value = explicit
+                .map(|path| {
+                    event_resolve_path_value(path, event, identity_scope, trust, continuation)
+                })
+                .or_else(|| {
+                    projection
+                        .as_ref()
+                        .and_then(|value| value.get(&field.name).cloned())
+                })
+                .unwrap_or(Value::Null);
+            if value.is_null() {
+                if !field.is_optional {
+                    return Err(AxError::new(
+                        "event",
+                        format!("required signature input {} was not present", field.name),
+                    ));
+                }
+                continue;
+            }
+            output.insert(field.name.clone(), value);
+        }
+        Value::Object(output)
+    } else if let Some(mapper) = &target.map_input {
+        mapper(event, continuation)?
+    } else {
+        event.data.clone()
+    };
+    if let Some(signature) = &target.signature {
+        let fields = json!(signature
+            .inputs
+            .iter()
+            .map(|field| json!({"name":field.name,"optional":field.is_optional}))
+            .collect::<Vec<_>>());
+        let normalized = crate::event_normalize_input(&[
+            crate::core_value_from_json(&input),
+            crate::core_value_from_json(&fields),
+        ])?;
+        let normalized = crate::core_value_to_json(&normalized);
+        if !normalized
+            .get("ok")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Err(AxError::new(
+                "event",
+                normalized
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("event input normalization failed"),
+            ));
+        }
+        input = normalized.get("value").cloned().unwrap_or(Value::Null);
+        crate::validate_fields_native(&signature.inputs, &input)?;
+    }
+    Ok(input)
+}
+pub trait AxEventSource {
+    fn start(&mut self, publish: &mut dyn FnMut(AxEventEnvelope) -> AxResult<()>) -> AxResult<()>;
+}
+pub trait AxEventSink {
+    fn write(&mut self, output: Value, context: Value) -> AxResult<()>;
+}
+pub trait AxEventClock: Send + Sync {
+    fn now(&self) -> i64;
+    fn sleep(&self, milliseconds: i64, cancellation: Option<&AxEventCancellationToken>) -> bool;
+}
+#[derive(Default)]
+pub struct AxSystemEventClock;
+impl AxEventClock for AxSystemEventClock {
+    fn now(&self) -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64
+    }
+    fn sleep(&self, milliseconds: i64, cancellation: Option<&AxEventCancellationToken>) -> bool {
+        if cancellation.is_some_and(AxEventCancellationToken::is_cancelled) {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(milliseconds.max(0) as u64));
+        !cancellation.is_some_and(AxEventCancellationToken::is_cancelled)
+    }
+}
+#[derive(Default)]
+pub struct AxManualEventClock {
+    state: Mutex<i64>,
+    changed: Condvar,
+}
+impl AxManualEventClock {
+    pub fn new(now: i64) -> Self {
+        Self {
+            state: Mutex::new(now),
+            changed: Condvar::new(),
+        }
+    }
+    pub fn advance(&self, milliseconds: i64) {
+        let mut value = self.state.lock().unwrap();
+        *value += milliseconds;
+        self.changed.notify_all();
+    }
+}
+impl AxEventClock for AxManualEventClock {
+    fn now(&self) -> i64 {
+        *self.state.lock().unwrap()
+    }
+    fn sleep(&self, milliseconds: i64, cancellation: Option<&AxEventCancellationToken>) -> bool {
+        let target = self.now() + milliseconds.max(0);
+        let mut value = self.state.lock().unwrap();
+        while *value < target {
+            if cancellation.is_some_and(AxEventCancellationToken::is_cancelled) {
+                return false;
+            }
+            value = self.changed.wait(value).unwrap()
+        }
+        !cancellation.is_some_and(AxEventCancellationToken::is_cancelled)
+    }
+}
+pub trait AxEventStore {
+    fn enqueue(&mut self, event: AxEventEnvelope, commands: Vec<AxEventCommand>) -> AxResult<()>;
+}
+#[derive(Debug, Clone)]
+struct AxEventDelivery {
+    event: AxEventEnvelope,
+    command: AxEventCommand,
+    identity_scope: String,
+    trust: String,
+    status: String,
+    run_id: Option<String>,
+    available_at: i64,
+    sequence: u64,
+    size: usize,
+    attempt: usize,
+}
+pub struct AxInMemoryEventStore {
+    deliveries: HashMap<String, AxEventDelivery>,
+    pub runs: HashMap<String, AxEventRun>,
+    pub dead_letters: HashMap<String, AxEventDeadLetter>,
+    pub continuations: HashMap<String, AxEventContinuation>,
+    pub program_state: HashMap<String, Value>,
+    clock: Arc<dyn AxEventClock>,
+    max_pending: usize,
+    max_queued_bytes: usize,
+    max_envelope_bytes: usize,
+    publish_timeout_ms: i64,
+    queued_bytes: usize,
+    sequence: u64,
+}
+impl Default for AxInMemoryEventStore {
+    fn default() -> Self {
+        Self::new(Arc::new(AxSystemEventClock), &json!({}))
+    }
+}
+impl AxInMemoryEventStore {
+    fn new(clock: Arc<dyn AxEventClock>, options: &Value) -> Self {
+        Self {
+            deliveries: HashMap::new(),
+            runs: HashMap::new(),
+            dead_letters: HashMap::new(),
+            continuations: HashMap::new(),
+            program_state: HashMap::new(),
+            clock,
+            max_pending: options
+                .get("maxPending")
+                .and_then(Value::as_u64)
+                .unwrap_or(10_000) as usize,
+            max_queued_bytes: options
+                .get("maxQueuedBytes")
+                .and_then(Value::as_u64)
+                .unwrap_or(64 * 1024 * 1024) as usize,
+            max_envelope_bytes: options
+                .get("maxEnvelopeBytes")
+                .and_then(Value::as_u64)
+                .unwrap_or(1024 * 1024) as usize,
+            publish_timeout_ms: options
+                .get("publishTimeoutMs")
+                .and_then(Value::as_i64)
+                .unwrap_or(5_000),
+            queued_bytes: 0,
+            sequence: 0,
+        }
+    }
+    fn enqueue_at(
+        &mut self,
+        event: AxEventEnvelope,
+        commands: Vec<AxEventCommand>,
+        available_at: i64,
+    ) -> AxResult<()> {
+        let size = serde_json::to_vec(&event)?.len();
+        if size > self.max_envelope_bytes {
+            return Err(AxError::new(
+                "event",
+                format!("event envelope exceeds {} bytes", self.max_envelope_bytes),
+            ));
+        }
+        let fresh = commands
+            .into_iter()
+            .filter(|command| {
+                !self
+                    .deliveries
+                    .contains_key(&format!("{}:{}", command.route_id, event.id))
+            })
+            .collect::<Vec<_>>();
+        let deadline = self.clock.now() + self.publish_timeout_ms;
+        while !fresh.is_empty()
+            && (self
+                .deliveries
+                .values()
+                .filter(|value| value.status == "queued")
+                .count()
+                + fresh.len()
+                > self.max_pending
+                || self.queued_bytes + size * fresh.len() > self.max_queued_bytes)
+        {
+            let remaining = deadline - self.clock.now();
+            if remaining <= 0 {
+                return Err(AxError::new(
+                    "event",
+                    "AxEventBackpressureError: event inbox capacity timed out",
+                ));
+            }
+            self.clock.sleep(remaining.min(50), None);
+        }
+        for command in fresh {
+            self.sequence += 1;
+            let id = format!("{}:{}", command.route_id, event.id);
+            self.deliveries.insert(
+                id,
+                AxEventDelivery {
+                    event: event.clone(),
+                    command,
+                    identity_scope: "anonymous".into(),
+                    trust: "untrusted".into(),
+                    status: "queued".into(),
+                    run_id: None,
+                    available_at,
+                    sequence: self.sequence,
+                    size,
+                    attempt: 0,
+                },
+            );
+            self.queued_bytes += size;
+        }
+        Ok(())
+    }
+    fn release(&mut self, id: &str) {
+        if let Some(value) = self.deliveries.get_mut(id) {
+            self.queued_bytes = self.queued_bytes.saturating_sub(value.size);
+            value.size = 0
+        }
+    }
+    fn requeue(&mut self, id: &str, available_at: i64) {
+        if let Some(value) = self.deliveries.get_mut(id) {
+            value.status = "queued".into();
+            value.available_at = available_at;
+            value.size = serde_json::to_vec(&value.event)
+                .map(|data| data.len())
+                .unwrap_or(0);
+            self.queued_bytes += value.size
+        }
+    }
+}
+impl AxEventStore for AxInMemoryEventStore {
+    fn enqueue(&mut self, event: AxEventEnvelope, commands: Vec<AxEventCommand>) -> AxResult<()> {
+        let now = self.clock.now();
+        self.enqueue_at(event, commands, now)
+    }
+}
+pub struct AxEventRuntime {
+    pub routes: Vec<AxEventRoute>,
+    pub options: Value,
+    pub descriptor: Value,
+    pub store: AxInMemoryEventStore,
+    clock: Arc<dyn AxEventClock>,
+    targets: HashMap<String, AxEventTarget>,
+    active: HashMap<String, AxEventCancellationToken>,
+    started: bool,
+    max_attempts: usize,
+    retry_backoff_ms: i64,
+}
+impl AxEventRuntime {
+    pub fn new(routes: Vec<AxEventRoute>, options: Value) -> AxResult<Self> {
+        let routes_json = serde_json::to_value(&routes)?;
+        let descriptor = crate::core_value_to_json(&crate::event_runtime_descriptor(&[
+            crate::core_value_from_json(&routes_json),
+            crate::core_value_from_json(&options),
+        ])?);
+        let clock: Arc<dyn AxEventClock> = Arc::new(AxSystemEventClock);
+        let store = AxInMemoryEventStore::new(clock.clone(), &options);
+        Ok(Self {
+            routes,
+            options,
+            descriptor,
+            store,
+            clock,
+            targets: HashMap::new(),
+            active: HashMap::new(),
+            started: false,
+            max_attempts: 3,
+            retry_backoff_ms: 1_000,
+        })
+    }
+    pub fn set_clock(&mut self, clock: Arc<dyn AxEventClock>) {
+        self.clock = clock.clone();
+        self.store.clock = clock;
+    }
+    pub fn register_target(&mut self, target: AxEventTarget) {
+        self.targets.insert(target.id.clone(), target);
+    }
+    pub fn start(&mut self) -> AxResult<()> {
+        self.started = true;
+        Ok(())
+    }
+    pub fn start_source(
+        &mut self,
+        source: &mut dyn AxEventSource,
+        identity_scope: &str,
+        trust: &str,
+    ) -> AxResult<Vec<AxEventPublishReceipt>> {
+        let mut events = Vec::new();
+        source.start(&mut |event| {
+            events.push(event);
+            Ok(())
+        })?;
+        let mut receipts = Vec::new();
+        for event in events {
+            receipts.push(self.publish(event, identity_scope, trust)?)
+        }
+        Ok(receipts)
+    }
+    pub fn plan(
+        &self,
+        event: &AxEventEnvelope,
+        identity_scope: &str,
+        trust: &str,
+    ) -> AxResult<Vec<AxEventCommand>> {
+        let event_json = serde_json::to_value(event)?;
+        let routes_json = serde_json::to_value(&self.routes)?;
+        let value = crate::event_route_commands(&[
+            crate::core_value_from_json(&event_json),
+            crate::core_value_from_json(&routes_json),
+            crate::core_value_from_json(&json!(identity_scope)),
+            crate::core_value_from_json(&json!(trust)),
+        ])?;
+        let mut command_json = crate::core_value_to_json(&value);
+        if let Some(items) = command_json.as_array_mut() {
+            for item in items {
+                if let Some(object) = item.as_object_mut() {
+                    for field in ["instanceKey", "idempotencyKey"] {
+                        if object.get(field).map_or(true, Value::is_null) {
+                            object.insert(field.into(), json!(""));
+                        }
+                    }
+                }
+            }
+        }
+        let mut commands: Vec<AxEventCommand> = serde_json::from_value(command_json)?;
+        for command in &mut commands {
+            if let Some(path_value) = self
+                .routes
+                .iter()
+                .find(|route| route.id == command.route_id)
+                .and_then(|route| route.instance_key.as_ref())
+            {
+                let path: AxEventPath = serde_json::from_value(path_value.clone())?;
+                let resolved = event_resolve_path_value(&path, event, identity_scope, trust, None);
+                if resolved.is_null() {
+                    return Err(AxError::new(
+                        "event",
+                        format!("route {} instance key was not present", command.route_id),
+                    ));
+                }
+                command.instance_key = resolved
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| resolved.to_string());
+            }
+        }
+        Ok(commands)
+    }
+    pub fn publish(
+        &mut self,
+        event: AxEventEnvelope,
+        identity_scope: &str,
+        trust: &str,
+    ) -> AxResult<AxEventPublishReceipt> {
+        if !self.started {
+            return Err(AxError::new(
+                "event",
+                "AxEventRuntime must be started first",
+            ));
+        }
+        let commands = self.plan(&event, identity_scope, trust)?;
+        let ids = commands
+            .iter()
+            .map(|c| format!("{}:{}", c.route_id, event.id))
+            .collect::<Vec<_>>();
+        let duplicate =
+            !ids.is_empty() && ids.iter().all(|id| self.store.deliveries.contains_key(id));
+        for command in &commands {
+            let debounce = self
+                .routes
+                .iter()
+                .find(|route| route.id == command.route_id)
+                .map(|route| route.debounce_ms)
+                .unwrap_or(0);
+            if debounce > 0 {
+                let coalesced = self
+                    .store
+                    .deliveries
+                    .iter()
+                    .filter(|(_, old)| {
+                        old.status == "queued"
+                            && old.command.route_id == command.route_id
+                            && old.command.target_id == command.target_id
+                            && old.command.instance_key == command.instance_key
+                    })
+                    .map(|(id, _)| id.clone())
+                    .collect::<Vec<_>>();
+                for id in coalesced {
+                    if let Some(old) = self.store.deliveries.get_mut(&id) {
+                        old.status = "coalesced".into()
+                    }
+                    self.store.release(&id);
+                }
+            }
+            self.store.enqueue_at(
+                event.clone(),
+                vec![command.clone()],
+                self.clock.now() + debounce,
+            )?;
+        }
+        for id in &ids {
+            if let Some(delivery) = self.store.deliveries.get_mut(id) {
+                delivery.identity_scope = identity_scope.into();
+                delivery.trust = trust.into()
+            }
+        }
+        if !duplicate {
+            self.run_due();
+        }
+        Ok(AxEventPublishReceipt {
+            event_id: event.id,
+            accepted: true,
+            duplicate,
+            durability: "volatile".into(),
+            delivery_ids: ids,
+        })
+    }
+    pub fn next_due_at(&self) -> Option<i64> {
+        self.store
+            .deliveries
+            .values()
+            .filter(|value| value.status == "queued")
+            .map(|value| value.available_at)
+            .min()
+    }
+    fn strict_delivery_eligible(&self, candidate: &AxEventDelivery) -> bool {
+        let descriptor = |value: &AxEventDelivery| {
+            let ordering = self
+                .routes
+                .iter()
+                .find(|route| route.id == value.command.route_id)
+                .map(|route| route.ordering.as_str())
+                .unwrap_or("strict");
+            json!({"sequence":value.sequence,"targetId":value.command.target_id,"instanceKey":value.command.instance_key,"status":value.status,"ordering":ordering})
+        };
+        let deliveries = Value::Array(self.store.deliveries.values().map(descriptor).collect());
+        crate::event_strict_delivery_eligible(&[
+            crate::core_value_from_json(&descriptor(candidate)),
+            crate::core_value_from_json(&deliveries),
+        ])
+        .map(|value| crate::core_value_to_json(&value).as_bool().unwrap_or(false))
+        .unwrap_or(false)
+    }
+    pub fn run_due(&mut self) -> usize {
+        let mut processed = 0;
+        loop {
+            let due = self
+                .store
+                .deliveries
+                .iter()
+                .filter(|(_, value)| {
+                    value.status == "queued"
+                        && value.available_at <= self.clock.now()
+                        && self.strict_delivery_eligible(value)
+                })
+                .min_by_key(|(_, value)| (value.available_at, value.sequence))
+                .map(|(id, _)| id.clone());
+            let Some(id) = due else { return processed };
+            let delivery = self.store.deliveries.get(&id).cloned().unwrap();
+            if let Some(value) = self.store.deliveries.get_mut(&id) {
+                value.status = "running".into()
+            }
+            self.store.release(&id);
+            self.dispatch(
+                delivery.event,
+                delivery.command,
+                &delivery.identity_scope,
+                &delivery.trust,
+            );
+            processed += 1
+        }
+    }
+    fn dispatch(
+        &mut self,
+        event: AxEventEnvelope,
+        command: AxEventCommand,
+        identity_scope: &str,
+        trust: &str,
+    ) {
+        let delivery_id = format!("{}:{}", command.route_id, event.id);
+        let mut target_id = command.target_id.clone();
+        let continuation = if command.action == "resume" {
+            let found = self.find_continuation(&event.correlation, identity_scope);
+            let Some(value) = found else {
+                self.dead_letter(&delivery_id, None, "continuation_not_found", None);
+                return;
+            };
+            target_id = Some(value.target_id.clone());
+            Some(value)
+        } else {
+            None
+        };
+        if command.action == "observe" || command.action == "invalidate" {
+            if let Some(d) = self.store.deliveries.get_mut(&delivery_id) {
+                d.status = "succeeded".into()
+            }
+            return;
+        }
+        let Some(target_id) = target_id else {
+            self.dead_letter(&delivery_id, None, "unknown_target", None);
+            return;
+        };
+        let Some(target) = self.targets.get(&target_id).cloned() else {
+            self.dead_letter(
+                &delivery_id,
+                None,
+                &format!("unknown_target:{target_id}"),
+                None,
+            );
+            return;
+        };
+        let run_id = self
+            .store
+            .deliveries
+            .get(&delivery_id)
+            .and_then(|value| value.run_id.clone())
+            .unwrap_or_else(|| format!("run:{}:{}", delivery_id, self.store.runs.len() + 1));
+        let mut run = self
+            .store
+            .runs
+            .get(&run_id)
+            .cloned()
+            .unwrap_or_else(|| AxEventRun {
+                id: run_id.clone(),
+                delivery_id: delivery_id.clone(),
+                route_id: command.route_id.clone(),
+                target_id: Some(target_id.clone()),
+                instance_key: command.instance_key.clone(),
+                status: "queued".into(),
+                attempt: 0,
+                output: None,
+                error: None,
+                continuation_ids: vec![],
+            });
+        if let Some(delivery) = self.store.deliveries.get_mut(&delivery_id) {
+            delivery.run_id = Some(run_id.clone());
+            delivery.attempt += 1;
+            run.attempt = delivery.attempt
+        }
+        let token = AxEventCancellationToken::default();
+        self.active.insert(run_id.clone(), token.clone());
+        let state_key = format!(
+            "{}\n{}\n{}",
+            target_id, identity_scope, command.instance_key
+        );
+        if let (Some(restore), Some(state)) = (
+            &target.restore_state,
+            self.store.program_state.get(&state_key).cloned(),
+        ) {
+            if let Err(error) = (restore.lock().unwrap())(state) {
+                self.dead_letter(&delivery_id, Some(&run_id), &error.to_string(), None);
+                self.active.remove(&run_id);
+                return;
+            }
+        }
+        let mapped = map_event_target_input(
+            &target,
+            &event,
+            continuation.as_ref(),
+            &command.action,
+            identity_scope,
+            trust,
+        );
+        let input = match mapped {
+            Ok(value) => value,
+            Err(error) => {
+                let reason = format!("event_input_invalid:{error}");
+                run.status = "failed".into();
+                run.error = Some(reason.clone());
+                self.store.runs.insert(run_id.clone(), run);
+                self.dead_letter(&delivery_id, Some(&run_id), &reason, None);
+                self.active.remove(&run_id);
+                return;
+            }
+        };
+        {
+            let attempt = run.attempt;
+            run.status = "running".into();
+            let context = AxEventInvocationContext {
+                run_id: run_id.clone(),
+                delivery_id: delivery_id.clone(),
+                instance_key: command.instance_key.clone(),
+                identity_scope: identity_scope.into(),
+                idempotency_key: command.idempotency_key.clone(),
+                cancellation: token.clone(),
+                continuation: continuation.clone(),
+            };
+            let result = (target.invoke.lock().unwrap())(input.clone(), context);
+            if token.is_cancelled() {
+                run.status = "cancelled".into();
+                if let Some(d) = self.store.deliveries.get_mut(&delivery_id) {
+                    d.status = "cancelled".into()
+                }
+                self.store.runs.insert(run_id.clone(), run);
+                self.active.remove(&run_id);
+                return;
+            }
+            match result {
+                Err(error) => {
+                    if attempt < self.max_attempts && target.retry_safety == "idempotent" {
+                        run.status = "queued".into();
+                        self.store.requeue(
+                            &delivery_id,
+                            self.clock.now() + self.retry_backoff_ms * (1i64 << (attempt - 1)),
+                        );
+                    } else {
+                        run.status = if target.retry_safety == "idempotent" {
+                            "failed".into()
+                        } else {
+                            "outcome_unknown".into()
+                        };
+                        run.error = Some(error.to_string());
+                        if let Some(d) = self.store.deliveries.get_mut(&delivery_id) {
+                            d.status = run.status.clone()
+                        }
+                        self.dead_letter(&delivery_id, Some(&run_id), &error.to_string(), None);
+                    }
+                }
+                Ok(output) => {
+                    if let Some(capture) = &target.capture_state {
+                        if let Ok(state) = (capture.lock().unwrap())() {
+                            self.store.program_state.insert(state_key.clone(), state);
+                        }
+                    }
+                    run.output = Some(output.clone());
+                    match self.register_declared(
+                        &target_id,
+                        &target.wait_for,
+                        &event,
+                        &command,
+                        identity_scope,
+                        trust,
+                    ) {
+                        Err(error) => {
+                            let reason = format!("event_input_invalid:{error}");
+                            run.status = "failed".into();
+                            run.error = Some(reason.clone());
+                            self.dead_letter(&delivery_id, Some(&run_id), &reason, None)
+                        }
+                        Ok(ids) => {
+                            run.continuation_ids = ids.clone();
+                            if ids.is_empty() {
+                                run.status = "succeeded".into();
+                                if let Some(d) = self.store.deliveries.get_mut(&delivery_id) {
+                                    d.status = "succeeded".into()
+                                }
+                                self.store.runs.insert(run_id.clone(), run.clone());
+                                for (sink_id, sink) in &target.sinks {
+                                    let context = json!({"run":&run,"idempotencyKey":format!("{}:{}",run_id,sink_id)});
+                                    if let Err(error) =
+                                        (sink.lock().unwrap())(output.clone(), context)
+                                    {
+                                        self.dead_letter(
+                                            &delivery_id,
+                                            Some(&run_id),
+                                            &error.to_string(),
+                                            Some(sink_id),
+                                        )
+                                    }
+                                }
+                            } else {
+                                run.status = "waiting_event".into();
+                                if let Some(d) = self.store.deliveries.get_mut(&delivery_id) {
+                                    d.status = "waiting_event".into()
+                                }
+                            }
+                            if let Some(value) = continuation.as_ref() {
+                                if let Some(stored) = self.store.continuations.get_mut(&value.id) {
+                                    stored.completed = true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.store.runs.insert(run_id.clone(), run);
+        self.active.remove(&run_id);
+    }
+    fn register_declared(
+        &mut self,
+        target_id: &str,
+        declarations: &[Value],
+        event: &AxEventEnvelope,
+        command: &AxEventCommand,
+        scope: &str,
+        trust: &str,
+    ) -> AxResult<Vec<String>> {
+        let mut ids = vec![];
+        for declaration in declarations {
+            let kind = declaration
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let raw = declaration.get("value").cloned().unwrap_or(Value::Null);
+            let value = if raw.get("root").is_some() {
+                let path: AxEventPath = serde_json::from_value(raw)?;
+                event_resolve_path_value(&path, event, scope, trust, None)
+            } else if let Some(key) = raw.as_str() {
+                event.data.get(key).cloned().unwrap_or(Value::Null)
+            } else {
+                raw
+            };
+            if value.is_null() {
+                return Err(AxError::new("event", "continuation value is missing"));
+            }
+            let id = format!(
+                "continuation:{}:{}",
+                target_id,
+                self.store.continuations.len() + 1
+            );
+            let expires_at = declaration
+                .get("expiresInMs")
+                .and_then(Value::as_i64)
+                .map(|duration| self.clock.now() + duration);
+            self.store.continuations.insert(
+                id.clone(),
+                AxEventContinuation {
+                    id: id.clone(),
+                    target_id: target_id.into(),
+                    instance_key: command.instance_key.clone(),
+                    identity_scope: scope.into(),
+                    correlation: vec![AxEventCorrelationKey {
+                        kind: kind.into(),
+                        value: value
+                            .as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| value.to_string()),
+                    }],
+                    metadata: declaration
+                        .get("metadata")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                    completed: false,
+                    expires_at,
+                },
+            );
+            ids.push(id)
+        }
+        Ok(ids)
+    }
+    fn find_continuation(
+        &self,
+        keys: &[AxEventCorrelationKey],
+        scope: &str,
+    ) -> Option<AxEventContinuation> {
+        self.store
+            .continuations
+            .values()
+            .find(|c| {
+                !c.completed
+                    && c.identity_scope == scope
+                    && c.expires_at.map_or(true, |value| value > self.clock.now())
+                    && c.correlation.iter().any(|left| keys.contains(left))
+            })
+            .cloned()
+    }
+    fn dead_letter(
+        &mut self,
+        delivery_id: &str,
+        run_id: Option<&str>,
+        reason: &str,
+        sink_id: Option<&str>,
+    ) {
+        let id = format!("dead:{}", self.store.dead_letters.len() + 1);
+        self.store.dead_letters.insert(
+            id.clone(),
+            AxEventDeadLetter {
+                id,
+                delivery_id: delivery_id.into(),
+                run_id: run_id.map(str::to_string),
+                sink_id: sink_id.map(str::to_string),
+                reason: reason.into(),
+            },
+        );
+        if sink_id.is_none() {
+            if let Some(d) = self.store.deliveries.get_mut(delivery_id) {
+                d.status = "dead_lettered".into()
+            }
+        }
+    }
+    pub fn cancel_run(&self, run_id: &str, reason: &str) -> bool {
+        if let Some(token) = self.active.get(run_id) {
+            token.cancel(reason);
+            true
+        } else {
+            false
+        }
+    }
+    pub fn get_run(&self, run_id: &str) -> Option<&AxEventRun> {
+        self.store.runs.get(run_id)
+    }
+    pub fn list_dead_letters(&self) -> Vec<AxEventDeadLetter> {
+        self.store.dead_letters.values().cloned().collect()
+    }
+    pub fn redrive(&mut self, dead_id: &str) -> AxResult<()> {
+        let dead = self
+            .store
+            .dead_letters
+            .remove(dead_id)
+            .ok_or_else(|| AxError::new("event", "unknown dead letter"))?;
+        if let Some(sink_id) = dead.sink_id.as_ref() {
+            let run = self
+                .store
+                .runs
+                .get(dead.run_id.as_deref().unwrap_or(""))
+                .cloned()
+                .ok_or_else(|| AxError::new("event", "sink redrive run is unavailable"))?;
+            let target = self
+                .targets
+                .get(run.target_id.as_deref().unwrap_or(""))
+                .cloned()
+                .ok_or_else(|| AxError::new("event", "sink redrive target is unavailable"))?;
+            let sink = target
+                .sinks
+                .iter()
+                .find(|(id, _)| id == sink_id)
+                .map(|(_, value)| value.clone())
+                .ok_or_else(|| AxError::new("event", "sink redrive sink is unavailable"))?;
+            if let Err(error) = (sink.lock().unwrap())(
+                run.output.clone().unwrap_or(Value::Null),
+                json!({"run":run,"idempotencyKey":format!("{}:{}",dead.run_id.as_deref().unwrap_or(""),sink_id)}),
+            ) {
+                self.store.dead_letters.insert(dead.id.clone(), dead);
+                return Err(error);
+            }
+            return Ok(());
+        }
+        if let Some(value) = self.store.deliveries.get_mut(&dead.delivery_id) {
+            value.attempt = 0
+        }
+        self.store.requeue(&dead.delivery_id, self.clock.now());
+        self.run_due();
+        Ok(())
+    }
+    pub fn close(&mut self) -> AxResult<()> {
+        self.started = false;
+        Ok(())
+    }
+    pub fn normalize_mcp(namespace: &str, method: &str, params: Value) -> AxResult<Value> {
+        let value = crate::event_normalize_mcp(&[
+            crate::core_value_from_json(&json!(namespace)),
+            crate::core_value_from_json(&json!(method)),
+            crate::core_value_from_json(&params),
+        ])?;
+        Ok(crate::core_value_to_json(&value))
+    }
+}
+
+#[derive(Clone)]
+pub enum AxMCPResourceSubscriptionPolicy {
+    None,
+    All,
+    Uris(Vec<String>),
+    Select(Arc<dyn Fn(&Value, &AxMCPCatalogSnapshot) -> bool>),
+}
+impl Default for AxMCPResourceSubscriptionPolicy {
+    fn default() -> Self {
+        Self::None
+    }
+}
+static AX_MCP_EVENT_SOURCE_ID: AtomicUsize = AtomicUsize::new(1);
+fn reconcile_mcp_subscriptions(
+    client: &Arc<Mutex<AxMCPClient>>,
+    policy: &AxMCPResourceSubscriptionPolicy,
+    subscriptions: &Arc<Mutex<Vec<String>>>,
+    owner: &str,
+    errors: &Arc<Mutex<Vec<String>>>,
+) -> AxResult<()> {
+    let mut client = client.lock().unwrap();
+    let catalog = client.inspect_catalog(false)?;
+    if !matches!(policy, AxMCPResourceSubscriptionPolicy::None)
+        && catalog
+            .server_capabilities
+            .get("resources")
+            .and_then(|value| value.get("subscribe"))
+            .and_then(Value::as_bool)
+            != Some(true)
+    {
+        return Err(AxError::new(
+            "mcp",
+            format!(
+                "MCP server {} does not advertise resource subscriptions",
+                catalog.namespace
+            ),
+        ));
+    }
+    let (mode, candidates, explicit) = match policy {
+        AxMCPResourceSubscriptionPolicy::None => ("none", Vec::new(), Vec::new()),
+        AxMCPResourceSubscriptionPolicy::All => ("all", catalog.resources.clone(), Vec::new()),
+        AxMCPResourceSubscriptionPolicy::Uris(values) => ("explicit", Vec::new(), values.clone()),
+        AxMCPResourceSubscriptionPolicy::Select(select) => (
+            "selector",
+            catalog
+                .resources
+                .iter()
+                .filter(|resource| select(resource, &catalog))
+                .cloned()
+                .collect(),
+            Vec::new(),
+        ),
+    };
+    let desired = crate::core_value_to_json(&crate::mcp_resource_subscription_selection(&[
+        crate::core_value_from_json(&json!(candidates)),
+        crate::core_value_from_json(&json!(mode)),
+        crate::core_value_from_json(&json!(explicit)),
+    ])?)
+    .as_array()
+    .cloned()
+    .unwrap_or_default()
+    .into_iter()
+    .filter_map(|value| value.as_str().map(str::to_string))
+    .collect::<Vec<_>>();
+    let mut desired = desired;
+    desired.sort();
+    let current = subscriptions.lock().unwrap().clone();
+    let planned = crate::mcp_resource_subscription_plan(&[
+        crate::core_value_from_json(&json!(desired)),
+        crate::core_value_from_json(&json!(current)),
+    ])?;
+    let planned = crate::core_value_to_json(&planned);
+    for uri in planned
+        .get("removals")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        match client.release_resource_subscription(uri, owner) {
+            Ok(_) => subscriptions.lock().unwrap().retain(|value| value != uri),
+            Err(error) => errors.lock().unwrap().push(error.to_string()),
+        }
+    }
+    for uri in planned
+        .get("additions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        match client.acquire_resource_subscription(uri, owner) {
+            Ok(_) => {
+                let mut selected = subscriptions.lock().unwrap();
+                selected.push(uri.into());
+                selected.sort();
+            }
+            Err(error) => errors.lock().unwrap().push(error.to_string()),
+        }
+    }
+    Ok(())
+}
+pub struct AxMCPEventSource {
+    client: Arc<Mutex<AxMCPClient>>,
+    runtime: Arc<Mutex<AxEventRuntime>>,
+    namespace: String,
+    identity_scope: String,
+    trust: String,
+    policy: AxMCPResourceSubscriptionPolicy,
+    subscriptions: Arc<Mutex<Vec<String>>>,
+    errors: Arc<Mutex<Vec<String>>>,
+    owner: String,
+    listener_id: Option<usize>,
+    lifecycle_listener_id: Option<usize>,
+    next_id: Arc<Mutex<usize>>,
+    resubscribe_requested: Arc<Mutex<bool>>,
+}
+impl AxMCPEventSource {
+    pub fn new(
+        client: Arc<Mutex<AxMCPClient>>,
+        runtime: Arc<Mutex<AxEventRuntime>>,
+        namespace: impl Into<String>,
+        identity_scope: impl Into<String>,
+        trust: impl Into<String>,
+        subscriptions: Vec<String>,
+    ) -> Self {
+        let policy = if subscriptions.is_empty() {
+            AxMCPResourceSubscriptionPolicy::None
+        } else {
+            AxMCPResourceSubscriptionPolicy::Uris(subscriptions)
+        };
+        Self::with_policy(client, runtime, namespace, identity_scope, trust, policy)
+    }
+    pub fn with_policy(
+        client: Arc<Mutex<AxMCPClient>>,
+        runtime: Arc<Mutex<AxEventRuntime>>,
+        namespace: impl Into<String>,
+        identity_scope: impl Into<String>,
+        trust: impl Into<String>,
+        policy: AxMCPResourceSubscriptionPolicy,
+    ) -> Self {
+        let namespace = namespace.into();
+        let namespace = if namespace.is_empty() {
+            client.lock().unwrap().namespace()
+        } else {
+            namespace
+        };
+        let owner = format!(
+            "event-source:{}",
+            AX_MCP_EVENT_SOURCE_ID.fetch_add(1, Ordering::Relaxed)
+        );
+        Self {
+            client,
+            runtime,
+            namespace,
+            identity_scope: identity_scope.into(),
+            trust: trust.into(),
+            policy,
+            subscriptions: Arc::new(Mutex::new(Vec::new())),
+            errors: Arc::new(Mutex::new(Vec::new())),
+            owner,
+            listener_id: None,
+            lifecycle_listener_id: None,
+            next_id: Arc::new(Mutex::new(1)),
+            resubscribe_requested: Arc::new(Mutex::new(false)),
+        }
+    }
+    pub fn start(&mut self) -> AxResult<()> {
+        self.client.lock().unwrap().init()?;
+        let runtime = self.runtime.clone();
+        let namespace = self.namespace.clone();
+        let identity_scope = if self.identity_scope.is_empty() {
+            "anonymous".into()
+        } else {
+            self.identity_scope.clone()
+        };
+        let trust = if self.trust.is_empty() {
+            "untrusted".into()
+        } else {
+            self.trust.clone()
+        };
+        let next_id = self.next_id.clone();
+        let client = self.client.clone();
+        let policy = self.policy.clone();
+        let subscriptions = self.subscriptions.clone();
+        let errors = self.errors.clone();
+        let owner = self.owner.clone();
+        let id = self
+            .client
+            .lock()
+            .unwrap()
+            .add_notification_listener(move |message| {
+                let Some(method) = message.get("method").and_then(Value::as_str) else {
+                    return;
+                };
+                if method == "notifications/resources/list_changed" {
+                    let _ = reconcile_mcp_subscriptions(
+                        &client,
+                        &policy,
+                        &subscriptions,
+                        &owner,
+                        &errors,
+                    );
+                }
+                let Ok(normalized) = AxEventRuntime::normalize_mcp(
+                    &namespace,
+                    method,
+                    message.get("params").cloned().unwrap_or_else(|| json!({})),
+                ) else {
+                    return;
+                };
+                let correlation = normalized
+                    .get("correlation")
+                    .and_then(Value::as_object)
+                    .map(|key| {
+                        vec![AxEventCorrelationKey {
+                            kind: key.get("kind").and_then(Value::as_str).unwrap_or("").into(),
+                            value: key
+                                .get("value")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .into(),
+                        }]
+                    })
+                    .unwrap_or_default();
+                let data = normalized.get("data").cloned().unwrap_or_else(|| json!({}));
+                let subject = data
+                    .get("uri")
+                    .and_then(Value::as_str)
+                    .or_else(|| {
+                        data.get("task")
+                            .and_then(|task| task.get("taskId"))
+                            .and_then(Value::as_str)
+                    })
+                    .map(str::to_string);
+                let mut sequence = next_id.lock().unwrap();
+                let event = AxEventEnvelope {
+                    specversion: "1.0".into(),
+                    id: format!("mcp:{namespace}:{}", *sequence),
+                    source: normalized
+                        .get("source")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .into(),
+                    r#type: normalized
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .unwrap_or("mcp.notification")
+                        .into(),
+                    subject,
+                    data,
+                    extensions: Map::new(),
+                    correlation,
+                };
+                *sequence += 1;
+                let _ = runtime
+                    .lock()
+                    .unwrap()
+                    .publish(event, &identity_scope, &trust);
+            });
+        self.listener_id = Some(id);
+        let resubscribe_requested = self.resubscribe_requested.clone();
+        self.lifecycle_listener_id = Some(self.client.lock().unwrap().add_lifecycle_listener(
+            move |state| {
+                if state == "reconnected" {
+                    *resubscribe_requested.lock().unwrap() = true
+                }
+            },
+        ));
+        reconcile_mcp_subscriptions(
+            &self.client,
+            &self.policy,
+            &self.subscriptions,
+            &self.owner,
+            &self.errors,
+        )
+    }
+    pub fn reconnect(&mut self) -> AxResult<()> {
+        self.client
+            .lock()
+            .unwrap()
+            .restore_resource_subscriptions()?;
+        reconcile_mcp_subscriptions(
+            &self.client,
+            &self.policy,
+            &self.subscriptions,
+            &self.owner,
+            &self.errors,
+        )
+    }
+    pub fn poll(&mut self) -> usize {
+        let (messages, states, notification_listeners, lifecycle_listeners) = {
+            let mut client = self.client.lock().unwrap();
+            let messages = {
+                let mut queue = client.inbound_messages.lock().unwrap();
+                std::mem::take(&mut *queue)
+            };
+            if messages.iter().any(|message| {
+                matches!(
+                    message.get("method").and_then(Value::as_str),
+                    Some("notifications/tools/list_changed")
+                        | Some("notifications/prompts/list_changed")
+                        | Some("notifications/resources/list_changed")
+                )
+            }) {
+                let _ = client.refresh();
+            }
+            let states = {
+                let mut queue = client.inbound_lifecycle.lock().unwrap();
+                std::mem::take(&mut *queue)
+            };
+            if states.iter().any(|state| state == "reconnected") {
+                let _ = client.restore_resource_subscriptions();
+            }
+            let notification_listeners = client
+                .notification_listeners
+                .lock()
+                .unwrap()
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
+            let lifecycle_listeners = client
+                .lifecycle_listeners
+                .lock()
+                .unwrap()
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
+            (
+                messages,
+                states,
+                notification_listeners,
+                lifecycle_listeners,
+            )
+        };
+        let count = messages.len() + states.len();
+        for state in states {
+            for listener in &lifecycle_listeners {
+                listener(state.clone())
+            }
+        }
+        for message in messages {
+            for listener in &notification_listeners {
+                listener(message.clone())
+            }
+        }
+        let should_resubscribe = {
+            let mut requested = self.resubscribe_requested.lock().unwrap();
+            let value = *requested;
+            *requested = false;
+            value
+        };
+        if should_resubscribe {
+            let _ = reconcile_mcp_subscriptions(
+                &self.client,
+                &self.policy,
+                &self.subscriptions,
+                &self.owner,
+                &self.errors,
+            );
+        }
+        count
+    }
+    pub fn errors(&self) -> Vec<String> {
+        self.errors.lock().unwrap().clone()
+    }
+    pub fn close(&mut self) -> AxResult<()> {
+        for uri in self.subscriptions.lock().unwrap().clone() {
+            let _ = self
+                .client
+                .lock()
+                .unwrap()
+                .release_resource_subscription(&uri, &self.owner);
+        }
+        self.subscriptions.lock().unwrap().clear();
+        if let Some(id) = self.listener_id.take() {
+            self.client.lock().unwrap().remove_notification_listener(id)
+        }
+        if let Some(id) = self.lifecycle_listener_id.take() {
+            self.client.lock().unwrap().remove_lifecycle_listener(id)
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct AxExecutionContext {
+    pub mcp: Vec<Arc<Mutex<AxMCPClient>>>,
+    pub ucp: Vec<AxUCPClient>,
+    initialized: Arc<Mutex<Vec<usize>>>,
+}
+
+impl AxExecutionContext {
+    pub fn new(mcp: Vec<Arc<Mutex<AxMCPClient>>>, ucp: Vec<AxUCPClient>) -> AxResult<Self> {
+        let out = Self {
+            mcp,
+            ucp,
+            initialized: Arc::new(Mutex::new(Vec::new())),
+        };
+        let names = out.namespaces();
+        let mut unique = names.clone();
+        unique.sort();
+        unique.dedup();
+        if unique.len() != names.len() {
+            return Err(AxError::new("mcp", "MCP/UCP namespace collision"));
+        }
+        Ok(out)
+    }
+    pub fn initialize(&self) -> AxResult<()> {
+        let mut initialized = self.initialized.lock().unwrap();
+        for (index, client) in self.mcp.iter().enumerate() {
+            if !initialized.contains(&index) {
+                client.lock().unwrap().init()?;
+                initialized.push(index)
+            }
+        }
+        Ok(())
+    }
+    pub fn native_tools(&self) -> AxResult<Vec<Tool>> {
+        self.initialize()?;
+        let mut out = Vec::new();
+        for client in &self.mcp {
+            out.extend(client.lock().unwrap().native_tools())
+        }
+        for client in &self.ucp {
+            out.extend(client.native_tools())
+        }
+        let mut names = out.iter().map(|tool| tool.name.clone()).collect::<Vec<_>>();
+        let count = names.len();
+        names.sort();
+        names.dedup();
+        if names.len() != count {
+            return Err(AxError::new("mcp", "MCP/UCP tool collision"));
+        }
+        Ok(out)
+    }
+    pub fn runtime_modules(&self) -> Value {
+        Value::Array(self.mcp.iter().map(|client|{let locked=client.lock().unwrap();json!({"name":format!("mcp.{}",locked.namespace()),"functions":locked.native_tools().iter().map(|tool|tool.name.clone()).collect::<Vec<_>>()})}).chain(self.ucp.iter().map(|client|json!({"name":format!("ucp.{}",client.namespace()),"functions":client.native_tools().iter().map(|tool|tool.name.clone()).collect::<Vec<_>>() }))).collect())
+    }
+    pub fn namespaces(&self) -> Vec<String> {
+        self.mcp
+            .iter()
+            .map(|client| client.lock().unwrap().namespace())
+            .chain(self.ucp.iter().map(AxUCPClient::namespace))
+            .collect()
+    }
+    pub fn derive(&self, inheritance: &Value) -> Self {
+        if inheritance.as_str() == Some("none") {
+            return Self::default();
+        }
+        let Some(allowed) = inheritance.as_array() else {
+            return self.clone();
+        };
+        let allowed = allowed.iter().filter_map(Value::as_str).collect::<Vec<_>>();
+        Self {
+            mcp: self
+                .mcp
+                .iter()
+                .filter(|c| allowed.contains(&c.lock().unwrap().namespace().as_str()))
+                .cloned()
+                .collect(),
+            ucp: self
+                .ucp
+                .iter()
+                .filter(|c| allowed.contains(&c.namespace().as_str()))
+                .cloned()
+                .collect(),
+            initialized: self.initialized.clone(),
+        }
+    }
+    pub fn continuation_state(&self) -> AxMCPContinuationState {
+        let namespaces = self.namespaces();
+        let digest = ax_mcp_sha256(namespaces.join("\n").as_bytes());
+        AxMCPContinuationState {
+            namespaces,
+            tasks: vec![],
+            subscriptions: vec![],
+            catalog_fingerprint: digest.iter().map(|b| format!("{b:02x}")).collect(),
+        }
+    }
+}
+
 fn mcp_transport_request(
     transport: &Arc<Mutex<Box<dyn AxMCPTransport>>>,
     next_id: &Arc<Mutex<u64>>,
@@ -365,11 +2690,16 @@ fn mcp_transport_request(
 
 pub struct AxMCPStreamableHTTPTransport {
     endpoint: String,
+    options: Value,
     headers: Map<String, Value>,
     session_id: Option<String>,
     protocol_version: Option<String>,
     pub oauth: Option<AxMCPOAuthOptions>,
     client: reqwest::blocking::Client,
+    message_handler: Option<Arc<dyn Fn(Value) + Send + Sync>>,
+    lifecycle_handler: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    listen_stop: Arc<AtomicBool>,
+    listen_thread: Option<JoinHandle<()>>,
 }
 
 impl AxMCPStreamableHTTPTransport {
@@ -380,6 +2710,7 @@ impl AxMCPStreamableHTTPTransport {
         )?;
         Ok(Self {
             endpoint,
+            options,
             headers: Map::new(),
             session_id: None,
             protocol_version: None,
@@ -387,6 +2718,10 @@ impl AxMCPStreamableHTTPTransport {
             client: reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(30))
                 .build()?,
+            message_handler: None,
+            lifecycle_handler: None,
+            listen_stop: Arc::new(AtomicBool::new(true)),
+            listen_thread: None,
         })
     }
 
@@ -482,6 +2817,13 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
                 format!("HTTP error {}", response.status().as_u16()),
             ));
         }
+        if let Some(session) = response
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|value| value.to_str().ok())
+        {
+            self.session_id = Some(session.to_string());
+        }
         // A spec-compliant MCP server may answer a JSON-RPC POST with an SSE stream
         // (Content-Type: text/event-stream) carrying the response — and any
         // interleaved notifications/keepalives — in `data:` frames; parse those
@@ -501,6 +2843,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
             return Ok(ax_mcp_select_sse_response(
                 crate::parse_sse_events(&body)?,
                 &request_id,
+                self.message_handler.as_ref(),
             ));
         }
         Ok(serde_json::from_str(&body)?)
@@ -512,21 +2855,140 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
     fn set_protocol_version(&mut self, protocol_version: &str) {
         self.protocol_version = Some(protocol_version.to_string());
     }
+    fn set_message_handler(&mut self, handler: Arc<dyn Fn(Value) + Send + Sync>) {
+        self.message_handler = Some(handler)
+    }
+    fn set_lifecycle_handler(&mut self, handler: Arc<dyn Fn(String) + Send + Sync>) {
+        self.lifecycle_handler = Some(handler)
+    }
+    fn start_listening(&mut self) -> AxResult<()> {
+        if self
+            .listen_thread
+            .as_ref()
+            .is_some_and(|thread| !thread.is_finished())
+        {
+            return Ok(());
+        }
+        self.listen_stop.store(false, Ordering::SeqCst);
+        let stop = self.listen_stop.clone();
+        let endpoint = self.endpoint.clone();
+        let headers = self.build_headers(Map::new(), true);
+        let handler = self.message_handler.clone();
+        let lifecycle = self.lifecycle_handler.clone();
+        let delay = self
+            .options
+            .get("reconnectDelayMs")
+            .and_then(Value::as_u64)
+            .unwrap_or(100);
+        let timeout = self
+            .options
+            .get("listenTimeoutMs")
+            .and_then(Value::as_u64)
+            .unwrap_or(1000);
+        self.listen_thread = Some(thread::spawn(move || {
+            let client = match reqwest::blocking::Client::builder()
+                .timeout(Duration::from_millis(timeout))
+                .build()
+            {
+                Ok(value) => value,
+                Err(_) => return,
+            };
+            let mut connected_once = false;
+            let mut last_event_id = None::<String>;
+            while !stop.load(Ordering::SeqCst) {
+                let mut request = client.get(&endpoint).header("Accept", "text/event-stream");
+                for (key, value) in &headers {
+                    if let Some(text) = value.as_str() {
+                        request = request.header(key, text)
+                    }
+                }
+                if let Some(value) = &last_event_id {
+                    request = request.header("Last-Event-ID", value)
+                }
+                match request.send() {
+                    Ok(response) if response.status().is_success() => {
+                        if connected_once {
+                            if let Some(callback) = &lifecycle {
+                                callback("reconnected".into())
+                            }
+                        }
+                        connected_once = true;
+                        let reader = BufReader::new(response);
+                        let mut data = Vec::<String>::new();
+                        let mut event_id = None::<String>;
+                        for line in reader.lines() {
+                            if stop.load(Ordering::SeqCst) {
+                                break;
+                            }
+                            let Ok(line) = line else { break };
+                            if line.is_empty() {
+                                if let Some(value) = event_id.take() {
+                                    last_event_id = Some(value)
+                                }
+                                if !data.is_empty() {
+                                    if let Ok(message) =
+                                        serde_json::from_str::<Value>(&data.join("\n"))
+                                    {
+                                        if let Some(callback) = &handler {
+                                            callback(message)
+                                        }
+                                    }
+                                    data.clear()
+                                }
+                            } else if let Some(value) = line.strip_prefix("id:") {
+                                event_id = Some(value.trim().to_string())
+                            } else if let Some(value) = line.strip_prefix("data:") {
+                                data.push(value.trim_start().to_string())
+                            }
+                        }
+                        if !stop.load(Ordering::SeqCst) {
+                            if let Some(callback) = &lifecycle {
+                                callback("disconnected".into())
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                if !stop.load(Ordering::SeqCst) {
+                    thread::sleep(Duration::from_millis(delay))
+                }
+            }
+        }));
+        Ok(())
+    }
+    fn close(&mut self) -> AxResult<()> {
+        self.listen_stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.listen_thread.take() {
+            let _ = thread.join();
+        }
+        Ok(())
+    }
 }
 
 // Return the JSON-RPC response whose id matches the request from the `data:`
 // frames of an SSE answer. Interleaved server->client notifications on the POST
 // stream are not dispatched (the HTTP transport keeps no inbound handler; the
 // optional standalone GET stream would be required for that).
-fn ax_mcp_select_sse_response(messages: Vec<Value>, request_id: &Value) -> Value {
+fn ax_mcp_select_sse_response(
+    messages: Vec<Value>,
+    request_id: &Value,
+    handler: Option<&Arc<dyn Fn(Value) + Send + Sync>>,
+) -> Value {
     let mut fallback: Option<Value> = None;
+    let mut response: Option<Value> = None;
     for message in messages.into_iter() {
         if message.get("id") == Some(request_id) {
-            return message;
+            response = Some(message);
+        } else {
+            if let Some(callback) = handler {
+                callback(message.clone())
+            }
+            fallback = Some(message);
         }
-        fallback = Some(message);
     }
-    fallback.unwrap_or_else(|| json!({"jsonrpc": "2.0", "id": request_id, "result": {}}))
+    response
+        .or(fallback)
+        .unwrap_or_else(|| json!({"jsonrpc": "2.0", "id": request_id, "result": {}}))
 }
 
 pub struct AxMCPStdioTransport {
@@ -958,6 +3420,90 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                 fixture.get("expected_headers").unwrap_or(&Value::Null),
             )
         }
+        "execution_context_ucp" => {
+            let responses = fixture
+                .get("responses")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let mcp = Arc::new(Mutex::new(AxMCPClient::new(
+                Box::new(AxMCPScriptedTransport::new(responses)),
+                fixture
+                    .get("client_options")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            )));
+            let scripted = fixture
+                .get("ucp_response")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let binding: Arc<dyn AxUCPBinding> =
+                Arc::new(move |_: &str, _: Value, _: Value| Ok(scripted.clone()));
+            let ucp = AxUCPClient::new(
+                fixture
+                    .get("ucp_profile")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+                binding,
+                fixture
+                    .get("ucp_options")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            )?;
+            let context = AxExecutionContext::new(vec![mcp], vec![ucp.clone()])?;
+            context.initialize()?;
+            let namespaces = Value::Array(
+                context
+                    .namespaces()
+                    .iter()
+                    .map(|name| json!(name))
+                    .collect(),
+            );
+            expect_subset(
+                "context namespaces",
+                &namespaces,
+                fixture.get("expected_namespaces").unwrap_or(&Value::Null),
+            )?;
+            let tools = context.native_tools()?;
+            for expected in fixture
+                .get("expected_native_tools")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let name = expected.as_str().unwrap_or_default();
+                if !tools.iter().any(|tool| tool.name == name) {
+                    return Err(AxError::new(
+                        "fixture",
+                        format!("missing native context tool {name}"),
+                    ));
+                }
+            }
+            let call = fixture
+                .get("call_ucp")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let outcome = ucp.call(
+                call.get("operation")
+                    .and_then(Value::as_str)
+                    .unwrap_or("catalog.search"),
+                call.get("payload").cloned().unwrap_or_else(|| json!({})),
+                Some("fixture-key"),
+            )?;
+            expect_subset(
+                "UCP outcome",
+                &outcome,
+                fixture.get("expected_ucp_outcome").unwrap_or(&Value::Null),
+            )?;
+            let state = context.continuation_state();
+            if state.catalog_fingerprint.is_empty() {
+                return Err(AxError::new(
+                    "fixture",
+                    "invalid execution context continuation state",
+                ));
+            }
+            Ok(())
+        }
         _ => {
             let responses = fixture
                 .get("responses")
@@ -985,7 +3531,7 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                 "initialize" | "protocol_negotiation" => Ok(()),
                 "ping" => client.ping().map(|_| ()),
                 "tools" => {
-                    let functions = client.to_function();
+                    let functions = client.native_tools();
                     if let Some(expected) = fixture.get("expected_function_names") {
                         let names =
                             Value::Array(functions.iter().map(|tool| json!(tool.name)).collect());
@@ -1008,12 +3554,21 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                     Ok(())
                 }
                 "prompts_resources" => {
-                    let functions = client.to_function();
-                    if let Some(expected) = fixture.get("expected_function_names") {
-                        let names =
-                            Value::Array(functions.iter().map(|tool| json!(tool.name)).collect());
-                        expect_subset("function names", &names, expected)?;
-                    }
+                    expect_catalog_names(
+                        "prompt names",
+                        client.prompts(),
+                        fixture.get("expected_prompt_names"),
+                    )?;
+                    expect_catalog_names(
+                        "resource names",
+                        client.resources(),
+                        fixture.get("expected_resource_names"),
+                    )?;
+                    expect_catalog_names(
+                        "resource template names",
+                        client.resource_templates(),
+                        fixture.get("expected_resource_template_names"),
+                    )?;
                     Ok(())
                 }
                 "cancellation" => {
@@ -1042,6 +3597,19 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
             }
         }
     }
+}
+
+fn expect_catalog_names(label: &str, catalog: &[Value], expected: Option<&Value>) -> AxResult<()> {
+    if let Some(expected) = expected {
+        let names = Value::Array(
+            catalog
+                .iter()
+                .map(|item| json!(item.get("name").and_then(Value::as_str).unwrap_or_default()))
+                .collect(),
+        );
+        expect_subset(label, &names, expected)?;
+    }
+    Ok(())
 }
 
 fn cursor_params(cursor: Option<&str>) -> Value {

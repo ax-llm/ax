@@ -156,6 +156,63 @@ const resolveFunctionResponseName = (
   return functionId;
 };
 
+type GeminiFunctionResultMessage = Extract<
+  AxInternalChatRequest<AxAIGoogleGeminiModel>['chatPrompt'][number],
+  { role: 'function' }
+>;
+
+const mapFunctionResultParts = (
+  chatPrompt: AxInternalChatRequest<AxAIGoogleGeminiModel>['chatPrompt'],
+  index: number,
+  msg: GeminiFunctionResultMessage
+): AxAIGoogleGeminiContentPart[] => {
+  const raw = msg.protocolResult?.value as
+    | { structuredContent?: Record<string, unknown> }
+    | undefined;
+  const parts: AxAIGoogleGeminiContentPart[] = [
+    {
+      functionResponse: {
+        name: resolveFunctionResponseName(chatPrompt, index, msg.functionId),
+        response: {
+          result: msg.result,
+          ...(raw?.structuredContent
+            ? { structuredContent: raw.structuredContent }
+            : {}),
+        },
+      },
+    },
+  ];
+  for (const content of msg.content ?? []) {
+    if (content.type === 'text') {
+      parts.push({ text: content.text });
+    } else if (content.type === 'image') {
+      parts.push({
+        inlineData: { mimeType: content.mimeType, data: content.image },
+      });
+    } else if (content.type === 'audio') {
+      parts.push({
+        inlineData: {
+          mimeType: content.mimeType ?? 'application/octet-stream',
+          data: content.data,
+        },
+      });
+    } else if (content.type === 'file') {
+      parts.push({
+        inlineData: { mimeType: content.mimeType, data: content.data },
+      });
+    } else {
+      parts.push({
+        text:
+          content.cachedContent ??
+          [content.title, content.description, content.url]
+            .filter(Boolean)
+            .join('\n'),
+      });
+    }
+  }
+  return parts;
+};
+
 const safetySettings: AxAIGoogleGeminiSafetySettings = [
   {
     category: AxAIGoogleGeminiSafetyCategory.HarmCategoryHarassment,
@@ -909,16 +966,9 @@ class AxAIGoogleGeminiImpl
               );
             }
 
-            parts.push({
-              functionResponse: {
-                name: resolveFunctionResponseName(
-                  chatPrompt,
-                  currentIndex,
-                  currentMsg.functionId
-                ),
-                response: { result: currentMsg.result },
-              },
-            });
+            parts.push(
+              ...mapFunctionResultParts(chatPrompt, currentIndex, currentMsg)
+            );
 
             // Check next message
             if (
@@ -1925,18 +1975,7 @@ class AxAIGoogleGeminiImpl
         } else if (msg.role === 'function') {
           contents.push({
             role: 'user' as const,
-            parts: [
-              {
-                functionResponse: {
-                  name: resolveFunctionResponseName(
-                    chatPrompt,
-                    i,
-                    msg.functionId
-                  ),
-                  response: { result: msg.result },
-                },
-              },
-            ],
+            parts: mapFunctionResultParts(chatPrompt, i, msg),
           });
         }
       }
@@ -2081,18 +2120,7 @@ class AxAIGoogleGeminiImpl
       } else if (msg.role === 'function') {
         dynamicContents.push({
           role: 'user' as const,
-          parts: [
-            {
-              functionResponse: {
-                name: resolveFunctionResponseName(
-                  chatPrompt,
-                  i,
-                  msg.functionId
-                ),
-                response: { result: msg.result },
-              },
-            },
-          ],
+          parts: mapFunctionResultParts(chatPrompt, i, msg),
         });
       }
     }

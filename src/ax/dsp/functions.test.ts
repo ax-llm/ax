@@ -241,3 +241,26 @@ describe('AxFunctionProcessor functionResultFormatter', () => {
     expect(result).toBe('already a string');
   });
 });
+
+describe('AxFunctionProcessor event context', () => {
+  it('passes immutable event provenance to tool handlers', async () => {
+    const eventContext = { runId: 'run-1' } as any;
+    let seen: unknown;
+    const processor = new AxFunctionProcessor([
+      {
+        name: 'eventAware',
+        description: 'Reads event provenance',
+        parameters: { type: 'object', properties: {} },
+        func: (_args, extra) => {
+          seen = extra?.eventContext;
+          return 'ok';
+        },
+      },
+    ]);
+    await processor.executeWithDetails(
+      { id: '1', name: 'eventAware', args: '{}' },
+      { eventContext }
+    );
+    expect(seen).toBe(eventContext);
+  });
+});

@@ -106,6 +106,52 @@
         "  \"functions\": [\"search\"]",
         "});"
       ]
+    },
+    "mcp": {
+      "native": {
+        "sourcePath": "src/examples/rust/mcp/native_mcp_tools.rs",
+        "code": [
+          "let context = AxExecutionContext::new(vec![mcp.clone()], vec![])?;",
+          "    let catalog = mcp.lock().unwrap().inspect_catalog(false)?;",
+          "let mut program = ax(\"request:string -> answer:string\")?.with_execution_context(context)?;",
+          "mcp.lock().unwrap().close()?;"
+        ]
+      },
+      "resourceWake": {
+        "sourcePath": "src/examples/rust/mcp/resource_wake_agent.rs",
+        "code": [
+          "let transport = AxMCPStreamableHTTPTransport::new(",
+          "    let mut source = AxMCPEventSource::with_policy(",
+          "        AxMCPResourceSubscriptionPolicy::All,",
+          "source.start()?;",
+          "source.poll();"
+        ]
+      },
+      "taskResume": {
+        "sourcePath": "src/examples/rust/mcp/task_resume_flow.rs",
+        "code": [
+          ".call_tool(\"start_reindex\", json!({\"scope\":\"all\"}))?;",
+          "source.start()?;",
+          "source.poll();"
+        ]
+      }
+    },
+    "event": {
+      "wake": {
+        "sourcePath": "src/examples/rust/mcp/resource_wake_agent.rs",
+        "code": ["source.start()?;", "source.poll();", "source.close()?;"]
+      },
+      "resume": {
+        "sourcePath": "src/examples/rust/mcp/task_resume_flow.rs",
+        "code": ["source.start()?;", "source.poll();", "source.close()?;"]
+      },
+      "ucp": {
+        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
+        "code": [
+          "  const receipt = await source.ingest(request);",
+          "  if (!receipt.accepted) return new Response(null, { status: 503 });"
+        ]
+      }
     }
   }
 }

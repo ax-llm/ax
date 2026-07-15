@@ -234,6 +234,37 @@ var goMCPSseRoundtripExample string
 //go:embed templates/mcp/javaAxMCPClient.java
 var javaAxMCPClient string
 
+//go:embed templates/mcp/javaAxEventEnvelope.java
+var javaAxEventEnvelope string
+//go:embed templates/mcp/javaAxEventRoute.java
+var javaAxEventRoute string
+//go:embed templates/mcp/javaAxEventCommand.java
+var javaAxEventCommand string
+//go:embed templates/mcp/javaAxEventSource.java
+var javaAxEventSource string
+//go:embed templates/mcp/javaAxEventSink.java
+var javaAxEventSink string
+//go:embed templates/mcp/javaAxEventClock.java
+var javaAxEventClock string
+//go:embed templates/mcp/javaAxEventStore.java
+var javaAxEventStore string
+//go:embed templates/mcp/javaAxEventRuntime.java
+var javaAxEventRuntime string
+//go:embed templates/mcp/javaAxMCPEventSource.java
+var javaAxMCPEventSource string
+
+//go:embed templates/mcp/javaAxExecutionContext.java
+var javaAxExecutionContext string
+
+//go:embed templates/mcp/javaAxMCPContinuationState.java
+var javaAxMCPContinuationState string
+
+//go:embed templates/mcp/javaAxUCPBinding.java
+var javaAxUCPBinding string
+
+//go:embed templates/mcp/javaAxUCPClient.java
+var javaAxUCPClient string
+
 //go:embed templates/mcp/javaAxMCPOAuthOptions.java
 var javaAxMCPOAuthOptions string
 

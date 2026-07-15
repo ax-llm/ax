@@ -10,12 +10,14 @@ export async function fetchJSON<T>(
   ssrf?: Readonly<{
     protection?: AxMCPSSRFProtectionOptions;
     context?: AxMCPSSRFProtectionContext;
+    fetch?: typeof globalThis.fetch;
   }>
 ): Promise<T> {
   const res = await fetchWithSSRFProtection(url, {
     headers,
     ssrfProtection: ssrf?.protection,
     ssrfContext: ssrf?.context,
+    fetch: ssrf?.fetch,
   });
   if (!res.ok)
     throw new Error(`HTTP ${res.status} fetching ${url}: ${res.statusText}`);

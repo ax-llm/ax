@@ -116,10 +116,17 @@ export interface AxAIOpenAIResponsesInputAudioContentPart {
   };
 }
 
+export interface AxAIOpenAIResponsesInputFileContentPart {
+  readonly type: 'input_file';
+  readonly file_data: string;
+  readonly filename?: string;
+}
+
 export type AxAIOpenAIResponsesInputContentPart =
   | AxAIOpenAIResponsesInputTextContentPart
   | AxAIOpenAIResponsesInputImageUrlContentPart
   | AxAIOpenAIResponsesInputAudioContentPart
+  | AxAIOpenAIResponsesInputFileContentPart
   // Allow referencing prior assistant outputs in the input context
   | AxAIOpenAIResponsesOutputTextContentPart;
 
@@ -148,7 +155,7 @@ export interface AxAIOpenAIResponsesInputFunctionCallOutputItem {
   readonly type: 'function_call_output';
   readonly id?: string; // Optional unique ID of this item in the context
   readonly call_id: string;
-  readonly output: string; // JSON string of the output
+  readonly output: string | ReadonlyArray<AxAIOpenAIResponsesInputContentPart>;
   // status?: string // Typically for response items
 }
 
