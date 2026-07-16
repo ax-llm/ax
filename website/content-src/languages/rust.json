@@ -48,6 +48,12 @@
         "    \"contextPolicy\": {\"preset\": \"adaptive\", \"budget\": \"balanced\"},",
         "    \"contextMap\": {\"maxChars\": 1800, \"infiniteEvolve\": false, \"evolveSteps\": 1},",
         "}))?.with_runtime(Box::new(QuickJsCodeRuntime::new()))?;"
+      ],
+      "memorySkills": [
+        "let assistant = agent_with_options(signature, json!({",
+        "    \"memoriesCatalog\": memories,",
+        "    \"skillsCatalog\": skills,",
+        "}))?;"
       ]
     }
   },

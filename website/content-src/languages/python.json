@@ -50,6 +50,12 @@
         "    \"contextPolicy\": {\"preset\": \"adaptive\", \"budget\": \"balanced\"},",
         "    \"contextMap\": {\"maxChars\": 1800, \"infiniteEvolve\": False, \"evolveSteps\": 1},",
         "})"
+      ],
+      "memorySkills": [
+        "assistant = agent(signature, {",
+        "    \"memoriesCatalog\": memories,",
+        "    \"skillsCatalog\": skills,",
+        "})"
       ]
     }
   },

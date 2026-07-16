@@ -9,16 +9,22 @@ import {
   checkpointReady,
   courseStats,
   createProgress,
+  dailyReviewSet,
+  dayStreak,
   evaluateExercise,
-  exerciseForRole,
+  exercisesForRole,
   finishDiagnostic,
   MAX_DIAGNOSTIC_QUESTIONS,
   MIN_DIAGNOSTIC_QUESTIONS,
   migrateProgress,
+  pickExercise,
   recommendedTasks,
   reviewExerciseSet,
+  reviewForecast,
+  reviewPassed,
   selectDiagnosticTopic,
   setDailyGoal,
+  shuffledChoiceOrder,
   storageKey,
   topicById,
   topicStatus,
@@ -27,6 +33,8 @@ import {
 const root = document.querySelector('[data-academy-root]');
 const dataElement = document.querySelector('#academy-course-data');
 let recoveredState = false;
+let renderedExerciseCount = 0;
+const exerciseSessionSeed = `${Date.now()}:${Math.random()}`;
 
 if (root && dataElement) {
   const course = JSON.parse(dataElement.textContent || '{}');
@@ -45,6 +53,7 @@ if (root && dataElement) {
   const page = root.dataset.academyPage;
   if (page === 'dashboard') initDashboard(course, progress, save);
   if (page === 'diagnostic') initDiagnostic(course, progress, save);
+  if (page === 'review') initDailyReview(course, progress, save);
   if (page === 'topic') initTopic(course, progress, save, root.dataset.topicId);
   if (page === 'checkpoint') {
     initCheckpoint(course, progress, save, root.dataset.unitId);
@@ -73,10 +82,17 @@ function initDashboard(course, initialProgress, save) {
     const count = root.querySelector('[data-academy-progress-count]');
     const goalLabel = root.querySelector('[data-academy-daily-goal-label]');
     const today = root.querySelector('[data-academy-today-xp]');
+    const streak = root.querySelector('[data-academy-streak]');
+    const forecast = root.querySelector('[data-academy-forecast]');
     if (today) today.textContent = String(stats.todayXP);
     if (goalLabel) goalLabel.textContent = String(goal);
     if (percent) percent.textContent = `${stats.percent}%`;
     if (count) count.textContent = String(stats.learned);
+    if (streak) {
+      const count = dayStreak(progress);
+      streak.textContent = `${count} day${count === 1 ? '' : 's'} streak`;
+    }
+    if (forecast) renderForecast(forecast, reviewForecast(course, progress));
     if (summary) {
       summary.setAttribute(
         'aria-label',
@@ -285,7 +301,11 @@ function initDiagnostic(course, initialProgress, save) {
   function showNext() {
     const topic = selectDiagnosticTopic(course, progress);
     if (!topic) return complete();
-    const exercise = exerciseForRole(topic, 'diagnostic');
+    const exercise = pickExercise(
+      topic,
+      'diagnostic',
+      Math.floor(Date.now() / 86_400_000)
+    );
     renderExercise(quiz, exercise, {
       index: progress.diagnostic.asked.length + 1,
       total: MAX_DIAGNOSTIC_QUESTIONS,
@@ -386,9 +406,15 @@ function initTopic(course, initialProgress, save, topicId) {
       onComplete(records) {
         const correctCount = records.filter((record) => record.correct).length;
         progress = save(
-          applyReviewResult(progress, topicId, correctCount, records.length)
+          applyReviewResult(
+            course,
+            progress,
+            topicId,
+            correctCount,
+            records.length
+          )
         );
-        const passed = correctCount >= 2;
+        const passed = reviewPassed(correctCount, records.length);
         showCompletion(
           course,
           host,
@@ -408,8 +434,9 @@ function initTopic(course, initialProgress, save, topicId) {
   }
 
   let attempts = 0;
-  const exercise = exerciseForRole(topic, 'practice');
   const showPractice = () => {
+    const pool = exercisesForRole(topic, 'practice');
+    const exercise = pool[attempts % pool.length];
     if (countLabel) countLabel.textContent = `${attempts} / 5 attempts`;
     renderExercise(host, exercise, {
       index: attempts + 1,
@@ -471,7 +498,7 @@ function initCheckpoint(course, initialProgress, save, unitId) {
   runExerciseSequence(host, exercises, {
     context: 'Unit knowledge check',
     onComplete(records) {
-      const outcome = applyCheckpointResult(progress, unitId, records);
+      const outcome = applyCheckpointResult(course, progress, unitId, records);
       progress = save(outcome.progress);
       host.hidden = true;
       result.hidden = false;
@@ -534,7 +561,72 @@ function initCapstone(course, initialProgress, save) {
   });
 }
 
-function runExerciseSequence(host, exercises, { context, onComplete }) {
+function initDailyReview(course, initialProgress, save) {
+  let progress = initialProgress;
+  const host = root.querySelector('[data-academy-review-queue]');
+  const result = root.querySelector('[data-academy-review-result]');
+  if (!host || !result) return;
+  const exercises = dailyReviewSet(course, progress);
+  if (exercises.length === 0) {
+    host.hidden = true;
+    showDailyReviewSummary(course, result, []);
+    return;
+  }
+  runExerciseSequence(host, exercises, {
+    context: 'Daily mixed review',
+    onAnswered(record) {
+      progress = save(
+        applyReviewResult(
+          course,
+          progress,
+          record.topicId,
+          record.correct ? 1 : 0,
+          1
+        )
+      );
+    },
+    onComplete(records) {
+      host.hidden = true;
+      showDailyReviewSummary(course, result, records);
+    },
+  });
+}
+
+function showDailyReviewSummary(course, host, records) {
+  host.hidden = false;
+  host.replaceChildren();
+  const heading = document.createElement('h2');
+  heading.textContent = records.length
+    ? 'Daily review complete'
+    : 'You are caught up';
+  const copy = document.createElement('p');
+  const strengthened = records.filter((record) => record.correct).length;
+  copy.textContent = records.length
+    ? `${strengthened} strengthened · ${records.length - strengthened} scheduled for repair.`
+    : 'No knowledge points are due right now. Your forecast will show what is coming next.';
+  host.append(heading, copy);
+  if (records.length) {
+    const list = document.createElement('ul');
+    for (const record of records) {
+      const topic = topicById(course, record.topicId);
+      const item = document.createElement('li');
+      item.textContent = `${record.correct ? 'Strengthened' : 'Missed'}: ${topic?.title ?? record.topicId}`;
+      list.append(item);
+    }
+    host.append(list);
+  }
+  const link = document.createElement('a');
+  link.className = 'academy-button academy-button-primary';
+  link.href = `${academyRoot(course)}/`;
+  link.textContent = 'Return to my queue';
+  host.append(link);
+}
+
+function runExerciseSequence(
+  host,
+  exercises,
+  { context, onAnswered, onComplete }
+) {
   const records = [];
   let index = 0;
   const show = () => {
@@ -548,7 +640,9 @@ function runExerciseSequence(host, exercises, { context, onComplete }) {
       total: exercises.length,
       context,
       onAnswered(correct) {
-        records.push({ topicId: exercise.topicId, correct });
+        const record = { topicId: exercise.topicId, correct };
+        records.push(record);
+        onAnswered?.(record);
       },
       onNext() {
         index += 1;
@@ -557,6 +651,20 @@ function runExerciseSequence(host, exercises, { context, onComplete }) {
     });
   };
   show();
+}
+
+function renderForecast(host, forecast) {
+  host.replaceChildren();
+  for (const [index, bucket] of forecast.entries()) {
+    const item = document.createElement('span');
+    const date = new Date(`${bucket.date}T12:00:00`);
+    const label =
+      index === 0
+        ? 'Today'
+        : date.toLocaleDateString(undefined, { weekday: 'short' });
+    item.innerHTML = `<strong>${bucket.count}</strong><small>${label}</small>`;
+    host.append(item);
+  }
 }
 
 function renderExercise(
@@ -578,14 +686,32 @@ function renderExercise(
   meta.append(label, count);
 
   const prompt = document.createElement('h2');
+  prompt.id = `academy-prompt-${exercise.id}`;
+  prompt.tabIndex = -1;
   prompt.textContent = exercise.prompt;
   form.append(meta, prompt);
+
+  if (exercise.contextCode) {
+    const context = document.createElement('pre');
+    context.className = 'academy-question-context';
+    const code = document.createElement('code');
+    code.textContent = exercise.contextCode;
+    context.append(code);
+    form.append(context);
+  }
 
   let answerControl;
   if (exercise.type === 'choice') {
     const choices = document.createElement('div');
     choices.className = 'academy-choices';
-    for (const [choiceIndex, choice] of exercise.choices.entries()) {
+    choices.setAttribute('role', 'radiogroup');
+    choices.setAttribute('aria-labelledby', prompt.id);
+    const order = shuffledChoiceOrder(
+      exercise,
+      `${exerciseSessionSeed}:${exercise.id}:${index}:${renderedExerciseCount++}`
+    );
+    for (const choiceIndex of order) {
+      const choice = exercise.choices[choiceIndex];
       const option = document.createElement('label');
       option.className = 'academy-choice';
       const input = document.createElement('input');
@@ -652,7 +778,7 @@ function renderExercise(
   });
 
   host.append(form);
-  form.querySelector('input')?.focus();
+  if (index > 1) prompt.focus();
 }
 
 function renderLocked(

@@ -48,6 +48,12 @@
         "    \"contextPolicy\": axllm.Object(\"preset\", \"adaptive\", \"budget\", \"balanced\"),",
         "    \"contextMap\": axllm.Object(\"maxChars\", 1800, \"infiniteEvolve\", false, \"evolveSteps\", 1),",
         "})"
+      ],
+      "memorySkills": [
+        "assistant := axllm.NewAgent(signature, map[string]axllm.Value{",
+        "    \"memoriesCatalog\": memories,",
+        "    \"skillsCatalog\": skills,",
+        "})"
       ]
     }
   },

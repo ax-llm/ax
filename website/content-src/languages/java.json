@@ -55,6 +55,11 @@
         "    \"contextFields\", List.of(\"codebase\"),",
         "    \"contextPolicy\", Map.of(\"preset\", \"adaptive\", \"budget\", \"balanced\"),",
         "    \"contextMap\", Map.of(\"maxChars\", 1800, \"infiniteEvolve\", false, \"evolveSteps\", 1)));"
+      ],
+      "memorySkills": [
+        "AxAgent assistant = Ax.agent(signature, Map.of(",
+        "    \"memoriesCatalog\", memories,",
+        "    \"skillsCatalog\", skills));"
       ]
     }
   },

@@ -53,6 +53,12 @@
         "    {\"contextPolicy\", axllm::object({{\"preset\", \"adaptive\"}, {\"budget\", \"balanced\"}})},",
         "    {\"contextMap\", axllm::object({{\"maxChars\", 1800}, {\"infiniteEvolve\", false}, {\"evolveSteps\", 1}})},",
         "}));"
+      ],
+      "memorySkills": [
+        "auto assistant = axllm::agent(signature, axllm::object({",
+        "    {\"memoriesCatalog\", memories},",
+        "    {\"skillsCatalog\", skills},",
+        "}));"
       ]
     }
   },

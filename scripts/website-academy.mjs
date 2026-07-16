@@ -26,6 +26,8 @@ const topicSnippetPaths = {
   ],
   'child-agents': ['snippetGroups.tools.agentFlat', 'snippets.agent'],
   'playbook-learning': ['snippets.playbook'],
+  'memory-recall': ['academy.snippets.memorySkills'],
+  'skill-discovery': ['academy.snippets.memorySkills'],
   'mcp-tasks-advanced': ['snippetGroups.mcp.taskResume'],
   'event-runtime-core': ['snippetGroups.event.wake'],
   'event-actions': ['snippetGroups.event.wake'],
@@ -197,12 +199,13 @@ export async function validateAcademyLanguages(
   { repoRoot }
 ) {
   const failures = [];
-  const codeTopicIds = course.units
-    .flatMap((unit) => unit.topics)
-    .filter((topic) =>
-      topic.exercises.some((exercise) => exercise.type === 'code')
+  const codeExercises = course.units.flatMap((unit) =>
+    unit.topics.flatMap((topic) =>
+      topic.exercises
+        .filter((exercise) => exercise.type === 'code')
+        .map((exercise) => ({ topicId: topic.id, exerciseId: exercise.id }))
     )
-    .map((topic) => topic.id);
+  );
 
   for (const language of languages) {
     if (!language.academy) {
@@ -223,7 +226,7 @@ export async function validateAcademyLanguages(
           failures
         );
       }
-      if (language.id !== 'typescript' && !nativeSnippet(language, unit)) {
+      if (language.id !== 'typescript' && !nativeSnippet(language, unit).code) {
         failures.push(
           `${language.id} Academy is missing a native snippet for ${unit.id}`
         );
@@ -241,11 +244,13 @@ export async function validateAcademyLanguages(
       );
     }
     if (language.id !== 'typescript') {
-      for (const topicId of codeTopicIds) {
-        const answers = language.academy.exerciseAnswers?.[topicId];
+      for (const { topicId, exerciseId } of codeExercises) {
+        const answers =
+          language.academy.exerciseAnswers?.[exerciseId] ??
+          language.academy.exerciseAnswers?.[topicId];
         if (!Array.isArray(answers) || answers.length === 0) {
           failures.push(
-            `${language.id} Academy is missing a native code answer for ${topicId}`
+            `${language.id} Academy is missing a native code answer for ${exerciseId}`
           );
         }
       }
@@ -289,24 +294,42 @@ function validateExercises(
     return;
   }
   const roles = new Set();
+  const roleCounts = new Map();
+  const normalizedPrompts = new Map();
   for (const exercise of owner.exercises) {
     if (!exercise.id || exerciseIds.has(exercise.id)) {
       failures.push(`${owner.id} has a missing or duplicate exercise id`);
     }
     exerciseIds.add(exercise.id);
-    for (const role of exercise.roles ?? []) roles.add(role);
+    for (const role of exercise.roles ?? []) {
+      roles.add(role);
+      roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1);
+    }
     if (!exercise.prompt || !exercise.explanation) {
       failures.push(`exercise ${exercise.id} needs a prompt and explanation`);
+    }
+    const normalizedPrompt = String(exercise.prompt)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    const duplicate = normalizedPrompts.get(normalizedPrompt);
+    if (duplicate) {
+      failures.push(
+        `${owner.id} exercises ${duplicate} and ${exercise.id} duplicate a prompt`
+      );
+    } else {
+      normalizedPrompts.set(normalizedPrompt, exercise.id);
     }
     if (exercise.type === 'choice') {
       if (
         !Array.isArray(exercise.choices) ||
         exercise.choices.length < 2 ||
         !Number.isInteger(exercise.answer) ||
-        exercise.answer < 0 ||
-        exercise.answer >= exercise.choices.length
+        exercise.answer !== 0
       ) {
-        failures.push(`choice exercise ${exercise.id} has an invalid answer`);
+        failures.push(
+          `choice exercise ${exercise.id} must keep the authored answer at index 0`
+        );
       }
     } else if (exercise.type === 'code') {
       if (typeof exercise.answer !== 'string' || !exercise.answer.trim()) {
@@ -320,6 +343,12 @@ function validateExercises(
   }
   for (const role of requiredRoles) {
     if (!roles.has(role)) failures.push(`${owner.id} has no ${role} exercise`);
+  }
+  if (
+    requiredRoles.includes('practice') &&
+    (roleCounts.get('practice') ?? 0) < 2
+  ) {
+    failures.push(`${owner.id} needs at least two practice exercises`);
   }
 }
 
@@ -341,6 +370,14 @@ export function buildAcademyPages(course, language) {
       slug: 'academy/diagnostic',
       page: 'diagnostic',
       body: renderDiagnostic(localizedCourse, manifest),
+    }),
+    descriptor(`${language.id}/academy/review/_index.md`, language, {
+      title: 'Daily Review',
+      description:
+        'Strengthen due Ax knowledge points in one interleaved review session.',
+      slug: 'academy/review',
+      page: 'review',
+      body: renderDailyReview(localizedCourse, manifest),
     }),
   ];
 
@@ -425,16 +462,26 @@ function localizeAcademyCourse(course, language) {
     units: course.units.map((unit) => ({
       ...unit,
       examplePaths: [language.academy.unitExamples[unit.id]],
-      topics: unit.topics.map((topic) => ({
-        ...topic,
-        example:
+      topics: unit.topics.map((topic) => {
+        const snippet =
           language.id === 'typescript'
-            ? topic.example
-            : nativeSnippet(language, unit, topic.id),
-        exercises: topic.exercises.map((exercise) =>
-          localizeExercise(exercise, topic.id, language)
-        ),
-      })),
+            ? { code: topic.example, level: 'topic' }
+            : nativeSnippet(language, unit, topic.id);
+        return {
+          ...topic,
+          example: snippet.code,
+          exampleLevel: snippet.level,
+          exampleSteps: topic.exampleSteps.map((step) => ({
+            ...step,
+            ...(language.id === 'typescript' || step.neutral
+              ? {}
+              : { code: undefined }),
+          })),
+          exercises: topic.exercises.map((exercise) =>
+            localizeExercise(exercise, topic.id, language)
+          ),
+        };
+      }),
     })),
     finalCapstone: {
       ...course.finalCapstone,
@@ -444,7 +491,9 @@ function localizeAcademyCourse(course, language) {
 }
 
 function localizeExercise(exercise, topicId, language) {
-  const answers = language.academy.exerciseAnswers?.[topicId];
+  const answers =
+    language.academy.exerciseAnswers?.[exercise.id] ??
+    language.academy.exerciseAnswers?.[topicId];
   if (exercise.type !== 'code' || !answers) return { ...exercise };
   return {
     ...exercise,
@@ -456,15 +505,16 @@ function localizeExercise(exercise, topicId, language) {
 }
 
 function nativeSnippet(language, unit, topicId) {
-  const candidates = [
-    ...(topicSnippetPaths[topicId] ?? []),
-    ...(unitSnippetPaths[unit.id] ?? []),
-  ];
-  for (const candidate of candidates) {
+  const topicCandidates = topicSnippetPaths[topicId] ?? [];
+  for (const candidate of topicCandidates) {
     const snippet = normalizeSnippet(readNested(language, candidate));
-    if (snippet) return snippet;
+    if (snippet) return { code: snippet, level: 'topic' };
   }
-  return '';
+  for (const candidate of unitSnippetPaths[unit.id] ?? []) {
+    const snippet = normalizeSnippet(readNested(language, candidate));
+    if (snippet) return { code: snippet, level: 'unit' };
+  }
+  return { code: '', level: 'unit' };
 }
 
 function readNested(value, dottedPath) {
@@ -547,7 +597,9 @@ function renderDashboard(course, manifest) {
           <div class="academy-progress-meta">
             <span><strong data-academy-today-xp>0</strong> / <span data-academy-daily-goal-label>${course.dailyGoal}</span> XP today</span>
             <span data-academy-progress-detail>0 reviews due · 0 total XP</span>
+            <span data-academy-streak>0 days streak</span>
           </div>
+          <div class="academy-review-forecast" data-academy-forecast aria-label="Seven-day review forecast"></div>
           <small>${formatDuration(minuteCount)} of focused material</small>
         </aside>
       </section>
@@ -663,8 +715,17 @@ function renderTopic(course, manifest, unit, topic) {
           <div class="academy-lesson-meta"><span>${topic.minutes} focused minutes</span><span data-academy-topic-state>Not started</span></div>
         </header>
         <section class="academy-worked-example" aria-labelledby="worked-example-title">
-          <div><span class="academy-label">Worked example</span><h2 id="worked-example-title">See the idea in context</h2></div>
+          <div><span class="academy-label">${topic.exampleLevel === 'unit' ? 'Unit example (nearest native match)' : 'Worked example'}</span><h2 id="worked-example-title">See the idea in context</h2></div>
           ${codeBlock(topic.example)}
+          <ol class="academy-example-steps">
+            ${topic.exampleSteps
+              .map(
+                (step) =>
+                  `<li><strong>${escapeHtml(step.label)}</strong>${step.code ? codeBlock(step.code) : ''}<p>${escapeHtml(step.note)}</p></li>`
+              )
+              .join('')}
+          </ol>
+          <div class="academy-run-example"><span class="academy-label">Run it</span>${codeBlock(`npm run example -- ${course.language} ${unit.examplePaths[0]}`)}</div>
         </section>
         <section class="academy-practice" aria-labelledby="practice-title">
           <div class="academy-section-heading"><div><span class="academy-label">Active practice</span><h2 id="practice-title">Show that you can use it</h2></div><span data-academy-practice-count>0 / 5 attempts</span></div>
@@ -686,6 +747,24 @@ function renderTopic(course, manifest, unit, topic) {
       </article>
     `,
     { topicId: topic.id }
+  );
+}
+
+function renderDailyReview(course, manifest) {
+  const languageRoot = academyRoot(course.language);
+  return academyShell(
+    manifest,
+    'review',
+    `
+      ${academyBreadcrumb('Academy', `${languageRoot}/`, 'Daily review')}
+      <section class="academy-focus academy-daily-review" data-academy-daily-review>
+        <span class="academy-eyebrow">Spaced repetition · up to 10 knowledge points</span>
+        <h1>Strengthen what is due today.</h1>
+        <p>This session mixes knowledge points across units, prioritizes the oldest reviews, and schedules each answer immediately.</p>
+        <div class="academy-quiz" data-academy-review-queue></div>
+        <div class="academy-result" data-academy-review-result hidden aria-live="polite"></div>
+      </section>
+    `
   );
 }
 

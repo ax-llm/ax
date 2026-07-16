@@ -48,6 +48,18 @@ description: "Stop prompting. Start programming. Typed signatures become reliabl
   <p><strong>One core ships everything six-wide:</strong> 220+ runnable examples · 60+ docs pages per language, kept in lockstep · 15 agent skills per language · 1,000+ tests · 15+ providers · Apache-2.0</p>
 </div>
 
+<section class="home-section home-academy-cta" aria-labelledby="home-academy-title">
+<article class="home-marketing-card">
+{{< home-icon "list-checks" "icon-violet" >}}
+  <div>
+    <p class="home-section-label">Ax Academy</p>
+    <h2 id="home-academy-title">Learn Ax through an adaptive knowledge path.</h2>
+    <p>Start with a diagnostic, build mastery through short scaffolded lessons, and strengthen due concepts with interleaved spaced review. Progress stays in your browser.</p>
+    <div class="home-actions home-section-actions"><a href="/typescript/academy/" data-home-lang-href="academy/">Start Ax Academy</a></div>
+  </div>
+</article>
+</section>
+
 <section class="home-section home-quick-install" aria-labelledby="quick-install">
 <div class="home-section-heading">
   <p class="home-section-label">Get started</p>

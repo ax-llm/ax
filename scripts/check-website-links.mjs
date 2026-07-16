@@ -176,6 +176,9 @@ try {
   if (!academyEngine.includes('REVIEW_INTERVAL_DAYS')) {
     qualityFailures.push('Academy spaced-review schedule missing');
   }
+  if (!academyEngine.includes('dailyReviewSet')) {
+    qualityFailures.push('Academy daily mixed-review engine missing');
+  }
   if (css.includes('home-section-heading-center')) {
     qualityFailures.push('homepage section headings must stay left-aligned');
   }
@@ -367,9 +370,9 @@ try {
     collectQualityFailures(rel, html, qualityFailures);
   }
 
-  if (academyHtmlFiles.length !== 402) {
+  if (academyHtmlFiles.length !== 408) {
     qualityFailures.push(
-      `Academy must generate 67 pages for each of 6 languages (402 total; found ${academyHtmlFiles.length})`
+      `Academy must generate 68 pages for each of 6 languages (408 total; found ${academyHtmlFiles.length})`
     );
   }
 
@@ -629,6 +632,16 @@ function collectQualityFailures(rel, html, failures) {
       html.includes('data-academy-api-key')
     ) {
       failures.push(`${rel}: Academy must never collect provider API keys`);
+    }
+  }
+
+  if (
+    /^(?:typescript|python|java|cpp|go|rust)\/academy\/review\/index\.html$/.test(
+      rel
+    )
+  ) {
+    if (!html.includes('data-academy-review-queue')) {
+      failures.push(`${rel}: Academy daily review queue missing`);
     }
   }
 

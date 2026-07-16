@@ -1,7 +1,39 @@
 export const ACADEMY_STORAGE_PREFIX = 'ax-academy';
-export const REVIEW_INTERVAL_DAYS = [0, 1, 3, 7, 21];
+export const REVIEW_INTERVAL_DAYS = [0, 1, 3, 7, 21, 50];
+export const MAX_STABILITY = 5;
 export const MIN_DIAGNOSTIC_QUESTIONS = 12;
 export const MAX_DIAGNOSTIC_QUESTIONS = 15;
+
+function hashSeed(value) {
+  let hash = 0x811c9dc5;
+  for (const character of String(value)) {
+    hash ^= character.codePointAt(0);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+function mulberry32(seed) {
+  let state = seed;
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+export function shuffledChoiceOrder(exercise, seedString) {
+  if (exercise?.type !== 'choice') return [];
+  const order = exercise.choices.map((_, index) => index);
+  const random = mulberry32(hashSeed(seedString));
+  for (let index = order.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [order[index], order[swapIndex]] = [order[swapIndex], order[index]];
+  }
+  return order;
+}
 
 export function storageKey(course) {
   return `${ACADEMY_STORAGE_PREFIX}:v${course.schemaVersion}:${course.language}:${course.id}`;
@@ -102,7 +134,7 @@ export function migrateProgress(course, input, now = Date.now()) {
 function normalizeTopicState(input) {
   const state = emptyTopicState();
   if (!input || typeof input !== 'object') return state;
-  state.stability = clampNumber(input.stability, 0, 4);
+  state.stability = clampNumber(input.stability, 0, MAX_STABILITY);
   state.correctStreak = clampNumber(input.correctStreak, 0, 5);
   state.attempts = nonNegativeNumber(input.attempts);
   state.nextReviewAt = validIso(input.nextReviewAt);
@@ -274,13 +306,14 @@ export function applyPracticeAnswer(
   const state = next.topics[topicId];
   if (!state) return { progress: next, mastered: false, xpAwarded: 0 };
   const timestamp = new Date(now).toISOString();
+  const wasLearned = state.stability > 0;
   state.attempts += 1;
   state.lastAnsweredAt = timestamp;
   let xpAwarded = 0;
   let mastered = false;
   if (correct) {
     state.correctStreak += 1;
-    xpAwarded += 1;
+    if (!wasLearned) xpAwarded += 1;
     if (state.correctStreak >= 2 && state.stability === 0) {
       state.stability = 1;
       state.provisional = false;
@@ -304,11 +337,14 @@ export function reviewExerciseSet(course, progress, topicId, count = 3) {
   if (!topic) return [];
   const candidates = [
     topicId,
-    ...ancestorIds(course, topicId).reverse(),
+    ...ancestorIds(course, topicId)
+      .filter((candidate) => progress.topics[candidate]?.stability > 0)
+      .reverse(),
     ...course.topicOrder.filter(
       (candidate) =>
         unitForTopic(course, candidate)?.id ===
-        unitForTopic(course, topicId)?.id
+          unitForTopic(course, topicId)?.id &&
+        progress.topics[candidate]?.stability > 0
     ),
     ...course.topicOrder.filter(
       (candidate) => progress.topics[candidate]?.stability > 0
@@ -316,7 +352,11 @@ export function reviewExerciseSet(course, progress, topicId, count = 3) {
   ];
   const selected = [];
   for (const candidate of [...new Set(candidates)]) {
-    const exercise = exerciseForRole(topicById(course, candidate), 'review');
+    const exercise = pickExercise(
+      topicById(course, candidate),
+      'review',
+      `${currentDaySalt()}:${selected.length}`
+    );
     if (exercise) selected.push({ ...exercise, topicId: candidate });
     if (selected.length === count) break;
   }
@@ -324,6 +364,7 @@ export function reviewExerciseSet(course, progress, topicId, count = 3) {
 }
 
 export function applyReviewResult(
+  course,
   progress,
   topicId,
   correctCount,
@@ -333,33 +374,84 @@ export function applyReviewResult(
   const next = clone(progress);
   const state = next.topics[topicId];
   if (!state) return next;
-  const passed = correctCount >= Math.ceil(total * (2 / 3));
+  const passed = reviewPassed(correctCount, total);
+  const interval = REVIEW_INTERVAL_DAYS[Math.max(1, state.stability)];
+  const scheduledAt = state.nextReviewAt
+    ? Date.parse(state.nextReviewAt)
+    : Number.NaN;
+  const overdueHold =
+    passed &&
+    Number.isFinite(scheduledAt) &&
+    now - scheduledAt > interval * 2 * 86_400_000;
   if (passed) {
-    state.stability = Math.min(4, Math.max(1, state.stability) + 1);
+    state.stability = overdueHold
+      ? Math.max(1, state.stability)
+      : Math.min(MAX_STABILITY, Math.max(1, state.stability) + 1);
     state.provisional = false;
     state.needsRemediation = false;
     state.correctStreak = 0;
-    state.nextReviewAt = addDays(now, REVIEW_INTERVAL_DAYS[state.stability]);
+    state.nextReviewAt = addDays(
+      now,
+      overdueHold ? interval : REVIEW_INTERVAL_DAYS[state.stability]
+    );
   } else {
     state.stability = Math.max(0, state.stability - 1);
     state.correctStreak = 0;
     state.needsRemediation = true;
     state.nextReviewAt = new Date(now).toISOString();
   }
+  propagateImplicitCredit(course, next, topicId, passed, now);
   state.lastAnsweredAt = new Date(now).toISOString();
   awardXp(next, correctCount + (passed ? 2 : 0), now);
   next.updatedAt = new Date(now).toISOString();
   return next;
 }
 
-export function checkpointExerciseSet(course, unitId, count = 5) {
+export function reviewPassed(correctCount, total) {
+  return correctCount >= Math.ceil(total * (2 / 3));
+}
+
+export function propagateImplicitCredit(
+  course,
+  next,
+  topicId,
+  passed,
+  now = Date.now()
+) {
+  const topic = topicById(course, topicId);
+  if (!topic) return next;
+  for (const prerequisiteId of topic.prerequisites) {
+    const prerequisite = next.topics[prerequisiteId];
+    if (!prerequisite || prerequisite.stability === 0) continue;
+    const current = prerequisite.nextReviewAt
+      ? Date.parse(prerequisite.nextReviewAt)
+      : Number.NaN;
+    const target = passed
+      ? now + (REVIEW_INTERVAL_DAYS[prerequisite.stability] * 86_400_000) / 2
+      : now + 86_400_000;
+    const scheduled = Number.isFinite(current)
+      ? passed
+        ? Math.max(current, target)
+        : Math.min(current, target)
+      : target;
+    prerequisite.nextReviewAt = new Date(scheduled).toISOString();
+  }
+  return next;
+}
+
+export function checkpointExerciseSet(
+  course,
+  unitId,
+  count = 5,
+  salt = currentDaySalt()
+) {
   const unit = course.units.find((candidate) => candidate.id === unitId);
   if (!unit) return [];
   const topics = unit.topics;
   if (topics.length <= count) {
     return topics
       .map((topic) => ({
-        ...exerciseForRole(topic, 'review'),
+        ...pickExercise(topic, 'review', salt),
         topicId: topic.id,
       }))
       .filter((exercise) => exercise.id);
@@ -370,7 +462,7 @@ export function checkpointExerciseSet(course, unitId, count = 5) {
   return [...new Set(indexes)]
     .map((index) => topics[index])
     .map((topic) => ({
-      ...exerciseForRole(topic, 'review'),
+      ...pickExercise(topic, 'review', salt),
       topicId: topic.id,
     }));
 }
@@ -383,6 +475,7 @@ export function checkpointReady(course, progress, unitId) {
 }
 
 export function applyCheckpointResult(
+  course,
   progress,
   unitId,
   answers,
@@ -392,6 +485,7 @@ export function applyCheckpointResult(
   const correctCount = answers.filter((answer) => answer.correct).length;
   const passed = correctCount >= Math.ceil(answers.length * 0.8);
   const previous = next.checkpoints[unitId];
+  const wasPassed = Boolean(previous?.passed);
   next.checkpoints[unitId] = {
     passed: Boolean(previous?.passed) || passed,
     bestScore: Math.max(previous?.bestScore ?? 0, correctCount),
@@ -400,11 +494,20 @@ export function applyCheckpointResult(
       : (previous?.completedAt ?? null),
   };
   for (const answer of answers) {
-    if (answer.correct || !next.topics[answer.topicId]) continue;
-    next.topics[answer.topicId].needsRemediation = true;
-    next.topics[answer.topicId].nextReviewAt = new Date(now).toISOString();
+    if (!next.topics[answer.topicId]) continue;
+    propagateImplicitCredit(
+      course,
+      next,
+      answer.topicId,
+      Boolean(answer.correct),
+      now
+    );
+    if (!answer.correct) {
+      next.topics[answer.topicId].needsRemediation = true;
+      next.topics[answer.topicId].nextReviewAt = new Date(now).toISOString();
+    }
   }
-  awardXp(next, correctCount + (passed && !previous?.passed ? 5 : 0), now);
+  awardXp(next, wasPassed ? 0 : correctCount + (passed ? 5 : 0), now);
   next.updatedAt = new Date(now).toISOString();
   return { progress: next, passed, correctCount };
 }
@@ -424,7 +527,7 @@ export function applyCapstoneResult(progress, correctCount, now = Date.now()) {
     next.capstone.completed = true;
     next.capstone.completedAt ??= new Date(now).toISOString();
   }
-  awardXp(next, correctCount + (passed && !wasComplete ? 5 : 0), now);
+  awardXp(next, wasComplete ? 0 : correctCount + (passed ? 5 : 0), now);
   next.updatedAt = new Date(now).toISOString();
   return { progress: next, passed };
 }
@@ -472,8 +575,16 @@ export function recommendedTasks(
         Date.parse(progress.topics[a.id].nextReviewAt) -
         Date.parse(progress.topics[b.id].nextReviewAt)
     );
-  for (const topic of due)
-    addTopic(topic, 'review', 'Spaced review', 'Due now · 3 mixed questions');
+  if (due.length > 0 && tasks.length < limit) {
+    tasks.push({
+      type: 'review',
+      id: 'daily-review',
+      title: 'Daily review',
+      eyebrow: 'Spaced review',
+      detail: `${due.length} topic${due.length === 1 ? '' : 's'} due`,
+      href: `${academyRoot(course)}/review/`,
+    });
+  }
 
   const remediation = allTopics(course).filter((topic) => {
     const state = progress.topics[topic.id];
@@ -564,8 +675,86 @@ export function setDailyGoal(progress, goal, now = Date.now()) {
   return next;
 }
 
+export function dayStreak(progress, now = Date.now()) {
+  const cursor = new Date(now);
+  if ((progress.xpByDay[dayKey(cursor.getTime())] ?? 0) === 0) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  let streak = 0;
+  while ((progress.xpByDay[dayKey(cursor.getTime())] ?? 0) > 0) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+export function reviewForecast(course, progress, now = Date.now(), days = 7) {
+  const buckets = Array.from({ length: days }, (_, offset) => {
+    const date = new Date(now);
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + offset);
+    return { date: dayKey(date.getTime()), count: 0 };
+  });
+  const lastDay = new Date(now);
+  lastDay.setHours(23, 59, 59, 999);
+  lastDay.setDate(lastDay.getDate() + Math.max(0, days - 1));
+  for (const topic of allTopics(course)) {
+    const state = progress.topics[topic.id];
+    if (state?.stability === 0 || !state?.nextReviewAt) continue;
+    const reviewAt = Date.parse(state.nextReviewAt);
+    if (!Number.isFinite(reviewAt) || reviewAt > lastDay.getTime()) continue;
+    const key = reviewAt <= now ? buckets[0]?.date : dayKey(reviewAt);
+    const bucket = buckets.find((candidate) => candidate.date === key);
+    if (bucket) bucket.count += 1;
+  }
+  return buckets;
+}
+
+export function dailyReviewSet(course, progress, now = Date.now(), max = 10) {
+  const remaining = allTopics(course)
+    .filter(
+      (topic) => topicStatus(course, progress, topic.id, now) === 'review'
+    )
+    .sort(
+      (a, b) =>
+        Date.parse(progress.topics[a.id].nextReviewAt) -
+        Date.parse(progress.topics[b.id].nextReviewAt)
+    );
+  const selected = [];
+  let lastUnitId = null;
+  while (remaining.length > 0 && selected.length < max) {
+    let index = remaining.findIndex(
+      (topic) => unitForTopic(course, topic.id)?.id !== lastUnitId
+    );
+    if (index < 0) index = 0;
+    const [topic] = remaining.splice(index, 1);
+    const exercise = pickExercise(
+      topic,
+      'review',
+      Math.floor(now / 86_400_000)
+    );
+    if (!exercise) continue;
+    selected.push({ ...exercise, topicId: topic.id });
+    lastUnitId = unitForTopic(course, topic.id)?.id ?? null;
+  }
+  return selected;
+}
+
 export function exerciseForRole(topic, role) {
-  return topic?.exercises?.find((exercise) => exercise.roles?.includes(role));
+  return exercisesForRole(topic, role)[0];
+}
+
+export function exercisesForRole(topic, role) {
+  return (
+    topic?.exercises?.filter((exercise) => exercise.roles?.includes(role)) ?? []
+  );
+}
+
+export function pickExercise(topic, role, salt = currentDaySalt()) {
+  const exercises = exercisesForRole(topic, role);
+  if (exercises.length === 0) return undefined;
+  const index = hashSeed(`${topic.id}:${role}:${salt}`) % exercises.length;
+  return exercises[index];
 }
 
 export function topicById(course, topicId) {
@@ -636,6 +825,10 @@ function dayKey(now) {
 
 function addDays(now, days) {
   return new Date(now + days * 86_400_000).toISOString();
+}
+
+function currentDaySalt() {
+  return Math.floor(Date.now() / 86_400_000);
 }
 
 function academyRoot(course) {
