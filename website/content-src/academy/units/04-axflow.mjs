@@ -14,12 +14,28 @@ export const axflowUnit = {
   topics: [
     topic({
       id: 'flow-state-nodes',
-      title: 'Flow state, nodes, mappings, and returns',
+      title: 'Build a workflow with explicit steps',
+      minutes: 8,
+      apiLabel: 'flow()',
       prerequisites: ['ax-forward'],
       summary:
-        'flow() defines application-owned state. Nodes run typed programs, execute mappings feed node inputs, and returns selects the final typed output.',
+        'You define application-owned state and a visible sequence of typed nodes. Input mappings feed each node, and the return mapping selects the final result.',
       example:
         "const wf = flow().node('draft', 'topic:string -> text:string').execute('draft', s => ({ topic: s.topic })).returns(s => ({ text: s.draftResult.text }));",
+      exampleSteps: [
+        {
+          label: 'Declare a typed node',
+          note: 'draft states exactly what the AI step receives and returns.',
+        },
+        {
+          label: 'Map state into the node',
+          note: 'execute() passes the workflow topic into the draft program.',
+        },
+        {
+          label: 'Choose the public result',
+          note: 'returns() exposes only the final text to the caller.',
+        },
+      ],
       check: choice(
         'Who owns execution order in an AxFlow?',
         [
@@ -34,10 +50,11 @@ export const axflowUnit = {
     }),
     topic({
       id: 'flow-composition',
-      title: 'Sequential composition and state transformation',
+      title: 'Pass useful state from step to step',
+      minutes: 6,
       prerequisites: ['flow-state-nodes'],
       summary:
-        'Sequential nodes make dependencies explicit, while map transforms ordinary state without a model call. Every step should add a useful field or decision.',
+        'You make dependencies visible by passing state between sequential nodes. Use map() for ordinary transformations that do not need another model call.',
       example:
         ".execute('research', s => ({ topic: s.topic })).map(s => ({ ...s, wordLimit: 300 })).execute('write', s => ({ research: s.researchResult, wordLimit: s.wordLimit }));",
       check: choice(
@@ -54,10 +71,11 @@ export const axflowUnit = {
     }),
     topic({
       id: 'flow-control',
-      title: 'Branches, loops, derive, and parallel work',
+      title: 'Branch, loop, and run work in parallel',
+      minutes: 9,
       prerequisites: ['flow-composition'],
       summary:
-        'Conditional branches, while loops, derive over arrays, and explicit or automatic parallelism let the host own complex control flow without asking the model to improvise an orchestration plan.',
+        'You keep important branches, loops, and parallel work under application control. The model handles typed steps instead of improvising the orchestration plan.',
       example:
         ".branch(s => s.score > 0.8, highConfidenceFlow, reviewFlow).derive('items', s => s.documents, summarizeDocument);",
       check: choice(
@@ -70,10 +88,11 @@ export const axflowUnit = {
     }),
     topic({
       id: 'flow-operations',
-      title: 'Functions, tracing, events, and optimization',
+      title: 'Turn a workflow into a reusable tool',
+      minutes: 8,
       prerequisites: ['flow-control'],
       summary:
-        'A flow can become a tool, emit traces, wait on an owned continuation, and expose optimizable components. Use the language optimizer surface to tune it; the flow itself does not own a separate optimizer method.',
+        'You can expose a flow as a tool, trace it, wait on an owned continuation, and optimize its components. The shared optimizer tunes the flow without a separate flow-only API.',
       example:
         "const tool = wf.toFunction('researchWorkflow', 'Research and draft a response');",
       check: choice(

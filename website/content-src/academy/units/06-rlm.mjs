@@ -14,12 +14,28 @@ export const rlmUnit = {
   topics: [
     topic({
       id: 'rlm-pipeline',
-      title: 'Runtime-as-REPL and the RLM pipeline',
+      title: 'Work through large tasks one step at a time',
+      minutes: 9,
+      apiLabel: 'agent()',
       prerequisites: ['agent-core'],
       summary:
-        'AxAgent is a distiller → executor → responder pipeline. The actor writes one observable runtime step at a time, receives compact evidence, and continues from live state instead of generating a whole script at once.',
+        'You let the actor run one observable step, inspect compact evidence, and continue from live state. This avoids stuffing a large task into one prompt or generated script.',
       example:
         "const matches = inputs.records.filter(r => r.status === 'failed');\nconsole.log(matches.length);",
+      exampleSteps: [
+        {
+          label: 'Filter inside the runtime',
+          note: 'The full records stay available to code instead of being repeated in a prompt.',
+        },
+        {
+          label: 'Expose compact evidence',
+          note: 'Logging only the count gives the next turn a useful observation.',
+        },
+        {
+          label: 'Continue from live values',
+          note: 'Later turns can reuse matches without recomputing or replaying the dataset.',
+        },
+      ],
       check: choice(
         'What is the correct shape of a non-final RLM actor turn?',
         [
@@ -34,10 +50,11 @@ export const rlmUnit = {
     }),
     topic({
       id: 'persistent-runtime-state',
-      title: 'Persistent runtime values and live state',
+      title: 'Keep useful values across agent turns',
+      minutes: 7,
       prerequisites: ['rlm-pipeline'],
       summary:
-        'Successful variables and functions remain available across actor turns. Prompt replay may be summarized, but runtime values survive unless the runtime restarts or the actor overwrites them.',
+        'You can reuse successful variables and functions across actor turns. Prompt history may be summarized while live runtime values remain available.',
       example:
         'Turn 1: const customers = await crm.list(); console.log(customers.length);\nTurn 2: const active = customers.filter(c => c.active); console.log(active.length);',
       check: choice(
@@ -53,10 +70,12 @@ export const rlmUnit = {
     }),
     topic({
       id: 'context-fields-auto-upgrade',
-      title: 'contextFields, auto-upgrade, and evidence by reference',
+      title: 'Keep bulky evidence out of the prompt',
+      minutes: 9,
+      apiLabel: 'contextFields',
       prerequisites: ['persistent-runtime-state'],
       summary:
-        'Bulky context belongs in the runtime rather than the prompt. Declared contextFields and default-on auto-upgrade keep full values available as inputs while exposing only a preview and shape metadata to the model.',
+        'You place large inputs in the runtime and expose only a preview and shape to the model. Declared contextFields keep the full value available by reference.',
       example:
         "const analyst = agent('log:string, question:string -> findings:string', { contextFields: ['log'] });",
       check: choice(
@@ -73,10 +92,12 @@ export const rlmUnit = {
     }),
     topic({
       id: 'context-policies',
-      title: 'Full, checkpointed, adaptive, and lean policies',
+      title: 'Control how much history the model sees',
+      minutes: 8,
+      apiLabel: 'contextPolicy',
       prerequisites: ['persistent-runtime-state'],
       summary:
-        'Context policy controls how prior actions are replayed, not whether runtime values exist. Checkpointed + balanced is the general default; adaptive summarizes earlier; lean is most aggressive; full is useful for debugging.',
+        'You choose how aggressively earlier actions are summarized without deleting live runtime values. Checkpointed with a balanced budget is the practical starting point.',
       example: "contextPolicy: { preset: 'checkpointed', budget: 'balanced' }",
       check: choice(
         'Which context policy is the normal starting point for real agent work?',
@@ -92,10 +113,12 @@ export const rlmUnit = {
     }),
     topic({
       id: 'rlm-semantic-helpers',
-      title: 'llmQuery(), model policies, direct response, and recovery',
+      title: 'Ask small questions mid-investigation',
+      minutes: 9,
+      apiLabel: 'llmQuery()',
       prerequisites: ['context-fields-auto-upgrade', 'context-policies'],
       summary:
-        'llmQuery() answers focused semantic questions over narrowed context; child agents own tool-using subtasks. Executor model policy can upgrade exploration, direct response can skip unnecessary execution, and failed code is repaired on the next observable turn.',
+        'You use llmQuery() for a focused semantic question over narrowed context and child agents for tool-using subtasks. The runtime can also upgrade exploration, answer directly, or repair failed code.',
       example:
         "const labels = await llmQuery(['Classify these narrowed excerpts'], { context: excerpts });\nconsole.log(labels);",
       check: choice(

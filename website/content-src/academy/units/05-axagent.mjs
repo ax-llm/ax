@@ -18,12 +18,28 @@ export const axagentUnit = {
   topics: [
     topic({
       id: 'agent-core',
-      title: 'The agent runtime loop',
+      title: 'Let an agent investigate and act',
+      minutes: 8,
+      apiLabel: 'agent()',
       prerequisites: ['ax-forward', 'typed-tools'],
       summary:
-        'An agent wraps a typed task in a runtime loop. The model can inspect evidence, call host capabilities, delegate, and finish through the declared output contract.',
+        'You give a typed task an iterative runtime where the model can inspect evidence, call tools, and delegate. It still finishes through your declared output contract.',
       example:
         "const helper = agent('request:string -> resolution:string', { functions: [search] });\nconst result = await helper.forward(llm, { request });",
+      exampleSteps: [
+        {
+          label: 'Declare the whole task',
+          note: 'The signature keeps the request and final resolution typed.',
+        },
+        {
+          label: 'Provide allowed capabilities',
+          note: 'functions limits the tools the runtime may choose.',
+        },
+        {
+          label: 'Start one agent run',
+          note: 'forward() lets the agent inspect, act, and finish with a resolution.',
+        },
+      ],
       check: choice(
         'When should you move from AxGen to AxAgent?',
         [
@@ -38,10 +54,11 @@ export const axagentUnit = {
     }),
     topic({
       id: 'agent-discovery',
-      title: 'Namespaces, function groups, and discovery',
+      title: 'Give an agent many tools without overload',
+      minutes: 9,
       prerequisites: ['agent-core'],
       summary:
-        'Large tool catalogs should be grouped by namespace and loaded progressively. Discovery lets the actor begin with a compact module index and fetch full tool docs only when needed.',
+        'You group large tool catalogs and load their details only when relevant. The agent begins with a compact index instead of carrying every tool description.',
       example:
         "const assistant = agent('request:string -> answer:string', { functions: groups, functionDiscovery: true });",
       check: choice(
@@ -58,10 +75,11 @@ export const axagentUnit = {
     }),
     topic({
       id: 'child-agents',
-      title: 'Child agents as specialist tools',
+      title: 'Delegate a job to a specialist agent',
+      minutes: 7,
       prerequisites: ['agent-core'],
       summary:
-        'A child AxAgent can be exposed as a function with its own signature, tools, runtime, and context. Use a child when the delegated task needs an independent agent loop, not for a small semantic sub-question.',
+        'You expose a child agent as a typed specialist with its own tools, runtime, and context. Use one when the delegated job needs an independent agent loop.',
       example:
         "const coordinator = agent('task:string -> answer:string', { functions: [billingAgent, policyAgent] });",
       check: choice(
@@ -78,10 +96,11 @@ export const axagentUnit = {
     }),
     topic({
       id: 'agent-clarification-resume',
-      title: 'Clarification, resume, final, and error boundaries',
+      title: 'Pause and ask instead of guessing',
+      minutes: 8,
       prerequisites: ['agent-core'],
       summary:
-        'Agents ask instead of guessing when missing information changes an action or output. The host persists clarification state, resumes safely, and distinguishes deliberate final output from tool or child-agent failures.',
+        'You make the agent ask when a missing fact would change an action or result. Your host persists that pause, resumes safely, and keeps failures distinct from final output.',
       example:
         "await askClarification('Which account should receive the refund?', { fields: ['accountId'] });",
       check: choice(
@@ -98,10 +117,11 @@ export const axagentUnit = {
     }),
     topic({
       id: 'agent-context-observability',
-      title: 'Context objects and observability',
+      title: 'See what your agent did and why',
+      minutes: 8,
       prerequisites: ['agent-discovery', 'agent-clarification-resume'],
       summary:
-        'Task inputs, inline context, persistent orientation, memories, and skills have different lifecycles. Actor-turn, context-event, status, function-call, trace, and usage hooks reveal what the agent actually did.',
+        'You keep task input, context, orientation, memories, and skills in the right lifecycle. Runtime hooks then show the turns, tool calls, traces, status, and usage behind the answer.',
       example:
         "const assistant = agent(signature, { contextFields: ['documents'], actorTurnCallback, onFunctionCall, agentStatusCallback });",
       check: choice(

@@ -71,7 +71,26 @@ test('course schema is complete, acyclic, source-backed, and export-valid', asyn
   });
   assert.deepEqual(result, { topicCount: 53, unitCount: 11 });
   assert.equal(new Set(academyCourse.topicOrder).size, 53);
-  for (const topic of academyCourse.units.flatMap((unit) => unit.topics)) {
+  const topics = academyCourse.units.flatMap((unit) => unit.topics);
+  assert.deepEqual(
+    [
+      Math.min(...topics.map((topic) => topic.minutes)),
+      Math.max(...topics.map((topic) => topic.minutes)),
+    ],
+    [5, 12]
+  );
+  assert.ok(new Set(topics.map((topic) => topic.minutes)).size >= 7);
+  assert.ok(
+    topics.filter((topic) => topic.exampleSteps.length > 0).length >= 15
+  );
+  assert.ok(topics.some((topic) => topic.exampleSteps.length === 0));
+  assert.ok(
+    topics.every(
+      (topic) =>
+        topic.summary.split(/[.!?](?:\s|$)/).filter(Boolean).length <= 2
+    )
+  );
+  for (const topic of topics) {
     assert.equal(exercisesForRole(topic, 'diagnostic').length, 1);
     assert.equal(exercisesForRole(topic, 'practice').length, 2);
     assert.equal(exercisesForRole(topic, 'review').length, 2);
@@ -105,6 +124,29 @@ test('every supported language generates a native, complete Academy', async () =
     if (language.id !== 'typescript') {
       assert.ok(!firstLesson.page.body.includes('const classify ='));
     }
+    assert.ok(firstLesson.page.body.includes('In your own project'));
+    assert.ok(firstLesson.page.body.includes('In the ax repo'));
+    assert.ok(firstLesson.page.body.includes('From a clone of the ax repo:'));
+    assert.ok(firstLesson.page.body.includes('OPENAI_APIKEY'));
+    assert.ok(firstLesson.page.body.includes('academy-api-chip">ax()'));
+    assert.ok(firstLesson.page.body.includes('Source on GitHub'));
+    assert.ok(!firstLesson.page.body.includes('src/ax/skills/'));
+    const dashboard = pages[0].page.body;
+    assert.ok(dashboard.includes('data-academy-up-next'));
+    assert.ok(dashboard.includes('~6 hours · saved in this browser'));
+    assert.ok(dashboard.includes('academy-api-chip">ax()'));
+    assert.equal((dashboard.match(/<details/g) ?? []).length, 11);
+    assert.equal(
+      (dashboard.match(/<details class="academy-unit"[^>]* open/g) ?? [])
+        .length,
+      1
+    );
+    const diagnostic = pages.find((page) =>
+      page.relPath.includes('/academy/diagnostic/')
+    );
+    assert.ok(
+      diagnostic.page.body.includes('New to ax? Skip the quiz — start Lesson 1')
+    );
     const manifestBytes = Buffer.byteLength(pages[0].page.body, 'utf8');
     assert.ok(manifestBytes > 100_000);
     assert.ok(manifestBytes < 180_000);

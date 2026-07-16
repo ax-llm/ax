@@ -19,6 +19,7 @@ export const topic = ({
   title,
   prerequisites = [],
   minutes = 7,
+  apiLabel,
   summary,
   example,
   exampleSteps,
@@ -35,22 +36,10 @@ export const topic = ({
     title,
     prerequisites,
     minutes,
+    apiLabel,
     summary,
     example,
-    exampleSteps: exampleSteps ?? [
-      {
-        label: 'Identify the boundary',
-        note: `Start from the governing rule: ${summary}`,
-      },
-      {
-        label: 'Trace the example',
-        note: 'Locate the declared input, output, state, or capability boundary before focusing on syntax.',
-      },
-      {
-        label: 'Predict a change',
-        note: 'Change one condition mentally and identify which contract or runtime behavior must remain stable.',
-      },
-    ],
+    exampleSteps: exampleSteps ?? [],
     apiSymbols,
     exercises: [
       diagnostic

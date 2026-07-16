@@ -18,12 +18,27 @@ export const notificationsUnit = {
   topics: [
     topic({
       id: 'notifications-vs-subscriptions',
-      title: 'Notifications versus subscriptions',
+      title: 'Separate incoming updates from agent work',
+      minutes: 7,
       prerequisites: ['mcp-tasks-advanced'],
       summary:
-        'A server may emit task, progress, logging, catalog, or resource events. Resource notifications require an explicit subscription; a subscription only delivers events and never grants model execution by itself.',
+        'You treat delivery and model execution as separate decisions. A resource subscription receives updates but never grants an agent permission to run.',
       example:
         'endpoint → catalog → subscription policy → event inbox → explicit route',
+      exampleSteps: [
+        {
+          label: 'Discover the endpoint',
+          note: 'The live catalog identifies concrete resources and supported event capabilities.',
+        },
+        {
+          label: 'Apply subscription policy',
+          note: 'Your application chooses which updates it actually wants.',
+        },
+        {
+          label: 'Route through the inbox',
+          note: 'An explicit event route decides whether the update only records state or wakes work.',
+        },
+      ],
       check: choice(
         'Does an MCP resource subscription automatically run an agent?',
         [
@@ -38,10 +53,11 @@ export const notificationsUnit = {
     }),
     topic({
       id: 'subscription-policies',
-      title: 'Resource subscription policies',
+      title: 'Subscribe only to the resources you need',
+      minutes: 8,
       prerequisites: ['notifications-vs-subscriptions'],
       summary:
-        'Resource subscriptions default to none. Trusted servers may use all; production systems usually use a selector or explicit URI list. Templates are never expanded or authorized automatically.',
+        'You start with no resource subscriptions and opt into a selector or explicit URI list. Templates are never expanded or authorized automatically.',
       example:
         "resourceSubscriptions: { selector: resource => resource.uri.startsWith('orders://') }",
       check: choice(
@@ -53,10 +69,11 @@ export const notificationsUnit = {
     }),
     topic({
       id: 'catalog-reconnect-ownership',
-      title: 'Catalog changes, reconnect, and ownership',
+      title: 'Restore subscriptions safely after reconnecting',
+      minutes: 9,
       prerequisites: ['subscription-policies'],
       summary:
-        'List-change notifications refresh the catalog and reconcile selected concrete resources. Logical owners share subscriptions safely, and reconnect restores known intent exactly once without discarding prior good state on partial failure.',
+        'You reconcile catalog changes and restore known subscription intent exactly once after reconnecting. Partial failure keeps the prior known-good ownership state.',
       example:
         'notifications/resources/list_changed → refresh catalog → diff selection → subscribe additions → unsubscribe removals',
       check: choice(
@@ -72,10 +89,12 @@ export const notificationsUnit = {
     }),
     topic({
       id: 'event-runtime-core',
-      title: 'AxEventRuntime inbox, trust, stores, and sinks',
+      title: 'Give events one safe front door',
+      minutes: 10,
+      apiLabel: 'AxEventRuntime',
       prerequisites: ['notifications-vs-subscriptions', 'flow-operations'],
       summary:
-        'Event sources publish normalized envelopes into an inbox. Policies authenticate, authorize, map, retry, dead-letter, and route events; callbacks never call a model directly.',
+        'You publish normalized events into an inbox where policies authenticate, authorize, retry, dead-letter, and route them. Source callbacks never call a model directly.',
       example:
         "const runtime = eventRuntime({ store, sink }).route(route('orders').source('mcp.resource').wake(target));",
       check: choice(
@@ -92,10 +111,12 @@ export const notificationsUnit = {
     }),
     topic({
       id: 'event-actions',
-      title: 'observe, invalidate, wake, and resume',
+      title: 'Choose whether an event observes or acts',
+      minutes: 8,
+      apiLabel: 'wake() · resume()',
       prerequisites: ['event-runtime-core'],
       summary:
-        'observe records progress or logs, invalidate refreshes derived state, wake starts a typed target, and resume consumes an owned continuation. Only wake and resume invoke a model.',
+        'You choose an explicit action for every route: observe, invalidate, wake, or resume. Only wake and resume may invoke a model.',
       example:
         "route('resource-updated').source('mcp.resource').identity(requireAccount).wake(target)",
       check: choice(
@@ -112,10 +133,11 @@ export const notificationsUnit = {
     }),
     topic({
       id: 'task-continuation-security',
-      title: 'Task continuations, identity, and replay safety',
+      title: 'Resume only the task that owns the event',
+      minutes: 10,
       prerequisites: ['event-actions', 'catalog-reconnect-ownership'],
       summary:
-        'Progress and logs remain observational. input_required and terminal task events may resume only the continuation that owns the identity-scoped correlation key. Recorded envelopes make these transitions testable without a live server.',
+        'You let input-required and terminal events resume only their identity-scoped owning continuation. Recorded envelopes make that boundary testable without a live server.',
       example:
         'mcp.task:orders:task-42 → verify identity owner → atomically consume continuation → resume target',
       check: choice(

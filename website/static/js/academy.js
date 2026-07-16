@@ -74,6 +74,7 @@ function readProgress(course) {
 
 function initDashboard(course, initialProgress, save) {
   let progress = initialProgress;
+  let roadmapInitialized = false;
   const render = () => {
     const stats = courseStats(course, progress);
     const goal = progress.dailyGoal;
@@ -84,15 +85,24 @@ function initDashboard(course, initialProgress, save) {
     const today = root.querySelector('[data-academy-today-xp]');
     const streak = root.querySelector('[data-academy-streak]');
     const forecast = root.querySelector('[data-academy-forecast]');
+    const courseRing = root.querySelector('[data-academy-course-ring-value]');
+    const totalXP = root.querySelector('[data-academy-total-xp]');
+    const earnedStats = root.querySelector('[data-academy-earned-stats]');
     if (today) today.textContent = String(stats.todayXP);
     if (goalLabel) goalLabel.textContent = String(goal);
     if (percent) percent.textContent = `${stats.percent}%`;
+    if (courseRing) {
+      courseRing.style.strokeDasharray = `${stats.percent} ${100 - stats.percent}`;
+    }
     if (count) count.textContent = String(stats.learned);
     if (streak) {
       const count = dayStreak(progress);
       streak.textContent = `${count} day${count === 1 ? '' : 's'} streak`;
     }
     if (forecast) renderForecast(forecast, reviewForecast(course, progress));
+    if (totalXP) totalXP.textContent = String(progress.totalXP);
+    earnedStats?.classList.toggle('academy-is-hidden', progress.totalXP === 0);
+    forecast?.classList.toggle('academy-is-hidden', progress.totalXP === 0);
     if (summary) {
       summary.setAttribute(
         'aria-label',
@@ -106,12 +116,15 @@ function initDashboard(course, initialProgress, save) {
       label.textContent = stats.learned
         ? `${stats.learned} lesson${stats.learned === 1 ? '' : 's'} learned`
         : 'Ready to begin';
+      label.classList.toggle('academy-is-hidden', progress.totalXP === 0);
     }
     if (detail) {
-      detail.textContent = `${stats.due} review${stats.due === 1 ? '' : 's'} due · ${progress.totalXP} total XP`;
+      detail.textContent = `${stats.due} review${stats.due === 1 ? '' : 's'} due`;
+      detail.classList.toggle('academy-is-hidden', stats.learned < 1);
     }
 
     const tasks = recommendedTasks(course, progress);
+    renderUpNext(progress, tasks);
     const nextTask = tasks.find((task) => task.type !== 'diagnostic');
     const continueLink = root.querySelector('[data-academy-continue]');
     if (continueLink) {
@@ -131,7 +144,9 @@ function initDashboard(course, initialProgress, save) {
         );
       }
     }
-    const startingQuiz = root.querySelector('[data-academy-starting-quiz]');
+    const startingQuiz = root.querySelector(
+      '[data-academy-starting-quiz-label]'
+    );
     if (startingQuiz) {
       startingQuiz.textContent =
         progress.diagnostic.status === 'in-progress'
@@ -168,7 +183,19 @@ function initDashboard(course, initialProgress, save) {
         '[data-academy-unit-progress]'
       );
       if (progressLabel) {
-        progressLabel.textContent = `${learned} of ${unit.topics.length} lessons`;
+        progressLabel.textContent = `${learned} of ${unit.topics.length}`;
+      }
+      const ring = unitElement.querySelector('[data-academy-unit-ring]');
+      if (ring) {
+        const ringValue = ring.querySelector('[data-academy-unit-ring-value]');
+        const ringPercent = Math.round((learned / unit.topics.length) * 100);
+        if (ringValue) {
+          ringValue.style.strokeDasharray = `${ringPercent} ${100 - ringPercent}`;
+        }
+        ring.setAttribute(
+          'aria-label',
+          `${learned} of ${unit.topics.length} lessons learned`
+        );
       }
       const reviewStatus = unitElement.querySelector(
         '[data-academy-unit-review-status]'
@@ -189,6 +216,23 @@ function initDashboard(course, initialProgress, save) {
         if (complete) reviewLink.removeAttribute('tabindex');
         else reviewLink.setAttribute('tabindex', '-1');
       }
+    }
+
+    if (!roadmapInitialized) {
+      const activeTopic = course.units
+        .flatMap((unit) => unit.topics)
+        .find((topic) =>
+          ['ready', 'learning'].includes(
+            topicStatus(course, progress, topic.id)
+          )
+        );
+      const activeUnit = course.units.find((unit) =>
+        unit.topics.some((topic) => topic.id === activeTopic?.id)
+      );
+      for (const unitElement of root.querySelectorAll('[data-academy-unit]')) {
+        unitElement.open = unitElement.dataset.academyUnit === activeUnit?.id;
+      }
+      roadmapInitialized = true;
     }
   };
 
@@ -223,6 +267,7 @@ function initDashboard(course, initialProgress, save) {
       try {
         const imported = JSON.parse(await file.text());
         progress = save(migrateProgress(course, imported));
+        roadmapInitialized = false;
         setSettingsStatus('Progress imported.');
         render();
       } catch {
@@ -235,6 +280,7 @@ function initDashboard(course, initialProgress, save) {
     if (!window.confirm('Reset all Ax Academy progress on this device?'))
       return;
     progress = save(createProgress(course));
+    roadmapInitialized = false;
     if (goalSelect) goalSelect.value = String(progress.dailyGoal);
     setSettingsStatus('Progress reset.');
     render();
@@ -247,6 +293,59 @@ function initDashboard(course, initialProgress, save) {
     );
   }
   render();
+}
+
+function renderUpNext(progress, tasks) {
+  const host = root.querySelector('[data-academy-up-next-list]');
+  if (!host) return;
+  const zeroState =
+    progress.totalXP === 0 &&
+    progress.diagnostic.status === 'not-started' &&
+    Object.values(progress.topics).every(
+      (state) => state.attempts === 0 && state.stability === 0
+    );
+  const lesson = tasks.find((task) => task.type === 'lesson');
+  const diagnostic = tasks.find((task) => task.type === 'diagnostic');
+  const selected = zeroState
+    ? [lesson, diagnostic].filter(Boolean)
+    : tasks.slice(0, 3);
+  host.replaceChildren();
+  const icons = {
+    lesson: '→',
+    diagnostic: '?',
+    review: '↻',
+    remediation: '!',
+    checkpoint: '✓',
+    capstone: '◆',
+  };
+  for (const task of selected) {
+    const card = document.createElement('a');
+    card.className = 'academy-next-card';
+    card.href = task.href;
+    card.dataset.taskType = task.type;
+    const icon = document.createElement('span');
+    icon.className = 'academy-next-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = icons[task.type] ?? '→';
+    const copy = document.createElement('span');
+    copy.className = 'academy-next-copy';
+    const eyebrow = document.createElement('small');
+    eyebrow.textContent = task.eyebrow;
+    const title = document.createElement('strong');
+    title.textContent = task.title;
+    const detail = document.createElement('span');
+    detail.textContent =
+      task.type === 'diagnostic' && zeroState
+        ? '~3 min · optional'
+        : task.detail;
+    copy.append(eyebrow, title, detail);
+    const arrow = document.createElement('span');
+    arrow.className = 'academy-next-arrow';
+    arrow.setAttribute('aria-hidden', 'true');
+    arrow.textContent = '→';
+    card.append(icon, copy, arrow);
+    host.append(card);
+  }
 }
 
 function setSettingsStatus(message, error = false) {
@@ -437,7 +536,9 @@ function initTopic(course, initialProgress, save, topicId) {
   const showPractice = () => {
     const pool = exercisesForRole(topic, 'practice');
     const exercise = pool[attempts % pool.length];
-    if (countLabel) countLabel.textContent = `${attempts} / 5 attempts`;
+    if (countLabel) {
+      countLabel.textContent = `Answer 2 in a row to learn this · attempt ${attempts + 1}`;
+    }
     renderExercise(host, exercise, {
       index: attempts + 1,
       total: 5,
@@ -446,7 +547,9 @@ function initTopic(course, initialProgress, save, topicId) {
         attempts += 1;
         const result = applyPracticeAnswer(course, progress, topicId, correct);
         progress = save(result.progress);
-        if (countLabel) countLabel.textContent = `${attempts} / 5 attempts`;
+        if (countLabel) {
+          countLabel.textContent = `Answer 2 in a row to learn this · attempt ${attempts}`;
+        }
       },
       onNext() {
         const learned = progress.topics[topicId].stability > 0;
@@ -454,7 +557,7 @@ function initTopic(course, initialProgress, save, topicId) {
           showCompletion(
             course,
             host,
-            'Knowledge point learned',
+            'Lesson learned',
             'You built a two-answer streak. The first spaced review is scheduled for tomorrow.'
           );
           if (stateLabel) stateLabel.textContent = 'Learned · review in 1 day';
@@ -603,7 +706,7 @@ function showDailyReviewSummary(course, host, records) {
   const strengthened = records.filter((record) => record.correct).length;
   copy.textContent = records.length
     ? `${strengthened} strengthened · ${records.length - strengthened} scheduled for repair.`
-    : 'No knowledge points are due right now. Your forecast will show what is coming next.';
+    : 'No lessons are due right now. Your forecast will show what is coming next.';
   host.append(heading, copy);
   if (records.length) {
     const list = document.createElement('ul');

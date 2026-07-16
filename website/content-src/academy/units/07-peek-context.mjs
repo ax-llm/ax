@@ -14,12 +14,28 @@ export const peekContextUnit = {
   topics: [
     topic({
       id: 'peek-orientation',
-      title: 'PEEK and the orientation problem',
+      title: 'Stop re-exploring the same codebase',
+      minutes: 8,
+      apiLabel: 'AxAgentContextMap',
       prerequisites: ['context-fields-auto-upgrade', 'context-policies'],
       summary:
-        'PEEK asks how an agent can begin oriented over a large recurring corpus instead of rediscovering structure every run. Ax answers with a compact persistent context map injected into the distiller.',
+        'You give an agent a compact, persistent map of a recurring corpus. It begins oriented while still checking current evidence for each task.',
       example:
         'const map = new AxAgentContextMap(savedSnapshot, { maxChars: 4000 });',
+      exampleSteps: [
+        {
+          label: 'Load prior orientation',
+          note: 'savedSnapshot carries useful structure learned on earlier successful runs.',
+        },
+        {
+          label: 'Keep the map compact',
+          note: 'maxChars bounds what is injected into the agent context.',
+        },
+        {
+          label: 'Use it as a guide',
+          note: 'The map points the agent toward evidence but never replaces current source.',
+        },
+      ],
       check: choice(
         'What should a PEEK-style context map store?',
         [
@@ -34,10 +50,11 @@ export const peekContextUnit = {
     }),
     topic({
       id: 'context-map-lifecycle',
-      title: 'Context map lifecycle and persistence',
+      title: 'Keep an orientation map up to date',
+      minutes: 7,
       prerequisites: ['peek-orientation'],
       summary:
-        'A context map updates after successful runs, can evolve indefinitely or for a finite warmup, and can be snapshotted through onUpdate. Failed, aborted, or clarification runs do not update it.',
+        'You update and snapshot the map after successful runs, either indefinitely or during a warmup. Failed, aborted, and clarification runs leave it unchanged.',
       example:
         'contextMap: { map, onUpdate: ({ map }) => save(map.snapshot()) }',
       check: choice(
@@ -54,10 +71,11 @@ export const peekContextUnit = {
     }),
     topic({
       id: 'repeated-corpus-exploration',
-      title: 'Repeated repository and document exploration',
+      title: 'Reuse orientation across many questions',
+      minutes: 6,
       prerequisites: ['context-map-lifecycle'],
       summary:
-        'The same map can orient many questions over one repository, document set, or system. The agent still inspects current evidence; the map tells it where and how to look.',
+        'You reuse one map across many questions about a repository, document set, or system. The agent still inspects current evidence, but it knows where to begin.',
       example:
         "await analyst.forward(llm, { repositorySnapshot, question: 'Where is retry policy enforced?' });",
       check: choice(
@@ -74,10 +92,12 @@ export const peekContextUnit = {
     }),
     topic({
       id: 'memory-recall',
-      title: 'Memory catalogs and recall()',
+      title: 'Recall the right facts when needed',
+      minutes: 8,
+      apiLabel: 'recall()',
       prerequisites: ['agent-core'],
       summary:
-        'Memories are task-relevant facts loaded from a static catalog or external search. recall() requests more entries; loaded content becomes available on the next actor turn and usage callbacks record what mattered.',
+        'You load task-relevant facts from a local catalog or external search only when needed. recall() makes the selected memories available on the next actor turn.',
       example:
         "const assistant = agent(signature, { memoriesCatalog });\n// actor: await recall(['deployment window']);",
       check: choice(
@@ -94,10 +114,12 @@ export const peekContextUnit = {
     }),
     topic({
       id: 'skill-discovery',
-      title: 'Skill discovery and relevance hints',
+      title: 'Load the right procedure for the job',
+      minutes: 8,
+      apiLabel: 'discover()',
       prerequisites: ['agent-discovery'],
       summary:
-        'Skills are procedural guides loaded with discover({ skills }). Static catalogs provide deterministic local search; callbacks connect external retrieval. Relevance hints guide selection but never replace authorization or evidence.',
+        'You load procedural guides with discover() from a local catalog or external retrieval. Relevance hints guide selection without replacing authorization or evidence.',
       example:
         "const assistant = agent(signature, { skillsCatalog });\n// actor: await discover({ skills: ['incident-triage'] });",
       check: choice(

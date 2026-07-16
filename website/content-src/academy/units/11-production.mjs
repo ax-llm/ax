@@ -20,15 +20,30 @@ export const productionUnit = {
   topics: [
     topic({
       id: 'production-observability',
-      title: 'Telemetry, cost, caching, aborts, and debugging',
+      title: 'See failures, cost, and latency in production',
+      minutes: 9,
       prerequisites: [
         'agent-context-observability',
         'structured-validation-errors',
       ],
       summary:
-        'Production programs need traces, token and cost accounting, cache policy, cancellation, bounded retries, and logs that explain behavior without exposing secrets. Debug output is evidence, not a substitute for tests.',
+        'You add traces, usage and cost accounting, cache policy, cancellation, bounded retries, and safe logs. Debug output becomes evidence for tests and operations.',
       example:
         'await program.forward(llm, input, { tracer, abortSignal, debug: true, contextCache });',
+      exampleSteps: [
+        {
+          label: 'Trace the run',
+          note: 'tracer connects model and tool activity to the surrounding request.',
+        },
+        {
+          label: 'Make cancellation possible',
+          note: 'abortSignal lets callers stop work that is no longer useful.',
+        },
+        {
+          label: 'Control repeated work',
+          note: 'contextCache makes reuse an explicit operational policy.',
+        },
+      ],
       check: choice(
         'What should every long-running Ax operation accept?',
         [
@@ -42,10 +57,11 @@ export const productionUnit = {
     }),
     topic({
       id: 'media-audio-thinking',
-      title: 'Embeddings, media, audio, realtime, and thinking',
+      title: 'Add images, audio, and model thinking',
+      minutes: 10,
       prerequisites: ['ai-providers-models'],
       summary:
-        'Ax provider clients expose embeddings, image and file inputs, transcription, speech, realtime audio, and model thinking controls. The signature still describes the application contract while provider support determines available media.',
+        'You declare images, files, audio, and other media in the program contract. Provider support determines which media and thinking controls are available.',
       example:
         "const reply = ax('question:string, image:image -> answer:string, speech:audio');",
       check: choice(
@@ -62,10 +78,11 @@ export const productionUnit = {
     }),
     topic({
       id: 'routing-fallback',
-      title: 'Model routing and fallback',
+      title: 'Fall back without changing your app contract',
+      minutes: 9,
       prerequisites: ['ai-providers-models', 'production-observability'],
       summary:
-        'Routers and balancers select models or providers based on capability, health, latency, price, or application policy. Fallback should preserve the contract and remain observable.',
+        'You route across models by capability, health, latency, price, or application policy. A fallback preserves the typed contract and remains observable.',
       example:
         'const llm = ai({ name: router, config: { model: preferredModel } });',
       check: choice(
@@ -82,10 +99,11 @@ export const productionUnit = {
     }),
     topic({
       id: 'ucp-and-events',
-      title: 'UCP webhooks and non-MCP events',
+      title: 'Route webhooks through the same event runtime',
+      minutes: 9,
       prerequisites: ['event-runtime-core'],
       summary:
-        'AxEventRuntime also handles authenticated webhooks, timers, queues, and application events. UCP adapters normalize commerce events into the same explicit wake/resume policy model.',
+        'You route authenticated webhooks, timers, queues, and application events through AxEventRuntime. UCP commerce events use the same explicit wake and resume policy.',
       example:
         "route('order-updated').source('ucp.webhook').identity(verifyMerchant).wake(orderAgent)",
       check: choice(
@@ -102,14 +120,15 @@ export const productionUnit = {
     }),
     topic({
       id: 'security-and-languages',
-      title: 'Security and generated language packages',
+      title: 'Keep every language surface safe and consistent',
+      minutes: 8,
       prerequisites: [
         'mcp-auth-security',
         'task-continuation-security',
         'production-observability',
       ],
       summary:
-        'Treat model output, tool results, resources, notifications, and catalog text as untrusted. TypeScript is the reference runtime; generated Python, Java, C++, Go, and Rust packages expose native surfaces for the shared Ax semantic contract.',
+        'You treat model output, tool results, resources, notifications, and catalog text as untrusted. Generated language packages preserve the shared Ax contract through native APIs.',
       example:
         'authorize(identity, action, resource); validate(input); run(); verify(output);',
       check: choice(

@@ -651,6 +651,9 @@ function collectQualityFailures(rel, html, failures) {
     if (!hasClass(html, 'div', 'academy-roadmap')) {
       failures.push(`${rel}: Academy dashboard missing learning path`);
     }
+    if (!html.includes('data-academy-up-next')) {
+      failures.push(`${rel}: Academy dashboard missing adaptive up-next queue`);
+    }
     if (
       !html.includes('data-academy-continue') ||
       !html.includes('data-academy-starting-quiz')
@@ -660,6 +663,11 @@ function collectQualityFailures(rel, html, failures) {
     if (countOccurrences(html, 'data-academy-unit=') !== 11) {
       failures.push(
         `${rel}: Academy dashboard must render 11 progressive units`
+      );
+    }
+    if (countOccurrences(html, '<details class=academy-unit') !== 11) {
+      failures.push(
+        `${rel}: Academy roadmap units must be collapsible details`
       );
     }
     for (const term of [

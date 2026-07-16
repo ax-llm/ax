@@ -19,12 +19,27 @@ export const optimizationUnit = {
   topics: [
     topic({
       id: 'evals-metrics-judges',
-      title: 'Evaluation datasets, metrics, judges, and replay',
+      title: 'Test AI behavior on real examples',
+      minutes: 9,
       prerequisites: ['examples-metrics-loop', 'agent-context-observability'],
       summary:
-        'A useful evaluation records inputs, criteria, expected or forbidden actions, predictions, and traces. Prefer deterministic metrics when possible; use judges when quality requires holistic review.',
+        'You record realistic inputs, criteria, expected or forbidden actions, predictions, and traces. Use deterministic metrics when possible and judges when quality needs holistic review.',
       example:
         "const tasks = [{ input: { request: 'Refund order 42' }, criteria: 'Verify eligibility before refunding', expectedActions: ['orders.lookup'] }];",
+      exampleSteps: [
+        {
+          label: 'Use a realistic input',
+          note: 'The refund request represents the kind of task the agent will face.',
+        },
+        {
+          label: 'Write the success rule',
+          note: 'criteria explains that eligibility must be verified before action.',
+        },
+        {
+          label: 'Record observable behavior',
+          note: 'expectedActions lets the evaluation check tool selection, not only final prose.',
+        },
+      ],
       check: choice(
         'When should you prefer a deterministic metric?',
         [
@@ -38,14 +53,16 @@ export const optimizationUnit = {
     }),
     topic({
       id: 'optimize-gen-flow',
-      title: 'Optimize generators and workflows',
+      title: 'Improve a generator or workflow with data',
+      minutes: 10,
+      apiLabel: 'optimize()',
       prerequisites: [
         'evals-metrics-judges',
         'structured-validation-errors',
         'flow-operations',
       ],
       summary:
-        'The language optimizer surface tunes ordinary generators and flows from examples and a metric. Bound metric calls, keep validation examples separate, and apply the returned artifact through the program API.',
+        'You tune a generator or workflow from examples and a metric. Bound the budget, keep validation data separate, and apply the returned artifact through the program API.',
       example:
         'const result = await optimize(program, train, metric, { studentAI, teacherAI, maxMetricCalls: 40 });',
       check: code(
@@ -57,10 +74,12 @@ export const optimizationUnit = {
     }),
     topic({
       id: 'agent-optimize',
-      title: 'Optimize agent behavior',
+      title: 'Improve how an agent chooses and acts',
+      minutes: 11,
+      apiLabel: 'optimize()',
       prerequisites: ['evals-metrics-judges', 'agent-core'],
       summary:
-        'Agent optimization evaluates the whole agent pipeline and can tune actor or responder components. Task records should exercise tool selection, clarification, delegation, and final quality.',
+        'You evaluate the whole agent pipeline and tune its actor or responder. Good task records exercise tool choice, clarification, delegation, and final quality.',
       example:
         "const result = await assistant.optimize(tasks, { target: 'actor', maxMetricCalls: 40 });",
       check: choice(
@@ -77,10 +96,12 @@ export const optimizationUnit = {
     }),
     topic({
       id: 'gepa-pareto-artifacts',
-      title: 'GEPA, Pareto tradeoffs, budgets, and artifacts',
+      title: 'Compare better prompts without one fake winner',
+      minutes: 12,
+      apiLabel: 'AxGEPA',
       prerequisites: ['optimize-gen-flow', 'agent-optimize'],
       summary:
-        'GEPA reflects on failures and mutates optimizable components. Multi-objective runs can return a Pareto frontier, making tradeoffs such as quality, cost, latency, or brevity visible instead of pretending one candidate wins everything.',
+        'You let GEPA reflect on failures and change optimizable components. A Pareto frontier keeps honest tradeoffs between quality, cost, latency, and brevity visible.',
       example:
         "const result = await optimize(program, train, metric, { maxMetricCalls: 80, objectives: ['accuracy', 'brevity'] });",
       check: choice(
@@ -97,10 +118,12 @@ export const optimizationUnit = {
     }),
     topic({
       id: 'playbook-learning',
-      title: 'Online and verified playbook learning',
+      title: 'Turn verified runs into reusable guidance',
+      minutes: 9,
+      apiLabel: 'playbook()',
       prerequisites: ['agent-optimize', 'peek-orientation'],
       summary:
-        'Playbooks accumulate reusable situational guidance. update() trusts one live feedback item; evolve() mines a task set and keeps only grounded bullets that improve held-in performance without unacceptable held-out regression.',
+        'You accumulate situational guidance from live feedback or a verified task set. Evolution keeps grounded advice that improves performance without unacceptable held-out regression.',
       example:
         "await assistant.playbook().update({ example, prediction, feedback: 'Verify policy before acting.' });",
       check: choice(
@@ -117,10 +140,12 @@ export const optimizationUnit = {
     }),
     topic({
       id: 'refine-selection',
-      title: 'Refine and quality-versus-cost selection',
+      title: 'Trade extra model work for a better answer',
+      minutes: 8,
+      apiLabel: 'refine()',
       prerequisites: ['evals-metrics-judges'],
       summary:
-        'refine() is useful when the program should generate, critique, and select or improve candidates at run time. It is distinct from offline GEPA optimization and from long-lived playbook learning.',
+        'You use refine() when one request should generate, critique, and improve candidates at runtime. It is separate from offline optimization and long-lived playbook learning.',
       example:
         'const improved = await refine(program, llm, input, { metric, rounds: 2 });',
       check: choice(

@@ -14,12 +14,28 @@ export const axgenUnit = {
   topics: [
     topic({
       id: 'ax-forward',
-      title: 'Run a typed AI program',
+      title: 'Run your first typed AI call',
+      minutes: 6,
+      apiLabel: 'forward()',
       prerequisites: ['typed-contracts-everywhere'],
       summary:
-        'A structured generator declares the program, then runs it with a provider and typed inputs. The result is shaped by the output side of the signature.',
+        'You run a declared program with a provider and typed input. The returned object follows the output side of your signature.',
       example:
         "const answer = ax('question:string -> answer:string, confidence:number');\nconst result = await answer.forward(llm, { question: 'What is Ax?' });",
+      exampleSteps: [
+        {
+          label: 'Create the program',
+          note: 'The signature asks for an answer and a numeric confidence.',
+        },
+        {
+          label: 'Pass a provider and input',
+          note: 'forward() runs the program with llm and the required question.',
+        },
+        {
+          label: 'Use the typed result',
+          note: 'result exposes the declared output fields instead of raw model text.',
+        },
+      ],
       check: choice(
         'What does running a structured Ax program return?',
         [
@@ -34,12 +50,27 @@ export const axgenUnit = {
     }),
     topic({
       id: 'structured-validation-errors',
-      title: 'Structured output, retries, and errors',
+      title: 'Recover from invalid model output',
+      minutes: 8,
       prerequisites: ['ax-forward'],
       summary:
-        'Ax validates generated fields and can retry with concrete correction feedback. Applications should distinguish generation failures, provider failures, and cancellation instead of catching everything as an unknown error.',
+        'You let Ax validate fields and retry with specific correction feedback. Your app can still distinguish generation errors, provider failures, and cancellation.',
       example:
         'try { await program.forward(llm, input); } catch (error) { if (error instanceof AxGenerateError) report(error.details); }',
+      exampleSteps: [
+        {
+          label: 'Run the program normally',
+          note: 'Most valid responses return through the usual typed path.',
+        },
+        {
+          label: 'Catch the specific failure',
+          note: 'AxGenerateError identifies a generation or validation failure you can report deliberately.',
+        },
+        {
+          label: 'Preserve useful details',
+          note: 'error.details gives logs and UI a concrete repair target.',
+        },
+      ],
       check: choice(
         'What should validation feedback tell the model on retry?',
         [
@@ -54,12 +85,28 @@ export const axgenUnit = {
     }),
     topic({
       id: 'streaming-assertions',
-      title: 'Streaming and streaming assertions',
+      title: 'Show typed results as they arrive',
+      minutes: 7,
+      apiLabel: 'streamingForward()',
       prerequisites: ['ax-forward'],
       summary:
-        'streamingForward() yields typed deltas while the final result remains governed by the signature. Streaming assertions can stop or repair output while it is still arriving.',
+        'You can render typed deltas while the answer is still arriving. The final result remains governed by the same signature and assertions.',
       example:
         'for await (const chunk of program.streamingForward(llm, input)) { if (chunk.delta.answer) render(chunk.delta.answer); }',
+      exampleSteps: [
+        {
+          label: 'Open a typed stream',
+          note: 'streamingForward() uses the same provider, input, and contract as forward().',
+        },
+        {
+          label: 'Read only present fields',
+          note: 'A chunk may contain an answer delta while other fields are still incomplete.',
+        },
+        {
+          label: 'Render without reparsing',
+          note: 'The UI consumes signature-aware deltas instead of scraping provider text.',
+        },
+      ],
       check: choice(
         'What is the safe way to consume a streaming Ax result?',
         [
@@ -74,12 +121,27 @@ export const axgenUnit = {
     }),
     topic({
       id: 'gen-memory-sampling-hooks',
-      title: 'Memory, sampling, selection, and hooks',
+      title: 'Choose better results and keep context',
+      minutes: 9,
       prerequisites: ['ax-forward'],
       summary:
-        'AxGen can carry chat memory, sample multiple candidates, select a result, cache responses, and expose step hooks. Add these only when the program needs the corresponding state or quality control.',
+        'You can keep chat context, sample several candidates, select one result, cache responses, and observe steps. Add each option only when your feature needs that control.',
       example:
         'const result = await program.forward(llm, input, { mem, sampleCount: 3, resultPicker });',
+      exampleSteps: [
+        {
+          label: 'Carry relevant memory',
+          note: 'mem supplies conversation context owned by your application.',
+        },
+        {
+          label: 'Request candidates',
+          note: 'sampleCount asks for three possible results instead of one.',
+        },
+        {
+          label: 'Select with a rule',
+          note: 'resultPicker turns extra samples into a deliberate quality choice.',
+        },
+      ],
       check: choice(
         'When is sampleCount greater than one useful?',
         [
@@ -93,12 +155,28 @@ export const axgenUnit = {
     }),
     topic({
       id: 'typed-tools',
-      title: 'Create typed host tools',
+      title: 'Let the model call your code safely',
+      minutes: 8,
+      apiLabel: 'fn()',
       prerequisites: ['ax-forward', 'fluent-fields-validation'],
       summary:
-        'A typed tool gives a host capability a name, purpose, typed arguments, a typed result, and a handler. Good descriptions explain when the model should call the tool; schemas define how.',
+        'You wrap a host capability with a name, purpose, typed arguments, result, and handler. The model sees when and how to call it while your app keeps control of execution.',
       example:
         "const search = fn('search').description('Search product docs').arg('query', f.string()).returns(f.string()).handler(searchDocs).build();",
+      exampleSteps: [
+        {
+          label: 'Explain when to call it',
+          note: 'The name and description orient the model toward product documentation searches.',
+        },
+        {
+          label: 'Constrain the call',
+          note: 'query must be a string and the result is declared as a string.',
+        },
+        {
+          label: 'Bind trusted code',
+          note: 'searchDocs runs in your host environment when the tool is selected.',
+        },
+      ],
       check: code(
         'Which factory creates a modern typed Ax tool? Enter only the factory name.',
         'fn',

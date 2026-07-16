@@ -395,7 +395,7 @@ export function buildAcademyPages(course, language) {
     descriptor(`${language.id}/academy/review/_index.md`, language, {
       title: 'Daily Review',
       description:
-        'Strengthen due Ax knowledge points in one interleaved review session.',
+        'Strengthen due Ax lessons in one interleaved review session.',
       slug: 'academy/review',
       page: 'review',
       body: renderDailyReview(localizedCourse, manifest),
@@ -479,6 +479,8 @@ function localizeAcademyCourse(course, language) {
     language: language.id,
     languageLabel: language.label,
     fence: language.fence,
+    install: normalizeSnippet(language.install),
+    quickStart: normalizeSnippet(language.snippets?.quickStart),
     description: `A hands-on ${language.label} course for building dependable AI features, multi-step workflows, tool-using agents, and production automation.`,
     units: course.units.map((unit) => ({
       ...unit,
@@ -492,7 +494,7 @@ function localizeAcademyCourse(course, language) {
           ...topic,
           example: snippet.code,
           exampleLevel: snippet.level,
-          exampleSteps: topic.exampleSteps.map((step) => ({
+          exampleSteps: (topic.exampleSteps ?? []).map((step) => ({
             ...step,
             ...(language.id === 'typescript' || step.neutral
               ? {}
@@ -573,6 +575,7 @@ function academyManifest(course) {
         title: topic.title,
         prerequisites: topic.prerequisites,
         minutes: topic.minutes,
+        apiLabel: topic.apiLabel,
         summary: topic.summary,
         exercises: topic.exercises,
       })),
@@ -584,12 +587,6 @@ function academyManifest(course) {
 function renderDashboard(course, manifest) {
   const languageRoot = academyRoot(course.language);
   const topicCount = course.topicOrder.length;
-  const minuteCount = course.units.reduce(
-    (total, unit) =>
-      total +
-      unit.topics.reduce((unitTotal, topic) => unitTotal + topic.minutes, 0),
-    0
-  );
   return academyShell(
     manifest,
     'dashboard',
@@ -601,28 +598,36 @@ function renderDashboard(course, manifest) {
           <p>${escapeHtml(course.description)}</p>
           <div class="academy-actions">
             <a class="academy-button academy-button-primary" data-academy-continue href="${topicHref(course.topicOrder[0], course.language)}">Build your first AI program</a>
-            <a class="academy-button" data-academy-starting-quiz href="${languageRoot}/diagnostic/">Already experienced? Find your starting point</a>
+            <a class="academy-button" data-academy-starting-quiz href="${languageRoot}/diagnostic/"><span data-academy-starting-quiz-label>Already experienced? Find your starting point</span><span class="academy-time-chip">~3 min</span></a>
           </div>
           <p class="academy-hero-note">Progress is saved in this browser. No account or API key required.</p>
         </div>
         <aside class="academy-progress-summary" data-academy-progress-summary aria-label="Course progress">
           <div class="academy-progress-heading">
             <span class="academy-label">Course progress</span>
-            <strong data-academy-progress-percent>0%</strong>
+            <span class="academy-course-progress-ring"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="20.5"></circle><circle data-academy-course-ring-value cx="24" cy="24" r="20.5" pathLength="100"></circle></svg><strong data-academy-progress-percent>0%</strong></span>
           </div>
           <div class="academy-progress-count">
             <strong data-academy-progress-count>0</strong>
             <span>of ${topicCount} lessons</span>
           </div>
           <p class="academy-progress-label" data-academy-progress-label>Ready to begin</p>
-          <div class="academy-progress-meta">
+          <div class="academy-progress-meta academy-progress-earned academy-is-hidden" data-academy-earned-stats>
             <span><strong data-academy-today-xp>0</strong> / <span data-academy-daily-goal-label>${course.dailyGoal}</span> XP today</span>
-            <span data-academy-progress-detail>0 reviews due · 0 total XP</span>
+            <span><strong data-academy-total-xp>0</strong> total XP</span>
             <span data-academy-streak>0 days streak</span>
           </div>
-          <div class="academy-review-forecast" data-academy-forecast aria-label="Seven-day review forecast"></div>
-          <small>${formatDuration(minuteCount)} of focused material</small>
+          <span class="academy-progress-detail academy-is-hidden" data-academy-progress-detail>0 reviews due</span>
+          <div class="academy-review-forecast academy-is-hidden" data-academy-forecast aria-label="Seven-day review forecast"></div>
+          <small>~6 hours · saved in this browser</small>
         </aside>
+      </section>
+      <section class="academy-section academy-up-next" data-academy-up-next aria-labelledby="academy-up-next-title">
+        <div class="academy-section-heading">
+          <div><span class="academy-label">Your next moves</span><h2 id="academy-up-next-title">Up next</h2></div>
+          <span>Start small. Your queue adapts as you learn.</span>
+        </div>
+        <div class="academy-up-next-grid" data-academy-up-next-list></div>
       </section>
       <section class="academy-section" aria-labelledby="academy-map-title">
         <div class="academy-section-heading academy-path-heading">
@@ -631,15 +636,15 @@ function renderDashboard(course, manifest) {
         </div>
         <div class="academy-path-intro">
           <p>No Ax experience needed. Each unit adds one practical capability, from structured outputs and workflows to agents, external tools, long-running tasks, and production operations.</p>
-          <div class="academy-status-key" aria-label="Lesson status key">
-            <span><b aria-hidden="true">→</b> Start here</span>
-            <span><b aria-hidden="true">○</b> Comes later</span>
-            <span><b aria-hidden="true">✓</b> Learned</span>
-            <span><b aria-hidden="true">↻</b> Review due</span>
-          </div>
         </div>
         <div class="academy-roadmap" data-academy-roadmap>
           ${course.units.map((unit) => renderUnitRoadmap(course, unit)).join('')}
+        </div>
+        <div class="academy-status-key" aria-label="Lesson status key">
+          <span><b aria-hidden="true">→</b> Start here</span>
+          <span><b aria-hidden="true">○</b> Comes later</span>
+          <span><b aria-hidden="true">✓</b> Learned</span>
+          <span><b aria-hidden="true">↻</b> Review due</span>
         </div>
       </section>
       <section class="academy-section academy-settings" aria-labelledby="academy-settings-title">
@@ -659,23 +664,22 @@ function renderDashboard(course, manifest) {
 function renderUnitRoadmap(course, unit) {
   const languageRoot = academyRoot(course.language);
   return `
-    <section class="academy-unit" data-academy-unit="${unit.id}">
-      <div class="academy-unit-number" aria-hidden="true">${String(unit.number).padStart(2, '0')}</div>
+    <details class="academy-unit" data-academy-unit="${unit.id}"${unit.number === 1 ? ' open' : ''}>
+      <summary class="academy-unit-summary">
+        <span class="academy-unit-number" aria-hidden="true">${String(unit.number).padStart(2, '0')}</span>
+        <span class="academy-unit-heading">
+          <span><span class="academy-unit-kicker">Unit ${unit.number} · ${unitSurfaceLabels[unit.id]}</span><strong>${escapeHtml(unit.title)}</strong><small>${escapeHtml(unit.description)}</small></span>
+          <span class="academy-unit-progress-wrap"><span class="academy-unit-progress-ring" data-academy-unit-ring aria-label="0 of ${unit.topics.length} lessons learned"><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15.5"></circle><circle data-academy-unit-ring-value cx="18" cy="18" r="15.5" pathLength="100"></circle></svg></span><span data-academy-unit-progress>0 of ${unit.topics.length}</span></span>
+        </span>
+      </summary>
       <div class="academy-unit-main">
-        <div class="academy-unit-heading">
-          <div>
-            <span class="academy-unit-kicker">Unit ${unit.number} · <span data-academy-unit-progress>0 of ${unit.topics.length} lessons</span></span>
-            <h3>${escapeHtml(unit.title)}</h3>
-          </div>
-        </div>
-        <p>${escapeHtml(unit.description)}</p>
         <div class="academy-topic-grid">
           ${unit.topics
             .map(
               (topic) => `
                 <a class="academy-topic-card" data-academy-topic-card="${topic.id}" data-status="locked" href="${topicHref(topic.id, course.language)}">
                   <span class="academy-topic-status" data-academy-topic-status aria-hidden="true">○</span>
-                  <span><strong>${escapeHtml(topic.title)}</strong><small>${topic.minutes} min</small></span>
+                  <span><strong>${escapeHtml(topic.title)}</strong><span class="academy-topic-meta"><small>${topic.minutes} min</small>${topic.apiLabel ? `<span class="academy-api-chip">${escapeHtml(topic.apiLabel)}</span>` : ''}</span></span>
                 </a>`
             )
             .join('')}
@@ -688,8 +692,22 @@ function renderUnitRoadmap(course, unit) {
           <a data-academy-unit-review-link href="${languageRoot}/checkpoints/${unit.id}/" aria-label="Check your understanding of ${escapeHtml(unit.title)}" aria-disabled="true" tabindex="-1">Finish lessons to unlock</a>
         </div>
       </div>
-    </section>`;
+    </details>`;
 }
+
+const unitSurfaceLabels = {
+  dspy: 'DSPy',
+  'models-signatures': 'Signatures',
+  axgen: 'AxGen',
+  axflow: 'AxFlow',
+  axagent: 'AxAgent',
+  rlm: 'RLM',
+  'peek-context': 'PEEK',
+  optimization: 'Optimization',
+  mcp: 'Native MCP',
+  notifications: 'MCP notifications',
+  production: 'Production',
+};
 
 function renderDiagnostic(course, manifest) {
   const languageRoot = academyRoot(course.language);
@@ -709,6 +727,7 @@ function renderDiagnostic(course, manifest) {
             <li>There is no timer. Read carefully and answer what you know.</li>
           </ul>
           <button class="academy-button academy-button-primary" type="button" data-academy-diagnostic-start>Begin diagnostic</button>
+          <a class="academy-button academy-diagnostic-skip" href="${topicHref(course.topicOrder[0], course.language)}">New to ax? Skip the quiz — start Lesson 1</a>
         </div>
         <div class="academy-quiz" data-academy-diagnostic-quiz hidden></div>
         <div class="academy-result" data-academy-diagnostic-result hidden aria-live="polite"></div>
@@ -733,33 +752,32 @@ function renderTopic(course, manifest, unit, topic) {
           <span class="academy-eyebrow">Unit ${unit.number} · ${escapeHtml(unit.title)}</span>
           <h1>${escapeHtml(topic.title)}</h1>
           <p>${escapeHtml(topic.summary)}</p>
-          <div class="academy-lesson-meta"><span>${topic.minutes} focused minutes</span><span data-academy-topic-state>Not started</span></div>
+          <div class="academy-lesson-meta">${topic.apiLabel ? `<span class="academy-api-chip">${escapeHtml(topic.apiLabel)}</span>` : ''}<span>${topic.minutes} focused minutes</span><span data-academy-topic-state>Not started</span></div>
         </header>
         <section class="academy-worked-example" aria-labelledby="worked-example-title">
           <div><span class="academy-label">${topic.exampleLevel === 'unit' ? 'Unit example (nearest native match)' : 'Worked example'}</span><h2 id="worked-example-title">See the idea in context</h2></div>
           ${codeBlock(topic.example)}
-          <ol class="academy-example-steps">
+          ${
+            topic.exampleSteps.length
+              ? `<ol class="academy-example-steps">
             ${topic.exampleSteps
               .map(
                 (step) =>
                   `<li><strong>${escapeHtml(step.label)}</strong>${step.code ? codeBlock(step.code) : ''}<p>${escapeHtml(step.note)}</p></li>`
               )
               .join('')}
-          </ol>
-          <div class="academy-run-example"><span class="academy-label">Run it</span>${codeBlock(`npm run example -- ${course.language} ${unit.examplePaths[0]}`)}</div>
+          </ol>`
+              : ''
+          }
+            <div class="academy-run-example"><span class="academy-label">Run it</span><strong>In your own project</strong>${codeBlock(`${course.install}\n\n${course.quickStart}`)}<p>Set <code>OPENAI_APIKEY</code> in your environment before running provider-backed code.</p><strong>In the ax repo</strong><p>From a clone of the ax repo:</p>${codeBlock(`npm run example -- ${course.language} ${unit.examplePaths[0]}`)}</div>
         </section>
         <section class="academy-practice" aria-labelledby="practice-title">
-          <div class="academy-section-heading"><div><span class="academy-label">Active practice</span><h2 id="practice-title">Show that you can use it</h2></div><span data-academy-practice-count>0 / 5 attempts</span></div>
+          <div class="academy-section-heading"><div><span class="academy-label">Active practice</span><h2 id="practice-title">Show that you can use it</h2></div><span data-academy-practice-count>Answer 2 in a row to learn this · attempt 1</span></div>
           <div class="academy-quiz" data-academy-topic-practice></div>
         </section>
         <section class="academy-sources" aria-labelledby="sources-title">
           <span class="academy-label">Keep exploring</span><h2 id="sources-title">Source-backed follow-up</h2>
-          <ul>${[...unit.sourceRefs, ...unit.examplePaths]
-            .map(
-              (source) =>
-                `<li><a href="${githubSource(source)}">${escapeHtml(source)}</a></li>`
-            )
-            .join('')}</ul>
+          <ul>${unit.sourceRefs.map((source) => renderSourceLink(source, course.language)).join('')}${unit.examplePaths.length ? `<li><a href="${githubSource(unit.examplePaths[0])}">Source on GitHub</a></li>` : ''}</ul>
         </section>
         <nav class="academy-lesson-nav" aria-label="Course lessons">
           ${previous ? `<a href="${topicHref(previous, course.language)}">← Previous</a>` : '<span></span>'}
@@ -779,9 +797,9 @@ function renderDailyReview(course, manifest) {
     `
       ${academyBreadcrumb('Academy', `${languageRoot}/`, 'Daily review')}
       <section class="academy-focus academy-daily-review" data-academy-daily-review>
-        <span class="academy-eyebrow">Spaced repetition · up to 10 knowledge points</span>
+        <span class="academy-eyebrow">Spaced repetition · up to 10 lessons</span>
         <h1>Strengthen what is due today.</h1>
-        <p>This session mixes knowledge points across units, prioritizes the oldest reviews, and schedules each answer immediately.</p>
+        <p>This session mixes lessons across units, prioritizes the oldest reviews, and schedules each answer immediately.</p>
         <div class="academy-quiz" data-academy-review-queue></div>
         <div class="academy-result" data-academy-review-result hidden aria-live="polite"></div>
       </section>
@@ -882,9 +900,49 @@ function githubSource(source) {
   return `https://github.com/ax-llm/ax/blob/main/${source}`;
 }
 
-function formatDuration(minutes) {
-  const hours = Math.max(1, Math.round(minutes / 60));
-  return `${hours} hours`;
+function renderSourceLink(source, languageId) {
+  const basename = path.basename(source, path.extname(source));
+  const skill = basename.startsWith('ax-') ? basename : null;
+  const label = sourceLabels[basename] ?? humanizeSource(basename);
+  const publicPath = sourcePublicPaths[source];
+  const href = publicPath
+    ? `/${languageId}/${publicPath}/`
+    : skill
+      ? `/${languageId}/skills/${skill}/`
+      : githubSource(source);
+  return `<li><a href="${href}">${escapeHtml(label)}</a></li>`;
+}
+
+const sourceLabels = {
+  'ax-llm': 'Ax overview and quick reference',
+  'ax-ai': 'Models, providers, and routing',
+  'ax-signature': 'Signatures and typed fields',
+  'ax-gen': 'Reliable structured generation',
+  'ax-flow': 'Workflows and orchestration',
+  'ax-agent': 'Agents, tools, and delegation',
+  'ax-agent-optimize': 'Agent evaluation and optimization',
+  'ax-agent-memory-skills': 'Agent memory and skills',
+  'ax-mcp': 'MCP clients and native capabilities',
+  'ax-event-runtime': 'Events, wake, and continuations',
+  'ax-gepa': 'GEPA optimization',
+  'ax-learn': 'Self-improving agent patterns',
+  'concept-dspy': 'Why Ax uses programs instead of prompt strings',
+  'agents-long-horizon': 'Long-horizon agents',
+  MCP_SUBSCRIPTIONS: 'MCP resource subscriptions',
+  EVENT_RUNTIME: 'Event runtime architecture',
+  SECURITY: 'Ax security guidance',
+};
+
+const sourcePublicPaths = {
+  'website/content-src/templates/concept-dspy.md': 'concepts/dspy',
+  'website/content-src/templates/agents-long-horizon.md': 'agents/long-horizon',
+  'docs/MCP_SUBSCRIPTIONS.md': 'concepts/mcp-subscriptions',
+  'docs/EVENT_RUNTIME.md': 'concepts/event-runtime',
+};
+
+function humanizeSource(value) {
+  const words = value.replace(/^ax-/, '').replaceAll('-', ' ');
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
 }
 
 function safeJson(value) {

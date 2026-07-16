@@ -14,12 +14,28 @@ export const mcpUnit = {
   topics: [
     topic({
       id: 'mcp-lifecycle-transports',
-      title: 'MCP lifecycle and transports',
+      title: 'Connect to an MCP server',
+      minutes: 8,
+      apiLabel: 'AxMCPClient',
       prerequisites: ['typed-tools'],
       summary:
-        'AxMCPClient initializes one negotiated session over stdio, Streamable HTTP, legacy HTTP/SSE, resumable SSE, or a custom WebSocket transport. Choose the transport that matches deployment and lifecycle needs.',
+        'You initialize one negotiated MCP session over the transport that fits your deployment. Streamable HTTP is the normal current choice for a remote server.',
       example:
         "const client = new AxMCPClient(new AxMCPStreamableHTTPTransport({ url }), { namespace: 'orders' });",
+      exampleSteps: [
+        {
+          label: 'Create the transport',
+          note: 'Streamable HTTP connects the client to the remote URL.',
+        },
+        {
+          label: 'Create one client session',
+          note: 'AxMCPClient owns negotiation and the protocol lifecycle.',
+        },
+        {
+          label: 'Use a namespace',
+          note: 'orders keeps discovered names clear when several servers are attached.',
+        },
+      ],
       check: choice(
         'Which transport is the normal remote HTTP choice for current MCP servers?',
         ['Streamable HTTP', 'An implicit global WebSocket', 'A prompt string'],
@@ -30,10 +46,12 @@ export const mcpUnit = {
     }),
     topic({
       id: 'mcp-catalog',
-      title: 'Catalogs and native capabilities',
+      title: 'Discover what an MCP server offers',
+      minutes: 7,
+      apiLabel: 'inspectCatalog()',
       prerequisites: ['mcp-lifecycle-transports'],
       summary:
-        'The endpoint owns tool names, prompt names, resources, URI templates, and capabilities. inspectCatalog() discovers those values; applications should not invent identifiers the server can list.',
+        'You inspect the negotiated catalog for tools, prompts, resources, templates, and capabilities. Your app uses server-owned identifiers instead of guessing them.',
       example:
         'const catalog = await client.inspectCatalog({ refresh: true });\nconsole.log(catalog.tools, catalog.resources, catalog.capabilities);',
       check: choice(
@@ -50,10 +68,11 @@ export const mcpUnit = {
     }),
     topic({
       id: 'mcp-attach',
-      title: 'MCP with AxGen, AxAgent, and AxFlow',
+      title: 'Give Ax programs native MCP tools',
+      minutes: 8,
       prerequisites: ['mcp-catalog', 'agent-core', 'flow-state-nodes'],
       summary:
-        'Native MCP context can be attached to generators, agents, and flows without flattening every capability into handwritten functions. Tools remain native and task/progress events remain separate from generated output.',
+        'You attach native MCP context to generators, agents, and flows without rewriting every capability as a host tool. Protocol progress remains separate from generated output.',
       example:
         "const assistant = agent('request:string -> answer:string', { mcp: client, functionDiscovery: true });",
       check: choice(
@@ -70,10 +89,11 @@ export const mcpUnit = {
     }),
     topic({
       id: 'mcp-auth-security',
-      title: 'OAuth, identity, and endpoint safety',
+      title: 'Connect to remote MCP safely',
+      minutes: 10,
       prerequisites: ['mcp-lifecycle-transports'],
       summary:
-        'MCP can use OAuth, client credentials, and enterprise-managed authorization, but an MCP session ID is not application tenant identity. Remote URL validation and SSRF protections should remain enabled.',
+        'You authorize remote MCP with OAuth, client credentials, or enterprise policy while keeping application identity separate. URL validation and SSRF protections stay enabled.',
       example:
         "const client = new AxMCPClient(transport, { namespace: 'crm', auth });",
       check: choice(
@@ -90,10 +110,11 @@ export const mcpUnit = {
     }),
     topic({
       id: 'mcp-tasks-advanced',
-      title: 'Tasks, progress, cancellation, Apps, and replay',
+      title: 'Handle long-running MCP work',
+      minutes: 11,
       prerequisites: ['mcp-attach', 'mcp-auth-security'],
       summary:
-        'MCP tasks can report progress, require input, complete later, or be cancelled. Ax also supports server sampling, elicitation, roots, completions, MCP Apps, recording, and deterministic replay for evaluation.',
+        'You can monitor progress, provide requested input, cancel, or resume work that finishes later. Recording and deterministic replay make the protocol lifecycle testable.',
       example:
         'const task = await client.callTool({ name, arguments: input, task: { ttl: 60_000 } });',
       check: choice(
