@@ -63,7 +63,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/optimizer_artifact.cpp`: optimizer artifact save/load/apply lifecycle
 - `examples/gepa_local_optimizer.cpp`: local GEPA optimizer artifact generation
 - `examples/ace_playbook.cpp`: grow an evolving context playbook with `playbook()` (offline, scripted client)
-- `examples/agent_playbook.cpp`: grow an evolving context playbook bound to an agent stage with `agent.playbook()` (offline, scripted client)
+- `examples/agent_playbook.cpp`: attach a seeded agent playbook, exercise stage instructions and citations, learn from run-end failures, and verify accept/rollback evolution (offline, scripted client)
 - `examples/mcp_scripted_tools.cpp`: MCP tool discovery and invocation through a scripted transport
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:

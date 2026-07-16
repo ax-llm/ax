@@ -49,11 +49,13 @@ Use `agent.optimize(...)` for tool-use, clarification, delegation, and final-res
 
 {{optimizeAgentExample}}
 
-## Verified Playbook Learning (TypeScript)
+## Verified Playbook Learning
 
-Failure-driven repair lives on the playbook, not on a separate method: `agent.playbook().evolve(dataset, options)` grows the agent's playbook from a task set. It runs the train tasks as a failure corpus, clusters the failures deterministically by error signature, mines each cluster for a grounded weakness (evidence quotes must literally appear in the failing runs' excerpts — fabricated diagnoses are discarded), and proposes one bounded playbook bullet per weakness. With `verify` (default on) a bullet is kept only when the train score improves by `minHeldInGain` AND the validation score does not drop by more than `epsilon` — rejected bullets roll back exactly. `verify: false` applies the mined lessons without the gate (trust-batch). The engine is an implementation detail hidden behind the method, exactly as `optimize(...)` hides its optimizer.
+Failure-driven repair lives on the playbook, not on a separate method: the agent-bound playbook evolve method grows the agent's playbook from a task set. It runs the train tasks as a failure corpus, clusters the failures deterministically by error signature, mines each cluster for a grounded weakness (evidence quotes must literally appear in the failing runs' excerpts — fabricated diagnoses are discarded), and proposes one bounded playbook bullet per weakness. With `verify` (default on) a bullet is kept only when the train score improves by `minHeldInGain` AND the validation score does not drop by more than `epsilon` — rejected bullets roll back exactly. `verify: false` applies the mined lessons without the gate (trust-batch). The engine is an implementation detail hidden behind the method, exactly as `optimize(...)` hides its optimizer.
 
-Mining and judging need strong models; with weak teachers, weaknesses fail the grounding check and little is accepted. On small task sets, set `runsPerTask: 2` or `3` so accept decisions compare averaged scores instead of trusting a single (possibly lucky) run per task. TS-first: the five generated language ports do not ship playbook evolve yet.
+Mining and judging need strong models; with weak teachers, weaknesses fail the grounding check and little is accepted. On small task sets, set `runsPerTask` to `2` or `3` so accept decisions compare averaged scores instead of trusting a single (possibly lucky) run per task. TypeScript and all five generated packages share the miner, grounding, budget, gate, and exact-rollback contract. Scoring remains host-shaped: TypeScript uses its metric, Python/Java/Go can accept a metric callback, and every generated port can use task scores plus the agent evaluation result.
+
+{{agentPlaybookEvolveExample}}
 
 Lineage: Self-Harness (mine weaknesses, validate edits), STOP (recursive improvement needs strong models), and the Darwin Gödel Machine (keep only what provably improves) — see the [Research Map](/research/).
 

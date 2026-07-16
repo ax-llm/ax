@@ -595,10 +595,31 @@ Rules:
 
 ### Learning And Citations
 
-Two optional construction-time options (TypeScript, both default off):
+These construction-time options are portable across TypeScript and the generated
+Python, Java, C++, Go, and Rust packages (both default off):
 
-- `playbook`: attach an ACE playbook at construction. `learn` is on by default — after each run that produced failure signals (error turns, dead-ends, failing tool calls) one bounded update curates durable avoidance rules that ride the next run's actor prompt; zero LLM cost on clean runs. Seed a prior session with `playbook: { playbook: snapshot }`, persist via `onUpdate`, read the live handle with `getPlaybook()`, gate with `learn: { minSignals, dedupe }`, or disable with `learn: false`. To grow the same playbook from a task set with a held-out verify gate, use `agent.playbook().evolve(...)` — see `ax-playbook`.
+- `playbook`: attach an ACE playbook at construction. `learn` is on by default — after each run that produced failure signals (error turns, dead-ends, failing tool calls) one bounded update curates durable avoidance rules that ride the next run's actor prompt; zero LLM cost on clean runs. TypeScript seeds a prior session with `playbook: { playbook: snapshot }`; generated packages accept their full `{ playbook, artifact }` snapshot under `seed`. Persist via `onUpdate`, read the live handle with `getPlaybook()` (or the language-shaped equivalent), gate with `learn: { minSignals, dedupe }`, or disable with `learn: false`. To grow the same playbook from a task set with a held-out verify gate, use the agent-bound playbook evolve method — see `ax-playbook`.
 - `citations`: add an optional `evidenceCitations: string[]` responder output listing which evidence entries (top-level keys of the curated evidence, plus memory ids) the answer relied on. Validated in-pipeline — the model cannot cite evidence it never collected (existence, not entailment). Pass `true`, or `{ field?, surface?: 'output' | 'hidden', includeMemoryIds?, onCitations? }`.
+
+Stage guidance is portable too. `setInstruction` replaces the stage-owned actor
+instruction and `addActorInstruction` appends an additive rule. Both are real
+optimization components; rebuilding the split programs no longer discards them.
+Generated packages use their normal casing conventions (`set_instruction` in
+Python/C++/Rust and `SetInstruction` in Go).
+
+The generated-language observer and evolve spellings are:
+
+| Language | Citations observer | Verified agent playbook evolve |
+|---|---|---|
+| Python | `citations.onCitations` | `agent.playbook().evolve(dataset, options)` |
+| Java | `citations.onCitations` (`Consumer`) | `agent.playbook(null).evolve(dataset, options)` |
+| C++ | `set_citations_observer(...)` | `agent.get_playbook()->evolve(dataset, options)` |
+| Go | `citations.onCitations` (`func([]Value)`) | `agent.GetPlaybook().EvolveAgent(ctx, dataset, options)` |
+| Rust | `set_citations_observer(...)` | `playbook.evolve_agent(&mut agent, client, dataset, options)` |
+
+C++ and Rust use `set_playbook_observer(...)` for construction-time learning
+updates; Python, Java, and Go accept the `playbook.onUpdate` callback in their
+native configuration map.
 
 ## Public Surface
 
@@ -609,7 +630,7 @@ Use these method groups as the compact AxAgent surface map:
 - State and control: `getState()`, `setState(state?)`, `getContextMap()`, `setContextMap(map?)`, `stop()`, `getSignature()`, `setSignature(signature)`, `getFunction()`, `getId()`, and `setId(id)`. Context-map evolve policy lives on `AxAgentContextMap` (`infiniteEvolve`, `evolveSteps`, `maxChars`), not on the agent config. See [`src/examples/rlm-context-map-live.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-context-map-live.ts) for provider-backed persistence and finite-evolve usage.
 - Observability: `getChatLog()`, `getUsage()`, `getStagedUsage()`, `resetUsage()`, and `getTraces()`; use `ax-agent-observability` for details.
 - Demos and tuning: `setDemos(...)`, `namedPrograms()`, `namedProgramInstances()`, `optimize(...)`, `applyOptimization(...)`, `getOptimizableComponents()`, and `applyOptimizedComponents(...)`; use `ax-agent-optimize` for tuning details.
-- Learning: `playbook()` returns an agent-aware `AxAgentPlaybook` handle (`update(...)`, `render()`, `getState()`, `load(...)`, and `evolve(dataset, options)`); `getPlaybook()` reads the current handle. Use `ax-playbook` for details.
+- Learning: `playbook()` returns an agent-aware playbook handle (`update(...)`, `render()`, state/load methods, and verified dataset evolution); `getPlaybook()` reads the current handle. Generated packages expose the same behavior with language-shaped method names. Use `ax-playbook` for details.
 
 Rules:
 
@@ -640,6 +661,7 @@ Fetch these for full working code:
 - [Customer Support](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/customer-support.ts) - classification agent
 - [Abort Patterns](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/abort-patterns.ts) - abort handling
 - [Smart Defaults Agent](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/long-agents/smart-defaults-agent.ts) - auto-upgrade context promotion, relevance hints, and runtime tools
+- [Portable Playbook Evolve](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/python/optimization/agent-playbook-evolve.py) - Python construction-time learning, validated citations, stage guidance, and verified task-set evolution (parallel Java/C++/Go/Rust examples live beside it)
 
 RLM examples are listed in `ax-agent-rlm`. Memory/skills examples are listed in `ax-agent-memory-skills`.
 

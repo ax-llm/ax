@@ -539,6 +539,9 @@ module @ax.optimize version "0.1" {
       core.set %out["usage"] = %usage
       %trace = core.get %prediction["trace"]
       core.set %out["trace"] = %trace
+      %empty_failure_signals = core.list
+      %failure_signals = core.get %prediction["failureSignals"] default %empty_failure_signals
+      core.set %out["failureSignals"] = %failure_signals
       core.return %out
     }
   }
@@ -624,6 +627,8 @@ module @ax.optimize version "0.1" {
           %actor_match = core.call intrinsic.string.ends_with(%id, ".actor")
           %actor_component_match = core.call intrinsic.contains(%id, ".actor::")
           %actor_any_match = core.call intrinsic.or(%actor_match, %actor_component_match)
+          %stage_instruction_match = core.call intrinsic.eq(%id, "root::instruction")
+          %actor_any_match = core.call intrinsic.or(%actor_any_match, %stage_instruction_match)
           core.if %actor_any_match {
             %include = core.let true
           }
@@ -884,6 +889,8 @@ module @ax.optimize version "0.1" {
       core.set %out["usage"] = %usage
       core.set %out["trace"] = %trace
       %empty_list = core.list
+      %failure_signals = core.get %trace["failure_signals"] default %empty_list
+      core.set %out["failureSignals"] = %failure_signals
       core.set %out["functionCalls"] = %empty_list
       core.set %out["toolErrors"] = %empty_list
       core.set %out["turnCount"] = 0
@@ -970,7 +977,7 @@ module @ax.optimize version "0.1" {
       core.set %stats["tokenEstimate"] = 0
       core.set %out["stats"] = %stats
       core.set %out["updatedAt"] = %now
-      %has_description = core.call intrinsic.is_not_none(%description)
+      %has_description = core.call intrinsic.truthy(%description)
       core.if %has_description {
         core.set %out["description"] = %description
       }
@@ -985,16 +992,31 @@ module @ax.optimize version "0.1" {
     type signature = "(playbook:json) -> string"
     body @entry(%playbook: json) {
       %empty_map = core.map
+      %empty_list = core.list
       %description = core.get %playbook["description"] default null
-      %has_description = core.call intrinsic.is_not_none(%description)
+      %has_description = core.call intrinsic.truthy(%description)
+      %sections = core.get %playbook["sections"] default %empty_map
+      %section_names = core.call intrinsic.map.keys(%sections)
+      %bullet_count = core.let 0
+      core.for %section_name in %section_names {
+        %section_bullets = core.get %sections[%section_name] default %empty_list
+        %section_count = core.call intrinsic.len(%section_bullets)
+        %next_bullet_count = core.call intrinsic.add(%bullet_count, %section_count)
+        %bullet_count = core.let %next_bullet_count
+      }
+      %has_bullets = core.call intrinsic.gt(%bullet_count, 0)
+      %no_bullets = core.call intrinsic.not(%has_bullets)
+      %no_description = core.call intrinsic.not(%has_description)
+      %empty_playbook = core.call intrinsic.and(%no_bullets, %no_description)
+      core.if %empty_playbook {
+        core.return ""
+      }
       %header = core.let "## Context Playbook\n"
       core.if %has_description {
         %trimmed_description = core.string_trim %description
         %header_with_description = core.call intrinsic.string.format("## Context Playbook\n{}\n", %trimmed_description)
         %header = core.let %header_with_description
       }
-      %sections = core.get %playbook["sections"] default %empty_map
-      %section_names = core.call intrinsic.map.keys(%sections)
       %section_blocks = core.list
       core.for %section_name in %section_names {
         %bullets = core.get %sections[%section_name] default null
@@ -1045,20 +1067,20 @@ module @ax.optimize version "0.1" {
             %still_open = core.call intrinsic.not(%found)
             core.if %match {
               core.if %still_open {
-              %is_helpful = core.call intrinsic.eq(%tag, "helpful")
-              core.if %is_helpful {
-                %helpful = core.get %bullet["helpfulCount"] default 0
-                %helpful_next = core.call intrinsic.add(%helpful, 1)
-                core.set %bullet["helpfulCount"] = %helpful_next
-              }
-              %is_harmful = core.call intrinsic.eq(%tag, "harmful")
-              core.if %is_harmful {
-                %harmful = core.get %bullet["harmfulCount"] default 0
-                %harmful_next = core.call intrinsic.add(%harmful, 1)
-                core.set %bullet["harmfulCount"] = %harmful_next
-              }
-              core.set %bullet["updatedAt"] = %now
-              %found = core.let true
+                %is_helpful = core.call intrinsic.eq(%tag, "helpful")
+                core.if %is_helpful {
+                  %helpful = core.get %bullet["helpfulCount"] default 0
+                  %helpful_next = core.call intrinsic.add(%helpful, 1)
+                  core.set %bullet["helpfulCount"] = %helpful_next
+                }
+                %is_harmful = core.call intrinsic.eq(%tag, "harmful")
+                core.if %is_harmful {
+                  %harmful = core.get %bullet["harmfulCount"] default 0
+                  %harmful_next = core.call intrinsic.add(%harmful, 1)
+                  core.set %bullet["harmfulCount"] = %harmful_next
+                }
+                core.set %bullet["updatedAt"] = %now
+                %found = core.let true
               }
             }
           }
@@ -1221,6 +1243,7 @@ module @ax.optimize version "0.1" {
       %updated_bullets = core.list
       %auto_removed = core.list
       %sections = core.get %playbook["sections"] default %empty_map
+      %operation_index = core.let 0
       core.for %op in %operations {
         %section_name = core.get %op["section"] default ""
         %has_section_name = core.call intrinsic.ne(%section_name, "")
@@ -1286,7 +1309,8 @@ module @ax.optimize version "0.1" {
                   %bullet_id = core.let %op_bullet_id
                   %missing_bullet_id = core.call intrinsic.not(%has_bullet_id)
                   core.if %missing_bullet_id {
-                    %bullet_id = core.let %section_name
+                    %bullet_id_prefix = core.call intrinsic.string.format("{}-{}-{}", %section_name, %now, %section_len)
+                    %bullet_id = core.call intrinsic.string.format("{}-{}", %bullet_id_prefix, %operation_index)
                   }
                   %bullet = core.map
                   core.set %bullet["id"] = %bullet_id
@@ -1356,6 +1380,8 @@ module @ax.optimize version "0.1" {
             }
           }
         }
+        %next_operation_index = core.call intrinsic.add(%operation_index, 1)
+        %operation_index = core.let %next_operation_index
       }
       core.set %playbook["sections"] = %sections
       %recomputed = core.call @ace_recompute_playbook_stats(%playbook)
@@ -1373,10 +1399,6 @@ module @ax.optimize version "0.1" {
     attr emit_module = "gen"
     attr private = true
     type signature = "(content:string) -> bool"
-    // Mirror of isAceNoOpAcknowledgment in src/ax/dsp/optimizers/ace.ts. True when
-    // an ADD operation's content is a no-op acknowledgment ("No update required.",
-    // "Keep the existing rule unchanged.", "The existing rule remains correct.")
-    // rather than a substantive, reusable rule. Keep the two lists in lockstep.
     body @entry(%content: string) {
       %lowered = core.call intrinsic.string.lower(%content)
       %c = core.string_trim %lowered
@@ -1384,7 +1406,6 @@ module @ax.optimize version "0.1" {
       %empty = core.call intrinsic.eq(%c, "")
       %nonempty = core.call intrinsic.not(%empty)
       core.if %nonempty {
-        // Standalone markers.
         %markers = core.list
         core.append %markers, "no-op"
         core.append %markers, "noop"
@@ -1394,7 +1415,6 @@ module @ax.optimize version "0.1" {
             %is_noop = core.let true
           }
         }
-        // "no <subject>" paired with a "<qualifier>".
         %subjects = core.list
         core.append %subjects, "no update"
         core.append %subjects, "no updates"
@@ -1432,7 +1452,6 @@ module @ax.optimize version "0.1" {
             }
           }
         }
-        // Inherently no-op phrasings.
         %phrases = core.list
         core.append %phrases, "nothing to add"
         core.append %phrases, "nothing to change"
@@ -1447,7 +1466,6 @@ module @ax.optimize version "0.1" {
             %is_noop = core.let true
           }
         }
-        // "keep/leave/retain/preserve the existing ... <stasis>".
         %keep_prefixes = core.list
         core.append %keep_prefixes, "keep the existing"
         core.append %keep_prefixes, "leave the existing"
@@ -1474,7 +1492,6 @@ module @ax.optimize version "0.1" {
             }
           }
         }
-        // "<referent> ... remains <stasis>".
         %remains_list = core.list
         core.append %remains_list, "remains correct"
         core.append %remains_list, "remains unchanged"
@@ -1571,9 +1588,6 @@ module @ax.optimize version "0.1" {
                 %keep = core.let false
               }
             }
-            // Drop ADD operations whose content is a no-op acknowledgment so
-            // only substantive guidance becomes a bullet (mirror of the TS
-            // isAceNoOpAcknowledgment guard in normalizeCuratorOperations).
             %is_add_type = core.call intrinsic.eq(%type, "ADD")
             core.if %is_add_type {
               %is_noop = core.call @ace_is_noop_acknowledgment(%content)
@@ -1716,54 +1730,48 @@ module @ax.optimize version "0.1" {
           }
         }
       }
-      // Build per-section candidate queues keyed by priority (harmful/primary/generator).
       %section_queues = core.map
-      // Reflection bulletTags -> harmful or primary queue.
       %empty_list = core.list
       %reflection_present = core.call intrinsic.is_not_none(%reflection)
       core.if %reflection_present {
-        %bullet_tags = core.get %reflection["bulletTags"] default %empty_list
+        %bullet_tags = core.call @ace_normalize_reflection_bullet_tags(%reflection)
         core.for %tag in %bullet_tags {
           %tag_id = core.get %tag["id"] default null
-          %tag_id_is_string = core.type_is %tag_id type "string"
-          core.if %tag_id_is_string {
-            %already_used = core.call intrinsic.map.contains(%used_ids, %tag_id)
-            %not_used = core.call intrinsic.not(%already_used)
-            core.if %not_used {
-              %located = core.call @ace_locate_bullet_section(%playbook, %tag_id)
-              %located_found = core.call intrinsic.is_not_none(%located)
-              core.if %located_found {
-                %located_section = core.get %located["section"]
-                %located_id = core.get %located["id"]
-                %tag_value = core.get %tag["tag"] default ""
-                %is_harmful = core.call intrinsic.eq(%tag_value, "harmful")
-                %priority = core.let "primary"
-                core.if %is_harmful {
-                  %priority = core.let "harmful"
-                }
-                %has_queue = core.call intrinsic.map.contains(%section_queues, %located_section)
-                %missing_queue = core.call intrinsic.not(%has_queue)
-                core.if %missing_queue {
-                  %new_queue = core.map
-                  %harmful_list = core.list
-                  core.set %new_queue["harmful"] = %harmful_list
-                  %primary_list = core.list
-                  core.set %new_queue["primary"] = %primary_list
-                  %generator_list = core.list
-                  core.set %new_queue["generator"] = %generator_list
-                  core.set %section_queues[%located_section] = %new_queue
-                }
-                %queue = core.get %section_queues[%located_section]
-                %priority_list = core.get %queue[%priority]
-                core.append %priority_list, %located_id
-                core.set %queue[%priority] = %priority_list
-                core.set %section_queues[%located_section] = %queue
+          %tag_value = core.get %tag["tag"] default null
+          %is_harmful = core.call intrinsic.eq(%tag_value, "harmful")
+          %already_used = core.call intrinsic.map.contains(%used_ids, %tag_id)
+          %not_used = core.call intrinsic.not(%already_used)
+          core.if %not_used {
+            %located = core.call @ace_locate_bullet_section(%playbook, %tag_id)
+            %located_found = core.call intrinsic.is_not_none(%located)
+            core.if %located_found {
+              %located_section = core.get %located["section"]
+              %located_id = core.get %located["id"]
+              %priority = core.let "primary"
+              core.if %is_harmful {
+                %priority = core.let "harmful"
               }
+              %has_queue = core.call intrinsic.map.contains(%section_queues, %located_section)
+              %missing_queue = core.call intrinsic.not(%has_queue)
+              core.if %missing_queue {
+                %new_queue = core.map
+                %harmful_list = core.list
+                core.set %new_queue["harmful"] = %harmful_list
+                %primary_list = core.list
+                core.set %new_queue["primary"] = %primary_list
+                %generator_list = core.list
+                core.set %new_queue["generator"] = %generator_list
+                core.set %section_queues[%located_section] = %new_queue
+              }
+              %queue = core.get %section_queues[%located_section]
+              %priority_list = core.get %queue[%priority]
+              core.append %priority_list, %located_id
+              core.set %queue[%priority] = %priority_list
+              core.set %section_queues[%located_section] = %queue
             }
           }
         }
       }
-      // Generator bulletIds -> generator queue.
       %generator_present = core.call intrinsic.is_not_none(%generator_output)
       core.if %generator_present {
         %generator_bullet_ids = core.get %generator_output["bulletIds"] default %empty_list
@@ -1833,6 +1841,43 @@ module @ax.optimize version "0.1" {
         }
       }
       core.return %resolved
+    }
+  }
+
+  op ax.optimize.semantic @ace_normalize_reflection_bullet_tags {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "source:src/ax/dsp/optimizers/ace.ts#normalizeReflectionBulletTags"
+    type signature = "(reflection:json) -> list<json>"
+    body @entry(%reflection: json) {
+      %empty_list = core.list
+      %raw_bullet_tags = core.get %reflection["bulletTags"] default %empty_list
+      %candidates = core.list
+      %tags_is_list = core.type_is %raw_bullet_tags type "list"
+      core.if %tags_is_list {
+        %candidates = core.let %raw_bullet_tags
+      } else {
+        %tags_is_object = core.type_is %raw_bullet_tags type "object"
+        core.if %tags_is_object {
+          core.append %candidates, %raw_bullet_tags
+        }
+      }
+      %normalized = core.list
+      core.for %tag in %candidates {
+        %tag_is_object = core.type_is %tag type "object"
+        core.if %tag_is_object {
+          %tag_id = core.get %tag["id"] default null
+          %tag_id_is_string = core.type_is %tag_id type "string"
+          %tag_value = core.get %tag["tag"] default null
+          %tag_value_is_string = core.type_is %tag_value type "string"
+          %valid_tag_shape = core.call intrinsic.and(%tag_id_is_string, %tag_value_is_string)
+          core.if %valid_tag_shape {
+            core.append %normalized, %tag
+          }
+        }
+      }
+      core.return %normalized
     }
   }
 

@@ -564,6 +564,7 @@ public final class Conformance {
       case "ai_speak" -> runAISpeak(fixture);
       case "ai_realtime" -> runAIRealtime(fixture);
       case "agent_forward" -> runAgentForward(fixture);
+      case "agent_playbook_coverage" -> runAgentPlaybookCoverage(fixture);
       case "agent_prompt" -> runAgentPrompt(fixture);
       case "agent_runtime_real" -> runAgentForward(fixture);
       case "agent_runtime_policy" -> runAgentRuntimePolicy(fixture);
@@ -1333,10 +1334,32 @@ public final class Conformance {
     }
   }
 
+  static void runAgentPlaybookCoverage(Map<String, Object> fixture) {
+    for (Object rawCase : Core.asList(fixture.getOrDefault("cases", List.of()))) {
+      Map<String, Object> testCase = Core.asMap(rawCase);
+      Object actual = Core._agent_collect_covered_failure_signatures(testCase.getOrDefault("snapshot", Map.of()));
+      assertEqual(actual, testCase.getOrDefault("expected_covered", List.of()), "playbook coverage " + testCase.get("name"));
+    }
+  }
+
   static void runAgentForward(Map<String, Object> fixture) {
     ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
     client.transcribeResponses.addAll(Core.asList(fixture.getOrDefault("transcribe_responses", List.of())));
     Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
+    java.util.concurrent.atomic.AtomicBoolean observerCalled = new java.util.concurrent.atomic.AtomicBoolean(false);
+    if (Boolean.TRUE.equals(fixture.get("observer_throws"))) {
+      Map<String, Object> citations = new LinkedHashMap<>(Core.asMap(agentOptions.getOrDefault("citations", Map.of())));
+      citations.put("onCitations", (java.util.function.Consumer<List<Object>>) ignored -> {
+        observerCalled.set(true);
+        throw new RuntimeException("citation observer failed");
+      });
+      agentOptions.put("citations", citations);
+    }
+    if (agentOptions.get("playbook") instanceof Map<?, ?> rawPlaybook) {
+      Map<String, Object> playbook = new LinkedHashMap<>(Core.asMap(rawPlaybook));
+      playbook.putIfAbsent("studentAI", client);
+      agentOptions.put("playbook", playbook);
+    }
     ScriptedCodeRuntime runtime = null;
     if (fixture.containsKey("runtime_script")) {
       Map<String, Object> runtimeConfig = Core.asMap(agentOptions.getOrDefault("runtime", Map.of()));
@@ -1358,11 +1381,14 @@ public final class Conformance {
     AxAgent agent = null;
     try {
       agent = Ax.agent(String.valueOf(fixture.get("signature")), agentOptions);
+      if (fixture.containsKey("set_instruction")) agent.setInstruction(String.valueOf(fixture.get("set_instruction")));
+      if (fixture.containsKey("add_actor_instruction")) agent.addActorInstruction(String.valueOf(fixture.get("add_actor_instruction")));
       if (fixture.containsKey("set_state")) agent.setState(Core.asMap(fixture.get("set_state")));
       if (fixture.containsKey("restore_runtime_state")) agent.restoreRuntimeState(Core.asMap(fixture.get("restore_runtime_state")));
       Object output = agent.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected agent forward to fail");
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "agent output");
+      if (Boolean.TRUE.equals(fixture.get("observer_throws")) && !observerCalled.get()) throw new FixtureError("citation observer was not called");
     } catch (AxAgentClarificationException e) {
       String expected = (String) fixture.get("expected_error_contains");
       if (expected == null || !String.valueOf(e.getMessage()).contains(expected)) throw e;
@@ -2117,9 +2143,14 @@ public final class Conformance {
   }
 
   static void assertTransport(Map<String, Object> fixture, ScriptedTransport transport) {
-    if (!fixture.containsKey("expected_transport_request")) return;
+    if (!fixture.containsKey("expected_transport_request") && !fixture.containsKey("expected_transport_json_absent")) return;
     if (transport.requests.isEmpty()) throw new FixtureError("expected provider transport request but none were sent");
-    assertSubset(transport.requests.get(0), fixture.get("expected_transport_request"), "provider request");
+    if (fixture.containsKey("expected_transport_request")) assertSubset(transport.requests.get(0), fixture.get("expected_transport_request"), "provider request");
+    Map<String, Object> requestJson = Core.asMap(Core.asMap(transport.requests.get(0)).get("json"));
+    for (Object rawKey : Core.asList(fixture.getOrDefault("expected_transport_json_absent", List.of()))) {
+      String key = String.valueOf(rawKey);
+      if (requestJson.containsKey(key)) throw new FixtureError("provider request json unexpectedly contained " + key);
+    }
   }
   static List<String> stringList(Object value) { List<String> out = new ArrayList<>(); for (Object item : Core.asList(value)) out.add(String.valueOf(item)); return out; }
   static void assertEqual(Object actual, Object expected, String label) {

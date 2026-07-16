@@ -118,7 +118,9 @@ module @ax.agent version "0.1" {
       core.set %state["llm_query_signature"] = %llm_query_signature
       %llm_query_description = core.let "You answer ONE focused question using only the provided context object. Return just the answer text — concise, specific, and grounded in the context. Do not restate the question."
       core.set %state["llm_query_description"] = %llm_query_description
-      %responder_signature = core.call @build_responder_signature(%sig, %context_fields)
+      %citations = core.call @resolve_agent_citations(%options, %sig)
+      core.set %state["citations"] = %citations
+      %responder_signature = core.call @build_responder_signature(%sig, %context_fields, %citations)
       core.set %state["responder_signature"] = %responder_signature
       core.set %state["chat_log"] = %chat_log
       core.set %state["usage"] = %usage
@@ -195,6 +197,19 @@ module @ax.agent version "0.1" {
         %distiller_description = core.call @render_rlm_distiller_description(%state, %options)
         core.set %state["distiller_description"] = %distiller_description
       }
+      %executor_description_base = core.get %state["executor_description"] default ""
+      core.set %state["executor_description_base"] = %executor_description_base
+      %stage_instruction = core.get %options["instruction"] default ""
+      core.set %state["stage_instruction"] = %stage_instruction
+      %instruction_addenda_camel = core.get %options["instructionAddenda"] default %empty_list
+      %instruction_addenda = core.get %options["instruction_addenda"] default %instruction_addenda_camel
+      %instruction_addenda_is_list = core.type_is %instruction_addenda type "list"
+      core.if %instruction_addenda_is_list {
+      } else {
+        %instruction_addenda = core.let %empty_list
+      }
+      core.set %state["instruction_addenda"] = %instruction_addenda
+      core.call @agent_refresh_actor_instruction(%state)
       core.return %state
     }
   }
@@ -624,10 +639,6 @@ module @ax.agent version "0.1" {
       %domain_hint_left = core.call intrinsic.or(%module_hint_enabled, %skills_hint_enabled)
       %relevance_hints_enabled = core.call intrinsic.or(%domain_hint_left, %memories_hint_enabled)
       %combined_discovery_skills = core.call intrinsic.and(%function_discovery, %skills_mode)
-      // Direct-respond: 'auto' (default) lets the distiller end the run with
-      // respond(task, evidence) and skip the executor. Static (no callables)
-      // agents run respond-only; agents with callables get respond alongside
-      // final under the covenant. 'off' removes the primitive everywhere.
       %direct_response_camel = core.get %options["directResponse"] default "auto"
       %direct_response = core.get %options["direct_response"] default %direct_response_camel
       %direct_response_is_auto = core.call intrinsic.eq(%direct_response, "auto")
@@ -1516,11 +1527,6 @@ module @ax.agent version "0.1" {
       %empty_map = core.map
       %contract = core.get %state["runtime_contract"] default %empty_map
       %shared_flags = core.call @build_rlm_flags(%state)
-      // Direct-respond flags are distiller-prompt concerns. The executor's
-      // primitives render must never see `directRespondOnly` — its `final`
-      // stays visible even for static agents (the executor still runs when a
-      // distiller deviates and ends with `final`). Cloned first: the shared
-      // map is state-resident and the distiller renders after this one.
       %flags_base = core.map
       %flags = core.call intrinsic.map.merge(%flags_base, %shared_flags)
       core.set %flags["directRespondMode"] = false
@@ -4553,6 +4559,159 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_refresh_actor_instruction {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> string"
+    body @entry(%state: json) {
+      %parts = core.list
+      %instruction = core.get %state["stage_instruction"] default ""
+      %instruction_trimmed = core.string_trim %instruction
+      %has_instruction = core.call intrinsic.ne(%instruction_trimmed, "")
+      core.if %has_instruction {
+        core.append %parts, %instruction_trimmed
+      }
+      %base = core.get %state["executor_description_base"] default ""
+      %base_trimmed = core.string_trim %base
+      %has_base = core.call intrinsic.ne(%base_trimmed, "")
+      core.if %has_base {
+        core.append %parts, %base_trimmed
+      }
+      %empty_list = core.list
+      %addenda = core.get %state["instruction_addenda"] default %empty_list
+      core.for %addendum in %addenda {
+        %addendum_is_string = core.type_is %addendum type "string"
+        core.if %addendum_is_string {
+          %addendum_trimmed = core.string_trim %addendum
+          %has_addendum = core.call intrinsic.ne(%addendum_trimmed, "")
+          core.if %has_addendum {
+            core.append %parts, %addendum_trimmed
+          }
+        }
+      }
+      %composed = core.call intrinsic.string.join("\n\n", %parts)
+      core.set %state["executor_description"] = %composed
+      %empty_map = core.map
+      %options = core.get %state["options"] default %empty_map
+      core.set %options["instruction"] = %instruction_trimmed
+      core.set %options["instructionAddenda"] = %addenda
+      core.set %state["options"] = %options
+      core.return %composed
+    }
+  }
+
+  op ax.agent.semantic @agent_set_instruction {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string) -> string"
+    body @entry(%state: json, %instruction: string) {
+      %trimmed = core.string_trim %instruction
+      core.set %state["stage_instruction"] = %trimmed
+      %composed = core.call @agent_refresh_actor_instruction(%state)
+      core.return %composed
+    }
+  }
+
+  op ax.agent.semantic @agent_add_actor_instruction {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string) -> string"
+    body @entry(%state: json, %addendum: string) {
+      %trimmed = core.string_trim %addendum
+      %has_addendum = core.call intrinsic.ne(%trimmed, "")
+      core.if %has_addendum {
+        %empty_list = core.list
+        %addenda = core.get %state["instruction_addenda"] default %empty_list
+        core.append %addenda, %trimmed
+        core.set %state["instruction_addenda"] = %addenda
+      }
+      %composed = core.call @agent_refresh_actor_instruction(%state)
+      core.return %composed
+    }
+  }
+
+  op ax.agent.semantic @agent_get_optimizable_components {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, list<json>) -> list<json>"
+    body @entry(%state: json, %child_components: json) {
+      %components = core.list
+      core.for %component in %child_components {
+        %id = core.get %component["id"] default ""
+        %kind = core.get %component["kind"] default ""
+        %is_instruction = core.call intrinsic.eq(%kind, "instruction")
+        %is_actor_instruction = core.call intrinsic.contains(%id, ".actor::instruction")
+        %is_dead_instruction = core.call intrinsic.and(%is_instruction, %is_actor_instruction)
+        %keep = core.call intrinsic.not(%is_dead_instruction)
+        core.if %keep {
+          core.append %components, %component
+        }
+      }
+      %instruction_component = core.map
+      core.set %instruction_component["id"] = "root::instruction"
+      core.set %instruction_component["owner"] = "root"
+      core.set %instruction_component["kind"] = "instruction"
+      %instruction = core.get %state["stage_instruction"] default ""
+      core.set %instruction_component["current"] = %instruction
+      core.set %instruction_component["description"] = "High-level instruction rendered at the top of the actor definition; survives stage rebuilds."
+      core.set %instruction_component["constraints"] = "Keep this as a concise standing strategy or rule."
+      core.set %instruction_component["format"] = "text"
+      core.append %components, %instruction_component
+      %runtime_component = core.map
+      core.set %runtime_component["id"] = "root.agent.runtime"
+      core.set %runtime_component["owner"] = "root.agent"
+      core.set %runtime_component["kind"] = "runtime-policy"
+      %empty_map = core.map
+      %runtime = core.get %state["runtime_contract"] default %empty_map
+      core.set %runtime_component["current"] = %runtime
+      core.set %runtime_component["description"] = "Agent runtime-language metadata and code-field policy."
+      core.set %runtime_component["format"] = "json"
+      core.append %components, %runtime_component
+      %policy_component = core.map
+      core.set %policy_component["id"] = "root.agent.policy"
+      core.set %policy_component["owner"] = "root.agent"
+      core.set %policy_component["kind"] = "agent-policy"
+      %policy = core.get %state["policy"] default %empty_map
+      core.set %policy_component["current"] = %policy
+      core.set %policy_component["description"] = "Actor primitive, discovery, delegation, and prompt placement policy."
+      core.set %policy_component["format"] = "json"
+      core.append %components, %policy_component
+      core.return %components
+    }
+  }
+
+  op ax.agent.semantic @agent_apply_optimized_components {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> string"
+    body @entry(%state: json, %component_map: json) {
+      %has_instruction = core.call intrinsic.map.contains(%component_map, "root::instruction")
+      core.if %has_instruction {
+        %instruction = core.get %component_map["root::instruction"] default ""
+        core.call @agent_set_instruction(%state, %instruction)
+      }
+      %has_runtime = core.call intrinsic.map.contains(%component_map, "root.agent.runtime")
+      core.if %has_runtime {
+        %runtime = core.get %component_map["root.agent.runtime"]
+        core.set %state["runtime_contract"] = %runtime
+      }
+      %has_policy = core.call intrinsic.map.contains(%component_map, "root.agent.policy")
+      core.if %has_policy {
+        %policy = core.get %component_map["root.agent.policy"]
+        core.set %state["policy"] = %policy
+      }
+      %metadata = core.call @agent_optimizer_metadata(%state)
+      core.set %state["optimizer_metadata"] = %metadata
+      %composed = core.get %state["executor_description"] default ""
+      core.return %composed
+    }
+  }
+
   op ax.agent.trace @agent_begin_trace {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -4651,6 +4810,7 @@ module @ax.agent version "0.1" {
       %action_log = core.get %state["action_log"] default %empty_list
       %policy_trace = core.get %state["policy_trace"] default %empty_list
       %function_traces = core.get %state["function_call_traces"] default %empty_list
+      %failure_signals = core.get %state["failure_signals"] default %empty_list
       %optimizer = core.get %state["optimizer_metadata"] default %empty_map
       core.set %trace["status"] = %status
       core.set %trace["final_output"] = %output
@@ -4660,6 +4820,7 @@ module @ax.agent version "0.1" {
       core.set %trace["action_log"] = %action_log
       core.set %trace["policy_trace"] = %policy_trace
       core.set %trace["function_call_traces"] = %function_traces
+      core.set %trace["failure_signals"] = %failure_signals
       core.set %trace["optimizer_metadata"] = %optimizer
       core.set %state["trace"] = %trace
       core.return %trace
@@ -4687,6 +4848,7 @@ module @ax.agent version "0.1" {
       %action_log = core.get %state["action_log"] default %empty_list
       %policy_trace = core.get %state["policy_trace"] default %empty_list
       %function_traces = core.get %state["function_call_traces"] default %empty_list
+      %failure_signals = core.get %state["failure_signals"] default %empty_list
       %optimizer = core.get %state["optimizer_metadata"] default %empty_map
       core.set %trace["event_count"] = %event_count
       core.set %trace["usage"] = %usage
@@ -4694,6 +4856,7 @@ module @ax.agent version "0.1" {
       core.set %trace["action_log"] = %action_log
       core.set %trace["policy_trace"] = %policy_trace
       core.set %trace["function_call_traces"] = %function_traces
+      core.set %trace["failure_signals"] = %failure_signals
       core.set %trace["optimizer_metadata"] = %optimizer
       core.set %state["trace"] = %trace
       core.return %trace
@@ -6146,12 +6309,6 @@ module @ax.agent version "0.1" {
       %cm_state = core.get %state["context_map"] default null
       %cm_text = core.get %cm_state["text"] default ""
       %cm_has = core.call intrinsic.ne(%cm_text, "")
-      // Keep raw context fields OUT of the distiller prompt — they live in the runtime
-      // as inputs.<field>. Pass only lightweight metadata so the model reads/narrows
-      // them with code (and the persistent runtime keeps the narrowed result) instead
-      // of retyping the whole payload into the prompt each turn, which stalls the loop
-      // on large contexts. Mirrors the TS contextMetadata field + the contextFields
-      // promise that large context never inflates the model prompt.
       %ctx_out = core.map
       core.for %ck in %context {
         %cv = core.get %context[%ck]
@@ -6276,6 +6433,12 @@ module @ax.agent version "0.1" {
       %args = core.get %executor_payload["args"] default %empty_list
       %task = core.call intrinsic.list.get(%args, 0, "")
       %context = core.call intrinsic.list.get(%args, 1, %empty_map)
+      %args_count = core.call intrinsic.len(%args)
+      %has_evidence_arg = core.call intrinsic.gt(%args_count, 1)
+      %context_is_object = core.type_is %context type "object"
+      %evidence_present = core.call intrinsic.and(%has_evidence_arg, %context_is_object)
+      core.set %state["responder_evidence_present"] = %evidence_present
+      core.set %state["responder_evidence"] = %context
       %context_data = core.map
       core.set %context_data["task"] = %task
       core.set %context_data["evidence"] = %context
@@ -6357,8 +6520,8 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json) -> string"
-    body @entry(%sig: json, %context_fields: json) {
+    type signature = "(json, json, json) -> string"
+    body @entry(%sig: json, %context_fields: json, %citations: json) {
       %empty_list = core.list
       %input_fields = core.get %sig["input_fields"] default %empty_list
       %output_fields = core.get %sig["output_fields"] default %empty_list
@@ -6389,6 +6552,26 @@ module @ax.agent version "0.1" {
         %otok = core.call @agent_render_field_token(%ofield)
         core.append %output_tokens, %otok
       }
+      %citations_enabled = core.get %citations["enabled"] default false
+      core.if %citations_enabled {
+        %citations_field = core.map
+        %citations_name = core.get %citations["field"] default "evidenceCitations"
+        core.set %citations_field["name"] = %citations_name
+        core.set %citations_field["title"] = "Evidence Citations"
+        %include_memory_ids = core.get %citations["includeMemoryIds"] default true
+        %citations_description = core.let "IDs of the evidence entries that directly support the answer: use the exact top-level keys of the contextData.evidence object. Cite only entries actually used. Leave empty when contextData.evidence is absent or was not needed."
+        core.if %include_memory_ids {
+          %citations_description = core.let "IDs of the evidence entries that directly support the answer: use the exact top-level keys of the contextData.evidence object, plus the id of any records inside it that were relied on (e.g. loaded memories). Cite only entries actually used. Leave empty when contextData.evidence is absent or was not needed."
+        }
+        core.set %citations_field["description"] = %citations_description
+        %citations_type = core.map
+        core.set %citations_type["name"] = "string"
+        core.set %citations_type["is_array"] = true
+        core.set %citations_field["type"] = %citations_type
+        core.set %citations_field["is_optional"] = true
+        %citations_token = core.call @agent_render_field_token(%citations_field)
+        core.append %output_tokens, %citations_token
+      }
       %inputs_joined = core.call intrinsic.string.join(", ", %input_tokens)
       %outputs_joined = core.call intrinsic.string.join(", ", %output_tokens)
       %body_parts = core.list
@@ -6403,6 +6586,368 @@ module @ax.agent version "0.1" {
       core.append %body_parts, %outputs_joined
       %sig_string = core.call intrinsic.string.join("", %body_parts)
       core.return %sig_string
+    }
+  }
+
+  op ax.agent.semantic @resolve_agent_citations {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> json throws"
+    body @entry(%options: json, %sig: json) {
+      %out = core.map
+      %raw = core.get %options["citations"] default false
+      %enabled = core.let false
+      %field = core.let "evidenceCitations"
+      %surface = core.let "output"
+      %include_memory_ids = core.let true
+      %raw_is_bool = core.type_is %raw type "boolean"
+      core.if %raw_is_bool {
+        %enabled = core.let %raw
+      }
+      %raw_is_object = core.type_is %raw type "object"
+      core.if %raw_is_object {
+        %enabled = core.let true
+        %field = core.get %raw["field"] default "evidenceCitations"
+        %surface = core.get %raw["surface"] default "output"
+        %include_memory_ids = core.get %raw["includeMemoryIds"] default true
+      }
+      core.if %enabled {
+        %valid_field = core.regex_match %field pattern "^[A-Za-z][A-Za-z0-9_]*$"
+        %bad_field = core.call intrinsic.not(%valid_field)
+        core.if %bad_field {
+          %message = core.call intrinsic.string.format("citations.field must be a valid field name, got {}", %field)
+          %error = core.call intrinsic.error.runtime(%message)
+          core.raise %error
+        }
+        %is_context_data = core.call intrinsic.eq(%field, "contextData")
+        core.if %is_context_data {
+          %error = core.call intrinsic.error.runtime("AxAgent: citations.field cannot be contextData; it is the reserved responder evidence input")
+          core.raise %error
+        }
+        %is_output = core.call intrinsic.eq(%surface, "output")
+        %is_hidden = core.call intrinsic.eq(%surface, "hidden")
+        %valid_surface = core.call intrinsic.or(%is_output, %is_hidden)
+        %bad_surface = core.call intrinsic.not(%valid_surface)
+        core.if %bad_surface {
+          %error = core.call intrinsic.error.runtime("citations.surface must be output or hidden")
+          core.raise %error
+        }
+        %empty_list = core.list
+        %outputs = core.get %sig["output_fields"] default %empty_list
+        core.for %output_field in %outputs {
+          %output_name = core.get %output_field["name"] default ""
+          %collision = core.call intrinsic.eq(%output_name, %field)
+          core.if %collision {
+            %message = core.call intrinsic.string.format("AxAgent: citations.field {} collides with an output field of the agent signature", %field)
+            %error = core.call intrinsic.error.runtime(%message)
+            core.raise %error
+          }
+        }
+      }
+      core.set %out["enabled"] = %enabled
+      core.set %out["field"] = %field
+      core.set %out["surface"] = %surface
+      core.set %out["includeMemoryIds"] = %include_memory_ids
+      core.return %out
+    }
+  }
+
+  op ax.agent.semantic @agent_collect_citation_ids {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, i64) -> json"
+    body @entry(%ids: json, %node: json, %depth: i64) {
+      %has_depth = core.call intrinsic.gte(%depth, 0)
+      core.if %has_depth {
+        %is_object = core.type_is %node type "object"
+        core.if %is_object {
+          %id = core.get %node["id"] default null
+          %id_is_string = core.type_is %id type "string"
+          %id_is_number = core.type_is %id type "number"
+          %valid_id = core.call intrinsic.or(%id_is_string, %id_is_number)
+          core.if %valid_id {
+            %id_text = core.call intrinsic.string.format("{}", %id)
+            core.set %ids[%id_text] = true
+          }
+          %next_depth = core.call intrinsic.add(%depth, -1)
+          %children = core.call intrinsic.map.values(%node)
+          core.for %child in %children {
+            %ids = core.call @agent_collect_citation_ids(%ids, %child, %next_depth)
+          }
+        } else {
+          %is_list = core.type_is %node type "list"
+          core.if %is_list {
+            %next_depth = core.call intrinsic.add(%depth, -1)
+            core.for %child in %node {
+              %ids = core.call @agent_collect_citation_ids(%ids, %child, %next_depth)
+            }
+          }
+        }
+      }
+      core.return %ids
+    }
+  }
+
+  op ax.agent.semantic @agent_validate_citations {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> bool"
+    body @entry(%state: json, %output: json) {
+      %empty_map = core.map
+      %citations = core.get %state["citations"] default %empty_map
+      %enabled = core.get %citations["enabled"] default false
+      %disabled = core.call intrinsic.not(%enabled)
+      core.if %disabled {
+        core.return true
+      }
+      %evidence_present = core.get %state["responder_evidence_present"] default false
+      %no_evidence_contract = core.call intrinsic.not(%evidence_present)
+      core.if %no_evidence_contract {
+        core.return true
+      }
+      %field = core.get %citations["field"] default "evidenceCitations"
+      %raw = core.get %output[%field] default null
+      %missing = core.call intrinsic.is_none(%raw)
+      core.if %missing {
+        core.return true
+      }
+      %ids = core.map
+      %evidence = core.get %state["responder_evidence"] default %empty_map
+      %keys = core.call intrinsic.map.keys(%evidence)
+      core.for %key in %keys {
+        core.set %ids[%key] = true
+      }
+      %include_memory_ids = core.get %citations["includeMemoryIds"] default true
+      core.if %include_memory_ids {
+        %values = core.call intrinsic.map.values(%evidence)
+        core.for %value in %values {
+          %ids = core.call @agent_collect_citation_ids(%ids, %value, 2)
+        }
+      }
+      %empty_list = core.list
+      %cited = core.let %empty_list
+      %raw_is_list = core.type_is %raw type "list"
+      core.if %raw_is_list {
+        %cited = core.let %raw
+      } else {
+        core.append %cited, %raw
+      }
+      %valid = core.let true
+      core.for %raw_id in %cited {
+        %id_text = core.call intrinsic.string.format("{}", %raw_id)
+        %known = core.call intrinsic.map.contains(%ids, %id_text)
+        %unknown = core.call intrinsic.not(%known)
+        core.if %unknown {
+          %valid = core.let false
+        }
+      }
+      core.return %valid
+    }
+  }
+
+  op ax.agent.semantic @agent_finalize_citations {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> json"
+    body @entry(%state: json, %output: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %citations = core.get %state["citations"] default %empty_map
+      %enabled = core.get %citations["enabled"] default false
+      core.if %enabled {
+        %field = core.get %citations["field"] default "evidenceCitations"
+        %raw = core.get %output[%field] default %empty_list
+        core.set %state["last_citations"] = %raw
+        %surface = core.get %citations["surface"] default "output"
+        %hidden = core.call intrinsic.eq(%surface, "hidden")
+        core.if %hidden {
+          core.call intrinsic.map.delete(%output, %field)
+        }
+      }
+      core.return %output
+    }
+  }
+
+  op ax.agent.semantic @agent_collect_covered_failure_signatures {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    tag "source:src/ax/agent/playbookConfig.ts#collectCoveredFailureSignatures"
+    type signature = "(snapshot:json) -> list<string>"
+    body @entry(%snapshot: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %live_ids = core.map
+      %playbook = core.get %snapshot["playbook"] default %empty_map
+      %sections = core.get %playbook["sections"] default %empty_map
+      %section_names = core.call intrinsic.map.keys(%sections)
+      core.for %section_name in %section_names {
+        %bullets = core.get %sections[%section_name] default %empty_list
+        core.for %bullet in %bullets {
+          %bullet_id = core.get %bullet["id"] default null
+          %has_bullet_id = core.call intrinsic.is_not_none(%bullet_id)
+          core.if %has_bullet_id {
+            %bullet_id_text = core.call intrinsic.string.format("{}", %bullet_id)
+            core.set %live_ids[%bullet_id_text] = true
+          }
+        }
+      }
+      %artifact = core.get %snapshot["artifact"] default %empty_map
+      %feedback = core.get %artifact["feedback"] default %empty_list
+      %history = core.get %artifact["history"] default %empty_list
+      %covered_ids = core.map
+      %covered = core.list
+      %event_index = core.let 0
+      core.for %event in %feedback {
+        %example = core.get %event["example"] default %empty_map
+        %signatures_raw = core.get %example["failureSignatures"] default %empty_list
+        %signatures_is_list = core.type_is %signatures_raw type "list"
+        %signatures = core.list
+        core.if %signatures_is_list {
+          %signatures = core.let %signatures_raw
+        }
+        %signature_count = core.call intrinsic.len(%signatures)
+        %has_signatures = core.call intrinsic.gt(%signature_count, 0)
+        core.if %has_signatures {
+          %deltas = core.list
+          core.for %entry in %history {
+            %source = core.get %entry["source"] default ""
+            %is_online = core.call intrinsic.eq(%source, "online")
+            %entry_index = core.get %entry["exampleIndex"] default -2
+            %index_lte = core.call intrinsic.lte(%entry_index, %event_index)
+            %index_gte = core.call intrinsic.gte(%entry_index, %event_index)
+            %same_index = core.call intrinsic.and(%index_lte, %index_gte)
+            %matching_delta = core.call intrinsic.and(%is_online, %same_index)
+            core.if %matching_delta {
+              core.append %deltas, %entry
+            }
+          }
+          %delta_count = core.call intrinsic.len(%deltas)
+          %has_deltas = core.call intrinsic.gt(%delta_count, 0)
+          %alive = core.let false
+          core.if %has_deltas {
+            core.for %delta in %deltas {
+              %has_updated_ids = core.call intrinsic.map.contains(%delta, "updatedBulletIds")
+              %legacy_delta = core.call intrinsic.not(%has_updated_ids)
+              core.if %legacy_delta {
+                %alive = core.let true
+              } else {
+                %updated_ids = core.get %delta["updatedBulletIds"] default %empty_list
+                core.for %updated_id in %updated_ids {
+                  %updated_id_text = core.call intrinsic.string.format("{}", %updated_id)
+                  %still_live = core.call intrinsic.map.contains(%live_ids, %updated_id_text)
+                  core.if %still_live {
+                    %alive = core.let true
+                  }
+                }
+              }
+            }
+          } else {
+            %curator = core.get %event["curator"] default null
+            %curator_ran = core.call intrinsic.is_not_none(%curator)
+            %alive = core.let %curator_ran
+          }
+          core.if %alive {
+            core.for %signature in %signatures {
+              %signature_text = core.call intrinsic.string.format("{}", %signature)
+              %already_covered = core.call intrinsic.map.contains(%covered_ids, %signature_text)
+              %newly_covered = core.call intrinsic.not(%already_covered)
+              core.if %newly_covered {
+                core.set %covered_ids[%signature_text] = true
+                core.append %covered, %signature_text
+              }
+            }
+          }
+        }
+        %next_event_index = core.call intrinsic.add(%event_index, 1)
+        %event_index = core.let %next_event_index
+      }
+      core.return %covered
+    }
+  }
+
+  op ax.agent.semantic @agent_build_failure_signals {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(state:json) -> list<json>"
+    body @entry(%state: json) {
+      %empty_list = core.list
+      %signals = core.list
+      %action_log = core.get %state["action_log"] default %empty_list
+      %previous_signature = core.let ""
+      core.for %entry in %action_log {
+        %is_error = core.call @agent_entry_is_error(%entry)
+        core.if %is_error {
+          %detail = core.get %entry["error"] default ""
+          %detail_empty = core.call intrinsic.eq(%detail, "")
+          core.if %detail_empty {
+            %detail = core.get %entry["output"] default ""
+          }
+          %detail_empty = core.call intrinsic.eq(%detail, "")
+          core.if %detail_empty {
+            %detail = core.get %entry["error_category"] default "runtime error"
+          }
+          %detail_preview = core.call intrinsic.string.slice(%detail, 0, 200)
+          %category = core.get %entry["error_category"] default "runtime_error"
+          %signature_detail = core.call intrinsic.string.slice(%detail, 0, 96)
+          %signature = core.call intrinsic.string.format("{}:{}", %category, %signature_detail)
+          %kind = core.let "error_turn"
+          %repeated = core.call intrinsic.eq(%signature, %previous_signature)
+          core.if %repeated {
+            %kind = core.let "dead_end"
+          }
+          %signal = core.map
+          core.set %signal["kind"] = %kind
+          %turn = core.get %entry["turn"] default 0
+          core.set %signal["turn"] = %turn
+          core.set %signal["signature"] = %signature
+          core.set %signal["detail"] = %detail_preview
+          %code = core.get %entry["code"] default ""
+          %has_code = core.call intrinsic.ne(%code, "")
+          core.if %has_code {
+            %code_preview = core.call intrinsic.string.slice(%code, 0, 240)
+            core.set %signal["code"] = %code_preview
+          }
+          core.set %signal["occurrences"] = 1
+          core.append %signals, %signal
+          %previous_signature = core.let %signature
+        }
+      }
+      %function_traces = core.get %state["function_call_traces"] default %empty_list
+      core.for %call in %function_traces {
+        %status = core.get %call["status"] default "ok"
+        %failed = core.call intrinsic.eq(%status, "error")
+        core.if %failed {
+          %result = core.get %call["result"] default null
+          %error_text = core.get %result["error"] default "tool call failed"
+          %error_preview = core.call intrinsic.string.slice(%error_text, 0, 120)
+          %qualified_name = core.get %call["qualified_name"] default "tool"
+          %signature_error = core.call intrinsic.string.slice(%error_text, 0, 60)
+          %signature = core.call intrinsic.string.format("{}:{}", %qualified_name, %signature_error)
+          %detail = core.call intrinsic.string.format("{} failed: {}", %qualified_name, %error_preview)
+          %signal = core.map
+          core.set %signal["kind"] = "tool_error"
+          core.set %signal["turn"] = 0
+          core.set %signal["signature"] = %signature
+          core.set %signal["detail"] = %detail
+          %arguments = core.get %call["arguments"] default null
+          %has_arguments = core.call intrinsic.is_not_none(%arguments)
+          core.if %has_arguments {
+            %arguments_text = core.call intrinsic.string.format("{}", %arguments)
+            %arguments_preview = core.call intrinsic.string.slice(%arguments_text, 0, 240)
+            core.set %signal["code"] = %arguments_preview
+          }
+          core.set %signal["occurrences"] = 1
+          core.append %signals, %signal
+        }
+      }
+      core.set %state["failure_signals"] = %signals
+      core.return %signals
     }
   }
 
@@ -6633,7 +7178,7 @@ module @ax.agent version "0.1" {
     attr emit_module = "agent"
     attr private = true
     type signature = "() -> json"
-    body @entry() {
+    body @entry {
       %sections = core.list
       %s1 = core.map
       core.set %s1["name"] = "context_roadmap"
@@ -7248,12 +7793,6 @@ module @ax.agent version "0.1" {
       }
       core.call @throw_agent_clarification(%distiller_payload, %state)
       %executor_payload = core.call intrinsic.none()
-      // Direct-respond skip: a distiller `respond(task, evidence)` completion
-      // ends the run without the executor stage. The payload is re-typed to
-      // `final` so the responder consumes it exactly like an executor
-      // final(task, evidence); the respond binding already carried real
-      // evidence across the runtime boundary. The live runtime session (set
-      // above) stays in state, so cross-run continuity is unchanged.
       %distiller_payload_type = core.get %distiller_payload["type"] default ""
       %distiller_is_respond = core.call intrinsic.eq(%distiller_payload_type, "respond")
       core.if %distiller_is_respond {
@@ -7280,10 +7819,6 @@ module @ax.agent version "0.1" {
       %run_executor = core.call intrinsic.not(%distiller_is_respond)
       %runtime_executor_enabled = core.call intrinsic.and(%run_executor, %runtime_enabled)
       core.if %runtime_executor_enabled {
-        // Expose the distiller's handoff (executorRequest + distilledContext) in the
-        // executor's runtime as inputs.executorRequest / inputs.distilledContext, so
-        // the model references them in code (e.g. final(task, inputs.distilledContext))
-        // instead of finding them undefined or retyping the evidence from the prompt.
         %exec_empty_map = core.map
         %exec_empty_list = core.list
         %exec_args = core.get %distiller_payload["args"] default %exec_empty_list
@@ -7348,8 +7883,6 @@ module @ax.agent version "0.1" {
           %completion_payload = core.get %runtime_step["completion_payload"] default null
           %has_completion = core.type_is %completion_payload type "object"
           core.if %has_completion {
-            // An executor-phase respond() aliases to final: the payload shape
-            // is identical and the skip decision belongs to the distiller.
             %executor_completion_type = core.get %completion_payload["type"] default ""
             %executor_completion_is_respond = core.call intrinsic.eq(%executor_completion_type, "respond")
             core.if %executor_completion_is_respond {
@@ -7379,7 +7912,6 @@ module @ax.agent version "0.1" {
         core.call @agent_record_trace_event(%state, "stage_response", %executor_response_event)
         %executor_payload = core.call @normalize_agent_completion_payload(%executor_output)
         core.call @throw_agent_clarification(%executor_payload, %state)
-        // Executor-phase respond() aliases to final (see the runtime loop).
         %executor_payload_type = core.get %executor_payload["type"] default ""
         %executor_payload_is_respond = core.call intrinsic.eq(%executor_payload_type, "respond")
         core.if %executor_payload_is_respond {
@@ -7397,6 +7929,31 @@ module @ax.agent version "0.1" {
       core.set %responder_request_event["component_id"] = "agent.stage.responder"
       core.call @agent_record_trace_event(%state, "stage_request", %responder_request_event)
       %responder_output = core.call intrinsic.agent.stage_forward(%responder, %client, %responder_values, %responder_options)
+      %citation_retry_options = core.map
+      %citation_retry_options = core.call intrinsic.map.merge(%citation_retry_options, %responder_options)
+      %citations_valid = core.call @agent_validate_citations(%state, %responder_output)
+      %citations_invalid = core.call intrinsic.not(%citations_valid)
+      core.if %citations_invalid {
+        %invalid_citations_output = core.call intrinsic.json.stringify(%responder_output)
+        %citation_retry_feedback = core.call intrinsic.string.format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", %invalid_citations_output)
+        core.set %citation_retry_options["validation_feedback"] = %citation_retry_feedback
+        %responder_output = core.call intrinsic.agent.stage_forward(%responder, %client, %responder_values, %citation_retry_options)
+        %citations_valid = core.call @agent_validate_citations(%state, %responder_output)
+      }
+      %citations_invalid = core.call intrinsic.not(%citations_valid)
+      core.if %citations_invalid {
+        %invalid_citations_output = core.call intrinsic.json.stringify(%responder_output)
+        %citation_retry_feedback = core.call intrinsic.string.format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", %invalid_citations_output)
+        core.set %citation_retry_options["validation_feedback"] = %citation_retry_feedback
+        %responder_output = core.call intrinsic.agent.stage_forward(%responder, %client, %responder_values, %citation_retry_options)
+        %citations_valid = core.call @agent_validate_citations(%state, %responder_output)
+      }
+      %citations_invalid = core.call intrinsic.not(%citations_valid)
+      core.if %citations_invalid {
+        %error = core.call intrinsic.error.runtime("AxAgent responder returned citations that do not exist in the run evidence")
+        core.raise %error
+      }
+      %responder_output = core.call @agent_finalize_citations(%state, %responder_output)
       %responder_response_event = core.map
       core.set %responder_response_event["stage"] = "responder"
       core.set %responder_response_event["output"] = %responder_output
@@ -7407,6 +7964,7 @@ module @ax.agent version "0.1" {
       core.set %state["last_output"] = %responder_output
       core.set %state["chat_log"] = %logs
       core.set %state["usage"] = %usage
+      core.call @agent_build_failure_signals(%state)
       core.call @agent_finalize_trace(%state, "completed", %responder_output)
       core.return %responder_output
     }

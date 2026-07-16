@@ -1,0 +1,214 @@
+{
+  "ace_options": {
+    "maxReflectorRounds": 1
+  },
+  "curator_responses": [
+    {
+      "operations": [
+        {
+          "content": "Use the revised second rule.",
+          "section": "Guidelines",
+          "type": "UPDATE"
+        }
+      ],
+      "reasoning": "Replace the tagged rule."
+    }
+  ],
+  "expected_artifact": {
+    "feedback": [
+      {
+        "curator": {
+          "operations": [
+            {
+              "bulletId": "guidelines-00002",
+              "content": "Use the revised second rule.",
+              "section": "Guidelines",
+              "type": "UPDATE"
+            }
+          ],
+          "reasoning": "Replace the tagged rule."
+        },
+        "example": {
+          "answer": "a",
+          "question": "q"
+        },
+        "generatorOutput": {
+          "answer": {
+            "answer": "bad"
+          },
+          "bulletIds": [],
+          "reasoning": ""
+        },
+        "prediction": {
+          "answer": "bad"
+        },
+        "reflection": {
+          "bulletTags": [
+            {
+              "id": "guidelines-00002",
+              "tag": "unexpected"
+            }
+          ],
+          "correctApproach": "Replace the second rule",
+          "errorIdentification": "The second rule is stale",
+          "keyInsight": "Target the tagged rule",
+          "reasoning": "The second rule needs revision.",
+          "rootCauseAnalysis": "Its guidance no longer applies"
+        },
+        "score": 0,
+        "timestamp": "2024-01-02T03:04:05.000Z"
+      }
+    ],
+    "history": [
+      {
+        "epoch": -1,
+        "exampleIndex": 0,
+        "operations": [
+          {
+            "bulletId": "guidelines-00002",
+            "content": "Use the revised second rule.",
+            "section": "Guidelines",
+            "type": "UPDATE"
+          }
+        ],
+        "source": "online",
+        "updatedBulletIds": ["guidelines-00002"]
+      }
+    ],
+    "playbook": {
+      "sections": {
+        "Guidelines": [
+          {
+            "content": "Keep the first rule.",
+            "createdAt": "2023-12-01T00:00:00.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 0,
+            "id": "guidelines-00001",
+            "section": "Guidelines",
+            "updatedAt": "2023-12-01T00:00:00.000Z"
+          },
+          {
+            "content": "Use the revised second rule.",
+            "createdAt": "2023-12-01T00:00:00.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 0,
+            "id": "guidelines-00002",
+            "section": "Guidelines",
+            "updatedAt": "2024-01-02T03:04:05.000Z"
+          }
+        ]
+      },
+      "stats": {
+        "bulletCount": 2,
+        "harmfulCount": 0,
+        "helpfulCount": 0,
+        "tokenEstimate": 12
+      },
+      "updatedAt": "2024-01-02T03:04:05.000Z",
+      "version": 1
+    }
+  },
+  "expected_curator": {
+    "operations": [
+      {
+        "bulletId": "guidelines-00002",
+        "content": "Use the revised second rule.",
+        "section": "Guidelines",
+        "type": "UPDATE"
+      }
+    ],
+    "reasoning": "Replace the tagged rule."
+  },
+  "expected_playbook": {
+    "sections": {
+      "Guidelines": [
+        {
+          "content": "Keep the first rule.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "guidelines-00001",
+          "section": "Guidelines",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        },
+        {
+          "content": "Use the revised second rule.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "guidelines-00002",
+          "section": "Guidelines",
+          "updatedAt": "2024-01-02T03:04:05.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 2,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 12
+    },
+    "updatedAt": "2024-01-02T03:04:05.000Z",
+    "version": 1
+  },
+  "initial_playbook": {
+    "sections": {
+      "Guidelines": [
+        {
+          "content": "Keep the first rule.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "guidelines-00001",
+          "section": "Guidelines",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        },
+        {
+          "content": "Revise this rule.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "guidelines-00002",
+          "section": "Guidelines",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 2,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 10
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  },
+  "kind": "optimize",
+  "name": "ace-online-update-string-tag-shape",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "ace-online-update",
+  "reflection_responses": [
+    {
+      "bulletTags": [
+        {
+          "id": "guidelines-00002",
+          "tag": "unexpected"
+        }
+      ],
+      "correctApproach": "Replace the second rule",
+      "errorIdentification": "The second rule is stale",
+      "keyInsight": "Target the tagged rule",
+      "reasoning": "The second rule needs revision.",
+      "rootCauseAnalysis": "Its guidance no longer applies"
+    }
+  ],
+  "update": {
+    "example": {
+      "answer": "a",
+      "question": "q"
+    },
+    "prediction": {
+      "answer": "bad"
+    }
+  }
+}

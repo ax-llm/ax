@@ -292,6 +292,17 @@
           "// Save the returned artifact and load it at startup."
         ]
       },
+      "playbookEvolve": {
+        "sourcePath": "src/examples/typescript/optimization/agent-playbook-evolve.ts",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "const result = await support.playbook().evolve(",
+          "  { train, validation },",
+          "  { metric, maxProposals: 2, runsPerTask: 2, verbose: true }",
+          ");"
+        ]
+      },
       "longHorizon": {
         "illustrative": true,
         "code": [

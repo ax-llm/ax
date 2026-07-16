@@ -166,7 +166,7 @@ Route provider requests to registered provider clients.
 
 ## Agents And RLM
 
-Run AxAgent through the RLM executor loop, where actor-code steps execute through an AxCodeRuntime session.
+Run AxAgent through the RLM executor loop with stage instructions, validated evidence citations, persistent playbooks, and actor-code execution through an AxCodeRuntime session.
 
 ### `agent`
 
@@ -176,7 +176,7 @@ Create an AxAgent from a signature and agent/runtime options.
 - Kind: `function`
 - Form: `agent(spec: &str)`
 - Returns: `AxResult<AxAgent>`
-- Important options: name, description, runtime, maxSteps, context fields, discovery, recall, functions
+- Important options: name, description, runtime, maxSteps, context fields, discovery, recall, functions, citations, playbook, instruction, instructionAddenda
 
 ```rust
 let helper = agent("query:string -> answer:string")?;
@@ -184,13 +184,13 @@ let helper = agent("query:string -> answer:string")?;
 
 ### `AxAgent`
 
-RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, and final typed responses.
+RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.
 
 - Canonical Ax concept: `AxAgent`
 - Kind: `type`
 - Form: `AxAgent`
 - Returns: `agent program`
-- Important options: executor model, runtime, policy, context, optimizer metadata
+- Important options: executor model, runtime, policy, context, optimizer metadata, citations, playbook
 
 
 ## Flow
@@ -341,7 +341,7 @@ Optional runtime profile for javascript actor code.
 
 ## Optimizers
 
-Optimize Ax programs through BootstrapFewShot -> GEPA composition, portable component maps, evaluator rows, artifacts, and generated engines.
+Optimize Ax programs through BootstrapFewShot -> GEPA composition and evolve program or agent playbooks through grounded, budgeted, rollback-safe learning.
 
 ### `optimize`
 
@@ -356,6 +356,30 @@ Convenience optimizer helper that composes AxBootstrapFewShot before AxGEPA and 
 ```rust
 let artifact = optimize(&mut qa, train, json!({"maxMetricCalls": 100}))?;
 ```
+
+### `playbook`
+
+Bind an ACE-backed playbook to a program; agents also expose an agent-bound playbook handle.
+
+- Canonical Ax concept: `playbook`
+- Kind: `function`
+- Form: `playbook(program, student, teacher, options)`
+- Returns: `AxPlaybook`
+- Important options: student/client, teacher, seed snapshot, online updates, verification budget
+
+```rust
+let pb = playbook(program, student, None::<Rc<RefCell<OpenAICompatibleClient>>>, json!({}));
+```
+
+### `AxPlaybook`
+
+Persistent playbook with render/update/snapshot operations and agent-bound verified evolve over train/validation task sets.
+
+- Canonical Ax concept: `AxPlaybook`
+- Kind: `type`
+- Form: `AxPlaybook / agent.playbook(...)`
+- Returns: `playbook handle`
+- Important options: verify, minHeldInGain, epsilon, runsPerTask, maxMetricCalls, maxProposals
 
 ### `AxBootstrapFewShot`
 

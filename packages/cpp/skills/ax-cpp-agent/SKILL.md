@@ -1,6 +1,6 @@
 ---
 name: "ax-cpp-agent"
-description: "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, clarification, runtime state, final typed responses, and direct-respond executor skipping."
+description: "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping."
 version: "23.0.1"
 ---
 # AxAgent For C++
@@ -11,6 +11,8 @@ This skill helps an agent write C++ code with the generated Ax package `axllm`. 
 
 - Create an RLM agent with tools, child agents, or MCP clients.
 - Use clarification, discovery, recall, final, or respond envelopes.
+- Require evidence citations, attach a persistent playbook, or add stage-owned actor instructions.
+- Harvest run-end failures into the playbook and observe citation or playbook updates.
 - Skip the executor stage for no-tool tasks with a distiller `respond` envelope (`directResponse`, on by default).
 - Save and restore agent runtime state around long-running tasks.
 

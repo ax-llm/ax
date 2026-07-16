@@ -39,7 +39,7 @@ llm := ax.NewAI("openai", map[string]ax.Value{"apiKey": os.Getenv("OPENAI_API_KE
 - AxAI: `axllm.NewAI`, `axllm.OpenAICompatibleClient`, `axllm.OpenAIResponsesClient`, `axllm.GoogleGeminiClient`, `axllm.AnthropicClient`, `axllm.AxBalancer`, `axllm.MultiServiceRouter`, `axllm.ProviderRouter`
 - Agents And RLM: `axllm.NewAgent`, `axllm.AxAgent`
 - Flow: `axllm.NewFlow`, `axllm.AxFlow`
-- Optimizers: `axllm.Optimize`, `axllm.AxBootstrapFewShot`, `axllm.AxGEPA`, `axllm.OptimizerEngine`, `axllm.OptimizerEvaluator`
+- Optimizers: `axllm.Optimize`, `axllm.Playbook`, `axllm.AxPlaybook`, `axllm.AxBootstrapFewShot`, `axllm.AxGEPA`, `axllm.OptimizerEngine`, `axllm.OptimizerEvaluator`
 
 ## Guardrails
 

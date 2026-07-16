@@ -440,6 +440,7 @@ async function renderContext(language, page) {
       'agent'
     ),
     agentOptimizeExample: snippetBlock(language, 'agents.optimize', 'agent'),
+    agentPlaybookEvolveExample: snippetBlock(language, 'agents.playbookEvolve'),
     agentLongHorizonExample: snippetBlock(
       language,
       'agents.longHorizon',

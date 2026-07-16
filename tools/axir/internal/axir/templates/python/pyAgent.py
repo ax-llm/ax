@@ -15,6 +15,7 @@ from .gen import (
     _ace_dedupe_playbook,
     _ace_empty_playbook,
     _ace_normalize_curator_operations,
+    _ace_normalize_reflection_bullet_tags,
     _ace_render_playbook,
     _ace_resolve_curator_operation_targets,
     _ace_update_bullet_feedback,
@@ -746,6 +747,8 @@ class AxACE:
             reflection = self._run_reflector(example, generator_output, feedback, previous)
             if not reflection:
                 break
+            reflection = dict(reflection)
+            reflection["bulletTags"] = _ace_normalize_reflection_bullet_tags(reflection)
             previous = reflection
             error_text = str(reflection.get("errorIdentification") or "").lower().strip()
             metadata = reflection.get("metadata") if isinstance(reflection, dict) else None
@@ -822,8 +825,7 @@ class AxACE:
                 if curator_result is not None:
                     curator_result["operations"] = resolved
         if isinstance(reflection, dict):
-            bullet_tags = reflection.get("bulletTags")
-            for tag in bullet_tags if isinstance(bullet_tags, list) else []:
+            for tag in _ace_normalize_reflection_bullet_tags(reflection):
                 tag = tag if isinstance(tag, dict) else {}
                 self.playbook = _ace_update_bullet_feedback(self.playbook, tag.get("id"), tag.get("tag"), self._now())
         if resolved and applied_ids:
@@ -844,6 +846,7 @@ class AxACE:
                 "epoch": epoch,
                 "exampleIndex": index,
                 "operations": curator_result.get("operations"),
+                "updatedBulletIds": list(applied_ids),
             })
         return curator_result, applied_ids
 
@@ -906,8 +909,7 @@ class AxACE:
             curator_result = dict(raw_curator or {})
             curator_result["operations"] = resolved
         if isinstance(reflection, dict):
-            bullet_tags = reflection.get("bulletTags")
-            for tag in bullet_tags if isinstance(bullet_tags, list) else []:
+            for tag in _ace_normalize_reflection_bullet_tags(reflection):
                 tag = tag if isinstance(tag, dict) else {}
                 self.playbook = _ace_update_bullet_feedback(self.playbook, tag.get("id"), tag.get("tag"), self._now())
         applied_ids = []
@@ -948,6 +950,7 @@ class AxACE:
                 "epoch": -1,
                 "exampleIndex": len(self.generator_history) - 1,
                 "operations": curator_result.get("operations"),
+                "updatedBulletIds": list(applied_ids),
             })
         return curator_result
 
@@ -975,6 +978,20 @@ _ACE_CURATOR_SIGNATURE = (
     'token_budget?:number "Approximate token budget for curator response" '
     '-> reasoning:string "Justification for the proposed updates", '
     'operations:json "List of operations with type/section/content fields"'
+)
+
+_AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE = (
+    'clusterSignature:string "Shared error signature of the cluster", '
+    'taskSummaries:string "One line per failing task", '
+    'actionLogExcerpts:string "Excerpts of the failing runs, centered on the failure", '
+    'functionCallSummary?:string "Digest of runtime/tool calls in the failing runs", '
+    'toolErrors?:string "Tool errors observed", '
+    'currentPlaybook?:string "The failure-avoidance playbook currently applied" '
+    '-> weaknessDescription:string "The recurring weakness, one sentence", '
+    'rootCause:string "Why the runs fail, mechanically", '
+    'proposedGuidance:string "One concise imperative avoidance rule", '
+    'evidenceQuotes:json "Verbatim substrings copied from actionLogExcerpts", '
+    'configRecommendations?:json "Setup suggestions no prompt text can fix"'
 )
 
 
@@ -1239,6 +1256,322 @@ def _score_optimization_prediction(task, prediction, options):
     return scores, scalar
 
 
+class AxAgentPlaybook:
+    """Agent-bound playbook with continuous updates and verified batch evolve."""
+
+    def __init__(self, agent, handle):
+        self.agent = agent
+        self.inner = handle
+
+    def update(self, args):
+        return self.inner.update(args)
+
+    def render(self):
+        return self.inner.render()
+
+    def get_state(self):
+        return self.inner.get_state()
+
+    def to_json(self):
+        return self.inner.to_json()
+
+    def load(self, snapshot):
+        self.inner.load(snapshot)
+        return self
+
+    def reset(self):
+        return self.inner.reset()
+
+    def configure_auto(self, level):
+        return self.inner.configure_auto(level)
+
+    def evolve(self, dataset, options: dict[str, Any] | None = None):
+        # Preserve the original stage-playbook overload: agent.playbook().evolve(
+        # examples, metric). Agent datasets use a mapping for the second argument.
+        if callable(options):
+            return self.inner.evolve(dataset, options)
+        opts = dict(options or {})
+        normalized = _normalize_optimization_dataset(dataset or [])
+        train = list(normalized.get("train") or [])
+        validation = list(normalized.get("validation") or [])
+        if not train:
+            raise ValueError("AxAgent.playbook().evolve(): at least one training task is required.")
+        client = _playbook_option(opts, "studentAI", "student_ai", "client", "ai") or self.inner.student_ai
+        teacher = _playbook_option(opts, "teacherAI", "teacher_ai", "teacher") or self.inner.teacher_ai or client
+        metric = opts.get("metric")
+        score_threshold = float(opts.get("scoreThreshold", opts.get("score_threshold", 0.7)))
+        min_gain = float(opts.get("minHeldInGain", opts.get("min_held_in_gain", 0.05)))
+        epsilon = float(opts.get("epsilon", 0.01))
+        verify = opts.get("verify", True) is not False
+        max_proposals = max(1, int(opts.get("maxProposals", opts.get("max_proposals", 4))))
+        runs_per_task = max(1, int(opts.get("runsPerTask", opts.get("runs_per_task", 1))))
+        dataset_size = (len(train) + len(validation)) * runs_per_task
+        max_metric_calls = max(1, int(opts.get(
+            "maxMetricCalls",
+            opts.get("max_metric_calls", max(100, (max_proposals + 1) * dataset_size)),
+        )))
+        remaining = [max_metric_calls]
+
+        def progress(phase, message):
+            callback = opts.get("onProgress") or opts.get("on_progress")
+            event = {"phase": phase, "message": message, "metricCallsUsed": max_metric_calls - remaining[0]}
+            if callable(callback):
+                callback(event)
+            if opts.get("verbose"):
+                print(f"[playbook.evolve] {phase}: {message}")
+
+        def run(tasks):
+            records = []
+            exhausted = False
+            for index, task in enumerate(tasks):
+                task = task if isinstance(task, dict) else {"input": task}
+                scores = []
+                prediction = None
+                error = None
+                for _ in range(runs_per_task):
+                    if remaining[0] <= 0:
+                        exhausted = True
+                        break
+                    remaining[0] -= 1
+                    try:
+                        prediction = self.agent.evaluate_optimization_task(client, task, opts)
+                        if callable(metric):
+                            score = float(metric({"example": task, "task": task, "prediction": prediction}))
+                        else:
+                            _, score = _score_optimization_prediction(task, prediction, opts)
+                    except Exception as exc:
+                        score = 0.0
+                        error = str(exc)
+                    scores.append(score if math.isfinite(score) else 0.0)
+                if not scores:
+                    break
+                score = sum(scores) / len(scores)
+                record = {"task": task, "score": score, "index": index, "passed": score >= score_threshold and (prediction or {}).get("completionType") == "final"}
+                if prediction is not None:
+                    record["prediction"] = prediction
+                elif error:
+                    record["error"] = error
+                records.append(record)
+                if len(scores) < runs_per_task:
+                    exhausted = True
+                    break
+            weight_sum = sum(float(record["task"].get("weight", 1)) for record in records)
+            mean = sum(float(record["task"].get("weight", 1)) * record["score"] for record in records) / weight_sum if weight_sum else 0.0
+            exhausted = exhausted or len(records) < len(tasks)
+            return records, mean, exhausted
+
+        def error_signature(value):
+            text = str(value or "")
+            match = re.search(r"^(\w+Error:\s*.{0,60})", text, re.MULTILINE)
+            return match.group(1) if match else text[:80]
+
+        def record_signature(record):
+            prediction = record.get("prediction") or {}
+            counts = {}
+            for signal in prediction.get("failureSignals") or []:
+                signature = str(signal.get("signature") or "behavioral:no_error")
+                counts[signature] = counts.get(signature, 0) + int(signal.get("occurrences") or 1)
+            if counts:
+                return max(counts, key=counts.get)
+            tool_errors = prediction.get("toolErrors") or []
+            if tool_errors:
+                return str(tool_errors[0]).split("\n", 1)[0][:100]
+            if record.get("error"):
+                return error_signature(record.get("error"))
+            action_log = str(prediction.get("actionLog") or "")
+            match = re.search(r"^\s*(\w+Error:\s*.{0,60})", action_log, re.MULTILINE)
+            return error_signature(match.group(1)) if match else "behavioral:no_error"
+
+        def failure_excerpt(record, signature):
+            if record.get("error"):
+                return f"Run threw: {record['error']}"
+            action_log = str((record.get("prediction") or {}).get("actionLog") or "")
+            if len(action_log) <= 2000:
+                return action_log
+            hit = action_log.find(signature[:40])
+            if hit < 0:
+                return action_log[-2000:]
+            start = max(0, hit - 1000)
+            return action_log[start : start + 2000]
+
+        def collapse(value):
+            return re.sub(r"\s+", " ", str(value or "")).strip()
+
+        def mine_weakness(signature, records, proposal_index):
+            selected = records[:4]
+            bodies = [failure_excerpt(record, signature) for record in selected]
+            excerpts = "\n\n".join(
+                f"--- run {index + 1} ---\n{body}" for index, body in enumerate(bodies)
+            )
+            if not any(collapse(body) for body in bodies):
+                return None
+            task_summaries = "\n".join(
+                f"- {record.get('task', {}).get('id') or f'#{index + 1}'} "
+                f"(score {float(record.get('score', 0)):.2f}): "
+                f"{json.dumps(record.get('task', {}).get('input'), sort_keys=True, default=str)[:240]}"
+                for index, record in enumerate(selected)
+            )
+            function_calls = [
+                call
+                for record in selected
+                for call in ((record.get("prediction") or {}).get("functionCalls") or [])
+            ][:20]
+            tool_errors = [
+                str(error)
+                for record in selected
+                for error in ((record.get("prediction") or {}).get("toolErrors") or [])
+            ][:10]
+            request = {
+                "clusterSignature": signature,
+                "taskSummaries": task_summaries,
+                "actionLogExcerpts": excerpts,
+                "functionCallSummary": "\n".join(json.dumps(call, sort_keys=True, default=str) for call in function_calls) or None,
+                "toolErrors": "\n".join(tool_errors) or None,
+                "currentPlaybook": self.inner.render() or None,
+            }
+            request = {key: value for key, value in request.items() if value is not None}
+            miner = AxGen(
+                _AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE,
+                {
+                    "id": "agent.playbook.weakness-miner",
+                    "instruction": (
+                        "Identify one recurring weakness and one narrow durable avoidance rule. "
+                        "Every evidence quote must be copied verbatim from actionLogExcerpts."
+                    ),
+                },
+            )
+            mined = miner.forward(teacher, request)
+            raw_quotes = mined.get("evidenceQuotes")
+            candidates = raw_quotes if isinstance(raw_quotes, list) else ([] if raw_quotes is None else [raw_quotes])
+            haystack = collapse(excerpts)
+            evidence = [str(quote) for quote in candidates if collapse(quote) and collapse(quote) in haystack]
+            if not evidence:
+                return None
+            raw_recommendations = mined.get("configRecommendations")
+            recommendations = raw_recommendations if isinstance(raw_recommendations, list) else ([] if raw_recommendations is None else [raw_recommendations])
+            return {
+                "id": f"weakness-{proposal_index + 1}",
+                "clusterSignature": signature,
+                "description": str(mined.get("weaknessDescription") or ""),
+                "rootCause": str(mined.get("rootCause") or ""),
+                "proposedGuidance": str(mined.get("proposedGuidance") or ""),
+                "evidenceQuotes": evidence,
+                "taskIds": [
+                    record.get("task", {}).get("id") or f"task-{record.get('index', index)}"
+                    for index, record in enumerate(records)
+                ],
+                "configRecommendations": [str(value) for value in recommendations],
+            }
+
+        progress("baseline", f"evaluating {len(train)} train tasks")
+        baseline_records, held_in, _ = run(train)
+        if validation:
+            progress("baseline", f"evaluating {len(validation)} validation tasks")
+            _, held_out, _ = run(validation)
+        else:
+            held_out = None
+        baseline = {"heldIn": held_in, **({"heldOut": held_out} if held_out is not None else {})}
+        clusters = {}
+        for record in baseline_records:
+            prediction = record.get("prediction") or {}
+            failed = bool(record.get("error")) or prediction.get("completionType") == "askClarification" or record["score"] < score_threshold
+            if not failed:
+                continue
+            signature = record_signature(record)
+            clusters.setdefault(signature, []).append(record)
+        ranked = sorted(clusters.items(), key=lambda item: -sum(1.0 - row["score"] for row in item[1]))[:max_proposals]
+        progress("mining", f"{len(ranked)} failure cluster(s) from {len(baseline_records)} records")
+        outcomes = []
+        weaknesses = []
+        initial_state = copy.deepcopy(self.inner.get_state())
+        for proposal_index, (signature, records) in enumerate(ranked):
+            try:
+                weakness = mine_weakness(signature, records, proposal_index)
+            except Exception as exc:
+                progress("mining", f"cluster [{signature}] miner failed: {exc}")
+                continue
+            if weakness is None:
+                progress("mining", f"cluster [{signature}] discarded (no grounded evidence)")
+                continue
+            evidence = weakness["evidenceQuotes"][:3]
+            weaknesses.append(weakness)
+            proposal = {"weaknessId": weakness["id"], "clusterSignature": signature, "feedback": ""}
+            required_calls = (len(train) + len(validation)) * runs_per_task
+            if verify and remaining[0] < required_calls:
+                outcomes.append({"proposal": proposal, "accepted": False, "reason": "metric_budget exhausted before validation", "heldIn": {"before": held_in, "after": held_in}})
+                progress("validation", f"{weakness['id']}: budget exhausted, skipped")
+                continue
+            before = copy.deepcopy(self.inner.get_state())
+            feedback = (
+                "A recurring agent weakness was diagnosed from real failed runs.\n\n"
+                f"Weakness: {weakness['description']}\n"
+                f"Root cause: {weakness['rootCause']}\n"
+                f"Error signature: [{signature}]\nGrounding excerpts:\n"
+                + "\n".join(f"- {quote}" for quote in evidence)
+                + "\n\nCurate ONE durable rule into the playbook "
+                f"(suggested section: \"failures_to_avoid\"): {weakness['proposedGuidance']}\n"
+                "UPDATE an existing bullet if one already covers this failure mode."
+            )
+            proposal["feedback"] = feedback
+            progress("proposal", f"{weakness['id']}: applying playbook proposal")
+            try:
+                self.inner.update({
+                    "example": {"task": "playbook.evolve(): repair a diagnosed agent weakness", "failureSignatures": [signature]},
+                    "prediction": {},
+                    "feedback": feedback,
+                })
+            except Exception as exc:
+                outcomes.append({
+                    "proposal": proposal,
+                    "accepted": False,
+                    "reason": f"apply failed: {exc}",
+                    "heldIn": {"before": held_in, "after": held_in},
+                })
+                continue
+            if not verify:
+                outcomes.append({"proposal": proposal, "accepted": True, "reason": "applied without verification (verify: false)", "heldIn": {"before": held_in, "after": held_in}})
+                continue
+            _, next_in, train_exhausted = run(train)
+            if validation:
+                _, next_out, validation_exhausted = run(validation)
+            else:
+                next_out, validation_exhausted = None, False
+            complete = not train_exhausted and not validation_exhausted
+            gain_ok = complete and next_in - held_in >= min_gain
+            held_out_ok = next_out is None or held_out is None or next_out - held_out >= -epsilon
+            accepted = complete and gain_ok and held_out_ok
+            outcomes.append({
+                "proposal": proposal,
+                "accepted": accepted,
+                "reason": "metric_budget exhausted during re-evaluation" if not complete else ("held-in improved, held-out non-regressing" if accepted and held_out is not None else ("held-in improved (no held-out set provided — consider one)" if accepted else (f"held-in gain {next_in - held_in:.3f} below {min_gain}" if not gain_ok else f"held-out regressed {(next_out or 0) - (held_out or 0):.3f}"))),
+                "heldIn": {"before": held_in, "after": next_in},
+                **({"heldOut": {"before": held_out, "after": next_out}} if next_out is not None and held_out is not None else {}),
+            })
+            if accepted:
+                held_in, held_out = next_in, next_out
+            else:
+                self.inner.load(before)
+        snapshot = self.inner.get_state() if any(item.get("accepted") for item in outcomes) else None
+        if opts.get("apply") is False and snapshot is not None:
+            # Return the learned snapshot but restore the live agent exactly.
+            self.inner.load(initial_state)
+        progress("done", f"{sum(1 for item in outcomes if item.get('accepted'))}/{len(outcomes)} proposals accepted; held-in {baseline['heldIn']:.3f} -> {held_in:.3f}")
+        return {
+            "baseline": baseline,
+            "final": {"heldIn": held_in, **({"heldOut": held_out} if held_out is not None else {})},
+            "weaknesses": weaknesses,
+            "outcomes": outcomes,
+            "recommendations": [
+                recommendation
+                for weakness in weaknesses
+                for recommendation in weakness.get("configRecommendations", [])
+            ],
+            **({"playbookSnapshot": snapshot} if snapshot is not None else {}),
+            "metricCallsUsed": max_metric_calls - remaining[0],
+            "records": baseline_records,
+        }
+
+
 class AxAgent:
     def __init__(self, signature, options: dict[str, Any] | None = None):
         self.options = dict(options or {})
@@ -1247,7 +1580,12 @@ class AxAgent:
             existing = list(self.options.get("functions") or [])
             self.options["functions"] = existing + self.execution_context.runtime_modules()
             self.options["executionContext"] = self.execution_context
+        self._playbook_handle = None
+        self._agent_playbook = None
+        self._playbook_config = self.options.get("playbook")
         self._rebuild_from_signature(signature)
+        if self._playbook_config not in (None, False):
+            self._attach_configured_playbook()
 
     def _rebuild_from_signature(self, signature):
         self.state = _agent_factory(signature, self.options)
@@ -1260,6 +1598,21 @@ class AxAgent:
 
     def set_signature(self, signature):
         self._rebuild_from_signature(signature)
+        return self
+
+    def get_instruction(self):
+        return _core_get(self.state, "stage_instruction", "") or ""
+
+    def set_instruction(self, instruction: str):
+        composed = _agent_set_instruction(self.state, str(instruction or ""))
+        self.options["instruction"] = _core_get(self.state, "stage_instruction", "")
+        self.executor.set_instruction(composed)
+        return self
+
+    def add_actor_instruction(self, addendum: str):
+        composed = _agent_add_actor_instruction(self.state, str(addendum or ""))
+        self.options["instructionAddenda"] = list(_core_get(self.state, "instruction_addenda", []) or [])
+        self.executor.set_instruction(composed)
         return self
 
     def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1276,7 +1629,7 @@ class AxAgent:
         # this wrapper only registers the host callable that closes over this client.
         if runtime is not None and hasattr(runtime, "register_callable"):
             runtime.register_callable("llmQuery", lambda params: _agent_run_llm_query(self.llm_query, client, params))
-        return _agent_forward(
+        output = _agent_forward(
             self.state,
             self.distiller,
             self.executor,
@@ -1285,6 +1638,15 @@ class AxAgent:
             values or {},
             options,
         )
+        citations = self.options.get("citations")
+        citation_callback = citations.get("onCitations") or citations.get("on_citations") if isinstance(citations, dict) else None
+        if callable(citation_callback):
+            try:
+                citation_callback(list(_core_get(self.state, "last_citations", []) or []))
+            except Exception:
+                pass
+        self._learn_playbook_failures(output)
+        return output
 
     def test(self, runtime: AxCodeRuntime, code: str, context_field_values: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
         return _agent_runtime_test(
@@ -1373,37 +1735,11 @@ class AxAgent:
         return _agent_optimizer_metadata(self.state)
 
     def get_optimizable_components(self):
-        components = []
-        components.extend(self.distiller.get_optimizable_components())
-        components.extend(self.executor.get_optimizable_components())
-        components.extend(self.responder.get_optimizable_components())
-        runtime = self.get_runtime_contract()
-        policy = self.get_policy()
-        components.append(_optimization_component(
-            "root.agent.runtime",
-            "root.agent",
-            "runtime-policy",
-            runtime,
-            "Agent runtime-language metadata and code-field policy.",
-            ["Keep code field names aligned with the selected runtime language."],
-            [],
-            True,
-            "json",
-            {"component": "runtime_contract"},
-        ))
-        components.append(_optimization_component(
-            "root.agent.policy",
-            "root.agent",
-            "agent-policy",
-            policy,
-            "Actor primitive, discovery, delegation, and prompt placement policy.",
-            ["Do not expose protocol-only actions as actor primitives."],
-            ["root.agent.runtime"],
-            True,
-            "json",
-            {"component": "policy_registry"},
-        ))
-        return components
+        child_components = []
+        child_components.extend(self.distiller.get_optimizable_components())
+        child_components.extend(self.executor.get_optimizable_components())
+        child_components.extend(self.responder.get_optimizable_components())
+        return _agent_get_optimizable_components(self.state, child_components)
 
     def apply_optimized_components(self, component_map: dict[str, Any]):
         updates = dict(component_map or {})
@@ -1411,11 +1747,9 @@ class AxAgent:
         self.distiller.apply_optimized_components(updates)
         self.executor.apply_optimized_components(updates)
         self.responder.apply_optimized_components(updates)
-        if "root.agent.runtime" in updates and isinstance(updates["root.agent.runtime"], dict):
-            self.state["runtime_contract"] = updates["root.agent.runtime"]
-        if "root.agent.policy" in updates and isinstance(updates["root.agent.policy"], dict):
-            self.state["policy"] = updates["root.agent.policy"]
-        self.state["optimizer_metadata"] = _agent_optimizer_metadata(self.state)
+        composed = _agent_apply_optimized_components(self.state, updates)
+        self.options.update(_core_get(self.state, "options", {}) or {})
+        self.executor.set_instruction(composed)
         return self
 
     def apply_optimization(self, artifact):
@@ -1515,8 +1849,65 @@ class AxAgent:
             raise ValueError("options.engine must implement OptimizerEngine for optimize()")
         return self.optimize_with(engine, dataset or [], opts)
 
-    def playbook(self, options: dict[str, Any] | None = None) -> "AxPlaybook":
+    def _attach_configured_playbook(self):
+        raw = self._playbook_config
+        config = dict(raw) if isinstance(raw, dict) else {}
+        config.setdefault("maxReflectorRounds", 1)
+        seed = config.get("seed")
+        if seed is None and ("playbook" in config or "artifact" in config):
+            seed = config
+        self.playbook(config)
+        if seed is not None:
+            if isinstance(seed, dict) and "playbook" in seed:
+                self._playbook_handle.load(seed)
+            elif isinstance(seed, dict):
+                self._playbook_handle.load({"playbook": seed})
+
+    def _learn_playbook_failures(self, output):
+        if self._playbook_handle is None or self._playbook_config in (None, False):
+            return
+        config = dict(self._playbook_config) if isinstance(self._playbook_config, dict) else {}
+        learn = config.get("learn", True)
+        if learn is False:
+            return
+        learn_config = dict(learn) if isinstance(learn, dict) else {}
+        try:
+            signals = list(_core_get(self.state, "failure_signals", []) or [])
+            if len(signals) < int(learn_config.get("minSignals", learn_config.get("min_signals", 1))):
+                return
+            covered = set(_agent_collect_covered_failure_signatures(self._playbook_handle.get_state()))
+            if learn_config.get("dedupe", True) is not False:
+                signals = [signal for signal in signals if str(signal.get("signature")) not in covered]
+            if not signals:
+                return
+            # Match TS: dedupe the full report before capping the curator
+            # digest, otherwise fresh overflow signatures can be starved by
+            # already-covered entries in the first twelve positions.
+            signals = signals[:12]
+            feedback = "Agent run failures to avoid:\n" + "\n".join(
+                f"- [{signal.get('kind')}] {signal.get('signature')}: {signal.get('detail')}"
+                for signal in signals
+            ) + "\nCurate ONE bounded avoidance rule into failures_to_avoid."
+            before = json.dumps(self._playbook_handle.get_state().get("playbook"), sort_keys=True, default=str)
+            result = self._playbook_handle.update({
+                "example": {"task": self.options.get("instruction", "agent run"), "failureSignatures": [signal.get("signature") for signal in signals]},
+                "prediction": output or {},
+                "feedback": feedback,
+            })
+            callback = config.get("onUpdate") or config.get("on_update")
+            if callable(callback):
+                snapshot = self._playbook_handle.get_state()
+                status = "unchanged" if json.dumps(snapshot.get("playbook"), sort_keys=True, default=str) == before else "updated"
+                callback({"status": status, "signals": signals, "feedback": feedback, "snapshot": snapshot, "result": result})
+        except Exception:
+            return
+
+    def playbook(self, options: dict[str, Any] | None = None) -> "AxAgentPlaybook":
         opts = dict(options or {})
+        if self._playbook_handle is not None:
+            if opts:
+                raise ValueError("AxAgent.playbook(): this agent already has a playbook; call playbook() without options to use it.")
+            return self._agent_playbook
         target = opts.get("target", "actor")
         student = _playbook_option(opts, "studentAI", "student_ai", "student", "client", "ai")
         if student is None:
@@ -1529,14 +1920,19 @@ class AxAgent:
         handle = AxPlaybook(stage, handle_options)
         if opts.get("apply") is False:
             handle._set_apply_hook(lambda _rendered: None)
-            return handle
         base = stage.signature.get_description() if hasattr(stage.signature, "get_description") else None
 
         def _apply(rendered):
             stage.signature.description = _playbook_compose_instruction(base, rendered)
 
-        handle._set_apply_hook(_apply)
-        return handle
+        if opts.get("apply") is not False:
+            handle._set_apply_hook(_apply)
+        self._playbook_handle = handle
+        self._agent_playbook = AxAgentPlaybook(self, handle)
+        return self._agent_playbook
+
+    def get_playbook(self):
+        return self._agent_playbook
 
 
 def agent(signature, config: dict[str, Any] | None = None) -> AxAgent:

@@ -20,6 +20,7 @@
       }
     ]
   },
+  "expected_transport_json_absent": ["temperature", "top_p", "top_k"],
   "expected_transport_request": {
     "json": {
       "model": "claude-sonnet-5",
@@ -27,6 +28,7 @@
         "effort": "max"
       },
       "thinking": {
+        "display": "summarized",
         "type": "adaptive"
       }
     }
@@ -44,7 +46,10 @@
     ],
     "model_config": {
       "stream": false,
-      "thinkingTokenBudget": "highest"
+      "temperature": 0.4,
+      "thinkingTokenBudget": "highest",
+      "topK": 20,
+      "topP": 0.8
     }
   },
   "transport_responses": [

@@ -15,6 +15,11 @@ struct ScriptedClient : axllm::AIClient {
         "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
         "\"correctApproach\":\"Add a concise-answer guideline.\","
         "\"keyInsight\":\"Prefer one-sentence answers.\","
+        "\"weaknessDescription\":\"The agent does not verify its final step.\","
+        "\"rootCause\":\"The final step is accepted without a check.\","
+        "\"proposedGuidance\":\"Verify the final step before completing the task.\","
+        "\"evidenceQuotes\":[\"final\",\"snapshot\",\"Answer\"],"
+        "\"configRecommendations\":[],"
         "\"bulletTags\":[],"
         "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]}"}});
   }

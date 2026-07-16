@@ -15,6 +15,7 @@ from .gen import (
     _ace_dedupe_playbook,
     _ace_empty_playbook,
     _ace_normalize_curator_operations,
+    _ace_normalize_reflection_bullet_tags,
     _ace_render_playbook,
     _ace_resolve_curator_operation_targets,
     _ace_update_bullet_feedback,
@@ -748,6 +749,8 @@ class AxACE:
             reflection = self._run_reflector(example, generator_output, feedback, previous)
             if not reflection:
                 break
+            reflection = dict(reflection)
+            reflection["bulletTags"] = _ace_normalize_reflection_bullet_tags(reflection)
             previous = reflection
             error_text = str(reflection.get("errorIdentification") or "").lower().strip()
             metadata = reflection.get("metadata") if isinstance(reflection, dict) else None
@@ -824,8 +827,7 @@ class AxACE:
                 if curator_result is not None:
                     curator_result["operations"] = resolved
         if isinstance(reflection, dict):
-            bullet_tags = reflection.get("bulletTags")
-            for tag in bullet_tags if isinstance(bullet_tags, list) else []:
+            for tag in _ace_normalize_reflection_bullet_tags(reflection):
                 tag = tag if isinstance(tag, dict) else {}
                 self.playbook = _ace_update_bullet_feedback(self.playbook, tag.get("id"), tag.get("tag"), self._now())
         if resolved and applied_ids:
@@ -846,6 +848,7 @@ class AxACE:
                 "epoch": epoch,
                 "exampleIndex": index,
                 "operations": curator_result.get("operations"),
+                "updatedBulletIds": list(applied_ids),
             })
         return curator_result, applied_ids
 
@@ -908,8 +911,7 @@ class AxACE:
             curator_result = dict(raw_curator or {})
             curator_result["operations"] = resolved
         if isinstance(reflection, dict):
-            bullet_tags = reflection.get("bulletTags")
-            for tag in bullet_tags if isinstance(bullet_tags, list) else []:
+            for tag in _ace_normalize_reflection_bullet_tags(reflection):
                 tag = tag if isinstance(tag, dict) else {}
                 self.playbook = _ace_update_bullet_feedback(self.playbook, tag.get("id"), tag.get("tag"), self._now())
         applied_ids = []
@@ -950,6 +952,7 @@ class AxACE:
                 "epoch": -1,
                 "exampleIndex": len(self.generator_history) - 1,
                 "operations": curator_result.get("operations"),
+                "updatedBulletIds": list(applied_ids),
             })
         return curator_result
 
@@ -977,6 +980,20 @@ _ACE_CURATOR_SIGNATURE = (
     'token_budget?:number "Approximate token budget for curator response" '
     '-> reasoning:string "Justification for the proposed updates", '
     'operations:json "List of operations with type/section/content fields"'
+)
+
+_AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE = (
+    'clusterSignature:string "Shared error signature of the cluster", '
+    'taskSummaries:string "One line per failing task", '
+    'actionLogExcerpts:string "Excerpts of the failing runs, centered on the failure", '
+    'functionCallSummary?:string "Digest of runtime/tool calls in the failing runs", '
+    'toolErrors?:string "Tool errors observed", '
+    'currentPlaybook?:string "The failure-avoidance playbook currently applied" '
+    '-> weaknessDescription:string "The recurring weakness, one sentence", '
+    'rootCause:string "Why the runs fail, mechanically", '
+    'proposedGuidance:string "One concise imperative avoidance rule", '
+    'evidenceQuotes:json "Verbatim substrings copied from actionLogExcerpts", '
+    'configRecommendations?:json "Setup suggestions no prompt text can fix"'
 )
 
 
@@ -1241,6 +1258,322 @@ def _score_optimization_prediction(task, prediction, options):
     return scores, scalar
 
 
+class AxAgentPlaybook:
+    """Agent-bound playbook with continuous updates and verified batch evolve."""
+
+    def __init__(self, agent, handle):
+        self.agent = agent
+        self.inner = handle
+
+    def update(self, args):
+        return self.inner.update(args)
+
+    def render(self):
+        return self.inner.render()
+
+    def get_state(self):
+        return self.inner.get_state()
+
+    def to_json(self):
+        return self.inner.to_json()
+
+    def load(self, snapshot):
+        self.inner.load(snapshot)
+        return self
+
+    def reset(self):
+        return self.inner.reset()
+
+    def configure_auto(self, level):
+        return self.inner.configure_auto(level)
+
+    def evolve(self, dataset, options: dict[str, Any] | None = None):
+        # Preserve the original stage-playbook overload: agent.playbook().evolve(
+        # examples, metric). Agent datasets use a mapping for the second argument.
+        if callable(options):
+            return self.inner.evolve(dataset, options)
+        opts = dict(options or {})
+        normalized = _normalize_optimization_dataset(dataset or [])
+        train = list(normalized.get("train") or [])
+        validation = list(normalized.get("validation") or [])
+        if not train:
+            raise ValueError("AxAgent.playbook().evolve(): at least one training task is required.")
+        client = _playbook_option(opts, "studentAI", "student_ai", "client", "ai") or self.inner.student_ai
+        teacher = _playbook_option(opts, "teacherAI", "teacher_ai", "teacher") or self.inner.teacher_ai or client
+        metric = opts.get("metric")
+        score_threshold = float(opts.get("scoreThreshold", opts.get("score_threshold", 0.7)))
+        min_gain = float(opts.get("minHeldInGain", opts.get("min_held_in_gain", 0.05)))
+        epsilon = float(opts.get("epsilon", 0.01))
+        verify = opts.get("verify", True) is not False
+        max_proposals = max(1, int(opts.get("maxProposals", opts.get("max_proposals", 4))))
+        runs_per_task = max(1, int(opts.get("runsPerTask", opts.get("runs_per_task", 1))))
+        dataset_size = (len(train) + len(validation)) * runs_per_task
+        max_metric_calls = max(1, int(opts.get(
+            "maxMetricCalls",
+            opts.get("max_metric_calls", max(100, (max_proposals + 1) * dataset_size)),
+        )))
+        remaining = [max_metric_calls]
+
+        def progress(phase, message):
+            callback = opts.get("onProgress") or opts.get("on_progress")
+            event = {"phase": phase, "message": message, "metricCallsUsed": max_metric_calls - remaining[0]}
+            if callable(callback):
+                callback(event)
+            if opts.get("verbose"):
+                print(f"[playbook.evolve] {phase}: {message}")
+
+        def run(tasks):
+            records = []
+            exhausted = False
+            for index, task in enumerate(tasks):
+                task = task if isinstance(task, dict) else {"input": task}
+                scores = []
+                prediction = None
+                error = None
+                for _ in range(runs_per_task):
+                    if remaining[0] <= 0:
+                        exhausted = True
+                        break
+                    remaining[0] -= 1
+                    try:
+                        prediction = self.agent.evaluate_optimization_task(client, task, opts)
+                        if callable(metric):
+                            score = float(metric({"example": task, "task": task, "prediction": prediction}))
+                        else:
+                            _, score = _score_optimization_prediction(task, prediction, opts)
+                    except Exception as exc:
+                        score = 0.0
+                        error = str(exc)
+                    scores.append(score if math.isfinite(score) else 0.0)
+                if not scores:
+                    break
+                score = sum(scores) / len(scores)
+                record = {"task": task, "score": score, "index": index, "passed": score >= score_threshold and (prediction or {}).get("completionType") == "final"}
+                if prediction is not None:
+                    record["prediction"] = prediction
+                elif error:
+                    record["error"] = error
+                records.append(record)
+                if len(scores) < runs_per_task:
+                    exhausted = True
+                    break
+            weight_sum = sum(float(record["task"].get("weight", 1)) for record in records)
+            mean = sum(float(record["task"].get("weight", 1)) * record["score"] for record in records) / weight_sum if weight_sum else 0.0
+            exhausted = exhausted or len(records) < len(tasks)
+            return records, mean, exhausted
+
+        def error_signature(value):
+            text = str(value or "")
+            match = re.search(r"^(\w+Error:\s*.{0,60})", text, re.MULTILINE)
+            return match.group(1) if match else text[:80]
+
+        def record_signature(record):
+            prediction = record.get("prediction") or {}
+            counts = {}
+            for signal in prediction.get("failureSignals") or []:
+                signature = str(signal.get("signature") or "behavioral:no_error")
+                counts[signature] = counts.get(signature, 0) + int(signal.get("occurrences") or 1)
+            if counts:
+                return max(counts, key=counts.get)
+            tool_errors = prediction.get("toolErrors") or []
+            if tool_errors:
+                return str(tool_errors[0]).split("\n", 1)[0][:100]
+            if record.get("error"):
+                return error_signature(record.get("error"))
+            action_log = str(prediction.get("actionLog") or "")
+            match = re.search(r"^\s*(\w+Error:\s*.{0,60})", action_log, re.MULTILINE)
+            return error_signature(match.group(1)) if match else "behavioral:no_error"
+
+        def failure_excerpt(record, signature):
+            if record.get("error"):
+                return f"Run threw: {record['error']}"
+            action_log = str((record.get("prediction") or {}).get("actionLog") or "")
+            if len(action_log) <= 2000:
+                return action_log
+            hit = action_log.find(signature[:40])
+            if hit < 0:
+                return action_log[-2000:]
+            start = max(0, hit - 1000)
+            return action_log[start : start + 2000]
+
+        def collapse(value):
+            return re.sub(r"\s+", " ", str(value or "")).strip()
+
+        def mine_weakness(signature, records, proposal_index):
+            selected = records[:4]
+            bodies = [failure_excerpt(record, signature) for record in selected]
+            excerpts = "\n\n".join(
+                f"--- run {index + 1} ---\n{body}" for index, body in enumerate(bodies)
+            )
+            if not any(collapse(body) for body in bodies):
+                return None
+            task_summaries = "\n".join(
+                f"- {record.get('task', {}).get('id') or f'#{index + 1}'} "
+                f"(score {float(record.get('score', 0)):.2f}): "
+                f"{json.dumps(record.get('task', {}).get('input'), sort_keys=True, default=str)[:240]}"
+                for index, record in enumerate(selected)
+            )
+            function_calls = [
+                call
+                for record in selected
+                for call in ((record.get("prediction") or {}).get("functionCalls") or [])
+            ][:20]
+            tool_errors = [
+                str(error)
+                for record in selected
+                for error in ((record.get("prediction") or {}).get("toolErrors") or [])
+            ][:10]
+            request = {
+                "clusterSignature": signature,
+                "taskSummaries": task_summaries,
+                "actionLogExcerpts": excerpts,
+                "functionCallSummary": "\n".join(json.dumps(call, sort_keys=True, default=str) for call in function_calls) or None,
+                "toolErrors": "\n".join(tool_errors) or None,
+                "currentPlaybook": self.inner.render() or None,
+            }
+            request = {key: value for key, value in request.items() if value is not None}
+            miner = AxGen(
+                _AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE,
+                {
+                    "id": "agent.playbook.weakness-miner",
+                    "instruction": (
+                        "Identify one recurring weakness and one narrow durable avoidance rule. "
+                        "Every evidence quote must be copied verbatim from actionLogExcerpts."
+                    ),
+                },
+            )
+            mined = miner.forward(teacher, request)
+            raw_quotes = mined.get("evidenceQuotes")
+            candidates = raw_quotes if isinstance(raw_quotes, list) else ([] if raw_quotes is None else [raw_quotes])
+            haystack = collapse(excerpts)
+            evidence = [str(quote) for quote in candidates if collapse(quote) and collapse(quote) in haystack]
+            if not evidence:
+                return None
+            raw_recommendations = mined.get("configRecommendations")
+            recommendations = raw_recommendations if isinstance(raw_recommendations, list) else ([] if raw_recommendations is None else [raw_recommendations])
+            return {
+                "id": f"weakness-{proposal_index + 1}",
+                "clusterSignature": signature,
+                "description": str(mined.get("weaknessDescription") or ""),
+                "rootCause": str(mined.get("rootCause") or ""),
+                "proposedGuidance": str(mined.get("proposedGuidance") or ""),
+                "evidenceQuotes": evidence,
+                "taskIds": [
+                    record.get("task", {}).get("id") or f"task-{record.get('index', index)}"
+                    for index, record in enumerate(records)
+                ],
+                "configRecommendations": [str(value) for value in recommendations],
+            }
+
+        progress("baseline", f"evaluating {len(train)} train tasks")
+        baseline_records, held_in, _ = run(train)
+        if validation:
+            progress("baseline", f"evaluating {len(validation)} validation tasks")
+            _, held_out, _ = run(validation)
+        else:
+            held_out = None
+        baseline = {"heldIn": held_in, **({"heldOut": held_out} if held_out is not None else {})}
+        clusters = {}
+        for record in baseline_records:
+            prediction = record.get("prediction") or {}
+            failed = bool(record.get("error")) or prediction.get("completionType") == "askClarification" or record["score"] < score_threshold
+            if not failed:
+                continue
+            signature = record_signature(record)
+            clusters.setdefault(signature, []).append(record)
+        ranked = sorted(clusters.items(), key=lambda item: -sum(1.0 - row["score"] for row in item[1]))[:max_proposals]
+        progress("mining", f"{len(ranked)} failure cluster(s) from {len(baseline_records)} records")
+        outcomes = []
+        weaknesses = []
+        initial_state = copy.deepcopy(self.inner.get_state())
+        for proposal_index, (signature, records) in enumerate(ranked):
+            try:
+                weakness = mine_weakness(signature, records, proposal_index)
+            except Exception as exc:
+                progress("mining", f"cluster [{signature}] miner failed: {exc}")
+                continue
+            if weakness is None:
+                progress("mining", f"cluster [{signature}] discarded (no grounded evidence)")
+                continue
+            evidence = weakness["evidenceQuotes"][:3]
+            weaknesses.append(weakness)
+            proposal = {"weaknessId": weakness["id"], "clusterSignature": signature, "feedback": ""}
+            required_calls = (len(train) + len(validation)) * runs_per_task
+            if verify and remaining[0] < required_calls:
+                outcomes.append({"proposal": proposal, "accepted": False, "reason": "metric_budget exhausted before validation", "heldIn": {"before": held_in, "after": held_in}})
+                progress("validation", f"{weakness['id']}: budget exhausted, skipped")
+                continue
+            before = copy.deepcopy(self.inner.get_state())
+            feedback = (
+                "A recurring agent weakness was diagnosed from real failed runs.\n\n"
+                f"Weakness: {weakness['description']}\n"
+                f"Root cause: {weakness['rootCause']}\n"
+                f"Error signature: [{signature}]\nGrounding excerpts:\n"
+                + "\n".join(f"- {quote}" for quote in evidence)
+                + "\n\nCurate ONE durable rule into the playbook "
+                f"(suggested section: \"failures_to_avoid\"): {weakness['proposedGuidance']}\n"
+                "UPDATE an existing bullet if one already covers this failure mode."
+            )
+            proposal["feedback"] = feedback
+            progress("proposal", f"{weakness['id']}: applying playbook proposal")
+            try:
+                self.inner.update({
+                    "example": {"task": "playbook.evolve(): repair a diagnosed agent weakness", "failureSignatures": [signature]},
+                    "prediction": {},
+                    "feedback": feedback,
+                })
+            except Exception as exc:
+                outcomes.append({
+                    "proposal": proposal,
+                    "accepted": False,
+                    "reason": f"apply failed: {exc}",
+                    "heldIn": {"before": held_in, "after": held_in},
+                })
+                continue
+            if not verify:
+                outcomes.append({"proposal": proposal, "accepted": True, "reason": "applied without verification (verify: false)", "heldIn": {"before": held_in, "after": held_in}})
+                continue
+            _, next_in, train_exhausted = run(train)
+            if validation:
+                _, next_out, validation_exhausted = run(validation)
+            else:
+                next_out, validation_exhausted = None, False
+            complete = not train_exhausted and not validation_exhausted
+            gain_ok = complete and next_in - held_in >= min_gain
+            held_out_ok = next_out is None or held_out is None or next_out - held_out >= -epsilon
+            accepted = complete and gain_ok and held_out_ok
+            outcomes.append({
+                "proposal": proposal,
+                "accepted": accepted,
+                "reason": "metric_budget exhausted during re-evaluation" if not complete else ("held-in improved, held-out non-regressing" if accepted and held_out is not None else ("held-in improved (no held-out set provided — consider one)" if accepted else (f"held-in gain {next_in - held_in:.3f} below {min_gain}" if not gain_ok else f"held-out regressed {(next_out or 0) - (held_out or 0):.3f}"))),
+                "heldIn": {"before": held_in, "after": next_in},
+                **({"heldOut": {"before": held_out, "after": next_out}} if next_out is not None and held_out is not None else {}),
+            })
+            if accepted:
+                held_in, held_out = next_in, next_out
+            else:
+                self.inner.load(before)
+        snapshot = self.inner.get_state() if any(item.get("accepted") for item in outcomes) else None
+        if opts.get("apply") is False and snapshot is not None:
+            # Return the learned snapshot but restore the live agent exactly.
+            self.inner.load(initial_state)
+        progress("done", f"{sum(1 for item in outcomes if item.get('accepted'))}/{len(outcomes)} proposals accepted; held-in {baseline['heldIn']:.3f} -> {held_in:.3f}")
+        return {
+            "baseline": baseline,
+            "final": {"heldIn": held_in, **({"heldOut": held_out} if held_out is not None else {})},
+            "weaknesses": weaknesses,
+            "outcomes": outcomes,
+            "recommendations": [
+                recommendation
+                for weakness in weaknesses
+                for recommendation in weakness.get("configRecommendations", [])
+            ],
+            **({"playbookSnapshot": snapshot} if snapshot is not None else {}),
+            "metricCallsUsed": max_metric_calls - remaining[0],
+            "records": baseline_records,
+        }
+
+
 class AxAgent:
     def __init__(self, signature, options: dict[str, Any] | None = None):
         self.options = dict(options or {})
@@ -1249,7 +1582,12 @@ class AxAgent:
             existing = list(self.options.get("functions") or [])
             self.options["functions"] = existing + self.execution_context.runtime_modules()
             self.options["executionContext"] = self.execution_context
+        self._playbook_handle = None
+        self._agent_playbook = None
+        self._playbook_config = self.options.get("playbook")
         self._rebuild_from_signature(signature)
+        if self._playbook_config not in (None, False):
+            self._attach_configured_playbook()
 
     def _rebuild_from_signature(self, signature):
         self.state = _agent_factory(signature, self.options)
@@ -1262,6 +1600,21 @@ class AxAgent:
 
     def set_signature(self, signature):
         self._rebuild_from_signature(signature)
+        return self
+
+    def get_instruction(self):
+        return _core_get(self.state, "stage_instruction", "") or ""
+
+    def set_instruction(self, instruction: str):
+        composed = _agent_set_instruction(self.state, str(instruction or ""))
+        self.options["instruction"] = _core_get(self.state, "stage_instruction", "")
+        self.executor.set_instruction(composed)
+        return self
+
+    def add_actor_instruction(self, addendum: str):
+        composed = _agent_add_actor_instruction(self.state, str(addendum or ""))
+        self.options["instructionAddenda"] = list(_core_get(self.state, "instruction_addenda", []) or [])
+        self.executor.set_instruction(composed)
         return self
 
     def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1278,7 +1631,7 @@ class AxAgent:
         # this wrapper only registers the host callable that closes over this client.
         if runtime is not None and hasattr(runtime, "register_callable"):
             runtime.register_callable("llmQuery", lambda params: _agent_run_llm_query(self.llm_query, client, params))
-        return _agent_forward(
+        output = _agent_forward(
             self.state,
             self.distiller,
             self.executor,
@@ -1287,6 +1640,15 @@ class AxAgent:
             values or {},
             options,
         )
+        citations = self.options.get("citations")
+        citation_callback = citations.get("onCitations") or citations.get("on_citations") if isinstance(citations, dict) else None
+        if callable(citation_callback):
+            try:
+                citation_callback(list(_core_get(self.state, "last_citations", []) or []))
+            except Exception:
+                pass
+        self._learn_playbook_failures(output)
+        return output
 
     def test(self, runtime: AxCodeRuntime, code: str, context_field_values: dict[str, Any] | None = None, options: dict[str, Any] | None = None):
         return _agent_runtime_test(
@@ -1375,37 +1737,11 @@ class AxAgent:
         return _agent_optimizer_metadata(self.state)
 
     def get_optimizable_components(self):
-        components = []
-        components.extend(self.distiller.get_optimizable_components())
-        components.extend(self.executor.get_optimizable_components())
-        components.extend(self.responder.get_optimizable_components())
-        runtime = self.get_runtime_contract()
-        policy = self.get_policy()
-        components.append(_optimization_component(
-            "root.agent.runtime",
-            "root.agent",
-            "runtime-policy",
-            runtime,
-            "Agent runtime-language metadata and code-field policy.",
-            ["Keep code field names aligned with the selected runtime language."],
-            [],
-            True,
-            "json",
-            {"component": "runtime_contract"},
-        ))
-        components.append(_optimization_component(
-            "root.agent.policy",
-            "root.agent",
-            "agent-policy",
-            policy,
-            "Actor primitive, discovery, delegation, and prompt placement policy.",
-            ["Do not expose protocol-only actions as actor primitives."],
-            ["root.agent.runtime"],
-            True,
-            "json",
-            {"component": "policy_registry"},
-        ))
-        return components
+        child_components = []
+        child_components.extend(self.distiller.get_optimizable_components())
+        child_components.extend(self.executor.get_optimizable_components())
+        child_components.extend(self.responder.get_optimizable_components())
+        return _agent_get_optimizable_components(self.state, child_components)
 
     def apply_optimized_components(self, component_map: dict[str, Any]):
         updates = dict(component_map or {})
@@ -1413,11 +1749,9 @@ class AxAgent:
         self.distiller.apply_optimized_components(updates)
         self.executor.apply_optimized_components(updates)
         self.responder.apply_optimized_components(updates)
-        if "root.agent.runtime" in updates and isinstance(updates["root.agent.runtime"], dict):
-            self.state["runtime_contract"] = updates["root.agent.runtime"]
-        if "root.agent.policy" in updates and isinstance(updates["root.agent.policy"], dict):
-            self.state["policy"] = updates["root.agent.policy"]
-        self.state["optimizer_metadata"] = _agent_optimizer_metadata(self.state)
+        composed = _agent_apply_optimized_components(self.state, updates)
+        self.options.update(_core_get(self.state, "options", {}) or {})
+        self.executor.set_instruction(composed)
         return self
 
     def apply_optimization(self, artifact):
@@ -1517,8 +1851,65 @@ class AxAgent:
             raise ValueError("options.engine must implement OptimizerEngine for optimize()")
         return self.optimize_with(engine, dataset or [], opts)
 
-    def playbook(self, options: dict[str, Any] | None = None) -> "AxPlaybook":
+    def _attach_configured_playbook(self):
+        raw = self._playbook_config
+        config = dict(raw) if isinstance(raw, dict) else {}
+        config.setdefault("maxReflectorRounds", 1)
+        seed = config.get("seed")
+        if seed is None and ("playbook" in config or "artifact" in config):
+            seed = config
+        self.playbook(config)
+        if seed is not None:
+            if isinstance(seed, dict) and "playbook" in seed:
+                self._playbook_handle.load(seed)
+            elif isinstance(seed, dict):
+                self._playbook_handle.load({"playbook": seed})
+
+    def _learn_playbook_failures(self, output):
+        if self._playbook_handle is None or self._playbook_config in (None, False):
+            return
+        config = dict(self._playbook_config) if isinstance(self._playbook_config, dict) else {}
+        learn = config.get("learn", True)
+        if learn is False:
+            return
+        learn_config = dict(learn) if isinstance(learn, dict) else {}
+        try:
+            signals = list(_core_get(self.state, "failure_signals", []) or [])
+            if len(signals) < int(learn_config.get("minSignals", learn_config.get("min_signals", 1))):
+                return
+            covered = set(_agent_collect_covered_failure_signatures(self._playbook_handle.get_state()))
+            if learn_config.get("dedupe", True) is not False:
+                signals = [signal for signal in signals if str(signal.get("signature")) not in covered]
+            if not signals:
+                return
+            # Match TS: dedupe the full report before capping the curator
+            # digest, otherwise fresh overflow signatures can be starved by
+            # already-covered entries in the first twelve positions.
+            signals = signals[:12]
+            feedback = "Agent run failures to avoid:\n" + "\n".join(
+                f"- [{signal.get('kind')}] {signal.get('signature')}: {signal.get('detail')}"
+                for signal in signals
+            ) + "\nCurate ONE bounded avoidance rule into failures_to_avoid."
+            before = json.dumps(self._playbook_handle.get_state().get("playbook"), sort_keys=True, default=str)
+            result = self._playbook_handle.update({
+                "example": {"task": self.options.get("instruction", "agent run"), "failureSignatures": [signal.get("signature") for signal in signals]},
+                "prediction": output or {},
+                "feedback": feedback,
+            })
+            callback = config.get("onUpdate") or config.get("on_update")
+            if callable(callback):
+                snapshot = self._playbook_handle.get_state()
+                status = "unchanged" if json.dumps(snapshot.get("playbook"), sort_keys=True, default=str) == before else "updated"
+                callback({"status": status, "signals": signals, "feedback": feedback, "snapshot": snapshot, "result": result})
+        except Exception:
+            return
+
+    def playbook(self, options: dict[str, Any] | None = None) -> "AxAgentPlaybook":
         opts = dict(options or {})
+        if self._playbook_handle is not None:
+            if opts:
+                raise ValueError("AxAgent.playbook(): this agent already has a playbook; call playbook() without options to use it.")
+            return self._agent_playbook
         target = opts.get("target", "actor")
         student = _playbook_option(opts, "studentAI", "student_ai", "student", "client", "ai")
         if student is None:
@@ -1531,14 +1922,19 @@ class AxAgent:
         handle = AxPlaybook(stage, handle_options)
         if opts.get("apply") is False:
             handle._set_apply_hook(lambda _rendered: None)
-            return handle
         base = stage.signature.get_description() if hasattr(stage.signature, "get_description") else None
 
         def _apply(rendered):
             stage.signature.description = _playbook_compose_instruction(base, rendered)
 
-        handle._set_apply_hook(_apply)
-        return handle
+        if opts.get("apply") is not False:
+            handle._set_apply_hook(_apply)
+        self._playbook_handle = handle
+        self._agent_playbook = AxAgentPlaybook(self, handle)
+        return self._agent_playbook
+
+    def get_playbook(self):
+        return self._agent_playbook
 
 
 def agent(signature, config: dict[str, Any] | None = None) -> AxAgent:
@@ -2012,7 +2408,9 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     state["llm_query_signature"] = llm_query_signature
     llm_query_description = "You answer ONE focused question using only the provided context object. Return just the answer text — concise, specific, and grounded in the context. Do not restate the question."
     state["llm_query_description"] = llm_query_description
-    responder_signature = _build_responder_signature(sig, context_fields)
+    citations = _resolve_agent_citations(options, sig)
+    state["citations"] = citations
+    responder_signature = _build_responder_signature(sig, context_fields, citations)
     state["responder_signature"] = responder_signature
     state["chat_log"] = chat_log
     state["usage"] = usage
@@ -2093,6 +2491,19 @@ def _agent_factory(signature: Any, options: Any) -> Any:
         state["distiller_description"] = distiller_description
     else:
         pass
+    executor_description_base = _core_get(state, "executor_description", "")
+    state["executor_description_base"] = executor_description_base
+    stage_instruction = _core_get(options, "instruction", "")
+    state["stage_instruction"] = stage_instruction
+    instruction_addenda_camel = _core_get(options, "instructionAddenda", empty_list)
+    instruction_addenda = _core_get(options, "instruction_addenda", instruction_addenda_camel)
+    instruction_addenda_is_list = _core_type_is(instruction_addenda, "list")
+    if instruction_addenda_is_list:
+        pass
+    else:
+        instruction_addenda = empty_list
+    state["instruction_addenda"] = instruction_addenda
+    _agent_refresh_actor_instruction(state)
     return state
 
 
@@ -2464,6 +2875,9 @@ def _build_optimization_judge_payload(task: Any, prediction: Any, criteria: str)
     out["usage"] = usage
     trace = _core_get(prediction, "trace", None)
     out["trace"] = trace
+    empty_failure_signals = []
+    failure_signals = _core_get(prediction, "failureSignals", empty_failure_signals)
+    out["failureSignals"] = failure_signals
     return out
 
 
@@ -2870,6 +3284,8 @@ def _build_agent_eval_prediction(output: Any, action_log: Any, usage: Any, trace
     out["usage"] = usage
     out["trace"] = trace
     empty_list = []
+    failure_signals = _core_get(trace, "failure_signals", empty_list)
+    out["failureSignals"] = failure_signals
     out["functionCalls"] = empty_list
     out["toolErrors"] = empty_list
     out["turnCount"] = 0
@@ -6202,6 +6618,141 @@ def _agent_optimizer_metadata(state: Any) -> Any:
     return out
 
 
+def _agent_refresh_actor_instruction(state: Any) -> str:
+    _core_coverage_mark("_agent_refresh_actor_instruction")
+    parts = []
+    instruction = _core_get(state, "stage_instruction", "")
+    instruction_trimmed = str(instruction).strip()
+    has_instruction = _core_ne(instruction_trimmed, "")
+    if has_instruction:
+        parts.append(instruction_trimmed)
+    else:
+        pass
+    base = _core_get(state, "executor_description_base", "")
+    base_trimmed = str(base).strip()
+    has_base = _core_ne(base_trimmed, "")
+    if has_base:
+        parts.append(base_trimmed)
+    else:
+        pass
+    empty_list = []
+    addenda = _core_get(state, "instruction_addenda", empty_list)
+    for addendum in addenda:
+        addendum_is_string = _core_type_is(addendum, "string")
+        if addendum_is_string:
+            addendum_trimmed = str(addendum).strip()
+            has_addendum = _core_ne(addendum_trimmed, "")
+            if has_addendum:
+                parts.append(addendum_trimmed)
+            else:
+                pass
+        else:
+            pass
+    composed = _core_string_join("\n\n", parts)
+    state["executor_description"] = composed
+    empty_map = {}
+    options = _core_get(state, "options", empty_map)
+    options["instruction"] = instruction_trimmed
+    options["instructionAddenda"] = addenda
+    state["options"] = options
+    return composed
+
+
+def _agent_set_instruction(state: Any, instruction: str) -> str:
+    _core_coverage_mark("_agent_set_instruction")
+    trimmed = str(instruction).strip()
+    state["stage_instruction"] = trimmed
+    composed = _agent_refresh_actor_instruction(state)
+    return composed
+
+
+def _agent_add_actor_instruction(state: Any, addendum: str) -> str:
+    _core_coverage_mark("_agent_add_actor_instruction")
+    trimmed = str(addendum).strip()
+    has_addendum = _core_ne(trimmed, "")
+    if has_addendum:
+        empty_list = []
+        addenda = _core_get(state, "instruction_addenda", empty_list)
+        addenda.append(trimmed)
+        state["instruction_addenda"] = addenda
+    else:
+        pass
+    composed = _agent_refresh_actor_instruction(state)
+    return composed
+
+
+def _agent_get_optimizable_components(state: Any, child_components: Any) -> list[Any]:
+    _core_coverage_mark("_agent_get_optimizable_components")
+    components = []
+    for component in child_components:
+        id = _core_get(component, "id", "")
+        kind = _core_get(component, "kind", "")
+        is_instruction = _core_eq(kind, "instruction")
+        is_actor_instruction = _core_contains(id, ".actor::instruction")
+        is_dead_instruction = _core_and(is_instruction, is_actor_instruction)
+        keep = _core_not(is_dead_instruction)
+        if keep:
+            components.append(component)
+        else:
+            pass
+    instruction_component = {}
+    instruction_component["id"] = "root::instruction"
+    instruction_component["owner"] = "root"
+    instruction_component["kind"] = "instruction"
+    instruction = _core_get(state, "stage_instruction", "")
+    instruction_component["current"] = instruction
+    instruction_component["description"] = "High-level instruction rendered at the top of the actor definition; survives stage rebuilds."
+    instruction_component["constraints"] = "Keep this as a concise standing strategy or rule."
+    instruction_component["format"] = "text"
+    components.append(instruction_component)
+    runtime_component = {}
+    runtime_component["id"] = "root.agent.runtime"
+    runtime_component["owner"] = "root.agent"
+    runtime_component["kind"] = "runtime-policy"
+    empty_map = {}
+    runtime = _core_get(state, "runtime_contract", empty_map)
+    runtime_component["current"] = runtime
+    runtime_component["description"] = "Agent runtime-language metadata and code-field policy."
+    runtime_component["format"] = "json"
+    components.append(runtime_component)
+    policy_component = {}
+    policy_component["id"] = "root.agent.policy"
+    policy_component["owner"] = "root.agent"
+    policy_component["kind"] = "agent-policy"
+    policy = _core_get(state, "policy", empty_map)
+    policy_component["current"] = policy
+    policy_component["description"] = "Actor primitive, discovery, delegation, and prompt placement policy."
+    policy_component["format"] = "json"
+    components.append(policy_component)
+    return components
+
+
+def _agent_apply_optimized_components(state: Any, component_map: Any) -> str:
+    _core_coverage_mark("_agent_apply_optimized_components")
+    has_instruction = _core_map_contains(component_map, "root::instruction")
+    if has_instruction:
+        instruction = _core_get(component_map, "root::instruction", "")
+        _agent_set_instruction(state, instruction)
+    else:
+        pass
+    has_runtime = _core_map_contains(component_map, "root.agent.runtime")
+    if has_runtime:
+        runtime = _core_get(component_map, "root.agent.runtime", None)
+        state["runtime_contract"] = runtime
+    else:
+        pass
+    has_policy = _core_map_contains(component_map, "root.agent.policy")
+    if has_policy:
+        policy = _core_get(component_map, "root.agent.policy", None)
+        state["policy"] = policy
+    else:
+        pass
+    metadata = _agent_optimizer_metadata(state)
+    state["optimizer_metadata"] = metadata
+    composed = _core_get(state, "executor_description", "")
+    return composed
+
+
 def _agent_begin_trace(state: Any, input: Any) -> Any:
     _core_coverage_mark("_agent_begin_trace")
     events = []
@@ -6281,6 +6832,7 @@ def _agent_finalize_trace(state: Any, status: str, output: Any) -> Any:
     action_log = _core_get(state, "action_log", empty_list)
     policy_trace = _core_get(state, "policy_trace", empty_list)
     function_traces = _core_get(state, "function_call_traces", empty_list)
+    failure_signals = _core_get(state, "failure_signals", empty_list)
     optimizer = _core_get(state, "optimizer_metadata", empty_map)
     trace["status"] = status
     trace["final_output"] = output
@@ -6290,6 +6842,7 @@ def _agent_finalize_trace(state: Any, status: str, output: Any) -> Any:
     trace["action_log"] = action_log
     trace["policy_trace"] = policy_trace
     trace["function_call_traces"] = function_traces
+    trace["failure_signals"] = failure_signals
     trace["optimizer_metadata"] = optimizer
     state["trace"] = trace
     return trace
@@ -6312,6 +6865,7 @@ def _agent_export_trace(state: Any) -> Any:
     action_log = _core_get(state, "action_log", empty_list)
     policy_trace = _core_get(state, "policy_trace", empty_list)
     function_traces = _core_get(state, "function_call_traces", empty_list)
+    failure_signals = _core_get(state, "failure_signals", empty_list)
     optimizer = _core_get(state, "optimizer_metadata", empty_map)
     trace["event_count"] = event_count
     trace["usage"] = usage
@@ -6319,6 +6873,7 @@ def _agent_export_trace(state: Any) -> Any:
     trace["action_log"] = action_log
     trace["policy_trace"] = policy_trace
     trace["function_call_traces"] = function_traces
+    trace["failure_signals"] = failure_signals
     trace["optimizer_metadata"] = optimizer
     state["trace"] = trace
     return trace
@@ -7752,6 +8307,12 @@ def _build_responder_inputs(state: Any, values: Any, executor_payload: Any) -> A
     args = _core_get(executor_payload, "args", empty_list)
     task = _core_list_get(args, 0, "")
     context = _core_list_get(args, 1, empty_map)
+    args_count = _core_len(args)
+    has_evidence_arg = _core_gt(args_count, 1)
+    context_is_object = _core_type_is(context, "object")
+    evidence_present = _core_and(has_evidence_arg, context_is_object)
+    state["responder_evidence_present"] = evidence_present
+    state["responder_evidence"] = context
     context_data = {}
     context_data["task"] = task
     context_data["evidence"] = context
@@ -7830,7 +8391,7 @@ def _agent_render_field_token(field: Any) -> str:
     return result
 
 
-def _build_responder_signature(sig: Any, context_fields: Any) -> str:
+def _build_responder_signature(sig: Any, context_fields: Any, citations: Any) -> str:
     _core_coverage_mark("_build_responder_signature")
     empty_list = []
     input_fields = _core_get(sig, "input_fields", empty_list)
@@ -7862,6 +8423,28 @@ def _build_responder_signature(sig: Any, context_fields: Any) -> str:
     for ofield in output_fields:
         otok = _agent_render_field_token(ofield)
         output_tokens.append(otok)
+    citations_enabled = _core_get(citations, "enabled", False)
+    if citations_enabled:
+        citations_field = {}
+        citations_name = _core_get(citations, "field", "evidenceCitations")
+        citations_field["name"] = citations_name
+        citations_field["title"] = "Evidence Citations"
+        include_memory_ids = _core_get(citations, "includeMemoryIds", True)
+        citations_description = "IDs of the evidence entries that directly support the answer: use the exact top-level keys of the contextData.evidence object. Cite only entries actually used. Leave empty when contextData.evidence is absent or was not needed."
+        if include_memory_ids:
+            citations_description = "IDs of the evidence entries that directly support the answer: use the exact top-level keys of the contextData.evidence object, plus the id of any records inside it that were relied on (e.g. loaded memories). Cite only entries actually used. Leave empty when contextData.evidence is absent or was not needed."
+        else:
+            pass
+        citations_field["description"] = citations_description
+        citations_type = {}
+        citations_type["name"] = "string"
+        citations_type["is_array"] = True
+        citations_field["type"] = citations_type
+        citations_field["is_optional"] = True
+        citations_token = _agent_render_field_token(citations_field)
+        output_tokens.append(citations_token)
+    else:
+        pass
     inputs_joined = _core_string_join(", ", input_tokens)
     outputs_joined = _core_string_join(", ", output_tokens)
     body_parts = []
@@ -7877,6 +8460,349 @@ def _build_responder_signature(sig: Any, context_fields: Any) -> str:
     body_parts.append(outputs_joined)
     sig_string = _core_string_join("", body_parts)
     return sig_string
+
+
+def _resolve_agent_citations(options: Any, sig: Any) -> Any:
+    _core_coverage_mark("_resolve_agent_citations")
+    out = {}
+    raw = _core_get(options, "citations", False)
+    enabled = False
+    field = "evidenceCitations"
+    surface = "output"
+    include_memory_ids = True
+    raw_is_bool = _core_type_is(raw, "boolean")
+    if raw_is_bool:
+        enabled = raw
+    else:
+        pass
+    raw_is_object = _core_type_is(raw, "object")
+    if raw_is_object:
+        enabled = True
+        field = _core_get(raw, "field", "evidenceCitations")
+        surface = _core_get(raw, "surface", "output")
+        include_memory_ids = _core_get(raw, "includeMemoryIds", True)
+    else:
+        pass
+    if enabled:
+        valid_field = _core_regex_match("^[A-Za-z][A-Za-z0-9_]*$", field)
+        bad_field = _core_not(valid_field)
+        if bad_field:
+            message = _core_string_format("citations.field must be a valid field name, got {}", field)
+            error = _core_runtime_error(message)
+            raise error
+        else:
+            pass
+        is_context_data = _core_eq(field, "contextData")
+        if is_context_data:
+            error = _core_runtime_error("AxAgent: citations.field cannot be contextData; it is the reserved responder evidence input")
+            raise error
+        else:
+            pass
+        is_output = _core_eq(surface, "output")
+        is_hidden = _core_eq(surface, "hidden")
+        valid_surface = _core_or(is_output, is_hidden)
+        bad_surface = _core_not(valid_surface)
+        if bad_surface:
+            error = _core_runtime_error("citations.surface must be output or hidden")
+            raise error
+        else:
+            pass
+        empty_list = []
+        outputs = _core_get(sig, "output_fields", empty_list)
+        for output_field in outputs:
+            output_name = _core_get(output_field, "name", "")
+            collision = _core_eq(output_name, field)
+            if collision:
+                message = _core_string_format("AxAgent: citations.field {} collides with an output field of the agent signature", field)
+                error = _core_runtime_error(message)
+                raise error
+            else:
+                pass
+    else:
+        pass
+    out["enabled"] = enabled
+    out["field"] = field
+    out["surface"] = surface
+    out["includeMemoryIds"] = include_memory_ids
+    return out
+
+
+def _agent_collect_citation_ids(ids: Any, node: Any, depth: int) -> Any:
+    _core_coverage_mark("_agent_collect_citation_ids")
+    has_depth = _core_gte(depth, 0)
+    if has_depth:
+        is_object = _core_type_is(node, "object")
+        if is_object:
+            id = _core_get(node, "id", None)
+            id_is_string = _core_type_is(id, "string")
+            id_is_number = _core_type_is(id, "number")
+            valid_id = _core_or(id_is_string, id_is_number)
+            if valid_id:
+                id_text = _core_string_format("{}", id)
+                ids[id_text] = True
+            else:
+                pass
+            next_depth = _core_add(depth, -1)
+            children = _core_map_values(node)
+            for child in children:
+                ids = _agent_collect_citation_ids(ids, child, next_depth)
+        else:
+            is_list = _core_type_is(node, "list")
+            if is_list:
+                next_depth = _core_add(depth, -1)
+                for child in node:
+                    ids = _agent_collect_citation_ids(ids, child, next_depth)
+            else:
+                pass
+    else:
+        pass
+    return ids
+
+
+def _agent_validate_citations(state: Any, output: Any) -> bool:
+    _core_coverage_mark("_agent_validate_citations")
+    empty_map = {}
+    citations = _core_get(state, "citations", empty_map)
+    enabled = _core_get(citations, "enabled", False)
+    disabled = _core_not(enabled)
+    if disabled:
+        return True
+    else:
+        pass
+    evidence_present = _core_get(state, "responder_evidence_present", False)
+    no_evidence_contract = _core_not(evidence_present)
+    if no_evidence_contract:
+        return True
+    else:
+        pass
+    field = _core_get(citations, "field", "evidenceCitations")
+    raw = _core_get(output, field, None)
+    missing = _core_is_none(raw)
+    if missing:
+        return True
+    else:
+        pass
+    ids = {}
+    evidence = _core_get(state, "responder_evidence", empty_map)
+    keys = _core_map_keys(evidence)
+    for key in keys:
+        ids[key] = True
+    include_memory_ids = _core_get(citations, "includeMemoryIds", True)
+    if include_memory_ids:
+        values = _core_map_values(evidence)
+        for value in values:
+            ids = _agent_collect_citation_ids(ids, value, 2)
+    else:
+        pass
+    empty_list = []
+    cited = empty_list
+    raw_is_list = _core_type_is(raw, "list")
+    if raw_is_list:
+        cited = raw
+    else:
+        cited.append(raw)
+    valid = True
+    for raw_id in cited:
+        id_text = _core_string_format("{}", raw_id)
+        known = _core_map_contains(ids, id_text)
+        unknown = _core_not(known)
+        if unknown:
+            valid = False
+        else:
+            pass
+    return valid
+
+
+def _agent_finalize_citations(state: Any, output: Any) -> Any:
+    _core_coverage_mark("_agent_finalize_citations")
+    empty_map = {}
+    empty_list = []
+    citations = _core_get(state, "citations", empty_map)
+    enabled = _core_get(citations, "enabled", False)
+    if enabled:
+        field = _core_get(citations, "field", "evidenceCitations")
+        raw = _core_get(output, field, empty_list)
+        state["last_citations"] = raw
+        surface = _core_get(citations, "surface", "output")
+        hidden = _core_eq(surface, "hidden")
+        if hidden:
+            _core_map_delete(output, field)
+        else:
+            pass
+    else:
+        pass
+    return output
+
+
+def _agent_collect_covered_failure_signatures(snapshot: Any) -> list[Any]:
+    _core_coverage_mark("_agent_collect_covered_failure_signatures")
+    empty_map = {}
+    empty_list = []
+    live_ids = {}
+    playbook = _core_get(snapshot, "playbook", empty_map)
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    for section_name in section_names:
+        bullets = _core_get(sections, section_name, empty_list)
+        for bullet in bullets:
+            bullet_id = _core_get(bullet, "id", None)
+            has_bullet_id = _core_is_not_none(bullet_id)
+            if has_bullet_id:
+                bullet_id_text = _core_string_format("{}", bullet_id)
+                live_ids[bullet_id_text] = True
+            else:
+                pass
+    artifact = _core_get(snapshot, "artifact", empty_map)
+    feedback = _core_get(artifact, "feedback", empty_list)
+    history = _core_get(artifact, "history", empty_list)
+    covered_ids = {}
+    covered = []
+    event_index = 0
+    for event in feedback:
+        example = _core_get(event, "example", empty_map)
+        signatures_raw = _core_get(example, "failureSignatures", empty_list)
+        signatures_is_list = _core_type_is(signatures_raw, "list")
+        signatures = []
+        if signatures_is_list:
+            signatures = signatures_raw
+        else:
+            pass
+        signature_count = _core_len(signatures)
+        has_signatures = _core_gt(signature_count, 0)
+        if has_signatures:
+            deltas = []
+            for entry in history:
+                source = _core_get(entry, "source", "")
+                is_online = _core_eq(source, "online")
+                entry_index = _core_get(entry, "exampleIndex", -2)
+                index_lte = _core_lte(entry_index, event_index)
+                index_gte = _core_gte(entry_index, event_index)
+                same_index = _core_and(index_lte, index_gte)
+                matching_delta = _core_and(is_online, same_index)
+                if matching_delta:
+                    deltas.append(entry)
+                else:
+                    pass
+            delta_count = _core_len(deltas)
+            has_deltas = _core_gt(delta_count, 0)
+            alive = False
+            if has_deltas:
+                for delta in deltas:
+                    has_updated_ids = _core_map_contains(delta, "updatedBulletIds")
+                    legacy_delta = _core_not(has_updated_ids)
+                    if legacy_delta:
+                        alive = True
+                    else:
+                        updated_ids = _core_get(delta, "updatedBulletIds", empty_list)
+                        for updated_id in updated_ids:
+                            updated_id_text = _core_string_format("{}", updated_id)
+                            still_live = _core_map_contains(live_ids, updated_id_text)
+                            if still_live:
+                                alive = True
+                            else:
+                                pass
+            else:
+                curator = _core_get(event, "curator", None)
+                curator_ran = _core_is_not_none(curator)
+                alive = curator_ran
+            if alive:
+                for signature in signatures:
+                    signature_text = _core_string_format("{}", signature)
+                    already_covered = _core_map_contains(covered_ids, signature_text)
+                    newly_covered = _core_not(already_covered)
+                    if newly_covered:
+                        covered_ids[signature_text] = True
+                        covered.append(signature_text)
+                    else:
+                        pass
+            else:
+                pass
+        else:
+            pass
+        next_event_index = _core_add(event_index, 1)
+        event_index = next_event_index
+    return covered
+
+
+def _agent_build_failure_signals(state: Any) -> list[Any]:
+    _core_coverage_mark("_agent_build_failure_signals")
+    empty_list = []
+    signals = []
+    action_log = _core_get(state, "action_log", empty_list)
+    previous_signature = ""
+    for entry in action_log:
+        is_error = _agent_entry_is_error(entry)
+        if is_error:
+            detail = _core_get(entry, "error", "")
+            detail_empty = _core_eq(detail, "")
+            if detail_empty:
+                detail = _core_get(entry, "output", "")
+            else:
+                pass
+            detail_empty = _core_eq(detail, "")
+            if detail_empty:
+                detail = _core_get(entry, "error_category", "runtime error")
+            else:
+                pass
+            detail_preview = _core_string_slice(detail, 0, 200)
+            category = _core_get(entry, "error_category", "runtime_error")
+            signature_detail = _core_string_slice(detail, 0, 96)
+            signature = _core_string_format("{}:{}", category, signature_detail)
+            kind = "error_turn"
+            repeated = _core_eq(signature, previous_signature)
+            if repeated:
+                kind = "dead_end"
+            else:
+                pass
+            signal = {}
+            signal["kind"] = kind
+            turn = _core_get(entry, "turn", 0)
+            signal["turn"] = turn
+            signal["signature"] = signature
+            signal["detail"] = detail_preview
+            code = _core_get(entry, "code", "")
+            has_code = _core_ne(code, "")
+            if has_code:
+                code_preview = _core_string_slice(code, 0, 240)
+                signal["code"] = code_preview
+            else:
+                pass
+            signal["occurrences"] = 1
+            signals.append(signal)
+            previous_signature = signature
+        else:
+            pass
+    function_traces = _core_get(state, "function_call_traces", empty_list)
+    for call in function_traces:
+        status = _core_get(call, "status", "ok")
+        failed = _core_eq(status, "error")
+        if failed:
+            result = _core_get(call, "result", None)
+            error_text = _core_get(result, "error", "tool call failed")
+            error_preview = _core_string_slice(error_text, 0, 120)
+            qualified_name = _core_get(call, "qualified_name", "tool")
+            signature_error = _core_string_slice(error_text, 0, 60)
+            signature = _core_string_format("{}:{}", qualified_name, signature_error)
+            detail = _core_string_format("{} failed: {}", qualified_name, error_preview)
+            signal = {}
+            signal["kind"] = "tool_error"
+            signal["turn"] = 0
+            signal["signature"] = signature
+            signal["detail"] = detail
+            arguments = _core_get(call, "arguments", None)
+            has_arguments = _core_is_not_none(arguments)
+            if has_arguments:
+                arguments_text = _core_string_format("{}", arguments)
+                arguments_preview = _core_string_slice(arguments_text, 0, 240)
+                signal["code"] = arguments_preview
+            else:
+                pass
+            signal["occurrences"] = 1
+            signals.append(signal)
+        else:
+            pass
+    state["failure_signals"] = signals
+    return signals
 
 
 def _normalize_agent_completion_payload(output: Any) -> Any:
@@ -8766,6 +9692,34 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     responder_request_event["component_id"] = "agent.stage.responder"
     _agent_record_trace_event(state, "stage_request", responder_request_event)
     responder_output = _core_agent_stage_forward(responder, client, responder_values, responder_options)
+    citation_retry_options = {}
+    citation_retry_options = _core_map_merge(citation_retry_options, responder_options)
+    citations_valid = _agent_validate_citations(state, responder_output)
+    citations_invalid = _core_not(citations_valid)
+    if citations_invalid:
+        invalid_citations_output = _core_json_stringify(responder_output)
+        citation_retry_feedback = _core_string_format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", invalid_citations_output)
+        citation_retry_options["validation_feedback"] = citation_retry_feedback
+        responder_output = _core_agent_stage_forward(responder, client, responder_values, citation_retry_options)
+        citations_valid = _agent_validate_citations(state, responder_output)
+    else:
+        pass
+    citations_invalid = _core_not(citations_valid)
+    if citations_invalid:
+        invalid_citations_output = _core_json_stringify(responder_output)
+        citation_retry_feedback = _core_string_format("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", invalid_citations_output)
+        citation_retry_options["validation_feedback"] = citation_retry_feedback
+        responder_output = _core_agent_stage_forward(responder, client, responder_values, citation_retry_options)
+        citations_valid = _agent_validate_citations(state, responder_output)
+    else:
+        pass
+    citations_invalid = _core_not(citations_valid)
+    if citations_invalid:
+        error = _core_runtime_error("AxAgent responder returned citations that do not exist in the run evidence")
+        raise error
+    else:
+        pass
+    responder_output = _agent_finalize_citations(state, responder_output)
     responder_response_event = {}
     responder_response_event["stage"] = "responder"
     responder_response_event["output"] = responder_output
@@ -8776,6 +9730,7 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     state["last_output"] = responder_output
     state["chat_log"] = logs
     state["usage"] = usage
+    _agent_build_failure_signals(state)
     _agent_finalize_trace(state, "completed", responder_output)
     return responder_output
 

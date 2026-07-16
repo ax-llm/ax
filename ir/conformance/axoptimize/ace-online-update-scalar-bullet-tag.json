@@ -1,0 +1,212 @@
+{
+  "ace_options": {
+    "maxReflectorRounds": 1
+  },
+  "curator_responses": [
+    {
+      "operations": [
+        {
+          "content": "Verify draft facts before using them.",
+          "section": "Guidelines",
+          "type": "UPDATE"
+        }
+      ],
+      "reasoning": "Replace the harmful rule."
+    }
+  ],
+  "expected_artifact": {
+    "feedback": [
+      {
+        "curator": {
+          "operations": [
+            {
+              "bulletId": "guidelines-00002",
+              "content": "Verify draft facts before using them.",
+              "section": "Guidelines",
+              "type": "UPDATE"
+            }
+          ],
+          "reasoning": "Replace the harmful rule."
+        },
+        "example": {
+          "answer": "a",
+          "question": "q"
+        },
+        "generatorOutput": {
+          "answer": {
+            "answer": "bad"
+          },
+          "bulletIds": [],
+          "reasoning": ""
+        },
+        "prediction": {
+          "answer": "bad"
+        },
+        "reflection": {
+          "bulletTags": [
+            {
+              "id": "guidelines-00002",
+              "tag": "harmful"
+            }
+          ],
+          "correctApproach": "Verify draft facts",
+          "errorIdentification": "Unverified fact",
+          "keyInsight": "Verification is required",
+          "reasoning": "The draft trusted an unverified fact.",
+          "rootCauseAnalysis": "The existing trust rule is harmful"
+        },
+        "score": 0,
+        "timestamp": "2024-01-02T03:04:05.000Z"
+      }
+    ],
+    "history": [
+      {
+        "epoch": -1,
+        "exampleIndex": 0,
+        "operations": [
+          {
+            "bulletId": "guidelines-00002",
+            "content": "Verify draft facts before using them.",
+            "section": "Guidelines",
+            "type": "UPDATE"
+          }
+        ],
+        "source": "online",
+        "updatedBulletIds": ["guidelines-00002"]
+      }
+    ],
+    "playbook": {
+      "sections": {
+        "Guidelines": [
+          {
+            "content": "Be concise.",
+            "createdAt": "2023-12-01T00:00:00.000Z",
+            "harmfulCount": 0,
+            "helpfulCount": 0,
+            "id": "guidelines-00001",
+            "section": "Guidelines",
+            "updatedAt": "2023-12-01T00:00:00.000Z"
+          },
+          {
+            "content": "Verify draft facts before using them.",
+            "createdAt": "2023-12-01T00:00:00.000Z",
+            "harmfulCount": 1,
+            "helpfulCount": 0,
+            "id": "guidelines-00002",
+            "section": "Guidelines",
+            "updatedAt": "2024-01-02T03:04:05.000Z"
+          }
+        ]
+      },
+      "stats": {
+        "bulletCount": 2,
+        "harmfulCount": 1,
+        "helpfulCount": 0,
+        "tokenEstimate": 13
+      },
+      "updatedAt": "2024-01-02T03:04:05.000Z",
+      "version": 1
+    }
+  },
+  "expected_curator": {
+    "operations": [
+      {
+        "bulletId": "guidelines-00002",
+        "content": "Verify draft facts before using them.",
+        "section": "Guidelines",
+        "type": "UPDATE"
+      }
+    ],
+    "reasoning": "Replace the harmful rule."
+  },
+  "expected_playbook": {
+    "sections": {
+      "Guidelines": [
+        {
+          "content": "Be concise.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "guidelines-00001",
+          "section": "Guidelines",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        },
+        {
+          "content": "Verify draft facts before using them.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 1,
+          "helpfulCount": 0,
+          "id": "guidelines-00002",
+          "section": "Guidelines",
+          "updatedAt": "2024-01-02T03:04:05.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 2,
+      "harmfulCount": 1,
+      "helpfulCount": 0,
+      "tokenEstimate": 13
+    },
+    "updatedAt": "2024-01-02T03:04:05.000Z",
+    "version": 1
+  },
+  "initial_playbook": {
+    "sections": {
+      "Guidelines": [
+        {
+          "content": "Be concise.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "guidelines-00001",
+          "section": "Guidelines",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        },
+        {
+          "content": "Trust every draft fact.",
+          "createdAt": "2023-12-01T00:00:00.000Z",
+          "harmfulCount": 0,
+          "helpfulCount": 0,
+          "id": "guidelines-00002",
+          "section": "Guidelines",
+          "updatedAt": "2023-12-01T00:00:00.000Z"
+        }
+      ]
+    },
+    "stats": {
+      "bulletCount": 2,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 9
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  },
+  "kind": "optimize",
+  "name": "ace-online-update-scalar-bullet-tag",
+  "now": "2024-01-02T03:04:05.000Z",
+  "operation": "ace-online-update",
+  "reflection_responses": [
+    {
+      "bulletTags": {
+        "id": "guidelines-00002",
+        "tag": "harmful"
+      },
+      "correctApproach": "Verify draft facts",
+      "errorIdentification": "Unverified fact",
+      "keyInsight": "Verification is required",
+      "reasoning": "The draft trusted an unverified fact.",
+      "rootCauseAnalysis": "The existing trust rule is harmful"
+    }
+  ],
+  "update": {
+    "example": {
+      "answer": "a",
+      "question": "q"
+    },
+    "prediction": {
+      "answer": "bad"
+    }
+  }
+}

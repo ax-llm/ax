@@ -1,0 +1,74 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "anthropic",
+      "model": "claude-opus-4-6",
+      "tokens": {
+        "completion_tokens": 3,
+        "prompt_tokens": 7,
+        "total_tokens": 10
+      }
+    },
+    "remote_id": "msg_hidden_think",
+    "results": [
+      {
+        "content": "Done.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "msg_hidden_think",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "model": "claude-opus-4-6",
+      "output_config": {
+        "effort": "high"
+      },
+      "thinking": {
+        "display": "omitted",
+        "type": "adaptive"
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "claude-opus-4-6",
+  "name": "anthropic-adaptive-thinking-hidden-request",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Think privately then answer.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "showThoughts": false,
+      "stream": false,
+      "thinkingTokenBudget": "high"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "Done.",
+            "type": "text"
+          }
+        ],
+        "id": "msg_hidden_think",
+        "model": "claude-opus-4-6",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

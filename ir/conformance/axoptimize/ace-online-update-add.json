@@ -72,7 +72,8 @@
             "type": "ADD"
           }
         ],
-        "source": "online"
+        "source": "online",
+        "updatedBulletIds": ["guidelines-00002"]
       }
     ],
     "playbook": {

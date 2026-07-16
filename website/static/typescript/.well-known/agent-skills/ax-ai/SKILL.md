@@ -213,9 +213,10 @@ console.log(res.results[0]?.content);
 
 ### Anthropic Model-Specific Behavior
 
-- Opus 4.8 and 4.7: adaptive thinking, effort levels including `'xhigh'`,
-  no manual `budget_tokens`, and no `temperature` / `topP` / `topK`.
-- Opus 4.6: adaptive thinking, effort levels
+- Opus 4.8, 4.7, and 4.6 plus Sonnet 5: adaptive thinking, no manual
+  `budget_tokens`, and no `temperature` / `topP` / `topK`. When thoughts are
+  requested, Ax asks Anthropic for summarized display; when they are hidden,
+  Ax explicitly requests `display: 'omitted'`.
 - Opus 4.5: budget_tokens + effort levels (capped at `'high'`)
 - Other thinking models: budget tokens only
 
@@ -356,8 +357,8 @@ the event runtime sees the request.
 
 - Use `ai()` factory for all providers.
 - Provider names: `'openai'`, `'openai-responses'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'mistral'`, `'cohere'`, `'deepseek'`, `'reka'`, `'grok'`
-- Thinking constraints on Anthropic: Opus 4.8/4.7 omit `temperature`, `topP`,
-  and `topK`; older thinking models ignore `temperature` and `topK`, with
+- Thinking constraints on Anthropic: every adaptive-thinking model omits
+  `temperature`, `topP`, and `topK`; older thinking models ignore `temperature` and `topK`, with
   `topP` only sent if >= 0.95.
 - Bedrock uses `new AxAIBedrock()`, not `ai()`.
 - Vercel AI SDK uses `AxAIProvider` wrapper.

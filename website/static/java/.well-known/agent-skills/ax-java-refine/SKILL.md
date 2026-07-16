@@ -34,7 +34,7 @@ var result = engine.optimize(request, evaluator);
 ## Relevant API Surface
 
 - AxGen: `Ax.ax`, `AxGen`
-- Optimizers: `Ax.optimize`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
+- Optimizers: `Ax.optimize`, `Ax.playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
 
 ## Guardrails
 

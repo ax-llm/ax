@@ -1,8 +1,5 @@
 {
-  "expected_component_ids": [
-    "ctx.root.actor::instruction",
-    "task.root.actor::instruction"
-  ],
+  "expected_component_ids": ["root::instruction"],
   "kind": "optimize",
   "name": "agent-target-filter-actor",
   "operation": "filter",

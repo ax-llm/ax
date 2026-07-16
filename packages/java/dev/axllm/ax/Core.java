@@ -6234,11 +6234,15 @@ final class Core {
     Core._openai_copy_config_key_impl(payload, model_config, "max_tokens", "max_tokens");
     Core._openai_copy_config_key_impl(payload, model_config, "stopSequences", "stop_sequences");
     Core._openai_copy_config_key_impl(payload, model_config, "stop_sequences", "stop_sequences");
-    Core._openai_copy_config_key_impl(payload, model_config, "temperature", "temperature");
-    Core._openai_copy_config_key_impl(payload, model_config, "topP", "top_p");
-    Core._openai_copy_config_key_impl(payload, model_config, "top_p", "top_p");
-    Core._openai_copy_config_key_impl(payload, model_config, "topK", "top_k");
-    Core._openai_copy_config_key_impl(payload, model_config, "top_k", "top_k");
+    Object adaptive = Core._anthropic_is_adaptive_model_impl(model);
+    Object supports_sampling = Core.not(adaptive);
+    if (Core.truthy(supports_sampling)) {
+      Core._openai_copy_config_key_impl(payload, model_config, "temperature", "temperature");
+      Core._openai_copy_config_key_impl(payload, model_config, "topP", "top_p");
+      Core._openai_copy_config_key_impl(payload, model_config, "top_p", "top_p");
+      Core._openai_copy_config_key_impl(payload, model_config, "topK", "top_k");
+      Core._openai_copy_config_key_impl(payload, model_config, "top_k", "top_k");
+    }
     Core._openai_copy_config_key_impl(payload, model_config, "stream", "stream");
     Object has_max = Core.get(payload, "max_tokens", null);
     Object missing_max = Core.isNone(has_max);
@@ -6258,7 +6262,9 @@ final class Core {
     Object budget_alt = Core.get(model_config, "thinking_token_budget", budget);
     Object has_budget = Core.truthyValue(budget_alt);
     if (Core.truthy(has_budget)) {
-      Object thinking_config = Core._anthropic_thinking_config_impl(model, budget_alt);
+      Object show_thoughts_camel = Core.get(model_config, "showThoughts", Boolean.TRUE);
+      Object show_thoughts = Core.get(model_config, "show_thoughts", show_thoughts_camel);
+      Object thinking_config = Core._anthropic_thinking_config_impl(model, budget_alt, show_thoughts);
       Object thinking = Core.get(thinking_config, "thinking", null);
       Object has_thinking = Core.isNotNone(thinking);
       if (Core.truthy(has_thinking)) {
@@ -6280,7 +6286,19 @@ final class Core {
     return null;
   }
 
-  static Object _anthropic_thinking_config_impl(Object model, Object level) {
+  static Object _anthropic_is_adaptive_model_impl(Object model) {
+    axirCoverageMark("_anthropic_is_adaptive_model_impl");
+    Object is_48 = Core.contains(model, "claude-opus-4-8");
+    Object is_47 = Core.contains(model, "claude-opus-4-7");
+    Object is_46 = Core.contains(model, "claude-opus-4-6");
+    Object is_sonnet_5 = Core.contains(model, "claude-sonnet-5");
+    Object is_47_plus = Core.or(is_48, is_47);
+    Object is_adaptive_opus = Core.or(is_47_plus, is_46);
+    Object is_adaptive = Core.or(is_adaptive_opus, is_sonnet_5);
+    return is_adaptive;
+  }
+
+  static Object _anthropic_thinking_config_impl(Object model, Object level, Object show_thoughts) {
     axirCoverageMark("_anthropic_thinking_config_impl");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object is_none = Core.eq(level, "none");
@@ -6309,16 +6327,16 @@ final class Core {
       budget = 32000;
       effort = "max";
     }
-    Object is_48 = Core.stringStartsWith(model, "claude-opus-4-8");
-    Object is_47 = Core.stringStartsWith(model, "claude-opus-4-7");
-    Object is_46 = Core.stringStartsWith(model, "claude-opus-4-6");
-    Object is_sonnet_5 = Core.stringStartsWith(model, "claude-sonnet-5");
-    Object is_47_plus = Core.or(is_48, is_47);
-    Object is_adaptive_opus = Core.or(is_47_plus, is_46);
-    Object is_adaptive = Core.or(is_adaptive_opus, is_sonnet_5);
+    Object is_adaptive = Core._anthropic_is_adaptive_model_impl(model);
     if (Core.truthy(is_adaptive)) {
       Object thinking = new java.util.LinkedHashMap<String, Object>();
       Core.set(thinking, "type", "adaptive");
+      if (Core.truthy(show_thoughts)) {
+        Core.set(thinking, "display", "summarized");
+      }
+      if (!Core.truthy(show_thoughts)) {
+        Core.set(thinking, "display", "omitted");
+      }
       Core.set(out, "thinking", thinking);
       Object output_config = new java.util.LinkedHashMap<String, Object>();
       Core.set(output_config, "effort", effort);
@@ -7307,6 +7325,15 @@ final class Core {
       Core.append(ordered_messages, demo_message);
     }
     Core.append(ordered_messages, user_message);
+    Object validation_feedback_snake = Core.get(runtime_options, "validation_feedback", "");
+    Object validation_feedback = Core.get(runtime_options, "validationFeedback", validation_feedback_snake);
+    Object has_validation_feedback = Core.truthyValue(validation_feedback);
+    if (Core.truthy(has_validation_feedback)) {
+      Object validation_feedback_message = new java.util.LinkedHashMap<String, Object>();
+      Core.set(validation_feedback_message, "role", "user");
+      Core.set(validation_feedback_message, "content", validation_feedback);
+      Core.append(ordered_messages, validation_feedback_message);
+    }
     Object cached_messages = Core.axgenApplyContextCache(gen, ordered_messages, options);
     messages = cached_messages;
     Core.axgenMemoryAddRequest(gen, messages);
@@ -7711,19 +7738,6 @@ final class Core {
     return flexible;
   }
 
-  static Object _optimization_action_name_matches(Object expected, Object call) {
-    axirCoverageMark("_optimization_action_name_matches");
-    Object qualified = Core.get(call, "qualifiedName", "");
-    Object name = Core.get(call, "name", "");
-    Object qualified_match = Core.eq(qualified, expected);
-    Object name_match = Core.eq(name, expected);
-    Object dot_expected = Core.add(".", expected);
-    Object suffix_match = Core.stringEndsWith(qualified, dot_expected);
-    Object direct_match = Core.or(qualified_match, name_match);
-    Object any_match = Core.or(direct_match, suffix_match);
-    return any_match;
-  }
-
   static Object _parse_json_string_value(Object value) {
     axirCoverageMark("_parse_json_string_value");
     Object is_string = Core.typeIs(value, "string");
@@ -7739,6 +7753,19 @@ final class Core {
       result = value;
     }
     return result;
+  }
+
+  static Object _optimization_action_name_matches(Object expected, Object call) {
+    axirCoverageMark("_optimization_action_name_matches");
+    Object qualified = Core.get(call, "qualifiedName", "");
+    Object name = Core.get(call, "name", "");
+    Object qualified_match = Core.eq(qualified, expected);
+    Object name_match = Core.eq(name, expected);
+    Object dot_expected = Core.add(".", expected);
+    Object suffix_match = Core.stringEndsWith(qualified, dot_expected);
+    Object direct_match = Core.or(qualified_match, name_match);
+    Object any_match = Core.or(direct_match, suffix_match);
+    return any_match;
   }
 
   static Object _adjust_optimization_score_for_actions(Object score, Object task, Object prediction) {
@@ -7882,6 +7909,18 @@ final class Core {
     return values;
   }
 
+  static Object _tool_spec_impl(Object fn) {
+    axirCoverageMark("_tool_spec_impl");
+    Object spec = new java.util.LinkedHashMap<String, Object>();
+    Object name = Core.get(fn, "name", null);
+    Object description = Core.get(fn, "description", null);
+    Object parameters = Core.get(fn, "parameters", null);
+    Core.set(spec, "name", name);
+    Core.set(spec, "description", description);
+    Core.set(spec, "parameters", parameters);
+    return spec;
+  }
+
   static Object _build_optimization_eval_row(Object task, Object prediction, Object scores, Object scalar, Object trace, Object error) {
     axirCoverageMark("_build_optimization_eval_row");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -7897,16 +7936,23 @@ final class Core {
     return out;
   }
 
-  static Object _tool_spec_impl(Object fn) {
-    axirCoverageMark("_tool_spec_impl");
-    Object spec = new java.util.LinkedHashMap<String, Object>();
-    Object name = Core.get(fn, "name", null);
-    Object description = Core.get(fn, "description", null);
-    Object parameters = Core.get(fn, "parameters", null);
-    Core.set(spec, "name", name);
-    Core.set(spec, "description", description);
-    Core.set(spec, "parameters", parameters);
-    return spec;
+  static Object _function_call_mode_impl(Object mode) {
+    axirCoverageMark("_function_call_mode_impl");
+    Object missing = Core.isNone(mode);
+    if (Core.truthy(missing)) {
+      return "auto";
+    }
+    Object is_native = Core.eq(mode, "native");
+    Object is_auto = Core.eq(mode, "auto");
+    Object native_or_auto = Core.or(is_native, is_auto);
+    if (Core.truthy(native_or_auto)) {
+      return "auto";
+    }
+    Object is_prompt = Core.eq(mode, "prompt");
+    if (Core.truthy(is_prompt)) {
+      return "none";
+    }
+    return mode;
   }
 
   static Object _build_optimization_eval_result(Object rows, Object candidate_map, Object phase) {
@@ -7936,30 +7982,27 @@ final class Core {
     return out;
   }
 
-  static Object _function_call_mode_impl(Object mode) {
-    axirCoverageMark("_function_call_mode_impl");
-    Object missing = Core.isNone(mode);
-    if (Core.truthy(missing)) {
-      return "auto";
-    }
-    Object is_native = Core.eq(mode, "native");
-    Object is_auto = Core.eq(mode, "auto");
-    Object native_or_auto = Core.or(is_native, is_auto);
-    if (Core.truthy(native_or_auto)) {
-      return "auto";
-    }
-    Object is_prompt = Core.eq(mode, "prompt");
-    if (Core.truthy(is_prompt)) {
-      return "none";
-    }
-    return mode;
-  }
-
   static Object _response_function_calls_impl(Object response) {
     axirCoverageMark("_response_function_calls_impl");
     Object empty = new java.util.ArrayList<Object>();
     Object calls = Core.get(response, "function_calls", empty);
     return calls;
+  }
+
+  static Object _append_tool_call_messages_impl(Object messages, Object response, Object calls) {
+    axirCoverageMark("_append_tool_call_messages_impl");
+    Object chat_calls = new java.util.ArrayList<Object>();
+    for (Object call : Core.iter(calls)) {
+      Object chat_call = Core._completion_call_to_chat_impl(call);
+      Core.append(chat_calls, chat_call);
+    }
+    Object content = Core.get(response, "content", "");
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "assistant");
+    Core.set(message, "content", content);
+    Core.set(message, "function_calls", chat_calls);
+    Core.append(messages, message);
+    return null;
   }
 
   static Object _filter_optimization_components(Object components, Object target) {
@@ -7987,6 +8030,8 @@ final class Core {
         Object actor_match = Core.stringEndsWith(id, ".actor");
         Object actor_component_match = Core.contains(id, ".actor::");
         Object actor_any_match = Core.or(actor_match, actor_component_match);
+        Object stage_instruction_match = Core.eq(id, "root::instruction");
+        actor_any_match = Core.or(actor_any_match, stage_instruction_match);
         if (Core.truthy(actor_any_match)) {
           include = Boolean.TRUE;
         }
@@ -8023,22 +8068,6 @@ final class Core {
     return out;
   }
 
-  static Object _append_tool_call_messages_impl(Object messages, Object response, Object calls) {
-    axirCoverageMark("_append_tool_call_messages_impl");
-    Object chat_calls = new java.util.ArrayList<Object>();
-    for (Object call : Core.iter(calls)) {
-      Object chat_call = Core._completion_call_to_chat_impl(call);
-      Core.append(chat_calls, chat_call);
-    }
-    Object content = Core.get(response, "content", "");
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "assistant");
-    Core.set(message, "content", content);
-    Core.set(message, "function_calls", chat_calls);
-    Core.append(messages, message);
-    return null;
-  }
-
   static Object _completion_call_to_chat_impl(Object call) {
     axirCoverageMark("_completion_call_to_chat_impl");
     Object id = Core.get(call, "id", null);
@@ -8065,6 +8094,21 @@ final class Core {
     return message;
   }
 
+  static Object _tool_error_message_impl(Object call, Object error) {
+    axirCoverageMark("_tool_error_message_impl");
+    Object id = Core.get(call, "id", null);
+    Object error_text = Core.exceptionMessage(error);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "error", error_text);
+    Object payload_json = Core.jsonStringify(payload);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "result", payload_json);
+    Core.set(message, "is_error", Boolean.TRUE);
+    return message;
+  }
+
   static Object _build_optimizer_request(Object program_kind, Object components, Object dataset, Object options, Object trace) {
     axirCoverageMark("_build_optimizer_request");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -8083,21 +8127,6 @@ final class Core {
     Core.set(evaluator, "methods", methods);
     Core.set(out, "evaluator", evaluator);
     return out;
-  }
-
-  static Object _tool_error_message_impl(Object call, Object error) {
-    axirCoverageMark("_tool_error_message_impl");
-    Object id = Core.get(call, "id", null);
-    Object error_text = Core.exceptionMessage(error);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Core.set(payload, "error", error_text);
-    Object payload_json = Core.jsonStringify(payload);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "result", payload_json);
-    Core.set(message, "is_error", Boolean.TRUE);
-    return message;
   }
 
   static Object _append_validation_retry_messages_impl(Object messages, Object response, Object error) {
@@ -8351,7 +8380,7 @@ final class Core {
     Core.set(stats, "tokenEstimate", 0);
     Core.set(out, "stats", stats);
     Core.set(out, "updatedAt", now);
-    Object has_description = Core.isNotNone(description);
+    Object has_description = Core.truthyValue(description);
     if (Core.truthy(has_description)) {
       Core.set(out, "description", description);
     }
@@ -8361,16 +8390,31 @@ final class Core {
   static Object _ace_render_playbook(Object playbook) {
     axirCoverageMark("_ace_render_playbook");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
     Object description = Core.get(playbook, "description", null);
-    Object has_description = Core.isNotNone(description);
+    Object has_description = Core.truthyValue(description);
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object section_names = Core.mapKeys(sections);
+    Object bullet_count = 0;
+    for (Object section_name : Core.iter(section_names)) {
+      Object section_bullets = Core.get(sections, section_name, empty_list);
+      Object section_count = Core.len(section_bullets);
+      Object next_bullet_count = Core.add(bullet_count, section_count);
+      bullet_count = next_bullet_count;
+    }
+    Object has_bullets = Core.gt(bullet_count, 0);
+    Object no_bullets = Core.not(has_bullets);
+    Object no_description = Core.not(has_description);
+    Object empty_playbook = Core.and(no_bullets, no_description);
+    if (Core.truthy(empty_playbook)) {
+      return "";
+    }
     Object header = "## Context Playbook\n";
     if (Core.truthy(has_description)) {
       Object trimmed_description = Core.stringTrim(description);
       Object header_with_description = Core.stringFormat("## Context Playbook\n{}\n", trimmed_description);
       header = header_with_description;
     }
-    Object sections = Core.get(playbook, "sections", empty_map);
-    Object section_names = Core.mapKeys(sections);
     Object section_blocks = new java.util.ArrayList<Object>();
     for (Object section_name : Core.iter(section_names)) {
       Object bullets = Core.get(sections, section_name, null);
@@ -8583,6 +8627,7 @@ final class Core {
     Object updated_bullets = new java.util.ArrayList<Object>();
     Object auto_removed = new java.util.ArrayList<Object>();
     Object sections = Core.get(playbook, "sections", empty_map);
+    Object operation_index = 0;
     for (Object op : Core.iter(operations)) {
       Object section_name = Core.get(op, "section", "");
       Object has_section_name = Core.ne(section_name, "");
@@ -8650,7 +8695,8 @@ final class Core {
                 Object bullet_id = op_bullet_id;
                 Object missing_bullet_id = Core.not(has_bullet_id);
                 if (Core.truthy(missing_bullet_id)) {
-                  bullet_id = section_name;
+                  Object bullet_id_prefix = Core.stringFormat("{}-{}-{}", section_name, now, section_len);
+                  bullet_id = Core.stringFormat("{}-{}", bullet_id_prefix, operation_index);
                 }
                 Object bullet = new java.util.LinkedHashMap<String, Object>();
                 Core.set(bullet, "id", bullet_id);
@@ -8721,6 +8767,8 @@ final class Core {
           }
         }
       }
+      Object next_operation_index = Core.add(operation_index, 1);
+      operation_index = next_operation_index;
     }
     Core.set(playbook, "sections", sections);
     Object recomputed = Core._ace_recompute_playbook_stats(playbook);
@@ -9055,43 +9103,40 @@ final class Core {
     Object empty_list = new java.util.ArrayList<Object>();
     Object reflection_present = Core.isNotNone(reflection);
     if (Core.truthy(reflection_present)) {
-      Object bullet_tags = Core.get(reflection, "bulletTags", empty_list);
+      Object bullet_tags = Core._ace_normalize_reflection_bullet_tags(reflection);
       for (Object tag : Core.iter(bullet_tags)) {
         Object tag_id = Core.get(tag, "id", null);
-        Object tag_id_is_string = Core.typeIs(tag_id, "string");
-        if (Core.truthy(tag_id_is_string)) {
-          Object already_used = Core.mapContains(used_ids, tag_id);
-          Object not_used = Core.not(already_used);
-          if (Core.truthy(not_used)) {
-            Object located = Core._ace_locate_bullet_section(playbook, tag_id);
-            Object located_found = Core.isNotNone(located);
-            if (Core.truthy(located_found)) {
-              Object located_section = Core.get(located, "section", null);
-              Object located_id = Core.get(located, "id", null);
-              Object tag_value = Core.get(tag, "tag", "");
-              Object is_harmful = Core.eq(tag_value, "harmful");
-              Object priority = "primary";
-              if (Core.truthy(is_harmful)) {
-                priority = "harmful";
-              }
-              Object has_queue = Core.mapContains(section_queues, located_section);
-              Object missing_queue = Core.not(has_queue);
-              if (Core.truthy(missing_queue)) {
-                Object new_queue = new java.util.LinkedHashMap<String, Object>();
-                Object harmful_list = new java.util.ArrayList<Object>();
-                Core.set(new_queue, "harmful", harmful_list);
-                Object primary_list = new java.util.ArrayList<Object>();
-                Core.set(new_queue, "primary", primary_list);
-                Object generator_list = new java.util.ArrayList<Object>();
-                Core.set(new_queue, "generator", generator_list);
-                Core.set(section_queues, located_section, new_queue);
-              }
-              Object queue = Core.get(section_queues, located_section, null);
-              Object priority_list = Core.get(queue, priority, null);
-              Core.append(priority_list, located_id);
-              Core.set(queue, priority, priority_list);
-              Core.set(section_queues, located_section, queue);
+        Object tag_value = Core.get(tag, "tag", null);
+        Object is_harmful = Core.eq(tag_value, "harmful");
+        Object already_used = Core.mapContains(used_ids, tag_id);
+        Object not_used = Core.not(already_used);
+        if (Core.truthy(not_used)) {
+          Object located = Core._ace_locate_bullet_section(playbook, tag_id);
+          Object located_found = Core.isNotNone(located);
+          if (Core.truthy(located_found)) {
+            Object located_section = Core.get(located, "section", null);
+            Object located_id = Core.get(located, "id", null);
+            Object priority = "primary";
+            if (Core.truthy(is_harmful)) {
+              priority = "harmful";
             }
+            Object has_queue = Core.mapContains(section_queues, located_section);
+            Object missing_queue = Core.not(has_queue);
+            if (Core.truthy(missing_queue)) {
+              Object new_queue = new java.util.LinkedHashMap<String, Object>();
+              Object harmful_list = new java.util.ArrayList<Object>();
+              Core.set(new_queue, "harmful", harmful_list);
+              Object primary_list = new java.util.ArrayList<Object>();
+              Core.set(new_queue, "primary", primary_list);
+              Object generator_list = new java.util.ArrayList<Object>();
+              Core.set(new_queue, "generator", generator_list);
+              Core.set(section_queues, located_section, new_queue);
+            }
+            Object queue = Core.get(section_queues, located_section, null);
+            Object priority_list = Core.get(queue, priority, null);
+            Core.append(priority_list, located_id);
+            Core.set(queue, priority, priority_list);
+            Core.set(section_queues, located_section, queue);
           }
         }
       }
@@ -9165,6 +9210,38 @@ final class Core {
       }
     }
     return resolved;
+  }
+
+  static Object _ace_normalize_reflection_bullet_tags(Object reflection) {
+    axirCoverageMark("_ace_normalize_reflection_bullet_tags");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object raw_bullet_tags = Core.get(reflection, "bulletTags", empty_list);
+    Object candidates = new java.util.ArrayList<Object>();
+    Object tags_is_list = Core.typeIs(raw_bullet_tags, "list");
+    if (Core.truthy(tags_is_list)) {
+      candidates = raw_bullet_tags;
+    }
+    if (!Core.truthy(tags_is_list)) {
+      Object tags_is_object = Core.typeIs(raw_bullet_tags, "object");
+      if (Core.truthy(tags_is_object)) {
+        Core.append(candidates, raw_bullet_tags);
+      }
+    }
+    Object normalized = new java.util.ArrayList<Object>();
+    for (Object tag : Core.iter(candidates)) {
+      Object tag_is_object = Core.typeIs(tag, "object");
+      if (Core.truthy(tag_is_object)) {
+        Object tag_id = Core.get(tag, "id", null);
+        Object tag_id_is_string = Core.typeIs(tag_id, "string");
+        Object tag_value = Core.get(tag, "tag", null);
+        Object tag_value_is_string = Core.typeIs(tag_value, "string");
+        Object valid_tag_shape = Core.and(tag_id_is_string, tag_value_is_string);
+        if (Core.truthy(valid_tag_shape)) {
+          Core.append(normalized, tag);
+        }
+      }
+    }
+    return normalized;
   }
 
   static Object _ace_dequeue_section_candidate(Object section_queues, Object section, Object used_ids, Object playbook) {
@@ -9349,7 +9426,9 @@ final class Core {
     Core.set(state, "llm_query_signature", llm_query_signature);
     Object llm_query_description = "You answer ONE focused question using only the provided context object. Return just the answer text — concise, specific, and grounded in the context. Do not restate the question.";
     Core.set(state, "llm_query_description", llm_query_description);
-    Object responder_signature = Core._build_responder_signature(sig, context_fields);
+    Object citations = Core._resolve_agent_citations(options, sig);
+    Core.set(state, "citations", citations);
+    Object responder_signature = Core._build_responder_signature(sig, context_fields, citations);
     Core.set(state, "responder_signature", responder_signature);
     Core.set(state, "chat_log", chat_log);
     Core.set(state, "usage", usage);
@@ -9426,6 +9505,21 @@ final class Core {
       Object distiller_description = Core._render_rlm_distiller_description(state, options);
       Core.set(state, "distiller_description", distiller_description);
     }
+    Object executor_description_base = Core.get(state, "executor_description", "");
+    Core.set(state, "executor_description_base", executor_description_base);
+    Object stage_instruction = Core.get(options, "instruction", "");
+    Core.set(state, "stage_instruction", stage_instruction);
+    Object instruction_addenda_camel = Core.get(options, "instructionAddenda", empty_list);
+    Object instruction_addenda = Core.get(options, "instruction_addenda", instruction_addenda_camel);
+    Object instruction_addenda_is_list = Core.typeIs(instruction_addenda, "list");
+    if (Core.truthy(instruction_addenda_is_list)) {
+      // empty
+    }
+    if (!Core.truthy(instruction_addenda_is_list)) {
+      instruction_addenda = empty_list;
+    }
+    Core.set(state, "instruction_addenda", instruction_addenda);
+    Core._agent_refresh_actor_instruction(state);
     return state;
   }
 
@@ -9796,6 +9890,9 @@ final class Core {
     Core.set(out, "usage", usage);
     Object trace = Core.get(prediction, "trace", null);
     Core.set(out, "trace", trace);
+    Object empty_failure_signals = new java.util.ArrayList<Object>();
+    Object failure_signals = Core.get(prediction, "failureSignals", empty_failure_signals);
+    Core.set(out, "failureSignals", failure_signals);
     return out;
   }
 
@@ -10203,6 +10300,8 @@ final class Core {
     Core.set(out, "usage", usage);
     Core.set(out, "trace", trace);
     Object empty_list = new java.util.ArrayList<Object>();
+    Object failure_signals = Core.get(trace, "failure_signals", empty_list);
+    Core.set(out, "failureSignals", failure_signals);
     Core.set(out, "functionCalls", empty_list);
     Core.set(out, "toolErrors", empty_list);
     Core.set(out, "turnCount", 0);
@@ -13516,6 +13615,134 @@ final class Core {
     return out;
   }
 
+  static Object _agent_refresh_actor_instruction(Object state) {
+    axirCoverageMark("_agent_refresh_actor_instruction");
+    Object parts = new java.util.ArrayList<Object>();
+    Object instruction = Core.get(state, "stage_instruction", "");
+    Object instruction_trimmed = Core.stringTrim(instruction);
+    Object has_instruction = Core.ne(instruction_trimmed, "");
+    if (Core.truthy(has_instruction)) {
+      Core.append(parts, instruction_trimmed);
+    }
+    Object base = Core.get(state, "executor_description_base", "");
+    Object base_trimmed = Core.stringTrim(base);
+    Object has_base = Core.ne(base_trimmed, "");
+    if (Core.truthy(has_base)) {
+      Core.append(parts, base_trimmed);
+    }
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object addenda = Core.get(state, "instruction_addenda", empty_list);
+    for (Object addendum : Core.iter(addenda)) {
+      Object addendum_is_string = Core.typeIs(addendum, "string");
+      if (Core.truthy(addendum_is_string)) {
+        Object addendum_trimmed = Core.stringTrim(addendum);
+        Object has_addendum = Core.ne(addendum_trimmed, "");
+        if (Core.truthy(has_addendum)) {
+          Core.append(parts, addendum_trimmed);
+        }
+      }
+    }
+    Object composed = Core.stringJoin("\n\n", parts);
+    Core.set(state, "executor_description", composed);
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object options = Core.get(state, "options", empty_map);
+    Core.set(options, "instruction", instruction_trimmed);
+    Core.set(options, "instructionAddenda", addenda);
+    Core.set(state, "options", options);
+    return composed;
+  }
+
+  static Object _agent_set_instruction(Object state, Object instruction) {
+    axirCoverageMark("_agent_set_instruction");
+    Object trimmed = Core.stringTrim(instruction);
+    Core.set(state, "stage_instruction", trimmed);
+    Object composed = Core._agent_refresh_actor_instruction(state);
+    return composed;
+  }
+
+  static Object _agent_add_actor_instruction(Object state, Object addendum) {
+    axirCoverageMark("_agent_add_actor_instruction");
+    Object trimmed = Core.stringTrim(addendum);
+    Object has_addendum = Core.ne(trimmed, "");
+    if (Core.truthy(has_addendum)) {
+      Object empty_list = new java.util.ArrayList<Object>();
+      Object addenda = Core.get(state, "instruction_addenda", empty_list);
+      Core.append(addenda, trimmed);
+      Core.set(state, "instruction_addenda", addenda);
+    }
+    Object composed = Core._agent_refresh_actor_instruction(state);
+    return composed;
+  }
+
+  static Object _agent_get_optimizable_components(Object state, Object child_components) {
+    axirCoverageMark("_agent_get_optimizable_components");
+    Object components = new java.util.ArrayList<Object>();
+    for (Object component : Core.iter(child_components)) {
+      Object id = Core.get(component, "id", "");
+      Object kind = Core.get(component, "kind", "");
+      Object is_instruction = Core.eq(kind, "instruction");
+      Object is_actor_instruction = Core.contains(id, ".actor::instruction");
+      Object is_dead_instruction = Core.and(is_instruction, is_actor_instruction);
+      Object keep = Core.not(is_dead_instruction);
+      if (Core.truthy(keep)) {
+        Core.append(components, component);
+      }
+    }
+    Object instruction_component = new java.util.LinkedHashMap<String, Object>();
+    Core.set(instruction_component, "id", "root::instruction");
+    Core.set(instruction_component, "owner", "root");
+    Core.set(instruction_component, "kind", "instruction");
+    Object instruction = Core.get(state, "stage_instruction", "");
+    Core.set(instruction_component, "current", instruction);
+    Core.set(instruction_component, "description", "High-level instruction rendered at the top of the actor definition; survives stage rebuilds.");
+    Core.set(instruction_component, "constraints", "Keep this as a concise standing strategy or rule.");
+    Core.set(instruction_component, "format", "text");
+    Core.append(components, instruction_component);
+    Object runtime_component = new java.util.LinkedHashMap<String, Object>();
+    Core.set(runtime_component, "id", "root.agent.runtime");
+    Core.set(runtime_component, "owner", "root.agent");
+    Core.set(runtime_component, "kind", "runtime-policy");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object runtime = Core.get(state, "runtime_contract", empty_map);
+    Core.set(runtime_component, "current", runtime);
+    Core.set(runtime_component, "description", "Agent runtime-language metadata and code-field policy.");
+    Core.set(runtime_component, "format", "json");
+    Core.append(components, runtime_component);
+    Object policy_component = new java.util.LinkedHashMap<String, Object>();
+    Core.set(policy_component, "id", "root.agent.policy");
+    Core.set(policy_component, "owner", "root.agent");
+    Core.set(policy_component, "kind", "agent-policy");
+    Object policy = Core.get(state, "policy", empty_map);
+    Core.set(policy_component, "current", policy);
+    Core.set(policy_component, "description", "Actor primitive, discovery, delegation, and prompt placement policy.");
+    Core.set(policy_component, "format", "json");
+    Core.append(components, policy_component);
+    return components;
+  }
+
+  static Object _agent_apply_optimized_components(Object state, Object component_map) {
+    axirCoverageMark("_agent_apply_optimized_components");
+    Object has_instruction = Core.mapContains(component_map, "root::instruction");
+    if (Core.truthy(has_instruction)) {
+      Object instruction = Core.get(component_map, "root::instruction", "");
+      Core._agent_set_instruction(state, instruction);
+    }
+    Object has_runtime = Core.mapContains(component_map, "root.agent.runtime");
+    if (Core.truthy(has_runtime)) {
+      Object runtime = Core.get(component_map, "root.agent.runtime", null);
+      Core.set(state, "runtime_contract", runtime);
+    }
+    Object has_policy = Core.mapContains(component_map, "root.agent.policy");
+    if (Core.truthy(has_policy)) {
+      Object policy = Core.get(component_map, "root.agent.policy", null);
+      Core.set(state, "policy", policy);
+    }
+    Object metadata = Core._agent_optimizer_metadata(state);
+    Core.set(state, "optimizer_metadata", metadata);
+    Object composed = Core.get(state, "executor_description", "");
+    return composed;
+  }
+
   static Object _agent_begin_trace(Object state, Object input) {
     axirCoverageMark("_agent_begin_trace");
     Object events = new java.util.ArrayList<Object>();
@@ -13600,6 +13827,7 @@ final class Core {
     Object action_log = Core.get(state, "action_log", empty_list);
     Object policy_trace = Core.get(state, "policy_trace", empty_list);
     Object function_traces = Core.get(state, "function_call_traces", empty_list);
+    Object failure_signals = Core.get(state, "failure_signals", empty_list);
     Object optimizer = Core.get(state, "optimizer_metadata", empty_map);
     Core.set(trace, "status", status);
     Core.set(trace, "final_output", output);
@@ -13609,6 +13837,7 @@ final class Core {
     Core.set(trace, "action_log", action_log);
     Core.set(trace, "policy_trace", policy_trace);
     Core.set(trace, "function_call_traces", function_traces);
+    Core.set(trace, "failure_signals", failure_signals);
     Core.set(trace, "optimizer_metadata", optimizer);
     Core.set(state, "trace", trace);
     return trace;
@@ -13633,6 +13862,7 @@ final class Core {
     Object action_log = Core.get(state, "action_log", empty_list);
     Object policy_trace = Core.get(state, "policy_trace", empty_list);
     Object function_traces = Core.get(state, "function_call_traces", empty_list);
+    Object failure_signals = Core.get(state, "failure_signals", empty_list);
     Object optimizer = Core.get(state, "optimizer_metadata", empty_map);
     Core.set(trace, "event_count", event_count);
     Core.set(trace, "usage", usage);
@@ -13640,6 +13870,7 @@ final class Core {
     Core.set(trace, "action_log", action_log);
     Core.set(trace, "policy_trace", policy_trace);
     Core.set(trace, "function_call_traces", function_traces);
+    Core.set(trace, "failure_signals", failure_signals);
     Core.set(trace, "optimizer_metadata", optimizer);
     Core.set(state, "trace", trace);
     return trace;
@@ -15051,6 +15282,12 @@ final class Core {
     Object args = Core.get(executor_payload, "args", empty_list);
     Object task = Core.listGet(args, 0, "");
     Object context = Core.listGet(args, 1, empty_map);
+    Object args_count = Core.len(args);
+    Object has_evidence_arg = Core.gt(args_count, 1);
+    Object context_is_object = Core.typeIs(context, "object");
+    Object evidence_present = Core.and(has_evidence_arg, context_is_object);
+    Core.set(state, "responder_evidence_present", evidence_present);
+    Core.set(state, "responder_evidence", context);
     Object context_data = new java.util.LinkedHashMap<String, Object>();
     Core.set(context_data, "task", task);
     Core.set(context_data, "evidence", context);
@@ -15122,7 +15359,7 @@ final class Core {
     return result;
   }
 
-  static Object _build_responder_signature(Object sig, Object context_fields) {
+  static Object _build_responder_signature(Object sig, Object context_fields, Object citations) {
     axirCoverageMark("_build_responder_signature");
     Object empty_list = new java.util.ArrayList<Object>();
     Object input_fields = Core.get(sig, "input_fields", empty_list);
@@ -15154,6 +15391,26 @@ final class Core {
       Object otok = Core._agent_render_field_token(ofield);
       Core.append(output_tokens, otok);
     }
+    Object citations_enabled = Core.get(citations, "enabled", Boolean.FALSE);
+    if (Core.truthy(citations_enabled)) {
+      Object citations_field = new java.util.LinkedHashMap<String, Object>();
+      Object citations_name = Core.get(citations, "field", "evidenceCitations");
+      Core.set(citations_field, "name", citations_name);
+      Core.set(citations_field, "title", "Evidence Citations");
+      Object include_memory_ids = Core.get(citations, "includeMemoryIds", Boolean.TRUE);
+      Object citations_description = "IDs of the evidence entries that directly support the answer: use the exact top-level keys of the contextData.evidence object. Cite only entries actually used. Leave empty when contextData.evidence is absent or was not needed.";
+      if (Core.truthy(include_memory_ids)) {
+        citations_description = "IDs of the evidence entries that directly support the answer: use the exact top-level keys of the contextData.evidence object, plus the id of any records inside it that were relied on (e.g. loaded memories). Cite only entries actually used. Leave empty when contextData.evidence is absent or was not needed.";
+      }
+      Core.set(citations_field, "description", citations_description);
+      Object citations_type = new java.util.LinkedHashMap<String, Object>();
+      Core.set(citations_type, "name", "string");
+      Core.set(citations_type, "is_array", Boolean.TRUE);
+      Core.set(citations_field, "type", citations_type);
+      Core.set(citations_field, "is_optional", Boolean.TRUE);
+      Object citations_token = Core._agent_render_field_token(citations_field);
+      Core.append(output_tokens, citations_token);
+    }
     Object inputs_joined = Core.stringJoin(", ", input_tokens);
     Object outputs_joined = Core.stringJoin(", ", output_tokens);
     Object body_parts = new java.util.ArrayList<Object>();
@@ -15168,6 +15425,341 @@ final class Core {
     Core.append(body_parts, outputs_joined);
     Object sig_string = Core.stringJoin("", body_parts);
     return sig_string;
+  }
+
+  static Object _resolve_agent_citations(Object options, Object sig) {
+    axirCoverageMark("_resolve_agent_citations");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object raw = Core.get(options, "citations", Boolean.FALSE);
+    Object enabled = Boolean.FALSE;
+    Object field = "evidenceCitations";
+    Object surface = "output";
+    Object include_memory_ids = Boolean.TRUE;
+    Object raw_is_bool = Core.typeIs(raw, "boolean");
+    if (Core.truthy(raw_is_bool)) {
+      enabled = raw;
+    }
+    Object raw_is_object = Core.typeIs(raw, "object");
+    if (Core.truthy(raw_is_object)) {
+      enabled = Boolean.TRUE;
+      field = Core.get(raw, "field", "evidenceCitations");
+      surface = Core.get(raw, "surface", "output");
+      include_memory_ids = Core.get(raw, "includeMemoryIds", Boolean.TRUE);
+    }
+    if (Core.truthy(enabled)) {
+      Object valid_field = Core.regexMatch("^[A-Za-z][A-Za-z0-9_]*$", field);
+      Object bad_field = Core.not(valid_field);
+      if (Core.truthy(bad_field)) {
+        Object message = Core.stringFormat("citations.field must be a valid field name, got {}", field);
+        Object error = Core.runtimeError(message);
+        throw Core.asRuntime(error);
+      }
+      Object is_context_data = Core.eq(field, "contextData");
+      if (Core.truthy(is_context_data)) {
+        Object error = Core.runtimeError("AxAgent: citations.field cannot be contextData; it is the reserved responder evidence input");
+        throw Core.asRuntime(error);
+      }
+      Object is_output = Core.eq(surface, "output");
+      Object is_hidden = Core.eq(surface, "hidden");
+      Object valid_surface = Core.or(is_output, is_hidden);
+      Object bad_surface = Core.not(valid_surface);
+      if (Core.truthy(bad_surface)) {
+        Object error = Core.runtimeError("citations.surface must be output or hidden");
+        throw Core.asRuntime(error);
+      }
+      Object empty_list = new java.util.ArrayList<Object>();
+      Object outputs = Core.get(sig, "output_fields", empty_list);
+      for (Object output_field : Core.iter(outputs)) {
+        Object output_name = Core.get(output_field, "name", "");
+        Object collision = Core.eq(output_name, field);
+        if (Core.truthy(collision)) {
+          Object message = Core.stringFormat("AxAgent: citations.field {} collides with an output field of the agent signature", field);
+          Object error = Core.runtimeError(message);
+          throw Core.asRuntime(error);
+        }
+      }
+    }
+    Core.set(out, "enabled", enabled);
+    Core.set(out, "field", field);
+    Core.set(out, "surface", surface);
+    Core.set(out, "includeMemoryIds", include_memory_ids);
+    return out;
+  }
+
+  static Object _agent_collect_citation_ids(Object ids, Object node, Object depth) {
+    axirCoverageMark("_agent_collect_citation_ids");
+    Object has_depth = Core.gte(depth, 0);
+    if (Core.truthy(has_depth)) {
+      Object is_object = Core.typeIs(node, "object");
+      if (Core.truthy(is_object)) {
+        Object id = Core.get(node, "id", null);
+        Object id_is_string = Core.typeIs(id, "string");
+        Object id_is_number = Core.typeIs(id, "number");
+        Object valid_id = Core.or(id_is_string, id_is_number);
+        if (Core.truthy(valid_id)) {
+          Object id_text = Core.stringFormat("{}", id);
+          Core.set(ids, id_text, Boolean.TRUE);
+        }
+        Object next_depth = Core.add(depth, -1);
+        Object children = Core.mapValues(node);
+        for (Object child : Core.iter(children)) {
+          ids = Core._agent_collect_citation_ids(ids, child, next_depth);
+        }
+      }
+      if (!Core.truthy(is_object)) {
+        Object is_list = Core.typeIs(node, "list");
+        if (Core.truthy(is_list)) {
+          Object next_depth = Core.add(depth, -1);
+          for (Object child : Core.iter(node)) {
+            ids = Core._agent_collect_citation_ids(ids, child, next_depth);
+          }
+        }
+      }
+    }
+    return ids;
+  }
+
+  static Object _agent_validate_citations(Object state, Object output) {
+    axirCoverageMark("_agent_validate_citations");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object citations = Core.get(state, "citations", empty_map);
+    Object enabled = Core.get(citations, "enabled", Boolean.FALSE);
+    Object disabled = Core.not(enabled);
+    if (Core.truthy(disabled)) {
+      return Boolean.TRUE;
+    }
+    Object evidence_present = Core.get(state, "responder_evidence_present", Boolean.FALSE);
+    Object no_evidence_contract = Core.not(evidence_present);
+    if (Core.truthy(no_evidence_contract)) {
+      return Boolean.TRUE;
+    }
+    Object field = Core.get(citations, "field", "evidenceCitations");
+    Object raw = Core.get(output, field, null);
+    Object missing = Core.isNone(raw);
+    if (Core.truthy(missing)) {
+      return Boolean.TRUE;
+    }
+    Object ids = new java.util.LinkedHashMap<String, Object>();
+    Object evidence = Core.get(state, "responder_evidence", empty_map);
+    Object keys = Core.mapKeys(evidence);
+    for (Object key : Core.iter(keys)) {
+      Core.set(ids, key, Boolean.TRUE);
+    }
+    Object include_memory_ids = Core.get(citations, "includeMemoryIds", Boolean.TRUE);
+    if (Core.truthy(include_memory_ids)) {
+      Object values = Core.mapValues(evidence);
+      for (Object value : Core.iter(values)) {
+        ids = Core._agent_collect_citation_ids(ids, value, 2);
+      }
+    }
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object cited = empty_list;
+    Object raw_is_list = Core.typeIs(raw, "list");
+    if (Core.truthy(raw_is_list)) {
+      cited = raw;
+    }
+    if (!Core.truthy(raw_is_list)) {
+      Core.append(cited, raw);
+    }
+    Object valid = Boolean.TRUE;
+    for (Object raw_id : Core.iter(cited)) {
+      Object id_text = Core.stringFormat("{}", raw_id);
+      Object known = Core.mapContains(ids, id_text);
+      Object unknown = Core.not(known);
+      if (Core.truthy(unknown)) {
+        valid = Boolean.FALSE;
+      }
+    }
+    return valid;
+  }
+
+  static Object _agent_finalize_citations(Object state, Object output) {
+    axirCoverageMark("_agent_finalize_citations");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object citations = Core.get(state, "citations", empty_map);
+    Object enabled = Core.get(citations, "enabled", Boolean.FALSE);
+    if (Core.truthy(enabled)) {
+      Object field = Core.get(citations, "field", "evidenceCitations");
+      Object raw = Core.get(output, field, empty_list);
+      Core.set(state, "last_citations", raw);
+      Object surface = Core.get(citations, "surface", "output");
+      Object hidden = Core.eq(surface, "hidden");
+      if (Core.truthy(hidden)) {
+        Core.mapDelete(output, field);
+      }
+    }
+    return output;
+  }
+
+  static Object _agent_collect_covered_failure_signatures(Object snapshot) {
+    axirCoverageMark("_agent_collect_covered_failure_signatures");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object live_ids = new java.util.LinkedHashMap<String, Object>();
+    Object playbook = Core.get(snapshot, "playbook", empty_map);
+    Object sections = Core.get(playbook, "sections", empty_map);
+    Object section_names = Core.mapKeys(sections);
+    for (Object section_name : Core.iter(section_names)) {
+      Object bullets = Core.get(sections, section_name, empty_list);
+      for (Object bullet : Core.iter(bullets)) {
+        Object bullet_id = Core.get(bullet, "id", null);
+        Object has_bullet_id = Core.isNotNone(bullet_id);
+        if (Core.truthy(has_bullet_id)) {
+          Object bullet_id_text = Core.stringFormat("{}", bullet_id);
+          Core.set(live_ids, bullet_id_text, Boolean.TRUE);
+        }
+      }
+    }
+    Object artifact = Core.get(snapshot, "artifact", empty_map);
+    Object feedback = Core.get(artifact, "feedback", empty_list);
+    Object history = Core.get(artifact, "history", empty_list);
+    Object covered_ids = new java.util.LinkedHashMap<String, Object>();
+    Object covered = new java.util.ArrayList<Object>();
+    Object event_index = 0;
+    for (Object event : Core.iter(feedback)) {
+      Object example = Core.get(event, "example", empty_map);
+      Object signatures_raw = Core.get(example, "failureSignatures", empty_list);
+      Object signatures_is_list = Core.typeIs(signatures_raw, "list");
+      Object signatures = new java.util.ArrayList<Object>();
+      if (Core.truthy(signatures_is_list)) {
+        signatures = signatures_raw;
+      }
+      Object signature_count = Core.len(signatures);
+      Object has_signatures = Core.gt(signature_count, 0);
+      if (Core.truthy(has_signatures)) {
+        Object deltas = new java.util.ArrayList<Object>();
+        for (Object entry : Core.iter(history)) {
+          Object source = Core.get(entry, "source", "");
+          Object is_online = Core.eq(source, "online");
+          Object entry_index = Core.get(entry, "exampleIndex", -2);
+          Object index_lte = Core.lte(entry_index, event_index);
+          Object index_gte = Core.gte(entry_index, event_index);
+          Object same_index = Core.and(index_lte, index_gte);
+          Object matching_delta = Core.and(is_online, same_index);
+          if (Core.truthy(matching_delta)) {
+            Core.append(deltas, entry);
+          }
+        }
+        Object delta_count = Core.len(deltas);
+        Object has_deltas = Core.gt(delta_count, 0);
+        Object alive = Boolean.FALSE;
+        if (Core.truthy(has_deltas)) {
+          for (Object delta : Core.iter(deltas)) {
+            Object has_updated_ids = Core.mapContains(delta, "updatedBulletIds");
+            Object legacy_delta = Core.not(has_updated_ids);
+            if (Core.truthy(legacy_delta)) {
+              alive = Boolean.TRUE;
+            }
+            if (!Core.truthy(legacy_delta)) {
+              Object updated_ids = Core.get(delta, "updatedBulletIds", empty_list);
+              for (Object updated_id : Core.iter(updated_ids)) {
+                Object updated_id_text = Core.stringFormat("{}", updated_id);
+                Object still_live = Core.mapContains(live_ids, updated_id_text);
+                if (Core.truthy(still_live)) {
+                  alive = Boolean.TRUE;
+                }
+              }
+            }
+          }
+        }
+        if (!Core.truthy(has_deltas)) {
+          Object curator = Core.get(event, "curator", null);
+          Object curator_ran = Core.isNotNone(curator);
+          alive = curator_ran;
+        }
+        if (Core.truthy(alive)) {
+          for (Object signature : Core.iter(signatures)) {
+            Object signature_text = Core.stringFormat("{}", signature);
+            Object already_covered = Core.mapContains(covered_ids, signature_text);
+            Object newly_covered = Core.not(already_covered);
+            if (Core.truthy(newly_covered)) {
+              Core.set(covered_ids, signature_text, Boolean.TRUE);
+              Core.append(covered, signature_text);
+            }
+          }
+        }
+      }
+      Object next_event_index = Core.add(event_index, 1);
+      event_index = next_event_index;
+    }
+    return covered;
+  }
+
+  static Object _agent_build_failure_signals(Object state) {
+    axirCoverageMark("_agent_build_failure_signals");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object signals = new java.util.ArrayList<Object>();
+    Object action_log = Core.get(state, "action_log", empty_list);
+    Object previous_signature = "";
+    for (Object entry : Core.iter(action_log)) {
+      Object is_error = Core._agent_entry_is_error(entry);
+      if (Core.truthy(is_error)) {
+        Object detail = Core.get(entry, "error", "");
+        Object detail_empty = Core.eq(detail, "");
+        if (Core.truthy(detail_empty)) {
+          detail = Core.get(entry, "output", "");
+        }
+        detail_empty = Core.eq(detail, "");
+        if (Core.truthy(detail_empty)) {
+          detail = Core.get(entry, "error_category", "runtime error");
+        }
+        Object detail_preview = Core.stringSlice(detail, 0, 200);
+        Object category = Core.get(entry, "error_category", "runtime_error");
+        Object signature_detail = Core.stringSlice(detail, 0, 96);
+        Object signature = Core.stringFormat("{}:{}", category, signature_detail);
+        Object kind = "error_turn";
+        Object repeated = Core.eq(signature, previous_signature);
+        if (Core.truthy(repeated)) {
+          kind = "dead_end";
+        }
+        Object signal = new java.util.LinkedHashMap<String, Object>();
+        Core.set(signal, "kind", kind);
+        Object turn = Core.get(entry, "turn", 0);
+        Core.set(signal, "turn", turn);
+        Core.set(signal, "signature", signature);
+        Core.set(signal, "detail", detail_preview);
+        Object code = Core.get(entry, "code", "");
+        Object has_code = Core.ne(code, "");
+        if (Core.truthy(has_code)) {
+          Object code_preview = Core.stringSlice(code, 0, 240);
+          Core.set(signal, "code", code_preview);
+        }
+        Core.set(signal, "occurrences", 1);
+        Core.append(signals, signal);
+        previous_signature = signature;
+      }
+    }
+    Object function_traces = Core.get(state, "function_call_traces", empty_list);
+    for (Object call : Core.iter(function_traces)) {
+      Object status = Core.get(call, "status", "ok");
+      Object failed = Core.eq(status, "error");
+      if (Core.truthy(failed)) {
+        Object result = Core.get(call, "result", null);
+        Object error_text = Core.get(result, "error", "tool call failed");
+        Object error_preview = Core.stringSlice(error_text, 0, 120);
+        Object qualified_name = Core.get(call, "qualified_name", "tool");
+        Object signature_error = Core.stringSlice(error_text, 0, 60);
+        Object signature = Core.stringFormat("{}:{}", qualified_name, signature_error);
+        Object detail = Core.stringFormat("{} failed: {}", qualified_name, error_preview);
+        Object signal = new java.util.LinkedHashMap<String, Object>();
+        Core.set(signal, "kind", "tool_error");
+        Core.set(signal, "turn", 0);
+        Core.set(signal, "signature", signature);
+        Core.set(signal, "detail", detail);
+        Object arguments = Core.get(call, "arguments", null);
+        Object has_arguments = Core.isNotNone(arguments);
+        if (Core.truthy(has_arguments)) {
+          Object arguments_text = Core.stringFormat("{}", arguments);
+          Object arguments_preview = Core.stringSlice(arguments_text, 0, 240);
+          Core.set(signal, "code", arguments_preview);
+        }
+        Core.set(signal, "occurrences", 1);
+        Core.append(signals, signal);
+      }
+    }
+    Core.set(state, "failure_signals", signals);
+    return signals;
   }
 
   static Object _normalize_agent_completion_payload(Object output) {
@@ -16037,6 +16629,31 @@ final class Core {
     Core.set(responder_request_event, "component_id", "agent.stage.responder");
     Core._agent_record_trace_event(state, "stage_request", responder_request_event);
     Object responder_output = Core.agentStageForward(responder, client, responder_values, responder_options);
+    Object citation_retry_options = new java.util.LinkedHashMap<String, Object>();
+    citation_retry_options = Core.mapMerge(citation_retry_options, responder_options);
+    Object citations_valid = Core._agent_validate_citations(state, responder_output);
+    Object citations_invalid = Core.not(citations_valid);
+    if (Core.truthy(citations_invalid)) {
+      Object invalid_citations_output = Core.jsonStringify(responder_output);
+      Object citation_retry_feedback = Core.stringFormat("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", invalid_citations_output);
+      Core.set(citation_retry_options, "validation_feedback", citation_retry_feedback);
+      responder_output = Core.agentStageForward(responder, client, responder_values, citation_retry_options);
+      citations_valid = Core._agent_validate_citations(state, responder_output);
+    }
+    citations_invalid = Core.not(citations_valid);
+    if (Core.truthy(citations_invalid)) {
+      Object invalid_citations_output = Core.jsonStringify(responder_output);
+      Object citation_retry_feedback = Core.stringFormat("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON.", invalid_citations_output);
+      Core.set(citation_retry_options, "validation_feedback", citation_retry_feedback);
+      responder_output = Core.agentStageForward(responder, client, responder_values, citation_retry_options);
+      citations_valid = Core._agent_validate_citations(state, responder_output);
+    }
+    citations_invalid = Core.not(citations_valid);
+    if (Core.truthy(citations_invalid)) {
+      Object error = Core.runtimeError("AxAgent responder returned citations that do not exist in the run evidence");
+      throw Core.asRuntime(error);
+    }
+    responder_output = Core._agent_finalize_citations(state, responder_output);
     Object responder_response_event = new java.util.LinkedHashMap<String, Object>();
     Core.set(responder_response_event, "stage", "responder");
     Core.set(responder_response_event, "output", responder_output);
@@ -16047,6 +16664,7 @@ final class Core {
     Core.set(state, "last_output", responder_output);
     Core.set(state, "chat_log", logs);
     Core.set(state, "usage", usage);
+    Core._agent_build_failure_signals(state);
     Core._agent_finalize_trace(state, "completed", responder_output);
     return responder_output;
   }

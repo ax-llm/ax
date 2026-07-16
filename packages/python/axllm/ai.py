@@ -5738,11 +5738,16 @@ def _anthropic_apply_model_config_impl(payload: Any, model_config: Any, model: s
     _openai_copy_config_key_impl(payload, model_config, "max_tokens", "max_tokens")
     _openai_copy_config_key_impl(payload, model_config, "stopSequences", "stop_sequences")
     _openai_copy_config_key_impl(payload, model_config, "stop_sequences", "stop_sequences")
-    _openai_copy_config_key_impl(payload, model_config, "temperature", "temperature")
-    _openai_copy_config_key_impl(payload, model_config, "topP", "top_p")
-    _openai_copy_config_key_impl(payload, model_config, "top_p", "top_p")
-    _openai_copy_config_key_impl(payload, model_config, "topK", "top_k")
-    _openai_copy_config_key_impl(payload, model_config, "top_k", "top_k")
+    adaptive = _anthropic_is_adaptive_model_impl(model)
+    supports_sampling = _core_not(adaptive)
+    if supports_sampling:
+        _openai_copy_config_key_impl(payload, model_config, "temperature", "temperature")
+        _openai_copy_config_key_impl(payload, model_config, "topP", "top_p")
+        _openai_copy_config_key_impl(payload, model_config, "top_p", "top_p")
+        _openai_copy_config_key_impl(payload, model_config, "topK", "top_k")
+        _openai_copy_config_key_impl(payload, model_config, "top_k", "top_k")
+    else:
+        pass
     _openai_copy_config_key_impl(payload, model_config, "stream", "stream")
     has_max = _core_get(payload, "max_tokens", None)
     missing_max = _core_is_none(has_max)
@@ -5765,7 +5770,9 @@ def _anthropic_apply_model_config_impl(payload: Any, model_config: Any, model: s
     budget_alt = _core_get(model_config, "thinking_token_budget", budget)
     has_budget = _core_truthy(budget_alt)
     if has_budget:
-        thinking_config = _anthropic_thinking_config_impl(model, budget_alt)
+        show_thoughts_camel = _core_get(model_config, "showThoughts", True)
+        show_thoughts = _core_get(model_config, "show_thoughts", show_thoughts_camel)
+        thinking_config = _anthropic_thinking_config_impl(model, budget_alt, show_thoughts)
         thinking = _core_get(thinking_config, "thinking", None)
         has_thinking = _core_is_not_none(thinking)
         if has_thinking:
@@ -5791,7 +5798,19 @@ def _anthropic_apply_model_config_impl(payload: Any, model_config: Any, model: s
     return None
 
 
-def _anthropic_thinking_config_impl(model: str, level: str) -> Any:
+def _anthropic_is_adaptive_model_impl(model: str) -> bool:
+    _core_coverage_mark("_anthropic_is_adaptive_model_impl")
+    is_48 = _core_contains(model, "claude-opus-4-8")
+    is_47 = _core_contains(model, "claude-opus-4-7")
+    is_46 = _core_contains(model, "claude-opus-4-6")
+    is_sonnet_5 = _core_contains(model, "claude-sonnet-5")
+    is_47_plus = _core_or(is_48, is_47)
+    is_adaptive_opus = _core_or(is_47_plus, is_46)
+    is_adaptive = _core_or(is_adaptive_opus, is_sonnet_5)
+    return is_adaptive
+
+
+def _anthropic_thinking_config_impl(model: str, level: str, show_thoughts: bool) -> Any:
     _core_coverage_mark("_anthropic_thinking_config_impl")
     out = {}
     is_none = _core_eq(level, "none")
@@ -5825,16 +5844,14 @@ def _anthropic_thinking_config_impl(model: str, level: str) -> Any:
         effort = "max"
     else:
         pass
-    is_48 = _core_string_starts_with(model, "claude-opus-4-8")
-    is_47 = _core_string_starts_with(model, "claude-opus-4-7")
-    is_46 = _core_string_starts_with(model, "claude-opus-4-6")
-    is_sonnet_5 = _core_string_starts_with(model, "claude-sonnet-5")
-    is_47_plus = _core_or(is_48, is_47)
-    is_adaptive_opus = _core_or(is_47_plus, is_46)
-    is_adaptive = _core_or(is_adaptive_opus, is_sonnet_5)
+    is_adaptive = _anthropic_is_adaptive_model_impl(model)
     if is_adaptive:
         thinking = {}
         thinking["type"] = "adaptive"
+        if show_thoughts:
+            thinking["display"] = "summarized"
+        else:
+            thinking["display"] = "omitted"
         out["thinking"] = thinking
         output_config = {}
         output_config["effort"] = effort

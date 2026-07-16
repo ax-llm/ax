@@ -112,7 +112,8 @@
             "type": "ADD"
           }
         ],
-        "source": "compile"
+        "source": "compile",
+        "updatedBulletIds": ["guidelines-00001"]
       }
     ],
     "playbook": {

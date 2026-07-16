@@ -166,7 +166,7 @@ Route provider requests to registered provider clients.
 
 ## Agents And RLM
 
-Run AxAgent through the RLM executor loop, where actor-code steps execute through an AxCodeRuntime session.
+Run AxAgent through the RLM executor loop with stage instructions, validated evidence citations, persistent playbooks, and actor-code execution through an AxCodeRuntime session.
 
 ### `axllm.NewAgent`
 
@@ -176,7 +176,7 @@ Create an AxAgent from a signature and agent/runtime options.
 - Kind: `function`
 - Form: `axllm.NewAgent(signature, options)`
 - Returns: `*AxAgent`
-- Important options: name, description, runtime, maxSteps, context fields, discovery, recall, functions
+- Important options: name, description, runtime, maxSteps, context fields, discovery, recall, functions, citations, playbook, instruction, instructionAddenda
 
 ```go
 helper := axllm.NewAgent("query:string -> answer:string", nil)
@@ -184,13 +184,13 @@ helper := axllm.NewAgent("query:string -> answer:string", nil)
 
 ### `axllm.AxAgent`
 
-RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, and final typed responses.
+RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.
 
 - Canonical Ax concept: `AxAgent`
 - Kind: `type`
 - Form: `axllm.NewAgent(signature, options)`
 - Returns: `agent program`
-- Important options: executor model, runtime, policy, context, optimizer metadata
+- Important options: executor model, runtime, policy, context, optimizer metadata, citations, playbook
 
 
 ## Flow
@@ -341,7 +341,7 @@ Optional runtime profile for javascript actor code.
 
 ## Optimizers
 
-Optimize Ax programs through BootstrapFewShot -> GEPA composition, portable component maps, evaluator rows, artifacts, and generated engines.
+Optimize Ax programs through BootstrapFewShot -> GEPA composition and evolve program or agent playbooks through grounded, budgeted, rollback-safe learning.
 
 ### `axllm.Optimize`
 
@@ -356,6 +356,30 @@ Convenience optimizer helper that composes AxBootstrapFewShot before AxGEPA and 
 ```go
 artifact, err := axllm.Optimize(qa, train, map[string]axllm.Value{"studentAI": client})
 ```
+
+### `axllm.Playbook`
+
+Bind an ACE-backed playbook to a program; agents also expose an agent-bound playbook handle.
+
+- Canonical Ax concept: `playbook`
+- Kind: `function`
+- Form: `axllm.Playbook(program, options)`
+- Returns: `*AxPlaybook`
+- Important options: student/client, teacher, seed snapshot, online updates, verification budget
+
+```go
+pb := axllm.Playbook(program, map[string]axllm.Value{"studentAI": client})
+```
+
+### `axllm.AxPlaybook`
+
+Persistent playbook with render/update/snapshot operations and agent-bound verified evolve over train/validation task sets.
+
+- Canonical Ax concept: `AxPlaybook`
+- Kind: `type`
+- Form: `axllm.AxPlaybook / agent.GetPlaybook()`
+- Returns: `playbook handle`
+- Important options: verify, minHeldInGain, epsilon, runsPerTask, maxMetricCalls, maxProposals
 
 ### `axllm.AxBootstrapFewShot`
 

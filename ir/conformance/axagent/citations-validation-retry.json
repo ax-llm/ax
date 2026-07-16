@@ -1,0 +1,36 @@
+{
+  "expected_output": {
+    "answer": "Refunds are honored.",
+    "evidenceCitations": ["policy", "ticket"]
+  },
+  "expected_request_contains": [
+    "The previous responder output failed evidence-citation validation",
+    "made_up_source",
+    "Return only corrected JSON"
+  ],
+  "expected_request_count": 4,
+  "input": {
+    "question": "What is the refund policy?"
+  },
+  "kind": "agent_forward",
+  "name": "citations-validation-retry",
+  "options": {
+    "citations": true,
+    "contextFields": []
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"policy\":\"Refunds within 30 days.\",\"ticket\":\"Customer asks about refunds.\"}]}}"
+    },
+    {
+      "content": "{\"answer\":\"Refunds are honored.\",\"evidenceCitations\":[\"made_up_source\"]}"
+    },
+    {
+      "content": "{\"answer\":\"Refunds are honored.\",\"evidenceCitations\":[\"policy\",\"ticket\"]}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -119,6 +119,19 @@
     ]
   },
   "snippetGroups": {
+    "agents": {
+      "playbookEvolve": {
+        "sourcePath": "src/examples/rust/optimization/agent_playbook_evolve.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let evolution = playbook.evolve_agent(",
+          "    &mut assistant, &mut client, &dataset,",
+          "    &json!({\"verify\": true, \"maxProposals\": 1}),",
+          ")?;"
+        ]
+      }
+    },
     "tools": {
       "basic": [
         "use axllm::{tool, FieldType};",

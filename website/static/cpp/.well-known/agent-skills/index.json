@@ -6,7 +6,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-cpp-llm/SKILL.md",
-      "digest": "sha256:c2db35593a5a8f4c57a195c02393bb9c7fa39c43ca62b5e0447781eec868bebb"
+      "digest": "sha256:ab84ca14c76c7b131c4c54b81f508ec2102aac9e594078a65de48a019d2c0e24"
     },
     {
       "name": "ax-cpp-ai",
@@ -46,9 +46,9 @@
     {
       "name": "ax-cpp-agent",
       "type": "skill-md",
-      "description": "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, clarification, runtime state, final typed responses, and direct-respond executor skipping.",
+      "description": "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-cpp-agent/SKILL.md",
-      "digest": "sha256:e2a157565e447c15ca49d4f04c5064437220eb16d92492f55a68296dd8b0eddc"
+      "digest": "sha256:3c81b2e377d0da494b41f555233b5f19ca511f4ec747f00cff24d578e3f48eb5"
     },
     {
       "name": "ax-cpp-agent-rlm",
@@ -74,37 +74,37 @@
     {
       "name": "ax-cpp-agent-optimize",
       "type": "skill-md",
-      "description": "Use when writing C++ code with `axllm` for agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
+      "description": "Use when writing C++ code with `axllm` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-cpp-agent-optimize/SKILL.md",
-      "digest": "sha256:e7664110179ff5153fd042983dcc3a8daa340380c985b419475a921b83c620a8"
+      "digest": "sha256:314c7a97e2bfb1be72ed4b9046cef34f8a65cf48b1423c5696bbbfc79d37e268"
     },
     {
       "name": "ax-cpp-agent-context",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents.",
       "url": "ax-cpp-agent-context/SKILL.md",
-      "digest": "sha256:1add69c3437a60036097b6d477e1a5a55ef9f0ff8326163996d0ebd30f4c7acc"
+      "digest": "sha256:e8b12281da34a6abfae48d231ad6e9d7879be6b16cd714e8ee19ca9cee050dd4"
     },
     {
       "name": "ax-cpp-gepa",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-cpp-gepa/SKILL.md",
-      "digest": "sha256:d1304a75b1359cdaaf8e880e648c35ba8611d86ded604b51e935298f1dbea2fb"
+      "digest": "sha256:9fd12586c8fe56206db4036ae8eb80e8f208904c4078fa4d7ffb82ba834ef1d9"
     },
     {
       "name": "ax-cpp-refine",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-cpp-refine/SKILL.md",
-      "digest": "sha256:185c8d8c95ac7a6c4733492e04f1bc645c9cdc0820b546905abc31fb7a7d41f7"
+      "digest": "sha256:d83c582561d93795b315c802729965bae090072fc2cbe255d6df87a1d0eed4c0"
     },
     {
       "name": "ax-cpp-playbook",
       "type": "skill-md",
-      "description": "Use when writing C++ code with `axllm` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program.",
+      "description": "Use when writing C++ code with `axllm` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program.",
       "url": "ax-cpp-playbook/SKILL.md",
-      "digest": "sha256:5c4563009f38fbd74d7fefbefdb614a2e5bbe323c967d5782b0944cafa30a069"
+      "digest": "sha256:7e63babdf5a8e4d05ae73f0677bef8f050ffdaf93f082463af1f2a9b71088a93"
     }
   ]
 }

@@ -201,11 +201,11 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AxEventClock.java":                              javaAxEventClock,
 		"dev/axllm/ax/AxEventStore.java":                              javaAxEventStore,
 		"dev/axllm/ax/AxEventRuntime.java":                            javaAxEventRuntime,
-		"dev/axllm/ax/AxMCPEventSource.java":                         javaAxMCPEventSource,
-		"dev/axllm/ax/AxExecutionContext.java":                         javaAxExecutionContext,
-		"dev/axllm/ax/AxMCPContinuationState.java":                     javaAxMCPContinuationState,
-		"dev/axllm/ax/AxUCPBinding.java":                               javaAxUCPBinding,
-		"dev/axllm/ax/AxUCPClient.java":                                javaAxUCPClient,
+		"dev/axllm/ax/AxMCPEventSource.java":                          javaAxMCPEventSource,
+		"dev/axllm/ax/AxExecutionContext.java":                        javaAxExecutionContext,
+		"dev/axllm/ax/AxMCPContinuationState.java":                    javaAxMCPContinuationState,
+		"dev/axllm/ax/AxUCPBinding.java":                              javaAxUCPBinding,
+		"dev/axllm/ax/AxUCPClient.java":                               javaAxUCPClient,
 		"dev/axllm/ax/AxMCPTransport.java":                            javaAxMCPTransport,
 		"dev/axllm/ax/AxMCPStreamableHTTPTransport.java":              javaAxMCPStreamableHTTPTransport,
 		"dev/axllm/ax/AxMCPStdioTransport.java":                       javaAxMCPStdioTransport,
@@ -702,6 +702,8 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"anthropic-provider-mapping",
 			"anthropic-cache-control-mapping",
 			"anthropic-thinking-normalization",
+			"anthropic-adaptive-thinking-display",
+			"anthropic-adaptive-sampling-suppression",
 			"anthropic-stream-folding",
 			"anthropic-usage-normalization",
 			"openai-audio-normalization",
@@ -712,6 +714,11 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axagent-clarification",
 			"axagent-chat-log",
 			"axagent-state-alpha",
+			"axagent-stage-instructions",
+			"axagent-evidence-citations",
+			"axagent-playbook-config",
+			"axagent-run-end-playbook-learning",
+			"axagent-playbook-verified-evolve",
 			"axagent-runtime-contract",
 			"axagent-discovery-policy",
 			"axagent-delegation-policy",
@@ -799,6 +806,9 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axoptimize-metric-scoring",
 			"axoptimize-judge-payloads",
 			"axoptimize-state-isolation",
+			"axoptimize-ace-bullet-tag-normalization",
+			"axoptimize-ace-updated-bullet-ids",
+			"axoptimize-ace-empty-render",
 			"axoptimize-gepa-engine",
 			"axoptimize-gepa-reflection",
 			"axoptimize-gepa-pareto",
@@ -973,10 +983,10 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 		{
 			ID:      "agents-rlm",
 			Title:   "Agents And RLM",
-			Summary: "Run AxAgent through the RLM executor loop, where actor-code steps execute through an AxCodeRuntime session.",
+			Summary: "Run AxAgent through the RLM executor loop with stage instructions, validated evidence citations, persistent playbooks, and actor-code execution through an AxCodeRuntime session.",
 			Symbols: []APIReferenceSymbol{
-				sym("agent", "function", "Create an AxAgent from a signature and agent/runtime options.", []string{"name", "description", "runtime", "maxSteps", "context fields", "discovery", "recall", "functions"}, "AxAgent"),
-				sym("AxAgent", "type", "RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, and final typed responses.", []string{"executor model", "runtime", "policy", "context", "optimizer metadata"}, "agent program"),
+				sym("agent", "function", "Create an AxAgent from a signature and agent/runtime options.", []string{"name", "description", "runtime", "maxSteps", "context fields", "discovery", "recall", "functions", "citations", "playbook", "instruction", "instructionAddenda"}, "AxAgent"),
+				sym("AxAgent", "type", "RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.", []string{"executor model", "runtime", "policy", "context", "optimizer metadata", "citations", "playbook"}, "agent program"),
 			},
 		},
 		{
@@ -1020,9 +1030,11 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 		{
 			ID:      "optimizers",
 			Title:   "Optimizers",
-			Summary: "Optimize Ax programs through BootstrapFewShot -> GEPA composition, portable component maps, evaluator rows, artifacts, and generated engines.",
+			Summary: "Optimize Ax programs through BootstrapFewShot -> GEPA composition and evolve program or agent playbooks through grounded, budgeted, rollback-safe learning.",
 			Symbols: []APIReferenceSymbol{
 				sym("optimize", "function", "Convenience optimizer helper that composes AxBootstrapFewShot before AxGEPA and returns an artifact without applying final component changes.", []string{"student/client", "teacher/reflection client", "metric budget", "bootstrap"}, "optimized artifact"),
+				sym("playbook", "function", "Bind an ACE-backed playbook to a program; agents also expose an agent-bound playbook handle.", []string{"student/client", "teacher", "seed snapshot", "online updates", "verification budget"}, "AxPlaybook"),
+				sym("AxPlaybook", "type", "Persistent playbook with render/update/snapshot operations and agent-bound verified evolve over train/validation task sets.", []string{"verify", "minHeldInGain", "epsilon", "runsPerTask", "maxMetricCalls", "maxProposals"}, "playbook handle"),
 				sym("AxBootstrapFewShot", "type", "Few-shot demonstration optimizer that selects successful evaluator rollouts before prompt/component evolution.", []string{"quality threshold", "max demos", "max rounds", "batch size"}, "optimizer engine"),
 				sym("AxGEPA", "type", "Generated GEPA optimizer engine with Core-owned reflection, Pareto, bootstrap, and selector-state behavior.", []string{"reflection client", "budget", "metric", "candidate count"}, "optimizer engine"),
 				sym("OptimizerEngine", "interface", "Optimizer boundary consumed by AxGen, AxAgent, and AxFlow optimization helpers.", []string{"request", "evaluator"}, "optimized artifact"),
@@ -1081,6 +1093,8 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "flow", "Ax.flow", "axllm::flow", "axllm.NewFlow", "flow")
 	case "optimize":
 		return mapTarget(target, "optimize", "Ax.optimize", "axllm::optimize", "axllm.Optimize", "optimize")
+	case "playbook":
+		return mapTarget(target, "playbook", "Ax.playbook", "axllm::playbook", "axllm.Playbook", "playbook")
 	case "fn":
 		return mapTarget(target, "fn", "Ax.fn", "axllm::Tool", "axllm.Fn", "tool")
 	case "AxMCPStreamableHTTPTransport":
@@ -1176,6 +1190,10 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "AxBootstrapFewShot(**options)", "new AxBootstrapFewShot(options)", "axllm::AxBootstrapFewShot(options)", "axllm.NewBootstrapFewShot(options)", "AxBootstrapFewShot::new(options)")
 	case "optimize":
 		return mapTarget(target, "optimize(program, examples, options=None)", "Ax.optimize(program, examples, options)", "axllm::optimize(program, student, examples, options, teacher)", "axllm.Optimize(program, examples, options)", "optimize(program, examples, options)")
+	case "playbook":
+		return mapTarget(target, "playbook(program, options=None)", "Ax.playbook(program, options)", "axllm::playbook(program, student, options)", "axllm.Playbook(program, options)", "playbook(program, student, teacher, options)")
+	case "AxPlaybook":
+		return mapTarget(target, "AxPlaybook / agent.playbook()", "AxPlaybook / agent.playbook(options)", "axllm::AxPlaybook / agent.playbook(...)", "axllm.AxPlaybook / agent.GetPlaybook()", "AxPlaybook / agent.playbook(...)")
 	case "OptimizerEngine":
 		return mapTarget(target, "OptimizerEngine.optimize(request, evaluator)", "OptimizerEngine.optimize(request, evaluator)", "axllm::OptimizerEngine::optimize(request, evaluator)", "OptimizerEngine.Optimize(request, evaluator)", "OptimizerEngine::optimize(request, evaluator)")
 	case "OptimizerEvaluator":
@@ -1235,6 +1253,8 @@ func apiReferenceReturns(target, canonical, fallback string) string {
 			return "Tool"
 		case "optimize":
 			return "Value"
+		case "playbook":
+			return "*AxPlaybook"
 		}
 	}
 	return fallback
@@ -1329,6 +1349,14 @@ func apiReferenceExample(target, canonical string) string {
 			`auto artifact = axllm::optimize(qa, client, train, axllm::object({}), &reflection);`,
 			`artifact, err := axllm.Optimize(qa, train, map[string]axllm.Value{"studentAI": client})`,
 			`let artifact = optimize(&mut qa, train, json!({"maxMetricCalls": 100}))?;`,
+		)
+	case "playbook":
+		return mapTarget(target,
+			`pb = playbook(program, {"studentAI": client})`,
+			`AxPlaybook pb = Ax.playbook(program, Map.of("studentAI", client));`,
+			`auto pb = axllm::playbook(program, client);`,
+			`pb := axllm.Playbook(program, map[string]axllm.Value{"studentAI": client})`,
+			`let pb = playbook(program, student, None::<Rc<RefCell<OpenAICompatibleClient>>>, json!({}));`,
 		)
 	default:
 		return ""
@@ -2019,7 +2047,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `python examples/optimizer_artifact.py`: optimizer artifact save/load/apply lifecycle",
 				"- `python examples/gepa_local_optimizer.py`: local GEPA optimizer artifact generation",
 				"- `python examples/ace_playbook.py`: grow an evolving context playbook with `playbook()` (offline, scripted client)",
-				"- `python examples/agent_playbook.py`: grow an evolving context playbook bound to an agent stage with `agent.playbook()` (offline, scripted client)",
+				"- `python examples/agent_playbook.py`: attach a seeded agent playbook, exercise stage instructions and citations, learn from run-end failures, and verify accept/rollback evolution (offline, scripted client)",
 				"- `python examples/mcp_scripted_tools.py`: MCP tool discovery and invocation through a scripted transport",
 			),
 			ProviderExamples: readmeLines(
@@ -2090,7 +2118,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/OptimizerArtifactExample.java`: optimizer artifact save/load/apply lifecycle",
 				"- `examples/GEPALocalOptimizerExample.java`: local GEPA optimizer artifact generation",
 				"- `examples/ACEPlaybookExample.java`: grow an evolving context playbook with `Ax.playbook()` (offline, scripted client)",
-				"- `examples/AgentPlaybookExample.java`: grow an evolving context playbook bound to an agent stage with `agent.playbook()` (offline, scripted client)",
+				"- `examples/AgentPlaybookExample.java`: attach a seeded agent playbook, exercise stage instructions and citations, learn from run-end failures, and verify accept/rollback evolution (offline, scripted client)",
 				"- `examples/AxMCPScriptedToolsExample.java`: MCP tool discovery and invocation through a scripted transport",
 			),
 			ProviderExamples: readmeLines(
@@ -2156,7 +2184,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/optimizer_artifact.cpp`: optimizer artifact save/load/apply lifecycle",
 				"- `examples/gepa_local_optimizer.cpp`: local GEPA optimizer artifact generation",
 				"- `examples/ace_playbook.cpp`: grow an evolving context playbook with `playbook()` (offline, scripted client)",
-				"- `examples/agent_playbook.cpp`: grow an evolving context playbook bound to an agent stage with `agent.playbook()` (offline, scripted client)",
+				"- `examples/agent_playbook.cpp`: attach a seeded agent playbook, exercise stage instructions and citations, learn from run-end failures, and verify accept/rollback evolution (offline, scripted client)",
 				"- `examples/mcp_scripted_tools.cpp`: MCP tool discovery and invocation through a scripted transport",
 			),
 			ProviderExamples: readmeLines(
@@ -2217,7 +2245,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `go run ./examples/optimizer_artifact`: optimizer artifact save/load/apply lifecycle",
 				"- `go run ./examples/gepa_local_optimizer`: local GEPA optimizer artifact generation",
 				"- `go run ./examples/ace_playbook`: grow an evolving context playbook with `Playbook()` (offline, scripted client)",
-				"- `go run ./examples/agent_playbook`: grow an evolving context playbook bound to an agent stage with `agent.Playbook()` (offline, scripted client)",
+				"- `go run ./examples/agent_playbook`: attach a seeded agent playbook, exercise stage instructions and citations, learn from run-end failures, and verify accept/rollback evolution (offline, scripted client)",
 				"- `go run ./examples/mcp_scripted_tools`: MCP tool discovery and invocation through a scripted transport",
 			),
 			ProviderExamples: readmeLines(
@@ -2289,7 +2317,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `cargo run --example optimizer_artifact`: optimizer artifact lifecycle smoke",
 				"- `cargo run --example gepa_local_optimizer`: local GEPA optimizer artifact generation",
 				"- `cargo run --example ace_playbook`: grow an evolving context playbook with `playbook()` (offline, scripted client)",
-				"- `cargo run --example agent_playbook`: grow an evolving context playbook bound to an agent stage with `agent.playbook()` (offline, scripted client)",
+				"- `cargo run --example agent_playbook`: attach a seeded agent playbook, exercise stage instructions and citations, learn from run-end failures, and verify accept/rollback evolution (offline, scripted client)",
 				"- `cargo run --example mcp_scripted_tools`: MCP tool discovery and invocation through a scripted transport",
 			),
 			ProviderExamples: readmeLines(

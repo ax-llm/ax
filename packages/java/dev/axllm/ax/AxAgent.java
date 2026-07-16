@@ -14,6 +14,8 @@ public final class AxAgent implements AxProgram {
   AxGen executor;
   AxGen responder;
   AxGen llmQuery;
+  AxPlaybook playbookHandle;
+  Object playbookConfig;
 
   public AxAgent(String signature, Map<String, Object> options) {
     this((Object) signature, options);
@@ -29,7 +31,11 @@ public final class AxAgent implements AxProgram {
       this.options.put("functions", functions);
       this.options.put("executionContext", executionContext);
     }
+    this.playbookConfig = this.options.get("playbook");
     rebuildFromSignature(signature);
+    if (this.playbookConfig != null && !Boolean.FALSE.equals(this.playbookConfig)) {
+      attachConfiguredPlaybook();
+    }
   }
 
   @SuppressWarnings("unchecked")
@@ -60,6 +66,24 @@ public final class AxAgent implements AxProgram {
     return this;
   }
 
+  public String getInstruction() {
+    return String.valueOf(Core.get(state, "stage_instruction", ""));
+  }
+
+  public AxAgent setInstruction(String instruction) {
+    Object composed = Core._agent_set_instruction(state, instruction == null ? "" : instruction);
+    options.put("instruction", Core.get(state, "stage_instruction", ""));
+    executor.setInstruction(String.valueOf(composed));
+    return this;
+  }
+
+  public AxAgent addActorInstruction(String addendum) {
+    Object composed = Core._agent_add_actor_instruction(state, addendum == null ? "" : addendum);
+    options.put("instructionAddenda", new ArrayList<>(Core.asList(Core.get(state, "instruction_addenda", List.of()))));
+    executor.setInstruction(String.valueOf(composed));
+    return this;
+  }
+
   public Map<String, Object> forward(AiClient client, Map<String, Object> values) {
     return forward(client, values, Map.of());
   }
@@ -82,7 +106,7 @@ public final class AxAgent implements AxProgram {
     if (runtimeObj instanceof AxCodeRuntime runtime) {
       runtime.registerHostCallable("llmQuery", params -> Core._agent_run_llm_query(llmQuery, client, params));
     }
-    return Core.asMap(Core._agent_forward(
+    Map<String, Object> output = Core.asMap(Core._agent_forward(
       state,
       distiller,
       executor,
@@ -91,6 +115,22 @@ public final class AxAgent implements AxProgram {
       values == null ? Map.of() : values,
       callOptions
     ));
+    Object citationConfig = this.options.get("citations");
+    if (citationConfig instanceof Map<?, ?> rawCitationConfig) {
+      Map<String, Object> config = Core.asMap(rawCitationConfig);
+      Object callback = config.getOrDefault("onCitations", config.get("on_citations"));
+      if (callback instanceof java.util.function.Consumer<?> rawConsumer) {
+        @SuppressWarnings("unchecked")
+        java.util.function.Consumer<List<Object>> consumer = (java.util.function.Consumer<List<Object>>) rawConsumer;
+        try {
+          consumer.accept(new ArrayList<>(Core.asList(Core.get(state, "last_citations", List.of()))));
+        } catch (RuntimeException ignored) {
+          // Citation observers are informational and must not fail forward().
+        }
+      }
+    }
+    learnPlaybookFailures(output);
+    return output;
   }
 
   public Map<String, Object> test(AxCodeRuntime runtime, String code) {
@@ -243,35 +283,11 @@ public final class AxAgent implements AxProgram {
   }
 
   public List<Map<String, Object>> getOptimizableComponents() {
-    List<Map<String, Object>> components = new ArrayList<>();
-    components.addAll(distiller.getOptimizableComponents());
-    components.addAll(executor.getOptimizableComponents());
-    components.addAll(responder.getOptimizableComponents());
-    components.add(Core.asMap(Core._optimization_component(
-      "root.agent.runtime",
-      "root.agent",
-      "runtime-policy",
-      getRuntimeContract(),
-      "Agent runtime-language metadata and code-field policy.",
-      List.of("Keep code field names aligned with the selected runtime language."),
-      List.of(),
-      true,
-      "json",
-      Map.of("component", "runtime_contract")
-    )));
-    components.add(Core.asMap(Core._optimization_component(
-      "root.agent.policy",
-      "root.agent",
-      "agent-policy",
-      getPolicy(),
-      "Actor primitive, discovery, delegation, and prompt placement policy.",
-      List.of("Do not expose protocol-only actions as actor primitives."),
-      List.of("root.agent.runtime"),
-      true,
-      "json",
-      Map.of("component", "policy_registry")
-    )));
-    return components;
+    List<Object> childComponents = new ArrayList<>();
+    childComponents.addAll(distiller.getOptimizableComponents());
+    childComponents.addAll(executor.getOptimizableComponents());
+    childComponents.addAll(responder.getOptimizableComponents());
+    return Core.asMapList(Core._agent_get_optimizable_components(state, childComponents));
   }
 
   public AxAgent applyOptimizedComponents(Map<String, Object> componentMap) {
@@ -280,9 +296,9 @@ public final class AxAgent implements AxProgram {
     distiller.applyOptimizedComponents(updates);
     executor.applyOptimizedComponents(updates);
     responder.applyOptimizedComponents(updates);
-    if (updates.get("root.agent.runtime") instanceof Map<?, ?> runtime) state.put("runtime_contract", Core.asMap(runtime));
-    if (updates.get("root.agent.policy") instanceof Map<?, ?> policy) state.put("policy", Core.asMap(policy));
-    state.put("optimizer_metadata", Core._agent_optimizer_metadata(state));
+    Object composed = Core._agent_apply_optimized_components(state, updates);
+    options.putAll(Core.asMap(Core.get(state, "options", Map.of())));
+    executor.setInstruction(String.valueOf(composed));
     return this;
   }
 
@@ -385,6 +401,10 @@ public final class AxAgent implements AxProgram {
    */
   public AxPlaybook playbook(Map<String, Object> options) {
     Map<String, Object> opts = options == null ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
+    if (this.playbookHandle != null) {
+      if (!opts.isEmpty()) throw new IllegalStateException("AxAgent.playbook(): this agent already has a playbook; call playbook(null) to use it.");
+      return this.playbookHandle;
+    }
     String target = String.valueOf(opts.getOrDefault("target", "actor"));
     Object student = AxPlaybook.option(opts, "studentAI", "student_ai", "student", "client", "ai");
     if (student == null) student = this.options.getOrDefault("ai", this.options.get("client"));
@@ -396,10 +416,75 @@ public final class AxAgent implements AxProgram {
     AxPlaybook handle = new AxPlaybook(stage, opts);
     if (Boolean.FALSE.equals(opts.get("apply"))) {
       handle.setApplyHook(rendered -> {});
-      return handle;
+    } else {
+      String base = stage.getInstruction();
+      handle.setApplyHook(rendered -> stage.setInstruction(AxPlaybook.composeInstruction(base, rendered)));
     }
-    String base = stage.getInstruction();
-    handle.setApplyHook(rendered -> stage.setInstruction(AxPlaybook.composeInstruction(base, rendered)));
-    return handle;
+    this.playbookHandle = handle.bindAgent(this);
+    return this.playbookHandle;
+  }
+
+  public AxPlaybook getPlaybook() { return this.playbookHandle; }
+
+  private void attachConfiguredPlaybook() {
+    Map<String, Object> config = this.playbookConfig instanceof Map<?, ?> ? new LinkedHashMap<>(Core.asMap(this.playbookConfig)) : new LinkedHashMap<>();
+    config.putIfAbsent("maxReflectorRounds", 1);
+    Object seed = config.get("seed");
+    if (seed == null && (config.containsKey("playbook") || config.containsKey("artifact"))) seed = config;
+    playbook(config);
+    if (seed instanceof Map<?, ?> seedMap) {
+      Map<String, Object> snapshot = Core.asMap(seedMap);
+      if (snapshot.containsKey("playbook")) playbookHandle.load(snapshot);
+      else playbookHandle.load(new LinkedHashMap<>(Map.of("playbook", snapshot)));
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private void learnPlaybookFailures(Map<String, Object> output) {
+    if (playbookHandle == null || playbookConfig == null || Boolean.FALSE.equals(playbookConfig)) return;
+    Map<String, Object> config = playbookConfig instanceof Map<?, ?> ? Core.asMap(playbookConfig) : Map.of();
+    Object learn = config.getOrDefault("learn", Boolean.TRUE);
+    if (Boolean.FALSE.equals(learn)) return;
+    Map<String, Object> learnConfig = learn instanceof Map<?, ?> ? Core.asMap(learn) : Map.of();
+    try {
+      List<Object> signals = new ArrayList<>(Core.asList(Core.get(state, "failure_signals", List.of())));
+      int minSignals = ((Number) learnConfig.getOrDefault("minSignals", learnConfig.getOrDefault("min_signals", 1))).intValue();
+      if (signals.size() < minSignals) return;
+      java.util.Set<String> covered = new java.util.LinkedHashSet<>();
+      for (Object signature : Core.asList(Core._agent_collect_covered_failure_signatures(playbookHandle.getState()))) {
+        covered.add(String.valueOf(signature));
+      }
+      if (!Boolean.FALSE.equals(learnConfig.getOrDefault("dedupe", Boolean.TRUE))) {
+        signals.removeIf(raw -> covered.contains(String.valueOf(Core.get(raw, "signature", ""))));
+      }
+      if (signals.isEmpty()) return;
+      if (signals.size() > 12) signals = new ArrayList<>(signals.subList(0, 12));
+      StringBuilder feedback = new StringBuilder("Agent run failures to avoid:\n");
+      List<Object> signatures = new ArrayList<>();
+      for (Object raw : signals) {
+        Map<String, Object> signal = Core.asMap(raw);
+        signatures.add(signal.get("signature"));
+        feedback.append("- [").append(signal.get("kind")).append("] ").append(signal.get("signature")).append(": ").append(signal.get("detail")).append('\n');
+      }
+      feedback.append("Curate ONE bounded avoidance rule into failures_to_avoid.");
+      Map<String, Object> example = new LinkedHashMap<>();
+      example.put("task", this.options.getOrDefault("instruction", "agent run"));
+      example.put("failureSignatures", signatures);
+      String before = Json.stringify(playbookHandle.getState().get("playbook"));
+      playbookHandle.update(new LinkedHashMap<>(Map.of("example", example, "prediction", output, "feedback", feedback.toString())));
+      Object callback = config.getOrDefault("onUpdate", config.get("on_update"));
+      if (callback instanceof java.util.function.Consumer<?> rawConsumer) {
+        Map<String, Object> snapshot = playbookHandle.getState();
+        String status = Json.stringify(snapshot.get("playbook")).equals(before) ? "unchanged" : "updated";
+        Map<String, Object> update = new LinkedHashMap<>();
+        update.put("status", status);
+        update.put("signals", signals);
+        update.put("feedback", feedback.toString());
+        update.put("snapshot", snapshot);
+        ((java.util.function.Consumer<Map<String, Object>>) rawConsumer).accept(update);
+      }
+    } catch (RuntimeException ignored) {
+      // Run-end learning is intentionally non-fatal.
+    }
   }
 }

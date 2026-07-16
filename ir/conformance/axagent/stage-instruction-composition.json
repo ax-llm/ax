@@ -1,0 +1,32 @@
+{
+  "expected_output": {
+    "answer": "Verified."
+  },
+  "expected_request_contains": [
+    "Verify every claim before finalizing.",
+    "Record the evidence id before answering."
+  ],
+  "expected_request_count": 3,
+  "input": {
+    "question": "Is this verified?"
+  },
+  "kind": "agent_forward",
+  "name": "stage-instruction-composition",
+  "set_instruction": "Verify every claim before finalizing.",
+  "add_actor_instruction": "Record the evidence id before answering.",
+  "options": {
+    "contextFields": []
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"verified\":true}]}}"
+    },
+    {
+      "content": "{\"answer\":\"Verified.\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

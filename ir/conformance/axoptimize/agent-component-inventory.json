@@ -1,16 +1,13 @@
 {
   "expected_components_subset": [
     {
-      "id": "ctx.root.actor::instruction",
-      "kind": "instruction"
-    },
-    {
-      "id": "task.root.actor::instruction",
-      "kind": "instruction"
-    },
-    {
       "id": "task.root.responder::instruction",
       "kind": "instruction"
+    },
+    {
+      "id": "root::instruction",
+      "kind": "instruction",
+      "owner": "root"
     },
     {
       "id": "root.agent.runtime",

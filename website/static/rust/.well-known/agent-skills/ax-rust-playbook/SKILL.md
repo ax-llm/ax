@@ -1,6 +1,6 @@
 ---
 name: "ax-rust-playbook"
-description: "Use when writing Rust code with `axllm` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program."
+description: "Use when writing Rust code with `axllm` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program."
 version: "23.0.1"
 ---
 # Ax Playbook For Rust
@@ -10,6 +10,8 @@ This skill helps an agent write Rust code with the generated Ax package `axllm`.
 ## When To Use
 
 - Grow an evolving context playbook for a program or agent stage with playbook().
+- Attach a seed playbook to an agent and learn bounded avoidance rules from run-end failure signals.
+- Use the agent-bound playbook evolve method to mine grounded weaknesses with verification and exact rollback.
 - Refine a playbook online from live feedback or offline from labeled examples.
 - Render or persist a playbook and inject it into a program context.
 
@@ -28,13 +30,14 @@ This skill helps an agent write Rust code with the generated Ax package `axllm`.
 
 ```rust
 let program = axllm::ax("question:string -> answer:string")?;
-let mut pb = axllm::playbook(program, &mut llm, None)?;
-pb.evolve(&examples, &mut metric_fn, None)?;
+let student = Rc::new(RefCell::new(llm));
+let mut pb = axllm::playbook(program, student, None::<Rc<RefCell<OpenAICompatibleClient>>>, json!({}));
+pb.evolve(&examples, &mut metric_fn, &json!({}))?;
 ```
 
 ## Relevant API Surface
 
-- Optimizers: `optimize`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
+- Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
 
 ## Guardrails
 

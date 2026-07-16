@@ -220,7 +220,7 @@
     {
       "id": "agents-rlm",
       "title": "Agents And RLM",
-      "summary": "Run AxAgent through the RLM executor loop, where actor-code steps execute through an AxCodeRuntime session.",
+      "summary": "Run AxAgent through the RLM executor loop with stage instructions, validated evidence citations, persistent playbooks, and actor-code execution through an AxCodeRuntime session.",
       "symbols": [
         {
           "target_name": "java",
@@ -237,7 +237,11 @@
             "context fields",
             "discovery",
             "recall",
-            "functions"
+            "functions",
+            "citations",
+            "playbook",
+            "instruction",
+            "instructionAddenda"
           ],
           "returns": "AxAgent",
           "example": "AxAgent helper = Ax.agent(\"query:string -\u003e answer:string\", Map.of());"
@@ -247,14 +251,16 @@
           "canonical_name": "AxAgent",
           "public_name": "AxAgent",
           "kind": "type",
-          "description": "RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, and final typed responses.",
+          "description": "RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.",
           "form": "new AxAgent(signature, options)",
           "important_options": [
             "executor model",
             "runtime",
             "policy",
             "context",
-            "optimizer metadata"
+            "optimizer metadata",
+            "citations",
+            "playbook"
           ],
           "returns": "agent program"
         }
@@ -479,7 +485,7 @@
     {
       "id": "optimizers",
       "title": "Optimizers",
-      "summary": "Optimize Ax programs through BootstrapFewShot -\u003e GEPA composition, portable component maps, evaluator rows, artifacts, and generated engines.",
+      "summary": "Optimize Ax programs through BootstrapFewShot -\u003e GEPA composition and evolve program or agent playbooks through grounded, budgeted, rollback-safe learning.",
       "symbols": [
         {
           "target_name": "java",
@@ -496,6 +502,40 @@
           ],
           "returns": "optimized artifact",
           "example": "Map\u003cString, Object\u003e artifact = Ax.optimize(qa, train, Map.of(\"studentAI\", client, \"teacherAI\", reflection));"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "playbook",
+          "public_name": "Ax.playbook",
+          "kind": "function",
+          "description": "Bind an ACE-backed playbook to a program; agents also expose an agent-bound playbook handle.",
+          "form": "Ax.playbook(program, options)",
+          "important_options": [
+            "student/client",
+            "teacher",
+            "seed snapshot",
+            "online updates",
+            "verification budget"
+          ],
+          "returns": "AxPlaybook",
+          "example": "AxPlaybook pb = Ax.playbook(program, Map.of(\"studentAI\", client));"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxPlaybook",
+          "public_name": "AxPlaybook",
+          "kind": "type",
+          "description": "Persistent playbook with render/update/snapshot operations and agent-bound verified evolve over train/validation task sets.",
+          "form": "AxPlaybook / agent.playbook(options)",
+          "important_options": [
+            "verify",
+            "minHeldInGain",
+            "epsilon",
+            "runsPerTask",
+            "maxMetricCalls",
+            "maxProposals"
+          ],
+          "returns": "playbook handle"
         },
         {
           "target_name": "java",

@@ -2688,7 +2688,7 @@ writeFixture('anthropic-thinking-response', {
   expected_transport_request: {
     json: {
       model: 'claude-opus-4-8',
-      thinking: { type: 'adaptive' },
+      thinking: { type: 'adaptive', display: 'summarized' },
       output_config: { effort: 'high' },
     },
   },
@@ -2700,7 +2700,13 @@ writeFixture('anthropic-sonnet-5-adaptive-thinking-request', {
   model: 'claude-sonnet-5',
   request: {
     chat_prompt: [{ role: 'user', content: 'Think then answer.' }],
-    model_config: { stream: false, thinkingTokenBudget: 'highest' },
+    model_config: {
+      stream: false,
+      thinkingTokenBudget: 'highest',
+      temperature: 0.4,
+      topP: 0.8,
+      topK: 20,
+    },
   },
   transport_responses: [
     {
@@ -2740,10 +2746,129 @@ writeFixture('anthropic-sonnet-5-adaptive-thinking-request', {
   expected_transport_request: {
     json: {
       model: 'claude-sonnet-5',
-      thinking: { type: 'adaptive' },
+      thinking: { type: 'adaptive', display: 'summarized' },
       output_config: { effort: 'max' },
     },
   },
+  expected_transport_json_absent: ['temperature', 'top_p', 'top_k'],
+});
+
+writeFixture('anthropic-adaptive-thinking-hidden-request', {
+  kind: 'ai_chat',
+  provider: 'anthropic',
+  model: 'claude-opus-4-6',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Think privately then answer.' }],
+    model_config: {
+      stream: false,
+      thinkingTokenBudget: 'high',
+      showThoughts: false,
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'msg_hidden_think',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Done.' }],
+        model: 'claude-opus-4-6',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 7, output_tokens: 3 },
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: 'msg_hidden_think',
+        content: 'Done.',
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    remote_id: 'msg_hidden_think',
+    model_usage: {
+      ai: 'anthropic',
+      model: 'claude-opus-4-6',
+      tokens: {
+        prompt_tokens: 7,
+        completion_tokens: 3,
+        total_tokens: 10,
+      },
+    },
+  },
+  expected_transport_request: {
+    json: {
+      model: 'claude-opus-4-6',
+      thinking: { type: 'adaptive', display: 'omitted' },
+      output_config: { effort: 'high' },
+    },
+  },
+});
+
+// TS detects adaptive Claude models with `includes`, because Vertex/router
+// qualified ids can prefix the canonical Anthropic model name. Exercise that
+// exact distinction: a startsWith-only port would leak every sampling field.
+writeFixture('anthropic-qualified-adaptive-model-request', {
+  kind: 'ai_chat',
+  provider: 'anthropic',
+  model: 'publishers/anthropic/models/claude-opus-4-7',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Think then answer.' }],
+    model_config: {
+      stream: false,
+      thinkingTokenBudget: 'medium',
+      temperature: 0.4,
+      topP: 0.8,
+      topK: 20,
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'msg_qualified_adaptive',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Done.' }],
+        model: 'publishers/anthropic/models/claude-opus-4-7',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 7, output_tokens: 3 },
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: 'msg_qualified_adaptive',
+        content: 'Done.',
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    remote_id: 'msg_qualified_adaptive',
+    model_usage: {
+      ai: 'anthropic',
+      model: 'publishers/anthropic/models/claude-opus-4-7',
+      tokens: {
+        prompt_tokens: 7,
+        completion_tokens: 3,
+        total_tokens: 10,
+      },
+    },
+  },
+  expected_transport_request: {
+    json: {
+      model: 'publishers/anthropic/models/claude-opus-4-7',
+      thinking: { type: 'adaptive', display: 'summarized' },
+      output_config: { effort: 'medium' },
+    },
+  },
+  expected_transport_json_absent: ['temperature', 'top_p', 'top_k'],
 });
 
 writeFixture('anthropic-streaming-tool-thinking', {

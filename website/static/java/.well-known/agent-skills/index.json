@@ -6,7 +6,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-java-llm/SKILL.md",
-      "digest": "sha256:65484828b3562471b1f32016c20825fb1dc7a626396048b99d40df8827f33fde"
+      "digest": "sha256:5112d7057188ff2510bf98c82b1c5a40a0e8859f2336cc0e7491abd1ebe2f96b"
     },
     {
       "name": "ax-java-ai",
@@ -46,9 +46,9 @@
     {
       "name": "ax-java-agent",
       "type": "skill-md",
-      "description": "Use when writing Java code with `dev.axllm:ax` for agents, child delegation, tools, MCP, clarification, runtime state, final typed responses, and direct-respond executor skipping.",
+      "description": "Use when writing Java code with `dev.axllm:ax` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-java-agent/SKILL.md",
-      "digest": "sha256:95d9e1300f22bf684da9ced1ac7e19929a5083d8dd0eac20549f8f00f5d12ec6"
+      "digest": "sha256:aa45a0a4a2a867a450852423ed1e040de1775c98c3f43ee598f810d7e2766f1a"
     },
     {
       "name": "ax-java-agent-rlm",
@@ -74,37 +74,37 @@
     {
       "name": "ax-java-agent-optimize",
       "type": "skill-md",
-      "description": "Use when writing Java code with `dev.axllm:ax` for agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
+      "description": "Use when writing Java code with `dev.axllm:ax` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-java-agent-optimize/SKILL.md",
-      "digest": "sha256:681e8fedb2c18a5705a8708474488d44fd9290bf0db2aaabf0d888dc5671846b"
+      "digest": "sha256:6fda1a107a0d8a110b4f9c8ede09da79de00530cb0de3e64ebea47fd3f26c970"
     },
     {
       "name": "ax-java-agent-context",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents.",
       "url": "ax-java-agent-context/SKILL.md",
-      "digest": "sha256:c13a0d9f2b3ad4c98ea487e5fc8048b7b8e16932d971696da1c4530612255ce1"
+      "digest": "sha256:b55844198ce541bc36f79a9fa24141b9588f32b7a3a96038a0f67c7de5b18d92"
     },
     {
       "name": "ax-java-gepa",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-java-gepa/SKILL.md",
-      "digest": "sha256:7f14c5b4a8da45f128be9e8abecf2d775b08e7ff5e963fe4c0c23fc9997e1645"
+      "digest": "sha256:4d011fe6513eed500ba2d1a45aa52682e8b08b41465124557c46a4092cd58b67"
     },
     {
       "name": "ax-java-refine",
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-java-refine/SKILL.md",
-      "digest": "sha256:b1bdb4b864e15ce481269ddada1004b489cdbfa545a314264b3c4728acb5c76f"
+      "digest": "sha256:f962c4c0b67ec220881e30b60ab73305c7490eb29e40f23a53a7fdead37a94af"
     },
     {
       "name": "ax-java-playbook",
       "type": "skill-md",
-      "description": "Use when writing Java code with `dev.axllm:ax` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program.",
+      "description": "Use when writing Java code with `dev.axllm:ax` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program.",
       "url": "ax-java-playbook/SKILL.md",
-      "digest": "sha256:b620c162c24347da122239aa9abae58d5b3d84307d788a069a8b6c76d1ad5f3b"
+      "digest": "sha256:be52596c29c018c7a9d7a26e562e495b44e1e8a04f2b34d3371c21b8c07072e8"
     }
   ]
 }

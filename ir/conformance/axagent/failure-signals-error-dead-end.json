@@ -1,0 +1,87 @@
+{
+  "name": "failure-signals-error-dead-end",
+  "kind": "agent_forward",
+  "signature": "question:string -> answer:string",
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    }
+  },
+  "input": {
+    "question": "Recover from a repeated runtime error"
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"raise Error('boom')\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"raise Error('boom')\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"respond('Ready', {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final('Answer', {\\\"answer\\\":\\\"recovered\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"recovered\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "raise Error('boom')",
+      "result": {
+        "error": "boom",
+        "error_category": "runtime_error",
+        "is_error": true,
+        "kind": "error"
+      }
+    },
+    {
+      "expected_code": "raise Error('boom')",
+      "result": {
+        "error": "boom",
+        "error_category": "runtime_error",
+        "is_error": true,
+        "kind": "error"
+      }
+    },
+    {
+      "expected_code": "respond('Ready', {})",
+      "result": {
+        "args": ["Ready", {}],
+        "type": "respond"
+      }
+    },
+    {
+      "expected_code": "final('Answer', {\"answer\":\"recovered\"})",
+      "result": {
+        "args": ["Answer", { "answer": "recovered" }],
+        "type": "final"
+      }
+    }
+  ],
+  "expected_output": {
+    "answer": "recovered"
+  },
+  "expected_trace_subset": {
+    "failure_signals": [
+      {
+        "code": "raise Error('boom')",
+        "detail": "boom",
+        "kind": "error_turn",
+        "signature": "runtime_error:boom",
+        "occurrences": 1,
+        "turn": 2
+      },
+      {
+        "code": "raise Error('boom')",
+        "detail": "boom",
+        "kind": "dead_end",
+        "signature": "runtime_error:boom",
+        "occurrences": 1,
+        "turn": 3
+      }
+    ]
+  }
+}
