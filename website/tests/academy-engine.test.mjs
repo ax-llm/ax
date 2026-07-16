@@ -160,6 +160,15 @@ test('every supported language generates a native, complete Academy', async () =
   }
 });
 
+test('lesson presentation aligns breadcrumbs and hides unused feedback', async () => {
+  const css = await readFile('website/static/css/site.css', 'utf8');
+  assert.match(
+    css,
+    /\.academy-breadcrumb\s*\{[^}]*width:\s*min\(100%, 62rem\)[^}]*margin:\s*0 auto 2rem/s
+  );
+  assert.match(css, /\.academy-feedback\[hidden\]\s*\{[^}]*display:\s*none/s);
+});
+
 test('language Academies keep progress in separate storage namespaces', async () => {
   const languages = await readLanguages();
   const manifests = languages.map((language) => {

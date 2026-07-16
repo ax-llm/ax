@@ -5098,10 +5098,11 @@ pre.mermaid {
 
 .academy-breadcrumb {
   display: flex;
+  width: min(100%, 62rem);
   flex-wrap: wrap;
   gap: 0.4rem;
   align-items: center;
-  margin: 0 0 2rem;
+  margin: 0 auto 2rem;
   color: var(--faint);
   font-size: 0.84rem;
 }
@@ -5254,6 +5255,10 @@ pre.mermaid {
   border-left: 3px solid var(--rust);
   background: var(--rust-soft);
   padding: 0.72rem 0.85rem;
+}
+
+.academy-feedback[hidden] {
+  display: none;
 }
 
 .academy-feedback[data-correct="true"] {
