@@ -21,6 +21,9 @@
     {{ $assetVersion := partialCached "asset-version.html" . }}
     <link rel="stylesheet" href="{{ "css/site.css" | relURL }}?v={{ $assetVersion }}">
     <script src="{{ "js/site.js" | relURL }}?v={{ $assetVersion }}" defer></script>
+    {{ if .Params.academy }}
+      <script src="{{ "js/academy.js" | relURL }}?v={{ $assetVersion }}" type="module"></script>
+    {{ end }}
     {{ if in .RawContent "```mermaid" }}
       <script src="{{ "js/mermaid-init.js" | relURL }}?v={{ $assetVersion }}" type="module"></script>
     {{ end }}
@@ -109,6 +112,7 @@
     {{ end }}
     {{ $sectionLinks := slice
       (dict "label" "Quick Start" "href" (printf "/%s/quick-start/" $currentLang) "active" (or (eq $currentSlug "quick-start") (eq $currentSlug "advanced-start") (eq $currentSection "quick-start")))
+      (dict "label" "Academy" "href" (printf "/%s/academy/" $currentLang) "active" (eq $currentSection "academy"))
       (dict "label" "Agents" "href" (printf "/%s/agents/" $currentLang) "active" (eq $currentSection "agents"))
       (dict "label" "Examples" "href" (printf "/%s/examples/" $currentLang) "active" (or (eq $currentSlug "examples") (eq $currentSection "examples")))
       (dict "label" "Concepts" "href" (printf "/%s/concepts/dspy/" $currentLang) "active" (eq $currentSection "concepts"))

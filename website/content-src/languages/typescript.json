@@ -6,6 +6,22 @@
   "packageName": "@ax-llm/ax",
   "install": ["npm install @ax-llm/ax"],
   "exampleRoot": "src/examples",
+  "academy": {
+    "unitExamples": {
+      "dspy": "src/examples/typescript/generation/structured.ts",
+      "models-signatures": "src/examples/typescript/generation/structured.ts",
+      "axgen": "src/examples/typescript/generation/axgen-openai.ts",
+      "axflow": "src/examples/typescript/flows/branch-flow.ts",
+      "axagent": "src/examples/typescript/short-agents/tools-agent.ts",
+      "rlm": "src/examples/typescript/long-agents/incident-log-forensics.ts",
+      "peek-context": "src/examples/typescript/long-agents/codebase-peek-map.ts",
+      "optimization": "src/examples/typescript/optimization/axgen-optimization.ts",
+      "mcp": "src/examples/typescript/mcp/native-mcp-tools.ts",
+      "notifications": "src/examples/typescript/mcp/resource-wake-agent.ts",
+      "production": "src/examples/typescript/long-agents/smart-defaults-agent.ts"
+    },
+    "capstoneExample": "src/examples/typescript/mcp/task-resume-flow.ts"
+  },
   "apiKind": "typedoc",
   "optimizeName": "optimize()",
   "optimizeIntro": "Use `optimize()` for normal GEPA tuning. It accepts a programmable root, training examples, a metric, and optimizer options.",

@@ -15,6 +15,49 @@
     "</dependency>"
   ],
   "exampleRoot": "packages/java/examples",
+  "academy": {
+    "unitExamples": {
+      "dspy": "src/examples/java/generation/StructuredGenerationExample.java",
+      "models-signatures": "src/examples/java/generation/StructuredGenerationExample.java",
+      "axgen": "src/examples/java/generation/BasicGenerationExample.java",
+      "axflow": "src/examples/java/flows/BranchFlowExample.java",
+      "axagent": "src/examples/java/short-agents/ToolsAgentExample.java",
+      "rlm": "src/examples/java/long-agents/IncidentLogForensicsExample.java",
+      "peek-context": "src/examples/java/long-agents/CodebasePeekMapExample.java",
+      "optimization": "src/examples/java/optimization/AxgenOptimizationExample.java",
+      "mcp": "src/examples/java/mcp/NativeMCPToolsExample.java",
+      "notifications": "src/examples/java/mcp/ResourceWakeAgentExample.java",
+      "production": "src/examples/java/long-agents/SmartDefaultsAgentExample.java"
+    },
+    "capstoneExample": "src/examples/java/mcp/TaskResumeFlowExample.java",
+    "exerciseAnswers": {
+      "signature-semantic-contract": ["Ax.s", "s"],
+      "ai-providers-models": ["Ax.ai", "ai"],
+      "fluent-fields-validation": ["Ax.f", "f"],
+      "typed-tools": ["Ax.fn", "fn"],
+      "optimize-gen-flow": ["AxGEPA"]
+    },
+    "snippets": {
+      "flow": [
+        "AxGen step = Ax.ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\");",
+        "AxFlow program = Ax.flow(Map.of(\"id\", \"supportRouter\"))",
+        "    .execute(\"classify\", step)",
+        "    .returns(Map.of(\"route\", \"classify\"));"
+      ],
+      "rlm": [
+        "AxAgent investigator = Ax.agent(signature, Map.of(",
+        "    \"contextFields\", List.of(\"logs\"),",
+        "    \"contextPolicy\", Map.of(\"preset\", \"lean\", \"budget\", \"balanced\"),",
+        "    \"runtime\", Map.of(\"language\", \"JavaScript\")));"
+      ],
+      "contextMap": [
+        "AxAgent analyst = Ax.agent(signature, Map.of(",
+        "    \"contextFields\", List.of(\"codebase\"),",
+        "    \"contextPolicy\", Map.of(\"preset\", \"adaptive\", \"budget\", \"balanced\"),",
+        "    \"contextMap\", Map.of(\"maxChars\", 1800, \"infiniteEvolve\", false, \"evolveSteps\", 1)));"
+      ]
+    }
+  },
   "apiKind": "axir",
   "optimizeName": "AxGEPA",
   "optimizeIntro": "Use the generated `AxGEPA` optimizer surface for portable GEPA tuning. TypeScript also exposes the convenience `optimize()` helper; generated packages currently keep the optimizer explicit.",

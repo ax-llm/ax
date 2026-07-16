@@ -6,6 +6,51 @@
   "packageName": "axllm",
   "install": ["cargo add axllm"],
   "exampleRoot": "packages/rust/examples",
+  "academy": {
+    "unitExamples": {
+      "dspy": "src/examples/rust/generation/structured_generation.rs",
+      "models-signatures": "src/examples/rust/generation/structured_generation.rs",
+      "axgen": "src/examples/rust/generation/basic_generation.rs",
+      "axflow": "src/examples/rust/flows/branch_flow.rs",
+      "axagent": "src/examples/rust/short-agents/tools_agent.rs",
+      "rlm": "src/examples/rust/long-agents/incident_log_forensics.rs",
+      "peek-context": "src/examples/rust/long-agents/codebase_peek_map.rs",
+      "optimization": "src/examples/rust/optimization/axgen_optimization.rs",
+      "mcp": "src/examples/rust/mcp/native_mcp_tools.rs",
+      "notifications": "src/examples/rust/mcp/resource_wake_agent.rs",
+      "production": "src/examples/rust/long-agents/smart_defaults_agent.rs"
+    },
+    "capstoneExample": "src/examples/rust/mcp/task_resume_flow.rs",
+    "exerciseAnswers": {
+      "signature-semantic-contract": ["s"],
+      "ai-providers-models": ["ai"],
+      "fluent-fields-validation": ["f", "FieldType"],
+      "typed-tools": ["tool"],
+      "optimize-gen-flow": ["AxGEPA"]
+    },
+    "snippets": {
+      "flow": [
+        "let step = ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\")?;",
+        "let program = flow(\"supportRouter\")",
+        "    .execute(\"classify\", step)",
+        "    .returns(json!({\"route\": \"classify\"}));"
+      ],
+      "rlm": [
+        "let investigator = agent_with_options(signature, json!({",
+        "    \"contextFields\": [\"logs\"],",
+        "    \"contextPolicy\": {\"preset\": \"lean\", \"budget\": \"balanced\"},",
+        "    \"runtime\": {\"language\": \"JavaScript\"},",
+        "}))?.with_runtime(Box::new(QuickJsCodeRuntime::new()))?;"
+      ],
+      "contextMap": [
+        "let analyst = agent_with_options(signature, json!({",
+        "    \"contextFields\": [\"codebase\"],",
+        "    \"contextPolicy\": {\"preset\": \"adaptive\", \"budget\": \"balanced\"},",
+        "    \"contextMap\": {\"maxChars\": 1800, \"infiniteEvolve\": false, \"evolveSteps\": 1},",
+        "}))?.with_runtime(Box::new(QuickJsCodeRuntime::new()))?;"
+      ]
+    }
+  },
   "apiKind": "axir",
   "optimizeName": "AxGEPA",
   "optimizeIntro": "Use the generated `AxGEPA` optimizer surface for portable GEPA tuning. TypeScript also exposes the convenience `optimize()` helper; generated packages currently keep the optimizer explicit.",

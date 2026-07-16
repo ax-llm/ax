@@ -46,6 +46,14 @@ try {
 
   const css = await readFile(path.join(destination, 'css', 'site.css'), 'utf8');
   const js = await readFile(path.join(destination, 'js', 'site.js'), 'utf8');
+  const academyJs = await readFile(
+    path.join(destination, 'js', 'academy.js'),
+    'utf8'
+  );
+  const academyEngine = await readFile(
+    path.join(destination, 'js', 'academy-engine.js'),
+    'utf8'
+  );
   if (
     !css.includes('flex-direction:column') &&
     !css.includes('flex-direction: column')
@@ -149,6 +157,24 @@ try {
   }
   if (!css.includes('.content-standalone')) {
     qualityFailures.push('standalone research page styles missing');
+  }
+  if (!css.includes('.academy-roadmap')) {
+    qualityFailures.push('Academy knowledge-map styles missing');
+  }
+  if (!css.includes('.academy-progress-summary')) {
+    qualityFailures.push('Academy progress summary styles missing');
+  }
+  if (!academyJs.includes('data-academy-diagnostic-start')) {
+    qualityFailures.push('Academy diagnostic UI hook missing');
+  }
+  if (!academyJs.includes('data-academy-capstone-quiz')) {
+    qualityFailures.push('Academy capstone UI hook missing');
+  }
+  if (!academyEngine.includes('selectDiagnosticTopic')) {
+    qualityFailures.push('Academy adaptive diagnostic engine missing');
+  }
+  if (!academyEngine.includes('REVIEW_INTERVAL_DAYS')) {
+    qualityFailures.push('Academy spaced-review schedule missing');
   }
   if (css.includes('home-section-heading-center')) {
     qualityFailures.push('homepage section headings must stay left-aligned');
@@ -324,9 +350,11 @@ try {
   await collectSVGCanvasFrameFailures(qualityFailures);
   await collectSVGTextClutterFailures(qualityFailures);
 
+  const academyHtmlFiles = [];
   for (const file of htmlFiles) {
     const html = await readFile(file, 'utf8');
     const rel = path.relative(destination, file).replaceAll(path.sep, '/');
+    if (isAcademyPage(rel)) academyHtmlFiles.push(rel);
     for (const ref of localRefs(html)) {
       const target = resolveRef(file, ref);
       if (!target) continue;
@@ -337,6 +365,12 @@ try {
       }
     }
     collectQualityFailures(rel, html, qualityFailures);
+  }
+
+  if (academyHtmlFiles.length !== 402) {
+    qualityFailures.push(
+      `Academy must generate 67 pages for each of 6 languages (402 total; found ${academyHtmlFiles.length})`
+    );
   }
 
   await collectSkillPageFailures(destination, qualityFailures);
@@ -553,7 +587,7 @@ function collectQualityFailures(rel, html, failures) {
   // meta refresh that baseof emits for redirect_to. The minifier may strip
   // attribute quotes, so match both forms.
   const isRedirectStub = /http-equiv=["']?refresh/.test(html);
-  if (isLanguageDocsPage(rel) && !isRedirectStub) {
+  if (isLanguageDocsPage(rel) && !isRedirectStub && !isAcademyPage(rel)) {
     if (!hasClass(html, 'nav', 'section-nav')) {
       failures.push(`${rel}: missing top section navigation`);
     }
@@ -563,8 +597,71 @@ function collectQualityFailures(rel, html, failures) {
     if (!html.includes('>Skills</a>')) {
       failures.push(`${rel}: missing Skills top section navigation link`);
     }
+    if (!html.includes('>Academy</a>')) {
+      failures.push(`${rel}: missing Academy top section navigation link`);
+    }
     if (!html.includes('data-mobile-docs')) {
       failures.push(`${rel}: missing mobile docs drawer`);
+    }
+  }
+
+  if (isAcademyPage(rel)) {
+    if (!hasClass(html, 'div', 'academy')) {
+      failures.push(`${rel}: Academy root rendered as escaped markup`);
+    }
+    if (!hasClass(html, 'body', 'docs-academy')) {
+      failures.push(`${rel}: Academy page missing docs-academy body class`);
+    }
+    if (!html.includes('data-academy-root')) {
+      failures.push(`${rel}: Academy page missing application root`);
+    }
+    if (!html.includes('academy-course-data')) {
+      failures.push(`${rel}: Academy page missing course manifest`);
+    }
+    if (!html.includes('js/academy.js?v=')) {
+      failures.push(`${rel}: Academy page missing cache-busted module`);
+    }
+    if (!hasActiveSectionNav(html) || !html.includes('>Academy</a>')) {
+      failures.push(`${rel}: Academy section navigation is not active`);
+    }
+    if (
+      html.includes('name="apiKey"') ||
+      html.includes('data-academy-api-key')
+    ) {
+      failures.push(`${rel}: Academy must never collect provider API keys`);
+    }
+  }
+
+  if (
+    /^(?:typescript|python|java|cpp|go|rust)\/academy\/index\.html$/.test(rel)
+  ) {
+    if (!hasClass(html, 'div', 'academy-roadmap')) {
+      failures.push(`${rel}: Academy dashboard missing learning path`);
+    }
+    if (
+      !html.includes('data-academy-continue') ||
+      !html.includes('data-academy-starting-quiz')
+    ) {
+      failures.push(`${rel}: Academy dashboard missing adaptive hero actions`);
+    }
+    if (countOccurrences(html, 'data-academy-unit=') !== 11) {
+      failures.push(
+        `${rel}: Academy dashboard must render 11 progressive units`
+      );
+    }
+    for (const term of [
+      'DSPy',
+      'AxGen',
+      'AxFlow',
+      'AxAgent',
+      'RLM',
+      'PEEK',
+      'Native MCP',
+      'MCP notifications',
+    ]) {
+      if (!html.includes(term)) {
+        failures.push(`${rel}: Academy roadmap missing ${term}`);
+      }
     }
   }
 
@@ -1130,6 +1227,12 @@ function isMermaidExpectedPage(rel) {
 
 function isLanguageDocsPage(rel) {
   return /^(?:typescript|python|java|cpp|go|rust)\/.+\/index\.html$/.test(rel);
+}
+
+function isAcademyPage(rel) {
+  return /^(?:typescript|python|java|cpp|go|rust)\/academy(?:\/.*)?\/index\.html$/.test(
+    rel
+  );
 }
 
 function hasInlinePageToc(html) {

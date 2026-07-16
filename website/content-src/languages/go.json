@@ -6,6 +6,51 @@
   "packageName": "github.com/ax-llm/ax/packages/go",
   "install": ["go get github.com/ax-llm/ax/packages/go"],
   "exampleRoot": "packages/go/examples",
+  "academy": {
+    "unitExamples": {
+      "dspy": "src/examples/go/generation/structured_generation.go",
+      "models-signatures": "src/examples/go/generation/structured_generation.go",
+      "axgen": "src/examples/go/generation/basic_generation.go",
+      "axflow": "src/examples/go/flows/branch_flow.go",
+      "axagent": "src/examples/go/short-agents/tools_agent.go",
+      "rlm": "src/examples/go/long-agents/incident_log_forensics.go",
+      "peek-context": "src/examples/go/long-agents/codebase_peek_map.go",
+      "optimization": "src/examples/go/optimization/axgen_optimization.go",
+      "mcp": "src/examples/go/mcp/native_mcp_tools.go",
+      "notifications": "src/examples/go/mcp/resource_wake_agent.go",
+      "production": "src/examples/go/long-agents/smart_defaults_agent.go"
+    },
+    "capstoneExample": "src/examples/go/mcp/task_resume_flow.go",
+    "exerciseAnswers": {
+      "signature-semantic-contract": ["S"],
+      "ai-providers-models": ["NewAI"],
+      "fluent-fields-validation": ["FieldType"],
+      "typed-tools": ["Fn"],
+      "optimize-gen-flow": ["NewGEPA"]
+    },
+    "snippets": {
+      "flow": [
+        "step := axllm.NewAx(\"request:string -> route:class \\\"support, sales, engineering\\\"\", nil)",
+        "program := axllm.NewFlow(map[string]axllm.Value{\"id\": \"supportRouter\"}).",
+        "    Execute(\"classify\", step, nil).",
+        "    Returns(map[string]axllm.Value{\"route\": \"classify\"})"
+      ],
+      "rlm": [
+        "investigator := axllm.NewAgent(signature, map[string]axllm.Value{",
+        "    \"contextFields\": axllm.Array(\"logs\"),",
+        "    \"contextPolicy\": axllm.Object(\"preset\", \"lean\", \"budget\", \"balanced\"),",
+        "    \"runtime\": axllm.Object(\"language\", \"JavaScript\"),",
+        "})"
+      ],
+      "contextMap": [
+        "analyst := axllm.NewAgent(signature, map[string]axllm.Value{",
+        "    \"contextFields\": axllm.Array(\"codebase\"),",
+        "    \"contextPolicy\": axllm.Object(\"preset\", \"adaptive\", \"budget\", \"balanced\"),",
+        "    \"contextMap\": axllm.Object(\"maxChars\", 1800, \"infiniteEvolve\", false, \"evolveSteps\", 1),",
+        "})"
+      ]
+    }
+  },
   "apiKind": "axir",
   "optimizeName": "AxGEPA",
   "optimizeIntro": "Use the generated `AxGEPA` optimizer surface for portable GEPA tuning. TypeScript also exposes the convenience `optimize()` helper; generated packages currently keep the optimizer explicit.",

@@ -11,6 +11,51 @@
     "target_link_libraries(your_app PRIVATE axllm::axllm)"
   ],
   "exampleRoot": "packages/cpp/examples",
+  "academy": {
+    "unitExamples": {
+      "dspy": "src/examples/cpp/generation/structured_generation.cpp",
+      "models-signatures": "src/examples/cpp/generation/structured_generation.cpp",
+      "axgen": "src/examples/cpp/generation/basic_generation.cpp",
+      "axflow": "src/examples/cpp/flows/branch_flow.cpp",
+      "axagent": "src/examples/cpp/short-agents/tools_agent.cpp",
+      "rlm": "src/examples/cpp/long-agents/incident_log_forensics.cpp",
+      "peek-context": "src/examples/cpp/long-agents/codebase_peek_map.cpp",
+      "optimization": "src/examples/cpp/optimization/axgen_optimization.cpp",
+      "mcp": "src/examples/cpp/mcp/native_mcp_tools.cpp",
+      "notifications": "src/examples/cpp/mcp/resource_wake_agent.cpp",
+      "production": "src/examples/cpp/long-agents/smart_defaults_agent.cpp"
+    },
+    "capstoneExample": "src/examples/cpp/mcp/task_resume_flow.cpp",
+    "exerciseAnswers": {
+      "signature-semantic-contract": ["axllm::s", "s"],
+      "ai-providers-models": ["axllm::ai", "ai"],
+      "fluent-fields-validation": ["FieldType"],
+      "typed-tools": ["Tool"],
+      "optimize-gen-flow": ["AxGEPA"]
+    },
+    "snippets": {
+      "flow": [
+        "auto step = axllm::ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\");",
+        "auto program = axllm::flow(axllm::object({{\"id\", \"supportRouter\"}}))",
+        "    .execute(\"classify\", step)",
+        "    .returns(axllm::object({{\"route\", \"classify\"}}));"
+      ],
+      "rlm": [
+        "auto investigator = axllm::agent(signature, axllm::object({",
+        "    {\"contextFields\", axllm::array({\"logs\"})},",
+        "    {\"contextPolicy\", axllm::object({{\"preset\", \"lean\"}, {\"budget\", \"balanced\"}})},",
+        "    {\"runtime\", axllm::object({{\"language\", \"JavaScript\"}})},",
+        "}));"
+      ],
+      "contextMap": [
+        "auto analyst = axllm::agent(signature, axllm::object({",
+        "    {\"contextFields\", axllm::array({\"codebase\"})},",
+        "    {\"contextPolicy\", axllm::object({{\"preset\", \"adaptive\"}, {\"budget\", \"balanced\"}})},",
+        "    {\"contextMap\", axllm::object({{\"maxChars\", 1800}, {\"infiniteEvolve\", false}, {\"evolveSteps\", 1}})},",
+        "}));"
+      ]
+    }
+  },
   "apiKind": "axir",
   "optimizeName": "AxGEPA",
   "optimizeIntro": "Use the generated `AxGEPA` optimizer surface for portable GEPA tuning. TypeScript also exposes the convenience `optimize()` helper; generated packages currently keep the optimizer explicit.",

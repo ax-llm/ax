@@ -1,4 +1,6 @@
 {{- $css := readFile "static/css/site.css" -}}
 {{- $js := readFile "static/js/site.js" -}}
+{{- $academy := readFile "static/js/academy.js" -}}
+{{- $academyEngine := readFile "static/js/academy-engine.js" -}}
 {{- $mermaid := readFile "static/js/mermaid-init.js" -}}
-{{- substr (md5 (print $css $js $mermaid)) 0 10 -}}
+{{- substr (md5 (print $css $js $academy $academyEngine $mermaid)) 0 10 -}}

@@ -14,10 +14,19 @@ import {
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  academyCourse,
+  requiredAcademyCoverage,
+} from '../website/content-src/academy/course.mjs';
+import {
   exampleGroupLabels,
   groupPublicExamples,
   readPublicExampleCatalog,
 } from './example-catalog.mjs';
+import {
+  buildAcademyPages,
+  validateAcademyCourse,
+  validateAcademyLanguages,
+} from './website-academy.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
@@ -251,6 +260,18 @@ for (const language of languages) {
   await writeLanguageReferencePage(language);
   if (language.apiKind === 'typedoc') {
     await writeTypeScriptReferencePages(language);
+  }
+}
+
+await validateAcademyCourse(academyCourse, {
+  repoRoot,
+  publicExports: inventory.publicExports,
+  requiredCoverage: requiredAcademyCoverage,
+});
+await validateAcademyLanguages(academyCourse, languages, { repoRoot });
+for (const language of languages) {
+  for (const academyPage of buildAcademyPages(academyCourse, language)) {
+    await writePage(academyPage.relPath, academyPage.page);
   }
 }
 
@@ -2630,6 +2651,9 @@ function frontmatter(page) {
     body_class: page.body_class,
     redirect_to: page.redirect_to,
     toc: page.toc,
+    standalone: page.standalone,
+    academy: page.academy,
+    academy_page: page.academy_page,
     source: page.source,
   };
   const lines = ['---'];

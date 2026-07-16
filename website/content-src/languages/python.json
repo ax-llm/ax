@@ -6,6 +6,53 @@
   "packageName": "axllm",
   "install": ["pip install axllm"],
   "exampleRoot": "packages/python/examples",
+  "academy": {
+    "unitExamples": {
+      "dspy": "src/examples/python/generation/structured.py",
+      "models-signatures": "src/examples/python/generation/structured.py",
+      "axgen": "src/examples/python/generation/axgen-openai.py",
+      "axflow": "src/examples/python/flows/branch-flow.py",
+      "axagent": "src/examples/python/short-agents/tools-agent.py",
+      "rlm": "src/examples/python/long-agents/incident-log-forensics.py",
+      "peek-context": "src/examples/python/long-agents/codebase-peek-map.py",
+      "optimization": "src/examples/python/optimization/axgen-optimization.py",
+      "mcp": "src/examples/python/mcp/native-mcp-tools.py",
+      "notifications": "src/examples/python/mcp/resource-wake-agent.py",
+      "production": "src/examples/python/long-agents/smart-defaults-agent.py"
+    },
+    "capstoneExample": "src/examples/python/mcp/task-resume-flow.py",
+    "exerciseAnswers": {
+      "signature-semantic-contract": ["s"],
+      "ai-providers-models": ["ai"],
+      "fluent-fields-validation": ["f"],
+      "typed-tools": ["fn"],
+      "optimize-gen-flow": ["AxGEPA"]
+    },
+    "snippets": {
+      "flow": [
+        "step = ax('request:string -> route:class \"support, sales, engineering\"')",
+        "program = (",
+        "    flow({\"id\": \"supportRouter\"})",
+        "    .execute(\"classify\", step)",
+        "    .returns({\"route\": \"classify\"})",
+        ")"
+      ],
+      "rlm": [
+        "investigator = agent(signature, {",
+        "    \"contextFields\": [\"logs\"],",
+        "    \"contextPolicy\": {\"preset\": \"lean\", \"budget\": \"balanced\"},",
+        "    \"runtime\": {\"language\": \"JavaScript\"},",
+        "})"
+      ],
+      "contextMap": [
+        "analyst = agent(signature, {",
+        "    \"contextFields\": [\"codebase\"],",
+        "    \"contextPolicy\": {\"preset\": \"adaptive\", \"budget\": \"balanced\"},",
+        "    \"contextMap\": {\"maxChars\": 1800, \"infiniteEvolve\": False, \"evolveSteps\": 1},",
+        "})"
+      ]
+    }
+  },
   "apiKind": "axir",
   "optimizeName": "AxGEPA",
   "optimizeIntro": "Use the generated `AxGEPA` optimizer surface for portable GEPA tuning. TypeScript also exposes the convenience `optimize()` helper; generated packages currently keep the optimizer explicit.",
