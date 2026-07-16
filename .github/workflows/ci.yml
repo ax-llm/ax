@@ -156,10 +156,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-generated-
             ${{ runner.os }}-cargo-
+      - name: Install C++ QuickJS runtime
+        run: sudo apt-get update && sudo apt-get install --yes libquickjs
       - name: Install dependencies
         run: npm ci
       - name: Run generated examples
         run: npm run test:examples:generated
+        env:
+          AXIR_QUICKJS_CFLAGS: '-I/usr/include/quickjs'
+          AXIR_QUICKJS_LDFLAGS: '/usr/lib/quickjs/libquickjs.a -lm -ldl -pthread'
       - name: AxIR perturbation gate (expected-mutation, all targets)
         run: npm run axir:perturb:check
       - name: AxIR anti-hardcode gate (model-response mutation, all targets)
