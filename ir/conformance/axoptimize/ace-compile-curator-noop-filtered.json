@@ -124,7 +124,8 @@
             "type": "ADD"
           }
         ],
-        "source": "compile"
+        "source": "compile",
+        "updatedBulletIds": ["routing-00001"]
       }
     ],
     "playbook": {

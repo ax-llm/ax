@@ -1219,6 +1219,13 @@ static void run_agent_prompt(Value fixture) {
   }
 }
 
+static void run_agent_playbook_coverage(Value fixture) {
+  for (const auto& test_case : Core::iter(Core::get(fixture, "cases", Value::array()))) {
+    Value actual = Core::_agent_collect_covered_failure_signatures(Core::get(test_case, "snapshot", Value::object()));
+    assert_equal(actual, Core::get(test_case, "expected_covered", Value::array()), "playbook coverage " + display(Core::get(test_case, "name", Value("case"))));
+  }
+}
+
 static void run_agent_forward(Value fixture) {
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
   client.transcribe_responses = as_array(Core::get(fixture, "transcribe_responses", Value::array()));
@@ -1244,13 +1251,23 @@ static void run_agent_forward(Value fixture) {
   }
 #endif
   std::unique_ptr<AxAgent> ag;
+  bool observer_called = false;
   try {
     ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), agent_options);
+    if (!Core::get(fixture, "set_instruction").is_null()) ag->set_instruction(Core::get(fixture, "set_instruction"));
+    if (!Core::get(fixture, "add_actor_instruction").is_null()) ag->add_actor_instruction(Core::get(fixture, "add_actor_instruction"));
+    if (Core::truthy(Core::get(fixture, "observer_throws", false))) {
+      ag->set_citations_observer([&observer_called](Value) {
+        observer_called = true;
+        throw std::runtime_error("citation observer failed");
+      });
+    }
     if (!Core::get(fixture, "set_state").is_null()) ag->set_state(Core::get(fixture, "set_state"));
     if (!Core::get(fixture, "restore_runtime_state").is_null()) ag->restore_runtime_state(Core::get(fixture, "restore_runtime_state"));
     Value output = ag->forward(client, Core::get(fixture, "input", Value::object()), Core::get(fixture, "forward_options", Value::object()));
     if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent forward to fail");
     if (!Core::get(fixture, "expected_output").is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "agent output");
+    if (Core::truthy(Core::get(fixture, "observer_throws", false)) && !observer_called) throw AxError("fixture", "citation observer was not called");
   } catch (const AxError& error) {
     Value expected = Core::get(fixture, "expected_error_contains");
     if (expected.is_null()) throw;
@@ -1743,9 +1760,15 @@ struct ClientFixture {
 
 static void assert_transport(Value fixture, const ScriptedTransport& transport) {
   Value expected = Core::get(fixture, "expected_transport_request");
-  if (expected.is_null()) return;
+  Value expected_absent = Core::get(fixture, "expected_transport_json_absent");
+  if (expected.is_null() && expected_absent.is_null()) return;
   if (transport.requests.empty()) throw AxError("fixture", "expected provider transport request but none were sent");
-  assert_subset(transport.requests[0], expected, "provider request");
+  if (!expected.is_null()) assert_subset(transport.requests[0], expected, "provider request");
+  Object request_json = as_object(Core::get(transport.requests[0], "json", Value::object()));
+  for (const auto& raw_key : Core::iter(expected_absent)) {
+    std::string key = display(raw_key);
+    if (request_json.find(key) != request_json.end()) throw AxError("fixture", "provider request json unexpectedly contained " + key);
+  }
 }
 
 static void assert_ai_error(const AxError& error, Value fixture, const ScriptedTransport& transport) {
@@ -2273,6 +2296,8 @@ static void run(Value fixture) {
     run_forward(fixture);
   } else if (kind == "agent_forward") {
     run_agent_forward(fixture);
+  } else if (kind == "agent_playbook_coverage") {
+    run_agent_playbook_coverage(fixture);
   } else if (kind == "agent_prompt") {
     run_agent_prompt(fixture);
   } else if (kind == "agent_runtime_real") {

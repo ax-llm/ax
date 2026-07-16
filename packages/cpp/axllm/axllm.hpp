@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <initializer_list>
 #include <map>
+#include <limits>
 #include <memory>
 #include <regex>
 #include <set>
@@ -370,7 +371,8 @@ struct Core {
   static Value _gemini_normalize_embed_response(Value raw, Value ai_name, Value model);
   static Value _anthropic_build_chat_request(Value request);
   static Value _anthropic_apply_model_config_impl(Value payload, Value model_config, Value model);
-  static Value _anthropic_thinking_config_impl(Value model, Value level);
+  static Value _anthropic_is_adaptive_model_impl(Value model);
+  static Value _anthropic_thinking_config_impl(Value model, Value level, Value show_thoughts);
   static Value _anthropic_message_impl(Value message);
   static Value _anthropic_content_parts_impl(Value content);
   static Value _anthropic_content_part_impl(Value part);
@@ -412,23 +414,23 @@ struct Core {
   static Value _parse_output_impl(Value content);
   static Value _scalarize_optimization_scores(Value scores, Value options);
   static Value _is_flexible_json_field(Value typ);
-  static Value _optimization_action_name_matches(Value expected, Value call);
   static Value _parse_json_string_value(Value value);
+  static Value _optimization_action_name_matches(Value expected, Value call);
   static Value _adjust_optimization_score_for_actions(Value score, Value task, Value prediction);
   static Value _parse_json_string_for_field(Value field, Value value);
   static Value _parse_json_string_fields(Value output_fields, Value values);
   static Value _parse_json_string_for_fields(Value fields_map, Value values);
-  static Value _build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error);
   static Value _tool_spec_impl(Value fn);
-  static Value _build_optimization_eval_result(Value rows, Value candidate_map, Value phase);
+  static Value _build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error);
   static Value _function_call_mode_impl(Value mode);
+  static Value _build_optimization_eval_result(Value rows, Value candidate_map, Value phase);
   static Value _response_function_calls_impl(Value response);
-  static Value _filter_optimization_components(Value components, Value target);
   static Value _append_tool_call_messages_impl(Value messages, Value response, Value calls);
+  static Value _filter_optimization_components(Value components, Value target);
   static Value _completion_call_to_chat_impl(Value call);
   static Value _tool_result_message_impl(Value call, Value result);
-  static Value _build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace);
   static Value _tool_error_message_impl(Value call, Value error);
+  static Value _build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace);
   static Value _append_validation_retry_messages_impl(Value messages, Value response, Value error);
   static Value _prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available);
   static Value _normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components);
@@ -445,6 +447,7 @@ struct Core {
   static Value _ace_normalize_curator_operations(Value operations);
   static Value _ace_locate_bullet_section(Value playbook, Value bullet_id);
   static Value _ace_resolve_curator_operation_targets(Value operations, Value playbook, Value reflection, Value generator_output);
+  static Value _ace_normalize_reflection_bullet_tags(Value reflection);
   static Value _ace_dequeue_section_candidate(Value section_queues, Value section, Value used_ids, Value playbook);
   static Value _agent_factory(Value signature, Value options);
   static Value _optimization_component(Value id, Value owner, Value kind, Value current, Value description, Value constraints, Value depends_on, Value preserve, Value format, Value validation);
@@ -550,6 +553,11 @@ struct Core {
   static Value _normalize_agent_respond_payload(Value value);
   static Value _normalize_agent_clarification_payload(Value value);
   static Value _agent_optimizer_metadata(Value state);
+  static Value _agent_refresh_actor_instruction(Value state);
+  static Value _agent_set_instruction(Value state, Value instruction);
+  static Value _agent_add_actor_instruction(Value state, Value addendum);
+  static Value _agent_get_optimizable_components(Value state, Value child_components);
+  static Value _agent_apply_optimized_components(Value state, Value component_map);
   static Value _agent_begin_trace(Value state, Value input);
   static Value _agent_record_trace_event(Value state, Value kind, Value payload);
   static Value _agent_normalize_host_boundary_event(Value boundary, Value request, Value result, Value status);
@@ -595,7 +603,13 @@ struct Core {
   static Value _build_executor_inputs(Value state, Value values, Value distiller_payload);
   static Value _build_responder_inputs(Value state, Value values, Value executor_payload);
   static Value _agent_render_field_token(Value field);
-  static Value _build_responder_signature(Value sig, Value context_fields);
+  static Value _build_responder_signature(Value sig, Value context_fields, Value citations);
+  static Value _resolve_agent_citations(Value options, Value sig);
+  static Value _agent_collect_citation_ids(Value ids, Value node, Value depth);
+  static Value _agent_validate_citations(Value state, Value output);
+  static Value _agent_finalize_citations(Value state, Value output);
+  static Value _agent_collect_covered_failure_signatures(Value snapshot);
+  static Value _agent_build_failure_signals(Value state);
   static Value _normalize_agent_completion_payload(Value output);
   static Value _throw_agent_clarification(Value payload, Value state);
   static Value _merge_agent_chat_log(Value state, Value distiller, Value executor, Value responder);
@@ -1277,6 +1291,7 @@ class AxACE {
 // growing online from live feedback (update), render it into the program context
 // (apply_to), and persist/restore it (to_json/load). The evolution engine (ACE)
 // is an implementation detail of this surface, just as optimize() hides GEPA.
+class AxAgent;
 class AxPlaybook {
  public:
   using MetricFn = std::function<Value(const Value&)>;
@@ -1292,6 +1307,8 @@ class AxPlaybook {
   void configure_auto(const std::string& level);
   void reset();
   void set_apply_hook(std::function<void(const std::string&)> hook);
+  AxPlaybook& bind_agent(AxAgent& agent);
+  Value evolve(Value dataset, Value options = Value::object());
 
  private:
   AxGen* program_;
@@ -1305,6 +1322,7 @@ class AxPlaybook {
   std::unique_ptr<AxGen> reflector_program_;
   std::unique_ptr<AxGen> curator_program_;
   std::function<void(const std::string&)> apply_hook_;
+  AxAgent* agent_ = nullptr;
 
   Value run_generator(const Value& example);
   Value run_reflector(const Value& payload);
@@ -1317,7 +1335,12 @@ class AxAgent : public AxProgram {
  public:
   explicit AxAgent(Value signature, Value options = Value::object());
   AxAgent& set_signature(Value signature);
+  Value get_instruction() const;
+  AxAgent& set_instruction(Value instruction);
+  AxAgent& add_actor_instruction(Value addendum);
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  AxAgent& set_citations_observer(std::function<void(Value)> observer);
+  AxAgent& set_playbook_observer(std::function<void(Value)> observer);
   Value test(AxCodeRuntime& runtime, Value code, Value context_values = Value::object(), Value options = Value::object());
   Value execute_actor_step(AxCodeRuntime& runtime, Value code, Value values = Value::object(), Value options = Value::object());
   Value inspect_runtime(Value options = Value::object());
@@ -1353,7 +1376,8 @@ class AxAgent : public AxProgram {
   Value optimize_with(OptimizerEngine& engine, Value dataset, Value options = Value::object());
   Value optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options = Value::object());
   Value optimize(Value dataset = Value::array(), Value options = Value::object());
-  AxPlaybook playbook(AIClient& student, Value options = Value::object());
+  AxPlaybook& playbook(AIClient& student, Value options = Value::object());
+  AxPlaybook* get_playbook() const;
 
  private:
   Value state_;
@@ -1361,6 +1385,13 @@ class AxAgent : public AxProgram {
   std::unique_ptr<AxGen> executor_;
   std::unique_ptr<AxGen> responder_;
   std::unique_ptr<AxGen> llm_query_;
+  Value options_;
+  Value playbook_config_;
+  std::unique_ptr<AxPlaybook> playbook_handle_;
+  std::function<void(Value)> citations_observer_;
+  std::function<void(Value)> playbook_observer_;
+  void ensure_configured_playbook(AIClient& client);
+  void learn_playbook_failures(Value output);
 };
 
 std::string stringify(const Value& value);

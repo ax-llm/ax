@@ -34,7 +34,7 @@ auto result = engine.optimize(request, evaluator);
 ## Relevant API Surface
 
 - AxGen: `axllm::ax`, `axllm::AxGen`
-- Optimizers: `axllm::optimize`, `axllm::AxBootstrapFewShot`, `axllm::AxGEPA`, `axllm::OptimizerEngine`, `axllm::OptimizerEvaluator`
+- Optimizers: `axllm::optimize`, `axllm::playbook`, `axllm::AxPlaybook`, `axllm::AxBootstrapFewShot`, `axllm::AxGEPA`, `axllm::OptimizerEngine`, `axllm::OptimizerEvaluator`
 
 ## Guardrails
 

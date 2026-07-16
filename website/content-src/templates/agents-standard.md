@@ -39,11 +39,11 @@ Keep the top-level `functions` shape either flat or grouped — mixed plain func
 
 Agents ask instead of guessing. When required information is genuinely missing, `forward()` and `streamingForward()` throw a structured clarification error; the host saves state, asks the user, restores, and resumes. Use clarification when the missing fact changes the action, side effect, recipient, policy, or output contract.
 
-## Chain-Of-Evidence Citations (TypeScript)
+## Chain-Of-Evidence Citations
 
 Answers can be required to point at the evidence that grounds them. With `citations: true`, the responder gains an optional `evidenceCitations` output listing the evidence ids the answer relies on — the keys of the evidence object the actor curated, plus the ids of loaded memories. Citations are validated against the ids that actually exist; an invalid citation re-prompts the responder through the standard validation-retry loop, and runs without evidence skip validation entirely. Use `citations: { surface: 'hidden', onCitations }` to keep the result shape pristine and read citations from the callback.
 
-Be precise about the guarantee: validation proves every citation points at evidence that exists — the model cannot claim support from a source it never collected. It does not verify that the answer's claims match the cited evidence's content; that judgment stays with you (or a judge you add). Citation granularity follows how the actor curates evidence: one big `notes` blob yields one coarse citation, while separate keys per fact yield precise ones. TS-first: the five generated language ports do not ship citations yet.
+Be precise about the guarantee: validation proves every citation points at evidence that exists — the model cannot claim support from a source it never collected. It does not verify that the answer's claims match the cited evidence's content; that judgment stays with you (or a judge you add). Citation granularity follows how the actor curates evidence: one big `notes` blob yields one coarse citation, while separate keys per fact yield precise ones. TypeScript and all five generated language packages share this validation behavior; observer callback spelling follows each language's API.
 
 Lineage: Self-RAG (citation-aware generation) and Attributed QA (attribution as a measurable property) — see the [Research Map](/research/).
 

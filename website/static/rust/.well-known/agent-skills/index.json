@@ -6,7 +6,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-rust-llm/SKILL.md",
-      "digest": "sha256:883f3dca91f1aab7a4e6beb907e19ca1e960074dac41144927b559affc5580a9"
+      "digest": "sha256:c7786ada9af45fabbf93b0539c4ef8451a33fa81a48c47b8e2ca698290753f68"
     },
     {
       "name": "ax-rust-ai",
@@ -46,9 +46,9 @@
     {
       "name": "ax-rust-agent",
       "type": "skill-md",
-      "description": "Use when writing Rust code with `axllm` for agents, child delegation, tools, MCP, clarification, runtime state, final typed responses, and direct-respond executor skipping.",
+      "description": "Use when writing Rust code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-rust-agent/SKILL.md",
-      "digest": "sha256:907533bc6a194d8ba0f32fdcad5f2fee4c30f2feea48fae71bb367a62ace932b"
+      "digest": "sha256:b3646c7a6526f9d5a1c0dd4a24b505943e8becde11cf6f6867d86c8867554ac3"
     },
     {
       "name": "ax-rust-agent-rlm",
@@ -74,37 +74,37 @@
     {
       "name": "ax-rust-agent-optimize",
       "type": "skill-md",
-      "description": "Use when writing Rust code with `axllm` for agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
+      "description": "Use when writing Rust code with `axllm` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-rust-agent-optimize/SKILL.md",
-      "digest": "sha256:3d386aeaad8da7f61a37e0aedbcee5e8b94bab9b9e4ad7490cd87c67fa908e3d"
+      "digest": "sha256:9811a4824d55d5181a7c25d8036eae44e57739232f44024428bcd92a95e59cdf"
     },
     {
       "name": "ax-rust-agent-context",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents.",
       "url": "ax-rust-agent-context/SKILL.md",
-      "digest": "sha256:14dfe48c91343911a8c307df32ef2cf777199b09c6445efd8d02b7c87aae90ef"
+      "digest": "sha256:e2986c9ebba46f664e090383897441d4eca9ba97f4bc6c268fda4fac04e5bddb"
     },
     {
       "name": "ax-rust-gepa",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-rust-gepa/SKILL.md",
-      "digest": "sha256:f2678bcdac1dbd209bf5e977e19a41566fe1948cec1e8762e4ca2fd0072c83d4"
+      "digest": "sha256:1e8cb63fa569801ce582e636b11e150c9815cdeb3967bea8689b563b0719b55b"
     },
     {
       "name": "ax-rust-refine",
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-rust-refine/SKILL.md",
-      "digest": "sha256:a279f91c513985f1853022d4c1d3b1b381d4cb9581cdc8bcb75dce59a64e6d3a"
+      "digest": "sha256:a36e9cbc8ba6380ef6dc64a5eb664ab255dec5811120d04e825b5fb1e9115952"
     },
     {
       "name": "ax-rust-playbook",
       "type": "skill-md",
-      "description": "Use when writing Rust code with `axllm` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program.",
+      "description": "Use when writing Rust code with `axllm` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program.",
       "url": "ax-rust-playbook/SKILL.md",
-      "digest": "sha256:9d7c0002762c0f129d1ea9cbf91786fedb4ecaf990287fe3d0b927afdbe0f0d2"
+      "digest": "sha256:b5ca8547c186a85067e24076a8464a57a99a53475bf3225b79837d5ae2cb57e7"
     }
   ]
 }

@@ -1,6 +1,6 @@
 ---
 name: "ax-java-playbook"
-description: "Use when writing Java code with `dev.axllm:ax` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program."
+description: "Use when writing Java code with `dev.axllm:ax` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program."
 version: "23.0.1"
 ---
 # Ax Playbook For Java
@@ -10,6 +10,8 @@ This skill helps an agent write Java code with the generated Ax package `dev.axl
 ## When To Use
 
 - Grow an evolving context playbook for a program or agent stage with playbook().
+- Attach a seed playbook to an agent and learn bounded avoidance rules from run-end failure signals.
+- Use the agent-bound playbook evolve method to mine grounded weaknesses with verification and exact rollback.
 - Refine a playbook online from live feedback or offline from labeled examples.
 - Render or persist a playbook and inject it into a program context.
 
@@ -34,7 +36,7 @@ pb.evolve(examples, metricFn, java.util.Map.of());
 
 ## Relevant API Surface
 
-- Optimizers: `Ax.optimize`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
+- Optimizers: `Ax.optimize`, `Ax.playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
 
 ## Guardrails
 

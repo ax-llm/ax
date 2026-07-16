@@ -79,10 +79,12 @@ var packageSkillSpecs = []packageSkillSpec{
 		ID:          "agent",
 		Title:       "AxAgent",
 		Area:        "RLM agents and tools",
-		Description: "agents, child delegation, tools, MCP, clarification, runtime state, final typed responses, and direct-respond executor skipping",
+		Description: "agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping",
 		UseWhen: []string{
 			"Create an RLM agent with tools, child agents, or MCP clients.",
 			"Use clarification, discovery, recall, final, or respond envelopes.",
+			"Require evidence citations, attach a persistent playbook, or add stage-owned actor instructions.",
+			"Harvest run-end failures into the playbook and observe citation or playbook updates.",
 			"Skip the executor stage for no-tool tasks with a distiller `respond` envelope (`directResponse`, on by default).",
 			"Save and restore agent runtime state around long-running tasks.",
 		},
@@ -128,9 +130,10 @@ var packageSkillSpecs = []packageSkillSpec{
 		ID:          "agent-optimize",
 		Title:       "AxAgent Optimize",
 		Area:        "agent evaluation and optimization artifacts",
-		Description: "agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA",
+		Description: "agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA",
 		UseWhen: []string{
 			"Optimize an AxAgent or reusable program component.",
+			"Mine grounded weaknesses from failed agent tasks and keep only playbook proposals that pass the verification gate.",
 			"Create evaluator callbacks and persist optimizer artifacts.",
 			"Keep optimization runs bounded by explicit budgets and dataset rows.",
 		},
@@ -176,9 +179,11 @@ var packageSkillSpecs = []packageSkillSpec{
 		ID:          "playbook",
 		Title:       "Ax Playbook",
 		Area:        "evolving context playbooks",
-		Description: "the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program",
+		Description: "the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program",
 		UseWhen: []string{
 			"Grow an evolving context playbook for a program or agent stage with playbook().",
+			"Attach a seed playbook to an agent and learn bounded avoidance rules from run-end failure signals.",
+			"Use the agent-bound playbook evolve method to mine grounded weaknesses with verification and exact rollback.",
 			"Refine a playbook online from live feedback or offline from labeled examples.",
 			"Render or persist a playbook and inject it into a program context.",
 		},
@@ -490,7 +495,7 @@ func skillPlaybookSnippet(target string) string {
 	case "go":
 		return readmeLines("program := ax.NewAx(\"question:string -> answer:string\", nil)", "pb := ax.Playbook(program, map[string]ax.Value{\"studentAI\": llm})", "pb.Evolve(ctx, examples, metricFn, nil)")
 	case "rust":
-		return readmeLines("let program = axllm::ax(\"question:string -> answer:string\")?;", "let mut pb = axllm::playbook(program, &mut llm, None)?;", "pb.evolve(&examples, &mut metric_fn, None)?;")
+		return readmeLines("let program = axllm::ax(\"question:string -> answer:string\")?;", "let student = Rc::new(RefCell::new(llm));", "let mut pb = axllm::playbook(program, student, None::<Rc<RefCell<OpenAICompatibleClient>>>, json!({}));", "pb.evolve(&examples, &mut metric_fn, &json!({}))?;")
 	default:
 		return "Read playbook examples in `examples/`."
 	}

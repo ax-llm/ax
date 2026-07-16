@@ -112,6 +112,18 @@
     ]
   },
   "snippetGroups": {
+    "agents": {
+      "playbookEvolve": {
+        "sourcePath": "src/examples/cpp/optimization/agent_playbook_evolve.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "axllm::Value evolution = assistant.get_playbook()->evolve(",
+          "    dataset,",
+          "    axllm::object({{\"verify\", true}, {\"maxProposals\", 1}}));"
+        ]
+      }
+    },
     "tools": {
       "basic": [
         "auto search = axllm::Tool(",

@@ -1,0 +1,20 @@
+{
+  "expected_render": "",
+  "kind": "optimize",
+  "name": "ace-render-empty-description-empty-section",
+  "operation": "playbook-render",
+  "playbook": {
+    "description": "",
+    "sections": {
+      "strategies": []
+    },
+    "stats": {
+      "bulletCount": 0,
+      "harmfulCount": 0,
+      "helpfulCount": 0,
+      "tokenEstimate": 0
+    },
+    "updatedAt": "2023-12-01T00:00:00.000Z",
+    "version": 1
+  }
+}

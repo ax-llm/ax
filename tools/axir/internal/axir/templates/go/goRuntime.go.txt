@@ -3325,6 +3325,8 @@ type AxAgent struct {
 	LlmQuery  *AxGen
 	ExecutionContext *AxExecutionContext
 	ExecutionContextError error
+	PlaybookHandle *AxPlaybook
+	PlaybookConfig Value
 }
 
 // AxMemoriesSearchFn / AxSkillsSearchFn are native host callbacks the agent invokes (from the agent
@@ -3358,7 +3360,7 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
 	if executionContext!=nil { distillerOptions["executionContext"]=executionContext;executorOptions["executionContext"]=executionContext;responderOptions["executionContext"]=executionContext;llmQueryOptions["executionContext"]=executionContext }
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
-	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions),ExecutionContext:executionContext,ExecutionContextError:contextErr}
+	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions),ExecutionContext:executionContext,ExecutionContextError:contextErr,PlaybookConfig:coreGet(options,"playbook",nil)}
 }
 func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, a.Options)))
@@ -3378,7 +3380,25 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	a.LlmQuery = NewAx(llmQuerySignature, llmQueryOptions)
 	return a
 }
+func (a *AxAgent) GetInstruction() string {
+	return display(coreGet(a.State, "stage_instruction", ""))
+}
+func (a *AxAgent) SetInstruction(instruction string) *AxAgent {
+	composed := mustCore(_agent_set_instruction(a.State, instruction))
+	coreSet(a.Options, "instruction", coreGet(a.State, "stage_instruction", ""))
+	a.Executor.Instruction = display(composed)
+	coreSet(a.Executor.Options, "instruction", a.Executor.Instruction)
+	return a
+}
+func (a *AxAgent) AddActorInstruction(addendum string) *AxAgent {
+	composed := mustCore(_agent_add_actor_instruction(a.State, addendum))
+	coreSet(a.Options, "instructionAddenda", cloneValue(coreGet(a.State, "instruction_addenda", Array())))
+	a.Executor.Instruction = display(composed)
+	coreSet(a.Executor.Options, "instruction", a.Executor.Instruction)
+	return a
+}
 func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	a.ensureConfiguredPlaybook(client)
 	if a.ExecutionContextError!=nil{return nil,a.ExecutionContextError};callOptions:=map[string]Value{};for key,value:=range options{callOptions[key]=value};executionContext,err:=ResolveAxExecutionContext(callOptions,a.ExecutionContext);if err!=nil{return nil,err};if executionContext!=nil{callOptions["executionContext"]=executionContext;functions:=asSlice(coreGet(callOptions,"functions",Array()));functions=append(functions,executionContext.RuntimeModules()...);callOptions["functions"]=functions}
 	boundClient := bindAIClientContext(ctx, client)
 	// Wire the built-in llmQuery primitive: a focused sub-query the model can
@@ -3390,9 +3410,12 @@ func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[strin
 			return _agent_run_llm_query(a.LlmQuery, boundClient, params)
 		})
 	}
-	return safeValue(func() Value {
+	output, forwardErr := safeValue(func() Value {
 		return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, callOptions))
 	})
+	if forwardErr == nil { if config,ok:=coreGet(a.Options,"citations",nil).(map[string]Value);ok{if callback,ok:=coreGet(config,"onCitations",coreGet(config,"on_citations",nil)).(func([]Value));ok{func(){defer func(){_ = recover()}();callback(append([]Value{},asSlice(coreGet(a.State,"last_citations",Array()))...))}()}} }
+	if forwardErr == nil { a.learnPlaybookFailures(ctx, output) }
+	return output, forwardErr
 }
 func (a *AxAgent) get(k string, fallback Value) Value {
 	switch k {
@@ -3463,32 +3486,27 @@ func (a *AxAgent) RestoreRuntimeState(snapshot Value) Value {
 }
 func (a *AxAgent) GetOptimizerMetadata() Value { return mustCore(_agent_optimizer_metadata(a.State)) }
 func (a *AxAgent) GetOptimizableComponents() Value {
-	components := Array()
+	childComponents := Array()
 	for _, item := range asSlice(a.Distiller.GetOptimizableComponents()) {
-		components = append(components, item)
+		childComponents = append(childComponents, item)
 	}
 	for _, item := range asSlice(a.Executor.GetOptimizableComponents()) {
-		components = append(components, item)
+		childComponents = append(childComponents, item)
 	}
 	for _, item := range asSlice(a.Responder.GetOptimizableComponents()) {
-		components = append(components, item)
+		childComponents = append(childComponents, item)
 	}
-	runtime := coreGet(a.State, "runtime_contract", Object("language", "javascript", "code_field", "javascriptCode"))
-	policy := coreGet(a.State, "policy", mustCore(_agent_policy_registry(Object())))
-	components = append(components, mustCore(_optimization_component("root.agent.runtime", "root.agent", "runtime-policy", runtime, "Agent runtime-language metadata and code-field policy.", Array("Keep code field names aligned with the selected runtime language."), Array(), true, "json", Object("component", "runtime_contract"))))
-	components = append(components, mustCore(_optimization_component("root.agent.policy", "root.agent", "agent-policy", policy, "Actor primitive, discovery, delegation, and prompt placement policy.", Array("Do not expose protocol-only actions as actor primitives."), Array("root.agent.runtime"), true, "json", Object("component", "policy_registry"))))
-	return components
+	return mustCore(_agent_get_optimizable_components(a.State, childComponents))
 }
 func (a *AxAgent) ApplyOptimizedComponents(m map[string]Value) {
+	mustCore(_validate_optimization_component_map(a.GetOptimizableComponents(), m))
 	a.Distiller.ApplyOptimizedComponents(m)
 	a.Executor.ApplyOptimizedComponents(m)
 	a.Responder.ApplyOptimizedComponents(m)
-	if value := coreGet(m, "root.agent.runtime", nil); value != nil {
-		coreSet(a.State, "runtime_contract", value)
-	}
-	if value := coreGet(m, "root.agent.policy", nil); value != nil {
-		coreSet(a.State, "policy", value)
-	}
+	composed := mustCore(_agent_apply_optimized_components(a.State, m))
+	a.Options = asMap(coreGet(a.State, "options", a.Options))
+	a.Executor.Instruction = display(composed)
+	coreSet(a.Executor.Options, "instruction", a.Executor.Instruction)
 }
 func (a *AxAgent) ApplyOptimization(artifact Value) {
 	components := a.GetOptimizableComponents()
@@ -3599,6 +3617,10 @@ func (a *AxAgent) Playbook(options map[string]Value) *AxPlaybook {
 	if options == nil {
 		options = Object()
 	}
+	if a.PlaybookHandle != nil {
+		if len(options) > 0 { panic(AxError{Category: "optimize", Message: "AxAgent.Playbook(): this agent already has a playbook; call Playbook(nil) to use it."}) }
+		return a.PlaybookHandle
+	}
 	target := display(coreGet(options, "target", "actor"))
 	student := playbookOption(options, "studentAI", "student_ai", "student", "client", "ai")
 	if student == nil {
@@ -3616,13 +3638,54 @@ func (a *AxAgent) Playbook(options map[string]Value) *AxPlaybook {
 	handle := Playbook(stage, handleOptions)
 	if coreGet(options, "apply", nil) == false {
 		handle.SetApplyHook(func(string) {})
-		return handle
+	} else {
+		base := stage.Instruction
+		handle.SetApplyHook(func(rendered string) {
+			stage.Instruction = playbookComposeInstruction(base, rendered)
+			coreSet(stage.Options, "instruction", stage.Instruction)
+		})
 	}
-	base := stage.Signature.Description
-	handle.SetApplyHook(func(rendered string) {
-		stage.Signature.Description = playbookComposeInstruction(base, rendered)
-	})
-	return handle
+	handle.agent = a
+	a.PlaybookHandle = handle
+	return a.PlaybookHandle
+}
+
+func (a *AxAgent) GetPlaybook() *AxPlaybook { return a.PlaybookHandle }
+
+func (a *AxAgent) ensureConfiguredPlaybook(client AIClient) {
+	if a.PlaybookHandle != nil || a.PlaybookConfig == nil || a.PlaybookConfig == false { return }
+	config := asMap(a.PlaybookConfig)
+	if config == nil { config = Object() }
+	seed := coreGet(config,"seed",nil)
+	if seed == nil && (coreGet(config,"playbook",nil) != nil || coreGet(config,"artifact",nil) != nil) { seed = config }
+	options := cloneMap(config)
+	if coreGet(options,"maxReflectorRounds",nil)==nil && coreGet(options,"max_reflector_rounds",nil)==nil { options["maxReflectorRounds"] = 1 }
+	if playbookOption(options,"studentAI","student_ai","student","client","ai") == nil { options["studentAI"] = client }
+	handle := a.Playbook(options)
+	if seedMap, ok := seed.(map[string]Value); ok {
+		if coreGet(seedMap,"playbook",nil) != nil { handle.Load(seedMap) } else { handle.Load(Object("playbook",seedMap)) }
+	}
+}
+
+func (a *AxAgent) learnPlaybookFailures(ctx context.Context, output Value) {
+	if a.PlaybookHandle == nil || a.PlaybookConfig == nil { return }
+	config := asMap(a.PlaybookConfig); if config == nil { config = Object() }
+	learn := coreGet(config,"learn",true); if learn == false { return }
+	defer func(){ _ = recover() }()
+	signals := append([]Value{}, asSlice(coreGet(a.State,"failure_signals",Array()))...)
+	learnConfig:=asMap(learn);if learnConfig==nil{learnConfig=Object()}
+	minSignals:=int(num(coreGet(learnConfig,"minSignals",coreGet(learnConfig,"min_signals",1))));if len(signals)<minSignals{return}
+	covered:=map[string]bool{}
+	for _,signature:=range asSlice(mustCore(_agent_collect_covered_failure_signatures(a.PlaybookHandle.GetState()))){covered[display(signature)]=true}
+	if coreGet(learnConfig,"dedupe",true)!=false{fresh:=[]Value{};for _,signal:=range signals{if !covered[display(coreGet(signal,"signature",""))]{fresh=append(fresh,signal)}};signals=fresh}
+	if len(signals)==0{return}
+	if len(signals)>12 { signals=signals[:12] }
+	feedback:="Agent run failures to avoid:\n";signatures:=Array();for _,raw:=range signals{signal:=asMap(raw);signature:=coreGet(signal,"signature","");signatures=append(signatures,signature);feedback+=fmt.Sprintf("- [%s] %s: %s\n",display(coreGet(signal,"kind","error_turn")),display(signature),display(coreGet(signal,"detail","")))};feedback+="Curate ONE bounded avoidance rule into failures_to_avoid."
+	before:=stableStringify(coreGet(a.PlaybookHandle.GetState(),"playbook",Object()))
+	result,err := a.PlaybookHandle.Update(ctx,Object("example",Object("task",coreGet(a.Options,"instruction","agent run"),"failureSignatures",signatures),"prediction",output,"feedback",feedback));if err!=nil{return}
+	snapshot:=a.PlaybookHandle.GetState();status:="updated";if stableStringify(coreGet(snapshot,"playbook",Object()))==before{status="unchanged"}
+	update:=Object("status",status,"signals",Array(signals...),"feedback",feedback,"snapshot",snapshot,"result",result)
+	switch callback:=coreGet(config,"onUpdate",coreGet(config,"on_update",nil)).(type){case func(Value):callback(update);case func(map[string]Value):callback(update)}
 }
 
 type axAgentOptimizerEvaluator struct {
@@ -4435,6 +4498,9 @@ func (a *AxACE) runReflectionRounds(example map[string]Value, generatorOutput ma
 		if reflection == nil || len(asMap(reflection)) == 0 {
 			break
 		}
+		normalizedReflection := asMap(reflection)
+		normalizedReflection["bulletTags"] = mustCore(_ace_normalize_reflection_bullet_tags(reflection))
+		reflection = normalizedReflection
 		previous = reflection
 		errorText := strings.TrimSpace(strings.ToLower(display(coreGet(reflection, "errorIdentification", ""))))
 		resolved := false
@@ -4545,7 +4611,7 @@ func (a *AxACE) processExample(example map[string]Value, score Value, source str
 		}
 	}
 	if reflection != nil {
-		for _, tagRaw := range asSlice(coreGet(reflection, "bulletTags", Array())) {
+		for _, tagRaw := range asSlice(mustCore(_ace_normalize_reflection_bullet_tags(reflection))) {
 			tag := asMap(tagRaw)
 			a.playbook = mustCore(_ace_update_bullet_feedback(a.playbook, coreGet(tag, "id", nil), coreGet(tag, "tag", nil), a.now))
 		}
@@ -4573,6 +4639,7 @@ func (a *AxACE) processExample(example map[string]Value, score Value, source str
 			"epoch", epoch,
 			"exampleIndex", index,
 			"operations", coreGet(curatorResult, "operations", Array()),
+			"updatedBulletIds", cloneValue(appliedIds),
 		))
 	}
 }
@@ -4656,7 +4723,7 @@ func (a *AxACE) ApplyOnlineUpdate(args map[string]Value) Value {
 		coreSet(curatorResult, "operations", resolved)
 	}
 	if reflection != nil {
-		for _, tagRaw := range asSlice(coreGet(reflection, "bulletTags", Array())) {
+		for _, tagRaw := range asSlice(mustCore(_ace_normalize_reflection_bullet_tags(reflection))) {
 			tag := asMap(tagRaw)
 			a.playbook = mustCore(_ace_update_bullet_feedback(a.playbook, coreGet(tag, "id", nil), coreGet(tag, "tag", nil), a.now))
 		}
@@ -4697,6 +4764,7 @@ func (a *AxACE) ApplyOnlineUpdate(args map[string]Value) Value {
 			"epoch", -1,
 			"exampleIndex", len(a.generatorHistory)-1,
 			"operations", coreGet(curatorResult, "operations", Array()),
+			"updatedBulletIds", cloneValue(appliedIds),
 		))
 	}
 	return curatorResult
@@ -4705,6 +4773,62 @@ func (a *AxACE) ApplyOnlineUpdate(args map[string]Value) Value {
 const aceReflectorSignature = "question:string \"Original task input serialized as JSON\", generator_answer:string \"Generator output serialized as JSON\", generator_reasoning?:string \"Generator reasoning trace\", playbook:string \"Current context playbook rendered as markdown\", expected_answer?:string \"Expected output when ground truth is available\", feedback?:string \"External feedback or reward signal\", previous_reflection?:string \"Most recent reflection JSON when running multi-round refinement\" -> reasoning:string \"Step-by-step analysis of generator performance\", errorIdentification:string \"Specific mistakes detected\", rootCauseAnalysis:string \"Underlying cause of the error\", correctApproach:string \"What the generator should do differently\", keyInsight:string \"Reusable insight to remember\", bulletTags:json \"Array of {id, tag} entries referencing playbook bullets\""
 
 const aceCuratorSignature = "playbook:string \"Current playbook serialized as JSON\", reflection:string \"Latest reflection output serialized as JSON\", question_context:string \"Original task input serialized as JSON\", token_budget?:number \"Approximate token budget for curator response\" -> reasoning:string \"Justification for the proposed updates\", operations:json \"List of operations with type/section/content fields\""
+
+const agentPlaybookWeaknessMinerSignature = "clusterSignature:string \"Shared error signature of the cluster\", taskSummaries:string \"One line per failing task\", actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", functionCallSummary?:string \"Digest of runtime/tool calls\", toolErrors?:string \"Tool errors observed\", currentPlaybook?:string \"Current failure-avoidance playbook\" -> weaknessDescription:string \"Recurring weakness\", rootCause:string \"Mechanical root cause\", proposedGuidance:string \"One concise imperative avoidance rule\", evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", configRecommendations?:json \"Setup suggestions no prompt text can fix\""
+
+var agentPlaybookErrorSignaturePattern = regexp.MustCompile(`(?m)^(\w+Error:\s*.{0,60})`)
+var agentPlaybookActionErrorPattern = regexp.MustCompile(`(?m)^\s*(\w+Error:\s*.{0,60})`)
+
+func playbookCollapse(value string) string {
+	return strings.TrimSpace(regexp.MustCompile(`\s+`).ReplaceAllString(value, " "))
+}
+
+func playbookErrorSignature(value string) string {
+	if match := agentPlaybookErrorSignaturePattern.FindStringSubmatch(value); len(match) > 1 { return match[1] }
+	if len(value) > 80 { return value[:80] }
+	return value
+}
+
+func playbookRecordSignature(record Value) string {
+	prediction := coreGet(record, "prediction", Object())
+	counts := map[string]int{}
+	order := []string{}
+	for _, signal := range asSlice(coreGet(prediction, "failureSignals", Array())) {
+		signature := display(coreGet(signal, "signature", "behavioral:no_error"))
+		if _, ok := counts[signature]; !ok { order = append(order, signature) }
+		counts[signature] += int(num(coreGet(signal, "occurrences", 1)))
+	}
+	bestSignature, bestCount := "", 0
+	for _, signature := range order {
+		if counts[signature] > bestCount { bestSignature, bestCount = signature, counts[signature] }
+	}
+	if bestSignature != "" { return bestSignature }
+	if toolErrors := asSlice(coreGet(prediction, "toolErrors", Array())); len(toolErrors) > 0 {
+		signature := strings.SplitN(display(toolErrors[0]), "\n", 2)[0]
+		if len(signature) > 100 { signature = signature[:100] }
+		return signature
+	}
+	if value := coreGet(record, "error", nil); value != nil { return playbookErrorSignature(display(value)) }
+	if match := agentPlaybookActionErrorPattern.FindStringSubmatch(display(coreGet(prediction, "actionLog", ""))); len(match) > 1 {
+		return playbookErrorSignature(match[1])
+	}
+	return "behavioral:no_error"
+}
+
+func playbookFailureExcerpt(record Value, signature string) string {
+	if value := coreGet(record, "error", nil); value != nil { return "Run threw: " + display(value) }
+	actionLog := display(coreGet(coreGet(record, "prediction", Object()), "actionLog", ""))
+	if len(actionLog) <= 2000 { return actionLog }
+	needle := signature
+	if len(needle) > 40 { needle = needle[:40] }
+	hit := strings.Index(actionLog, needle)
+	if hit < 0 { return actionLog[len(actionLog)-2000:] }
+	start := hit - 1000
+	if start < 0 { start = 0 }
+	end := start + 2000
+	if end > len(actionLog) { end = len(actionLog) }
+	return actionLog[start:end]
+}
 
 func playbookComposeInstruction(base string, rendered string) string {
 	parts := []string{}
@@ -4745,6 +4869,7 @@ type AxPlaybook struct {
 	reflectorProgram *AxGen
 	curatorProgram   *AxGen
 	applyHook        func(string)
+	agent            *AxAgent
 }
 
 func playbookOption(options map[string]Value, keys ...string) Value {
@@ -4922,6 +5047,220 @@ func (p *AxPlaybook) Evolve(ctx context.Context, examples []Value, metricFn func
 		p.inject()
 		return Object("bestScore", coreGet(result, "bestScore", 0), "playbook", coreGet(result, "playbook", nil))
 	})
+}
+
+// EvolveAgent learns one grounded playbook bullet per deterministic failure
+// cluster and, by default, keeps it only when train improves and validation
+// does not regress. It is available on handles returned by AxAgent.Playbook.
+func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map[string]Value) (Value, error) {
+	if p.agent == nil {
+		return nil, AxError{Category: "optimize", Message: "AxAgent.Playbook().EvolveAgent() requires an agent-bound playbook"}
+	}
+	if ctx == nil { ctx = context.Background() }
+	if options == nil { options = Object() }
+	normalized := asMap(mustCore(_normalize_optimization_dataset(dataset)))
+	train := asSlice(coreGet(normalized, "train", Array()))
+	validation := asSlice(coreGet(normalized, "validation", Array()))
+	if len(train) == 0 {
+		return nil, AxError{Category: "optimize", Message: "AxAgent.Playbook().EvolveAgent(): at least one training task is required."}
+	}
+	threshold := num(coreGet(options, "scoreThreshold", coreGet(options, "score_threshold", 0.7)))
+	minGain := num(coreGet(options, "minHeldInGain", coreGet(options, "min_held_in_gain", 0.05)))
+	epsilon := num(coreGet(options, "epsilon", 0.01))
+	maxProposals := int(num(coreGet(options, "maxProposals", coreGet(options, "max_proposals", 4))))
+	if maxProposals < 1 { maxProposals = 1 }
+	verify := coreGet(options, "verify", true) != false
+	runsPerTask := int(num(coreGet(options, "runsPerTask", coreGet(options, "runs_per_task", 1))))
+	if runsPerTask < 1 { runsPerTask = 1 }
+	datasetSize := (len(train) + len(validation)) * runsPerTask
+	defaultBudget := (maxProposals + 1) * datasetSize
+	if defaultBudget < 100 { defaultBudget = 100 }
+	maxMetricCalls := int(num(coreGet(options, "maxMetricCalls", coreGet(options, "max_metric_calls", defaultBudget))))
+	if maxMetricCalls < 1 { maxMetricCalls = 1 }
+	remaining := maxMetricCalls
+	teacherAI := playbookClient(playbookOption(options, "teacherAI", "teacher_ai", "teacher"))
+	if teacherAI == nil { teacherAI = p.teacherAI }
+	type batch struct { records []Value; mean float64; exhausted bool }
+	runBatch := func(tasks []Value) batch {
+		records := []Value{}
+		weightedSum, weightSum := 0.0, 0.0
+		exhausted := false
+		for taskIndex, raw := range tasks {
+			task, ok := raw.(map[string]Value)
+			if !ok { task = Object("input", raw) }
+			var prediction Value
+			lastError := ""
+			scoreSum, completedRuns := 0.0, 0
+			for run := 0; run < runsPerTask; run++ {
+				if remaining <= 0 { exhausted = true; break }
+				remaining--
+				candidate, evalErr := safeValue(func() Value { return p.agent.EvaluateOptimizationTask(p.studentAI, task, options) })
+				var score float64
+				if evalErr != nil {
+					score = 0
+					lastError = evalErr.Error()
+				} else {
+					prediction = candidate
+					switch metric := coreGet(options, "metric", nil).(type) {
+					case func(map[string]Value) Value:
+						score = num(metric(Object("example", task, "task", task, "prediction", prediction)))
+					case func(Value) Value:
+						score = num(metric(Object("example", task, "task", task, "prediction", prediction)))
+					default:
+						_, scalar := scoreOptimizationPrediction(task, prediction, options)
+						score = num(scalar)
+					}
+				}
+				if math.IsNaN(score) || math.IsInf(score, 0) { score = 0 }
+				scoreSum += score
+				completedRuns++
+			}
+			if completedRuns == 0 { break }
+			score := scoreSum / float64(completedRuns)
+			weight := num(coreGet(task, "weight", 1))
+			weightedSum += weight * score
+			weightSum += weight
+			record := Object(
+				"task", task,
+				"index", taskIndex,
+				"score", score,
+				"passed", score >= threshold && display(coreGet(prediction, "completionType", "")) == "final",
+			)
+			if prediction != nil { coreSet(record, "prediction", prediction) } else if lastError != "" { coreSet(record, "error", lastError) }
+			records = append(records, record)
+			if completedRuns < runsPerTask { break }
+		}
+		if len(records) < len(tasks) { exhausted = true }
+		mean := 0.0
+		if weightSum > 0 { mean = weightedSum / weightSum }
+		return batch{records: records, mean: mean, exhausted: exhausted}
+	}
+	baselineBatch := runBatch(train)
+	baselineIn, heldIn := baselineBatch.mean, baselineBatch.mean
+	heldOut := math.NaN()
+	if len(validation) > 0 { heldOut = runBatch(validation).mean }
+	baselineOut := heldOut
+	clusters := map[string][]Value{}
+	order := []string{}
+	for _, record := range baselineBatch.records {
+		prediction := coreGet(record, "prediction", Object())
+		score := num(coreGet(record, "score", 0))
+		completion := display(coreGet(prediction, "completionType", ""))
+		if coreGet(record, "error", nil) == nil && score >= threshold && completion != "askClarification" { continue }
+		signature := playbookRecordSignature(record)
+		if _, ok := clusters[signature]; !ok { order = append(order, signature) }
+		clusters[signature] = append(clusters[signature], record)
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		severity := func(records []Value) float64 { total := 0.0; for _, record := range records { total += 1 - num(coreGet(record, "score", 0)) }; return total }
+		return severity(clusters[order[i]]) > severity(clusters[order[j]])
+	})
+	if len(order) > maxProposals { order = order[:maxProposals] }
+	initial := asMap(cloneValue(p.GetState()))
+	outcomes, weaknesses := Array(), Array()
+	for index, signature := range order {
+		records := clusters[signature]
+		selected := records
+		if len(selected) > 4 { selected = selected[:4] }
+		bodies := []string{}
+		excerptParts, taskParts := []string{}, []string{}
+		functionCalls, toolErrors := []string{}, []string{}
+		for recordIndex, record := range selected {
+			body := playbookFailureExcerpt(record, signature)
+			bodies = append(bodies, body)
+			excerptParts = append(excerptParts, fmt.Sprintf("--- run %d ---\n%s", recordIndex+1, body))
+			task := coreGet(record, "task", Object())
+			label := display(coreGet(task, "id", fmt.Sprintf("#%d", recordIndex+1)))
+			input := stableStringify(coreGet(task, "input", nil))
+			if len(input) > 240 { input = input[:240] }
+			taskParts = append(taskParts, fmt.Sprintf("- %s (score %.2f): %s", label, num(coreGet(record, "score", 0)), input))
+			prediction := coreGet(record, "prediction", Object())
+			for _, call := range asSlice(coreGet(prediction, "functionCalls", Array())) { if len(functionCalls) < 20 { functionCalls = append(functionCalls, stableStringify(call)) } }
+			for _, toolError := range asSlice(coreGet(prediction, "toolErrors", Array())) { if len(toolErrors) < 10 { toolErrors = append(toolErrors, display(toolError)) } }
+		}
+		hasBody := false
+		for _, body := range bodies { if playbookCollapse(body) != "" { hasBody = true; break } }
+		if !hasBody { continue }
+		excerpts := strings.Join(excerptParts, "\n\n")
+		request := Object("clusterSignature", signature, "taskSummaries", strings.Join(taskParts, "\n"), "actionLogExcerpts", excerpts)
+		if len(functionCalls) > 0 { coreSet(request, "functionCallSummary", strings.Join(functionCalls, "\n")) }
+		if len(toolErrors) > 0 { coreSet(request, "toolErrors", strings.Join(toolErrors, "\n")) }
+		if rendered := p.Render(); strings.TrimSpace(rendered) != "" { coreSet(request, "currentPlaybook", rendered) }
+		miner := NewAx(agentPlaybookWeaknessMinerSignature, Object("id", "agent.playbook.weakness-miner", "instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."))
+		mined, minerErr := miner.Forward(ctx, teacherAI, request, nil)
+		if minerErr != nil { continue }
+		rawQuotes := coreGet(mined, "evidenceQuotes", nil)
+		quoteCandidates := []Value{}
+		if values, ok := rawQuotes.([]Value); ok { quoteCandidates = values } else if rawQuotes != nil { quoteCandidates = append(quoteCandidates, rawQuotes) }
+		evidence := Array()
+		haystack := playbookCollapse(excerpts)
+		for _, quote := range quoteCandidates {
+			text, needle := display(quote), playbookCollapse(display(quote))
+			if needle != "" && strings.Contains(haystack, needle) { evidence = append(evidence, text) }
+		}
+		if len(evidence) == 0 { continue }
+		taskIDs := Array()
+		for recordIndex, record := range records { taskIDs = append(taskIDs, coreGet(coreGet(record, "task", Object()), "id", fmt.Sprintf("task-%d", int(num(coreGet(record, "index", recordIndex)))))) }
+		rawRecommendations := coreGet(mined, "configRecommendations", nil)
+		recommendations := Array()
+		if values, ok := rawRecommendations.([]Value); ok { for _, value := range values { recommendations = append(recommendations, display(value)) } } else if rawRecommendations != nil { recommendations = append(recommendations, display(rawRecommendations)) }
+		weakness := Object(
+			"id", fmt.Sprintf("weakness-%d", index+1),
+			"clusterSignature", signature,
+			"description", display(coreGet(mined, "weaknessDescription", "")),
+			"rootCause", display(coreGet(mined, "rootCause", "")),
+			"proposedGuidance", display(coreGet(mined, "proposedGuidance", "")),
+			"evidenceQuotes", evidence,
+			"taskIds", taskIDs,
+			"configRecommendations", recommendations,
+		)
+		weaknesses = append(weaknesses, weakness)
+		proposal := Object("weaknessId", coreGet(weakness, "id", ""), "clusterSignature", signature, "feedback", "")
+		requiredCalls := (len(train) + len(validation)) * runsPerTask
+		if verify && remaining < requiredCalls {
+			outcomes = append(outcomes, Object("proposal", proposal, "accepted", false, "reason", "metric_budget exhausted before validation", "heldIn", Object("before", heldIn, "after", heldIn)))
+			continue
+		}
+		before := asMap(cloneValue(p.GetState()))
+		quotes := []string{}
+		for quoteIndex, quote := range evidence { if quoteIndex >= 3 { break }; quotes = append(quotes, "- "+display(quote)) }
+		feedback := fmt.Sprintf("A recurring agent weakness was diagnosed from real failed runs.\n\nWeakness: %s\nRoot cause: %s\nError signature: [%s]\nGrounding excerpts:\n%s\n\nCurate ONE durable rule into the playbook (suggested section: \"failures_to_avoid\"): %s\nUPDATE an existing bullet if one already covers this failure mode.", coreGet(weakness, "description", ""), coreGet(weakness, "rootCause", ""), signature, strings.Join(quotes, "\n"), coreGet(weakness, "proposedGuidance", ""))
+		coreSet(proposal, "feedback", feedback)
+		if _, err := p.Update(ctx, Object("example", Object("task", "playbook.evolve(): repair a diagnosed agent weakness", "failureSignatures", Array(signature)), "prediction", Object(), "feedback", feedback)); err != nil {
+			outcomes = append(outcomes, Object("proposal", proposal, "accepted", false, "reason", "apply failed: "+err.Error(), "heldIn", Object("before", heldIn, "after", heldIn)))
+			continue
+		}
+		accepted, complete := true, true
+		nextIn, nextOut := heldIn, heldOut
+		if verify {
+			trainBatch := runBatch(train)
+			nextIn = trainBatch.mean
+			complete = !trainBatch.exhausted
+			if len(validation) > 0 { validationBatch := runBatch(validation); nextOut = validationBatch.mean; complete = complete && !validationBatch.exhausted }
+			accepted = complete && nextIn-heldIn >= minGain && (math.IsNaN(nextOut) || math.IsNaN(heldOut) || nextOut-heldOut >= -epsilon)
+		}
+		reason := "applied without verification (verify: false)"
+		if verify {
+			switch { case !complete: reason = "metric_budget exhausted during re-evaluation"; case accepted && math.IsNaN(heldOut): reason = "held-in improved (no held-out set provided — consider one)"; case accepted: reason = "held-in improved, held-out non-regressing"; case nextIn-heldIn < minGain: reason = fmt.Sprintf("held-in gain %.3f below %.3f", nextIn-heldIn, minGain); default: reason = fmt.Sprintf("held-out regressed %.3f", nextOut-heldOut) }
+		}
+		outcome := Object("proposal", proposal, "accepted", accepted, "reason", reason, "heldIn", Object("before", heldIn, "after", nextIn))
+		if !math.IsNaN(nextOut) && !math.IsNaN(heldOut) { coreSet(outcome, "heldOut", Object("before", heldOut, "after", nextOut)) }
+		outcomes = append(outcomes, outcome)
+		if accepted { heldIn, heldOut = nextIn, nextOut } else { p.Load(before) }
+	}
+	acceptedAny := false
+	for _, outcome := range outcomes { if coreTruthy(coreGet(outcome, "accepted", false)) { acceptedAny = true } }
+	var learned Value
+	if acceptedAny { learned = cloneValue(p.GetState()) }
+	if coreGet(options, "apply", true) == false && learned != nil { p.Load(initial) }
+	baselineResult, finalResult := Object("heldIn", baselineIn), Object("heldIn", heldIn)
+	if !math.IsNaN(baselineOut) { coreSet(baselineResult, "heldOut", baselineOut) }
+	if !math.IsNaN(heldOut) { coreSet(finalResult, "heldOut", heldOut) }
+	allRecommendations := Array()
+	for _, weakness := range weaknesses { for _, recommendation := range asSlice(coreGet(weakness, "configRecommendations", Array())) { allRecommendations = append(allRecommendations, display(recommendation)) } }
+	result := Object("baseline", baselineResult, "final", finalResult, "weaknesses", weaknesses, "outcomes", outcomes, "recommendations", allRecommendations, "metricCallsUsed", maxMetricCalls-remaining, "records", baselineBatch.records)
+	if learned != nil { result["playbookSnapshot"] = learned }
+	return result, nil
 }
 
 // Update refines the playbook online from a single live interaction. Safe to call
@@ -6137,6 +6476,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceEvent(fixture)
 	case "agent_forward":
 		runConformanceAgentForward(fixture)
+	case "agent_playbook_coverage":
+		runConformanceAgentPlaybookCoverage(fixture)
 	case "agent_runtime_policy":
 		runConformanceAgentRuntimePolicy(fixture)
 	case "agent_runtime_adapter":
@@ -6913,11 +7254,31 @@ func runConformanceAIChat(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 			assertEqual(output, expected, "ai chat output")
 		}
-		if expected := coreGet(fixture, "expected_transport_request", nil); expected != nil && len(transport.Requests) > 0 {
-			assertSubset(transport.Requests[0], expected, "transport request")
+		assertTransportRequest(fixture, transport)
+	}
+}
+
+func assertTransportRequest(fixture map[string]Value, transport *ScriptedTransport) {
+	expected := coreGet(fixture, "expected_transport_request", nil)
+	expectedAbsent := coreIter(coreGet(fixture, "expected_transport_json_absent", Array()))
+	if expected == nil && len(expectedAbsent) == 0 {
+		return
+	}
+	if len(transport.Requests) == 0 {
+		panic(AxError{Category: "fixture", Message: "expected provider transport request but none were sent"})
+	}
+	if expected != nil {
+		assertSubset(transport.Requests[0], expected, "transport request")
+	}
+	requestJSON := asMap(coreGet(asMap(transport.Requests[0]), "json", Object()))
+	for _, rawKey := range expectedAbsent {
+		key := display(rawKey)
+		if _, ok := requestJSON[key]; ok {
+			panic(AxError{Category: "fixture", Message: "provider request json unexpectedly contained " + key})
 		}
 	}
 }
+
 func runConformanceAIEmbed(fixture map[string]Value) {
 	client, transport := conformanceAIClient(fixture)
 	output := expectMaybeFixtureError(func() Value {
@@ -6930,9 +7291,7 @@ func runConformanceAIEmbed(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 		assertEqual(output, expected, "ai embed output")
 	}
-	if expected := coreGet(fixture, "expected_transport_request", nil); expected != nil && len(transport.Requests) > 0 {
-		assertSubset(transport.Requests[0], expected, "transport request")
-	}
+	assertTransportRequest(fixture, transport)
 }
 func runConformanceAIStream(fixture map[string]Value) {
 	client, transport := conformanceAIClient(fixture)
@@ -6950,9 +7309,7 @@ func runConformanceAIStream(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 		assertEqual(output, expected, "ai stream output")
 	}
-	if expected := coreGet(fixture, "expected_transport_request", nil); expected != nil && len(transport.Requests) > 0 {
-		assertSubset(transport.Requests[0], expected, "transport request")
-	}
+	assertTransportRequest(fixture, transport)
 }
 func runConformanceProviderOperation(fixture map[string]Value, op string) {
 	if op == "transcribe" || op == "speak" {
@@ -6977,9 +7334,7 @@ func runConformanceProviderOperation(fixture map[string]Value, op string) {
 		if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 			assertEqual(output, expected, "ai "+op+" output")
 		}
-		if expected := coreGet(fixture, "expected_transport_request", nil); expected != nil && len(transport.Requests) > 0 {
-			assertSubset(transport.Requests[0], expected, "transport request")
-		}
+		assertTransportRequest(fixture, transport)
 		return
 	}
 	output := expectMaybeFixtureError(func() Value {
@@ -8275,6 +8630,15 @@ func runConformanceAgentPrompt(fixture map[string]Value) {
 func runConformanceAgentForward(fixture map[string]Value) {
 	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	observerCalled := false
+	if coreTruthy(coreGet(fixture, "observer_throws", false)) {
+		citations := cloneMap(asMap(coreGet(options, "citations", Object())))
+		coreSet(citations, "onCitations", func([]Value) {
+			observerCalled = true
+			panic("citation observer failed")
+		})
+		coreSet(options, "citations", citations)
+	}
 	var runtime *conformanceScriptedCodeRuntime
 	if script := coreGet(fixture, "runtime_script", nil); script != nil {
 		runtimeConfig := asMap(coreGet(options, "runtime", Object()))
@@ -8287,6 +8651,12 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	var output Value
 	_, err := safeValue(func() Value {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
+		if instruction := coreGet(fixture, "set_instruction", nil); instruction != nil {
+			ag.SetInstruction(display(instruction))
+		}
+		if addendum := coreGet(fixture, "add_actor_instruction", nil); addendum != nil {
+			ag.AddActorInstruction(display(addendum))
+		}
 		if state := coreGet(fixture, "set_state", nil); state != nil {
 			ag.SetState(state)
 		}
@@ -8318,6 +8688,9 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	}
 	if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 		assertEqual(output, expected, "agent output")
+	}
+	if coreTruthy(coreGet(fixture, "observer_throws", false)) && !observerCalled {
+		panic(AxError{Category: "fixture", Message: "citation observer was not called"})
 	}
 	if expected := coreGet(fixture, "expected_request_count", nil); expected != nil && len(client.Requests) != int(num(expected)) {
 		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d requests, got %d", int(num(expected)), len(client.Requests))})
@@ -8426,6 +8799,14 @@ func assertAgentTrace(ag *AxAgent, fixture map[string]Value) {
 		} else {
 			assertSubset(replayed, Object("ok", true, "status", "replayed"), "agent replay")
 		}
+	}
+}
+
+func runConformanceAgentPlaybookCoverage(fixture map[string]Value) {
+	for _, rawCase := range asSlice(coreGet(fixture, "cases", Array())) {
+		testCase := asMap(rawCase)
+		actual := mustCore(_agent_collect_covered_failure_signatures(coreGet(testCase, "snapshot", Object())))
+		assertEqual(actual, coreGet(testCase, "expected_covered", Array()), "playbook coverage "+display(coreGet(testCase, "name", "case")))
 	}
 }
 

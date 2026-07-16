@@ -3696,6 +3696,7 @@ Value AxACE::run_reflection_rounds(const Value& example, const Value& generator_
   for (int round = 0; round < rounds; round++) {
     Value reflection = run_reflector(example, generator_output, feedback, previous);
     if (reflection.is_null() || (reflection.is_object() && Core::iter(Core::map_keys(reflection)).empty())) break;
+    Core::set(reflection, "bulletTags", Core::_ace_normalize_reflection_bullet_tags(reflection));
     previous = reflection;
     std::string error_text = display(Core::string_lower(Core::get(reflection, "errorIdentification", Value(""))));
     size_t start = error_text.find_first_not_of(" \t\n\r");
@@ -3753,7 +3754,7 @@ std::vector<Value> AxACE::apply_operations(std::vector<Value>& resolved, Value& 
 }
 
 void AxACE::apply_bullet_tags(const Value& reflection) {
-  for (const auto& tag : Core::iter(Core::get(reflection, "bulletTags", Value::array()))) {
+  for (const auto& tag : Core::iter(Core::_ace_normalize_reflection_bullet_tags(reflection))) {
     playbook_ = Core::_ace_update_bullet_feedback(playbook_, Core::get(tag, "id"), Core::get(tag, "tag"), Value(now_));
   }
 }
@@ -3812,6 +3813,7 @@ Value AxACE::compile(const std::vector<Value>& examples, const AceCallable& metr
         Core::set(delta, "epoch", Value(epoch));
         Core::set(delta, "exampleIndex", Value(static_cast<int>(index)));
         Core::set(delta, "operations", Core::get(curator_result, "operations"));
+        Core::set(delta, "updatedBulletIds", Value(applied_ids));
         delta_history_.push_back(delta);
       }
     }
@@ -3864,6 +3866,7 @@ Value AxACE::apply_online_update(Value args) {
     Core::set(delta, "epoch", Value(-1));
     Core::set(delta, "exampleIndex", Value(static_cast<int>(generator_history_.size()) - 1));
     Core::set(delta, "operations", Core::get(curator_result, "operations"));
+    Core::set(delta, "updatedBulletIds", Value(applied_ids));
     delta_history_.push_back(delta);
   }
   return curator_result;
@@ -3891,6 +3894,19 @@ static const char* kAceCuratorSignature =
     "token_budget?:number \"Approximate token budget for curator response\" "
     "-> reasoning:string \"Justification for the proposed updates\", "
     "operations:json \"List of operations with type/section/content fields\"";
+
+static const char* kAgentPlaybookWeaknessMinerSignature =
+    "clusterSignature:string \"Shared error signature of the cluster\", "
+    "taskSummaries:string \"One line per failing task\", "
+    "actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", "
+    "functionCallSummary?:string \"Digest of runtime/tool calls\", "
+    "toolErrors?:string \"Tool errors observed\", "
+    "currentPlaybook?:string \"Current failure-avoidance playbook\" "
+    "-> weaknessDescription:string \"Recurring weakness\", "
+    "rootCause:string \"Mechanical root cause\", "
+    "proposedGuidance:string \"One concise imperative avoidance rule\", "
+    "evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", "
+    "configRecommendations?:json \"Setup suggestions no prompt text can fix\"";
 
 static std::string playbook_compose_instruction(const std::string& base, const std::string& rendered) {
   std::vector<std::string> parts;
@@ -3928,6 +3944,71 @@ static Value playbook_option(const Value& options, std::initializer_list<const c
     if (!value.is_null()) return value;
   }
   return Value();
+}
+
+static std::string playbook_collapse(const std::string& value) {
+  std::string collapsed = std::regex_replace(value, std::regex("\\s+"), " ");
+  size_t start = collapsed.find_first_not_of(' ');
+  if (start == std::string::npos) return std::string();
+  size_t end = collapsed.find_last_not_of(' ');
+  return collapsed.substr(start, end - start + 1);
+}
+
+static std::string playbook_error_signature(const std::string& value) {
+  std::smatch match;
+  if (std::regex_search(value, match, std::regex("^(\\w+Error:\\s*.{0,60})", std::regex_constants::multiline))) {
+    return match[1].str();
+  }
+  return value.substr(0, std::min<size_t>(80, value.size()));
+}
+
+static std::string playbook_record_signature(const Value& record) {
+  Value prediction = Core::get(record, "prediction", Value::object());
+  std::vector<std::pair<std::string, int>> counts;
+  for (const auto& signal : Core::iter(Core::get(prediction, "failureSignals", Value::array()))) {
+    std::string signature = display(Core::get(signal, "signature", Value("behavioral:no_error")));
+    auto found = std::find_if(counts.begin(), counts.end(), [&](const auto& item) { return item.first == signature; });
+    int occurrences = static_cast<int>(num(Core::get(signal, "occurrences", Value(1))));
+    if (found == counts.end()) counts.push_back({signature, occurrences});
+    else found->second += occurrences;
+  }
+  std::string best;
+  int best_count = 0;
+  for (const auto& entry : counts) {
+    if (entry.second > best_count) {
+      best = entry.first;
+      best_count = entry.second;
+    }
+  }
+  if (!best.empty()) return best;
+  auto tool_errors = Core::iter(Core::get(prediction, "toolErrors", Value::array()));
+  if (!tool_errors.empty()) {
+    std::string line = display(tool_errors.front());
+    size_t newline = line.find('\n');
+    if (newline != std::string::npos) line.resize(newline);
+    if (line.size() > 100) line.resize(100);
+    return line;
+  }
+  Value error = Core::get(record, "error");
+  if (!error.is_null()) return playbook_error_signature(display(error));
+  std::string action_log = display(Core::get(prediction, "actionLog", Value("")));
+  std::smatch match;
+  if (std::regex_search(action_log, match, std::regex("^\\s*(\\w+Error:\\s*.{0,60})", std::regex_constants::multiline))) {
+    return playbook_error_signature(match[1].str());
+  }
+  return "behavioral:no_error";
+}
+
+static std::string playbook_failure_excerpt(const Value& record, const std::string& signature) {
+  Value error = Core::get(record, "error");
+  if (!error.is_null()) return "Run threw: " + display(error);
+  std::string action_log = display(Core::get(Core::get(record, "prediction", Value::object()), "actionLog", Value("")));
+  if (action_log.size() <= 2000) return action_log;
+  std::string needle = signature.substr(0, std::min<size_t>(40, signature.size()));
+  size_t hit = action_log.find(needle);
+  if (hit == std::string::npos) return action_log.substr(action_log.size() - 2000);
+  size_t start = hit > 1000 ? hit - 1000 : 0;
+  return action_log.substr(start, std::min<size_t>(2000, action_log.size() - start));
 }
 
 AxPlaybook::AxPlaybook(AxGen& program, AIClient& student, AIClient* teacher, Value options)
@@ -4086,6 +4167,252 @@ void AxPlaybook::reset() {
 }
 
 void AxPlaybook::set_apply_hook(std::function<void(const std::string&)> hook) { apply_hook_ = std::move(hook); }
+
+AxPlaybook& AxPlaybook::bind_agent(AxAgent& agent) {
+  agent_ = &agent;
+  return *this;
+}
+
+Value AxPlaybook::evolve(Value dataset, Value options) {
+  if (agent_ == nullptr) throw AxError("validation", "AxAgent.playbook().evolve() requires an agent-bound playbook");
+  if (!options.is_object()) options = Value::object();
+  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
+  std::vector<Value> train = Core::iter(Core::get(normalized, "train", Value::array()));
+  std::vector<Value> validation = Core::iter(Core::get(normalized, "validation", Value::array()));
+  if (train.empty()) throw AxError("validation", "AxAgent.playbook().evolve(): at least one training task is required.");
+  double threshold = num(Core::get(options, "scoreThreshold", Core::get(options, "score_threshold", Value(0.7))));
+  double min_gain = num(Core::get(options, "minHeldInGain", Core::get(options, "min_held_in_gain", Value(0.05))));
+  double epsilon = num(Core::get(options, "epsilon", Value(0.01)));
+  size_t max_proposals = static_cast<size_t>(std::max(1.0, num(Core::get(options, "maxProposals", Core::get(options, "max_proposals", Value(4))))));
+  bool verify = !Core::truthy(Core::eq(Core::get(options, "verify", Value(true)), Value(false)));
+  int runs_per_task = std::max(1, static_cast<int>(num(Core::get(options, "runsPerTask", Core::get(options, "runs_per_task", Value(1))))));
+  int dataset_size = static_cast<int>(train.size() + validation.size()) * runs_per_task;
+  int max_metric_calls = std::max(1, static_cast<int>(num(Core::get(options, "maxMetricCalls", Core::get(options, "max_metric_calls", Value(std::max(100, (static_cast<int>(max_proposals) + 1) * dataset_size)))))));
+  int remaining = max_metric_calls;
+  auto run_batch = [&](const std::vector<Value>& tasks) {
+    Array records;
+    double weighted_sum = 0;
+    double weight_sum = 0;
+    bool exhausted = false;
+    for (size_t task_index = 0; task_index < tasks.size(); ++task_index) {
+      const auto& raw_task = tasks[task_index];
+      Value task = raw_task.is_object() ? raw_task : object({{"input", raw_task}});
+      Value prediction;
+      std::string last_error;
+      double score_sum = 0;
+      int completed_runs = 0;
+      for (int run = 0; run < runs_per_task; ++run) {
+        if (remaining <= 0) { exhausted = true; break; }
+        --remaining;
+        double score = 0;
+        try {
+          prediction = agent_->evaluate_optimization_task(*student_, task, options);
+          Value default_score = Core::truthy(Core::eq(Core::get(prediction, "completionType", Value("")), Value("error"))) ? Value(0) : Value(1);
+          Value raw_score = Core::get(task, "metric_score", Core::get(task, "scores", Core::get(task, "score", default_score)));
+          score = num(Core::_scalarize_optimization_scores(Core::_normalize_optimization_metric_scores(raw_score), options));
+          if (!std::isfinite(score)) score = 0;
+        } catch (const std::exception& error) {
+          score = 0;
+          last_error = error.what();
+        }
+        score_sum += score;
+        ++completed_runs;
+      }
+      if (completed_runs == 0) break;
+      double score = score_sum / static_cast<double>(completed_runs);
+      double weight = num(Core::get(task, "weight", Value(1)));
+      weighted_sum += weight * score;
+      weight_sum += weight;
+      Value record = object({{"task", task}, {"index", Value(static_cast<double>(task_index))}, {"score", Value(score)}, {"passed", Value(score >= threshold && display(Core::get(prediction, "completionType", Value(""))) == "final")}});
+      if (!prediction.is_null()) Core::set(record, "prediction", prediction);
+      else if (!last_error.empty()) Core::set(record, "error", Value(last_error));
+      records.push_back(record);
+      if (completed_runs < runs_per_task) break;
+    }
+    if (records.size() < tasks.size()) exhausted = true;
+    return object({{"records", Value(records)}, {"mean", Value(weight_sum == 0 ? 0.0 : weighted_sum / weight_sum)}, {"exhausted", Value(exhausted)}});
+  };
+  Value baseline_batch = run_batch(train);
+  double baseline_held_in = num(Core::get(baseline_batch, "mean", Value(0)));
+  double held_in = baseline_held_in;
+  double held_out = validation.empty() ? std::numeric_limits<double>::quiet_NaN() : num(Core::get(run_batch(validation), "mean", Value(0)));
+  double baseline_held_out = held_out;
+  std::vector<std::pair<std::string, std::vector<Value>>> clusters;
+  for (const auto& record : Core::iter(Core::get(baseline_batch, "records", Value::array()))) {
+    Value prediction = Core::get(record, "prediction", Value::object());
+    double score = num(Core::get(record, "score", Value(0)));
+    std::string completion = display(Core::get(prediction, "completionType", Value("")));
+    if (Core::get(record, "error").is_null() && score >= threshold && completion != "askClarification") continue;
+    std::string signature = playbook_record_signature(record);
+    auto cluster = std::find_if(clusters.begin(), clusters.end(), [&](const auto& entry) { return entry.first == signature; });
+    if (cluster == clusters.end()) clusters.push_back({signature, {record}});
+    else cluster->second.push_back(record);
+  }
+  std::vector<std::pair<std::string, std::vector<Value>>> ranked = clusters;
+  std::stable_sort(ranked.begin(), ranked.end(), [](const auto& left, const auto& right) {
+    auto severity = [](const auto& records) { double out = 0; for (const auto& record : records) out += 1.0 - num(Core::get(record, "score", Value(0))); return out; };
+    return severity(left.second) > severity(right.second);
+  });
+  if (ranked.size() > max_proposals) ranked.resize(max_proposals);
+  Value initial = parse_json(stringify(get_state()));
+  Array outcomes;
+  Array weaknesses;
+  size_t index = 0;
+  for (const auto& cluster : ranked) {
+    ++index;
+    std::vector<Value> selected(cluster.second.begin(), cluster.second.begin() + std::min<size_t>(4, cluster.second.size()));
+    std::vector<std::string> bodies;
+    std::string excerpts;
+    std::string task_summaries;
+    std::vector<std::string> function_calls;
+    std::vector<std::string> tool_errors;
+    for (size_t record_index = 0; record_index < selected.size(); ++record_index) {
+      const Value& record = selected[record_index];
+      std::string body = playbook_failure_excerpt(record, cluster.first);
+      bodies.push_back(body);
+      if (!excerpts.empty()) excerpts += "\n\n";
+      excerpts += "--- run " + std::to_string(record_index + 1) + " ---\n" + body;
+      Value task = Core::get(record, "task", Value::object());
+      std::string label = Core::get(task, "id").is_null() ? "#" + std::to_string(record_index + 1) : display(Core::get(task, "id"));
+      std::string input = stringify(Core::get(task, "input"));
+      if (input.size() > 240) input.resize(240);
+      if (!task_summaries.empty()) task_summaries += "\n";
+      std::ostringstream score_text;
+      score_text << std::fixed << std::setprecision(2) << num(Core::get(record, "score", Value(0)));
+      task_summaries += "- " + label + " (score " + score_text.str() + "): " + input;
+      Value prediction = Core::get(record, "prediction", Value::object());
+      for (const auto& call : Core::iter(Core::get(prediction, "functionCalls", Value::array()))) {
+        if (function_calls.size() < 20) function_calls.push_back(stringify(call));
+      }
+      for (const auto& error : Core::iter(Core::get(prediction, "toolErrors", Value::array()))) {
+        if (tool_errors.size() < 10) tool_errors.push_back(display(error));
+      }
+    }
+    bool has_body = std::any_of(bodies.begin(), bodies.end(), [](const std::string& body) { return !playbook_collapse(body).empty(); });
+    if (!has_body) continue;
+    Value miner_request = object({
+        {"clusterSignature", Value(cluster.first)},
+        {"taskSummaries", Value(task_summaries)},
+        {"actionLogExcerpts", Value(excerpts)},
+    });
+    if (!function_calls.empty()) {
+      std::string joined;
+      for (const auto& call : function_calls) { if (!joined.empty()) joined += "\n"; joined += call; }
+      Core::set(miner_request, "functionCallSummary", Value(joined));
+    }
+    if (!tool_errors.empty()) {
+      std::string joined;
+      for (const auto& error : tool_errors) { if (!joined.empty()) joined += "\n"; joined += error; }
+      Core::set(miner_request, "toolErrors", Value(joined));
+    }
+    std::string current_playbook = render();
+    if (!playbook_collapse(current_playbook).empty()) Core::set(miner_request, "currentPlaybook", Value(current_playbook));
+    Value mined;
+    try {
+      AxGen miner(s(kAgentPlaybookWeaknessMinerSignature), object({
+          {"id", "agent.playbook.weakness-miner"},
+          {"instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."},
+      }));
+      mined = miner.forward(*teacher_, miner_request);
+    } catch (...) {
+      continue;
+    }
+    std::vector<Value> quote_candidates;
+    Value raw_quotes = Core::get(mined, "evidenceQuotes");
+    if (raw_quotes.is_array()) quote_candidates = Core::iter(raw_quotes);
+    else if (!raw_quotes.is_null()) quote_candidates.push_back(raw_quotes);
+    Array evidence;
+    std::string haystack = playbook_collapse(excerpts);
+    for (const auto& quote : quote_candidates) {
+      std::string text = display(quote);
+      std::string needle = playbook_collapse(text);
+      if (!needle.empty() && haystack.find(needle) != std::string::npos) evidence.push_back(Value(text));
+    }
+    if (evidence.empty()) continue;
+    Array task_ids;
+    for (size_t record_index = 0; record_index < cluster.second.size(); ++record_index) {
+      Value task = Core::get(cluster.second[record_index], "task", Value::object());
+      size_t task_index = static_cast<size_t>(num(Core::get(cluster.second[record_index], "index", Value(static_cast<double>(record_index)))));
+      task_ids.push_back(Core::get(task, "id").is_null() ? Value("task-" + std::to_string(task_index)) : Core::get(task, "id"));
+    }
+    Array recommendations;
+    Value raw_recommendations = Core::get(mined, "configRecommendations");
+    if (raw_recommendations.is_array()) recommendations = Core::iter(raw_recommendations);
+    else if (!raw_recommendations.is_null()) recommendations.push_back(Value(display(raw_recommendations)));
+    Value weakness = object({
+        {"id", Value("weakness-" + std::to_string(index))},
+        {"clusterSignature", Value(cluster.first)},
+        {"description", Value(display(Core::get(mined, "weaknessDescription", Value(""))))},
+        {"rootCause", Value(display(Core::get(mined, "rootCause", Value(""))))},
+        {"proposedGuidance", Value(display(Core::get(mined, "proposedGuidance", Value(""))))},
+        {"evidenceQuotes", Value(evidence)},
+        {"taskIds", Value(task_ids)},
+        {"configRecommendations", Value(recommendations)},
+    });
+    weaknesses.push_back(weakness);
+    Value proposal = object({{"weaknessId", Core::get(weakness, "id")}, {"clusterSignature", Value(cluster.first)}, {"feedback", Value("")}});
+    int required_calls = static_cast<int>(train.size() + validation.size()) * runs_per_task;
+    if (verify && remaining < required_calls) {
+      outcomes.push_back(object({{"proposal", proposal}, {"accepted", false}, {"reason", "metric_budget exhausted before validation"}, {"heldIn", object({{"before", held_in}, {"after", held_in}})}}));
+      continue;
+    }
+    Value before = parse_json(stringify(get_state()));
+    std::string quote_lines;
+    auto grounded_quotes = Core::iter(Core::get(weakness, "evidenceQuotes", Value::array()));
+    for (size_t quote_index = 0; quote_index < std::min<size_t>(3, grounded_quotes.size()); ++quote_index) {
+      if (!quote_lines.empty()) quote_lines += "\n";
+      quote_lines += "- " + display(grounded_quotes[quote_index]);
+    }
+    std::string feedback = "A recurring agent weakness was diagnosed from real failed runs.\n\n"
+        "Weakness: " + display(Core::get(weakness, "description", Value(""))) + "\n"
+        "Root cause: " + display(Core::get(weakness, "rootCause", Value(""))) + "\n"
+        "Error signature: [" + cluster.first + "]\nGrounding excerpts:\n" + quote_lines +
+        "\n\nCurate ONE durable rule into the playbook (suggested section: \"failures_to_avoid\"): " +
+        display(Core::get(weakness, "proposedGuidance", Value(""))) +
+        "\nUPDATE an existing bullet if one already covers this failure mode.";
+    Core::set(proposal, "feedback", feedback);
+    try {
+      update(object({{"example", object({{"task", Value("playbook.evolve(): repair a diagnosed agent weakness")}, {"failureSignatures", array({Value(cluster.first)})}})}, {"prediction", Value::object()}, {"feedback", Value(feedback)}}));
+    } catch (const std::exception& error) {
+      outcomes.push_back(object({{"proposal", proposal}, {"accepted", false}, {"reason", Value("apply failed: " + std::string(error.what()))}, {"heldIn", object({{"before", held_in}, {"after", held_in}})}}));
+      continue;
+    }
+    bool accepted = true;
+    double next_in = held_in;
+    double next_out = held_out;
+    bool reeval_complete = true;
+    if (verify) {
+      Value train_batch = run_batch(train);
+      next_in = num(Core::get(train_batch, "mean", Value(0)));
+      Value validation_batch = validation.empty() ? object({{"mean", Value(std::numeric_limits<double>::quiet_NaN())}, {"exhausted", false}}) : run_batch(validation);
+      next_out = num(Core::get(validation_batch, "mean", Value(0)));
+      reeval_complete = !Core::truthy(Core::get(train_batch, "exhausted", false)) && !Core::truthy(Core::get(validation_batch, "exhausted", false));
+      accepted = reeval_complete && next_in - held_in >= min_gain && (std::isnan(next_out) || std::isnan(held_out) || next_out - held_out >= -epsilon);
+    }
+    std::string reason = !reeval_complete ? "metric_budget exhausted during re-evaluation" : !verify ? "applied without verification (verify: false)" : accepted ? (std::isnan(held_out) ? "held-in improved (no held-out set provided — consider one)" : "held-in improved, held-out non-regressing") : next_in - held_in < min_gain ? "held-in gain below threshold" : "held-out regressed";
+    Value outcome = object({{"proposal", proposal}, {"accepted", Value(accepted)}, {"reason", Value(reason)}, {"heldIn", object({{"before", Value(held_in)}, {"after", Value(next_in)}})}});
+    if (!std::isnan(next_out) && !std::isnan(held_out)) Core::set(outcome, "heldOut", object({{"before", held_out}, {"after", next_out}}));
+    outcomes.push_back(outcome);
+    if (accepted) { held_in = next_in; held_out = next_out; } else { load(before); }
+  }
+  bool any_accepted = false;
+  for (const auto& outcome : outcomes) if (Core::truthy(Core::get(outcome, "accepted", Value(false)))) any_accepted = true;
+  Value learned = any_accepted ? parse_json(stringify(get_state())) : Value();
+  if (Core::truthy(Core::eq(Core::get(options, "apply", Value(true)), Value(false))) && !learned.is_null()) load(initial);
+  Value baseline_result = object({{"heldIn", Value(baseline_held_in)}});
+  Value final_result = object({{"heldIn", Value(held_in)}});
+  if (!std::isnan(baseline_held_out)) Core::set(baseline_result, "heldOut", baseline_held_out);
+  if (!std::isnan(held_out)) Core::set(final_result, "heldOut", held_out);
+  Array all_recommendations;
+  for (const auto& weakness : weaknesses) {
+    for (const auto& recommendation : Core::iter(Core::get(weakness, "configRecommendations", Value::array()))) {
+      all_recommendations.push_back(Value(display(recommendation)));
+    }
+  }
+  Value result = object({{"baseline", baseline_result}, {"final", final_result}, {"weaknesses", Value(weaknesses)}, {"outcomes", Value(outcomes)}, {"recommendations", Value(all_recommendations)}, {"metricCallsUsed", max_metric_calls - remaining}, {"records", Core::get(baseline_batch, "records", Value::array())}});
+  if (!learned.is_null()) Core::set(result, "playbookSnapshot", learned);
+  return result;
+}
 
 void AxPlaybook::inject() {
   std::string rendered = render();
@@ -4361,6 +4688,8 @@ AxFlow& AxFlow::add_step(Value kind, Value name, Value program, Value options) {
 }
 
 AxAgent::AxAgent(Value signature, Value options) {
+  options_ = options;
+  playbook_config_ = Core::get(options, "playbook", Value());
   state_ = Core::_agent_factory(std::move(signature), options);
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
@@ -4378,7 +4707,22 @@ AxAgent& AxAgent::set_signature(Value signature) {
   return *this;
 }
 
+Value AxAgent::get_instruction() const { return Core::get(state_, "stage_instruction", Value("")); }
+
+AxAgent& AxAgent::set_instruction(Value instruction) {
+  Value composed = Core::_agent_set_instruction(state_, display(instruction));
+  executor_->set_instruction(composed);
+  return *this;
+}
+
+AxAgent& AxAgent::add_actor_instruction(Value addendum) {
+  Value composed = Core::_agent_add_actor_instruction(state_, display(addendum));
+  executor_->set_instruction(composed);
+  return *this;
+}
+
 Value AxAgent::forward(AIClient& client, Value values, Value options) {
+  ensure_configured_playbook(client);
   // Wire the built-in llmQuery primitive onto the runtime carried in agent
   // options (the same runtime the actor loop will create sessions on),
   // mirroring the Go/Python/Rust/Java wrappers. The logic lives in the
@@ -4398,7 +4742,7 @@ Value AxAgent::forward(AIClient& client, Value values, Value options) {
       });
     }
   }
-  return Core::_agent_forward(
+  Value output = Core::_agent_forward(
       state_,
       Core::agent_stage_ref(*distiller_),
       Core::agent_stage_ref(*executor_),
@@ -4406,6 +4750,25 @@ Value AxAgent::forward(AIClient& client, Value values, Value options) {
       Core::client_ref(client),
       std::move(values),
       std::move(options));
+  if (citations_observer_) {
+    try {
+      citations_observer_(Core::get(state_, "last_citations", Value::array()));
+    } catch (...) {
+      // Citation observers are informational and must not fail forward().
+    }
+  }
+  learn_playbook_failures(output);
+  return output;
+}
+
+AxAgent& AxAgent::set_citations_observer(std::function<void(Value)> observer) {
+  citations_observer_ = std::move(observer);
+  return *this;
+}
+
+AxAgent& AxAgent::set_playbook_observer(std::function<void(Value)> observer) {
+  playbook_observer_ = std::move(observer);
+  return *this;
 }
 
 AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& tools) {
@@ -4479,42 +4842,19 @@ Value AxAgent::export_runtime_state() const { return Core::_agent_export_runtime
 Value AxAgent::restore_runtime_state(Value snapshot) { return Core::_agent_restore_runtime_state(state_, std::move(snapshot)); }
 Value AxAgent::get_optimizer_metadata() const { return Core::_agent_optimizer_metadata(state_); }
 Value AxAgent::get_optimizable_components() const {
-  Value components = Value::array();
-  for (const auto& item : array_ref(distiller_->get_optimizable_components())) Core::append(components, item);
-  for (const auto& item : array_ref(executor_->get_optimizable_components())) Core::append(components, item);
-  for (const auto& item : array_ref(responder_->get_optimizable_components())) Core::append(components, item);
-  Core::append(components, Core::_optimization_component(
-      Value("root.agent.runtime"),
-      Value("root.agent"),
-      Value("runtime-policy"),
-      get_runtime_contract(),
-      Value("Agent runtime-language metadata and code-field policy."),
-      array({Value("Keep code field names aligned with the selected runtime language.")}),
-      Value::array(),
-      Value(true),
-      Value("json"),
-      object({{"component", Value("runtime_contract")}})));
-  Core::append(components, Core::_optimization_component(
-      Value("root.agent.policy"),
-      Value("root.agent"),
-      Value("agent-policy"),
-      get_policy(),
-      Value("Actor primitive, discovery, delegation, and prompt placement policy."),
-      array({Value("Do not expose protocol-only actions as actor primitives.")}),
-      array({Value("root.agent.runtime")}),
-      Value(true),
-      Value("json"),
-      object({{"component", Value("policy_registry")}})));
-  return components;
+  Value child_components = Value::array();
+  for (const auto& item : array_ref(distiller_->get_optimizable_components())) Core::append(child_components, item);
+  for (const auto& item : array_ref(executor_->get_optimizable_components())) Core::append(child_components, item);
+  for (const auto& item : array_ref(responder_->get_optimizable_components())) Core::append(child_components, item);
+  return Core::_agent_get_optimizable_components(state_, child_components);
 }
 AxAgent& AxAgent::apply_optimized_components(Value component_map) {
   Core::_validate_optimization_component_map(get_optimizable_components(), component_map);
   distiller_->apply_optimized_components(component_map);
   executor_->apply_optimized_components(component_map);
   responder_->apply_optimized_components(component_map);
-  if (Core::truthy(Core::map_contains(component_map, Value("root.agent.runtime")))) Core::set(state_, "runtime_contract", Core::get(component_map, "root.agent.runtime", Value::object()));
-  if (Core::truthy(Core::map_contains(component_map, Value("root.agent.policy")))) Core::set(state_, "policy", Core::get(component_map, "root.agent.policy", Value::object()));
-  Core::set(state_, "optimizer_metadata", Core::_agent_optimizer_metadata(state_));
+  Value composed = Core::_agent_apply_optimized_components(state_, component_map);
+  executor_->set_instruction(composed);
   return *this;
 }
 AxAgent& AxAgent::apply_optimization(Value artifact) {
@@ -4604,21 +4944,96 @@ Value AxAgent::optimize(Value dataset, Value options) {
 // stage by default; pass {"target":"responder"} for the responder). As the
 // playbook evolves it is injected into the live stage prompt unless {"apply"} is
 // false. The evolution engine (ACE) is an implementation detail.
-AxPlaybook AxAgent::playbook(AIClient& student, Value options) {
+AxPlaybook& AxAgent::playbook(AIClient& student, Value options) {
+  if (playbook_handle_) {
+    if (options.is_object() && !Core::iter(Core::map_keys(options)).empty()) {
+      throw AxError("validation", "AxAgent.playbook(): this agent already has a playbook; call playbook() without options to use it.");
+    }
+    return *playbook_handle_;
+  }
   if (!options.is_object()) options = Value::object();
   std::string target = display(Core::get(options, "target", Value("actor")));
   AxGen* stage = target == "responder" ? responder_.get() : executor_.get();
-  AxPlaybook handle(*stage, student, nullptr, options);
+  auto handle = std::make_unique<AxPlaybook>(*stage, student, nullptr, options);
   if (Core::truthy(Core::eq(Core::get(options, "apply"), Value(false)))) {
-    handle.set_apply_hook([](const std::string&) {});
-    return handle;
+    handle->set_apply_hook([](const std::string&) {});
+  } else {
+    std::string base = display(stage->get_instruction());
+    AxGen* stage_ptr = stage;
+    handle->set_apply_hook([stage_ptr, base](const std::string& rendered) {
+      stage_ptr->set_instruction(Value(playbook_compose_instruction(base, rendered)));
+    });
   }
-  std::string base = display(stage->get_instruction());
-  AxGen* stage_ptr = stage;
-  handle.set_apply_hook([stage_ptr, base](const std::string& rendered) {
-    stage_ptr->set_instruction(Value(playbook_compose_instruction(base, rendered)));
-  });
-  return handle;
+  handle->bind_agent(*this);
+  playbook_handle_ = std::move(handle);
+  return *playbook_handle_;
+}
+
+AxPlaybook* AxAgent::get_playbook() const { return playbook_handle_.get(); }
+
+void AxAgent::ensure_configured_playbook(AIClient& client) {
+  if (playbook_handle_ || playbook_config_.is_null() || (playbook_config_.is_bool() && !Core::truthy(playbook_config_))) return;
+  Value config = playbook_config_.is_object() ? playbook_config_ : Value::object();
+  if (Core::get(config, "maxReflectorRounds", Value()).is_null() && Core::get(config, "max_reflector_rounds", Value()).is_null()) {
+    Core::set(config, "maxReflectorRounds", 1);
+  }
+  Value seed = Core::get(config, "seed", Value());
+  if (seed.is_null() && (!Core::get(config, "playbook", Value()).is_null() || !Core::get(config, "artifact", Value()).is_null())) seed = config;
+  AxPlaybook& handle = playbook(client, config);
+  if (seed.is_object()) {
+    if (!Core::get(seed, "playbook", Value()).is_null()) handle.load(seed);
+    else handle.load(object({{"playbook", seed}}));
+  }
+}
+
+void AxAgent::learn_playbook_failures(Value output) {
+  if (!playbook_handle_ || playbook_config_.is_null()) return;
+  Value config = playbook_config_.is_object() ? playbook_config_ : Value::object();
+  Value learn = Core::get(config, "learn", Value(true));
+  if (learn.is_bool() && !Core::truthy(learn)) return;
+  try {
+    std::vector<Value> signals = Core::iter(Core::get(state_, "failure_signals", Value::array()));
+    Value learn_config = learn.is_object() ? learn : Value::object();
+    int min_signals = static_cast<int>(num(Core::get(learn_config, "minSignals", Core::get(learn_config, "min_signals", Value(1)))));
+    if (static_cast<int>(signals.size()) < min_signals) return;
+    std::set<std::string> covered;
+    for (const auto& signature : Core::iter(Core::_agent_collect_covered_failure_signatures(playbook_handle_->get_state()))) {
+      covered.insert(display(signature));
+    }
+    if (Core::truthy(Core::get(learn_config, "dedupe", Value(true)))) {
+      signals.erase(std::remove_if(signals.begin(), signals.end(), [&](const Value& signal) {
+        return covered.count(display(Core::get(signal, "signature", Value("")))) > 0;
+      }), signals.end());
+    }
+    if (signals.empty()) return;
+    if (signals.size() > 12) signals.resize(12);
+    std::string feedback = "Agent run failures to avoid:\n";
+    Array signatures;
+    for (const auto& signal : signals) {
+      Value signature = Core::get(signal, "signature", Value(""));
+      signatures.push_back(signature);
+      feedback += "- [" + display(Core::get(signal, "kind", Value("error_turn"))) + "] " + display(signature) + ": " + display(Core::get(signal, "detail", Value(""))) + "\n";
+    }
+    feedback += "Curate ONE bounded avoidance rule into failures_to_avoid.";
+    std::string before = stringify(Core::get(playbook_handle_->get_state(), "playbook", Value::object()));
+    Value update = playbook_handle_->update(object({
+      {"example", object({{"task", Core::get(options_, "instruction", Value("agent run"))}, {"failureSignatures", Value(signatures)}})},
+      {"prediction", output},
+      {"feedback", Value(feedback)},
+    }));
+    if (playbook_observer_) {
+      Value snapshot = playbook_handle_->get_state();
+      playbook_observer_(object({
+        {"status", stringify(Core::get(snapshot, "playbook", Value::object())) == before ? Value("unchanged") : Value("updated")},
+        {"signals", Value(signals)},
+        {"feedback", Value(feedback)},
+        {"snapshot", snapshot},
+        {"result", update},
+      }));
+    }
+  } catch (...) {
+    // Run-end learning must never fail a completed user-facing run.
+  }
 }
 
 static Value optimize_options_merge(Value base, Value extra) {

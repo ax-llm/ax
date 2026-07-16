@@ -1,6 +1,6 @@
 ---
 name: "ax-go-playbook"
-description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program."
+description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program."
 version: "23.0.1"
 ---
 # Ax Playbook For Go
@@ -10,6 +10,8 @@ This skill helps an agent write Go code with the generated Ax package `github.co
 ## When To Use
 
 - Grow an evolving context playbook for a program or agent stage with playbook().
+- Attach a seed playbook to an agent and learn bounded avoidance rules from run-end failure signals.
+- Use the agent-bound playbook evolve method to mine grounded weaknesses with verification and exact rollback.
 - Refine a playbook online from live feedback or offline from labeled examples.
 - Render or persist a playbook and inject it into a program context.
 
@@ -34,7 +36,7 @@ pb.Evolve(ctx, examples, metricFn, nil)
 
 ## Relevant API Surface
 
-- Optimizers: `axllm.Optimize`, `axllm.AxBootstrapFewShot`, `axllm.AxGEPA`, `axllm.OptimizerEngine`, `axllm.OptimizerEvaluator`
+- Optimizers: `axllm.Optimize`, `axllm.Playbook`, `axllm.AxPlaybook`, `axllm.AxBootstrapFewShot`, `axllm.AxGEPA`, `axllm.OptimizerEngine`, `axllm.OptimizerEvaluator`
 
 ## Guardrails
 

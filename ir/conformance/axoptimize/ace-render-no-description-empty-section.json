@@ -1,5 +1,5 @@
 {
-  "expected_render": "## Context Playbook\n\n### strategies\n_(empty)_",
+  "expected_render": "",
   "kind": "optimize",
   "name": "ace-render-no-description-empty-section",
   "operation": "playbook-render",

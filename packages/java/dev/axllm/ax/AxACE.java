@@ -158,6 +158,7 @@ public final class AxACE {
     for (int round = 0; round < rounds; round++) {
       Map<String, Object> reflection = runReflector(example, generatorOutput, feedback, previous);
       if (reflection == null || reflection.isEmpty()) break;
+      reflection.put("bulletTags", Core.asList(Core._ace_normalize_reflection_bullet_tags(reflection)));
       previous = reflection;
       String errorText = String.valueOf(reflection.getOrDefault("errorIdentification", "")).toLowerCase().trim();
       Object metadata = reflection.get("metadata");
@@ -240,7 +241,7 @@ public final class AxACE {
       }
     }
     if (reflection instanceof Map<?, ?> reflectionMap) {
-      for (Object tagObj : Core.asList(((Map<String, Object>) reflectionMap).getOrDefault("bulletTags", List.of()))) {
+      for (Object tagObj : Core.asList(Core._ace_normalize_reflection_bullet_tags(reflectionMap))) {
         Map<String, Object> tag = Core.asMap(tagObj);
         this.playbook = Core._ace_update_bullet_feedback(this.playbook, tag.get("id"), tag.get("tag"), this.now);
       }
@@ -263,6 +264,7 @@ public final class AxACE {
       delta.put("epoch", epoch);
       delta.put("exampleIndex", index);
       delta.put("operations", curatorResult.get("operations"));
+      delta.put("updatedBulletIds", clone(appliedIds));
       this.deltaHistory.add(delta);
     }
   }
@@ -333,7 +335,7 @@ public final class AxACE {
       curatorResult.put("operations", resolved);
     }
     if (reflection instanceof Map<?, ?> reflectionMap) {
-      for (Object tagObj : Core.asList(((Map<String, Object>) reflectionMap).getOrDefault("bulletTags", List.of()))) {
+      for (Object tagObj : Core.asList(Core._ace_normalize_reflection_bullet_tags(reflectionMap))) {
         Map<String, Object> tag = Core.asMap(tagObj);
         this.playbook = Core._ace_update_bullet_feedback(this.playbook, tag.get("id"), tag.get("tag"), this.now);
       }
@@ -372,6 +374,7 @@ public final class AxACE {
       delta.put("epoch", -1);
       delta.put("exampleIndex", this.generatorHistory.size() - 1);
       delta.put("operations", curatorResult.get("operations"));
+      delta.put("updatedBulletIds", clone(appliedIds));
       this.deltaHistory.add(delta);
     }
     return curatorResult;

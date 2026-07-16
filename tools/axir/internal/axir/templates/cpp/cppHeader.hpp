@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <initializer_list>
 #include <map>
+#include <limits>
 #include <memory>
 #include <regex>
 #include <set>
@@ -822,6 +823,7 @@ class AxACE {
 // growing online from live feedback (update), render it into the program context
 // (apply_to), and persist/restore it (to_json/load). The evolution engine (ACE)
 // is an implementation detail of this surface, just as optimize() hides GEPA.
+class AxAgent;
 class AxPlaybook {
  public:
   using MetricFn = std::function<Value(const Value&)>;
@@ -837,6 +839,8 @@ class AxPlaybook {
   void configure_auto(const std::string& level);
   void reset();
   void set_apply_hook(std::function<void(const std::string&)> hook);
+  AxPlaybook& bind_agent(AxAgent& agent);
+  Value evolve(Value dataset, Value options = Value::object());
 
  private:
   AxGen* program_;
@@ -850,6 +854,7 @@ class AxPlaybook {
   std::unique_ptr<AxGen> reflector_program_;
   std::unique_ptr<AxGen> curator_program_;
   std::function<void(const std::string&)> apply_hook_;
+  AxAgent* agent_ = nullptr;
 
   Value run_generator(const Value& example);
   Value run_reflector(const Value& payload);
@@ -862,7 +867,12 @@ class AxAgent : public AxProgram {
  public:
   explicit AxAgent(Value signature, Value options = Value::object());
   AxAgent& set_signature(Value signature);
+  Value get_instruction() const;
+  AxAgent& set_instruction(Value instruction);
+  AxAgent& add_actor_instruction(Value addendum);
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  AxAgent& set_citations_observer(std::function<void(Value)> observer);
+  AxAgent& set_playbook_observer(std::function<void(Value)> observer);
   Value test(AxCodeRuntime& runtime, Value code, Value context_values = Value::object(), Value options = Value::object());
   Value execute_actor_step(AxCodeRuntime& runtime, Value code, Value values = Value::object(), Value options = Value::object());
   Value inspect_runtime(Value options = Value::object());
@@ -898,7 +908,8 @@ class AxAgent : public AxProgram {
   Value optimize_with(OptimizerEngine& engine, Value dataset, Value options = Value::object());
   Value optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options = Value::object());
   Value optimize(Value dataset = Value::array(), Value options = Value::object());
-  AxPlaybook playbook(AIClient& student, Value options = Value::object());
+  AxPlaybook& playbook(AIClient& student, Value options = Value::object());
+  AxPlaybook* get_playbook() const;
 
  private:
   Value state_;
@@ -906,6 +917,13 @@ class AxAgent : public AxProgram {
   std::unique_ptr<AxGen> executor_;
   std::unique_ptr<AxGen> responder_;
   std::unique_ptr<AxGen> llm_query_;
+  Value options_;
+  Value playbook_config_;
+  std::unique_ptr<AxPlaybook> playbook_handle_;
+  std::function<void(Value)> citations_observer_;
+  std::function<void(Value)> playbook_observer_;
+  void ensure_configured_playbook(AIClient& client);
+  void learn_playbook_failures(Value output);
 };
 
 std::string stringify(const Value& value);

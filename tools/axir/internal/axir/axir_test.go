@@ -1097,7 +1097,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if apiRef.PackageName != manifest.PackageName || apiRef.AxIRVersion != manifest.AxIRVersion {
 				t.Fatalf("%s API reference manifest should mirror capability manifest metadata: api=%#v caps=%#v", tc.target, apiRef, manifest)
 			}
-			for _, want := range []string{"s", "ax", "ai", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
+			for _, want := range []string{"s", "ax", "ai", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "playbook", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
 				if !apiReferenceContainsCanonical(apiRef, want) {
 					t.Fatalf("%s API reference missing canonical symbol %q: %#v", tc.target, want, apiRef.Sections)
 				}
@@ -1118,7 +1118,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("%s manifest has stale broad runtime profile feature %s: %#v", tc.target, stale, manifest.CoreOwnedFeatureGroups)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "AxBalancer", "AxBootstrapFewShot", "AxGEPA", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "optimize", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "AxBalancer", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "optimize", "playbook", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
 				}
@@ -1126,6 +1126,11 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			for _, want := range []string{"axoptimize-gepa-engine", "axoptimize-gepa-reflection", "axoptimize-gepa-pareto", "axoptimize-gepa-bootstrap", "axoptimize-gepa-selector-state", "axoptimize-bootstrap-fewshot", "axoptimize-top-level-helper"} {
 				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
 					t.Fatalf("manifest missing GEPA feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
+				}
+			}
+			for _, want := range []string{"axagent-stage-instructions", "axagent-evidence-citations", "axagent-playbook-config", "axagent-run-end-playbook-learning", "axagent-playbook-verified-evolve", "axoptimize-ace-bullet-tag-normalization", "axoptimize-ace-updated-bullet-ids", "axoptimize-ace-empty-render", "anthropic-adaptive-thinking-display", "anthropic-adaptive-sampling-suppression"} {
+				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
+					t.Fatalf("manifest missing cleared-backlog feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
 			}
 			for _, want := range []string{"axai-model-catalog-runtime-api", "axai-multi-service-routing", "axai-provider-routing-analysis", "axai-balancer-runtime", "axai-balancer-retry-policy", "axai-balancer-metrics", "axai-host-processing-callbacks"} {
@@ -2874,6 +2879,26 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 			if _, ok := fixture["expected_description_contains"]; !ok {
 				t.Fatalf("%s missing expected_description_contains", file)
 			}
+		case "agent_playbook_coverage":
+			cases, ok := fixture["cases"].([]any)
+			if !ok || len(cases) == 0 {
+				t.Fatalf("%s missing playbook coverage cases", file)
+			}
+			for index, raw := range cases {
+				item, ok := raw.(map[string]any)
+				if !ok {
+					t.Fatalf("%s case %d is not an object", file, index)
+				}
+				if item["name"] == "" {
+					t.Fatalf("%s case %d missing name", file, index)
+				}
+				if _, ok := item["snapshot"]; !ok {
+					t.Fatalf("%s case %d missing snapshot", file, index)
+				}
+				if _, ok := item["expected_covered"]; !ok {
+					t.Fatalf("%s case %d missing expected_covered", file, index)
+				}
+			}
 		default:
 			t.Fatalf("%s has unknown axagent kind %v", file, fixture["kind"])
 		}
@@ -3736,7 +3761,8 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"def _normalize_agent_completion_payload(",
 		"def _merge_agent_chat_log(",
 		"def _agent_forward(",
-		"return _agent_forward(",
+		"output = _agent_forward(",
+		"return output",
 	} {
 		if !strings.Contains(agentText, want) {
 			t.Fatalf("generated Python agent runtime missing Core-emitted marker %q", want)

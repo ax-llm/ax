@@ -690,9 +690,8 @@ writeFixture('agent-component-inventory', {
   program: 'agent',
   signature: 'question:string -> answer:string',
   expected_components_subset: [
-    { id: 'ctx.root.actor::instruction', kind: 'instruction' },
-    { id: 'task.root.actor::instruction', kind: 'instruction' },
     { id: 'task.root.responder::instruction', kind: 'instruction' },
+    { id: 'root::instruction', kind: 'instruction', owner: 'root' },
     { id: 'root.agent.runtime', kind: 'runtime-policy' },
     { id: 'root.agent.policy', kind: 'agent-policy' },
   ],
@@ -704,9 +703,23 @@ writeFixture('agent-target-filter-actor', {
   program: 'agent',
   signature: 'question:string -> answer:string',
   target: 'actor',
-  expected_component_ids: [
-    'ctx.root.actor::instruction',
-    'task.root.actor::instruction',
+  expected_component_ids: ['root::instruction'],
+});
+
+writeFixture('agent-stage-instruction-apply', {
+  kind: 'optimize',
+  operation: 'apply',
+  program: 'agent',
+  signature: 'question:string -> answer:string',
+  component_map: {
+    'root::instruction': 'Verify every claim before finalizing.',
+  },
+  expected_components_subset: [
+    {
+      id: 'root::instruction',
+      kind: 'instruction',
+      current: 'Verify every claim before finalizing.',
+    },
   ],
 });
 
@@ -1892,6 +1905,19 @@ writeFixture('ace-render-no-description-empty-section', {
   expected_render: renderPlaybook(renderEmptySection),
 });
 
+// Empty-string descriptions are falsy in the TS renderer and therefore behave
+// exactly like an absent description when the playbook has no bullets.
+const renderEmptyDescription = acePlaybook(
+  { strategies: [] },
+  { description: '' }
+);
+writeFixture('ace-render-empty-description-empty-section', {
+  kind: 'optimize',
+  operation: 'playbook-render',
+  playbook: clone(renderEmptyDescription) as unknown as Json,
+  expected_render: renderPlaybook(renderEmptyDescription),
+});
+
 // playbook-stats: recompute stats over a (duplicate-free) playbook. The TS
 // recomputePlaybookStats is internal, so derive the golden via the exported
 // dedupe path (which recomputes stats and leaves a dup-free playbook intact).
@@ -2552,6 +2578,118 @@ await (async () => {
         example: { question: 'q', answer: 'a' },
         prediction: { answer: 'bad' },
         feedback: 'User corrected the answer.',
+      },
+      reflection_responses: [reflection as unknown as Json],
+      curator_responses: [curator],
+      expected_playbook: out.playbook,
+      expected_artifact: out.artifact,
+      expected_curator: out.curator,
+    });
+  }
+
+  // A model may return one bullet tag object instead of an array. TS wraps the
+  // object before curator target resolution; generated engines must do the
+  // same so an id-less UPDATE targets the tagged harmful bullet.
+  {
+    const initialPlaybook = acePlaybook({
+      Guidelines: [
+        aceBullet('guidelines-00001', 'Guidelines', 'Be concise.'),
+        aceBullet('guidelines-00002', 'Guidelines', 'Trust every draft fact.'),
+      ],
+    });
+    const reflection = {
+      reasoning: 'The draft trusted an unverified fact.',
+      errorIdentification: 'Unverified fact',
+      rootCauseAnalysis: 'The existing trust rule is harmful',
+      correctApproach: 'Verify draft facts',
+      keyInsight: 'Verification is required',
+      bulletTags: { id: 'guidelines-00002', tag: 'harmful' },
+    } as unknown as AxACEReflectionOutput;
+    const curator: Record<string, Json> = {
+      reasoning: 'Replace the harmful rule.',
+      operations: [
+        {
+          type: 'UPDATE',
+          section: 'Guidelines',
+          content: 'Verify draft facts before using them.',
+        },
+      ],
+    };
+    const out = await driveACEOnlineUpdate(
+      initialPlaybook,
+      {
+        example: { question: 'q', answer: 'a' },
+        prediction: { answer: 'bad' },
+      },
+      { maxReflectorRounds: 1 },
+      { reflections: [reflection], curators: [curator] }
+    );
+    writeFixture('ace-online-update-scalar-bullet-tag', {
+      kind: 'optimize',
+      operation: 'ace-online-update',
+      now: ACE_NOW,
+      ace_options: { maxReflectorRounds: 1 },
+      initial_playbook: clone(initialPlaybook) as unknown as Json,
+      update: {
+        example: { question: 'q', answer: 'a' },
+        prediction: { answer: 'bad' },
+      },
+      reflection_responses: [reflection as unknown as Json],
+      curator_responses: [curator],
+      expected_playbook: out.playbook,
+      expected_artifact: out.artifact,
+      expected_curator: out.curator,
+    });
+  }
+
+  // The TS runtime normalizer is deliberately a shape guard, not a second
+  // schema validator. Any string tag survives; only "harmful" is special and
+  // every other string is a primary target. Keep that exact behavior so an
+  // unexpected-but-string model value does not silently change UPDATE target
+  // selection in generated runtimes.
+  {
+    const initialPlaybook = acePlaybook({
+      Guidelines: [
+        aceBullet('guidelines-00001', 'Guidelines', 'Keep the first rule.'),
+        aceBullet('guidelines-00002', 'Guidelines', 'Revise this rule.'),
+      ],
+    });
+    const reflection = {
+      reasoning: 'The second rule needs revision.',
+      errorIdentification: 'The second rule is stale',
+      rootCauseAnalysis: 'Its guidance no longer applies',
+      correctApproach: 'Replace the second rule',
+      keyInsight: 'Target the tagged rule',
+      bulletTags: [{ id: 'guidelines-00002', tag: 'unexpected' }],
+    } as unknown as AxACEReflectionOutput;
+    const curator: Record<string, Json> = {
+      reasoning: 'Replace the tagged rule.',
+      operations: [
+        {
+          type: 'UPDATE',
+          section: 'Guidelines',
+          content: 'Use the revised second rule.',
+        },
+      ],
+    };
+    const out = await driveACEOnlineUpdate(
+      initialPlaybook,
+      {
+        example: { question: 'q', answer: 'a' },
+        prediction: { answer: 'bad' },
+      },
+      { maxReflectorRounds: 1 },
+      { reflections: [reflection], curators: [curator] }
+    );
+    writeFixture('ace-online-update-string-tag-shape', {
+      kind: 'optimize',
+      operation: 'ace-online-update',
+      now: ACE_NOW,
+      ace_options: { maxReflectorRounds: 1 },
+      initial_playbook: clone(initialPlaybook) as unknown as Json,
+      update: {
+        example: { question: 'q', answer: 'a' },
+        prediction: { answer: 'bad' },
       },
       reflection_responses: [reflection as unknown as Json],
       curator_responses: [curator],

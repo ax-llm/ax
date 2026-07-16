@@ -6,7 +6,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-python-llm/SKILL.md",
-      "digest": "sha256:31aba5ff8eda3a84b7a1f1227e28a7642803a4fedb6c8c17dae6607874dc58d9"
+      "digest": "sha256:45a1d88a5e0473fd100ac757580dcc4575b921a291476d9d472df452bbf8bac8"
     },
     {
       "name": "ax-python-ai",
@@ -46,9 +46,9 @@
     {
       "name": "ax-python-agent",
       "type": "skill-md",
-      "description": "Use when writing Python code with `axllm` for agents, child delegation, tools, MCP, clarification, runtime state, final typed responses, and direct-respond executor skipping.",
+      "description": "Use when writing Python code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-python-agent/SKILL.md",
-      "digest": "sha256:3b1725d6eb000fa5d5968f2ba4aa30e65705a7808fea0bedab9c91bc6e44ad81"
+      "digest": "sha256:6edcd1c0c346308ce773d8c3df1612a6811ffca72df9888da55d89bd4152c313"
     },
     {
       "name": "ax-python-agent-rlm",
@@ -74,37 +74,37 @@
     {
       "name": "ax-python-agent-optimize",
       "type": "skill-md",
-      "description": "Use when writing Python code with `axllm` for agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
+      "description": "Use when writing Python code with `axllm` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-python-agent-optimize/SKILL.md",
-      "digest": "sha256:1678e629d951170cfa119a5688f097e7c7a6342cbd8b199f6efaac272d8c42cb"
+      "digest": "sha256:6f4b71459f36fca3d7a31fb76fed8f7366e663b8e78ebef306522de7f0f6512f"
     },
     {
       "name": "ax-python-agent-context",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents.",
       "url": "ax-python-agent-context/SKILL.md",
-      "digest": "sha256:a565499d784b3d562b350ed3af25bfc235772f8568857f00c8dd089b3fac74df"
+      "digest": "sha256:7cd414b74dbb82ab275c8ff213f984cbc6f980fdddb6669ac0e4002a55a01a13"
     },
     {
       "name": "ax-python-gepa",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-python-gepa/SKILL.md",
-      "digest": "sha256:b47fa9f6d8219ac7cfd86b0ed9777e3e28e22cc4013fc295d694550a45a6ee38"
+      "digest": "sha256:2666126b11c1e4244b849ca94070bc8de13ca32dda97de25dc7c47130521163e"
     },
     {
       "name": "ax-python-refine",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-python-refine/SKILL.md",
-      "digest": "sha256:ed7d39668469a6a450eae8a4461c0f4482d242f315bd4609dc230ccb85757716"
+      "digest": "sha256:83b38ac3b3f98b749a1ffc98d57be9439c056d8484c6bfbf9d73b282c2e1f4a2"
     },
     {
       "name": "ax-python-playbook",
       "type": "skill-md",
-      "description": "Use when writing Python code with `axllm` for the playbook() context-engineering surface, evolving task knowledge, online updates, and rendering a playbook into a program.",
+      "description": "Use when writing Python code with `axllm` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program.",
       "url": "ax-python-playbook/SKILL.md",
-      "digest": "sha256:627e9e024b1e058f3f841581ca00eefb561a4a82862e0793187ed4eb4e2f633e"
+      "digest": "sha256:ecfa6103e8a4cc96f8e5566716340383e1755c95155deea2d9b394fbfad0191b"
     }
   ]
 }

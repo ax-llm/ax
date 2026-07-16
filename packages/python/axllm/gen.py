@@ -448,6 +448,7 @@ def ax(signature, options: dict[str, Any] | None = None) -> AxGen:
 
 
 def _core_not(value): return not value
+def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
@@ -1214,6 +1215,16 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
     for demo_message in demo_messages:
         ordered_messages.append(demo_message)
     ordered_messages.append(user_message)
+    validation_feedback_snake = _core_get(runtime_options, "validation_feedback", "")
+    validation_feedback = _core_get(runtime_options, "validationFeedback", validation_feedback_snake)
+    has_validation_feedback = _core_truthy(validation_feedback)
+    if has_validation_feedback:
+        validation_feedback_message = {}
+        validation_feedback_message["role"] = "user"
+        validation_feedback_message["content"] = validation_feedback
+        ordered_messages.append(validation_feedback_message)
+    else:
+        pass
     cached_messages = _core_axgen_apply_context_cache(gen, ordered_messages, options)
     messages = cached_messages
     _core_axgen_memory_add_request(gen, messages)
@@ -1624,19 +1635,6 @@ def _is_flexible_json_field(typ: FieldType) -> bool:
     return flexible
 
 
-def _optimization_action_name_matches(expected: str, call: Any) -> bool:
-    _core_coverage_mark("_optimization_action_name_matches")
-    qualified = _core_get(call, "qualifiedName", "")
-    name = _core_get(call, "name", "")
-    qualified_match = _core_eq(qualified, expected)
-    name_match = _core_eq(name, expected)
-    dot_expected = _core_add(".", expected)
-    suffix_match = _core_string_ends_with(qualified, dot_expected)
-    direct_match = _core_or(qualified_match, name_match)
-    any_match = _core_or(direct_match, suffix_match)
-    return any_match
-
-
 def _parse_json_string_value(value: Any) -> Any:
     _core_coverage_mark("_parse_json_string_value")
     is_string = _core_type_is(value, "string")
@@ -1652,6 +1650,19 @@ def _parse_json_string_value(value: Any) -> Any:
     except Exception as parse_error:
         result = value
     return result
+
+
+def _optimization_action_name_matches(expected: str, call: Any) -> bool:
+    _core_coverage_mark("_optimization_action_name_matches")
+    qualified = _core_get(call, "qualifiedName", "")
+    name = _core_get(call, "name", "")
+    qualified_match = _core_eq(qualified, expected)
+    name_match = _core_eq(name, expected)
+    dot_expected = _core_add(".", expected)
+    suffix_match = _core_string_ends_with(qualified, dot_expected)
+    direct_match = _core_or(qualified_match, name_match)
+    any_match = _core_or(direct_match, suffix_match)
+    return any_match
 
 
 def _adjust_optimization_score_for_actions(score: Any, task: Any, prediction: Any) -> f64:
@@ -1802,6 +1813,18 @@ def _parse_json_string_for_fields(fields_map: Any, values: Any) -> Any:
     return values
 
 
+def _tool_spec_impl(fn: Tool) -> Any:
+    _core_coverage_mark("_tool_spec_impl")
+    spec = {}
+    name = _core_get(fn, "name", None)
+    description = _core_get(fn, "description", None)
+    parameters = _core_get(fn, "parameters", None)
+    spec["name"] = name
+    spec["description"] = description
+    spec["parameters"] = parameters
+    return spec
+
+
 def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
     _core_coverage_mark("_build_optimization_eval_row")
     out = {}
@@ -1818,16 +1841,26 @@ def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar
     return out
 
 
-def _tool_spec_impl(fn: Tool) -> Any:
-    _core_coverage_mark("_tool_spec_impl")
-    spec = {}
-    name = _core_get(fn, "name", None)
-    description = _core_get(fn, "description", None)
-    parameters = _core_get(fn, "parameters", None)
-    spec["name"] = name
-    spec["description"] = description
-    spec["parameters"] = parameters
-    return spec
+def _function_call_mode_impl(mode: Any) -> str:
+    _core_coverage_mark("_function_call_mode_impl")
+    missing = _core_is_none(mode)
+    if missing:
+        return "auto"
+    else:
+        pass
+    is_native = _core_eq(mode, "native")
+    is_auto = _core_eq(mode, "auto")
+    native_or_auto = _core_or(is_native, is_auto)
+    if native_or_auto:
+        return "auto"
+    else:
+        pass
+    is_prompt = _core_eq(mode, "prompt")
+    if is_prompt:
+        return "none"
+    else:
+        pass
+    return mode
 
 
 def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -> Any:
@@ -1857,33 +1890,26 @@ def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -
     return out
 
 
-def _function_call_mode_impl(mode: Any) -> str:
-    _core_coverage_mark("_function_call_mode_impl")
-    missing = _core_is_none(mode)
-    if missing:
-        return "auto"
-    else:
-        pass
-    is_native = _core_eq(mode, "native")
-    is_auto = _core_eq(mode, "auto")
-    native_or_auto = _core_or(is_native, is_auto)
-    if native_or_auto:
-        return "auto"
-    else:
-        pass
-    is_prompt = _core_eq(mode, "prompt")
-    if is_prompt:
-        return "none"
-    else:
-        pass
-    return mode
-
-
 def _response_function_calls_impl(response: Any) -> list[Any]:
     _core_coverage_mark("_response_function_calls_impl")
     empty = []
     calls = _core_get(response, "function_calls", empty)
     return calls
+
+
+def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> None:
+    _core_coverage_mark("_append_tool_call_messages_impl")
+    chat_calls = []
+    for call in calls:
+        chat_call = _completion_call_to_chat_impl(call)
+        chat_calls.append(chat_call)
+    content = _core_get(response, "content", "")
+    message = {}
+    message["role"] = "assistant"
+    message["content"] = content
+    message["function_calls"] = chat_calls
+    messages.append(message)
+    return None
 
 
 def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
@@ -1914,6 +1940,8 @@ def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
             actor_match = _core_string_ends_with(id, ".actor")
             actor_component_match = _core_contains(id, ".actor::")
             actor_any_match = _core_or(actor_match, actor_component_match)
+            stage_instruction_match = _core_eq(id, "root::instruction")
+            actor_any_match = _core_or(actor_any_match, stage_instruction_match)
             if actor_any_match:
                 include = True
             else:
@@ -1958,21 +1986,6 @@ def _filter_optimization_components(components: Any, target: Any) -> list[Any]:
     return out
 
 
-def _append_tool_call_messages_impl(messages: list[Any], response: Any, calls: list[Any]) -> None:
-    _core_coverage_mark("_append_tool_call_messages_impl")
-    chat_calls = []
-    for call in calls:
-        chat_call = _completion_call_to_chat_impl(call)
-        chat_calls.append(chat_call)
-    content = _core_get(response, "content", "")
-    message = {}
-    message["role"] = "assistant"
-    message["content"] = content
-    message["function_calls"] = chat_calls
-    messages.append(message)
-    return None
-
-
 def _completion_call_to_chat_impl(call: Any) -> Any:
     _core_coverage_mark("_completion_call_to_chat_impl")
     id = _core_get(call, "id", None)
@@ -1999,6 +2012,21 @@ def _tool_result_message_impl(call: Any, result: Any) -> Any:
     return message
 
 
+def _tool_error_message_impl(call: Any, error: error) -> Any:
+    _core_coverage_mark("_tool_error_message_impl")
+    id = _core_get(call, "id", None)
+    error_text = _core_exception_message(error)
+    payload = {}
+    payload["error"] = error_text
+    payload_json = _core_json_stringify(payload)
+    message = {}
+    message["role"] = "function"
+    message["function_id"] = id
+    message["result"] = payload_json
+    message["is_error"] = True
+    return message
+
+
 def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, options: Any, trace: Any) -> Any:
     _core_coverage_mark("_build_optimizer_request")
     out = {}
@@ -2017,21 +2045,6 @@ def _build_optimizer_request(program_kind: str, components: Any, dataset: Any, o
     evaluator["methods"] = methods
     out["evaluator"] = evaluator
     return out
-
-
-def _tool_error_message_impl(call: Any, error: error) -> Any:
-    _core_coverage_mark("_tool_error_message_impl")
-    id = _core_get(call, "id", None)
-    error_text = _core_exception_message(error)
-    payload = {}
-    payload["error"] = error_text
-    payload_json = _core_json_stringify(payload)
-    message = {}
-    message["role"] = "function"
-    message["function_id"] = id
-    message["result"] = payload_json
-    message["is_error"] = True
-    return message
 
 
 def _append_validation_retry_messages_impl(messages: list[Any], response: Any, error: error) -> None:
@@ -2293,7 +2306,7 @@ def _ace_empty_playbook(description: Any, now: str) -> Any:
     stats["tokenEstimate"] = 0
     out["stats"] = stats
     out["updatedAt"] = now
-    has_description = _core_is_not_none(description)
+    has_description = _core_truthy(description)
     if has_description:
         out["description"] = description
     else:
@@ -2304,8 +2317,25 @@ def _ace_empty_playbook(description: Any, now: str) -> Any:
 def _ace_render_playbook(playbook: Any) -> str:
     _core_coverage_mark("_ace_render_playbook")
     empty_map = {}
+    empty_list = []
     description = _core_get(playbook, "description", None)
-    has_description = _core_is_not_none(description)
+    has_description = _core_truthy(description)
+    sections = _core_get(playbook, "sections", empty_map)
+    section_names = _core_map_keys(sections)
+    bullet_count = 0
+    for section_name in section_names:
+        section_bullets = _core_get(sections, section_name, empty_list)
+        section_count = _core_len(section_bullets)
+        next_bullet_count = _core_add(bullet_count, section_count)
+        bullet_count = next_bullet_count
+    has_bullets = _core_gt(bullet_count, 0)
+    no_bullets = _core_not(has_bullets)
+    no_description = _core_not(has_description)
+    empty_playbook = _core_and(no_bullets, no_description)
+    if empty_playbook:
+        return ""
+    else:
+        pass
     header = "## Context Playbook\n"
     if has_description:
         trimmed_description = str(description).strip()
@@ -2313,8 +2343,6 @@ def _ace_render_playbook(playbook: Any) -> str:
         header = header_with_description
     else:
         pass
-    sections = _core_get(playbook, "sections", empty_map)
-    section_names = _core_map_keys(sections)
     section_blocks = []
     for section_name in section_names:
         bullets = _core_get(sections, section_name, None)
@@ -2522,6 +2550,7 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
     updated_bullets = []
     auto_removed = []
     sections = _core_get(playbook, "sections", empty_map)
+    operation_index = 0
     for op in operations:
         section_name = _core_get(op, "section", "")
         has_section_name = _core_ne(section_name, "")
@@ -2590,7 +2619,8 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
                             bullet_id = op_bullet_id
                             missing_bullet_id = _core_not(has_bullet_id)
                             if missing_bullet_id:
-                                bullet_id = section_name
+                                bullet_id_prefix = _core_string_format("{}-{}-{}", section_name, now, section_len)
+                                bullet_id = _core_string_format("{}-{}", bullet_id_prefix, operation_index)
                             else:
                                 pass
                             bullet = {}
@@ -2670,6 +2700,8 @@ def _ace_apply_curator_operations(playbook: Any, operations: Any, options: Any, 
                 pass
         else:
             pass
+        next_operation_index = _core_add(operation_index, 1)
+        operation_index = next_operation_index
     playbook["sections"] = sections
     recomputed = _ace_recompute_playbook_stats(playbook)
     recomputed["updatedAt"] = now
@@ -3032,46 +3064,42 @@ def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, refle
     empty_list = []
     reflection_present = _core_is_not_none(reflection)
     if reflection_present:
-        bullet_tags = _core_get(reflection, "bulletTags", empty_list)
+        bullet_tags = _ace_normalize_reflection_bullet_tags(reflection)
         for tag in bullet_tags:
             tag_id = _core_get(tag, "id", None)
-            tag_id_is_string = _core_type_is(tag_id, "string")
-            if tag_id_is_string:
-                already_used = _core_map_contains(used_ids, tag_id)
-                not_used = _core_not(already_used)
-                if not_used:
-                    located = _ace_locate_bullet_section(playbook, tag_id)
-                    located_found = _core_is_not_none(located)
-                    if located_found:
-                        located_section = _core_get(located, "section", None)
-                        located_id = _core_get(located, "id", None)
-                        tag_value = _core_get(tag, "tag", "")
-                        is_harmful = _core_eq(tag_value, "harmful")
-                        priority = "primary"
-                        if is_harmful:
-                            priority = "harmful"
-                        else:
-                            pass
-                        has_queue = _core_map_contains(section_queues, located_section)
-                        missing_queue = _core_not(has_queue)
-                        if missing_queue:
-                            new_queue = {}
-                            harmful_list = []
-                            new_queue["harmful"] = harmful_list
-                            primary_list = []
-                            new_queue["primary"] = primary_list
-                            generator_list = []
-                            new_queue["generator"] = generator_list
-                            section_queues[located_section] = new_queue
-                        else:
-                            pass
-                        queue = _core_get(section_queues, located_section, None)
-                        priority_list = _core_get(queue, priority, None)
-                        priority_list.append(located_id)
-                        queue[priority] = priority_list
-                        section_queues[located_section] = queue
+            tag_value = _core_get(tag, "tag", None)
+            is_harmful = _core_eq(tag_value, "harmful")
+            already_used = _core_map_contains(used_ids, tag_id)
+            not_used = _core_not(already_used)
+            if not_used:
+                located = _ace_locate_bullet_section(playbook, tag_id)
+                located_found = _core_is_not_none(located)
+                if located_found:
+                    located_section = _core_get(located, "section", None)
+                    located_id = _core_get(located, "id", None)
+                    priority = "primary"
+                    if is_harmful:
+                        priority = "harmful"
                     else:
                         pass
+                    has_queue = _core_map_contains(section_queues, located_section)
+                    missing_queue = _core_not(has_queue)
+                    if missing_queue:
+                        new_queue = {}
+                        harmful_list = []
+                        new_queue["harmful"] = harmful_list
+                        primary_list = []
+                        new_queue["primary"] = primary_list
+                        generator_list = []
+                        new_queue["generator"] = generator_list
+                        section_queues[located_section] = new_queue
+                    else:
+                        pass
+                    queue = _core_get(section_queues, located_section, None)
+                    priority_list = _core_get(queue, priority, None)
+                    priority_list.append(located_id)
+                    queue[priority] = priority_list
+                    section_queues[located_section] = queue
                 else:
                     pass
             else:
@@ -3155,6 +3183,38 @@ def _ace_resolve_curator_operation_targets(operations: Any, playbook: Any, refle
         else:
             pass
     return resolved
+
+
+def _ace_normalize_reflection_bullet_tags(reflection: Any) -> list[Any]:
+    _core_coverage_mark("_ace_normalize_reflection_bullet_tags")
+    empty_list = []
+    raw_bullet_tags = _core_get(reflection, "bulletTags", empty_list)
+    candidates = []
+    tags_is_list = _core_type_is(raw_bullet_tags, "list")
+    if tags_is_list:
+        candidates = raw_bullet_tags
+    else:
+        tags_is_object = _core_type_is(raw_bullet_tags, "object")
+        if tags_is_object:
+            candidates.append(raw_bullet_tags)
+        else:
+            pass
+    normalized = []
+    for tag in candidates:
+        tag_is_object = _core_type_is(tag, "object")
+        if tag_is_object:
+            tag_id = _core_get(tag, "id", None)
+            tag_id_is_string = _core_type_is(tag_id, "string")
+            tag_value = _core_get(tag, "tag", None)
+            tag_value_is_string = _core_type_is(tag_value, "string")
+            valid_tag_shape = _core_and(tag_id_is_string, tag_value_is_string)
+            if valid_tag_shape:
+                normalized.append(tag)
+            else:
+                pass
+        else:
+            pass
+    return normalized
 
 
 def _ace_dequeue_section_candidate(section_queues: Any, section: str, used_ids: Any, playbook: Any) -> Any:

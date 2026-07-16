@@ -40,6 +40,7 @@
         "effort": "high"
       },
       "thinking": {
+        "display": "summarized",
         "type": "adaptive"
       }
     }

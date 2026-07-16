@@ -446,6 +446,7 @@ def ax(signature, options: dict[str, Any] | None = None) -> AxGen:
 
 
 def _core_not(value): return not value
+def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right

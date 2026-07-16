@@ -1,0 +1,31 @@
+{
+  "expected_output": {
+    "answer": "The matching records are DOC-1 and row 42."
+  },
+  "expected_request_count": 3,
+  "input": {
+    "question": "Which records match?"
+  },
+  "kind": "agent_forward",
+  "name": "citations-hidden-nested-record-ids",
+  "observer_throws": true,
+  "options": {
+    "citations": {
+      "field": "sources",
+      "surface": "hidden"
+    },
+    "contextFields": []
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer the question\",{\"docs\":{\"a\":{\"id\":\"DOC-1\"}},\"rows\":[{\"id\":42}]}]}}"
+    },
+    {
+      "content": "{\"answer\":\"The matching records are DOC-1 and row 42.\",\"sources\":[\"DOC-1\",\"42\"]}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

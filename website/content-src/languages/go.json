@@ -107,6 +107,19 @@
     ]
   },
   "snippetGroups": {
+    "agents": {
+      "playbookEvolve": {
+        "sourcePath": "src/examples/go/optimization/agent_playbook_evolve.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "evolution, err := assistant.GetPlaybook().EvolveAgent(",
+          "    ctx, dataset,",
+          "    map[string]ax.Value{\"verify\": true, \"maxProposals\": 1, \"runtime\": runtime},",
+          ")"
+        ]
+      }
+    },
     "tools": {
       "basic": {
         "sourcePath": "packages/go/examples/axgen_scripted_client_tool/main.go",

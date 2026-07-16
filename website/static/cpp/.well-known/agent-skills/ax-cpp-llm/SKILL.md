@@ -39,7 +39,7 @@ auto llm = axllm::ai("openai", { {"apiKey", std::getenv("OPENAI_API_KEY")} });
 - AxAI: `axllm::ai`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxBalancer`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
 - Agents And RLM: `axllm::agent`, `axllm::AxAgent`
 - Flow: `axllm::flow`, `axllm::AxFlow`
-- Optimizers: `axllm::optimize`, `axllm::AxBootstrapFewShot`, `axllm::AxGEPA`, `axllm::OptimizerEngine`, `axllm::OptimizerEvaluator`
+- Optimizers: `axllm::optimize`, `axllm::playbook`, `axllm::AxPlaybook`, `axllm::AxBootstrapFewShot`, `axllm::AxGEPA`, `axllm::OptimizerEngine`, `axllm::OptimizerEvaluator`
 
 ## Guardrails
 

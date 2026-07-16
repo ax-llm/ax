@@ -127,6 +127,19 @@
     ]
   },
   "snippetGroups": {
+    "agents": {
+      "playbookEvolve": {
+        "sourcePath": "src/examples/python/optimization/agent-playbook-evolve.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "evolution = assistant.playbook().evolve(",
+          "    dataset,",
+          "    {\"verify\": True, \"maxProposals\": 1, \"runtime\": runtime},",
+          ")"
+        ]
+      }
+    },
     "tools": {
       "basic": [
         "from axllm import f, fn",

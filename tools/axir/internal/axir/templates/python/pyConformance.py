@@ -55,6 +55,7 @@ from .agent import (
     AxGEPA,
     OptimizerEngine,
     OptimizerEvaluator,
+    _agent_collect_covered_failure_signatures,
     _agent_context_fixture_result,
     _build_agent_eval_prediction,
     _build_optimization_judge_payload,
@@ -510,6 +511,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_realtime(fixture)
         elif kind == "agent_forward":
             _run_agent_forward(fixture)
+        elif kind == "agent_playbook_coverage":
+            _run_agent_playbook_coverage(fixture)
         elif kind == "agent_runtime_policy":
             _run_agent_runtime_policy(fixture)
         elif kind == "agent_runtime_session":
@@ -1546,6 +1549,16 @@ def _run_agent_forward(fixture):
     client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
     runtime = None
     agent_options = copy.deepcopy(fixture.get("options") or {})
+    observer_called = [False]
+    if fixture.get("observer_throws"):
+        def _throwing_citations_observer(_citations):
+            observer_called[0] = True
+            raise RuntimeError("citation observer failed")
+        citations = dict(agent_options.get("citations") or {})
+        citations["onCitations"] = _throwing_citations_observer
+        agent_options["citations"] = citations
+    if isinstance(agent_options.get("playbook"), dict):
+        agent_options["playbook"].setdefault("studentAI", client)
     if "runtime_script" in fixture:
         runtime_config = agent_options.get("runtime") if isinstance(agent_options.get("runtime"), dict) else {}
         runtime = ScriptedCodeRuntime(
@@ -1560,6 +1573,10 @@ def _run_agent_forward(fixture):
     ag = None
     try:
         ag = agent(fixture.get("signature"), agent_options)
+        if "set_instruction" in fixture:
+            ag.set_instruction(fixture.get("set_instruction") or "")
+        if "add_actor_instruction" in fixture:
+            ag.add_actor_instruction(fixture.get("add_actor_instruction") or "")
         if "set_state" in fixture:
             ag.set_state(fixture.get("set_state") or {})
         if "restore_runtime_state" in fixture:
@@ -1585,6 +1602,8 @@ def _run_agent_forward(fixture):
         raise FixtureError("expected agent forward to fail")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "agent output")
+    if fixture.get("observer_throws") and not observer_called[0]:
+        raise FixtureError("citation observer was not called")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
     if "expected_request_contains" in fixture:
@@ -1649,6 +1668,12 @@ def _assert_agent_trace(ag, fixture):
             _assert_subset(replayed, fixture["expected_replay_result_subset"], "agent replay")
         else:
             _assert_subset(replayed, {"ok": True, "status": "replayed"}, "agent replay")
+
+
+def _run_agent_playbook_coverage(fixture):
+    for case in fixture.get("cases") or []:
+        actual = _agent_collect_covered_failure_signatures(case.get("snapshot") or {})
+        _assert_equal(actual, case.get("expected_covered") or [], f"playbook coverage {case.get('name')}")
 
 
 def _run_agent_runtime_policy(fixture):
@@ -2381,11 +2406,16 @@ def _openai_fixture_client(fixture):
 
 
 def _assert_transport_request(fixture, transport):
-    if "expected_transport_request" not in fixture:
+    if "expected_transport_request" not in fixture and "expected_transport_json_absent" not in fixture:
         return
     if not transport.requests:
         raise FixtureError("expected provider transport request but none were sent")
-    _assert_subset(transport.requests[0], fixture["expected_transport_request"], "provider request")
+    if "expected_transport_request" in fixture:
+        _assert_subset(transport.requests[0], fixture["expected_transport_request"], "provider request")
+    request_json = transport.requests[0].get("json") or {}
+    for key in fixture.get("expected_transport_json_absent") or []:
+        if key in request_json:
+            raise FixtureError(f"provider request json unexpectedly contained {key!r}")
 
 
 def _legacy_response_to_chat_response(raw):

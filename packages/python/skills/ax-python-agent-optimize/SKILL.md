@@ -1,6 +1,6 @@
 ---
 name: "ax-python-agent-optimize"
-description: "Use when writing Python code with `axllm` for agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA."
+description: "Use when writing Python code with `axllm` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA."
 version: "23.0.1"
 ---
 # AxAgent Optimize For Python
@@ -10,6 +10,7 @@ This skill helps an agent write Python code with the generated Ax package `axllm
 ## When To Use
 
 - Optimize an AxAgent or reusable program component.
+- Mine grounded weaknesses from failed agent tasks and keep only playbook proposals that pass the verification gate.
 - Create evaluator callbacks and persist optimizer artifacts.
 - Keep optimization runs bounded by explicit budgets and dataset rows.
 
@@ -36,7 +37,7 @@ result = engine.optimize(request, evaluator)
 ## Relevant API Surface
 
 - Agents And RLM: `agent`, `AxAgent`
-- Optimizers: `optimize`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
+- Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`
 
 ## Guardrails
 

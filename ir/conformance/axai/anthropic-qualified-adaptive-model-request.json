@@ -1,0 +1,77 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "anthropic",
+      "model": "publishers/anthropic/models/claude-opus-4-7",
+      "tokens": {
+        "completion_tokens": 3,
+        "prompt_tokens": 7,
+        "total_tokens": 10
+      }
+    },
+    "remote_id": "msg_qualified_adaptive",
+    "results": [
+      {
+        "content": "Done.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "msg_qualified_adaptive",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_json_absent": ["temperature", "top_p", "top_k"],
+  "expected_transport_request": {
+    "json": {
+      "model": "publishers/anthropic/models/claude-opus-4-7",
+      "output_config": {
+        "effort": "medium"
+      },
+      "thinking": {
+        "display": "summarized",
+        "type": "adaptive"
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "publishers/anthropic/models/claude-opus-4-7",
+  "name": "anthropic-qualified-adaptive-model-request",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Think then answer.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "temperature": 0.4,
+      "thinkingTokenBudget": "medium",
+      "topK": 20,
+      "topP": 0.8
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "Done.",
+            "type": "text"
+          }
+        ],
+        "id": "msg_qualified_adaptive",
+        "model": "publishers/anthropic/models/claude-opus-4-7",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 7,
+          "output_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

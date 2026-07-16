@@ -1,6 +1,6 @@
 ---
 name: "ax-go-agent-optimize"
-description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent optimization, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA."
+description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA."
 version: "23.0.1"
 ---
 # AxAgent Optimize For Go
@@ -10,6 +10,7 @@ This skill helps an agent write Go code with the generated Ax package `github.co
 ## When To Use
 
 - Optimize an AxAgent or reusable program component.
+- Mine grounded weaknesses from failed agent tasks and keep only playbook proposals that pass the verification gate.
 - Create evaluator callbacks and persist optimizer artifacts.
 - Keep optimization runs bounded by explicit budgets and dataset rows.
 
@@ -34,7 +35,7 @@ result := engine.Optimize(request, evaluator)
 ## Relevant API Surface
 
 - Agents And RLM: `axllm.NewAgent`, `axllm.AxAgent`
-- Optimizers: `axllm.Optimize`, `axllm.AxBootstrapFewShot`, `axllm.AxGEPA`, `axllm.OptimizerEngine`, `axllm.OptimizerEvaluator`
+- Optimizers: `axllm.Optimize`, `axllm.Playbook`, `axllm.AxPlaybook`, `axllm.AxBootstrapFewShot`, `axllm.AxGEPA`, `axllm.OptimizerEngine`, `axllm.OptimizerEvaluator`
 
 ## Guardrails
 

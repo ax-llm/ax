@@ -58,7 +58,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `go run ./examples/optimizer_artifact`: optimizer artifact save/load/apply lifecycle
 - `go run ./examples/gepa_local_optimizer`: local GEPA optimizer artifact generation
 - `go run ./examples/ace_playbook`: grow an evolving context playbook with `Playbook()` (offline, scripted client)
-- `go run ./examples/agent_playbook`: grow an evolving context playbook bound to an agent stage with `agent.Playbook()` (offline, scripted client)
+- `go run ./examples/agent_playbook`: attach a seeded agent playbook, exercise stage instructions and citations, learn from run-end failures, and verify accept/rollback evolution (offline, scripted client)
 - `go run ./examples/mcp_scripted_tools`: MCP tool discovery and invocation through a scripted transport
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:

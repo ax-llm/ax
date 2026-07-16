@@ -2581,6 +2581,11 @@ pub struct AxAgent {
     llm_query_signature: String,
     llm_query_instruction: Value,
     execution_context: Option<AxExecutionContext>,
+    playbook_config: Value,
+    playbook_snapshot: Value,
+    playbook_instruction_base: String,
+    citations_observer: Option<Box<dyn FnMut(Value)>>,
+    playbook_observer: Option<Box<dyn FnMut(Value)>>,
 }
 
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
@@ -2679,7 +2684,26 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         if raw.is_null() { json!(2) } else { core_value_to_json(&raw) }
     };
     let distiller_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("distiller_description"), CoreValue::from("")));
-    let executor_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("executor_description"), CoreValue::from("")));
+    let base_executor_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("executor_description"), CoreValue::from("")));
+    let playbook_config = core_value_to_json(&core_get(&options, &CoreValue::from("playbook"), CoreValue::Null));
+    let mut playbook_snapshot = Value::Null;
+    let mut executor_instruction = base_executor_instruction.clone();
+    if !playbook_config.is_null() && playbook_config.as_bool() != Some(false) {
+        let config = playbook_config.as_object().cloned().unwrap_or_default();
+        let seed = config.get("seed").cloned().or_else(|| {
+            if config.contains_key("playbook") || config.contains_key("artifact") { Some(playbook_config.clone()) } else { config.get("initialPlaybook").cloned().or_else(|| config.get("initial_playbook").cloned()) }
+        });
+        playbook_snapshot = match seed {
+            Some(value) if value.get("playbook").is_some() => value,
+            Some(value) => json!({"playbook": value}),
+            None => json!({"playbook": core_value_to_json(&_ace_empty_playbook(&[CoreValue::Null, CoreValue::from("")])?)}),
+        };
+        let rendered = core_value_to_json(&_ace_render_playbook(&[core_value_from_json(playbook_snapshot.get("playbook").unwrap_or(&Value::Null))])?)
+            .as_str().unwrap_or_default().to_string();
+        if config.get("apply").and_then(Value::as_bool) != Some(false) {
+            executor_instruction = Value::String(playbook_compose_instruction(base_executor_instruction.as_str().unwrap_or_default(), &rendered));
+        }
+    }
     let responder_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("responder_description"), CoreValue::from("")));
     let llm_query_signature = core_get(
         &state,
@@ -2705,6 +2729,11 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         llm_query_signature,
         llm_query_instruction,
         execution_context: None,
+        playbook_config,
+        playbook_snapshot,
+        playbook_instruction_base: base_executor_instruction.as_str().unwrap_or_default().to_string(),
+        citations_observer: None,
+        playbook_observer: None,
     })
 }
 
@@ -2713,6 +2742,36 @@ impl AxAgent {
         let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
         let rebuilt = agent_with_core_options(spec, options)?;
         *self = rebuilt;
+        Ok(self)
+    }
+
+    fn set_executor_instruction(&mut self, instruction: &str) {
+        if let CoreValue::Host(host) = &self.executor {
+            if let Some(gen) = host.stage_gen_rc() {
+                gen.borrow_mut().set_instruction(instruction);
+            }
+        }
+    }
+
+    pub fn get_instruction(&self) -> String {
+        self.state_json("stage_instruction").as_str().unwrap_or_default().to_string()
+    }
+
+    pub fn set_instruction(&mut self, instruction: &str) -> AxResult<&mut Self> {
+        let composed = _agent_set_instruction(&[
+            self.state.clone(),
+            CoreValue::from(instruction),
+        ])?.text();
+        self.set_executor_instruction(&composed);
+        Ok(self)
+    }
+
+    pub fn add_actor_instruction(&mut self, addendum: &str) -> AxResult<&mut Self> {
+        let composed = _agent_add_actor_instruction(&[
+            self.state.clone(),
+            CoreValue::from(addendum),
+        ])?.text();
+        self.set_executor_instruction(&composed);
         Ok(self)
     }
 
@@ -2766,7 +2825,133 @@ impl AxAgent {
                 core_value_from_json(&options),
             ])
         })?;
-        Ok(core_value_to_json(&result))
+        drop(chat);
+        let output = core_value_to_json(&result);
+        let last_citations = self.state_json("last_citations");
+        if let Some(observer) = self.citations_observer.as_mut() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| observer(last_citations)));
+        }
+        self.learn_playbook_failures(client, &output);
+        Ok(output)
+    }
+
+    pub fn set_citations_observer<F>(&mut self, observer: F) -> &mut Self
+    where
+        F: FnMut(Value) + 'static,
+    {
+        self.citations_observer = Some(Box::new(observer));
+        self
+    }
+
+    pub fn set_playbook_observer<F>(&mut self, observer: F) -> &mut Self
+    where
+        F: FnMut(Value) + 'static,
+    {
+        self.playbook_observer = Some(Box::new(observer));
+        self
+    }
+
+    fn learn_playbook_failures<C: AxAIClient>(&mut self, client: &mut C, output: &Value) {
+        if self.playbook_config.is_null() || self.playbook_config.as_bool() == Some(false) { return; }
+        let _ = (|| -> AxResult<()> {
+            let config = self.playbook_config.as_object().cloned().unwrap_or_default();
+            if config.get("learn").and_then(Value::as_bool) == Some(false) { return Ok(()); }
+            let signals = self.state_json("failure_signals").as_array().cloned().unwrap_or_default();
+            if signals.is_empty() { return Ok(()); }
+            let learn_config = config.get("learn").and_then(Value::as_object);
+            let min_signals = learn_config.and_then(|m| m.get("minSignals").or_else(|| m.get("min_signals"))).and_then(Value::as_u64).unwrap_or(1) as usize;
+            if signals.len() < min_signals { return Ok(()); }
+            let mut shown = signals;
+            let covered = core_value_to_json(&_agent_collect_covered_failure_signatures(&[
+                core_value_from_json(&self.playbook_snapshot),
+            ])?)
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+            if learn_config.and_then(|m| m.get("dedupe")).and_then(Value::as_bool) != Some(false) {
+                shown.retain(|signal| !covered.iter().any(|known| known == signal.get("signature").unwrap_or(&Value::Null)));
+            }
+            if shown.is_empty() { return Ok(()); }
+            shown.truncate(12);
+            let feedback = format!(
+                "Agent run failures to avoid:\n{}\nCurate ONE bounded avoidance rule into failures_to_avoid.",
+                shown.iter().map(|signal| format!(
+                    "- [{}] {}: {}",
+                    signal.get("kind").and_then(Value::as_str).unwrap_or("error_turn"),
+                    signal.get("signature").and_then(Value::as_str).unwrap_or("runtime_error"),
+                    signal.get("detail").and_then(Value::as_str).unwrap_or("The agent repeated a failing action.")
+                )).collect::<Vec<_>>().join("\n")
+            );
+            let signatures = shown.iter().filter_map(|signal| signal.get("signature").cloned()).collect::<Vec<_>>();
+            let task = self.state_json("options").get("instruction").cloned().unwrap_or_else(|| json!("agent run"));
+            let reflector_program: Rc<RefCell<Option<AxGen>>> = Rc::new(RefCell::new(None));
+            let curator_program: Rc<RefCell<Option<AxGen>>> = Rc::new(RefCell::new(None));
+            let reflector_slot = reflector_program.clone();
+            let reflector: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
+                let request = json!({
+                    "question": playbook_stringify(payload.get("question").unwrap_or(&Value::Null)),
+                    "generator_answer": playbook_stringify(payload.get("generator_answer").unwrap_or(&Value::Null)),
+                    "playbook": payload.get("playbook").cloned().unwrap_or(Value::Null),
+                    "feedback": payload.get("feedback").cloned().unwrap_or(Value::Null),
+                    "previous_reflection": playbook_stringify(payload.get("previous_reflection").unwrap_or(&Value::Null)),
+                });
+                playbook_scoped_forward(&reflector_slot, ACE_REFLECTOR_SIGNATURE, request)
+            });
+            let curator_slot = curator_program.clone();
+            let curator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |payload: &Value| {
+                let request = json!({
+                    "playbook": payload.get("playbook").cloned().unwrap_or(Value::Null),
+                    "reflection": playbook_stringify(payload.get("reflection").unwrap_or(&Value::Null)),
+                    "question_context": playbook_stringify(payload.get("question_context").unwrap_or(&Value::Null)),
+                    "token_budget": payload.get("token_budget").cloned().unwrap_or_else(|| json!(1024)),
+                });
+                playbook_scoped_forward(&curator_slot, ACE_CURATOR_SIGNATURE, request)
+            });
+            let output_for_generator = output.clone();
+            let generator: Box<dyn FnMut(&Value) -> Value> = Box::new(move |_| output_for_generator.clone());
+            let mut engine_options = Map::new();
+            for key in ["maxReflectorRounds", "maxSectionSize", "allowDynamicSections"] {
+                if let Some(value) = config.get(key).filter(|value| !value.is_null()) {
+                    engine_options.insert(key.into(), value.clone());
+                }
+            }
+            if !engine_options.contains_key("maxReflectorRounds") {
+                engine_options.insert("maxReflectorRounds".into(), json!(1));
+            }
+            let mut engine = AxACE::new(Value::Object(engine_options))
+                .with_callables(Some(reflector), Some(curator), Some(generator));
+            engine.hydrate(&self.playbook_snapshot);
+            let args = json!({
+                "example": {"task": task, "failureSignatures": signatures},
+                "prediction": output,
+                "feedback": feedback,
+            });
+            let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+                if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+            };
+            let before = stable_stringify(&self.playbook_snapshot["playbook"]);
+            let update_result = with_core_client(&mut chat, || engine.apply_online_update(&args))?;
+            self.playbook_snapshot = json!({
+                "playbook": engine.get_playbook(),
+                "artifact": engine.get_artifact(),
+            });
+            if config.get("apply").and_then(Value::as_bool) != Some(false) {
+                let rendered = core_value_to_json(&_ace_render_playbook(&[core_value_from_json(&self.playbook_snapshot["playbook"])])?).as_str().unwrap_or_default().to_string();
+                let composed = playbook_compose_instruction(&self.playbook_instruction_base, &rendered);
+                self.set_executor_instruction(&composed);
+            }
+            if let Some(observer) = self.playbook_observer.as_mut() {
+                let update = json!({
+                    "status": if stable_stringify(&self.playbook_snapshot["playbook"]) == before { "unchanged" } else { "updated" },
+                    "snapshot": self.playbook_snapshot.clone(),
+                    "signals": shown,
+                    "feedback": feedback,
+                    "result": update_result,
+                });
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| observer(update)));
+            }
+            Ok(())
+        })();
     }
 
     fn state_json(&self, key: &str) -> Value {
@@ -2847,37 +3032,17 @@ impl AxAgent {
     }
 
     pub fn get_optimizable_components(&self) -> AxResult<Vec<Value>> {
-        let mut components = Vec::new();
+        let mut child_components = Vec::new();
         for stage in [&self.distiller, &self.executor, &self.responder] {
             if let Value::Array(items) = core_value_to_json(&core_program_components(&[stage.clone()])?) {
-                components.extend(items);
+                child_components.extend(items);
             }
         }
-        components.push(core_value_to_json(&_optimization_component(&[
-            CoreValue::from("root.agent.runtime"),
-            CoreValue::from("root.agent"),
-            CoreValue::from("runtime-policy"),
-            core_value_from_json(&self.get_runtime_contract()),
-            CoreValue::from("Agent runtime-language metadata and code-field policy."),
-            core_value_from_json(&json!(["Keep code field names aligned with the selected runtime language."])),
-            CoreValue::new_list(),
-            CoreValue::Bool(true),
-            CoreValue::from("json"),
-            core_value_from_json(&json!({"component": "runtime_contract"})),
-        ])?));
-        components.push(core_value_to_json(&_optimization_component(&[
-            CoreValue::from("root.agent.policy"),
-            CoreValue::from("root.agent"),
-            CoreValue::from("agent-policy"),
-            core_value_from_json(&self.get_policy()),
-            CoreValue::from("Actor primitive, discovery, delegation, and prompt placement policy."),
-            core_value_from_json(&json!(["Do not expose protocol-only actions as actor primitives."])),
-            core_value_from_json(&json!(["root.agent.runtime"])),
-            CoreValue::Bool(true),
-            CoreValue::from("json"),
-            core_value_from_json(&json!({"component": "policy_registry"})),
-        ])?));
-        Ok(components)
+        let components = _agent_get_optimizable_components(&[
+            self.state.clone(),
+            core_value_from_json(&Value::Array(child_components)),
+        ])?;
+        Ok(core_value_to_json(&components).as_array().cloned().unwrap_or_default())
     }
 
     pub fn apply_optimized_components(&mut self, component_map: &Value) -> AxResult<()> {
@@ -2890,14 +3055,11 @@ impl AxAgent {
         core_program_apply_components(&[self.distiller.clone(), component_core.clone()])?;
         core_program_apply_components(&[self.executor.clone(), component_core.clone()])?;
         core_program_apply_components(&[self.responder.clone(), component_core.clone()])?;
-        if let Some(value) = component_map.get("root.agent.runtime").filter(|value| value.is_object()) {
-            core_set(&self.state, CoreValue::from("runtime_contract"), core_value_from_json(value))?;
-        }
-        if let Some(value) = component_map.get("root.agent.policy").filter(|value| value.is_object()) {
-            core_set(&self.state, CoreValue::from("policy"), core_value_from_json(value))?;
-        }
-        let metadata = _agent_optimizer_metadata(&[self.state.clone()])?;
-        core_set(&self.state, CoreValue::from("optimizer_metadata"), metadata)?;
+        let composed = _agent_apply_optimized_components(&[
+            self.state.clone(),
+            component_core,
+        ])?.text();
+        self.set_executor_instruction(&composed);
         Ok(())
     }
 
@@ -3261,6 +3423,9 @@ impl AxAgent {
         teacher: Option<Rc<RefCell<T>>>,
         options: Value,
     ) -> AxResult<AxPlaybook<S, T>> {
+        let options = if options.as_object().map(|m| m.is_empty()).unwrap_or(true) && self.playbook_config.is_object() {
+            self.playbook_config.clone()
+        } else { options };
         let target = options.get("target").and_then(Value::as_str).unwrap_or("actor");
         let stage = if target == "responder" { &self.responder } else { &self.executor };
         let gen_rc = if let CoreValue::Host(h) = stage {
@@ -3273,7 +3438,14 @@ impl AxAgent {
         if options.get("apply").and_then(Value::as_bool) == Some(false) {
             pb.set_apply_hook(Box::new(|_| {}));
         }
+        if self.playbook_snapshot.get("playbook").is_some() {
+            pb.load(&self.playbook_snapshot);
+        }
         Ok(pb)
+    }
+
+    pub fn get_playbook_state(&self) -> Option<Value> {
+        if self.playbook_snapshot.is_null() { None } else { Some(self.playbook_snapshot.clone()) }
     }
 }
 
@@ -4153,9 +4325,17 @@ impl AxACE {
         let rounds = self.int_config("maxReflectorRounds", 1).max(1);
         let mut previous = Value::Null;
         for _ in 0..rounds {
-            let reflection = self.run_reflector(example, generator_output, feedback, &previous);
+            let mut reflection = self.run_reflector(example, generator_output, feedback, &previous);
             if reflection.is_null() || reflection.as_object().map(|m| m.is_empty()).unwrap_or(true) {
                 break;
+            }
+            let normalized_tags = ace_call_core(
+                _ace_normalize_reflection_bullet_tags,
+                &[reflection.clone()],
+            )
+            .unwrap_or_else(|_| json!([]));
+            if let Some(object) = reflection.as_object_mut() {
+                object.insert("bulletTags".to_string(), normalized_tags);
             }
             previous = reflection.clone();
             let error_text = reflection
@@ -4270,7 +4450,8 @@ impl AxACE {
     }
 
     fn apply_bullet_tags(&mut self, reflection: &Value) -> AxResult<()> {
-        if let Some(tags) = reflection.get("bulletTags").and_then(Value::as_array) {
+        let normalized = ace_call_core(_ace_normalize_reflection_bullet_tags, &[reflection.clone()])?;
+        if let Some(tags) = normalized.as_array() {
             for tag in tags {
                 self.playbook = ace_call_core(
                     _ace_update_bullet_feedback,
@@ -4343,6 +4524,7 @@ impl AxACE {
                 "epoch": epoch,
                 "exampleIndex": index,
                 "operations": curator_result.as_ref().and_then(|cr| cr.get("operations")).cloned().unwrap_or(json!([])),
+                "updatedBulletIds": Value::Array(applied_ids.clone()),
             }));
         }
         Ok(())
@@ -4447,6 +4629,7 @@ impl AxACE {
                 "epoch": -1,
                 "exampleIndex": (self.generator_history.len() as i64) - 1,
                 "operations": curator_result.as_ref().and_then(|cr| cr.get("operations")).cloned().unwrap_or(json!([])),
+                "updatedBulletIds": Value::Array(applied_ids.clone()),
             }));
         }
         Ok(curator_result.unwrap_or(Value::Null))
@@ -4476,6 +4659,19 @@ token_budget?:number \"Approximate token budget for curator response\" \
 -> reasoning:string \"Justification for the proposed updates\", \
 operations:json \"List of operations with type/section/content fields\"";
 
+const AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE: &str =
+    "clusterSignature:string \"Shared error signature of the cluster\", \
+taskSummaries:string \"One line per failing task\", \
+actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", \
+functionCallSummary?:string \"Digest of runtime/tool calls\", \
+toolErrors?:string \"Tool errors observed\", \
+currentPlaybook?:string \"Current failure-avoidance playbook\" \
+-> weaknessDescription:string \"Recurring weakness\", \
+rootCause:string \"Mechanical root cause\", \
+proposedGuidance:string \"One concise imperative avoidance rule\", \
+evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", \
+configRecommendations?:json \"Setup suggestions no prompt text can fix\"";
+
 fn playbook_compose_instruction(base: &str, rendered: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
     let base = base.trim();
@@ -4497,6 +4693,114 @@ fn playbook_stringify(value: &Value) -> String {
     }
 }
 
+fn playbook_collapse(value: &str) -> String {
+    regex::Regex::new(r"\s+").unwrap().replace_all(value, " ").trim().to_string()
+}
+
+fn playbook_error_signature(value: &str) -> String {
+    let pattern = regex::Regex::new(r"(?m)^(\w+Error:\s*.{0,60})").unwrap();
+    pattern.captures(value).and_then(|captures| captures.get(1)).map(|value| value.as_str().to_string())
+        .unwrap_or_else(|| value.chars().take(80).collect())
+}
+
+fn playbook_record_signature(record: &Value) -> String {
+    let prediction = record.get("prediction").unwrap_or(&Value::Null);
+    let mut counts: Vec<(String, u64)> = Vec::new();
+    for signal in prediction.get("failureSignals").and_then(Value::as_array).cloned().unwrap_or_default() {
+        let signature = signal.get("signature").and_then(Value::as_str).unwrap_or("behavioral:no_error").to_string();
+        let occurrences = signal.get("occurrences").and_then(Value::as_u64).unwrap_or(1);
+        if let Some((_, count)) = counts.iter_mut().find(|(candidate, _)| candidate == &signature) {
+            *count += occurrences;
+        } else {
+            counts.push((signature, occurrences));
+        }
+    }
+    let mut best: Option<(String, u64)> = None;
+    for (signature, count) in counts {
+        if best.as_ref().map(|(_, current)| count > *current).unwrap_or(true) {
+            best = Some((signature, count));
+        }
+    }
+    if let Some((signature, _)) = best { return signature; }
+    if let Some(error) = prediction.get("toolErrors").and_then(Value::as_array).and_then(|errors| errors.first()).and_then(Value::as_str) {
+        return error.lines().next().unwrap_or(error).chars().take(100).collect();
+    }
+    if let Some(error) = record.get("error").and_then(Value::as_str) { return playbook_error_signature(error); }
+    let action_log = prediction.get("actionLog").map(|value| value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string())).unwrap_or_default();
+    let pattern = regex::Regex::new(r"(?m)^\s*(\w+Error:\s*.{0,60})").unwrap();
+    if let Some(value) = pattern.captures(&action_log).and_then(|captures| captures.get(1)) {
+        return playbook_error_signature(value.as_str());
+    }
+    "behavioral:no_error".to_string()
+}
+
+fn playbook_failure_excerpt(record: &Value, signature: &str) -> String {
+    if let Some(error) = record.get("error").and_then(Value::as_str) { return format!("Run threw: {error}"); }
+    let action_log = record.get("prediction").and_then(|prediction| prediction.get("actionLog")).map(|value| value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string())).unwrap_or_default();
+    if action_log.chars().count() <= 2000 { return action_log; }
+    let needle = signature.chars().take(40).collect::<String>();
+    let hit = action_log.find(&needle);
+    if hit.is_none() { return action_log.chars().rev().take(2000).collect::<String>().chars().rev().collect(); }
+    let hit_chars = action_log[..hit.unwrap()].chars().count();
+    let start = hit_chars.saturating_sub(1000);
+    action_log.chars().skip(start).take(2000).collect()
+}
+
+fn run_agent_playbook_batch<C: AxAIClient>(
+    agent: &mut AxAgent,
+    client: &mut C,
+    tasks: &[Value],
+    options: &Value,
+    runs_per_task: usize,
+    remaining: &std::cell::Cell<usize>,
+    threshold: f64,
+) -> AxResult<(Vec<Value>, f64, bool)> {
+    let mut records = Vec::new();
+    let mut weighted_sum = 0.0;
+    let mut weight_sum = 0.0;
+    let mut exhausted = false;
+    for (task_index, raw) in tasks.iter().enumerate() {
+        let task = if raw.is_object() { raw.clone() } else { json!({"input":raw}) };
+        let mut prediction = Value::Null;
+        let mut last_error: Option<String> = None;
+        let mut score_sum = 0.0;
+        let mut completed_runs = 0usize;
+        for _ in 0..runs_per_task {
+            if remaining.get() == 0 { exhausted = true; break; }
+            remaining.set(remaining.get() - 1);
+            let score = match agent.evaluate_optimization_task(client, task.clone(), options.clone()) {
+                Ok(value) => {
+                    prediction = value;
+                    let raw_score = task.get("metric_score").or_else(|| task.get("scores")).or_else(|| task.get("score")).cloned().unwrap_or_else(|| if prediction.get("completionType").and_then(Value::as_str) == Some("error") { json!(0) } else { json!(1) });
+                    let value = core_value_to_json(&_scalarize_optimization_scores(&[
+                        _normalize_optimization_metric_scores(&[core_value_from_json(&raw_score)])?,
+                        core_value_from_json(options),
+                    ])?).as_f64().unwrap_or(0.0);
+                    if value.is_finite() { value } else { 0.0 }
+                }
+                Err(error) => {
+                    last_error = Some(error.message);
+                    0.0
+                }
+            };
+            score_sum += score;
+            completed_runs += 1;
+        }
+        if completed_runs == 0 { break; }
+        let score = score_sum / completed_runs as f64;
+        let weight = task.get("weight").and_then(Value::as_f64).unwrap_or(1.0);
+        weighted_sum += weight * score;
+        weight_sum += weight;
+        let mut record = json!({"task":task,"index":task_index,"score":score,"passed":score >= threshold && prediction.get("completionType").and_then(Value::as_str)==Some("final")});
+        if !prediction.is_null() { record["prediction"] = prediction; }
+        else if let Some(error) = last_error { record["error"] = json!(error); }
+        records.push(record);
+        if completed_runs < runs_per_task { break; }
+    }
+    if records.len() < tasks.len() { exhausted = true; }
+    Ok((records, if weight_sum == 0.0 { 0.0 } else { weighted_sum / weight_sum }, exhausted))
+}
+
 fn playbook_option<'a>(options: &'a Value, keys: &[&str]) -> Option<&'a Value> {
     for key in keys {
         if let Some(value) = options.get(*key) {
@@ -4506,6 +4810,35 @@ fn playbook_option<'a>(options: &'a Value, keys: &[&str]) -> Option<&'a Value> {
         }
     }
     None
+}
+
+fn playbook_scoped_forward(
+    slot: &Rc<RefCell<Option<AxGen>>>,
+    signature: &str,
+    request: Value,
+) -> Value {
+    if slot.borrow().is_none() {
+        match AxGen::new(signature) {
+            Ok(gen) => *slot.borrow_mut() = Some(gen),
+            Err(_) => return Value::Null,
+        }
+    }
+    let mut borrowed = slot.borrow_mut();
+    let Some(gen) = borrowed.as_mut() else {
+        return Value::Null;
+    };
+    let state = match core_gen_state(gen) {
+        Ok(state) => state,
+        Err(_) => return Value::Null,
+    };
+    let result = _forward_impl(&[
+        state.clone(),
+        CoreValue::Null,
+        core_value_from_json(&request),
+        CoreValue::Null,
+    ]);
+    core_gen_writeback(gen, &state);
+    result.map(|value| core_value_to_json(&value)).unwrap_or(Value::Null)
 }
 
 /// A live, evolving context playbook bound to a program. Mirrors the TypeScript
@@ -4740,6 +5073,154 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
             "bestScore": result.get("bestScore").cloned().unwrap_or_else(|| json!(0)),
             "playbook": result.get("playbook").cloned().unwrap_or(Value::Null),
         }))
+    }
+
+    /// Verified agent-layer playbook learning from train/validation task sets.
+    /// The agent is passed explicitly because Rust cannot safely store a
+    /// self-reference inside the stage-bound playbook handle.
+    pub fn evolve_agent<C: AxAIClient>(
+        &mut self,
+        agent: &mut AxAgent,
+        client: &mut C,
+        dataset: &Value,
+        options: &Value,
+    ) -> AxResult<Value> {
+        let options = if options.is_object() { options.clone() } else { json!({}) };
+        let normalized = core_value_to_json(&_normalize_optimization_dataset(&[core_value_from_json(dataset)])?);
+        let train = normalized.get("train").and_then(Value::as_array).cloned().unwrap_or_default();
+        let validation = normalized.get("validation").and_then(Value::as_array).cloned().unwrap_or_default();
+        if train.is_empty() { return Err(AxError::new("optimize", "AxAgent.playbook().evolve_agent(): at least one training task is required.")); }
+        let threshold = options.get("scoreThreshold").or_else(|| options.get("score_threshold")).and_then(Value::as_f64).unwrap_or(0.7);
+        let min_gain = options.get("minHeldInGain").or_else(|| options.get("min_held_in_gain")).and_then(Value::as_f64).unwrap_or(0.05);
+        let epsilon = options.get("epsilon").and_then(Value::as_f64).unwrap_or(0.01);
+        let max_proposals = options.get("maxProposals").or_else(|| options.get("max_proposals")).and_then(Value::as_u64).unwrap_or(4).max(1) as usize;
+        let verify = options.get("verify").and_then(Value::as_bool) != Some(false);
+        let runs_per_task = options.get("runsPerTask").or_else(|| options.get("runs_per_task")).and_then(Value::as_u64).unwrap_or(1).max(1) as usize;
+        let dataset_size = (train.len() + validation.len()) * runs_per_task;
+        let default_budget = 100usize.max((max_proposals + 1) * dataset_size);
+        let max_metric_calls = options.get("maxMetricCalls").or_else(|| options.get("max_metric_calls")).and_then(Value::as_u64).unwrap_or(default_budget as u64).max(1) as usize;
+        let remaining = std::cell::Cell::new(max_metric_calls);
+        let (baseline_records, baseline_in, _) = run_agent_playbook_batch(agent, client, &train, &options, runs_per_task, &remaining, threshold)?;
+        let mut held_in = baseline_in;
+        let mut held_out = if validation.is_empty() { None } else { Some(run_agent_playbook_batch(agent, client, &validation, &options, runs_per_task, &remaining, threshold)?.1) };
+        let baseline_out = held_out;
+        let mut clusters: Vec<(String, Vec<Value>)> = Vec::new();
+        for record in &baseline_records {
+            let prediction = record.get("prediction").unwrap_or(&Value::Null);
+            let score = record.get("score").and_then(Value::as_f64).unwrap_or(0.0);
+            let completion = prediction.get("completionType").and_then(Value::as_str).unwrap_or("");
+            if record.get("error").is_none() && score >= threshold && completion != "askClarification" { continue; }
+            let signature = playbook_record_signature(record);
+            if let Some((_, records)) = clusters.iter_mut().find(|(candidate, _)| candidate == &signature) {
+                records.push(record.clone());
+            } else {
+                clusters.push((signature, vec![record.clone()]));
+            }
+        }
+        let mut ranked = clusters;
+        ranked.sort_by(|left, right| {
+            let severity = |records: &Vec<Value>| records.iter().map(|record| 1.0 - record.get("score").and_then(Value::as_f64).unwrap_or(0.0)).sum::<f64>();
+            severity(&right.1).partial_cmp(&severity(&left.1)).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        ranked.truncate(max_proposals);
+        let initial = self.get_state();
+        let mut weaknesses = Vec::new();
+        let mut outcomes = Vec::new();
+        for (index, (signature, records)) in ranked.into_iter().enumerate() {
+            let selected = records.iter().take(4).collect::<Vec<_>>();
+            let bodies = selected.iter().map(|record| playbook_failure_excerpt(record, &signature)).collect::<Vec<_>>();
+            if bodies.iter().all(|body| playbook_collapse(body).is_empty()) { continue; }
+            let excerpts = bodies.iter().enumerate().map(|(record_index, body)| format!("--- run {} ---\n{}", record_index + 1, body)).collect::<Vec<_>>().join("\n\n");
+            let task_summaries = selected.iter().enumerate().map(|(record_index, record)| {
+                let task = record.get("task").unwrap_or(&Value::Null);
+                let label = task.get("id").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("#{}", record_index + 1));
+                let mut input = task.get("input").cloned().unwrap_or(Value::Null).to_string();
+                input = input.chars().take(240).collect();
+                format!("- {label} (score {:.2}): {input}", record.get("score").and_then(Value::as_f64).unwrap_or(0.0))
+            }).collect::<Vec<_>>().join("\n");
+            let function_calls = selected.iter().flat_map(|record| record.get("prediction").and_then(|prediction| prediction.get("functionCalls")).and_then(Value::as_array).cloned().unwrap_or_default()).take(20).map(|call| call.to_string()).collect::<Vec<_>>();
+            let tool_errors = selected.iter().flat_map(|record| record.get("prediction").and_then(|prediction| prediction.get("toolErrors")).and_then(Value::as_array).cloned().unwrap_or_default()).take(10).map(|error| error.as_str().map(str::to_string).unwrap_or_else(|| error.to_string())).collect::<Vec<_>>();
+            let mut request = json!({"clusterSignature":signature.clone(),"taskSummaries":task_summaries,"actionLogExcerpts":excerpts.clone()});
+            if !function_calls.is_empty() { request["functionCallSummary"] = json!(function_calls.join("\n")); }
+            if !tool_errors.is_empty() { request["toolErrors"] = json!(tool_errors.join("\n")); }
+            let current_playbook = self.render();
+            if !current_playbook.trim().is_empty() { request["currentPlaybook"] = json!(current_playbook); }
+            let mut miner = match AxGen::new(AGENT_PLAYBOOK_WEAKNESS_MINER_SIGNATURE) { Ok(miner) => miner, Err(_) => continue };
+            miner.options = json!({"id":"agent.playbook.weakness-miner","instruction":"Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."});
+            let mined = match miner.forward(client, request) { Ok(mined) => mined, Err(_) => continue };
+            let raw_quotes = mined.get("evidenceQuotes").cloned().unwrap_or(Value::Null);
+            let quote_candidates = match raw_quotes { Value::Array(values) => values, Value::Null => Vec::new(), value => vec![value] };
+            let haystack = playbook_collapse(&excerpts);
+            let evidence = quote_candidates.into_iter().filter_map(|quote| {
+                let text = quote.as_str().map(str::to_string).unwrap_or_else(|| quote.to_string());
+                let needle = playbook_collapse(&text);
+                if !needle.is_empty() && haystack.contains(&needle) { Some(Value::String(text)) } else { None }
+            }).collect::<Vec<_>>();
+            if evidence.is_empty() { continue; }
+            let task_ids = records.iter().enumerate().map(|(record_index, record)| {
+                let task_index = record.get("index").and_then(Value::as_u64).unwrap_or(record_index as u64);
+                record.get("task").and_then(|task| task.get("id")).cloned().unwrap_or_else(|| json!(format!("task-{task_index}")))
+            }).collect::<Vec<_>>();
+            let raw_recommendations = mined.get("configRecommendations").cloned().unwrap_or(Value::Null);
+            let recommendations = match raw_recommendations { Value::Array(values) => values, Value::Null => Vec::new(), value => vec![value] }.into_iter().map(|value| Value::String(value.as_str().map(str::to_string).unwrap_or_else(|| value.to_string()))).collect::<Vec<_>>();
+            let weakness = json!({
+                "id":format!("weakness-{}",index+1),
+                "clusterSignature":signature.clone(),
+                "description":mined.get("weaknessDescription").and_then(Value::as_str).unwrap_or(""),
+                "rootCause":mined.get("rootCause").and_then(Value::as_str).unwrap_or(""),
+                "proposedGuidance":mined.get("proposedGuidance").and_then(Value::as_str).unwrap_or(""),
+                "evidenceQuotes":evidence,
+                "taskIds":task_ids,
+                "configRecommendations":recommendations,
+            });
+            weaknesses.push(weakness.clone());
+            let mut proposal = json!({"weaknessId":weakness["id"],"clusterSignature":signature.clone(),"feedback":""});
+            let required_calls = (train.len() + validation.len()) * runs_per_task;
+            if verify && remaining.get() < required_calls {
+                outcomes.push(json!({"proposal":proposal,"accepted":false,"reason":"metric_budget exhausted before validation","heldIn":{"before":held_in,"after":held_in}}));
+                continue;
+            }
+            let before = self.get_state();
+            let quote_lines = weakness.get("evidenceQuotes").and_then(Value::as_array).cloned().unwrap_or_default().into_iter().take(3).map(|quote| format!("- {}", quote.as_str().unwrap_or(""))).collect::<Vec<_>>().join("\n");
+            let feedback = format!("A recurring agent weakness was diagnosed from real failed runs.\n\nWeakness: {}\nRoot cause: {}\nError signature: [{}]\nGrounding excerpts:\n{}\n\nCurate ONE durable rule into the playbook (suggested section: \"failures_to_avoid\"): {}\nUPDATE an existing bullet if one already covers this failure mode.", weakness["description"].as_str().unwrap_or(""), weakness["rootCause"].as_str().unwrap_or(""), signature, quote_lines, weakness["proposedGuidance"].as_str().unwrap_or(""));
+            proposal["feedback"] = json!(feedback.clone());
+            if let Err(error) = self.update(&json!({"example":{"task":"playbook.evolve(): repair a diagnosed agent weakness","failureSignatures":[signature.clone()]},"prediction":{},"feedback":feedback})) {
+                outcomes.push(json!({"proposal":proposal,"accepted":false,"reason":format!("apply failed: {}",error.message),"heldIn":{"before":held_in,"after":held_in}}));
+                continue;
+            }
+            let mut accepted = true;
+            let mut next_in = held_in;
+            let mut next_out = held_out;
+            let mut complete = true;
+            if verify {
+                let train_batch = run_agent_playbook_batch(agent, client, &train, &options, runs_per_task, &remaining, threshold)?;
+                next_in = train_batch.1;
+                complete = !train_batch.2;
+                if validation.is_empty() {
+                    next_out = None;
+                } else {
+                    let validation_batch = run_agent_playbook_batch(agent, client, &validation, &options, runs_per_task, &remaining, threshold)?;
+                    next_out = Some(validation_batch.1);
+                    complete = complete && !validation_batch.2;
+                }
+                accepted = complete && next_in - held_in >= min_gain && match (next_out, held_out) { (Some(after), Some(before)) => after - before >= -epsilon, _ => true };
+            }
+            let reason = if !complete { "metric_budget exhausted during re-evaluation".to_string() } else if !verify { "applied without verification (verify: false)".to_string() } else if accepted && held_out.is_none() { "held-in improved (no held-out set provided — consider one)".to_string() } else if accepted { "held-in improved, held-out non-regressing".to_string() } else if next_in-held_in < min_gain { format!("held-in gain {:.3} below {}",next_in-held_in,min_gain) } else { format!("held-out regressed {:.3}",next_out.unwrap_or(0.0)-held_out.unwrap_or(0.0)) };
+            let mut outcome = json!({"proposal":proposal,"accepted":accepted,"reason":reason,"heldIn":{"before":held_in,"after":next_in}});
+            if let (Some(after), Some(before_score)) = (next_out, held_out) { outcome["heldOut"] = json!({"before":before_score,"after":after}); }
+            outcomes.push(outcome);
+            if accepted { held_in = next_in; held_out = next_out; } else { self.load(&before); }
+        }
+        let learned = if outcomes.iter().any(|outcome| outcome.get("accepted").and_then(Value::as_bool) == Some(true)) { Some(self.get_state()) } else { None };
+        if options.get("apply").and_then(Value::as_bool) == Some(false) && learned.is_some() { self.load(&initial); }
+        let mut baseline_result = json!({"heldIn":baseline_in});
+        if let Some(value) = baseline_out { baseline_result["heldOut"] = json!(value); }
+        let mut final_result = json!({"heldIn":held_in});
+        if let Some(value) = held_out { final_result["heldOut"] = json!(value); }
+        let all_recommendations = weaknesses.iter().flat_map(|weakness| weakness.get("configRecommendations").and_then(Value::as_array).cloned().unwrap_or_default()).collect::<Vec<_>>();
+        let mut result = json!({"baseline":baseline_result,"final":final_result,"weaknesses":weaknesses,"outcomes":outcomes,"recommendations":all_recommendations,"metricCallsUsed":max_metric_calls-remaining.get(),"records":baseline_records});
+        if let Some(snapshot) = learned { result["playbookSnapshot"] = snapshot; }
+        Ok(result)
     }
 
     /// Refine the playbook online from a single live interaction. Safe to call
@@ -5486,6 +5967,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         | "ai_error"
         | "ai_unsupported" => run_ai_support_fixture(kind, &fixture)?,
         "agent_forward"
+        | "agent_playbook_coverage"
         | "agent_prompt"
         | "agent_runtime_adapter"
         | "agent_runtime_policy"
@@ -5859,6 +6341,7 @@ fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 fn run_agent_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     match kind {
         "agent_forward" => run_agent_forward_contract_fixture(fixture),
+        "agent_playbook_coverage" => run_agent_playbook_coverage_fixture(fixture),
         "agent_prompt" => run_agent_prompt_fixture(fixture),
         "agent_runtime_real" => run_agent_forward_contract_fixture(fixture),
         "agent_runtime_protocol" => run_agent_runtime_protocol_fixture(fixture),
@@ -5867,6 +6350,31 @@ fn run_agent_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
         "agent_runtime_policy" => run_agent_runtime_policy_fixture(fixture),
         _ => Err(AxError::new("fixture", format!("unsupported Rust agent fixture {kind}"))),
     }
+}
+
+fn run_agent_playbook_coverage_fixture(fixture: &Value) -> AxResult<()> {
+    for test_case in fixture
+        .get("cases")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+    {
+        let actual = core_value_to_json(&_agent_collect_covered_failure_signatures(&[
+            core_value_from_json(test_case.get("snapshot").unwrap_or(&Value::Null)),
+        ])?);
+        expect_json_equal(
+            &format!(
+                "playbook coverage {}",
+                test_case
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("case")
+            ),
+            &actual,
+            test_case.get("expected_covered").unwrap_or(&Value::Null),
+        )?;
+    }
+    Ok(())
 }
 
 fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
@@ -7285,6 +7793,24 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             return Err(error);
         }
     };
+    let observer_called = Rc::new(std::cell::Cell::new(false));
+    if fixture
+        .get("observer_throws")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        let called = observer_called.clone();
+        agent.set_citations_observer(move |_| {
+            called.set(true);
+            panic!("citation observer failed");
+        });
+    }
+    if let Some(instruction) = fixture.get("set_instruction").and_then(Value::as_str) {
+        agent.set_instruction(instruction)?;
+    }
+    if let Some(addendum) = fixture.get("add_actor_instruction").and_then(Value::as_str) {
+        agent.add_actor_instruction(addendum)?;
+    }
     if let Some(state) = fixture.get("set_state") {
         agent.set_state(state.clone())?;
     }
@@ -7320,6 +7846,14 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     }
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("agent output", &output, expected)?;
+    }
+    if fixture
+        .get("observer_throws")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        && !observer_called.get()
+    {
+        return Err(AxError::new("fixture", "citation observer was not called"));
     }
     if let Some(expected) = fixture.get("expected_request_count").and_then(Value::as_u64) {
         if client.requests.len() as u64 != expected {
@@ -9456,9 +9990,8 @@ fn axgen_components_from_fixture(fixture: &Value) -> Vec<Value> {
 
 fn agent_components_from_fixture(_fixture: &Value) -> Vec<Value> {
     vec![
-        json!({"id": "ctx.root.actor::instruction", "kind": "instruction", "owner": "ctx.root.actor", "current": ""}),
-        json!({"id": "task.root.actor::instruction", "kind": "instruction", "owner": "task.root.actor", "current": ""}),
         json!({"id": "task.root.responder::instruction", "kind": "instruction", "owner": "task.root.responder", "current": ""}),
+        json!({"id": "root::instruction", "kind": "instruction", "owner": "root", "current": ""}),
         json!({"id": "root.agent.runtime", "kind": "runtime-policy", "owner": "root.agent", "current": {"language": "JavaScript"}}),
         json!({"id": "root.agent.policy", "kind": "agent-policy", "owner": "root.agent", "current": {"version": "agent-runtime-decision-v1"}}),
     ]
@@ -10634,14 +11167,29 @@ fn expect_transport_request_subset(
     fixture: &Value,
     requests: &Arc<Mutex<Vec<Value>>>,
 ) -> AxResult<()> {
-    let Some(expected) = fixture.get("expected_transport_request") else {
+    let expected = fixture.get("expected_transport_request");
+    let expected_absent = fixture.get("expected_transport_json_absent");
+    if expected.is_none() && expected_absent.is_none() {
         return Ok(());
-    };
+    }
     let requests = requests.lock().unwrap();
     let actual = requests
         .first()
         .ok_or_else(|| AxError::new("fixture", "fixture expected a transport request"))?;
-    expect_json_subset("transport request", actual, expected)
+    if let Some(expected) = expected {
+        expect_json_subset("transport request", actual, expected)?;
+    }
+    let request_json = actual.get("json").and_then(Value::as_object);
+    for raw_key in expected_absent.and_then(Value::as_array).into_iter().flatten() {
+        let key = raw_key.as_str().unwrap_or_default();
+        if request_json.is_some_and(|value| value.contains_key(key)) {
+            return Err(AxError::new(
+                "fixture",
+                format!("provider request json unexpectedly contained {key}"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn expect_json_equal(label: &str, actual: &Value, expected: &Value) -> AxResult<()> {

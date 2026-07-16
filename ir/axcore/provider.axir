@@ -1745,10 +1745,6 @@ module @ax.provider version "0.1" {
     }
   }
 
-  // Build the realtime WebSocket URL + auth headers for the provider's grammar so
-  // the per-language drivers stay grammar-agnostic: gemini_live_bidi authenticates
-  // with ?key= in the URL, the openai-compatible grammars use a Bearer header and
-  // a ?model= query.
   op ax.provider.semantic @provider_realtime_ws_url {
     attr core_kind = "func"
     attr effect = "throws"
@@ -1777,10 +1773,6 @@ module @ax.provider version "0.1" {
     }
   }
 
-  // Decide whether a chat() request should be served over the realtime WebSocket
-  // transport: true when the provider exposes a realtime_audio operation, the
-  // model is a realtime/live audio model, and audio output is not explicitly
-  // disabled. Lets chat()/stream() route realtime models transparently.
   op ax.provider.semantic @provider_should_use_realtime {
     attr core_kind = "func"
     attr effect = "throws"
@@ -2088,8 +2080,6 @@ module @ax.provider version "0.1" {
           core.append %turns, %turn
           %client_content = core.map
           core.set %client_content["turns"] = %turns
-          // turnComplete is true for a text-only turn (tells Gemini to respond now);
-          // an audio turn stays open and is closed by the audioStreamEnd below.
           %turn_complete = core.call intrinsic.not(%msg_has_audio)
           core.set %client_content["turnComplete"] = %turn_complete
           %content_event = core.map
@@ -4505,11 +4495,15 @@ module @ax.provider version "0.1" {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "max_tokens")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stopSequences", "stop_sequences")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stop_sequences", "stop_sequences")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "temperature", "temperature")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "topP", "top_p")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "top_p", "top_p")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "topK", "top_k")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "top_k", "top_k")
+      %adaptive = core.call @anthropic_is_adaptive_model_impl(%model)
+      %supports_sampling = core.call intrinsic.not(%adaptive)
+      core.if %supports_sampling {
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "temperature", "temperature")
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "topP", "top_p")
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "top_p", "top_p")
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "topK", "top_k")
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "top_k", "top_k")
+      }
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stream", "stream")
       %has_max = core.get %payload["max_tokens"]
       %missing_max = core.call intrinsic.is_none(%has_max)
@@ -4529,7 +4523,9 @@ module @ax.provider version "0.1" {
       %budget_alt = core.get %model_config["thinking_token_budget"] default %budget
       %has_budget = core.call intrinsic.truthy(%budget_alt)
       core.if %has_budget {
-        %thinking_config = core.call @anthropic_thinking_config_impl(%model, %budget_alt)
+        %show_thoughts_camel = core.get %model_config["showThoughts"] default true
+        %show_thoughts = core.get %model_config["show_thoughts"] default %show_thoughts_camel
+        %thinking_config = core.call @anthropic_thinking_config_impl(%model, %budget_alt, %show_thoughts)
         %thinking = core.get %thinking_config["thinking"]
         %has_thinking = core.call intrinsic.is_not_none(%thinking)
         core.if %has_thinking {
@@ -4552,13 +4548,31 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @anthropic_is_adaptive_model_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "anthropic-adaptive-model-core-helper"
+    type signature = "(string) -> bool"
+    body @entry(%model: string) {
+      %is_48 = core.call intrinsic.contains(%model, "claude-opus-4-8")
+      %is_47 = core.call intrinsic.contains(%model, "claude-opus-4-7")
+      %is_46 = core.call intrinsic.contains(%model, "claude-opus-4-6")
+      %is_sonnet_5 = core.call intrinsic.contains(%model, "claude-sonnet-5")
+      %is_47_plus = core.call intrinsic.or(%is_48, %is_47)
+      %is_adaptive_opus = core.call intrinsic.or(%is_47_plus, %is_46)
+      %is_adaptive = core.call intrinsic.or(%is_adaptive_opus, %is_sonnet_5)
+      core.return %is_adaptive
+    }
+  }
+
   op ax.provider.semantic @anthropic_thinking_config_impl {
     attr core_kind = "func"
     attr emit_module = "ai"
     attr private = true
     tag "anthropic-thinking-core-helper"
-    type signature = "(string, string) -> json"
-    body @entry(%model: string, %level: string) {
+    type signature = "(string, string, bool) -> json"
+    body @entry(%model: string, %level: string, %show_thoughts: bool) {
       %out = core.map
       %is_none = core.call intrinsic.eq(%level, "none")
       core.if %is_none {
@@ -4586,16 +4600,15 @@ module @ax.provider version "0.1" {
         %budget = core.let 32000
         %effort = core.let "max"
       }
-      %is_48 = core.call intrinsic.string.starts_with(%model, "claude-opus-4-8")
-      %is_47 = core.call intrinsic.string.starts_with(%model, "claude-opus-4-7")
-      %is_46 = core.call intrinsic.string.starts_with(%model, "claude-opus-4-6")
-      %is_sonnet_5 = core.call intrinsic.string.starts_with(%model, "claude-sonnet-5")
-      %is_47_plus = core.call intrinsic.or(%is_48, %is_47)
-      %is_adaptive_opus = core.call intrinsic.or(%is_47_plus, %is_46)
-      %is_adaptive = core.call intrinsic.or(%is_adaptive_opus, %is_sonnet_5)
+      %is_adaptive = core.call @anthropic_is_adaptive_model_impl(%model)
       core.if %is_adaptive {
         %thinking = core.map
         core.set %thinking["type"] = "adaptive"
+        core.if %show_thoughts {
+          core.set %thinking["display"] = "summarized"
+        } else {
+          core.set %thinking["display"] = "omitted"
+        }
         core.set %out["thinking"] = %thinking
         %output_config = core.map
         core.set %output_config["effort"] = %effort

@@ -1,0 +1,61 @@
+{
+  "name": "playbook-config-seed-attach",
+  "kind": "agent_forward",
+  "signature": "question:string -> answer:string",
+  "options": {
+    "contextFields": [],
+    "playbook": {
+      "learn": false,
+      "seed": {
+        "playbook": {
+          "version": 1,
+          "sections": {
+            "failures_to_avoid": [
+              {
+                "id": "failures-to-avoid-00001",
+                "section": "failures_to_avoid",
+                "content": "Check the live evidence before answering.",
+                "helpfulCount": 0,
+                "harmfulCount": 0,
+                "createdAt": "2026-07-15T00:00:00.000Z",
+                "updatedAt": "2026-07-15T00:00:00.000Z"
+              }
+            ]
+          },
+          "stats": {
+            "bulletCount": 1,
+            "helpfulCount": 0,
+            "harmfulCount": 0,
+            "tokenEstimate": 10
+          },
+          "updatedAt": "2026-07-15T00:00:00.000Z"
+        },
+        "artifact": {
+          "feedback": [],
+          "history": []
+        }
+      }
+    }
+  },
+  "input": {
+    "question": "What should I check?"
+  },
+  "responses": [
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{}]}}"
+    },
+    {
+      "content": "{\"completion\":{\"type\":\"final\",\"args\":[\"Answer\",{\"answer\":\"the live evidence\"}]}}"
+    },
+    {
+      "content": "{\"answer\":\"the live evidence\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "the live evidence"
+  },
+  "expected_request_contains": [
+    "failures_to_avoid",
+    "Check the live evidence before answering."
+  ]
+}

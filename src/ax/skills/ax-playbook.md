@@ -29,7 +29,10 @@ Use this skill to generate context-playbook code. A playbook grows an evolving b
 - `applyTo()` injects a `## Context Playbook` block into the program description; calling it repeatedly recomposes from the original base (no stacking).
 - Keep the offline `metric` deterministic and cheap, like a GEPA metric.
 - A playbook is plain JSON. Persist `pb.toJSON()` and `load(...)` it into a fresh program for production.
-- This is a TypeScript feature; do not suggest it for the generated (Python/Go/Rust/Java/C++) packages yet.
+- The playbook engine, construction-time agent attachment, failure harvesting,
+  and verified agent evolution are available in TypeScript and the generated
+  Python, Java, C++, Go, and Rust packages. Use each package's native casing and
+  callback types.
 
 ## Offline Pattern (evolve)
 
@@ -85,6 +88,23 @@ const result = await apb.evolve(
 ```
 
 The agent-level `evolve(dataset, options)` is distinct from the program-level `pb.evolve(examples, metric)` above: it takes an `AxAgentEvalDataset` plus options, runs the whole pipeline, and returns baseline/final held-in & held-out with per-bullet outcomes (no `{ bestScore }`). For full-pipeline tuning of agent instructions and demos (not the playbook) use `agent.optimize(...)` (GEPA).
+
+Generated packages expose that same agent-bound loop with language-shaped APIs:
+
+| Language | Agent-bound evolve call |
+|---|---|
+| Python | `agent.playbook().evolve(dataset, options)` |
+| Java | `agent.playbook(null).evolve(dataset, options)` |
+| C++ | `agent.get_playbook()->evolve(dataset, options)` |
+| Go | `agent.GetPlaybook().EvolveAgent(ctx, dataset, options)` |
+| Rust | `playbook.evolve_agent(&mut agent, client, dataset, options)` |
+
+All five generated packages thread structured `failureSignals` through agent
+evaluation predictions. The default verify gate accepts a proposed bullet only
+when held-in score improves and held-out score stays within `epsilon`; rejection
+restores the exact prior snapshot. Scoring is host-shaped: TypeScript uses its
+metric, Python/Java/Go can accept a metric callback, and all generated ports can
+use task `score`/`scores` values plus the agent evaluation result.
 
 ## Playbook vs optimize()
 

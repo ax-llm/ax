@@ -126,7 +126,7 @@ async function runSmoke(
     server.addResource();
     await server.waitForSubscription('demo://alerts');
     server.removeResource('demo://orders');
-    await server.waitForUnsubscription('demo://orders');
+    await server.waitForUnsubscribe('demo://orders');
     const priorInventorySubscriptions =
       server.getSubscriptionCount('demo://inventory');
     const priorAlertSubscriptions =

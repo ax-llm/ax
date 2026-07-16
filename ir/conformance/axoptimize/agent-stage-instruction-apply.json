@@ -1,0 +1,17 @@
+{
+  "component_map": {
+    "root::instruction": "Verify every claim before finalizing."
+  },
+  "expected_components_subset": [
+    {
+      "current": "Verify every claim before finalizing.",
+      "id": "root::instruction",
+      "kind": "instruction"
+    }
+  ],
+  "kind": "optimize",
+  "name": "agent-stage-instruction-apply",
+  "operation": "apply",
+  "program": "agent",
+  "signature": "question:string -> answer:string"
+}

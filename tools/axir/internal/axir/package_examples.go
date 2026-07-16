@@ -256,6 +256,11 @@ class ScriptedClient:
                     "rootCauseAnalysis": "No guidance on conciseness.",
                     "correctApproach": "Add a concise-answer guideline.",
                     "keyInsight": "Prefer one-sentence answers.",
+                    "weaknessDescription": "The agent does not verify its final step.",
+                    "rootCause": "The final step is accepted without a check.",
+                    "proposedGuidance": "Verify the final step before completing the task.",
+                    "evidenceQuotes": ["final", "snapshot", "Answer"],
+                    "configRecommendations": [],
                     "bulletTags": [],
                     "operations": [
                         {"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}
@@ -289,25 +294,28 @@ print("python-ace-playbook-ok")
 
 const pyAgentPlaybookExample = `import json
 
-from axllm import agent
+from axllm import AxCodeRuntime, AxCodeSession, RuntimeEnvelope, agent
 
 
-# A scripted client stands in for a real provider so this example runs without
-# a key. Swap it for ai("openai", api_key=...) to grow a playbook against a live
-# model. The canned JSON satisfies the agent's bound stage AND the playbook's
-# internal reflector/curator sub-programs, so the full ACE loop is exercised
-# offline.
+# The actor returns model-authored Python code and a real runtime executes it.
+# The same offline response also satisfies the playbook reflector and curator.
 class ScriptedClient:
     def complete(self, request):
         return {
             "content": json.dumps(
                 {
+                    "pythonCode": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
                     "answer": "Ax composes typed LLM programs.",
                     "reasoning": "The playbook lacked a brevity rule.",
                     "errorIdentification": "Answer was too verbose.",
                     "rootCauseAnalysis": "No guidance on conciseness.",
                     "correctApproach": "Add a concise-answer guideline.",
                     "keyInsight": "Prefer one-sentence answers.",
+                    "weaknessDescription": "The agent does not verify its final step.",
+                    "rootCause": "The final step is accepted without a check.",
+                    "proposedGuidance": "Verify the final step before completing the task.",
+                    "evidenceQuotes": ["final", "snapshot", "Answer"],
+                    "configRecommendations": [],
                     "bulletTags": [],
                     "operations": [
                         {"type": "ADD", "section": "Guidelines", "content": "Answer in one concise sentence."}
@@ -317,31 +325,57 @@ class ScriptedClient:
         }
 
 
+class RuntimeSession(AxCodeSession):
+    def execute(self, code, options=None):
+        assert "pythonCode" not in code, code
+        return RuntimeEnvelope.final({"answer": "Ax composes typed LLM programs."})
+
+    def snapshot_globals(self, options=None):
+        return {"version": 1, "bindings": {}, "globals": {}, "closed": False}
+
+    def patch_globals(self, snapshot, options=None):
+        return snapshot
+
+
+class Runtime(AxCodeRuntime):
+    language = "Python"
+
+    def create_session(self, globals, options=None):
+        return RuntimeSession()
+
+
 client = ScriptedClient()
+runtime = Runtime()
 # agent.playbook() binds an evolving context playbook to an agent stage. The
 # "responder" target grows the user-facing answer stage; ACE remains an
 # implementation detail behind playbook(), just as optimize() hides GEPA.
-ag = agent("question:string -> answer:string", {"name": "qa", "description": "Answer the question.", "ai": client})
-
+ag = agent(
+    "question:string -> answer:string",
+    {"name": "qa", "description": "Answer the question.", "ai": client, "runtime": runtime},
+)
 pb = ag.playbook({"target": "responder", "studentAI": client, "maxEpochs": 1})
+dataset = {"train": [{"input": {"question": "Answer briefly."}, "score": 0}]}
 
+# A zero minimum gain exercises verified acceptance. A positive minimum gain
+# rejects the same flat score and must restore the exact pre-proposal snapshot.
+accepted = pb.evolve(
+    dataset,
+    {"verify": True, "minHeldInGain": 0, "maxProposals": 1, "maxMetricCalls": 2},
+)
+before_rejection = json.dumps(pb.to_json(), sort_keys=True)
+rejected = pb.evolve(
+    dataset,
+    {"verify": True, "minHeldInGain": 0.1, "maxProposals": 1, "maxMetricCalls": 2},
+)
+after_rejection = json.dumps(pb.to_json(), sort_keys=True)
 
-def metric(args):
-    prediction = args.get("prediction") or {}
-    answer = str(prediction.get("answer") or "")
-    return 1.0 if answer else 0.0
-
-
-examples = [
-    {"question": "What is Ax?", "contextData": {}},
-    {"question": "Why typed signatures?", "contextData": {}},
-]
-result = pb.evolve(examples, metric)
-rendered = pb.render()
-state = pb.to_json()
-assert "bestScore" in result, result
-assert "playbook" in state and "artifact" in state, state
-print(json.dumps({"bestScore": result["bestScore"], "rendered": rendered}, indent=2, sort_keys=True))
+assert accepted.get("metricCallsUsed") == 2, accepted
+assert accepted["outcomes"][0]["accepted"] is True, accepted
+assert rejected.get("metricCallsUsed") == 2, rejected
+assert rejected["outcomes"][0]["accepted"] is False, rejected
+assert after_rejection == before_rejection, (before_rejection, after_rejection)
+assert "playbook" in pb.to_json() and "artifact" in pb.to_json(), pb.to_json()
+print(json.dumps({"accepted": accepted["outcomes"][0], "rejected": rejected["outcomes"][0]}, indent=2, sort_keys=True))
 print("python-agent-playbook-ok")
 `
 
@@ -1973,6 +2007,11 @@ public final class ACEPlaybookExample {
           + "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
           + "\"correctApproach\":\"Add a concise-answer guideline.\","
           + "\"keyInsight\":\"Prefer one-sentence answers.\","
+          + "\"weaknessDescription\":\"The agent does not verify its final step.\","
+          + "\"rootCause\":\"The final step is accepted without a check.\","
+          + "\"proposedGuidance\":\"Verify the final step before completing the task.\","
+          + "\"evidenceQuotes\":[\"final\",\"snapshot\",\"Answer\"],"
+          + "\"configRecommendations\":[],"
           + "\"bulletTags\":[],"
           + "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]"
           + "}";
@@ -2010,23 +2049,25 @@ public final class ACEPlaybookExample {
 
 const javaAgentPlaybookExample = `import dev.axllm.ax.*;
 import java.util.*;
-import java.util.function.Function;
 
 public final class AgentPlaybookExample {
-  // A scripted client stands in for a real provider so this example runs without
-  // a key. Swap it for Ax.ai("openai", ...) to grow a playbook against a live
-  // model. The canned JSON satisfies the agent's bound stage AND the playbook's
-  // internal reflector/curator sub-programs, so the full ACE loop is exercised
-  // offline.
+  // The actor returns model-authored Python code and a real runtime executes it.
+  // The same offline response also satisfies the playbook reflector and curator.
   static final class ScriptedClient implements AiClient {
     public Map<String, Object> complete(Map<String, Object> request) {
       String content = "{"
+          + "\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\","
           + "\"answer\":\"Ax composes typed LLM programs.\","
           + "\"reasoning\":\"The playbook lacked a brevity rule.\","
           + "\"errorIdentification\":\"Answer was too verbose.\","
           + "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
           + "\"correctApproach\":\"Add a concise-answer guideline.\","
           + "\"keyInsight\":\"Prefer one-sentence answers.\","
+          + "\"weaknessDescription\":\"The agent does not verify its final step.\","
+          + "\"rootCause\":\"The final step is accepted without a check.\","
+          + "\"proposedGuidance\":\"Verify the final step before completing the task.\","
+          + "\"evidenceQuotes\":[\"final\",\"snapshot\",\"Answer\"],"
+          + "\"configRecommendations\":[],"
           + "\"bulletTags\":[],"
           + "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]"
           + "}";
@@ -2034,33 +2075,57 @@ public final class AgentPlaybookExample {
     }
   }
 
+  static final class Runtime implements AxCodeRuntime {
+    public String language() { return "Python"; }
+    public AxCodeSession createSession(Map<String, Object> globals, Map<String, Object> options) {
+      return new AxCodeSession() {
+        public Object execute(String code, Map<String, Object> executeOptions) {
+          if (code.contains("pythonCode")) throw new RuntimeException("runtime received a response wrapper instead of code");
+          return AxRuntimeEnvelope.finalPayload(Map.of("answer", "Ax composes typed LLM programs."));
+        }
+        public Object snapshotGlobals(Map<String, Object> options) {
+          return Map.of("version", 1, "bindings", Map.of(), "globals", Map.of(), "closed", false);
+        }
+        public Object patchGlobals(Object snapshot, Map<String, Object> options) { return snapshot; }
+        public Object close() { return Map.of("closed", true); }
+      };
+    }
+  }
+
   public static void main(String[] args) {
     ScriptedClient client = new ScriptedClient();
+    Runtime runtime = new Runtime();
     // agent.playbook() binds an evolving context playbook to an agent stage. The
     // "responder" target grows the user-facing answer stage; ACE remains an
     // implementation detail behind playbook(), just as optimize() hides GEPA.
-    AxAgent agent = Ax.agent("question:string -> answer:string", Map.of("name", "qa", "description", "Answer the question.", "ai", client));
+    AxAgent agent = Ax.agent("question:string -> answer:string", Map.of(
+        "name", "qa", "description", "Answer the question.", "ai", client, "runtime", runtime));
 
     AxPlaybook pb = agent.playbook(Map.of("target", "responder", "studentAI", client, "maxEpochs", 1));
+    Map<String, Object> dataset = Map.of(
+        "train", List.of(Map.of("input", Map.of("question", "Answer briefly."), "score", 0)));
 
-    Function<Map<String, Object>, Object> metric = a -> {
-      Object prediction = a.get("prediction");
-      if (prediction instanceof Map<?, ?> map) {
-        Object answer = map.get("answer");
-        if (answer instanceof String s && !s.isEmpty()) return 1.0;
-      }
-      return 0.0;
-    };
+    // A zero minimum gain exercises verified acceptance. A positive minimum gain
+    // rejects the same flat score and must restore the exact pre-proposal snapshot.
+    Map<String, Object> accepted = pb.evolve(dataset, Map.of(
+        "verify", true, "minHeldInGain", 0, "maxProposals", 1, "maxMetricCalls", 2));
+    String beforeRejection = Json.stringify(pb.toJson());
+    Map<String, Object> rejected = pb.evolve(dataset, Map.of(
+        "verify", true, "minHeldInGain", 0.1, "maxProposals", 1, "maxMetricCalls", 2));
+    String afterRejection = Json.stringify(pb.toJson());
 
-    List<Object> examples = List.of(
-        Map.of("question", "What is Ax?", "contextData", Map.of()),
-        Map.of("question", "Why typed signatures?", "contextData", Map.of()));
-    Map<String, Object> result = pb.evolve(examples, metric, Map.of());
-    String rendered = pb.render();
-    Map<String, Object> state = pb.toJson();
-    if (!result.containsKey("bestScore")) throw new RuntimeException("missing bestScore: " + result);
-    if (!state.containsKey("playbook")) throw new RuntimeException("missing playbook: " + state);
-    System.out.println("rendered: " + rendered);
+    Map<?, ?> acceptedOutcome = (Map<?, ?>) ((List<?>) accepted.get("outcomes")).get(0);
+    Map<?, ?> rejectedOutcome = (Map<?, ?>) ((List<?>) rejected.get("outcomes")).get(0);
+    if (((Number) accepted.get("metricCallsUsed")).intValue() != 2 || !Boolean.TRUE.equals(acceptedOutcome.get("accepted"))) {
+      throw new RuntimeException("verified acceptance failed: " + accepted);
+    }
+    if (((Number) rejected.get("metricCallsUsed")).intValue() != 2 || !Boolean.FALSE.equals(rejectedOutcome.get("accepted"))) {
+      throw new RuntimeException("verified rejection failed: " + rejected);
+    }
+    if (!afterRejection.equals(beforeRejection)) throw new RuntimeException("rejected proposal was not rolled back exactly");
+    if (!pb.toJson().containsKey("playbook")) throw new RuntimeException("missing playbook: " + pb.toJson());
+    System.out.println("accepted: " + acceptedOutcome);
+    System.out.println("rejected: " + rejectedOutcome);
     System.out.println("java-agent-playbook-ok");
   }
 }
@@ -2879,6 +2944,11 @@ struct ScriptedClient : axllm::AIClient {
         "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
         "\"correctApproach\":\"Add a concise-answer guideline.\","
         "\"keyInsight\":\"Prefer one-sentence answers.\","
+        "\"weaknessDescription\":\"The agent does not verify its final step.\","
+        "\"rootCause\":\"The final step is accepted without a check.\","
+        "\"proposedGuidance\":\"Verify the final step before completing the task.\","
+        "\"evidenceQuotes\":[\"final\",\"snapshot\",\"Answer\"],"
+        "\"configRecommendations\":[],"
         "\"bulletTags\":[],"
         "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]}"}});
   }
@@ -2914,50 +2984,91 @@ const cppAgentPlaybookExample = `#include "axllm/axllm.hpp"
 
 #include <iostream>
 
-// A scripted client stands in for a real provider so this example runs without a
-// key. Swap it for axllm::ai("openai", ...) to grow a playbook against a live
-// model. The canned JSON satisfies the agent's bound stage AND the playbook's
-// internal reflector/curator sub-programs, so the full ACE loop is exercised
-// offline.
+// The actor returns model-authored Python code and a real runtime executes it.
+// The same offline response also satisfies the playbook reflector and curator.
 struct ScriptedClient : axllm::AIClient {
   axllm::Value complete(axllm::Value) override {
     return axllm::object({{"content",
-        "{\"answer\":\"Ax composes typed LLM programs.\","
+        "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\","
+        "\"answer\":\"Ax composes typed LLM programs.\","
         "\"reasoning\":\"The playbook lacked a brevity rule.\","
         "\"errorIdentification\":\"Answer was too verbose.\","
         "\"rootCauseAnalysis\":\"No guidance on conciseness.\","
         "\"correctApproach\":\"Add a concise-answer guideline.\","
         "\"keyInsight\":\"Prefer one-sentence answers.\","
+        "\"weaknessDescription\":\"The agent does not verify its final step.\","
+        "\"rootCause\":\"The final step is accepted without a check.\","
+        "\"proposedGuidance\":\"Verify the final step before completing the task.\","
+        "\"evidenceQuotes\":[\"final\",\"snapshot\",\"Answer\"],"
+        "\"configRecommendations\":[],"
         "\"bulletTags\":[],"
         "\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Answer in one concise sentence.\"}]}"}});
   }
 };
 
+struct RuntimeSession : axllm::AxCodeSession {
+  axllm::Value execute(axllm::Value code, axllm::Value = axllm::Value::object()) override {
+    if (axllm::display(code).find("pythonCode") != std::string::npos) {
+      throw axllm::AxError("runtime", "runtime received a response wrapper instead of code");
+    }
+    return axllm::RuntimeEnvelope::final_payload({
+        axllm::object({{"answer", "Ax composes typed LLM programs."}}),
+    });
+  }
+  axllm::Value snapshot_globals(axllm::Value = axllm::Value::object()) override {
+    return axllm::object({{"version", 1}, {"bindings", axllm::Value::object()}, {"globals", axllm::Value::object()}, {"closed", false}});
+  }
+  axllm::Value patch_globals(axllm::Value snapshot, axllm::Value = axllm::Value::object()) override { return snapshot; }
+  axllm::Value close() override { return axllm::object({{"closed", true}}); }
+};
+
+struct Runtime : axllm::AxCodeRuntime {
+  std::vector<std::unique_ptr<RuntimeSession>> sessions;
+  std::string language() const override { return "Python"; }
+  axllm::AxCodeSession* create_session(axllm::Value, axllm::Value = axllm::Value::object()) override {
+    sessions.push_back(std::make_unique<RuntimeSession>());
+    return sessions.back().get();
+  }
+};
+
 int main() {
   ScriptedClient client;
+  Runtime runtime;
   // agent.playbook() binds an evolving context playbook to an agent stage. The
   // "responder" target grows the user-facing answer stage; ACE remains an
   // implementation detail behind playbook(), just as optimize() hides GEPA.
-  auto agent = axllm::agent("question:string -> answer:string", axllm::object({{"name", "qa"}, {"description", "Answer the question."}}));
+  auto agent = axllm::agent("question:string -> answer:string", axllm::object({
+      {"name", "qa"},
+      {"description", "Answer the question."},
+      {"runtime", axllm::Core::code_runtime_ref(runtime)},
+  }));
 
-  axllm::AxPlaybook pb = agent.playbook(client, axllm::object({{"target", "responder"}, {"maxEpochs", 1}}));
+  axllm::AxPlaybook& pb = agent.playbook(client, axllm::object({{"target", "responder"}, {"maxEpochs", 1}}));
+  axllm::Value dataset = axllm::object({{"train", axllm::array({axllm::object({
+      {"input", axllm::object({{"question", "Answer briefly."}})}, {"score", 0},
+  })})}});
 
-  axllm::AxPlaybook::MetricFn metric = [](const axllm::Value& args) -> axllm::Value {
-    axllm::Value prediction = axllm::Core::get(args, "prediction");
-    std::string answer = axllm::display(axllm::Core::get(prediction, "answer"));
-    return answer.empty() ? axllm::Value(0.0) : axllm::Value(1.0);
-  };
+  // A zero minimum gain exercises verified acceptance. A positive minimum gain
+  // rejects the same flat score and must restore the exact pre-proposal snapshot.
+  axllm::Value accepted = pb.evolve(dataset, axllm::object({
+      {"verify", true}, {"minHeldInGain", 0.0}, {"maxProposals", 1}, {"maxMetricCalls", 2},
+  }));
+  std::string before_rejection = axllm::stringify(pb.to_json());
+  axllm::Value rejected = pb.evolve(dataset, axllm::object({
+      {"verify", true}, {"minHeldInGain", 0.1}, {"maxProposals", 1}, {"maxMetricCalls", 2},
+  }));
+  std::string after_rejection = axllm::stringify(pb.to_json());
 
-  std::vector<axllm::Value> examples = {
-      axllm::object({{"question", "What is Ax?"}, {"contextData", axllm::object({})}}),
-      axllm::object({{"question", "Why typed signatures?"}, {"contextData", axllm::object({})}}),
-  };
-  axllm::Value result = pb.evolve(examples, metric);
-  std::string rendered = pb.render();
-  axllm::Value state = pb.to_json();
-  if (axllm::Core::get(result, "bestScore", axllm::Value()).is_null()) return 1;
-  if (axllm::Core::get(state, "playbook", axllm::Value()).is_null()) return 1;
-  std::cout << "rendered: " << rendered << "\n";
+  axllm::Value accepted_outcome = axllm::Core::get(axllm::Core::get(accepted, "outcomes"), 0);
+  axllm::Value rejected_outcome = axllm::Core::get(axllm::Core::get(rejected, "outcomes"), 0);
+  if (std::stoul(axllm::display(axllm::Core::get(accepted, "metricCallsUsed", 0))) != 2 ||
+      !axllm::Core::truthy(axllm::Core::get(accepted_outcome, "accepted", false))) return 1;
+  if (std::stoul(axllm::display(axllm::Core::get(rejected, "metricCallsUsed", 0))) != 2 ||
+      axllm::Core::truthy(axllm::Core::get(rejected_outcome, "accepted", true))) return 2;
+  if (after_rejection != before_rejection) return 3;
+  if (axllm::Core::get(pb.to_json(), "playbook", axllm::Value()).is_null()) return 4;
+  std::cout << "accepted: " << axllm::stringify(accepted_outcome) << "\n";
+  std::cout << "rejected: " << axllm::stringify(rejected_outcome) << "\n";
   std::cout << "cpp-agent-playbook-ok\n";
 }
 `

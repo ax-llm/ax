@@ -7228,11 +7228,15 @@ Value Core::_anthropic_apply_model_config_impl(Value payload, Value model_config
   Core::_openai_copy_config_key_impl(payload, model_config, Value("max_tokens"), Value("max_tokens"));
   Core::_openai_copy_config_key_impl(payload, model_config, Value("stopSequences"), Value("stop_sequences"));
   Core::_openai_copy_config_key_impl(payload, model_config, Value("stop_sequences"), Value("stop_sequences"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("temperature"), Value("temperature"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("topP"), Value("top_p"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("top_p"), Value("top_p"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("topK"), Value("top_k"));
-  Core::_openai_copy_config_key_impl(payload, model_config, Value("top_k"), Value("top_k"));
+  Value adaptive = Core::_anthropic_is_adaptive_model_impl(model);
+  Value supports_sampling = Core::not_(adaptive);
+  if (Core::truthy(supports_sampling)) {
+    Core::_openai_copy_config_key_impl(payload, model_config, Value("temperature"), Value("temperature"));
+    Core::_openai_copy_config_key_impl(payload, model_config, Value("topP"), Value("top_p"));
+    Core::_openai_copy_config_key_impl(payload, model_config, Value("top_p"), Value("top_p"));
+    Core::_openai_copy_config_key_impl(payload, model_config, Value("topK"), Value("top_k"));
+    Core::_openai_copy_config_key_impl(payload, model_config, Value("top_k"), Value("top_k"));
+  }
   Core::_openai_copy_config_key_impl(payload, model_config, Value("stream"), Value("stream"));
   Value has_max = Core::get(payload, Value("max_tokens"), Value());
   Value missing_max = Core::is_none(has_max);
@@ -7252,7 +7256,9 @@ Value Core::_anthropic_apply_model_config_impl(Value payload, Value model_config
   Value budget_alt = Core::get(model_config, Value("thinking_token_budget"), budget);
   Value has_budget = Core::truthy_value(budget_alt);
   if (Core::truthy(has_budget)) {
-    Value thinking_config = Core::_anthropic_thinking_config_impl(model, budget_alt);
+    Value show_thoughts_camel = Core::get(model_config, Value("showThoughts"), Value(true));
+    Value show_thoughts = Core::get(model_config, Value("show_thoughts"), show_thoughts_camel);
+    Value thinking_config = Core::_anthropic_thinking_config_impl(model, budget_alt, show_thoughts);
     Value thinking = Core::get(thinking_config, Value("thinking"), Value());
     Value has_thinking = Core::is_not_none(thinking);
     if (Core::truthy(has_thinking)) {
@@ -7274,7 +7280,19 @@ Value Core::_anthropic_apply_model_config_impl(Value payload, Value model_config
   return Value();
 }
 
-Value Core::_anthropic_thinking_config_impl(Value model, Value level) {
+Value Core::_anthropic_is_adaptive_model_impl(Value model) {
+  axir_coverage_mark("_anthropic_is_adaptive_model_impl");
+  Value is_48 = Core::contains(model, Value("claude-opus-4-8"));
+  Value is_47 = Core::contains(model, Value("claude-opus-4-7"));
+  Value is_46 = Core::contains(model, Value("claude-opus-4-6"));
+  Value is_sonnet_5 = Core::contains(model, Value("claude-sonnet-5"));
+  Value is_47_plus = Core::or_(is_48, is_47);
+  Value is_adaptive_opus = Core::or_(is_47_plus, is_46);
+  Value is_adaptive = Core::or_(is_adaptive_opus, is_sonnet_5);
+  return is_adaptive;
+}
+
+Value Core::_anthropic_thinking_config_impl(Value model, Value level, Value show_thoughts) {
   axir_coverage_mark("_anthropic_thinking_config_impl");
   Value out = Value::object();
   Value is_none = Core::eq(level, Value("none"));
@@ -7303,16 +7321,16 @@ Value Core::_anthropic_thinking_config_impl(Value model, Value level) {
     budget = Value(32000);
     effort = Value("max");
   }
-  Value is_48 = Core::string_starts_with(model, Value("claude-opus-4-8"));
-  Value is_47 = Core::string_starts_with(model, Value("claude-opus-4-7"));
-  Value is_46 = Core::string_starts_with(model, Value("claude-opus-4-6"));
-  Value is_sonnet_5 = Core::string_starts_with(model, Value("claude-sonnet-5"));
-  Value is_47_plus = Core::or_(is_48, is_47);
-  Value is_adaptive_opus = Core::or_(is_47_plus, is_46);
-  Value is_adaptive = Core::or_(is_adaptive_opus, is_sonnet_5);
+  Value is_adaptive = Core::_anthropic_is_adaptive_model_impl(model);
   if (Core::truthy(is_adaptive)) {
     Value thinking = Value::object();
     Core::set(thinking, Value("type"), Value("adaptive"));
+    if (Core::truthy(show_thoughts)) {
+      Core::set(thinking, Value("display"), Value("summarized"));
+    }
+    if (!Core::truthy(show_thoughts)) {
+      Core::set(thinking, Value("display"), Value("omitted"));
+    }
     Core::set(out, Value("thinking"), thinking);
     Value output_config = Value::object();
     Core::set(output_config, Value("effort"), effort);
@@ -8302,6 +8320,15 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
     Core::append(ordered_messages, demo_message);
   }
   Core::append(ordered_messages, user_message);
+  Value validation_feedback_snake = Core::get(runtime_options, Value("validation_feedback"), Value(""));
+  Value validation_feedback = Core::get(runtime_options, Value("validationFeedback"), validation_feedback_snake);
+  Value has_validation_feedback = Core::truthy_value(validation_feedback);
+  if (Core::truthy(has_validation_feedback)) {
+    Value validation_feedback_message = Value::object();
+    Core::set(validation_feedback_message, Value("role"), Value("user"));
+    Core::set(validation_feedback_message, Value("content"), validation_feedback);
+    Core::append(ordered_messages, validation_feedback_message);
+  }
   Value cached_messages = Core::axgen_apply_context_cache(gen, ordered_messages, options);
   messages = cached_messages;
   Core::axgen_memory_add_request(gen, messages);
@@ -8709,19 +8736,6 @@ Value Core::_is_flexible_json_field(Value typ) {
   return flexible;
 }
 
-Value Core::_optimization_action_name_matches(Value expected, Value call) {
-  axir_coverage_mark("_optimization_action_name_matches");
-  Value qualified = Core::get(call, Value("qualifiedName"), Value(""));
-  Value name = Core::get(call, Value("name"), Value(""));
-  Value qualified_match = Core::eq(qualified, expected);
-  Value name_match = Core::eq(name, expected);
-  Value dot_expected = Core::add(Value("."), expected);
-  Value suffix_match = Core::string_ends_with(qualified, dot_expected);
-  Value direct_match = Core::or_(qualified_match, name_match);
-  Value any_match = Core::or_(direct_match, suffix_match);
-  return any_match;
-}
-
 Value Core::_parse_json_string_value(Value value) {
   axir_coverage_mark("_parse_json_string_value");
   Value is_string = Core::type_is(value, Value("string"));
@@ -8738,6 +8752,19 @@ Value Core::_parse_json_string_value(Value value) {
     result = value;
   }
   return result;
+}
+
+Value Core::_optimization_action_name_matches(Value expected, Value call) {
+  axir_coverage_mark("_optimization_action_name_matches");
+  Value qualified = Core::get(call, Value("qualifiedName"), Value(""));
+  Value name = Core::get(call, Value("name"), Value(""));
+  Value qualified_match = Core::eq(qualified, expected);
+  Value name_match = Core::eq(name, expected);
+  Value dot_expected = Core::add(Value("."), expected);
+  Value suffix_match = Core::string_ends_with(qualified, dot_expected);
+  Value direct_match = Core::or_(qualified_match, name_match);
+  Value any_match = Core::or_(direct_match, suffix_match);
+  return any_match;
 }
 
 Value Core::_adjust_optimization_score_for_actions(Value score, Value task, Value prediction) {
@@ -8881,6 +8908,18 @@ Value Core::_parse_json_string_for_fields(Value fields_map, Value values) {
   return values;
 }
 
+Value Core::_tool_spec_impl(Value fn) {
+  axir_coverage_mark("_tool_spec_impl");
+  Value spec = Value::object();
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value());
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Core::set(spec, Value("name"), name);
+  Core::set(spec, Value("description"), description);
+  Core::set(spec, Value("parameters"), parameters);
+  return spec;
+}
+
 Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
   axir_coverage_mark("_build_optimization_eval_row");
   Value out = Value::object();
@@ -8896,16 +8935,23 @@ Value Core::_build_optimization_eval_row(Value task, Value prediction, Value sco
   return out;
 }
 
-Value Core::_tool_spec_impl(Value fn) {
-  axir_coverage_mark("_tool_spec_impl");
-  Value spec = Value::object();
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value());
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Core::set(spec, Value("name"), name);
-  Core::set(spec, Value("description"), description);
-  Core::set(spec, Value("parameters"), parameters);
-  return spec;
+Value Core::_function_call_mode_impl(Value mode) {
+  axir_coverage_mark("_function_call_mode_impl");
+  Value missing = Core::is_none(mode);
+  if (Core::truthy(missing)) {
+    return Value("auto");
+  }
+  Value is_native = Core::eq(mode, Value("native"));
+  Value is_auto = Core::eq(mode, Value("auto"));
+  Value native_or_auto = Core::or_(is_native, is_auto);
+  if (Core::truthy(native_or_auto)) {
+    return Value("auto");
+  }
+  Value is_prompt = Core::eq(mode, Value("prompt"));
+  if (Core::truthy(is_prompt)) {
+    return Value("none");
+  }
+  return mode;
 }
 
 Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Value phase) {
@@ -8935,30 +8981,27 @@ Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Val
   return out;
 }
 
-Value Core::_function_call_mode_impl(Value mode) {
-  axir_coverage_mark("_function_call_mode_impl");
-  Value missing = Core::is_none(mode);
-  if (Core::truthy(missing)) {
-    return Value("auto");
-  }
-  Value is_native = Core::eq(mode, Value("native"));
-  Value is_auto = Core::eq(mode, Value("auto"));
-  Value native_or_auto = Core::or_(is_native, is_auto);
-  if (Core::truthy(native_or_auto)) {
-    return Value("auto");
-  }
-  Value is_prompt = Core::eq(mode, Value("prompt"));
-  if (Core::truthy(is_prompt)) {
-    return Value("none");
-  }
-  return mode;
-}
-
 Value Core::_response_function_calls_impl(Value response) {
   axir_coverage_mark("_response_function_calls_impl");
   Value empty = Value::array();
   Value calls = Core::get(response, Value("function_calls"), empty);
   return calls;
+}
+
+Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
+  axir_coverage_mark("_append_tool_call_messages_impl");
+  Value chat_calls = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value chat_call = Core::_completion_call_to_chat_impl(call);
+    Core::append(chat_calls, chat_call);
+  }
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("assistant"));
+  Core::set(message, Value("content"), content);
+  Core::set(message, Value("function_calls"), chat_calls);
+  Core::append(messages, message);
+  return Value();
 }
 
 Value Core::_filter_optimization_components(Value components, Value target) {
@@ -8986,6 +9029,8 @@ Value Core::_filter_optimization_components(Value components, Value target) {
       Value actor_match = Core::string_ends_with(id, Value(".actor"));
       Value actor_component_match = Core::contains(id, Value(".actor::"));
       Value actor_any_match = Core::or_(actor_match, actor_component_match);
+      Value stage_instruction_match = Core::eq(id, Value("root::instruction"));
+      actor_any_match = Core::or_(actor_any_match, stage_instruction_match);
       if (Core::truthy(actor_any_match)) {
         include = Value(true);
       }
@@ -9022,22 +9067,6 @@ Value Core::_filter_optimization_components(Value components, Value target) {
   return out;
 }
 
-Value Core::_append_tool_call_messages_impl(Value messages, Value response, Value calls) {
-  axir_coverage_mark("_append_tool_call_messages_impl");
-  Value chat_calls = Value::array();
-  for (auto call : Core::iter(calls)) {
-    Value chat_call = Core::_completion_call_to_chat_impl(call);
-    Core::append(chat_calls, chat_call);
-  }
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("assistant"));
-  Core::set(message, Value("content"), content);
-  Core::set(message, Value("function_calls"), chat_calls);
-  Core::append(messages, message);
-  return Value();
-}
-
 Value Core::_completion_call_to_chat_impl(Value call) {
   axir_coverage_mark("_completion_call_to_chat_impl");
   Value id = Core::get(call, Value("id"), Value());
@@ -9064,6 +9093,21 @@ Value Core::_tool_result_message_impl(Value call, Value result) {
   return message;
 }
 
+Value Core::_tool_error_message_impl(Value call, Value error) {
+  axir_coverage_mark("_tool_error_message_impl");
+  Value id = Core::get(call, Value("id"), Value());
+  Value error_text = Core::exception_message(error);
+  Value payload = Value::object();
+  Core::set(payload, Value("error"), error_text);
+  Value payload_json = Core::json_stringify(payload);
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("function"));
+  Core::set(message, Value("function_id"), id);
+  Core::set(message, Value("result"), payload_json);
+  Core::set(message, Value("is_error"), Value(true));
+  return message;
+}
+
 Value Core::_build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace) {
   axir_coverage_mark("_build_optimizer_request");
   Value out = Value::object();
@@ -9082,21 +9126,6 @@ Value Core::_build_optimizer_request(Value program_kind, Value components, Value
   Core::set(evaluator, Value("methods"), methods);
   Core::set(out, Value("evaluator"), evaluator);
   return out;
-}
-
-Value Core::_tool_error_message_impl(Value call, Value error) {
-  axir_coverage_mark("_tool_error_message_impl");
-  Value id = Core::get(call, Value("id"), Value());
-  Value error_text = Core::exception_message(error);
-  Value payload = Value::object();
-  Core::set(payload, Value("error"), error_text);
-  Value payload_json = Core::json_stringify(payload);
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("function"));
-  Core::set(message, Value("function_id"), id);
-  Core::set(message, Value("result"), payload_json);
-  Core::set(message, Value("is_error"), Value(true));
-  return message;
 }
 
 Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
@@ -9350,7 +9379,7 @@ Value Core::_ace_empty_playbook(Value description, Value now) {
   Core::set(stats, Value("tokenEstimate"), Value(0));
   Core::set(out, Value("stats"), stats);
   Core::set(out, Value("updatedAt"), now);
-  Value has_description = Core::is_not_none(description);
+  Value has_description = Core::truthy_value(description);
   if (Core::truthy(has_description)) {
     Core::set(out, Value("description"), description);
   }
@@ -9360,16 +9389,31 @@ Value Core::_ace_empty_playbook(Value description, Value now) {
 Value Core::_ace_render_playbook(Value playbook) {
   axir_coverage_mark("_ace_render_playbook");
   Value empty_map = Value::object();
+  Value empty_list = Value::array();
   Value description = Core::get(playbook, Value("description"), Value());
-  Value has_description = Core::is_not_none(description);
+  Value has_description = Core::truthy_value(description);
+  Value sections = Core::get(playbook, Value("sections"), empty_map);
+  Value section_names = Core::map_keys(sections);
+  Value bullet_count = Value(0);
+  for (auto section_name : Core::iter(section_names)) {
+    Value section_bullets = Core::get(sections, section_name, empty_list);
+    Value section_count = Core::len(section_bullets);
+    Value next_bullet_count = Core::add(bullet_count, section_count);
+    bullet_count = next_bullet_count;
+  }
+  Value has_bullets = Core::gt(bullet_count, Value(0));
+  Value no_bullets = Core::not_(has_bullets);
+  Value no_description = Core::not_(has_description);
+  Value empty_playbook = Core::and_(no_bullets, no_description);
+  if (Core::truthy(empty_playbook)) {
+    return Value("");
+  }
   Value header = Value("## Context Playbook\n");
   if (Core::truthy(has_description)) {
     Value trimmed_description = Core::string_trim(description);
     Value header_with_description = Core::string_format(Value("## Context Playbook\n{}\n"), trimmed_description);
     header = header_with_description;
   }
-  Value sections = Core::get(playbook, Value("sections"), empty_map);
-  Value section_names = Core::map_keys(sections);
   Value section_blocks = Value::array();
   for (auto section_name : Core::iter(section_names)) {
     Value bullets = Core::get(sections, section_name, Value());
@@ -9582,6 +9626,7 @@ Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Valu
   Value updated_bullets = Value::array();
   Value auto_removed = Value::array();
   Value sections = Core::get(playbook, Value("sections"), empty_map);
+  Value operation_index = Value(0);
   for (auto op : Core::iter(operations)) {
     Value section_name = Core::get(op, Value("section"), Value(""));
     Value has_section_name = Core::ne(section_name, Value(""));
@@ -9649,7 +9694,8 @@ Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Valu
               Value bullet_id = op_bullet_id;
               Value missing_bullet_id = Core::not_(has_bullet_id);
               if (Core::truthy(missing_bullet_id)) {
-                bullet_id = section_name;
+                Value bullet_id_prefix = Core::string_format(Value("{}-{}-{}"), section_name, now, section_len);
+                bullet_id = Core::string_format(Value("{}-{}"), bullet_id_prefix, operation_index);
               }
               Value bullet = Value::object();
               Core::set(bullet, Value("id"), bullet_id);
@@ -9720,6 +9766,8 @@ Value Core::_ace_apply_curator_operations(Value playbook, Value operations, Valu
         }
       }
     }
+    Value next_operation_index = Core::add(operation_index, Value(1));
+    operation_index = next_operation_index;
   }
   Core::set(playbook, Value("sections"), sections);
   Value recomputed = Core::_ace_recompute_playbook_stats(playbook);
@@ -10054,43 +10102,40 @@ Value Core::_ace_resolve_curator_operation_targets(Value operations, Value playb
   Value empty_list = Value::array();
   Value reflection_present = Core::is_not_none(reflection);
   if (Core::truthy(reflection_present)) {
-    Value bullet_tags = Core::get(reflection, Value("bulletTags"), empty_list);
+    Value bullet_tags = Core::_ace_normalize_reflection_bullet_tags(reflection);
     for (auto tag : Core::iter(bullet_tags)) {
       Value tag_id = Core::get(tag, Value("id"), Value());
-      Value tag_id_is_string = Core::type_is(tag_id, Value("string"));
-      if (Core::truthy(tag_id_is_string)) {
-        Value already_used = Core::map_contains(used_ids, tag_id);
-        Value not_used = Core::not_(already_used);
-        if (Core::truthy(not_used)) {
-          Value located = Core::_ace_locate_bullet_section(playbook, tag_id);
-          Value located_found = Core::is_not_none(located);
-          if (Core::truthy(located_found)) {
-            Value located_section = Core::get(located, Value("section"), Value());
-            Value located_id = Core::get(located, Value("id"), Value());
-            Value tag_value = Core::get(tag, Value("tag"), Value(""));
-            Value is_harmful = Core::eq(tag_value, Value("harmful"));
-            Value priority = Value("primary");
-            if (Core::truthy(is_harmful)) {
-              priority = Value("harmful");
-            }
-            Value has_queue = Core::map_contains(section_queues, located_section);
-            Value missing_queue = Core::not_(has_queue);
-            if (Core::truthy(missing_queue)) {
-              Value new_queue = Value::object();
-              Value harmful_list = Value::array();
-              Core::set(new_queue, Value("harmful"), harmful_list);
-              Value primary_list = Value::array();
-              Core::set(new_queue, Value("primary"), primary_list);
-              Value generator_list = Value::array();
-              Core::set(new_queue, Value("generator"), generator_list);
-              Core::set(section_queues, located_section, new_queue);
-            }
-            Value queue = Core::get(section_queues, located_section, Value());
-            Value priority_list = Core::get(queue, priority, Value());
-            Core::append(priority_list, located_id);
-            Core::set(queue, priority, priority_list);
-            Core::set(section_queues, located_section, queue);
+      Value tag_value = Core::get(tag, Value("tag"), Value());
+      Value is_harmful = Core::eq(tag_value, Value("harmful"));
+      Value already_used = Core::map_contains(used_ids, tag_id);
+      Value not_used = Core::not_(already_used);
+      if (Core::truthy(not_used)) {
+        Value located = Core::_ace_locate_bullet_section(playbook, tag_id);
+        Value located_found = Core::is_not_none(located);
+        if (Core::truthy(located_found)) {
+          Value located_section = Core::get(located, Value("section"), Value());
+          Value located_id = Core::get(located, Value("id"), Value());
+          Value priority = Value("primary");
+          if (Core::truthy(is_harmful)) {
+            priority = Value("harmful");
           }
+          Value has_queue = Core::map_contains(section_queues, located_section);
+          Value missing_queue = Core::not_(has_queue);
+          if (Core::truthy(missing_queue)) {
+            Value new_queue = Value::object();
+            Value harmful_list = Value::array();
+            Core::set(new_queue, Value("harmful"), harmful_list);
+            Value primary_list = Value::array();
+            Core::set(new_queue, Value("primary"), primary_list);
+            Value generator_list = Value::array();
+            Core::set(new_queue, Value("generator"), generator_list);
+            Core::set(section_queues, located_section, new_queue);
+          }
+          Value queue = Core::get(section_queues, located_section, Value());
+          Value priority_list = Core::get(queue, priority, Value());
+          Core::append(priority_list, located_id);
+          Core::set(queue, priority, priority_list);
+          Core::set(section_queues, located_section, queue);
         }
       }
     }
@@ -10164,6 +10209,38 @@ Value Core::_ace_resolve_curator_operation_targets(Value operations, Value playb
     }
   }
   return resolved;
+}
+
+Value Core::_ace_normalize_reflection_bullet_tags(Value reflection) {
+  axir_coverage_mark("_ace_normalize_reflection_bullet_tags");
+  Value empty_list = Value::array();
+  Value raw_bullet_tags = Core::get(reflection, Value("bulletTags"), empty_list);
+  Value candidates = Value::array();
+  Value tags_is_list = Core::type_is(raw_bullet_tags, Value("list"));
+  if (Core::truthy(tags_is_list)) {
+    candidates = raw_bullet_tags;
+  }
+  if (!Core::truthy(tags_is_list)) {
+    Value tags_is_object = Core::type_is(raw_bullet_tags, Value("object"));
+    if (Core::truthy(tags_is_object)) {
+      Core::append(candidates, raw_bullet_tags);
+    }
+  }
+  Value normalized = Value::array();
+  for (auto tag : Core::iter(candidates)) {
+    Value tag_is_object = Core::type_is(tag, Value("object"));
+    if (Core::truthy(tag_is_object)) {
+      Value tag_id = Core::get(tag, Value("id"), Value());
+      Value tag_id_is_string = Core::type_is(tag_id, Value("string"));
+      Value tag_value = Core::get(tag, Value("tag"), Value());
+      Value tag_value_is_string = Core::type_is(tag_value, Value("string"));
+      Value valid_tag_shape = Core::and_(tag_id_is_string, tag_value_is_string);
+      if (Core::truthy(valid_tag_shape)) {
+        Core::append(normalized, tag);
+      }
+    }
+  }
+  return normalized;
 }
 
 Value Core::_ace_dequeue_section_candidate(Value section_queues, Value section, Value used_ids, Value playbook) {
@@ -10348,7 +10425,9 @@ Value Core::_agent_factory(Value signature, Value options) {
   Core::set(state, Value("llm_query_signature"), llm_query_signature);
   Value llm_query_description = Value("You answer ONE focused question using only the provided context object. Return just the answer text — concise, specific, and grounded in the context. Do not restate the question.");
   Core::set(state, Value("llm_query_description"), llm_query_description);
-  Value responder_signature = Core::_build_responder_signature(sig, context_fields);
+  Value citations = Core::_resolve_agent_citations(options, sig);
+  Core::set(state, Value("citations"), citations);
+  Value responder_signature = Core::_build_responder_signature(sig, context_fields, citations);
   Core::set(state, Value("responder_signature"), responder_signature);
   Core::set(state, Value("chat_log"), chat_log);
   Core::set(state, Value("usage"), usage);
@@ -10425,6 +10504,21 @@ Value Core::_agent_factory(Value signature, Value options) {
     Value distiller_description = Core::_render_rlm_distiller_description(state, options);
     Core::set(state, Value("distiller_description"), distiller_description);
   }
+  Value executor_description_base = Core::get(state, Value("executor_description"), Value(""));
+  Core::set(state, Value("executor_description_base"), executor_description_base);
+  Value stage_instruction = Core::get(options, Value("instruction"), Value(""));
+  Core::set(state, Value("stage_instruction"), stage_instruction);
+  Value instruction_addenda_camel = Core::get(options, Value("instructionAddenda"), empty_list);
+  Value instruction_addenda = Core::get(options, Value("instruction_addenda"), instruction_addenda_camel);
+  Value instruction_addenda_is_list = Core::type_is(instruction_addenda, Value("list"));
+  if (Core::truthy(instruction_addenda_is_list)) {
+    // empty
+  }
+  if (!Core::truthy(instruction_addenda_is_list)) {
+    instruction_addenda = empty_list;
+  }
+  Core::set(state, Value("instruction_addenda"), instruction_addenda);
+  Core::_agent_refresh_actor_instruction(state);
   return state;
 }
 
@@ -10795,6 +10889,9 @@ Value Core::_build_optimization_judge_payload(Value task, Value prediction, Valu
   Core::set(out, Value("usage"), usage);
   Value trace = Core::get(prediction, Value("trace"), Value());
   Core::set(out, Value("trace"), trace);
+  Value empty_failure_signals = Value::array();
+  Value failure_signals = Core::get(prediction, Value("failureSignals"), empty_failure_signals);
+  Core::set(out, Value("failureSignals"), failure_signals);
   return out;
 }
 
@@ -11202,6 +11299,8 @@ Value Core::_build_agent_eval_prediction(Value output, Value action_log, Value u
   Core::set(out, Value("usage"), usage);
   Core::set(out, Value("trace"), trace);
   Value empty_list = Value::array();
+  Value failure_signals = Core::get(trace, Value("failure_signals"), empty_list);
+  Core::set(out, Value("failureSignals"), failure_signals);
   Core::set(out, Value("functionCalls"), empty_list);
   Core::set(out, Value("toolErrors"), empty_list);
   Core::set(out, Value("turnCount"), Value(0));
@@ -14499,6 +14598,134 @@ Value Core::_agent_optimizer_metadata(Value state) {
   return out;
 }
 
+Value Core::_agent_refresh_actor_instruction(Value state) {
+  axir_coverage_mark("_agent_refresh_actor_instruction");
+  Value parts = Value::array();
+  Value instruction = Core::get(state, Value("stage_instruction"), Value(""));
+  Value instruction_trimmed = Core::string_trim(instruction);
+  Value has_instruction = Core::ne(instruction_trimmed, Value(""));
+  if (Core::truthy(has_instruction)) {
+    Core::append(parts, instruction_trimmed);
+  }
+  Value base = Core::get(state, Value("executor_description_base"), Value(""));
+  Value base_trimmed = Core::string_trim(base);
+  Value has_base = Core::ne(base_trimmed, Value(""));
+  if (Core::truthy(has_base)) {
+    Core::append(parts, base_trimmed);
+  }
+  Value empty_list = Value::array();
+  Value addenda = Core::get(state, Value("instruction_addenda"), empty_list);
+  for (auto addendum : Core::iter(addenda)) {
+    Value addendum_is_string = Core::type_is(addendum, Value("string"));
+    if (Core::truthy(addendum_is_string)) {
+      Value addendum_trimmed = Core::string_trim(addendum);
+      Value has_addendum = Core::ne(addendum_trimmed, Value(""));
+      if (Core::truthy(has_addendum)) {
+        Core::append(parts, addendum_trimmed);
+      }
+    }
+  }
+  Value composed = Core::string_join(Value("\n\n"), parts);
+  Core::set(state, Value("executor_description"), composed);
+  Value empty_map = Value::object();
+  Value options = Core::get(state, Value("options"), empty_map);
+  Core::set(options, Value("instruction"), instruction_trimmed);
+  Core::set(options, Value("instructionAddenda"), addenda);
+  Core::set(state, Value("options"), options);
+  return composed;
+}
+
+Value Core::_agent_set_instruction(Value state, Value instruction) {
+  axir_coverage_mark("_agent_set_instruction");
+  Value trimmed = Core::string_trim(instruction);
+  Core::set(state, Value("stage_instruction"), trimmed);
+  Value composed = Core::_agent_refresh_actor_instruction(state);
+  return composed;
+}
+
+Value Core::_agent_add_actor_instruction(Value state, Value addendum) {
+  axir_coverage_mark("_agent_add_actor_instruction");
+  Value trimmed = Core::string_trim(addendum);
+  Value has_addendum = Core::ne(trimmed, Value(""));
+  if (Core::truthy(has_addendum)) {
+    Value empty_list = Value::array();
+    Value addenda = Core::get(state, Value("instruction_addenda"), empty_list);
+    Core::append(addenda, trimmed);
+    Core::set(state, Value("instruction_addenda"), addenda);
+  }
+  Value composed = Core::_agent_refresh_actor_instruction(state);
+  return composed;
+}
+
+Value Core::_agent_get_optimizable_components(Value state, Value child_components) {
+  axir_coverage_mark("_agent_get_optimizable_components");
+  Value components = Value::array();
+  for (auto component : Core::iter(child_components)) {
+    Value id = Core::get(component, Value("id"), Value(""));
+    Value kind = Core::get(component, Value("kind"), Value(""));
+    Value is_instruction = Core::eq(kind, Value("instruction"));
+    Value is_actor_instruction = Core::contains(id, Value(".actor::instruction"));
+    Value is_dead_instruction = Core::and_(is_instruction, is_actor_instruction);
+    Value keep = Core::not_(is_dead_instruction);
+    if (Core::truthy(keep)) {
+      Core::append(components, component);
+    }
+  }
+  Value instruction_component = Value::object();
+  Core::set(instruction_component, Value("id"), Value("root::instruction"));
+  Core::set(instruction_component, Value("owner"), Value("root"));
+  Core::set(instruction_component, Value("kind"), Value("instruction"));
+  Value instruction = Core::get(state, Value("stage_instruction"), Value(""));
+  Core::set(instruction_component, Value("current"), instruction);
+  Core::set(instruction_component, Value("description"), Value("High-level instruction rendered at the top of the actor definition; survives stage rebuilds."));
+  Core::set(instruction_component, Value("constraints"), Value("Keep this as a concise standing strategy or rule."));
+  Core::set(instruction_component, Value("format"), Value("text"));
+  Core::append(components, instruction_component);
+  Value runtime_component = Value::object();
+  Core::set(runtime_component, Value("id"), Value("root.agent.runtime"));
+  Core::set(runtime_component, Value("owner"), Value("root.agent"));
+  Core::set(runtime_component, Value("kind"), Value("runtime-policy"));
+  Value empty_map = Value::object();
+  Value runtime = Core::get(state, Value("runtime_contract"), empty_map);
+  Core::set(runtime_component, Value("current"), runtime);
+  Core::set(runtime_component, Value("description"), Value("Agent runtime-language metadata and code-field policy."));
+  Core::set(runtime_component, Value("format"), Value("json"));
+  Core::append(components, runtime_component);
+  Value policy_component = Value::object();
+  Core::set(policy_component, Value("id"), Value("root.agent.policy"));
+  Core::set(policy_component, Value("owner"), Value("root.agent"));
+  Core::set(policy_component, Value("kind"), Value("agent-policy"));
+  Value policy = Core::get(state, Value("policy"), empty_map);
+  Core::set(policy_component, Value("current"), policy);
+  Core::set(policy_component, Value("description"), Value("Actor primitive, discovery, delegation, and prompt placement policy."));
+  Core::set(policy_component, Value("format"), Value("json"));
+  Core::append(components, policy_component);
+  return components;
+}
+
+Value Core::_agent_apply_optimized_components(Value state, Value component_map) {
+  axir_coverage_mark("_agent_apply_optimized_components");
+  Value has_instruction = Core::map_contains(component_map, Value("root::instruction"));
+  if (Core::truthy(has_instruction)) {
+    Value instruction = Core::get(component_map, Value("root::instruction"), Value(""));
+    Core::_agent_set_instruction(state, instruction);
+  }
+  Value has_runtime = Core::map_contains(component_map, Value("root.agent.runtime"));
+  if (Core::truthy(has_runtime)) {
+    Value runtime = Core::get(component_map, Value("root.agent.runtime"), Value());
+    Core::set(state, Value("runtime_contract"), runtime);
+  }
+  Value has_policy = Core::map_contains(component_map, Value("root.agent.policy"));
+  if (Core::truthy(has_policy)) {
+    Value policy = Core::get(component_map, Value("root.agent.policy"), Value());
+    Core::set(state, Value("policy"), policy);
+  }
+  Value metadata = Core::_agent_optimizer_metadata(state);
+  Core::set(state, Value("optimizer_metadata"), metadata);
+  Value composed = Core::get(state, Value("executor_description"), Value(""));
+  return composed;
+}
+
 Value Core::_agent_begin_trace(Value state, Value input) {
   axir_coverage_mark("_agent_begin_trace");
   Value events = Value::array();
@@ -14583,6 +14810,7 @@ Value Core::_agent_finalize_trace(Value state, Value status, Value output) {
   Value action_log = Core::get(state, Value("action_log"), empty_list);
   Value policy_trace = Core::get(state, Value("policy_trace"), empty_list);
   Value function_traces = Core::get(state, Value("function_call_traces"), empty_list);
+  Value failure_signals = Core::get(state, Value("failure_signals"), empty_list);
   Value optimizer = Core::get(state, Value("optimizer_metadata"), empty_map);
   Core::set(trace, Value("status"), status);
   Core::set(trace, Value("final_output"), output);
@@ -14592,6 +14820,7 @@ Value Core::_agent_finalize_trace(Value state, Value status, Value output) {
   Core::set(trace, Value("action_log"), action_log);
   Core::set(trace, Value("policy_trace"), policy_trace);
   Core::set(trace, Value("function_call_traces"), function_traces);
+  Core::set(trace, Value("failure_signals"), failure_signals);
   Core::set(trace, Value("optimizer_metadata"), optimizer);
   Core::set(state, Value("trace"), trace);
   return trace;
@@ -14616,6 +14845,7 @@ Value Core::_agent_export_trace(Value state) {
   Value action_log = Core::get(state, Value("action_log"), empty_list);
   Value policy_trace = Core::get(state, Value("policy_trace"), empty_list);
   Value function_traces = Core::get(state, Value("function_call_traces"), empty_list);
+  Value failure_signals = Core::get(state, Value("failure_signals"), empty_list);
   Value optimizer = Core::get(state, Value("optimizer_metadata"), empty_map);
   Core::set(trace, Value("event_count"), event_count);
   Core::set(trace, Value("usage"), usage);
@@ -14623,6 +14853,7 @@ Value Core::_agent_export_trace(Value state) {
   Core::set(trace, Value("action_log"), action_log);
   Core::set(trace, Value("policy_trace"), policy_trace);
   Core::set(trace, Value("function_call_traces"), function_traces);
+  Core::set(trace, Value("failure_signals"), failure_signals);
   Core::set(trace, Value("optimizer_metadata"), optimizer);
   Core::set(state, Value("trace"), trace);
   return trace;
@@ -16035,6 +16266,12 @@ Value Core::_build_responder_inputs(Value state, Value values, Value executor_pa
   Value args = Core::get(executor_payload, Value("args"), empty_list);
   Value task = Core::list_get(args, Value(0), Value(""));
   Value context = Core::list_get(args, Value(1), empty_map);
+  Value args_count = Core::len(args);
+  Value has_evidence_arg = Core::gt(args_count, Value(1));
+  Value context_is_object = Core::type_is(context, Value("object"));
+  Value evidence_present = Core::and_(has_evidence_arg, context_is_object);
+  Core::set(state, Value("responder_evidence_present"), evidence_present);
+  Core::set(state, Value("responder_evidence"), context);
   Value context_data = Value::object();
   Core::set(context_data, Value("task"), task);
   Core::set(context_data, Value("evidence"), context);
@@ -16106,7 +16343,7 @@ Value Core::_agent_render_field_token(Value field) {
   return result;
 }
 
-Value Core::_build_responder_signature(Value sig, Value context_fields) {
+Value Core::_build_responder_signature(Value sig, Value context_fields, Value citations) {
   axir_coverage_mark("_build_responder_signature");
   Value empty_list = Value::array();
   Value input_fields = Core::get(sig, Value("input_fields"), empty_list);
@@ -16138,6 +16375,26 @@ Value Core::_build_responder_signature(Value sig, Value context_fields) {
     Value otok = Core::_agent_render_field_token(ofield);
     Core::append(output_tokens, otok);
   }
+  Value citations_enabled = Core::get(citations, Value("enabled"), Value(false));
+  if (Core::truthy(citations_enabled)) {
+    Value citations_field = Value::object();
+    Value citations_name = Core::get(citations, Value("field"), Value("evidenceCitations"));
+    Core::set(citations_field, Value("name"), citations_name);
+    Core::set(citations_field, Value("title"), Value("Evidence Citations"));
+    Value include_memory_ids = Core::get(citations, Value("includeMemoryIds"), Value(true));
+    Value citations_description = Value("IDs of the evidence entries that directly support the answer: use the exact top-level keys of the contextData.evidence object. Cite only entries actually used. Leave empty when contextData.evidence is absent or was not needed.");
+    if (Core::truthy(include_memory_ids)) {
+      citations_description = Value("IDs of the evidence entries that directly support the answer: use the exact top-level keys of the contextData.evidence object, plus the id of any records inside it that were relied on (e.g. loaded memories). Cite only entries actually used. Leave empty when contextData.evidence is absent or was not needed.");
+    }
+    Core::set(citations_field, Value("description"), citations_description);
+    Value citations_type = Value::object();
+    Core::set(citations_type, Value("name"), Value("string"));
+    Core::set(citations_type, Value("is_array"), Value(true));
+    Core::set(citations_field, Value("type"), citations_type);
+    Core::set(citations_field, Value("is_optional"), Value(true));
+    Value citations_token = Core::_agent_render_field_token(citations_field);
+    Core::append(output_tokens, citations_token);
+  }
   Value inputs_joined = Core::string_join(Value(", "), input_tokens);
   Value outputs_joined = Core::string_join(Value(", "), output_tokens);
   Value body_parts = Value::array();
@@ -16152,6 +16409,341 @@ Value Core::_build_responder_signature(Value sig, Value context_fields) {
   Core::append(body_parts, outputs_joined);
   Value sig_string = Core::string_join(Value(""), body_parts);
   return sig_string;
+}
+
+Value Core::_resolve_agent_citations(Value options, Value sig) {
+  axir_coverage_mark("_resolve_agent_citations");
+  Value out = Value::object();
+  Value raw = Core::get(options, Value("citations"), Value(false));
+  Value enabled = Value(false);
+  Value field = Value("evidenceCitations");
+  Value surface = Value("output");
+  Value include_memory_ids = Value(true);
+  Value raw_is_bool = Core::type_is(raw, Value("boolean"));
+  if (Core::truthy(raw_is_bool)) {
+    enabled = raw;
+  }
+  Value raw_is_object = Core::type_is(raw, Value("object"));
+  if (Core::truthy(raw_is_object)) {
+    enabled = Value(true);
+    field = Core::get(raw, Value("field"), Value("evidenceCitations"));
+    surface = Core::get(raw, Value("surface"), Value("output"));
+    include_memory_ids = Core::get(raw, Value("includeMemoryIds"), Value(true));
+  }
+  if (Core::truthy(enabled)) {
+    Value valid_field = Core::regex_match(Value("^[A-Za-z][A-Za-z0-9_]*$"), field);
+    Value bad_field = Core::not_(valid_field);
+    if (Core::truthy(bad_field)) {
+      Value message = Core::string_format(Value("citations.field must be a valid field name, got {}"), field);
+      Value error = Core::runtime_error(message);
+      throw Core::as_error(error);
+    }
+    Value is_context_data = Core::eq(field, Value("contextData"));
+    if (Core::truthy(is_context_data)) {
+      Value error = Core::runtime_error(Value("AxAgent: citations.field cannot be contextData; it is the reserved responder evidence input"));
+      throw Core::as_error(error);
+    }
+    Value is_output = Core::eq(surface, Value("output"));
+    Value is_hidden = Core::eq(surface, Value("hidden"));
+    Value valid_surface = Core::or_(is_output, is_hidden);
+    Value bad_surface = Core::not_(valid_surface);
+    if (Core::truthy(bad_surface)) {
+      Value error = Core::runtime_error(Value("citations.surface must be output or hidden"));
+      throw Core::as_error(error);
+    }
+    Value empty_list = Value::array();
+    Value outputs = Core::get(sig, Value("output_fields"), empty_list);
+    for (auto output_field : Core::iter(outputs)) {
+      Value output_name = Core::get(output_field, Value("name"), Value(""));
+      Value collision = Core::eq(output_name, field);
+      if (Core::truthy(collision)) {
+        Value message = Core::string_format(Value("AxAgent: citations.field {} collides with an output field of the agent signature"), field);
+        Value error = Core::runtime_error(message);
+        throw Core::as_error(error);
+      }
+    }
+  }
+  Core::set(out, Value("enabled"), enabled);
+  Core::set(out, Value("field"), field);
+  Core::set(out, Value("surface"), surface);
+  Core::set(out, Value("includeMemoryIds"), include_memory_ids);
+  return out;
+}
+
+Value Core::_agent_collect_citation_ids(Value ids, Value node, Value depth) {
+  axir_coverage_mark("_agent_collect_citation_ids");
+  Value has_depth = Core::gte(depth, Value(0));
+  if (Core::truthy(has_depth)) {
+    Value is_object = Core::type_is(node, Value("object"));
+    if (Core::truthy(is_object)) {
+      Value id = Core::get(node, Value("id"), Value());
+      Value id_is_string = Core::type_is(id, Value("string"));
+      Value id_is_number = Core::type_is(id, Value("number"));
+      Value valid_id = Core::or_(id_is_string, id_is_number);
+      if (Core::truthy(valid_id)) {
+        Value id_text = Core::string_format(Value("{}"), id);
+        Core::set(ids, id_text, Value(true));
+      }
+      Value next_depth = Core::add(depth, Value(-1));
+      Value children = Core::map_values(node);
+      for (auto child : Core::iter(children)) {
+        ids = Core::_agent_collect_citation_ids(ids, child, next_depth);
+      }
+    }
+    if (!Core::truthy(is_object)) {
+      Value is_list = Core::type_is(node, Value("list"));
+      if (Core::truthy(is_list)) {
+        Value next_depth = Core::add(depth, Value(-1));
+        for (auto child : Core::iter(node)) {
+          ids = Core::_agent_collect_citation_ids(ids, child, next_depth);
+        }
+      }
+    }
+  }
+  return ids;
+}
+
+Value Core::_agent_validate_citations(Value state, Value output) {
+  axir_coverage_mark("_agent_validate_citations");
+  Value empty_map = Value::object();
+  Value citations = Core::get(state, Value("citations"), empty_map);
+  Value enabled = Core::get(citations, Value("enabled"), Value(false));
+  Value disabled = Core::not_(enabled);
+  if (Core::truthy(disabled)) {
+    return Value(true);
+  }
+  Value evidence_present = Core::get(state, Value("responder_evidence_present"), Value(false));
+  Value no_evidence_contract = Core::not_(evidence_present);
+  if (Core::truthy(no_evidence_contract)) {
+    return Value(true);
+  }
+  Value field = Core::get(citations, Value("field"), Value("evidenceCitations"));
+  Value raw = Core::get(output, field, Value());
+  Value missing = Core::is_none(raw);
+  if (Core::truthy(missing)) {
+    return Value(true);
+  }
+  Value ids = Value::object();
+  Value evidence = Core::get(state, Value("responder_evidence"), empty_map);
+  Value keys = Core::map_keys(evidence);
+  for (auto key : Core::iter(keys)) {
+    Core::set(ids, key, Value(true));
+  }
+  Value include_memory_ids = Core::get(citations, Value("includeMemoryIds"), Value(true));
+  if (Core::truthy(include_memory_ids)) {
+    Value values = Core::map_values(evidence);
+    for (auto value : Core::iter(values)) {
+      ids = Core::_agent_collect_citation_ids(ids, value, Value(2));
+    }
+  }
+  Value empty_list = Value::array();
+  Value cited = empty_list;
+  Value raw_is_list = Core::type_is(raw, Value("list"));
+  if (Core::truthy(raw_is_list)) {
+    cited = raw;
+  }
+  if (!Core::truthy(raw_is_list)) {
+    Core::append(cited, raw);
+  }
+  Value valid = Value(true);
+  for (auto raw_id : Core::iter(cited)) {
+    Value id_text = Core::string_format(Value("{}"), raw_id);
+    Value known = Core::map_contains(ids, id_text);
+    Value unknown = Core::not_(known);
+    if (Core::truthy(unknown)) {
+      valid = Value(false);
+    }
+  }
+  return valid;
+}
+
+Value Core::_agent_finalize_citations(Value state, Value output) {
+  axir_coverage_mark("_agent_finalize_citations");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value citations = Core::get(state, Value("citations"), empty_map);
+  Value enabled = Core::get(citations, Value("enabled"), Value(false));
+  if (Core::truthy(enabled)) {
+    Value field = Core::get(citations, Value("field"), Value("evidenceCitations"));
+    Value raw = Core::get(output, field, empty_list);
+    Core::set(state, Value("last_citations"), raw);
+    Value surface = Core::get(citations, Value("surface"), Value("output"));
+    Value hidden = Core::eq(surface, Value("hidden"));
+    if (Core::truthy(hidden)) {
+      Core::map_delete(output, field);
+    }
+  }
+  return output;
+}
+
+Value Core::_agent_collect_covered_failure_signatures(Value snapshot) {
+  axir_coverage_mark("_agent_collect_covered_failure_signatures");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value live_ids = Value::object();
+  Value playbook = Core::get(snapshot, Value("playbook"), empty_map);
+  Value sections = Core::get(playbook, Value("sections"), empty_map);
+  Value section_names = Core::map_keys(sections);
+  for (auto section_name : Core::iter(section_names)) {
+    Value bullets = Core::get(sections, section_name, empty_list);
+    for (auto bullet : Core::iter(bullets)) {
+      Value bullet_id = Core::get(bullet, Value("id"), Value());
+      Value has_bullet_id = Core::is_not_none(bullet_id);
+      if (Core::truthy(has_bullet_id)) {
+        Value bullet_id_text = Core::string_format(Value("{}"), bullet_id);
+        Core::set(live_ids, bullet_id_text, Value(true));
+      }
+    }
+  }
+  Value artifact = Core::get(snapshot, Value("artifact"), empty_map);
+  Value feedback = Core::get(artifact, Value("feedback"), empty_list);
+  Value history = Core::get(artifact, Value("history"), empty_list);
+  Value covered_ids = Value::object();
+  Value covered = Value::array();
+  Value event_index = Value(0);
+  for (auto event : Core::iter(feedback)) {
+    Value example = Core::get(event, Value("example"), empty_map);
+    Value signatures_raw = Core::get(example, Value("failureSignatures"), empty_list);
+    Value signatures_is_list = Core::type_is(signatures_raw, Value("list"));
+    Value signatures = Value::array();
+    if (Core::truthy(signatures_is_list)) {
+      signatures = signatures_raw;
+    }
+    Value signature_count = Core::len(signatures);
+    Value has_signatures = Core::gt(signature_count, Value(0));
+    if (Core::truthy(has_signatures)) {
+      Value deltas = Value::array();
+      for (auto entry : Core::iter(history)) {
+        Value source = Core::get(entry, Value("source"), Value(""));
+        Value is_online = Core::eq(source, Value("online"));
+        Value entry_index = Core::get(entry, Value("exampleIndex"), Value(-2));
+        Value index_lte = Core::lte(entry_index, event_index);
+        Value index_gte = Core::gte(entry_index, event_index);
+        Value same_index = Core::and_(index_lte, index_gte);
+        Value matching_delta = Core::and_(is_online, same_index);
+        if (Core::truthy(matching_delta)) {
+          Core::append(deltas, entry);
+        }
+      }
+      Value delta_count = Core::len(deltas);
+      Value has_deltas = Core::gt(delta_count, Value(0));
+      Value alive = Value(false);
+      if (Core::truthy(has_deltas)) {
+        for (auto delta : Core::iter(deltas)) {
+          Value has_updated_ids = Core::map_contains(delta, Value("updatedBulletIds"));
+          Value legacy_delta = Core::not_(has_updated_ids);
+          if (Core::truthy(legacy_delta)) {
+            alive = Value(true);
+          }
+          if (!Core::truthy(legacy_delta)) {
+            Value updated_ids = Core::get(delta, Value("updatedBulletIds"), empty_list);
+            for (auto updated_id : Core::iter(updated_ids)) {
+              Value updated_id_text = Core::string_format(Value("{}"), updated_id);
+              Value still_live = Core::map_contains(live_ids, updated_id_text);
+              if (Core::truthy(still_live)) {
+                alive = Value(true);
+              }
+            }
+          }
+        }
+      }
+      if (!Core::truthy(has_deltas)) {
+        Value curator = Core::get(event, Value("curator"), Value());
+        Value curator_ran = Core::is_not_none(curator);
+        alive = curator_ran;
+      }
+      if (Core::truthy(alive)) {
+        for (auto signature : Core::iter(signatures)) {
+          Value signature_text = Core::string_format(Value("{}"), signature);
+          Value already_covered = Core::map_contains(covered_ids, signature_text);
+          Value newly_covered = Core::not_(already_covered);
+          if (Core::truthy(newly_covered)) {
+            Core::set(covered_ids, signature_text, Value(true));
+            Core::append(covered, signature_text);
+          }
+        }
+      }
+    }
+    Value next_event_index = Core::add(event_index, Value(1));
+    event_index = next_event_index;
+  }
+  return covered;
+}
+
+Value Core::_agent_build_failure_signals(Value state) {
+  axir_coverage_mark("_agent_build_failure_signals");
+  Value empty_list = Value::array();
+  Value signals = Value::array();
+  Value action_log = Core::get(state, Value("action_log"), empty_list);
+  Value previous_signature = Value("");
+  for (auto entry : Core::iter(action_log)) {
+    Value is_error = Core::_agent_entry_is_error(entry);
+    if (Core::truthy(is_error)) {
+      Value detail = Core::get(entry, Value("error"), Value(""));
+      Value detail_empty = Core::eq(detail, Value(""));
+      if (Core::truthy(detail_empty)) {
+        detail = Core::get(entry, Value("output"), Value(""));
+      }
+      detail_empty = Core::eq(detail, Value(""));
+      if (Core::truthy(detail_empty)) {
+        detail = Core::get(entry, Value("error_category"), Value("runtime error"));
+      }
+      Value detail_preview = Core::string_slice(detail, Value(0), Value(200));
+      Value category = Core::get(entry, Value("error_category"), Value("runtime_error"));
+      Value signature_detail = Core::string_slice(detail, Value(0), Value(96));
+      Value signature = Core::string_format(Value("{}:{}"), category, signature_detail);
+      Value kind = Value("error_turn");
+      Value repeated = Core::eq(signature, previous_signature);
+      if (Core::truthy(repeated)) {
+        kind = Value("dead_end");
+      }
+      Value signal = Value::object();
+      Core::set(signal, Value("kind"), kind);
+      Value turn = Core::get(entry, Value("turn"), Value(0));
+      Core::set(signal, Value("turn"), turn);
+      Core::set(signal, Value("signature"), signature);
+      Core::set(signal, Value("detail"), detail_preview);
+      Value code = Core::get(entry, Value("code"), Value(""));
+      Value has_code = Core::ne(code, Value(""));
+      if (Core::truthy(has_code)) {
+        Value code_preview = Core::string_slice(code, Value(0), Value(240));
+        Core::set(signal, Value("code"), code_preview);
+      }
+      Core::set(signal, Value("occurrences"), Value(1));
+      Core::append(signals, signal);
+      previous_signature = signature;
+    }
+  }
+  Value function_traces = Core::get(state, Value("function_call_traces"), empty_list);
+  for (auto call : Core::iter(function_traces)) {
+    Value status = Core::get(call, Value("status"), Value("ok"));
+    Value failed = Core::eq(status, Value("error"));
+    if (Core::truthy(failed)) {
+      Value result = Core::get(call, Value("result"), Value());
+      Value error_text = Core::get(result, Value("error"), Value("tool call failed"));
+      Value error_preview = Core::string_slice(error_text, Value(0), Value(120));
+      Value qualified_name = Core::get(call, Value("qualified_name"), Value("tool"));
+      Value signature_error = Core::string_slice(error_text, Value(0), Value(60));
+      Value signature = Core::string_format(Value("{}:{}"), qualified_name, signature_error);
+      Value detail = Core::string_format(Value("{} failed: {}"), qualified_name, error_preview);
+      Value signal = Value::object();
+      Core::set(signal, Value("kind"), Value("tool_error"));
+      Core::set(signal, Value("turn"), Value(0));
+      Core::set(signal, Value("signature"), signature);
+      Core::set(signal, Value("detail"), detail);
+      Value arguments = Core::get(call, Value("arguments"), Value());
+      Value has_arguments = Core::is_not_none(arguments);
+      if (Core::truthy(has_arguments)) {
+        Value arguments_text = Core::string_format(Value("{}"), arguments);
+        Value arguments_preview = Core::string_slice(arguments_text, Value(0), Value(240));
+        Core::set(signal, Value("code"), arguments_preview);
+      }
+      Core::set(signal, Value("occurrences"), Value(1));
+      Core::append(signals, signal);
+    }
+  }
+  Core::set(state, Value("failure_signals"), signals);
+  return signals;
 }
 
 Value Core::_normalize_agent_completion_payload(Value output) {
@@ -17021,6 +17613,31 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   Core::set(responder_request_event, Value("component_id"), Value("agent.stage.responder"));
   Core::_agent_record_trace_event(state, Value("stage_request"), responder_request_event);
   Value responder_output = Core::agent_stage_forward(responder, client, responder_values, responder_options);
+  Value citation_retry_options = Value::object();
+  citation_retry_options = Core::map_merge(citation_retry_options, responder_options);
+  Value citations_valid = Core::_agent_validate_citations(state, responder_output);
+  Value citations_invalid = Core::not_(citations_valid);
+  if (Core::truthy(citations_invalid)) {
+    Value invalid_citations_output = Core::json_stringify(responder_output);
+    Value citation_retry_feedback = Core::string_format(Value("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON."), invalid_citations_output);
+    Core::set(citation_retry_options, Value("validation_feedback"), citation_retry_feedback);
+    responder_output = Core::agent_stage_forward(responder, client, responder_values, citation_retry_options);
+    citations_valid = Core::_agent_validate_citations(state, responder_output);
+  }
+  citations_invalid = Core::not_(citations_valid);
+  if (Core::truthy(citations_invalid)) {
+    Value invalid_citations_output = Core::json_stringify(responder_output);
+    Value citation_retry_feedback = Core::string_format(Value("The previous responder output failed evidence-citation validation: {}. Cite only exact top-level evidence keys or permitted nested record ids present in contextData.evidence, or leave citations empty. Return only corrected JSON."), invalid_citations_output);
+    Core::set(citation_retry_options, Value("validation_feedback"), citation_retry_feedback);
+    responder_output = Core::agent_stage_forward(responder, client, responder_values, citation_retry_options);
+    citations_valid = Core::_agent_validate_citations(state, responder_output);
+  }
+  citations_invalid = Core::not_(citations_valid);
+  if (Core::truthy(citations_invalid)) {
+    Value error = Core::runtime_error(Value("AxAgent responder returned citations that do not exist in the run evidence"));
+    throw Core::as_error(error);
+  }
+  responder_output = Core::_agent_finalize_citations(state, responder_output);
   Value responder_response_event = Value::object();
   Core::set(responder_response_event, Value("stage"), Value("responder"));
   Core::set(responder_response_event, Value("output"), responder_output);
@@ -17031,6 +17648,7 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   Core::set(state, Value("last_output"), responder_output);
   Core::set(state, Value("chat_log"), logs);
   Core::set(state, Value("usage"), usage);
+  Core::_agent_build_failure_signals(state);
   Core::_agent_finalize_trace(state, Value("completed"), responder_output);
   return responder_output;
 }
@@ -20516,6 +21134,7 @@ Value AxACE::run_reflection_rounds(const Value& example, const Value& generator_
   for (int round = 0; round < rounds; round++) {
     Value reflection = run_reflector(example, generator_output, feedback, previous);
     if (reflection.is_null() || (reflection.is_object() && Core::iter(Core::map_keys(reflection)).empty())) break;
+    Core::set(reflection, "bulletTags", Core::_ace_normalize_reflection_bullet_tags(reflection));
     previous = reflection;
     std::string error_text = display(Core::string_lower(Core::get(reflection, "errorIdentification", Value(""))));
     size_t start = error_text.find_first_not_of(" \t\n\r");
@@ -20573,7 +21192,7 @@ std::vector<Value> AxACE::apply_operations(std::vector<Value>& resolved, Value& 
 }
 
 void AxACE::apply_bullet_tags(const Value& reflection) {
-  for (const auto& tag : Core::iter(Core::get(reflection, "bulletTags", Value::array()))) {
+  for (const auto& tag : Core::iter(Core::_ace_normalize_reflection_bullet_tags(reflection))) {
     playbook_ = Core::_ace_update_bullet_feedback(playbook_, Core::get(tag, "id"), Core::get(tag, "tag"), Value(now_));
   }
 }
@@ -20632,6 +21251,7 @@ Value AxACE::compile(const std::vector<Value>& examples, const AceCallable& metr
         Core::set(delta, "epoch", Value(epoch));
         Core::set(delta, "exampleIndex", Value(static_cast<int>(index)));
         Core::set(delta, "operations", Core::get(curator_result, "operations"));
+        Core::set(delta, "updatedBulletIds", Value(applied_ids));
         delta_history_.push_back(delta);
       }
     }
@@ -20684,6 +21304,7 @@ Value AxACE::apply_online_update(Value args) {
     Core::set(delta, "epoch", Value(-1));
     Core::set(delta, "exampleIndex", Value(static_cast<int>(generator_history_.size()) - 1));
     Core::set(delta, "operations", Core::get(curator_result, "operations"));
+    Core::set(delta, "updatedBulletIds", Value(applied_ids));
     delta_history_.push_back(delta);
   }
   return curator_result;
@@ -20711,6 +21332,19 @@ static const char* kAceCuratorSignature =
     "token_budget?:number \"Approximate token budget for curator response\" "
     "-> reasoning:string \"Justification for the proposed updates\", "
     "operations:json \"List of operations with type/section/content fields\"";
+
+static const char* kAgentPlaybookWeaknessMinerSignature =
+    "clusterSignature:string \"Shared error signature of the cluster\", "
+    "taskSummaries:string \"One line per failing task\", "
+    "actionLogExcerpts:string \"Excerpts of failing runs centered on the failure\", "
+    "functionCallSummary?:string \"Digest of runtime/tool calls\", "
+    "toolErrors?:string \"Tool errors observed\", "
+    "currentPlaybook?:string \"Current failure-avoidance playbook\" "
+    "-> weaknessDescription:string \"Recurring weakness\", "
+    "rootCause:string \"Mechanical root cause\", "
+    "proposedGuidance:string \"One concise imperative avoidance rule\", "
+    "evidenceQuotes:json \"Verbatim substrings copied from actionLogExcerpts\", "
+    "configRecommendations?:json \"Setup suggestions no prompt text can fix\"";
 
 static std::string playbook_compose_instruction(const std::string& base, const std::string& rendered) {
   std::vector<std::string> parts;
@@ -20748,6 +21382,71 @@ static Value playbook_option(const Value& options, std::initializer_list<const c
     if (!value.is_null()) return value;
   }
   return Value();
+}
+
+static std::string playbook_collapse(const std::string& value) {
+  std::string collapsed = std::regex_replace(value, std::regex("\\s+"), " ");
+  size_t start = collapsed.find_first_not_of(' ');
+  if (start == std::string::npos) return std::string();
+  size_t end = collapsed.find_last_not_of(' ');
+  return collapsed.substr(start, end - start + 1);
+}
+
+static std::string playbook_error_signature(const std::string& value) {
+  std::smatch match;
+  if (std::regex_search(value, match, std::regex("^(\\w+Error:\\s*.{0,60})", std::regex_constants::multiline))) {
+    return match[1].str();
+  }
+  return value.substr(0, std::min<size_t>(80, value.size()));
+}
+
+static std::string playbook_record_signature(const Value& record) {
+  Value prediction = Core::get(record, "prediction", Value::object());
+  std::vector<std::pair<std::string, int>> counts;
+  for (const auto& signal : Core::iter(Core::get(prediction, "failureSignals", Value::array()))) {
+    std::string signature = display(Core::get(signal, "signature", Value("behavioral:no_error")));
+    auto found = std::find_if(counts.begin(), counts.end(), [&](const auto& item) { return item.first == signature; });
+    int occurrences = static_cast<int>(num(Core::get(signal, "occurrences", Value(1))));
+    if (found == counts.end()) counts.push_back({signature, occurrences});
+    else found->second += occurrences;
+  }
+  std::string best;
+  int best_count = 0;
+  for (const auto& entry : counts) {
+    if (entry.second > best_count) {
+      best = entry.first;
+      best_count = entry.second;
+    }
+  }
+  if (!best.empty()) return best;
+  auto tool_errors = Core::iter(Core::get(prediction, "toolErrors", Value::array()));
+  if (!tool_errors.empty()) {
+    std::string line = display(tool_errors.front());
+    size_t newline = line.find('\n');
+    if (newline != std::string::npos) line.resize(newline);
+    if (line.size() > 100) line.resize(100);
+    return line;
+  }
+  Value error = Core::get(record, "error");
+  if (!error.is_null()) return playbook_error_signature(display(error));
+  std::string action_log = display(Core::get(prediction, "actionLog", Value("")));
+  std::smatch match;
+  if (std::regex_search(action_log, match, std::regex("^\\s*(\\w+Error:\\s*.{0,60})", std::regex_constants::multiline))) {
+    return playbook_error_signature(match[1].str());
+  }
+  return "behavioral:no_error";
+}
+
+static std::string playbook_failure_excerpt(const Value& record, const std::string& signature) {
+  Value error = Core::get(record, "error");
+  if (!error.is_null()) return "Run threw: " + display(error);
+  std::string action_log = display(Core::get(Core::get(record, "prediction", Value::object()), "actionLog", Value("")));
+  if (action_log.size() <= 2000) return action_log;
+  std::string needle = signature.substr(0, std::min<size_t>(40, signature.size()));
+  size_t hit = action_log.find(needle);
+  if (hit == std::string::npos) return action_log.substr(action_log.size() - 2000);
+  size_t start = hit > 1000 ? hit - 1000 : 0;
+  return action_log.substr(start, std::min<size_t>(2000, action_log.size() - start));
 }
 
 AxPlaybook::AxPlaybook(AxGen& program, AIClient& student, AIClient* teacher, Value options)
@@ -20906,6 +21605,252 @@ void AxPlaybook::reset() {
 }
 
 void AxPlaybook::set_apply_hook(std::function<void(const std::string&)> hook) { apply_hook_ = std::move(hook); }
+
+AxPlaybook& AxPlaybook::bind_agent(AxAgent& agent) {
+  agent_ = &agent;
+  return *this;
+}
+
+Value AxPlaybook::evolve(Value dataset, Value options) {
+  if (agent_ == nullptr) throw AxError("validation", "AxAgent.playbook().evolve() requires an agent-bound playbook");
+  if (!options.is_object()) options = Value::object();
+  Value normalized = Core::_normalize_optimization_dataset(dataset.is_null() ? Value::array() : dataset);
+  std::vector<Value> train = Core::iter(Core::get(normalized, "train", Value::array()));
+  std::vector<Value> validation = Core::iter(Core::get(normalized, "validation", Value::array()));
+  if (train.empty()) throw AxError("validation", "AxAgent.playbook().evolve(): at least one training task is required.");
+  double threshold = num(Core::get(options, "scoreThreshold", Core::get(options, "score_threshold", Value(0.7))));
+  double min_gain = num(Core::get(options, "minHeldInGain", Core::get(options, "min_held_in_gain", Value(0.05))));
+  double epsilon = num(Core::get(options, "epsilon", Value(0.01)));
+  size_t max_proposals = static_cast<size_t>(std::max(1.0, num(Core::get(options, "maxProposals", Core::get(options, "max_proposals", Value(4))))));
+  bool verify = !Core::truthy(Core::eq(Core::get(options, "verify", Value(true)), Value(false)));
+  int runs_per_task = std::max(1, static_cast<int>(num(Core::get(options, "runsPerTask", Core::get(options, "runs_per_task", Value(1))))));
+  int dataset_size = static_cast<int>(train.size() + validation.size()) * runs_per_task;
+  int max_metric_calls = std::max(1, static_cast<int>(num(Core::get(options, "maxMetricCalls", Core::get(options, "max_metric_calls", Value(std::max(100, (static_cast<int>(max_proposals) + 1) * dataset_size)))))));
+  int remaining = max_metric_calls;
+  auto run_batch = [&](const std::vector<Value>& tasks) {
+    Array records;
+    double weighted_sum = 0;
+    double weight_sum = 0;
+    bool exhausted = false;
+    for (size_t task_index = 0; task_index < tasks.size(); ++task_index) {
+      const auto& raw_task = tasks[task_index];
+      Value task = raw_task.is_object() ? raw_task : object({{"input", raw_task}});
+      Value prediction;
+      std::string last_error;
+      double score_sum = 0;
+      int completed_runs = 0;
+      for (int run = 0; run < runs_per_task; ++run) {
+        if (remaining <= 0) { exhausted = true; break; }
+        --remaining;
+        double score = 0;
+        try {
+          prediction = agent_->evaluate_optimization_task(*student_, task, options);
+          Value default_score = Core::truthy(Core::eq(Core::get(prediction, "completionType", Value("")), Value("error"))) ? Value(0) : Value(1);
+          Value raw_score = Core::get(task, "metric_score", Core::get(task, "scores", Core::get(task, "score", default_score)));
+          score = num(Core::_scalarize_optimization_scores(Core::_normalize_optimization_metric_scores(raw_score), options));
+          if (!std::isfinite(score)) score = 0;
+        } catch (const std::exception& error) {
+          score = 0;
+          last_error = error.what();
+        }
+        score_sum += score;
+        ++completed_runs;
+      }
+      if (completed_runs == 0) break;
+      double score = score_sum / static_cast<double>(completed_runs);
+      double weight = num(Core::get(task, "weight", Value(1)));
+      weighted_sum += weight * score;
+      weight_sum += weight;
+      Value record = object({{"task", task}, {"index", Value(static_cast<double>(task_index))}, {"score", Value(score)}, {"passed", Value(score >= threshold && display(Core::get(prediction, "completionType", Value(""))) == "final")}});
+      if (!prediction.is_null()) Core::set(record, "prediction", prediction);
+      else if (!last_error.empty()) Core::set(record, "error", Value(last_error));
+      records.push_back(record);
+      if (completed_runs < runs_per_task) break;
+    }
+    if (records.size() < tasks.size()) exhausted = true;
+    return object({{"records", Value(records)}, {"mean", Value(weight_sum == 0 ? 0.0 : weighted_sum / weight_sum)}, {"exhausted", Value(exhausted)}});
+  };
+  Value baseline_batch = run_batch(train);
+  double baseline_held_in = num(Core::get(baseline_batch, "mean", Value(0)));
+  double held_in = baseline_held_in;
+  double held_out = validation.empty() ? std::numeric_limits<double>::quiet_NaN() : num(Core::get(run_batch(validation), "mean", Value(0)));
+  double baseline_held_out = held_out;
+  std::vector<std::pair<std::string, std::vector<Value>>> clusters;
+  for (const auto& record : Core::iter(Core::get(baseline_batch, "records", Value::array()))) {
+    Value prediction = Core::get(record, "prediction", Value::object());
+    double score = num(Core::get(record, "score", Value(0)));
+    std::string completion = display(Core::get(prediction, "completionType", Value("")));
+    if (Core::get(record, "error").is_null() && score >= threshold && completion != "askClarification") continue;
+    std::string signature = playbook_record_signature(record);
+    auto cluster = std::find_if(clusters.begin(), clusters.end(), [&](const auto& entry) { return entry.first == signature; });
+    if (cluster == clusters.end()) clusters.push_back({signature, {record}});
+    else cluster->second.push_back(record);
+  }
+  std::vector<std::pair<std::string, std::vector<Value>>> ranked = clusters;
+  std::stable_sort(ranked.begin(), ranked.end(), [](const auto& left, const auto& right) {
+    auto severity = [](const auto& records) { double out = 0; for (const auto& record : records) out += 1.0 - num(Core::get(record, "score", Value(0))); return out; };
+    return severity(left.second) > severity(right.second);
+  });
+  if (ranked.size() > max_proposals) ranked.resize(max_proposals);
+  Value initial = parse_json(stringify(get_state()));
+  Array outcomes;
+  Array weaknesses;
+  size_t index = 0;
+  for (const auto& cluster : ranked) {
+    ++index;
+    std::vector<Value> selected(cluster.second.begin(), cluster.second.begin() + std::min<size_t>(4, cluster.second.size()));
+    std::vector<std::string> bodies;
+    std::string excerpts;
+    std::string task_summaries;
+    std::vector<std::string> function_calls;
+    std::vector<std::string> tool_errors;
+    for (size_t record_index = 0; record_index < selected.size(); ++record_index) {
+      const Value& record = selected[record_index];
+      std::string body = playbook_failure_excerpt(record, cluster.first);
+      bodies.push_back(body);
+      if (!excerpts.empty()) excerpts += "\n\n";
+      excerpts += "--- run " + std::to_string(record_index + 1) + " ---\n" + body;
+      Value task = Core::get(record, "task", Value::object());
+      std::string label = Core::get(task, "id").is_null() ? "#" + std::to_string(record_index + 1) : display(Core::get(task, "id"));
+      std::string input = stringify(Core::get(task, "input"));
+      if (input.size() > 240) input.resize(240);
+      if (!task_summaries.empty()) task_summaries += "\n";
+      std::ostringstream score_text;
+      score_text << std::fixed << std::setprecision(2) << num(Core::get(record, "score", Value(0)));
+      task_summaries += "- " + label + " (score " + score_text.str() + "): " + input;
+      Value prediction = Core::get(record, "prediction", Value::object());
+      for (const auto& call : Core::iter(Core::get(prediction, "functionCalls", Value::array()))) {
+        if (function_calls.size() < 20) function_calls.push_back(stringify(call));
+      }
+      for (const auto& error : Core::iter(Core::get(prediction, "toolErrors", Value::array()))) {
+        if (tool_errors.size() < 10) tool_errors.push_back(display(error));
+      }
+    }
+    bool has_body = std::any_of(bodies.begin(), bodies.end(), [](const std::string& body) { return !playbook_collapse(body).empty(); });
+    if (!has_body) continue;
+    Value miner_request = object({
+        {"clusterSignature", Value(cluster.first)},
+        {"taskSummaries", Value(task_summaries)},
+        {"actionLogExcerpts", Value(excerpts)},
+    });
+    if (!function_calls.empty()) {
+      std::string joined;
+      for (const auto& call : function_calls) { if (!joined.empty()) joined += "\n"; joined += call; }
+      Core::set(miner_request, "functionCallSummary", Value(joined));
+    }
+    if (!tool_errors.empty()) {
+      std::string joined;
+      for (const auto& error : tool_errors) { if (!joined.empty()) joined += "\n"; joined += error; }
+      Core::set(miner_request, "toolErrors", Value(joined));
+    }
+    std::string current_playbook = render();
+    if (!playbook_collapse(current_playbook).empty()) Core::set(miner_request, "currentPlaybook", Value(current_playbook));
+    Value mined;
+    try {
+      AxGen miner(s(kAgentPlaybookWeaknessMinerSignature), object({
+          {"id", "agent.playbook.weakness-miner"},
+          {"instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."},
+      }));
+      mined = miner.forward(*teacher_, miner_request);
+    } catch (...) {
+      continue;
+    }
+    std::vector<Value> quote_candidates;
+    Value raw_quotes = Core::get(mined, "evidenceQuotes");
+    if (raw_quotes.is_array()) quote_candidates = Core::iter(raw_quotes);
+    else if (!raw_quotes.is_null()) quote_candidates.push_back(raw_quotes);
+    Array evidence;
+    std::string haystack = playbook_collapse(excerpts);
+    for (const auto& quote : quote_candidates) {
+      std::string text = display(quote);
+      std::string needle = playbook_collapse(text);
+      if (!needle.empty() && haystack.find(needle) != std::string::npos) evidence.push_back(Value(text));
+    }
+    if (evidence.empty()) continue;
+    Array task_ids;
+    for (size_t record_index = 0; record_index < cluster.second.size(); ++record_index) {
+      Value task = Core::get(cluster.second[record_index], "task", Value::object());
+      size_t task_index = static_cast<size_t>(num(Core::get(cluster.second[record_index], "index", Value(static_cast<double>(record_index)))));
+      task_ids.push_back(Core::get(task, "id").is_null() ? Value("task-" + std::to_string(task_index)) : Core::get(task, "id"));
+    }
+    Array recommendations;
+    Value raw_recommendations = Core::get(mined, "configRecommendations");
+    if (raw_recommendations.is_array()) recommendations = Core::iter(raw_recommendations);
+    else if (!raw_recommendations.is_null()) recommendations.push_back(Value(display(raw_recommendations)));
+    Value weakness = object({
+        {"id", Value("weakness-" + std::to_string(index))},
+        {"clusterSignature", Value(cluster.first)},
+        {"description", Value(display(Core::get(mined, "weaknessDescription", Value(""))))},
+        {"rootCause", Value(display(Core::get(mined, "rootCause", Value(""))))},
+        {"proposedGuidance", Value(display(Core::get(mined, "proposedGuidance", Value(""))))},
+        {"evidenceQuotes", Value(evidence)},
+        {"taskIds", Value(task_ids)},
+        {"configRecommendations", Value(recommendations)},
+    });
+    weaknesses.push_back(weakness);
+    Value proposal = object({{"weaknessId", Core::get(weakness, "id")}, {"clusterSignature", Value(cluster.first)}, {"feedback", Value("")}});
+    int required_calls = static_cast<int>(train.size() + validation.size()) * runs_per_task;
+    if (verify && remaining < required_calls) {
+      outcomes.push_back(object({{"proposal", proposal}, {"accepted", false}, {"reason", "metric_budget exhausted before validation"}, {"heldIn", object({{"before", held_in}, {"after", held_in}})}}));
+      continue;
+    }
+    Value before = parse_json(stringify(get_state()));
+    std::string quote_lines;
+    auto grounded_quotes = Core::iter(Core::get(weakness, "evidenceQuotes", Value::array()));
+    for (size_t quote_index = 0; quote_index < std::min<size_t>(3, grounded_quotes.size()); ++quote_index) {
+      if (!quote_lines.empty()) quote_lines += "\n";
+      quote_lines += "- " + display(grounded_quotes[quote_index]);
+    }
+    std::string feedback = "A recurring agent weakness was diagnosed from real failed runs.\n\n"
+        "Weakness: " + display(Core::get(weakness, "description", Value(""))) + "\n"
+        "Root cause: " + display(Core::get(weakness, "rootCause", Value(""))) + "\n"
+        "Error signature: [" + cluster.first + "]\nGrounding excerpts:\n" + quote_lines +
+        "\n\nCurate ONE durable rule into the playbook (suggested section: \"failures_to_avoid\"): " +
+        display(Core::get(weakness, "proposedGuidance", Value(""))) +
+        "\nUPDATE an existing bullet if one already covers this failure mode.";
+    Core::set(proposal, "feedback", feedback);
+    try {
+      update(object({{"example", object({{"task", Value("playbook.evolve(): repair a diagnosed agent weakness")}, {"failureSignatures", array({Value(cluster.first)})}})}, {"prediction", Value::object()}, {"feedback", Value(feedback)}}));
+    } catch (const std::exception& error) {
+      outcomes.push_back(object({{"proposal", proposal}, {"accepted", false}, {"reason", Value("apply failed: " + std::string(error.what()))}, {"heldIn", object({{"before", held_in}, {"after", held_in}})}}));
+      continue;
+    }
+    bool accepted = true;
+    double next_in = held_in;
+    double next_out = held_out;
+    bool reeval_complete = true;
+    if (verify) {
+      Value train_batch = run_batch(train);
+      next_in = num(Core::get(train_batch, "mean", Value(0)));
+      Value validation_batch = validation.empty() ? object({{"mean", Value(std::numeric_limits<double>::quiet_NaN())}, {"exhausted", false}}) : run_batch(validation);
+      next_out = num(Core::get(validation_batch, "mean", Value(0)));
+      reeval_complete = !Core::truthy(Core::get(train_batch, "exhausted", false)) && !Core::truthy(Core::get(validation_batch, "exhausted", false));
+      accepted = reeval_complete && next_in - held_in >= min_gain && (std::isnan(next_out) || std::isnan(held_out) || next_out - held_out >= -epsilon);
+    }
+    std::string reason = !reeval_complete ? "metric_budget exhausted during re-evaluation" : !verify ? "applied without verification (verify: false)" : accepted ? (std::isnan(held_out) ? "held-in improved (no held-out set provided — consider one)" : "held-in improved, held-out non-regressing") : next_in - held_in < min_gain ? "held-in gain below threshold" : "held-out regressed";
+    Value outcome = object({{"proposal", proposal}, {"accepted", Value(accepted)}, {"reason", Value(reason)}, {"heldIn", object({{"before", Value(held_in)}, {"after", Value(next_in)}})}});
+    if (!std::isnan(next_out) && !std::isnan(held_out)) Core::set(outcome, "heldOut", object({{"before", held_out}, {"after", next_out}}));
+    outcomes.push_back(outcome);
+    if (accepted) { held_in = next_in; held_out = next_out; } else { load(before); }
+  }
+  bool any_accepted = false;
+  for (const auto& outcome : outcomes) if (Core::truthy(Core::get(outcome, "accepted", Value(false)))) any_accepted = true;
+  Value learned = any_accepted ? parse_json(stringify(get_state())) : Value();
+  if (Core::truthy(Core::eq(Core::get(options, "apply", Value(true)), Value(false))) && !learned.is_null()) load(initial);
+  Value baseline_result = object({{"heldIn", Value(baseline_held_in)}});
+  Value final_result = object({{"heldIn", Value(held_in)}});
+  if (!std::isnan(baseline_held_out)) Core::set(baseline_result, "heldOut", baseline_held_out);
+  if (!std::isnan(held_out)) Core::set(final_result, "heldOut", held_out);
+  Array all_recommendations;
+  for (const auto& weakness : weaknesses) {
+    for (const auto& recommendation : Core::iter(Core::get(weakness, "configRecommendations", Value::array()))) {
+      all_recommendations.push_back(Value(display(recommendation)));
+    }
+  }
+  Value result = object({{"baseline", baseline_result}, {"final", final_result}, {"weaknesses", Value(weaknesses)}, {"outcomes", Value(outcomes)}, {"recommendations", Value(all_recommendations)}, {"metricCallsUsed", max_metric_calls - remaining}, {"records", Core::get(baseline_batch, "records", Value::array())}});
+  if (!learned.is_null()) Core::set(result, "playbookSnapshot", learned);
+  return result;
+}
 
 void AxPlaybook::inject() {
   std::string rendered = render();
@@ -21181,6 +22126,8 @@ AxFlow& AxFlow::add_step(Value kind, Value name, Value program, Value options) {
 }
 
 AxAgent::AxAgent(Value signature, Value options) {
+  options_ = options;
+  playbook_config_ = Core::get(options, "playbook", Value());
   state_ = Core::_agent_factory(std::move(signature), options);
   distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
   executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
@@ -21198,7 +22145,22 @@ AxAgent& AxAgent::set_signature(Value signature) {
   return *this;
 }
 
+Value AxAgent::get_instruction() const { return Core::get(state_, "stage_instruction", Value("")); }
+
+AxAgent& AxAgent::set_instruction(Value instruction) {
+  Value composed = Core::_agent_set_instruction(state_, display(instruction));
+  executor_->set_instruction(composed);
+  return *this;
+}
+
+AxAgent& AxAgent::add_actor_instruction(Value addendum) {
+  Value composed = Core::_agent_add_actor_instruction(state_, display(addendum));
+  executor_->set_instruction(composed);
+  return *this;
+}
+
 Value AxAgent::forward(AIClient& client, Value values, Value options) {
+  ensure_configured_playbook(client);
   // Wire the built-in llmQuery primitive onto the runtime carried in agent
   // options (the same runtime the actor loop will create sessions on),
   // mirroring the Go/Python/Rust/Java wrappers. The logic lives in the
@@ -21218,7 +22180,7 @@ Value AxAgent::forward(AIClient& client, Value values, Value options) {
       });
     }
   }
-  return Core::_agent_forward(
+  Value output = Core::_agent_forward(
       state_,
       Core::agent_stage_ref(*distiller_),
       Core::agent_stage_ref(*executor_),
@@ -21226,6 +22188,25 @@ Value AxAgent::forward(AIClient& client, Value values, Value options) {
       Core::client_ref(client),
       std::move(values),
       std::move(options));
+  if (citations_observer_) {
+    try {
+      citations_observer_(Core::get(state_, "last_citations", Value::array()));
+    } catch (...) {
+      // Citation observers are informational and must not fail forward().
+    }
+  }
+  learn_playbook_failures(output);
+  return output;
+}
+
+AxAgent& AxAgent::set_citations_observer(std::function<void(Value)> observer) {
+  citations_observer_ = std::move(observer);
+  return *this;
+}
+
+AxAgent& AxAgent::set_playbook_observer(std::function<void(Value)> observer) {
+  playbook_observer_ = std::move(observer);
+  return *this;
 }
 
 AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& tools) {
@@ -21299,42 +22280,19 @@ Value AxAgent::export_runtime_state() const { return Core::_agent_export_runtime
 Value AxAgent::restore_runtime_state(Value snapshot) { return Core::_agent_restore_runtime_state(state_, std::move(snapshot)); }
 Value AxAgent::get_optimizer_metadata() const { return Core::_agent_optimizer_metadata(state_); }
 Value AxAgent::get_optimizable_components() const {
-  Value components = Value::array();
-  for (const auto& item : array_ref(distiller_->get_optimizable_components())) Core::append(components, item);
-  for (const auto& item : array_ref(executor_->get_optimizable_components())) Core::append(components, item);
-  for (const auto& item : array_ref(responder_->get_optimizable_components())) Core::append(components, item);
-  Core::append(components, Core::_optimization_component(
-      Value("root.agent.runtime"),
-      Value("root.agent"),
-      Value("runtime-policy"),
-      get_runtime_contract(),
-      Value("Agent runtime-language metadata and code-field policy."),
-      array({Value("Keep code field names aligned with the selected runtime language.")}),
-      Value::array(),
-      Value(true),
-      Value("json"),
-      object({{"component", Value("runtime_contract")}})));
-  Core::append(components, Core::_optimization_component(
-      Value("root.agent.policy"),
-      Value("root.agent"),
-      Value("agent-policy"),
-      get_policy(),
-      Value("Actor primitive, discovery, delegation, and prompt placement policy."),
-      array({Value("Do not expose protocol-only actions as actor primitives.")}),
-      array({Value("root.agent.runtime")}),
-      Value(true),
-      Value("json"),
-      object({{"component", Value("policy_registry")}})));
-  return components;
+  Value child_components = Value::array();
+  for (const auto& item : array_ref(distiller_->get_optimizable_components())) Core::append(child_components, item);
+  for (const auto& item : array_ref(executor_->get_optimizable_components())) Core::append(child_components, item);
+  for (const auto& item : array_ref(responder_->get_optimizable_components())) Core::append(child_components, item);
+  return Core::_agent_get_optimizable_components(state_, child_components);
 }
 AxAgent& AxAgent::apply_optimized_components(Value component_map) {
   Core::_validate_optimization_component_map(get_optimizable_components(), component_map);
   distiller_->apply_optimized_components(component_map);
   executor_->apply_optimized_components(component_map);
   responder_->apply_optimized_components(component_map);
-  if (Core::truthy(Core::map_contains(component_map, Value("root.agent.runtime")))) Core::set(state_, "runtime_contract", Core::get(component_map, "root.agent.runtime", Value::object()));
-  if (Core::truthy(Core::map_contains(component_map, Value("root.agent.policy")))) Core::set(state_, "policy", Core::get(component_map, "root.agent.policy", Value::object()));
-  Core::set(state_, "optimizer_metadata", Core::_agent_optimizer_metadata(state_));
+  Value composed = Core::_agent_apply_optimized_components(state_, component_map);
+  executor_->set_instruction(composed);
   return *this;
 }
 AxAgent& AxAgent::apply_optimization(Value artifact) {
@@ -21424,21 +22382,96 @@ Value AxAgent::optimize(Value dataset, Value options) {
 // stage by default; pass {"target":"responder"} for the responder). As the
 // playbook evolves it is injected into the live stage prompt unless {"apply"} is
 // false. The evolution engine (ACE) is an implementation detail.
-AxPlaybook AxAgent::playbook(AIClient& student, Value options) {
+AxPlaybook& AxAgent::playbook(AIClient& student, Value options) {
+  if (playbook_handle_) {
+    if (options.is_object() && !Core::iter(Core::map_keys(options)).empty()) {
+      throw AxError("validation", "AxAgent.playbook(): this agent already has a playbook; call playbook() without options to use it.");
+    }
+    return *playbook_handle_;
+  }
   if (!options.is_object()) options = Value::object();
   std::string target = display(Core::get(options, "target", Value("actor")));
   AxGen* stage = target == "responder" ? responder_.get() : executor_.get();
-  AxPlaybook handle(*stage, student, nullptr, options);
+  auto handle = std::make_unique<AxPlaybook>(*stage, student, nullptr, options);
   if (Core::truthy(Core::eq(Core::get(options, "apply"), Value(false)))) {
-    handle.set_apply_hook([](const std::string&) {});
-    return handle;
+    handle->set_apply_hook([](const std::string&) {});
+  } else {
+    std::string base = display(stage->get_instruction());
+    AxGen* stage_ptr = stage;
+    handle->set_apply_hook([stage_ptr, base](const std::string& rendered) {
+      stage_ptr->set_instruction(Value(playbook_compose_instruction(base, rendered)));
+    });
   }
-  std::string base = display(stage->get_instruction());
-  AxGen* stage_ptr = stage;
-  handle.set_apply_hook([stage_ptr, base](const std::string& rendered) {
-    stage_ptr->set_instruction(Value(playbook_compose_instruction(base, rendered)));
-  });
-  return handle;
+  handle->bind_agent(*this);
+  playbook_handle_ = std::move(handle);
+  return *playbook_handle_;
+}
+
+AxPlaybook* AxAgent::get_playbook() const { return playbook_handle_.get(); }
+
+void AxAgent::ensure_configured_playbook(AIClient& client) {
+  if (playbook_handle_ || playbook_config_.is_null() || (playbook_config_.is_bool() && !Core::truthy(playbook_config_))) return;
+  Value config = playbook_config_.is_object() ? playbook_config_ : Value::object();
+  if (Core::get(config, "maxReflectorRounds", Value()).is_null() && Core::get(config, "max_reflector_rounds", Value()).is_null()) {
+    Core::set(config, "maxReflectorRounds", 1);
+  }
+  Value seed = Core::get(config, "seed", Value());
+  if (seed.is_null() && (!Core::get(config, "playbook", Value()).is_null() || !Core::get(config, "artifact", Value()).is_null())) seed = config;
+  AxPlaybook& handle = playbook(client, config);
+  if (seed.is_object()) {
+    if (!Core::get(seed, "playbook", Value()).is_null()) handle.load(seed);
+    else handle.load(object({{"playbook", seed}}));
+  }
+}
+
+void AxAgent::learn_playbook_failures(Value output) {
+  if (!playbook_handle_ || playbook_config_.is_null()) return;
+  Value config = playbook_config_.is_object() ? playbook_config_ : Value::object();
+  Value learn = Core::get(config, "learn", Value(true));
+  if (learn.is_bool() && !Core::truthy(learn)) return;
+  try {
+    std::vector<Value> signals = Core::iter(Core::get(state_, "failure_signals", Value::array()));
+    Value learn_config = learn.is_object() ? learn : Value::object();
+    int min_signals = static_cast<int>(num(Core::get(learn_config, "minSignals", Core::get(learn_config, "min_signals", Value(1)))));
+    if (static_cast<int>(signals.size()) < min_signals) return;
+    std::set<std::string> covered;
+    for (const auto& signature : Core::iter(Core::_agent_collect_covered_failure_signatures(playbook_handle_->get_state()))) {
+      covered.insert(display(signature));
+    }
+    if (Core::truthy(Core::get(learn_config, "dedupe", Value(true)))) {
+      signals.erase(std::remove_if(signals.begin(), signals.end(), [&](const Value& signal) {
+        return covered.count(display(Core::get(signal, "signature", Value("")))) > 0;
+      }), signals.end());
+    }
+    if (signals.empty()) return;
+    if (signals.size() > 12) signals.resize(12);
+    std::string feedback = "Agent run failures to avoid:\n";
+    Array signatures;
+    for (const auto& signal : signals) {
+      Value signature = Core::get(signal, "signature", Value(""));
+      signatures.push_back(signature);
+      feedback += "- [" + display(Core::get(signal, "kind", Value("error_turn"))) + "] " + display(signature) + ": " + display(Core::get(signal, "detail", Value(""))) + "\n";
+    }
+    feedback += "Curate ONE bounded avoidance rule into failures_to_avoid.";
+    std::string before = stringify(Core::get(playbook_handle_->get_state(), "playbook", Value::object()));
+    Value update = playbook_handle_->update(object({
+      {"example", object({{"task", Core::get(options_, "instruction", Value("agent run"))}, {"failureSignatures", Value(signatures)}})},
+      {"prediction", output},
+      {"feedback", Value(feedback)},
+    }));
+    if (playbook_observer_) {
+      Value snapshot = playbook_handle_->get_state();
+      playbook_observer_(object({
+        {"status", stringify(Core::get(snapshot, "playbook", Value::object())) == before ? Value("unchanged") : Value("updated")},
+        {"signals", Value(signals)},
+        {"feedback", Value(feedback)},
+        {"snapshot", snapshot},
+        {"result", update},
+      }));
+    }
+  } catch (...) {
+    // Run-end learning must never fail a completed user-facing run.
+  }
 }
 
 static Value optimize_options_merge(Value base, Value extra) {

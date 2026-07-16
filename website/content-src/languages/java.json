@@ -112,6 +112,18 @@
     ]
   },
   "snippetGroups": {
+    "agents": {
+      "playbookEvolve": {
+        "sourcePath": "src/examples/java/optimization/AgentPlaybookEvolveExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "Map<String, Object> evolution = assistant.playbook(null).evolve(",
+          "    dataset,",
+          "    Map.of(\"verify\", true, \"maxProposals\", 1, \"runtime\", runtime));"
+        ]
+      }
+    },
     "tools": {
       "basic": [
         "Tool search = Ax.fn(\"search\")",

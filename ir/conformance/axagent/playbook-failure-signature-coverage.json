@@ -1,0 +1,131 @@
+{
+  "name": "playbook-failure-signature-coverage",
+  "kind": "agent_playbook_coverage",
+  "cases": [
+    {
+      "name": "live-curated-bullet",
+      "snapshot": {
+        "playbook": {
+          "sections": {
+            "failures_to_avoid": [
+              {
+                "id": "failure-live",
+                "section": "failures_to_avoid",
+                "content": "Avoid the live failure."
+              }
+            ]
+          }
+        },
+        "artifact": {
+          "feedback": [
+            {
+              "example": {
+                "failureSignatures": ["runtime:live"]
+              }
+            }
+          ],
+          "history": [
+            {
+              "source": "online",
+              "exampleIndex": 0,
+              "updatedBulletIds": ["failure-live"]
+            }
+          ]
+        }
+      },
+      "expected_covered": ["runtime:live"]
+    },
+    {
+      "name": "pruned-curated-bullet",
+      "snapshot": {
+        "playbook": {
+          "sections": {
+            "failures_to_avoid": []
+          }
+        },
+        "artifact": {
+          "feedback": [
+            {
+              "example": {
+                "failureSignatures": ["runtime:pruned"]
+              }
+            }
+          ],
+          "history": [
+            {
+              "source": "online",
+              "exampleIndex": 0,
+              "updatedBulletIds": ["failure-gone"]
+            }
+          ]
+        }
+      },
+      "expected_covered": []
+    },
+    {
+      "name": "deliberate-curator-noop",
+      "snapshot": {
+        "playbook": {
+          "sections": {}
+        },
+        "artifact": {
+          "feedback": [
+            {
+              "example": {
+                "failureSignatures": ["runtime:declined"]
+              },
+              "curator": {
+                "operations": []
+              }
+            }
+          ],
+          "history": []
+        }
+      },
+      "expected_covered": ["runtime:declined"]
+    },
+    {
+      "name": "transient-curator-failure",
+      "snapshot": {
+        "playbook": {
+          "sections": {}
+        },
+        "artifact": {
+          "feedback": [
+            {
+              "example": {
+                "failureSignatures": ["runtime:retry"]
+              }
+            }
+          ],
+          "history": []
+        }
+      },
+      "expected_covered": []
+    },
+    {
+      "name": "legacy-delta",
+      "snapshot": {
+        "playbook": {
+          "sections": {}
+        },
+        "artifact": {
+          "feedback": [
+            {
+              "example": {
+                "failureSignatures": ["runtime:legacy"]
+              }
+            }
+          ],
+          "history": [
+            {
+              "source": "online",
+              "exampleIndex": 0
+            }
+          ]
+        }
+      },
+      "expected_covered": ["runtime:legacy"]
+    }
+  ]
+}
