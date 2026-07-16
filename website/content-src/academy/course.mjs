@@ -33,7 +33,7 @@ export const academyCourse = {
   schemaVersion: 1,
   language: 'typescript',
   title: 'Ax Academy',
-  courseTitle: 'Build reliable AI workflows and agents',
+  courseTitle: 'Learn to build reliable AI workflows and agents',
   description:
     'A hands-on TypeScript course for building dependable AI features, multi-step workflows, tool-using agents, and production automation.',
   dailyGoal: 20,
