@@ -109,7 +109,7 @@ export async function validateAcademyCourse(
       if (!Number.isFinite(topic.minutes) || topic.minutes <= 0) {
         failures.push(`topic ${topic.id} needs a positive minute estimate`);
       }
-      validateExercises(topic, exerciseIds, failures);
+      validateExercises(topic, exerciseIds, failures, { publicExports });
       for (const symbol of topic.apiSymbols ?? []) {
         if (publicExports && !publicExports.has(symbol)) {
           failures.push(
@@ -182,7 +182,9 @@ export async function validateAcademyCourse(
   if (!course.finalCapstone?.title || !course.finalCapstone?.summary) {
     failures.push('final capstone needs a title and summary');
   }
-  validateExercises(course.finalCapstone, exerciseIds, failures, ['capstone']);
+  validateExercises(course.finalCapstone, exerciseIds, failures, {
+    requiredRoles: ['capstone'],
+  });
 
   if (failures.length > 0) {
     throw new Error(
@@ -287,7 +289,7 @@ function validateExercises(
   owner,
   exerciseIds,
   failures,
-  requiredRoles = ['diagnostic', 'practice', 'review']
+  { publicExports, requiredRoles = ['diagnostic', 'practice', 'review'] } = {}
 ) {
   if (!Array.isArray(owner.exercises) || owner.exercises.length === 0) {
     failures.push(`${owner.id} must contain exercises`);
@@ -340,6 +342,16 @@ function validateExercises(
         `exercise ${exercise.id} has unsupported type ${exercise.type}`
       );
     }
+    if (publicExports) {
+      const declaredSymbols = new Set(owner.apiSymbols ?? []);
+      for (const symbol of exercisePublicSymbols(exercise, publicExports)) {
+        if (!declaredSymbols.has(symbol)) {
+          failures.push(
+            `${owner.id} exercise ${exercise.id} names public API ${symbol} without listing it in apiSymbols`
+          );
+        }
+      }
+    }
   }
   for (const role of requiredRoles) {
     if (!roles.has(role)) failures.push(`${owner.id} has no ${role} exercise`);
@@ -350,6 +362,15 @@ function validateExercises(
   ) {
     failures.push(`${owner.id} needs at least two practice exercises`);
   }
+}
+
+function exercisePublicSymbols(exercise, publicExports) {
+  const content = [exercise.prompt, ...(exercise.choices ?? [])].join('\n');
+  const candidates = new Set(content.match(/\bAx[A-Z][A-Za-z0-9]*\b/g) ?? []);
+  for (const match of content.matchAll(/\b([A-Za-z_$][\w$]*)\(\)/g)) {
+    candidates.add(match[1]);
+  }
+  return [...candidates].filter((symbol) => publicExports.has(symbol));
 }
 
 export function buildAcademyPages(course, language) {

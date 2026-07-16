@@ -30,7 +30,7 @@ export const axflowUnit = {
         0,
         'Flows are deterministic application orchestration around model nodes.'
       ),
-      apiSymbols: ['flow'],
+      apiSymbols: ['AxFlow', 'flow'],
     }),
     topic({
       id: 'flow-composition',
@@ -66,7 +66,7 @@ export const axflowUnit = {
         0,
         'Use a flow for explicit, host-owned ordering and branching.'
       ),
-      apiSymbols: ['flow'],
+      apiSymbols: ['AxFlow', 'flow'],
     }),
     topic({
       id: 'flow-operations',
@@ -86,7 +86,7 @@ export const axflowUnit = {
         0,
         'The shared optimizer surface handles generator and workflow targets.'
       ),
-      apiSymbols: ['flow', 'optimize'],
+      apiSymbols: ['AxFlow', 'flow', 'optimize'],
     }),
   ],
 };

@@ -34,7 +34,7 @@ export const axagentUnit = {
         0,
         'Agents are for iterative runtime behavior, not merely structured output.'
       ),
-      apiSymbols: ['agent'],
+      apiSymbols: ['AxAgent', 'AxGen', 'agent'],
     }),
     topic({
       id: 'agent-discovery',

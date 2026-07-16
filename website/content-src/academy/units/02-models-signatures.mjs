@@ -38,7 +38,7 @@ export const modelsSignaturesUnit = {
         0,
         'The arrow separates inputs on the left from outputs on the right.'
       ),
-      apiSymbols: ['ax', 's'],
+      apiSymbols: ['ai', 'ax', 's'],
     }),
     topic({
       id: 'fluent-fields-validation',

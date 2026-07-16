@@ -53,7 +53,7 @@ export const optimizationUnit = {
         'optimize',
         'Use optimize() for normal generator and flow tuning.'
       ),
-      apiSymbols: ['optimize'],
+      apiSymbols: ['AxFlow', 'AxGen', 'optimize'],
     }),
     topic({
       id: 'agent-optimize',
@@ -113,7 +113,7 @@ export const optimizationUnit = {
         0,
         'Optimization tunes components; playbooks grow durable task guidance.'
       ),
-      apiSymbols: ['playbook', 'agent'],
+      apiSymbols: ['playbook', 'agent', 'optimize'],
     }),
     topic({
       id: 'refine-selection',

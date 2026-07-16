@@ -98,7 +98,7 @@ export const productionUnit = {
         0,
         'The event runtime is protocol-neutral after ingress normalization.'
       ),
-      apiSymbols: ['eventRuntime'],
+      apiSymbols: ['AxEventRuntime', 'eventRuntime'],
     }),
     topic({
       id: 'security-and-languages',

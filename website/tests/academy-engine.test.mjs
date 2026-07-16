@@ -584,6 +584,22 @@ test('course validation rejects choice answers outside the authored index-zero c
     }),
     /authored answer at index 0/
   );
+
+  const missingQuestionSymbol = structuredClone(academyCourse);
+  const signatureTopic = missingQuestionSymbol.units
+    .flatMap((unit) => unit.topics)
+    .find((topic) => topic.id === 'string-signatures');
+  signatureTopic.apiSymbols = signatureTopic.apiSymbols.filter(
+    (symbol) => symbol !== 'ai'
+  );
+  await assert.rejects(
+    validateAcademyCourse(missingQuestionSymbol, {
+      repoRoot: process.cwd(),
+      publicExports,
+      requiredCoverage: requiredAcademyCoverage,
+    }),
+    /names public API ai without listing it in apiSymbols/
+  );
 });
 
 test('course statistics separate learned, durable, due, and daily XP', () => {
