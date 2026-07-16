@@ -378,7 +378,7 @@ export function buildAcademyPages(course, language) {
   const manifest = academyManifest(localizedCourse);
   const pages = [
     descriptor(`${language.id}/academy/_index.md`, language, {
-      title: 'Build AI Workflows and Agents',
+      title: localizedCourse.courseTitle,
       description: localizedCourse.description,
       slug: 'academy',
       page: 'dashboard',
@@ -594,38 +594,43 @@ function renderDashboard(course, manifest) {
       <section class="academy-hero">
         <div class="academy-hero-copy">
           <span class="academy-eyebrow">Practical AI engineering · ${escapeHtml(course.languageLabel)}</span>
-          <h1>Build reliable AI workflows and agents.</h1>
+          <h1>${escapeHtml(course.courseTitle)}.</h1>
           <p>${escapeHtml(course.description)}</p>
           <div class="academy-actions">
             <a class="academy-button academy-button-primary" data-academy-continue href="${topicHref(course.topicOrder[0], course.language)}">Build your first AI program</a>
             <a class="academy-button" data-academy-starting-quiz href="${languageRoot}/diagnostic/"><span data-academy-starting-quiz-label>Already experienced? Find your starting point</span><span class="academy-time-chip">~3 min</span></a>
           </div>
           <p class="academy-hero-note">Progress is saved in this browser. No account or API key required.</p>
+          <aside class="academy-progress-summary" data-academy-progress-summary aria-label="Course progress">
+            <div class="academy-progress-overview">
+              <span class="academy-course-progress-ring"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="20.5"></circle><circle data-academy-course-ring-value cx="24" cy="24" r="20.5" pathLength="100"></circle></svg><strong data-academy-progress-percent>0%</strong></span>
+              <div class="academy-progress-copy">
+                <span class="academy-label">Course progress</span>
+                <div class="academy-progress-count">
+                  <strong data-academy-progress-count>0</strong>
+                  <span>of ${topicCount} lessons</span>
+                </div>
+                <p class="academy-progress-label" data-academy-progress-label>Ready to begin</p>
+                <small class="academy-progress-caption">~6 hours · saved in this browser</small>
+              </div>
+            </div>
+            <div class="academy-progress-meta academy-progress-earned academy-is-hidden" data-academy-earned-stats>
+              <span><strong data-academy-today-xp>0</strong> / <span data-academy-daily-goal-label>${course.dailyGoal}</span> XP today</span>
+              <span><strong data-academy-total-xp>0</strong> total XP</span>
+              <span data-academy-streak>0 days streak</span>
+            </div>
+            <span class="academy-progress-detail academy-is-hidden" data-academy-progress-detail>0 reviews due</span>
+            <div class="academy-review-forecast academy-is-hidden" data-academy-forecast aria-label="Seven-day review forecast"></div>
+          </aside>
         </div>
-        <aside class="academy-progress-summary" data-academy-progress-summary aria-label="Course progress">
-          <div class="academy-progress-heading">
-            <span class="academy-label">Course progress</span>
-            <span class="academy-course-progress-ring"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="20.5"></circle><circle data-academy-course-ring-value cx="24" cy="24" r="20.5" pathLength="100"></circle></svg><strong data-academy-progress-percent>0%</strong></span>
-          </div>
-          <div class="academy-progress-count">
-            <strong data-academy-progress-count>0</strong>
-            <span>of ${topicCount} lessons</span>
-          </div>
-          <p class="academy-progress-label" data-academy-progress-label>Ready to begin</p>
-          <div class="academy-progress-meta academy-progress-earned academy-is-hidden" data-academy-earned-stats>
-            <span><strong data-academy-today-xp>0</strong> / <span data-academy-daily-goal-label>${course.dailyGoal}</span> XP today</span>
-            <span><strong data-academy-total-xp>0</strong> total XP</span>
-            <span data-academy-streak>0 days streak</span>
-          </div>
-          <span class="academy-progress-detail academy-is-hidden" data-academy-progress-detail>0 reviews due</span>
-          <div class="academy-review-forecast academy-is-hidden" data-academy-forecast aria-label="Seven-day review forecast"></div>
-          <small>~6 hours · saved in this browser</small>
-        </aside>
       </section>
       <section class="academy-section academy-up-next" data-academy-up-next aria-labelledby="academy-up-next-title">
-        <div class="academy-section-heading">
-          <div><span class="academy-label">Your next moves</span><h2 id="academy-up-next-title">Up next</h2></div>
-          <span>Start small. Your queue adapts as you learn.</span>
+        <div class="academy-section-heading academy-up-next-heading">
+          <div>
+            <span class="academy-label">Your next moves</span>
+            <h2 id="academy-up-next-title">Up next</h2>
+            <p class="academy-up-next-guidance">Start small. Your queue adapts as you learn.</p>
+          </div>
         </div>
         <div class="academy-up-next-grid" data-academy-up-next-list></div>
       </section>

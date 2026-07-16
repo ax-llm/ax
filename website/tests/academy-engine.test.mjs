@@ -132,7 +132,14 @@ test('every supported language generates a native, complete Academy', async () =
     assert.ok(firstLesson.page.body.includes('Source on GitHub'));
     assert.ok(!firstLesson.page.body.includes('src/ax/skills/'));
     const dashboard = pages[0].page.body;
+    assert.equal(pages[0].page.title, academyCourse.courseTitle);
+    assert.ok(dashboard.includes(`<h1>${academyCourse.courseTitle}.</h1>`));
     assert.ok(dashboard.includes('data-academy-up-next'));
+    assert.ok(
+      dashboard.includes(
+        '<p class="academy-up-next-guidance">Start small. Your queue adapts as you learn.</p>'
+      )
+    );
     assert.ok(dashboard.includes('~6 hours · saved in this browser'));
     assert.ok(dashboard.includes('academy-api-chip">ax()'));
     assert.equal((dashboard.match(/<details/g) ?? []).length, 11);

@@ -4403,12 +4403,12 @@ pre.mermaid {
 }
 
 .academy-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(18rem, 0.5fr);
-  gap: clamp(3rem, 7vw, 7rem);
-  align-items: center;
   padding: 4.25rem 0;
   border-bottom: 1px solid var(--line);
+}
+
+.academy-hero-copy {
+  max-width: 70rem;
 }
 
 .academy-hero-copy > p {
@@ -4498,23 +4498,34 @@ pre.mermaid {
 }
 
 .academy-progress-summary {
-  display: grid;
-  gap: 0.65rem;
-  align-self: end;
-  border-left: 1px solid var(--line-strong);
-  padding: 0.35rem 0 0.35rem 2rem;
+  display: flex;
+  width: min(100%, 35rem);
+  flex-wrap: wrap;
+  gap: 0.75rem 1.3rem;
+  align-items: center;
+  margin-top: 1.35rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 0.9rem 1rem;
 }
 
-.academy-progress-heading {
+.academy-progress-overview {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  gap: 0.85rem;
+  align-items: center;
+}
+
+.academy-progress-copy {
+  display: grid;
+  gap: 0.08rem;
 }
 
 .academy-course-progress-ring {
   display: grid;
-  width: 3rem;
-  height: 3rem;
+  width: 3.25rem;
+  height: 3.25rem;
+  flex: 0 0 auto;
   place-items: center;
 }
 
@@ -4553,7 +4564,7 @@ pre.mermaid {
 
 .academy-progress-count strong {
   color: var(--heading);
-  font-size: 3.1rem;
+  font-size: 2.1rem;
   letter-spacing: -0.055em;
   line-height: 1;
 }
@@ -4564,9 +4575,9 @@ pre.mermaid {
 }
 
 .academy-progress-label {
-  margin: 0.55rem 0 0;
+  margin: 0;
   color: var(--heading);
-  font-size: 1rem;
+  font-size: 0.84rem;
   font-weight: 720;
 }
 
@@ -4585,9 +4596,13 @@ pre.mermaid {
   display: none !important;
 }
 
-.academy-progress-summary > small {
+.academy-progress-caption {
   color: var(--faint);
   font-size: 0.75rem;
+}
+
+.academy-progress-summary .academy-review-forecast {
+  flex-basis: 100%;
 }
 
 .academy-section {
@@ -4678,7 +4693,13 @@ pre.mermaid {
   margin-bottom: 1.25rem;
 }
 
-.academy-section-heading > :last-child {
+.academy-section-heading > span:last-child {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.academy-up-next-guidance {
+  margin: 0.35rem 0 0;
   color: var(--muted);
   font-size: 0.9rem;
 }
@@ -5374,14 +5395,13 @@ pre.mermaid {
   }
 
   .academy-hero {
-    grid-template-columns: 1fr;
-    gap: 2.5rem;
     padding: 2.75rem 0;
   }
 
   .academy-progress-summary {
-    border-left: 0;
-    padding: 0.75rem 0 0;
+    width: 100%;
+    align-items: flex-start;
+    padding: 0.85rem;
   }
 
   .academy h1 {
