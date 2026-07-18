@@ -55,6 +55,10 @@ import {
   createTimingLogger,
 } from './logger.js';
 import {
+  type AxFlowMermaidRenderOptions,
+  renderFlowMermaid,
+} from './mermaid.js';
+import {
   type AxFlowBlockLabel,
   type AxFlowExecutionContext,
   type AxFlowStep,
@@ -79,6 +83,9 @@ import type {
 
 type BranchBuildContext = {
   predicate: (state: AxFlowState) => unknown;
+  // The user's unwrapped predicate — step meta keeps this one so
+  // introspection (toMermaid) can read its source.
+  sourcePredicate: (state: AxFlowState) => unknown;
   parentSteps: AxFlowStep[];
   branches: Map<unknown, AxFlowStep[]>;
   currentBranchValue?: unknown;
@@ -892,6 +899,7 @@ export class AxFlow<
     const step = createFlowStep({
       kind: 'map',
       isBarrier: true,
+      meta: { kind: 'map' },
       run: async (state) => {
         if (options?.parallel) {
           const transforms = Array.isArray(transformOrTransforms)
@@ -947,6 +955,7 @@ export class AxFlow<
       createFlowStep({
         kind: 'returns',
         isBarrier: true,
+        meta: { kind: 'returns' },
         run: (state) => transform(state as TState) as AxFlowState,
       })
     );
@@ -1108,6 +1117,7 @@ export class AxFlow<
     }
     this.branchContext = {
       predicate: (state) => predicate(state as TState),
+      sourcePredicate: predicate as (state: AxFlowState) => unknown,
       parentSteps: this.currentSteps,
       branches: new Map(),
     };
@@ -1149,6 +1159,13 @@ export class AxFlow<
       createFlowStep({
         kind: 'branch',
         isBarrier: true,
+        meta: {
+          kind: 'branch',
+          predicate: branchContext.sourcePredicate,
+          branches: [...branchContext.branches.entries()].map(
+            ([value, steps]) => [value, steps] as const
+          ),
+        },
         run: async (state, context) => {
           const branchValue = branchContext.predicate(state);
           const branchSteps = branchContext.branches.get(branchValue);
@@ -1187,6 +1204,12 @@ export class AxFlow<
         kind: 'parallel',
         isBarrier: true,
         writes: ['_parallelResults'],
+        meta: {
+          kind: 'parallel',
+          branchFns: branches as ReadonlyArray<
+            (subContext: unknown) => unknown
+          >,
+        },
         run: async (state, context) => {
           const branchAbort = new AbortController();
           const taskSnapshot = context.captureRemoteTasks?.();
@@ -1244,6 +1267,7 @@ export class AxFlow<
             isBarrier: true,
             reads: ['_parallelResults'],
             writes: [resultKey],
+            meta: { kind: 'parallelMerge', resultKey },
             run: (state) => {
               const results = state._parallelResults;
               if (!Array.isArray(results)) {
@@ -1297,6 +1321,13 @@ export class AxFlow<
       createFlowStep({
         kind: 'feedback',
         isBarrier: true,
+        meta: {
+          kind: 'feedback',
+          bodySteps,
+          targetLabel,
+          condition: condition as (state: AxFlowState) => boolean,
+          maxIterations,
+        },
         run: async (state, context) => {
           let currentState = state;
           let iterations = 1;
@@ -1357,6 +1388,12 @@ export class AxFlow<
       createFlowStep({
         kind: 'while',
         isBarrier: true,
+        meta: {
+          kind: 'while',
+          bodySteps: loop.bodySteps,
+          condition: loop.condition as (state: AxFlowState) => boolean,
+          maxIterations: loop.maxIterations,
+        },
         run: async (state, context) => {
           let currentState = state;
           let iterations = 0;
@@ -1444,6 +1481,35 @@ export class AxFlow<
       ...plan,
       autoParallelEnabled: this.autoParallelConfig.enabled,
     };
+  }
+
+  /**
+   * Renders this flow as a mermaid flowchart in the AxFlow mermaid dialect:
+   * node contracts are emitted as `%%ax nodeId: <signature>` comment
+   * directives (invisible to mermaid renderers) and control flow becomes
+   * nodes and edges — branch decisions render as diamonds with labeled
+   * out-edges, feedback loops as back-edges with `max N` caps.
+   *
+   * Flows built from `flow.fromMermaid()` round-trip exactly. Flows built
+   * with opaque closures (map/derive/returns/custom conditions) render with
+   * placeholder nodes plus `%% bind ...` comments naming what must be
+   * supplied via bindings to re-import the diagram. A `while` loop renders
+   * with its body inlined once and a back-edge (the zero-iteration exit is
+   * not drawable).
+   */
+  public toMermaid(options?: AxFlowMermaidRenderOptions): string {
+    return renderFlowMermaid({
+      steps: this.steps,
+      nodePrograms: this.nodeGenerators,
+      materializeParallelBranch: (branchFn) => {
+        const subContext = new AxFlowSubContextImpl<TNodes, TState>(
+          this.createExecuteStep.bind(this) as any
+        );
+        (branchFn as (sub: unknown) => unknown)(subContext);
+        return subContext.getSteps();
+      },
+      options,
+    });
   }
 
   public getSignature(): AxSignature {

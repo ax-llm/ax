@@ -62,6 +62,7 @@ export class AxFlowSubContextImpl<
       createFlowStep({
         kind: 'map',
         isBarrier: true,
+        meta: { kind: 'map' },
         run: (state) => transform(state as TState),
       })
     );

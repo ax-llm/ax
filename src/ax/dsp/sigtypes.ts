@@ -43,7 +43,7 @@
 //   practical envelope for nested objects is ~4 nesting levels / ~2k chars
 // - Internal markers (!) are supported in type inference for output fields and are excluded from output types
 // - Deeply nested quote escaping is not supported
-// - Unknown or unparseable constructs degrade to `any` (or the
+// - Unknown or malformed constructs degrade to `any` (or the
 //   Record<string, any> fallback) — the runtime parser in parser.ts is the
 //   strict layer that reports real errors. A regex pattern containing an
 //   unbalanced ")" inside its quotes may degrade that one field to `any`.

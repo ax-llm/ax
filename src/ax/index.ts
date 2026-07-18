@@ -1007,6 +1007,7 @@ import {
   axCreateFlowTextLogger,
   axDefaultFlowLogger,
 } from './flow/logger.js';
+import type { AxFlowMermaidRenderOptions } from './flow/mermaid.js';
 import type {
   AxFlowable,
   AxFlowDynamicContext,
@@ -2003,6 +2004,7 @@ export type { AxFlowForwardOptions };
 export type { AxFlowLogData };
 export type { AxFlowLoggerData };
 export type { AxFlowLoggerFunction };
+export type { AxFlowMermaidRenderOptions };
 export type { AxFlowOptions };
 export type { AxFlowParallelGroupCompleteData };
 export type { AxFlowParallelGroupStartData };
