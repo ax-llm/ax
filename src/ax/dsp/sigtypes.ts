@@ -32,12 +32,21 @@
 // - Signature descriptions: "description" inputs -> outputs
 // - Multi-field input/output signatures
 // - Complex nested comma handling in quoted strings
+// - Modifier bags are skipped for inference: number(min 0, max 10) infers as
+//   number, code(python) as string — constraints never change the TS type
+// - Nested objects infer structurally: object{ name:string, age?:number }[]
+//   infers as { name: string; age?: number }[], recursively
 //
 // LIMITATIONS:
 // - TypeScript's template literal type system has recursion and complexity limits
-// - Very long signatures (>50 fields) may hit TypeScript compiler limits
+// - Very long signatures (>50 fields) may hit TypeScript compiler limits;
+//   practical envelope for nested objects is ~4 nesting levels / ~2k chars
 // - Internal markers (!) are supported in type inference for output fields and are excluded from output types
 // - Deeply nested quote escaping is not supported
+// - Unknown or unparseable constructs degrade to `any` (or the
+//   Record<string, any> fallback) — the runtime parser in parser.ts is the
+//   strict layer that reports real errors. A regex pattern containing an
+//   unbalanced ")" inside its quotes may degrade that one field to `any`.
 //
 // PERFORMANCE:
 // - Optimized for common cases (1-10 fields per signature)
@@ -54,14 +63,13 @@ import type { AxAudioInput, AxChatAudioOutput } from '../ai/types.js';
  * A map of string type names to their corresponding TypeScript types.
  * Maps signature type strings to actual TypeScript types for type inference.
  *
- * IMPORTANT: The 'object' type is NOT included in this map because string signatures
- * cannot define structured object types. When 'object' appears in a string signature,
- * it's treated the same as 'json' and inferred as 'any'.
+ * IMPORTANT: The 'object' type is NOT included in this map. A bare `object`
+ * (no braces) is treated the same as 'json' and inferred as 'any', while
+ * `object{ ... }` bodies are inferred structurally via ParseObjectBody —
+ * they never reach this map.
  *
- * For structured object types with proper type inference, use the fluent API:
+ * The fluent API expresses the same structured objects programmatically:
  * f().output('user', f.object({ name: f.string(), age: f.number() }))
- *
- * See: STRING_SIGNATURE_LIMITATIONS.md
  */
 export interface InputTypeMap {
   string: string;
@@ -108,17 +116,33 @@ type ResolveType<
   TMode extends 'input' | 'output',
 > = T extends keyof TypeMapForMode<TMode>
   ? TypeMapForMode<TMode>[T]
-  : T extends `${infer BaseType}[]`
-    ? BaseType extends keyof TypeMapForMode<TMode>
-      ? TypeMapForMode<TMode>[BaseType][]
-      : any[]
-    : T extends `class[]|${infer Options}`
-      ? ParseClassOptions<Options>[]
-      : T extends `class|${infer Options}`
-        ? ParseClassOptions<Options>
-        : T extends 'class'
-          ? string // fallback for class without options
-          : any; // fallback for unknown types
+  : // Object tags must be checked before the array branch: an object body can
+    // itself end in "[]" and would otherwise be misread as an array type.
+    T extends `obj[]|${infer Body}`
+    ? ParseObjectBody<Body, TMode>[]
+    : T extends `obj|${infer Body}`
+      ? ParseObjectBody<Body, TMode>
+      : T extends `${infer BaseType}[]`
+        ? BaseType extends keyof TypeMapForMode<TMode>
+          ? TypeMapForMode<TMode>[BaseType][]
+          : any[]
+        : T extends `class[]|${infer Options}`
+          ? ParseClassOptions<Options>[]
+          : T extends `class|${infer Options}`
+            ? ParseClassOptions<Options>
+            : T extends 'class'
+              ? string // fallback for class without options
+              : any; // fallback for unknown types
+
+// Recursively parses the body of an `object{ ... }` type into a structural
+// object type, reusing the full field pipeline. The mapped-type wrap flattens
+// BuildObject's required & optional intersection into a single object type.
+type ParseObjectBody<
+  Body extends string,
+  TMode extends 'input' | 'output',
+> = BuildObject<ParseFields<Trim<Body>>, TMode> extends infer O
+  ? { [K in keyof O]: O[K] }
+  : never;
 
 // Helper to trim whitespace from a type string
 type Trim<S extends string> = S extends ` ${infer T}`
@@ -150,7 +174,53 @@ type ParseField<S extends string> = S extends `${infer Name}?!`
         ? { name: Trim<Name>; optional: false; internal: true }
         : { name: Trim<S>; optional: false; internal: false };
 
-// Helper to extract type from a string, handling class with descriptions
+// Extracts the body of a balanced `{ ... }` block. S starts AFTER the opening
+// brace; returns [body, restAfterClosingBrace]. Quote-aware so descriptions
+// containing braces don't unbalance the scan. Tail-recursive.
+type TakeBraced<
+  S extends string,
+  Depth extends 0[] = [],
+  Body extends string = '',
+  InQuote extends boolean = false,
+> = S extends `${infer Char}${infer Rest}`
+  ? Char extends '"'
+    ? TakeBraced<
+        Rest,
+        Depth,
+        `${Body}${Char}`,
+        InQuote extends true ? false : true
+      >
+    : InQuote extends true
+      ? TakeBraced<Rest, Depth, `${Body}${Char}`, true>
+      : Char extends '{'
+        ? TakeBraced<Rest, [...Depth, 0], `${Body}${Char}`, false>
+        : Char extends '}'
+          ? Depth['length'] extends 0
+            ? [Body, Rest]
+            : TakeBraced<
+                Rest,
+                Depth extends [...infer D extends 0[], 0] ? D : [],
+                `${Body}${Char}`,
+                false
+              >
+          : TakeBraced<Rest, Depth, `${Body}${Char}`, false>
+  : [Body, ''];
+
+// Tags an object type expression as `obj|body` or `obj[]|body` so ResolveType
+// can recurse into the body later.
+type ExtractObjectTag<Rest extends string> = TakeBraced<Rest> extends [
+  infer Body extends string,
+  infer After extends string,
+]
+  ? Trim<After> extends `[]${string}`
+    ? `obj[]|${Body}`
+    : `obj|${Body}`
+  : never;
+
+// Helper to extract type from a string, handling class with descriptions,
+// object bodies, and modifier bags. Order matters: class first (its quoted
+// options may contain anything), then object bodies, then bag stripping,
+// then arrays/descriptions.
 type ExtractType<S extends string> =
   S extends `class[] "${infer Options}" "${infer _Desc}"`
     ? `class[]|${Options}`
@@ -160,13 +230,17 @@ type ExtractType<S extends string> =
         ? `class|${Options}`
         : S extends `class "${infer Options}"`
           ? `class|${Options}`
-          : S extends `${infer Type}[] "${infer _Desc}"`
-            ? `${Type}[]`
-            : S extends `${infer Type}[]`
-              ? `${Type}[]`
-              : S extends `${infer Type} "${infer _Desc}"`
-                ? Type
-                : S;
+          : S extends `object{${infer Rest}`
+            ? ExtractObjectTag<Rest>
+            : S extends `${infer Base}(${infer _Bag})${infer Suffix}`
+              ? ExtractType<`${Base}${Suffix}`>
+              : S extends `${infer Type}[] "${infer _Desc}"`
+                ? `${Type}[]`
+                : S extends `${infer Type}[]`
+                  ? `${Type}[]`
+                  : S extends `${infer Type} "${infer _Desc}"`
+                    ? Type
+                    : S;
 
 // Parses a "name: type" or "name?: type" part, now handling arrays, class types, and descriptions
 // If no type is specified, defaults to 'string'
@@ -212,6 +286,7 @@ type SplitFieldsRespectingQuotes<
   Current extends string = '',
   InQuote extends boolean = false,
   Result extends string[] = [],
+  Depth extends 0[] = [],
 > = S extends `${infer Char}${infer Rest}`
   ? Char extends '"'
     ? // Found a quote character - toggle the quote state
@@ -220,33 +295,71 @@ type SplitFieldsRespectingQuotes<
         Rest,
         `${Current}${Char}`,
         InQuote extends true ? false : true,
-        Result
+        Result,
+        Depth
       >
-    : Char extends ','
-      ? InQuote extends true
-        ? // We're inside quotes - treat comma as a literal character
-          // Add comma to current field and continue in same quote state
+    : InQuote extends true
+      ? // Inside quotes every character (commas, parens, braces) is literal
+        SplitFieldsRespectingQuotes<
+          Rest,
+          `${Current}${Char}`,
+          true,
+          Result,
+          Depth
+        >
+      : Char extends '(' | '{'
+        ? // Entering a modifier bag or object body - commas inside don't split
           SplitFieldsRespectingQuotes<
             Rest,
             `${Current}${Char}`,
-            InQuote,
-            Result
+            false,
+            Result,
+            [...Depth, 0]
           >
-        : // We're outside quotes - this comma is a field separator
-          // Complete current field and start building next field
-          Rest extends ` ${infer RestTrimmed}`
-          ? // Handle ", " (comma + space) separator - skip the space
-            SplitFieldsRespectingQuotes<
-              RestTrimmed,
-              '',
+        : Char extends ')' | '}'
+          ? SplitFieldsRespectingQuotes<
+              Rest,
+              `${Current}${Char}`,
               false,
-              [...Result, Current]
+              Result,
+              Depth extends [...infer D extends 0[], 0] ? D : []
             >
-          : // Handle "," (comma only) separator
-            SplitFieldsRespectingQuotes<Rest, '', false, [...Result, Current]>
-      : // Regular character (not quote or comma)
-        // Add character to current field and continue
-        SplitFieldsRespectingQuotes<Rest, `${Current}${Char}`, InQuote, Result>
+          : Char extends ','
+            ? Depth['length'] extends 0
+              ? // Top-level comma - this is a field separator
+                Rest extends ` ${infer RestTrimmed}`
+                ? // Handle ", " (comma + space) separator - skip the space
+                  SplitFieldsRespectingQuotes<
+                    RestTrimmed,
+                    '',
+                    false,
+                    [...Result, Current],
+                    Depth
+                  >
+                : // Handle "," (comma only) separator
+                  SplitFieldsRespectingQuotes<
+                    Rest,
+                    '',
+                    false,
+                    [...Result, Current],
+                    Depth
+                  >
+              : // Comma nested inside (...) or {...} - literal character
+                SplitFieldsRespectingQuotes<
+                  Rest,
+                  `${Current}${Char}`,
+                  false,
+                  Result,
+                  Depth
+                >
+            : // Regular character - add to current field and continue
+              SplitFieldsRespectingQuotes<
+                Rest,
+                `${Current}${Char}`,
+                false,
+                Result,
+                Depth
+              >
   : // End of string reached
     Current extends ''
     ? Result // Current field is empty, return accumulated result
