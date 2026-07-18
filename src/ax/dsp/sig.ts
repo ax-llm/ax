@@ -66,6 +66,7 @@ export interface AxFieldType {
   readonly pattern?: string; // String regex pattern
   readonly patternDescription?: string; // Human-readable description of the pattern
   readonly format?: string; // String format (email, uri, uuid, etc.)
+  readonly language?: string; // Programming language for code fields
 }
 
 // Improved SignatureBuilder class for fluent API with better type inference
@@ -308,6 +309,7 @@ export class AxFluentFieldType<
   readonly pattern?: string;
   readonly patternDescription?: string;
   readonly format?: string;
+  readonly language?: string;
   readonly itemDescription?: string;
 
   constructor(fieldType: {
@@ -327,6 +329,7 @@ export class AxFluentFieldType<
     pattern?: string;
     patternDescription?: string;
     format?: string;
+    language?: string;
   }) {
     this.type = fieldType.type;
     this.isArray = fieldType.isArray;
@@ -344,6 +347,7 @@ export class AxFluentFieldType<
     this.pattern = fieldType.pattern;
     this.patternDescription = fieldType.patternDescription;
     this.format = fieldType.format;
+    this.language = fieldType.language;
   }
 
   optional(): AxFluentFieldType<
@@ -1254,6 +1258,7 @@ export const f = Object.assign(
         type: 'code' as const,
         isArray: false as const,
         description: desc || language,
+        language,
         isOptional: false as const,
         isInternal: false as const,
         isCached: false as const,
@@ -1365,6 +1370,7 @@ export interface AxField {
     pattern?: string;
     patternDescription?: string;
     format?: string;
+    language?: string;
     description?: string;
   };
   isOptional?: boolean;
@@ -1505,6 +1511,7 @@ export interface AxFluentFieldInfo<
   readonly pattern?: string;
   readonly patternDescription?: string;
   readonly format?: string;
+  readonly language?: string;
 }
 
 // Helper function to convert AxFluentFieldInfo to AxFieldType
@@ -1525,6 +1532,7 @@ function convertFluentToAxFieldType(
     pattern: fluent.pattern,
     patternDescription: fluent.patternDescription,
     format: fluent.format,
+    language: fluent.language,
     fields: fluent.fields
       ? Object.fromEntries(
           Object.entries(fluent.fields).map(([k, v]) => [
@@ -1651,6 +1659,14 @@ function convertFieldTypeToAxField(
       isArray: fieldType.isArray,
       options: fieldType.options ? [...fieldType.options] : undefined,
       fields: fieldType.fields,
+      minLength: fieldType.minLength,
+      maxLength: fieldType.maxLength,
+      minimum: fieldType.minimum,
+      maximum: fieldType.maximum,
+      pattern: fieldType.pattern,
+      patternDescription: fieldType.patternDescription,
+      format: fieldType.format,
+      language: fieldType.language,
     },
     description: fieldType.description,
     isOptional: fieldType.isOptional,
@@ -1702,6 +1718,7 @@ function createAxFieldFromFluentField<
       pattern: fieldInfo.pattern,
       patternDescription: fieldInfo.patternDescription,
       format: fieldInfo.format,
+      language: fieldInfo.language,
       description: fieldInfo.itemDescription,
       fields: fieldInfo.fields
         ? Object.fromEntries(
@@ -2205,6 +2222,7 @@ export class AxSignature<
       type: field.type ?? { name: 'string', isArray: false },
       ...('isInternal' in field ? { isInternal: field.isInternal } : {}),
       ...('isOptional' in field ? { isOptional: field.isOptional } : {}),
+      ...('isCached' in field && field.isCached ? { isCached: true } : {}),
     };
   };
 
@@ -2723,6 +2741,115 @@ export class AxSignature<
   };
 }
 
+function escapeRenderedString(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+// Renders the `(min 2, max 50, format email, ...)` modifier bag for a field
+// type. Canonical entry order: min, max, format, pattern, item, <language>,
+// cache. Returns '' when the type carries no modifiers.
+function renderModifierBag(
+  type: {
+    readonly name: string;
+    readonly isArray?: boolean;
+    readonly minLength?: number;
+    readonly maxLength?: number;
+    readonly minimum?: number;
+    readonly maximum?: number;
+    readonly pattern?: string;
+    readonly patternDescription?: string;
+    readonly format?: string;
+    readonly language?: string;
+    readonly description?: string;
+  },
+  isCached: boolean | undefined
+): string {
+  const entries: string[] = [];
+  const min = type.minLength ?? type.minimum;
+  const max = type.maxLength ?? type.maximum;
+  if (min !== undefined) {
+    entries.push(`min ${min}`);
+  }
+  if (max !== undefined) {
+    entries.push(`max ${max}`);
+  }
+  if (type.format !== undefined) {
+    entries.push(`format ${type.format}`);
+  }
+  if (type.pattern !== undefined) {
+    const pattern = `pattern "${escapeRenderedString(type.pattern)}"`;
+    entries.push(
+      type.patternDescription !== undefined
+        ? `${pattern} "${escapeRenderedString(type.patternDescription)}"`
+        : pattern
+    );
+  }
+  if (type.isArray && type.description) {
+    entries.push(`item "${escapeRenderedString(type.description)}"`);
+  }
+  if (type.name === 'code' && type.language) {
+    entries.push(type.language);
+  }
+  if (isCached) {
+    entries.push('cache');
+  }
+  return entries.length > 0 ? `(${entries.join(', ')})` : '';
+}
+
+// Renders a nested AxFieldType (inside object{ ... }) back to its string
+// grammar form, without the field name or trailing description.
+function renderNestedType(fieldType: Readonly<AxFieldType>): string {
+  if (fieldType.type === 'class') {
+    let result = 'class';
+    if (fieldType.isArray) {
+      result += '[]';
+    }
+    result += ` "${(fieldType.options ?? []).join(' | ')}"`;
+    return result;
+  }
+  if (fieldType.type === 'object' && fieldType.fields) {
+    let result = `object${renderObjectFields(fieldType.fields)}`;
+    if (fieldType.isArray) {
+      result += '[]';
+    }
+    return result;
+  }
+  let result: string = fieldType.type;
+  result += renderModifierBag(
+    { name: fieldType.type, ...fieldType },
+    undefined
+  );
+  if (fieldType.isArray) {
+    result += '[]';
+  }
+  return result;
+}
+
+function renderObjectFields(
+  fields: Readonly<Record<string, AxFieldType>>
+): string {
+  const parts = Object.entries(fields).map(([name, fieldType]) => {
+    let result = name;
+    if (fieldType.isOptional) {
+      result += '?';
+    }
+    result += `:${renderNestedType(fieldType)}`;
+    // A code field's auto-derived description (=== language) is implied by
+    // the rendered language modifier; skip it to keep round-trips stable.
+    if (
+      fieldType.description &&
+      !(
+        fieldType.type === 'code' &&
+        fieldType.description === fieldType.language
+      )
+    ) {
+      result += ` "${escapeRenderedString(fieldType.description)}"`;
+    }
+    return result;
+  });
+  return `{ ${parts.join(', ')} }`;
+}
+
 function renderField(field: Readonly<AxField>): string {
   let result = field.name;
   if (field.isOptional) {
@@ -2732,16 +2859,32 @@ function renderField(field: Readonly<AxField>): string {
     result += '!';
   }
   if (field.type) {
-    result += `:${field.type.name}`;
-    if (field.type.isArray) {
-      result += '[]';
+    if (field.type.name === 'object' && field.type.fields) {
+      result += `:object${renderObjectFields(field.type.fields)}`;
+      if (field.type.isArray) {
+        result += '[]';
+      }
+    } else {
+      result += `:${field.type.name}`;
+      if (field.type.name !== 'class') {
+        result += renderModifierBag(field.type, field.isCached);
+      }
+      if (field.type.isArray) {
+        result += '[]';
+      }
+      if (field.type.name === 'class' && field.type.options) {
+        result += ` "${field.type.options.join(' | ')}"`;
+      }
     }
-    if (field.type.name === 'class' && field.type.options) {
-      result += ` "${field.type.options.join(' | ')}"`;
-    }
+  } else if (field.isCached) {
+    // An untyped cached field defaults to string, like the parser does.
+    result += ':string(cache)';
   }
-  if (field.description && field.type?.name !== 'class') {
-    result += ` "${field.description}"`;
+  if (
+    field.description &&
+    !(field.type?.name === 'code' && field.description === field.type.language)
+  ) {
+    result += ` "${escapeRenderedString(field.description)}"`;
   }
   return result;
 }

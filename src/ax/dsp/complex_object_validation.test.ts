@@ -224,3 +224,88 @@ describe('AxGen setExamples with complex signatures', () => {
     expect(() => gen.setExamples(examples)).not.toThrow();
   });
 });
+
+describe('string-parsed nested objects drive the same validation as fluent', () => {
+  const examples = [
+    {
+      queryInput: 'test input',
+      userProfile: {
+        fullName: 'Ada',
+        userAge: 36,
+        nestedInfo: { deepValue: 'deep' },
+        tags: ['a', 'b'],
+      },
+    },
+  ];
+
+  it('accepts valid nested examples for a string-parsed object signature', () => {
+    const stringGen = new AxGen(
+      AxSignature.create(
+        'queryInput:string -> userProfile:object{ fullName:string, userAge?:number(min 0), nestedInfo:object{ deepValue:string }, tags:string[] }'
+      )
+    );
+    const fluentGen = new AxGen(
+      f()
+        .input('queryInput', f.string())
+        .output(
+          'userProfile',
+          f.object({
+            fullName: f.string(),
+            userAge: f.number().min(0).optional(),
+            nestedInfo: f.object({ deepValue: f.string() }),
+            tags: f.string().array(),
+          })
+        )
+        .build()
+    );
+
+    expect(() => stringGen.setExamples(examples)).not.toThrow();
+    expect(() => fluentGen.setExamples(examples)).not.toThrow();
+  });
+
+  it('rejects invalid nested examples identically for both APIs', () => {
+    const badExamples = [
+      {
+        queryInput: 'test input',
+        userProfile: {
+          fullName: 'Ada',
+          nestedInfo: { deepValue: 42 },
+          tags: ['a'],
+        },
+      },
+    ];
+
+    const stringGen = new AxGen(
+      AxSignature.create(
+        'queryInput:string -> userProfile:object{ fullName:string, nestedInfo:object{ deepValue:string }, tags:string[] }'
+      )
+    );
+    const fluentGen = new AxGen(
+      f()
+        .input('queryInput', f.string())
+        .output(
+          'userProfile',
+          f.object({
+            fullName: f.string(),
+            nestedInfo: f.object({ deepValue: f.string() }),
+            tags: f.string().array(),
+          })
+        )
+        .build()
+    );
+
+    let stringThrew = false;
+    let fluentThrew = false;
+    try {
+      stringGen.setExamples(badExamples);
+    } catch {
+      stringThrew = true;
+    }
+    try {
+      fluentGen.setExamples(badExamples);
+    } catch {
+      fluentThrew = true;
+    }
+    expect(stringThrew).toBe(fluentThrew);
+  });
+});

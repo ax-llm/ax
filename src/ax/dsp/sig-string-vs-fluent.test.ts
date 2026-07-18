@@ -278,3 +278,134 @@ describe('String vs Fluent API Type Equivalence', () => {
     expect(stringInternal?.isInternal).toBe(true);
   });
 });
+
+describe('String vs Fluent API — extended grammar equivalence', () => {
+  const jsonNorm = (value: unknown) => JSON.parse(JSON.stringify(value));
+
+  it('matches min/max constraints on numbers and strings', () => {
+    const fluentSig = f()
+      .input('userAge', f.number().min(0).max(120))
+      .output('userName', f.string().min(2).max(50))
+      .build();
+    const stringSig = AxSignature.create(
+      'userAge:number(min 0, max 120) -> userName:string(min 2, max 50)'
+    );
+
+    const fluentIn = fluentSig.getInputFields()[0];
+    const stringIn = stringSig.getInputFields()[0];
+    expect(stringIn?.type?.minimum).toBe(fluentIn?.type?.minimum);
+    expect(stringIn?.type?.maximum).toBe(fluentIn?.type?.maximum);
+    expect(stringIn?.type?.minimum).toBe(0);
+    expect(stringIn?.type?.maximum).toBe(120);
+
+    const fluentOut = fluentSig.getOutputFields()[0];
+    const stringOut = stringSig.getOutputFields()[0];
+    expect(stringOut?.type?.minLength).toBe(fluentOut?.type?.minLength);
+    expect(stringOut?.type?.maxLength).toBe(fluentOut?.type?.maxLength);
+    expect(stringOut?.type?.minLength).toBe(2);
+    expect(stringOut?.type?.maxLength).toBe(50);
+  });
+
+  it('matches format and cache modifiers', () => {
+    const fluentSig = f()
+      .input('contactEmail', f.string().email().cache())
+      .output('siteLink', f.string().url())
+      .build();
+    const stringSig = AxSignature.create(
+      'contactEmail:string(format email, cache) -> siteLink:string(format uri)'
+    );
+
+    expect(stringSig.getInputFields()[0]?.type?.format).toBe(
+      fluentSig.getInputFields()[0]?.type?.format
+    );
+    expect(stringSig.getInputFields()[0]?.type?.format).toBe('email');
+    expect(!!stringSig.getInputFields()[0]?.isCached).toBe(
+      !!fluentSig.getInputFields()[0]?.isCached
+    );
+    expect(stringSig.getInputFields()[0]?.isCached).toBe(true);
+    expect(stringSig.getOutputFields()[0]?.type?.format).toBe('uri');
+  });
+
+  it('matches regex pattern constraints', () => {
+    const fluentSig = f()
+      .input('userName', f.string().regex('^[a-z_]+$', 'lowercase identifier'))
+      .output('replyText', f.string())
+      .build();
+    const stringSig = AxSignature.create(
+      'userName:string(pattern "^[a-z_]+$" "lowercase identifier") -> replyText:string'
+    );
+
+    const fluentField = fluentSig.getInputFields()[0];
+    const stringField = stringSig.getInputFields()[0];
+    expect(stringField?.type?.pattern).toBe(fluentField?.type?.pattern);
+    expect(stringField?.type?.patternDescription).toBe(
+      fluentField?.type?.patternDescription
+    );
+    expect(stringField?.type?.pattern).toBe('^[a-z_]+$');
+  });
+
+  it('matches item descriptions on arrays', () => {
+    const fluentSig = f()
+      .input('tagList', f.string('a short tag').array('all tags'))
+      .output('replyText', f.string())
+      .build();
+    const stringSig = AxSignature.create(
+      'tagList:string(item "a short tag")[] "all tags" -> replyText:string'
+    );
+
+    const fluentField = fluentSig.getInputFields()[0];
+    const stringField = stringSig.getInputFields()[0];
+    expect(stringField?.type?.description).toBe(fluentField?.type?.description);
+    expect(stringField?.description).toBe(fluentField?.description);
+    expect(stringField?.type?.description).toBe('a short tag');
+    expect(stringField?.description).toBe('all tags');
+  });
+
+  it('matches code language handling', () => {
+    const fluentSig = f()
+      .input('codeSnippet', f.code('python'))
+      .output('replyText', f.string())
+      .build();
+    const stringSig = AxSignature.create(
+      'codeSnippet:code(python) -> replyText:string'
+    );
+
+    const fluentField = fluentSig.getInputFields()[0];
+    const stringField = stringSig.getInputFields()[0];
+    expect(stringField?.type?.language).toBe(fluentField?.type?.language);
+    expect(stringField?.description).toBe(fluentField?.description);
+    expect(stringField?.type?.language).toBe('python');
+    expect(stringField?.description).toBe('python');
+  });
+
+  it('matches nested object structures deeply', () => {
+    const fluentSig = f()
+      .input('userQuestion', f.string())
+      .output(
+        'profileList',
+        f
+          .object({
+            fullName: f.string('the name'),
+            userAge: f.number().min(0).optional(),
+            contactEmail: f.string().email(),
+            priority: f.class(['high', 'low']),
+            nested: f.object({ deepValue: f.string() }).array(),
+          })
+          .array('profiles')
+      )
+      .build();
+    const stringSig = AxSignature.create(
+      'userQuestion:string -> profileList:object{ fullName:string "the name", userAge?:number(min 0), contactEmail:string(format email), priority:class "high, low", nested:object{ deepValue:string }[] }[] "profiles"'
+    );
+
+    const fluentField = fluentSig.getOutputFields()[0];
+    const stringField = stringSig.getOutputFields()[0];
+
+    expect(stringField?.type?.name).toBe('object');
+    expect(!!stringField?.type?.isArray).toBe(!!fluentField?.type?.isArray);
+    expect(stringField?.description).toBe(fluentField?.description);
+    expect(jsonNorm(stringField?.type?.fields)).toEqual(
+      jsonNorm(fluentField?.type?.fields)
+    );
+  });
+});

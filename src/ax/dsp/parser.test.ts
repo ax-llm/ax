@@ -552,3 +552,345 @@ describe('SignatureParser', () => {
     });
   });
 });
+
+describe('SignatureParser — modifier bags', () => {
+  it('parses min/max on string as length constraints', () => {
+    const sig = parseSignature(
+      'userName:string(min 2, max 50) -> replyText:string'
+    );
+    expect(sig.inputs[0]?.type).toEqual({
+      name: 'string',
+      isArray: false,
+      minLength: 2,
+      maxLength: 50,
+    });
+  });
+
+  it('parses min/max on number as value constraints incl. floats and negatives', () => {
+    const sig = parseSignature(
+      'tempCelsius:number(min -40.5, max 60.25) -> replyText:string'
+    );
+    expect(sig.inputs[0]?.type).toEqual({
+      name: 'number',
+      isArray: false,
+      minimum: -40.5,
+      maximum: 60.25,
+    });
+  });
+
+  it('parses all format values', () => {
+    const sig = parseSignature(
+      'contactEmail:string(format email), siteLink:string(format uri), bornOn:string(format date), seenAt:string(format date-time) -> replyText:string'
+    );
+    expect(sig.inputs.map((i) => i.type?.format)).toEqual([
+      'email',
+      'uri',
+      'date',
+      'date-time',
+    ]);
+  });
+
+  it('parses pattern with and without a pattern description', () => {
+    // Quoted strings use backslash escaping, so a regex "\d" is written "\\d"
+    // in the signature text (same rule as descriptions).
+    const sig = parseSignature(
+      'userName:string(pattern "^[a-z_]+$" "lowercase identifier"), skuCode:string(pattern "^[A-Z]{3}-\\\\d+$") -> replyText:string'
+    );
+    expect(sig.inputs[0]?.type?.pattern).toBe('^[a-z_]+$');
+    expect(sig.inputs[0]?.type?.patternDescription).toBe(
+      'lowercase identifier'
+    );
+    expect(sig.inputs[1]?.type?.pattern).toBe('^[A-Z]{3}-\\d+$');
+    expect(sig.inputs[1]?.type?.patternDescription).toBeUndefined();
+  });
+
+  it('parses cache on a top-level input field', () => {
+    const sig = parseSignature(
+      'contextText:string(cache) "shared context" -> replyText:string'
+    );
+    expect(sig.inputs[0]?.isCached).toBe(true);
+    expect(sig.inputs[0]?.type).toEqual({ name: 'string', isArray: false });
+  });
+
+  it('parses item descriptions bound to arrays', () => {
+    const sig = parseSignature(
+      'tagList:string(item "a short tag")[] "all tags" -> replyText:string'
+    );
+    expect(sig.inputs[0]?.type).toEqual({
+      name: 'string',
+      isArray: true,
+      description: 'a short tag',
+    });
+    expect(sig.inputs[0]?.desc).toBe('all tags');
+  });
+
+  it('parses code language and mirrors it into the description', () => {
+    const sig = parseSignature('codeSnippet:code(python) -> replyText:string');
+    expect(sig.inputs[0]?.type?.language).toBe('python');
+    expect(sig.inputs[0]?.desc).toBe('python');
+  });
+
+  it('keeps an explicit description over the code language', () => {
+    const sig = parseSignature(
+      'codeSnippet:code(python) "script to run" -> fixedSnippet:code(typescript)'
+    );
+    expect(sig.inputs[0]?.desc).toBe('script to run');
+    expect(sig.inputs[0]?.type?.language).toBe('python');
+    expect(sig.outputs[0]?.desc).toBe('typescript');
+  });
+
+  it('binds the bag before the array suffix', () => {
+    const sig = parseSignature(
+      'scoreList:number(min 0, max 10)[] -> replyText:string'
+    );
+    expect(sig.inputs[0]?.type).toEqual({
+      name: 'number',
+      isArray: true,
+      minimum: 0,
+      maximum: 10,
+    });
+  });
+});
+
+describe('SignatureParser — nested object types', () => {
+  it('parses a simple object with defaults and optional fields', () => {
+    const sig = parseSignature(
+      'profileInfo:object{ id:string, age?:number "in years", nickName } -> replyText:string'
+    );
+    expect(sig.inputs[0]?.type?.name).toBe('object');
+    expect(sig.inputs[0]?.type?.fields).toEqual({
+      id: {
+        type: 'string',
+        isArray: false,
+        isOptional: false,
+        isInternal: false,
+      },
+      age: {
+        type: 'number',
+        isArray: false,
+        isOptional: true,
+        isInternal: false,
+        description: 'in years',
+      },
+      nickName: {
+        type: 'string',
+        isArray: false,
+        isOptional: false,
+        isInternal: false,
+      },
+    });
+  });
+
+  it('parses nested class fields with options in outputs and inputs', () => {
+    const sig = parseSignature(
+      'requestInfo:object{ severity:class "high, low" } -> reviewInfo:object{ verdictNote:string, level:class[] "a | b | c" }'
+    );
+    expect(sig.inputs[0]?.type?.fields?.severity).toEqual({
+      type: 'class',
+      isArray: false,
+      options: ['high', 'low'],
+      isOptional: false,
+      isInternal: false,
+    });
+    const outType = sig.outputs[0]?.type;
+    expect(outType && 'fields' in outType && outType.fields?.level).toEqual({
+      type: 'class',
+      isArray: true,
+      options: ['a', 'b', 'c'],
+      isOptional: false,
+      isInternal: false,
+    });
+  });
+
+  it('parses arrays of objects and two-level nesting', () => {
+    const sig = parseSignature(
+      'orderInfo:object{ lineItems:object{ sku:string, qty:number }[], notes:string[] }[] -> replyText:string'
+    );
+    const type = sig.inputs[0]?.type;
+    expect(type?.name).toBe('object');
+    expect(type?.isArray).toBe(true);
+    expect(type?.fields?.lineItems).toEqual({
+      type: 'object',
+      isArray: true,
+      isOptional: false,
+      isInternal: false,
+      fields: {
+        sku: {
+          type: 'string',
+          isArray: false,
+          isOptional: false,
+          isInternal: false,
+        },
+        qty: {
+          type: 'number',
+          isArray: false,
+          isOptional: false,
+          isInternal: false,
+        },
+      },
+    });
+    expect(type?.fields?.notes).toEqual({
+      type: 'string',
+      isArray: true,
+      isOptional: false,
+      isInternal: false,
+    });
+  });
+
+  it('keeps bare object as a flexible type without fields', () => {
+    const sig = parseSignature('metaInfo:object -> replyText:string');
+    expect(sig.inputs[0]?.type).toEqual({ name: 'object', isArray: false });
+  });
+
+  it('allows constraint bags inside objects', () => {
+    const sig = parseSignature(
+      'profileInfo:object{ userAge:number(min 0), mail:string(format email), snip:code(python) } -> replyText:string'
+    );
+    expect(sig.inputs[0]?.type?.fields?.userAge?.minimum).toBe(0);
+    expect(sig.inputs[0]?.type?.fields?.mail?.format).toBe('email');
+    expect(sig.inputs[0]?.type?.fields?.snip).toEqual({
+      type: 'code',
+      isArray: false,
+      language: 'python',
+      description: 'python',
+      isOptional: false,
+      isInternal: false,
+    });
+  });
+});
+
+describe('SignatureParser — extended grammar errors', () => {
+  const cases: [string, string, RegExp][] = [
+    [
+      'min on boolean',
+      'okFlag:boolean(min 1) -> replyText:string',
+      /"min" is not supported for type "boolean"/,
+    ],
+    [
+      'format on date',
+      'bornOn:date(format email) -> replyText:string',
+      /"format" is not supported for type "date"/,
+    ],
+    [
+      'min on code',
+      'codeSnippet:code(min 3) -> replyText:string',
+      /"min" is not supported for type "code"/,
+    ],
+    [
+      'unknown bare word for non-code type',
+      'userName:string(python) -> replyText:string',
+      /unknown modifier "python" for type "string"/,
+    ],
+    [
+      'min without a number',
+      'userAge:number(min abc) -> replyText:string',
+      /"min" requires a numeric value/,
+    ],
+    [
+      'duplicate modifier',
+      'userAge:number(min 1, min 2) -> replyText:string',
+      /duplicate "min" modifier/,
+    ],
+    [
+      'empty bag',
+      'userName:string() -> replyText:string',
+      /empty modifier list/,
+    ],
+    [
+      'trailing comma in bag',
+      'userName:string(min 2, ) -> replyText:string',
+      /trailing comma in modifier list/,
+    ],
+    [
+      'bag on class',
+      'userQuestion:string -> verdictLabel:class(min 1) "a, b"',
+      /constraints are not supported on class fields/,
+    ],
+    [
+      'unknown format',
+      'contactEmail:string(format phone) -> replyText:string',
+      /unknown format "phone"/,
+    ],
+    [
+      'pattern without quotes',
+      'userName:string(pattern abc) -> replyText:string',
+      /"pattern" requires a quoted regular expression/,
+    ],
+    [
+      'item without array suffix',
+      'tagList:string(item "x") -> replyText:string',
+      /"item" modifier requires an array type/,
+    ],
+    [
+      'cache on output',
+      'userQuestion:string -> replyText:string(cache)',
+      /"cache" is only supported on top-level input fields/,
+    ],
+    [
+      'cache inside object',
+      'profileInfo:object{ ctx:string(cache) } -> replyText:string',
+      /"cache" is only supported on top-level input fields/,
+    ],
+    [
+      'item inside object',
+      'profileInfo:object{ tags:string(item "x")[] } -> replyText:string',
+      /"item" is not supported inside object fields/,
+    ],
+    [
+      'image inside object (input)',
+      'profileInfo:object{ photo:image } -> replyText:string',
+      /image type is not allowed in nested object fields/,
+    ],
+    [
+      'audio inside object (output)',
+      'userQuestion:string -> reportInfo:object{ clip:audio }',
+      /audio type is not allowed in nested object fields/,
+    ],
+    [
+      'internal marker inside object',
+      'userQuestion:string -> reportInfo:object{ scratch!:string }',
+      /cannot use the internal marker/,
+    ],
+    [
+      'unbalanced brace at end of input',
+      'profileInfo:object{ id:string',
+      /unbalanced "\{" in object type/,
+    ],
+    [
+      'unclosed object before arrow',
+      'profileInfo:object{ id:string -> replyText:string',
+      /expected "," or "\}" in object type/,
+    ],
+    [
+      'empty object',
+      'profileInfo:object{} -> replyText:string',
+      /object type requires at least one field/,
+    ],
+    [
+      'trailing comma in object',
+      'profileInfo:object{ id:string, } -> replyText:string',
+      /trailing comma in object type/,
+    ],
+    [
+      'duplicate object field',
+      'profileInfo:object{ id:string, id:number } -> replyText:string',
+      /duplicate object field name "id"/,
+    ],
+    [
+      'nested class without options',
+      'userQuestion:string -> reportInfo:object{ level:class }',
+      /Missing class options/,
+    ],
+    [
+      'word boundary on type names',
+      'answerText:stringy -> replyText:string',
+      /Invalid type "stringy"/,
+    ],
+  ];
+
+  for (const [label, signature, matcher] of cases) {
+    it(`rejects ${label}`, () => {
+      expect(() => parseSignature(signature)).toThrow(matcher);
+    });
+  }
+});

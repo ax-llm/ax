@@ -53,6 +53,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/anthropic/types.ts`, `src/ax/ai/anthropic/api.ts`
   - Impact: TS now sets thinking.display on the adaptive request: display='summarized' by default (gated on showThoughts) so the human-readable reasoning summary is returned, or 'omitted' when showThoughts===false. The Anthropic IR's adaptive branch (provider.axir, is_adaptive) builds thinking={type:'adaptive'} with no display field, so generated Python/Java/C++/Go/Rust targets inherit Anthropic's server default of display='omitted' on Sonnet 5 / Opus 4.7+ — the model still thinks and bills, but streams empty thinking text, and there is no way to request the summary. Fix: mirror the TS derivation by setting thinking['display'] in the is_adaptive block from the showThoughts option (summarized unless showThoughts is false).
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-18-port-extended-signature-string-grammar-modifier-bags-nested-obje` [axgen] Port extended signature string grammar (modifier bags, nested objects, code language)
+  - Status: open
+  - Source commit: `31f293d0ebe925f398e3310055e4d2b6ef3b1b2e`
+  - TS paths: `src/ax/dsp/complex_object_validation.test.ts`, `src/ax/dsp/parser.test.ts`, `src/ax/dsp/parser.ts`, `src/ax/dsp/sig-string-roundtrip.test.ts`, `src/ax/dsp/sig-string-vs-fluent.test.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`
+  - Impact: TS string signatures now accept type modifier bags — min/max, format, pattern, cache, item, code language — and nested object{...} field lists, and AxSignature.toString() serializes them losslessly. Generated Python/Java/C++/Go/Rust string-signature parsers cannot parse the new grammar and their renderers cannot emit it; their FieldType models already carry min/max/format/fields slots (e.g. packages/python/axllm/signature.py) so only the string grammar and serializer lag TS.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
