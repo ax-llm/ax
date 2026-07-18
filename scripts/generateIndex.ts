@@ -34,6 +34,7 @@ const internalExportNames = new Set([
   'AxFlowExecuteStepsOptions',
   'AxFlowNodeExecutionArgs',
   'AxFlowNodeExecutionRecorder',
+  'AxFlowMermaidCompileHost',
   'AxFlowStep',
   'AxFlowStepDecision',
   'AxFlowStepKind',

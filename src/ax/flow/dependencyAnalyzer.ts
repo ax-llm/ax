@@ -10,11 +10,24 @@ export interface AxFlowStateDependencyAnalysis {
   isSafe: boolean;
 }
 
+// Escape hatch for generated mapping closures (e.g. flow.fromMermaid's
+// table-driven wiring): source sniffing can't see through them, which would
+// classify them unsafe and serialize the whole flow. A generator that knows
+// its exact reads attaches them under this key.
+export const explicitDependenciesKey = Symbol('axFlowExplicitDependencies');
+
 export function analyzeStateDependencyMetadata(
   mapping: ((state: any) => any) | undefined
 ): AxFlowStateDependencyAnalysis {
   if (!mapping || typeof mapping !== 'function') {
     return { dependencies: [], isSafe: true };
+  }
+
+  const explicit = (
+    mapping as { [explicitDependenciesKey]?: readonly string[] }
+  )[explicitDependenciesKey];
+  if (Array.isArray(explicit)) {
+    return { dependencies: [...explicit], isSafe: true };
   }
 
   const source = mapping.toString();

@@ -55,13 +55,16 @@ import {
   createTimingLogger,
 } from './logger.js';
 import {
+  type AxFlowMermaidBindings,
   type AxFlowMermaidRenderOptions,
+  compileFlowFromMermaid,
   renderFlowMermaid,
 } from './mermaid.js';
 import {
   type AxFlowBlockLabel,
   type AxFlowExecutionContext,
   type AxFlowStep,
+  type AxFlowStepMeta,
   createFlowStep,
 } from './steps.js';
 import { AxFlowSubContextImpl } from './subContext.js';
@@ -1569,11 +1572,56 @@ export class AxFlow<
   > {
     return this.nodeExtended(name, baseSignature, extensions);
   }
+
+  /**
+   * Replaces the meta of the most recently added step. Used by
+   * flow.fromMermaid() to record decision fields and synthetic-returns
+   * markers on steps it just emitted through the public builder.
+   * @internal
+   */
+  public static patchLastStepMeta(
+    target: AxFlow<any, any, any, any>,
+    patch: (existing: AxFlowStepMeta | undefined) => AxFlowStepMeta | undefined
+  ): void {
+    const steps = target.currentSteps;
+    const last = steps[steps.length - 1];
+    if (last) {
+      steps[steps.length - 1] = { ...last, meta: patch(last.meta) };
+    }
+  }
 }
 
-export function flow<
+function flowFn<
   TInput extends Record<string, any> = Record<string, unknown>,
   TOutput = {},
 >(options?: AxFlowOptions): AxFlow<TInput, TOutput, {}, TInput> {
   return AxFlow.create<TInput, TOutput, {}, TInput>(options);
 }
+
+/**
+ * Creates a new AxFlow builder. Also exposes `flow.fromMermaid()` which
+ * compiles a mermaid flowchart in the AxFlow dialect (see AxFlow.toMermaid)
+ * into a runnable flow.
+ */
+export const flow = Object.assign(flowFn, {
+  /**
+   * Compiles a mermaid flowchart in the AxFlow dialect into a runnable flow.
+   * Node contracts come from `%%ax nodeId: <signature>` directives or from
+   * `bindings.nodes`; data wiring is by field name (a node input binds to the
+   * nearest upstream producer of that field); labeled out-edges of a decision
+   * node become branches; back-edges become feedback/while loops.
+   */
+  fromMermaid: <
+    TInput extends Record<string, any> = Record<string, any>,
+    TOutput = Record<string, any>,
+  >(
+    text: string,
+    bindings?: AxFlowMermaidBindings
+  ): AxFlow<TInput, TOutput, any, any> =>
+    compileFlowFromMermaid(text, bindings, {
+      createFlow: (options?: AxFlowOptions) =>
+        AxFlow.create<any, any, any, any>(options),
+      patchLastStepMeta: (target, patch) =>
+        AxFlow.patchLastStepMeta(target as AxFlow<any, any, any, any>, patch),
+    }) as AxFlow<TInput, TOutput, any, any>,
+});

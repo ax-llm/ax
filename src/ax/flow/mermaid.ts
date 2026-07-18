@@ -503,3 +503,1040 @@ export function renderFlowMermaid(args: {
   }
   return `${lines.join('\n')}\n`;
 }
+
+// ============================================================================
+// PARSER + COMPILER: mermaid dialect -> runnable flow
+// ============================================================================
+
+import { AxSignature } from '../dsp/sig.js';
+import { explicitDependenciesKey } from './dependencyAnalyzer.js';
+import type { AxFlowStepMeta } from './steps.js';
+import type { AxFlowOptions, AxFlowState } from './types.js';
+
+export class AxFlowMermaidError extends Error {
+  constructor(
+    message: string,
+    public readonly line: number,
+    public readonly context: string,
+    public readonly suggestion?: string
+  ) {
+    super(
+      suggestion
+        ? `${message} (line ${line}: "${context}") — ${suggestion}`
+        : `${message} (line ${line}: "${context}")`
+    );
+    this.name = 'AxFlowMermaidError';
+  }
+}
+
+export type AxFlowMermaidNodeBinding =
+  | string
+  | AxSignature
+  | { forward: (...args: any[]) => any }
+  | ((state: AxFlowState) => AxFlowState | Promise<AxFlowState>);
+
+export interface AxFlowMermaidBindings {
+  /**
+   * Node implementations. A signature (string or AxSignature) or any
+   * AxProgrammable overrides/satisfies a node's `%%ax` directive; a plain
+   * function becomes a map step (full state in, full state out).
+   */
+  nodes?: Record<string, AxFlowMermaidNodeBinding>;
+  /** Predicates referenced by `if <name>` / `while <name>` edge labels. */
+  conditions?: Record<string, (state: AxFlowState) => boolean>;
+  options?: AxFlowOptions;
+}
+
+type MermaidShape = 'rect' | 'round' | 'diamond';
+
+type MermaidAst = {
+  direction: string;
+  directives: Map<string, { signatureText: string; line: number }>;
+  nodes: Map<string, { shape: MermaidShape; label?: string; line: number }>;
+  edges: Array<{ from: string; to: string; label?: string; line: number }>;
+  order: Map<string, number>;
+};
+
+const SUPPORTED_SUBSET =
+  'supported: "flowchart TD|LR|BT|RL", "%%ax id: signature" directives, %% comments, node statements id / id[label] / id(label) / id([label]) / id{field}, edges "A --> B", "A -->|label| B", chains and "&" fan-in/out';
+
+const UNSUPPORTED_LINE =
+  /^(subgraph\b|end\b|style\b|classDef\b|class\b|linkStyle\b|click\b|direction\b)/;
+const UNSUPPORTED_ARROW = /(-\.+->|={2,}>|(?<!-)---(?!-)|~~~|--[^>|-])/;
+
+export function parseFlowMermaid(text: string): MermaidAst {
+  const ast: MermaidAst = {
+    direction: 'TD',
+    directives: new Map(),
+    nodes: new Map(),
+    edges: [],
+    order: new Map(),
+  };
+  let sawHeader = false;
+  let orderCounter = 0;
+
+  const registerNode = (
+    id: string,
+    shape: MermaidShape,
+    label: string | undefined,
+    lineNo: number
+  ): void => {
+    if (!ast.order.has(id)) {
+      ast.order.set(id, orderCounter++);
+    }
+    const existing = ast.nodes.get(id);
+    if (!existing) {
+      ast.nodes.set(id, { shape, label, line: lineNo });
+      return;
+    }
+    // First explicit shape/label wins; bare references never downgrade it.
+    if (existing.shape === 'rect' && existing.label === undefined) {
+      ast.nodes.set(id, {
+        shape,
+        label: label ?? existing.label,
+        line: lineNo,
+      });
+    }
+  };
+
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const lineNo = i + 1;
+    const raw = lines[i] ?? '';
+    const line = raw.trim();
+    if (line === '') {
+      continue;
+    }
+
+    const axDirective = /^%%ax\s+([A-Za-z_]\w*)\s*:\s*(.+)$/.exec(line);
+    if (axDirective) {
+      const id = axDirective[1] as string;
+      const signatureText = (axDirective[2] as string).trim();
+      if (ast.directives.has(id)) {
+        throw new AxFlowMermaidError(
+          `Duplicate %%ax directive for node "${id}"`,
+          lineNo,
+          line,
+          'Each node may declare its signature once'
+        );
+      }
+      ast.directives.set(id, { signatureText, line: lineNo });
+      continue;
+    }
+    if (line.startsWith('%%')) {
+      continue;
+    }
+
+    const header = /^(?:flowchart|graph)\s+(\w+)\s*$/.exec(line);
+    if (header) {
+      if (sawHeader) {
+        throw new AxFlowMermaidError(
+          'Multiple flowchart headers',
+          lineNo,
+          line,
+          'Keep a single "flowchart TD" (or LR/BT/RL) header'
+        );
+      }
+      sawHeader = true;
+      ast.direction = header[1] as string;
+      continue;
+    }
+
+    if (UNSUPPORTED_LINE.test(line)) {
+      const keyword = line.split(/[\s({[]/)[0];
+      throw new AxFlowMermaidError(
+        `Unsupported mermaid construct "${keyword}"`,
+        lineNo,
+        line,
+        SUPPORTED_SUBSET
+      );
+    }
+    if (!sawHeader) {
+      throw new AxFlowMermaidError(
+        'Missing flowchart header',
+        lineNo,
+        line,
+        'Start the document with "flowchart TD" (or LR/BT/RL)'
+      );
+    }
+    if (UNSUPPORTED_ARROW.test(line)) {
+      throw new AxFlowMermaidError(
+        'Unsupported arrow syntax',
+        lineNo,
+        line,
+        `Only "-->" and "-->|label|" edges are supported. ${SUPPORTED_SUBSET}`
+      );
+    }
+
+    // Statement line: nodeGroup (arrow nodeGroup)*
+    let rest = line;
+    const fail = (message: string, suggestion?: string): never => {
+      throw new AxFlowMermaidError(
+        message,
+        lineNo,
+        line,
+        suggestion ?? SUPPORTED_SUBSET
+      );
+    };
+    const parseNodeRef = (): string => {
+      const idMatch = /^([A-Za-z_]\w*)\s*/.exec(rest);
+      if (!idMatch) {
+        return fail('Expected a node id') as never;
+      }
+      const id = idMatch[1] as string;
+      rest = rest.slice(idMatch[0].length);
+      let shape: MermaidShape | undefined;
+      let label: string | undefined;
+      const shapes: Array<[RegExp, MermaidShape]> = [
+        [/^\(\(([^)]*)\)\)\s*/, 'rect'],
+        [/^\(\[([^\]]*)\]\)\s*/, 'round'],
+        [/^\(([^)]*)\)\s*/, 'round'],
+        [/^\[([^\]]*)\]\s*/, 'rect'],
+        [/^\{([^}]*)\}\s*/, 'diamond'],
+      ];
+      for (const [pattern, shapeName] of shapes) {
+        const match = pattern.exec(rest);
+        if (match) {
+          shape = shapeName;
+          label = (match[1] as string).replace(/^"|"$/g, '');
+          rest = rest.slice(match[0].length);
+          break;
+        }
+      }
+      registerNode(id, shape ?? 'rect', shape ? label : undefined, lineNo);
+      return id;
+    };
+    const parseGroup = (): string[] => {
+      const ids = [parseNodeRef()];
+      while (rest.startsWith('&')) {
+        rest = rest.slice(1).trimStart();
+        ids.push(parseNodeRef());
+      }
+      return ids;
+    };
+
+    let fromGroup = parseGroup();
+    while (rest.length > 0) {
+      const arrow = /^-->(?:\|([^|]*)\|)?\s*/.exec(rest);
+      if (!arrow) {
+        fail(`Unexpected content "${rest}"`);
+      }
+      rest = rest.slice((arrow as RegExpExecArray)[0].length);
+      const label = (arrow as RegExpExecArray)[1]?.trim();
+      const toGroup = parseGroup();
+      for (const from of fromGroup) {
+        for (const to of toGroup) {
+          ast.edges.push({ from, to, label, line: lineNo });
+        }
+      }
+      fromGroup = toGroup;
+    }
+  }
+
+  if (!sawHeader) {
+    throw new AxFlowMermaidError(
+      'Missing flowchart header',
+      1,
+      lines[0]?.trim() ?? '',
+      'Start the document with "flowchart TD" (or LR/BT/RL)'
+    );
+  }
+  if (ast.nodes.size === 0) {
+    throw new AxFlowMermaidError(
+      'No nodes found in the diagram',
+      1,
+      '',
+      'Declare at least one node and one edge'
+    );
+  }
+  return ast;
+}
+
+// --- compile ----------------------------------------------------------------
+
+export type AxFlowMermaidCompileHost = {
+  createFlow: (options?: AxFlowOptions) => any;
+  patchLastStepMeta: (
+    flowInstance: unknown,
+    patch: (existing: AxFlowStepMeta | undefined) => AxFlowStepMeta | undefined
+  ) => void;
+};
+
+type GenNodeInfo = {
+  id: string;
+  program: AxSignature | { forward: (...args: any[]) => any };
+  inputs: Array<{ name: string; isOptional: boolean }>;
+  outputs: Map<string, { typeName: string; options?: string[] }>;
+};
+
+type EdgeInfo = { from: string; to: string; label?: string; line: number };
+
+type BackEdgeAction =
+  | {
+      kind: 'feedback';
+      predicate: (s: AxFlowState) => boolean;
+      target: string;
+      max: number;
+      decision?: { nodeName: string; field: string; value: unknown };
+    }
+  | {
+      kind: 'while';
+      condition: (s: AxFlowState) => boolean;
+      conditionName: string;
+      target: string;
+      max: number;
+    };
+
+function compileError(
+  message: string,
+  edgeOrLine: { line: number } | number,
+  context: string,
+  suggestion?: string
+): never {
+  const line = typeof edgeOrLine === 'number' ? edgeOrLine : edgeOrLine.line;
+  throw new AxFlowMermaidError(message, line, context, suggestion);
+}
+
+export function compileFlowFromMermaid(
+  text: string,
+  bindings: AxFlowMermaidBindings | undefined,
+  host: AxFlowMermaidCompileHost
+): unknown {
+  const ast = parseFlowMermaid(text);
+  const conditions = bindings?.conditions ?? {};
+
+  // -- resolve node implementations -----------------------------------------
+  const genNodes = new Map<string, GenNodeInfo>();
+  const fnNodes = new Map<string, (state: AxFlowState) => any>();
+  const unresolved: string[] = [];
+
+  for (const [id, node] of ast.nodes) {
+    const binding = bindings?.nodes?.[id];
+    const directive = ast.directives.get(id);
+    if (binding !== undefined) {
+      if (typeof binding === 'function') {
+        fnNodes.set(id, binding as (state: AxFlowState) => any);
+        continue;
+      }
+      let program: GenNodeInfo['program'];
+      let signature: AxSignature;
+      if (typeof binding === 'string') {
+        signature = AxSignature.create(binding);
+        program = signature;
+      } else if (binding instanceof AxSignature) {
+        signature = binding;
+        program = binding;
+      } else {
+        program = binding;
+        signature = (
+          binding as unknown as { getSignature: () => AxSignature }
+        ).getSignature();
+      }
+      genNodes.set(id, {
+        id,
+        program,
+        inputs: signature.getInputFields().map((field) => ({
+          name: field.name,
+          isOptional: !!field.isOptional,
+        })),
+        outputs: new Map(
+          signature.getOutputFields().map((field) => [
+            field.name,
+            {
+              typeName: field.type?.name ?? 'string',
+              options: field.type?.options,
+            },
+          ])
+        ),
+      });
+      continue;
+    }
+    if (directive) {
+      let signature: AxSignature;
+      try {
+        signature = AxSignature.create(directive.signatureText);
+      } catch (error) {
+        compileError(
+          `Invalid signature for node "${id}": ${error instanceof Error ? error.message : String(error)}`,
+          directive.line,
+          directive.signatureText
+        );
+      }
+      genNodes.set(id, {
+        id,
+        program: signature!,
+        inputs: signature!.getInputFields().map((field) => ({
+          name: field.name,
+          isOptional: !!field.isOptional,
+        })),
+        outputs: new Map(
+          signature!.getOutputFields().map((field) => [
+            field.name,
+            {
+              typeName: field.type?.name ?? 'string',
+              options: field.type?.options,
+            },
+          ])
+        ),
+      });
+      continue;
+    }
+    unresolved.push(id);
+  }
+  if (unresolved.length > 0) {
+    compileError(
+      `No signature for node(s): ${unresolved.join(', ')}`,
+      ast.nodes.get(unresolved[0] as string)?.line ?? 1,
+      unresolved.join(', '),
+      'Add a "%%ax <id>: <signature>" directive or supply bindings.nodes[<id>]'
+    );
+  }
+
+  // -- classify edges + topological order -----------------------------------
+  // DFS-based back-edge detection: an edge is a back-edge iff it points at a
+  // node currently on the DFS stack (i.e. it closes a cycle). Reconvergence
+  // to an already-finished node stays a forward edge, so diamonds written in
+  // any line order classify correctly. DFS roots follow document order.
+  const forwardEdges: EdgeInfo[] = [];
+  const backEdges: EdgeInfo[] = [];
+  {
+    const adjacency = new Map<string, EdgeInfo[]>();
+    for (const id of ast.nodes.keys()) {
+      adjacency.set(id, []);
+    }
+    for (const edge of ast.edges) {
+      adjacency.get(edge.from)?.push(edge);
+    }
+    const WHITE = 0;
+    const GRAY = 1;
+    const BLACK = 2;
+    const color = new Map<string, number>();
+    const visit = (id: string): void => {
+      color.set(id, GRAY);
+      for (const edge of adjacency.get(id) ?? []) {
+        const targetColor = color.get(edge.to) ?? WHITE;
+        if (targetColor === GRAY) {
+          backEdges.push(edge);
+        } else {
+          forwardEdges.push(edge);
+          if (targetColor === WHITE) {
+            visit(edge.to);
+          }
+        }
+      }
+      color.set(id, BLACK);
+    };
+    for (const id of ast.nodes.keys()) {
+      if ((color.get(id) ?? WHITE) === WHITE) {
+        visit(id);
+      }
+    }
+  }
+
+  const successors = new Map<string, EdgeInfo[]>();
+  const predecessors = new Map<string, EdgeInfo[]>();
+  for (const id of ast.nodes.keys()) {
+    successors.set(id, []);
+    predecessors.set(id, []);
+  }
+  for (const edge of forwardEdges) {
+    successors.get(edge.from)?.push(edge);
+    predecessors.get(edge.to)?.push(edge);
+  }
+
+  const indegree = new Map<string, number>();
+  for (const id of ast.nodes.keys()) {
+    indegree.set(id, predecessors.get(id)?.length ?? 0);
+  }
+  const byDocOrder = (a: string, b: string) =>
+    (ast.order.get(a) ?? 0) - (ast.order.get(b) ?? 0);
+  const queue = [...ast.nodes.keys()]
+    .filter((id) => indegree.get(id) === 0)
+    .sort(byDocOrder);
+  const topoOrder: string[] = [];
+  while (queue.length > 0) {
+    const id = queue.shift() as string;
+    topoOrder.push(id);
+    for (const edge of successors.get(id) ?? []) {
+      const next = (indegree.get(edge.to) ?? 0) - 1;
+      indegree.set(edge.to, next);
+      if (next === 0) {
+        queue.push(edge.to);
+        queue.sort(byDocOrder);
+      }
+    }
+  }
+  if (topoOrder.length < ast.nodes.size) {
+    const cyclic = [...ast.nodes.keys()].filter(
+      (id) => !topoOrder.includes(id)
+    );
+    compileError(
+      `Cycle without a back-edge involving: ${cyclic.join(', ')}`,
+      ast.nodes.get(cyclic[0] as string)?.line ?? 1,
+      cyclic.join(' -> '),
+      'Loops must be written as a back-edge: declare the loop target earlier in the document than the loop source'
+    );
+  }
+  const topoIndex = new Map(topoOrder.map((id, index) => [id, index]));
+
+  // -- decision fields --------------------------------------------------------
+  const decisionFieldOf = (id: string, edge: EdgeInfo): string => {
+    const info = genNodes.get(id);
+    if (!info) {
+      compileError(
+        `Node "${id}" has labeled edges but is not a signature node`,
+        edge,
+        `${edge.from} -->|${edge.label}| ${edge.to}`,
+        'Only signature nodes can decide branches'
+      );
+    }
+    const diamond = ast.nodes.get(id);
+    if (diamond?.shape === 'diamond' && diamond.label) {
+      if (!info!.outputs.has(diamond.label)) {
+        compileError(
+          `Decision field "${diamond.label}" is not an output of node "${id}"`,
+          diamond.line,
+          `${id}{${diamond.label}}`,
+          `Outputs of "${id}": ${[...info!.outputs.keys()].join(', ')}`
+        );
+      }
+      return diamond.label;
+    }
+    const classFields = [...info!.outputs.entries()].filter(
+      ([, meta]) => meta.typeName === 'class' || meta.typeName === 'boolean'
+    );
+    if (classFields.length === 1) {
+      return (classFields[0] as [string, unknown])[0];
+    }
+    compileError(
+      `Cannot infer the decision field for node "${id}"`,
+      edge,
+      `${edge.from} -->|${edge.label}| ${edge.to}`,
+      `Declare the node as a diamond naming the field, e.g. ${id}{fieldName}`
+    );
+  };
+
+  const coerceDecisionValue = (
+    id: string,
+    field: string,
+    value: string,
+    edge: EdgeInfo
+  ): unknown => {
+    const meta = genNodes.get(id)?.outputs.get(field);
+    if (meta?.typeName === 'boolean') {
+      if (value === 'true') return true;
+      if (value === 'false') return false;
+      compileError(
+        `Edge label "${value}" is not valid for boolean field "${field}"`,
+        edge,
+        `${edge.from} -->|${edge.label}| ${edge.to}`,
+        'Use true or false'
+      );
+    }
+    if (meta?.options && !meta.options.includes(value)) {
+      compileError(
+        `Edge label "${value}" is not an option of "${id}.${field}"`,
+        edge,
+        `${edge.from} -->|${edge.label}| ${edge.to}`,
+        `Valid options: ${meta.options.join(', ')}`
+      );
+    }
+    return value;
+  };
+
+  // Labeled forward edges group into branch decisions.
+  const labeledForward = new Map<
+    string,
+    Array<{ value: string; to: string; edge: EdgeInfo }>
+  >();
+  for (const edge of forwardEdges) {
+    if (edge.label === undefined || edge.label === '') {
+      continue;
+    }
+    if (/^(if|while)\s/.test(edge.label)) {
+      compileError(
+        `"${edge.label}" is only valid on back-edges`,
+        edge,
+        `${edge.from} -->|${edge.label}| ${edge.to}`,
+        'Forward branching uses class option values as edge labels'
+      );
+    }
+    const list = labeledForward.get(edge.from) ?? [];
+    list.push({ value: edge.label, to: edge.to, edge });
+    labeledForward.set(edge.from, list);
+  }
+
+  // -- back-edge actions -------------------------------------------------------
+  const parseBackLabel = (
+    edge: EdgeInfo
+  ): {
+    keyword?: 'if' | 'while';
+    name?: string;
+    value?: string;
+    max?: number;
+  } => {
+    if (edge.label === undefined || edge.label === '') {
+      compileError(
+        'Back-edges need a label',
+        edge,
+        `${edge.from} --> ${edge.to}`,
+        'Label the loop edge with a class option value, "if <condition>", or "while <condition>", optionally adding ", max N"'
+      );
+    }
+    const parts = (edge.label as string).split(',').map((part) => part.trim());
+    let max: number | undefined;
+    const rest: string[] = [];
+    for (const part of parts) {
+      const maxMatch = /^max\s+(\d+)$/.exec(part);
+      if (maxMatch) {
+        max = Number(maxMatch[1]);
+      } else if (part !== '') {
+        rest.push(part);
+      }
+    }
+    const head = rest.join(', ');
+    const keyword = /^(if|while)\s+([A-Za-z_]\w*)$/.exec(head);
+    if (keyword) {
+      return {
+        keyword: keyword[1] as 'if' | 'while',
+        name: keyword[2] as string,
+        max,
+      };
+    }
+    return { value: head, max };
+  };
+
+  const feedbackBySource = new Map<string, BackEdgeAction[]>();
+  const whileByTarget = new Map<
+    string,
+    BackEdgeAction & { kind: 'while'; source: string }
+  >();
+  for (const edge of backEdges) {
+    const parsed = parseBackLabel(edge);
+    if (parsed.keyword === 'while') {
+      const condition = conditions[parsed.name as string];
+      if (!condition) {
+        compileError(
+          `Missing condition binding "${parsed.name}"`,
+          edge,
+          `${edge.from} -->|${edge.label}| ${edge.to}`,
+          `Pass bindings.conditions.${parsed.name}`
+        );
+      }
+      if (whileByTarget.has(edge.to)) {
+        compileError(
+          `Node "${edge.to}" is the target of more than one while back-edge`,
+          edge,
+          `${edge.from} -->|${edge.label}| ${edge.to}`
+        );
+      }
+      whileByTarget.set(edge.to, {
+        kind: 'while',
+        condition: condition as (s: AxFlowState) => boolean,
+        conditionName: parsed.name as string,
+        target: edge.to,
+        source: edge.from,
+        max: parsed.max ?? 100,
+      });
+      continue;
+    }
+    let predicate: (s: AxFlowState) => boolean;
+    let decision:
+      | { nodeName: string; field: string; value: unknown }
+      | undefined;
+    if (parsed.keyword === 'if') {
+      const condition = conditions[parsed.name as string];
+      if (!condition) {
+        compileError(
+          `Missing condition binding "${parsed.name}"`,
+          edge,
+          `${edge.from} -->|${edge.label}| ${edge.to}`,
+          `Pass bindings.conditions.${parsed.name}`
+        );
+      }
+      predicate = condition as (s: AxFlowState) => boolean;
+    } else {
+      const field = decisionFieldOf(edge.from, edge);
+      const value = coerceDecisionValue(
+        edge.from,
+        field,
+        parsed.value as string,
+        edge
+      );
+      const source = edge.from;
+      predicate = (state: AxFlowState) =>
+        (state[`${source}Result`] as Record<string, unknown> | undefined)?.[
+          field
+        ] === value;
+      decision = { nodeName: source, field, value };
+    }
+    const list = feedbackBySource.get(edge.from) ?? [];
+    list.push({
+      kind: 'feedback',
+      predicate,
+      target: edge.to,
+      max: parsed.max ?? 10,
+      decision,
+    });
+    feedbackBySource.set(edge.from, list);
+  }
+
+  // -- branch structure ----------------------------------------------------
+  const reachableFrom = (start: string): Set<string> => {
+    const seen = new Set<string>([start]);
+    const stack = [start];
+    while (stack.length > 0) {
+      const id = stack.pop() as string;
+      for (const edge of successors.get(id) ?? []) {
+        if (!seen.has(edge.to)) {
+          seen.add(edge.to);
+          stack.push(edge.to);
+        }
+      }
+    }
+    return seen;
+  };
+
+  type BranchPlan = {
+    decision: string;
+    field: string;
+    join?: string;
+    branches: Array<{ value: unknown; body: string[] }>;
+  };
+  const branchPlans = new Map<string, BranchPlan>();
+  const branchOf = new Map<string, { decision: string; value: unknown }>();
+
+  for (const [decisionId, edges] of labeledForward) {
+    if (edges.length < 2) {
+      continue; // single labeled forward edge is plain continuation
+    }
+    const field = decisionFieldOf(
+      decisionId,
+      (edges[0] as { edge: EdgeInfo }).edge
+    );
+    const reach = edges.map(({ to }) => reachableFrom(to));
+    const common = [...(reach[0] as Set<string>)].filter((id) =>
+      reach.every((set) => set.has(id))
+    );
+    const join = common.sort(
+      (a, b) => (topoIndex.get(a) ?? 0) - (topoIndex.get(b) ?? 0)
+    )[0];
+    const branches: BranchPlan['branches'] = [];
+    const seenBodies = new Map<string, unknown>();
+    for (const { value, to, edge } of edges) {
+      const coerced = coerceDecisionValue(decisionId, field, value, edge);
+      const body = [...(reachableFrom(to) as Set<string>)]
+        .filter((id) => id !== join)
+        .filter((id) => join === undefined || !reachableFrom(join).has(id))
+        .sort((a, b) => (topoIndex.get(a) ?? 0) - (topoIndex.get(b) ?? 0));
+      for (const member of body) {
+        const owner = seenBodies.get(member);
+        if (owner !== undefined && owner !== coerced) {
+          compileError(
+            `Branches of "${decisionId}" share node "${member}" before reconverging`,
+            edge,
+            `${edge.from} -->|${edge.label}| ${edge.to}`,
+            'Give each branch its own nodes, or reconverge before the shared node'
+          );
+        }
+        seenBodies.set(member, coerced);
+        branchOf.set(member, { decision: decisionId, value: coerced });
+      }
+      branches.push({ value: coerced, body });
+    }
+    branchPlans.set(decisionId, {
+      decision: decisionId,
+      field,
+      join,
+      branches,
+    });
+  }
+
+  // -- wiring ----------------------------------------------------------------
+  type Wire = { to: string; from?: string[]; raw?: boolean };
+  const wiringByNode = new Map<string, Wire[]>();
+  const allProducers = new Map<string, string[]>();
+  for (const info of genNodes.values()) {
+    for (const field of info.outputs.keys()) {
+      const list = allProducers.get(field) ?? [];
+      list.push(info.id);
+      allProducers.set(field, list);
+    }
+  }
+
+  for (const info of genNodes.values()) {
+    const wires: Wire[] = [];
+    for (const input of info.inputs) {
+      // Reverse BFS by levels over forward edges; fn nodes pass through.
+      let level = (predecessors.get(info.id) ?? []).map((edge) => edge.from);
+      const visited = new Set<string>([info.id]);
+      let producers: string[] = [];
+      while (level.length > 0 && producers.length === 0) {
+        const next: string[] = [];
+        for (const id of level) {
+          if (visited.has(id)) continue;
+          visited.add(id);
+          if (genNodes.get(id)?.outputs.has(input.name)) {
+            producers.push(id);
+          }
+          for (const edge of predecessors.get(id) ?? []) {
+            next.push(edge.from);
+          }
+        }
+        if (producers.length === 0) {
+          level = next;
+        }
+      }
+      if (producers.length > 1) {
+        const decisions = new Set(
+          producers.map((p) => branchOf.get(p)?.decision ?? `~${p}`)
+        );
+        const values = new Set(producers.map((p) => branchOf.get(p)?.value));
+        const sameDecision =
+          decisions.size === 1 &&
+          ![...decisions][0]?.startsWith('~') &&
+          values.size === producers.length;
+        if (!sameDecision) {
+          compileError(
+            `Input "${input.name}" of node "${info.id}" is produced by ${producers.join(' and ')} at the same distance`,
+            ast.nodes.get(info.id)?.line ?? 1,
+            info.id,
+            'Rename one output or wire through an intermediate node'
+          );
+        }
+        producers = producers.sort(
+          (a, b) => (topoIndex.get(a) ?? 0) - (topoIndex.get(b) ?? 0)
+        );
+      }
+      if (producers.length > 0) {
+        wires.push({ to: input.name, from: producers });
+        continue;
+      }
+      const anywhere = (allProducers.get(input.name) ?? []).filter(
+        (id) => id !== info.id
+      );
+      if (anywhere.length > 0) {
+        compileError(
+          `Input "${input.name}" of node "${info.id}" is produced by "${anywhere.join('", "')}" which is not upstream`,
+          ast.nodes.get(info.id)?.line ?? 1,
+          info.id,
+          `Add an edge ${anywhere[0]} --> ${info.id} or rename the field`
+        );
+      }
+      wires.push({ to: input.name, raw: true });
+    }
+    wiringByNode.set(info.id, wires);
+  }
+
+  const makeMapping = (
+    wires: Wire[]
+  ): ((state: AxFlowState) => AxFlowState) => {
+    const mapping = (state: AxFlowState): AxFlowState => {
+      const out: Record<string, unknown> = {};
+      for (const wire of wires) {
+        if (wire.raw) {
+          if (state[wire.to] !== undefined) {
+            out[wire.to] = state[wire.to];
+          }
+          continue;
+        }
+        for (const producer of wire.from ?? []) {
+          const value = (
+            state[`${producer}Result`] as Record<string, unknown> | undefined
+          )?.[wire.to];
+          if (value !== undefined) {
+            out[wire.to] = value;
+            break;
+          }
+        }
+      }
+      return out as AxFlowState;
+    };
+    const deps = [
+      ...new Set(
+        wires.flatMap((wire) =>
+          wire.raw
+            ? [wire.to]
+            : (wire.from ?? []).map((producer) => `${producer}Result`)
+        )
+      ),
+    ];
+    (mapping as any)[explicitDependenciesKey] = deps;
+    return mapping;
+  };
+
+  // -- emission ----------------------------------------------------------------
+  const flowInstance = host.createFlow(bindings?.options);
+  for (const id of ast.nodes.keys()) {
+    const info = genNodes.get(id);
+    if (info) {
+      flowInstance.node(id, info.program);
+    }
+  }
+
+  const feedbackTargets = new Set<string>();
+  for (const actions of feedbackBySource.values()) {
+    for (const action of actions) {
+      feedbackTargets.add(action.target);
+    }
+  }
+
+  const emitted = new Set<string>();
+  const skipInMain = new Set<string>();
+  for (const plan of branchPlans.values()) {
+    for (const branch of plan.branches) {
+      for (const id of branch.body) {
+        skipInMain.add(id);
+      }
+    }
+  }
+
+  let activeWhile:
+    | (BackEdgeAction & { kind: 'while'; source: string })
+    | undefined;
+
+  const emitNode = (id: string): void => {
+    if (emitted.has(id)) {
+      return;
+    }
+    emitted.add(id);
+
+    const startsWhile = whileByTarget.get(id);
+    if (startsWhile) {
+      if (activeWhile) {
+        compileError(
+          `Nested while loops are not supported ("${id}" inside "${activeWhile.target}")`,
+          ast.nodes.get(id)?.line ?? 1,
+          id
+        );
+      }
+      activeWhile = startsWhile;
+      flowInstance.while(startsWhile.condition, startsWhile.max);
+    }
+    if (feedbackTargets.has(id)) {
+      flowInstance.label(id);
+    }
+
+    const info = genNodes.get(id);
+    if (info) {
+      flowInstance.execute(id, makeMapping(wiringByNode.get(id) ?? []));
+    } else {
+      const transform = fnNodes.get(id) as (state: AxFlowState) => any;
+      flowInstance.map(transform);
+      host.patchLastStepMeta(flowInstance, () => ({ kind: 'map', name: id }));
+    }
+
+    if (activeWhile && activeWhile.source === id) {
+      flowInstance.endWhile();
+      host.patchLastStepMeta(flowInstance, (existing) =>
+        existing?.kind === 'while'
+          ? { ...existing, conditionName: activeWhile?.conditionName }
+          : existing
+      );
+      activeWhile = undefined;
+    }
+
+    for (const action of feedbackBySource.get(id) ?? []) {
+      if (action.kind !== 'feedback') continue;
+      flowInstance.feedback(action.predicate, action.target, action.max);
+      host.patchLastStepMeta(flowInstance, (existing) =>
+        existing?.kind === 'feedback'
+          ? { ...existing, decision: action.decision as any }
+          : existing
+      );
+    }
+
+    const plan = branchPlans.get(id);
+    if (plan) {
+      const decisionId = plan.decision;
+      const field = plan.field;
+      const predicate = (state: AxFlowState) =>
+        (state[`${decisionId}Result`] as Record<string, unknown> | undefined)?.[
+          field
+        ];
+      flowInstance.branch(predicate);
+      for (const branch of plan.branches) {
+        flowInstance.when(branch.value);
+        for (const member of branch.body) {
+          emitNode(member);
+        }
+      }
+      flowInstance.merge();
+      host.patchLastStepMeta(flowInstance, (existing) =>
+        existing?.kind === 'branch'
+          ? { ...existing, decision: { nodeName: decisionId, field } }
+          : existing
+      );
+    }
+  };
+
+  for (const id of topoOrder) {
+    if (!skipInMain.has(id)) {
+      emitNode(id);
+    }
+  }
+  if (activeWhile) {
+    compileError(
+      `While loop starting at "${(activeWhile as { target: string }).target}" never closes`,
+      ast.nodes.get((activeWhile as { target: string }).target)?.line ?? 1,
+      (activeWhile as { target: string }).target,
+      'The while back-edge source must be reachable after its target'
+    );
+  }
+
+  // -- synthetic returns projection -----------------------------------------
+  const terminals = topoOrder.filter(
+    (id) => genNodes.has(id) && (successors.get(id) ?? []).length === 0
+  );
+  const projection = new Map<string, string[]>();
+  for (const id of terminals) {
+    for (const field of genNodes.get(id)?.outputs.keys() ?? []) {
+      const producers = projection.get(field) ?? [];
+      producers.push(id);
+      projection.set(field, producers);
+    }
+  }
+  for (const [field, producers] of projection) {
+    if (producers.length < 2) continue;
+    const decisions = new Set(
+      producers.map((p) => branchOf.get(p)?.decision ?? `~${p}`)
+    );
+    const values = new Set(producers.map((p) => branchOf.get(p)?.value));
+    const sameDecision =
+      decisions.size === 1 &&
+      ![...decisions][0]?.startsWith('~') &&
+      values.size === producers.length;
+    if (!sameDecision) {
+      compileError(
+        `Output field "${field}" is produced by multiple terminal nodes: ${producers.join(', ')}`,
+        ast.nodes.get(producers[0] as string)?.line ?? 1,
+        producers.join(', '),
+        'Rename one output or converge the terminals into a final node'
+      );
+    }
+  }
+  if (projection.size > 0) {
+    const entries = [...projection.entries()];
+    flowInstance.returns((state: AxFlowState) => {
+      const out: Record<string, unknown> = {};
+      for (const [field, producers] of entries) {
+        for (const producer of producers) {
+          const value = (
+            state[`${producer}Result`] as Record<string, unknown> | undefined
+          )?.[field];
+          if (value !== undefined) {
+            out[field] = value;
+            break;
+          }
+        }
+      }
+      return out;
+    });
+    host.patchLastStepMeta(flowInstance, () => ({
+      kind: 'returns',
+      synthetic: true,
+    }));
+  }
+
+  return flowInstance;
+}

@@ -1007,7 +1007,12 @@ import {
   axCreateFlowTextLogger,
   axDefaultFlowLogger,
 } from './flow/logger.js';
-import type { AxFlowMermaidRenderOptions } from './flow/mermaid.js';
+import {
+  type AxFlowMermaidBindings,
+  AxFlowMermaidError,
+  type AxFlowMermaidNodeBinding,
+  type AxFlowMermaidRenderOptions,
+} from './flow/mermaid.js';
 import type {
   AxFlowable,
   AxFlowDynamicContext,
@@ -1346,6 +1351,7 @@ export { AxEventRouteBuilder };
 export { AxEventRuntime };
 export { AxEventTargetBuilder };
 export { AxFlow };
+export { AxFlowMermaidError };
 export { AxFluentFieldType };
 export { AxFunctionError };
 export { AxFunctionProcessor };
@@ -2004,6 +2010,8 @@ export type { AxFlowForwardOptions };
 export type { AxFlowLogData };
 export type { AxFlowLoggerData };
 export type { AxFlowLoggerFunction };
+export type { AxFlowMermaidBindings };
+export type { AxFlowMermaidNodeBinding };
 export type { AxFlowMermaidRenderOptions };
 export type { AxFlowOptions };
 export type { AxFlowParallelGroupCompleteData };

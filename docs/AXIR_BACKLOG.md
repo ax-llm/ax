@@ -56,7 +56,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 - `axir-2026-07-18-port-axflow-mermaid-dialect-tomermaid-frommermaid` [axflow] Port AxFlow mermaid dialect (toMermaid + fromMermaid)
   - Status: open
   - Source commit: `e7a8e3a8445f1611807d2d8e2447c7fa95534f93`
-  - TS paths: `src/ax/flow/steps.ts`, `src/ax/flow/flow.ts`, `src/ax/flow/mermaid.ts`, `src/ax/flow/subContext.ts`, `src/ax/flow/dependencyAnalyzer.ts`
+  - TS paths: `src/ax/flow/dependencyAnalyzer.ts`, `src/ax/flow/flow.fromMermaid.test.ts`, `src/ax/flow/flow.toMermaid.test.ts`, `src/ax/flow/flow.ts`, `src/ax/flow/mermaid.parse.test.ts`, `src/ax/flow/mermaid.ts`, `src/ax/flow/steps.ts`, `src/ax/flow/subContext.ts`
   - Impact: TS AxFlow steps now carry inspectable build-time meta (branch bodies, loop bodies, feedback targets) and AxFlow.toMermaid() renders flows as mermaid flowcharts with %%ax signature directives; flow.fromMermaid() (landing next) compiles the dialect back into runnable flows. Generated Python/Java/C++/Go/Rust flow surfaces cannot emit or load the dialect. Parity means tools/axir template + codegen builder + golden updates.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-07-18-port-extended-signature-string-grammar-modifier-bags-nested-obje` [axgen] Port extended signature string grammar (modifier bags, nested objects, code language)
