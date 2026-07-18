@@ -69,7 +69,7 @@ type _budgetLeaf = Expect<Equal<ObjectLeaf, { note: string; score: number }>>;
 type ObjectLeaf =
   BudgetSig['outputs']['reportData']['sections'][number]['details'];
 
-// --- unparseable signatures keep the permissive fallback -------------------
+// --- signatures that fail to parse keep the permissive fallback ------------
 type FallbackSig = ParseSignature<'no arrow in sight'>;
 type _fallback = Expect<Equal<FallbackSig['inputs'], Record<string, any>>>;
 
