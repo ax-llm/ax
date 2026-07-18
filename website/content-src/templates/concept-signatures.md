@@ -27,6 +27,24 @@ inputField:type, optionalField?:type -> outputField:type, listField:type[]
 
 Everything before `->` is input. Everything after `->` is output. Field descriptions can be attached as quoted text, and narrow `class` fields make enum-style output explicit.
 
+Types accept an optional modifier bag in parentheses, and objects can declare
+structured fields inline — the string form expresses everything the fluent
+API can (except Standard Schema fields):
+
+```text
+userAge:number(min 0, max 120),
+contactEmail:string(format email, cache),
+codeSnippet:code(python)
+->
+userName:string(pattern "^[a-z_]+$" "lowercase name"),
+tagList:string(item "a short tag")[] "all tags",
+profileList:object{ fullName:string, userAge?:number(min 0) }[] "matched profiles"
+```
+
+Modifiers that don't apply to a type are hard errors — the string API is the
+strict surface, whereas the fluent API silently ignores a `.min()` on a
+boolean.
+
 {{signatureStringExample}}
 
 ## Field Types
@@ -43,6 +61,19 @@ Everything before `->` is input. Everything after `->` is output. Field descript
 | `class` | `priority:class "high, normal, low"` | Output class with known choices |
 | `image` / `audio` / `file` | `photo:image` | Media fields where provider/language supports them |
 | `type[]` | `tags:string[]` | Arrays |
+| `object{ ... }` | `profile:object{ name:string, age?:number }` | Nested structured fields, recursively; also `object{ ... }[]` |
+| `type(modifiers)` | `score:number(min 0, max 10)` | Constraint/metadata bag, see below |
+
+Modifier bag entries (comma-separated, order-free):
+
+| Modifier | Applies to | Effect |
+| --- | --- | --- |
+| `min N` / `max N` | `string`, `number` | Length constraints on strings, value bounds on numbers |
+| `format email\|uri\|date\|date-time` | `string` | Format validation |
+| `pattern "regex" ["description"]` | `string` | Regex validation with an optional human-readable description |
+| `cache` | top-level inputs | Marks the field for provider context caching |
+| `item "description"` | arrays | Per-item description, e.g. `tags:string(item "a short tag")[]` |
+| `<language>` | `code` | Programming language, e.g. `snippet:code(python)` |
 
 Good signatures use domain names: `customerEmail`, `policyQuestion`, `riskScore`. Avoid `input`, `data`, `output`, and other names that force the model to infer intent from prose.
 

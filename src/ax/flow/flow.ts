@@ -1574,19 +1574,31 @@ export class AxFlow<
   }
 
   /**
-   * Replaces the meta of the most recently added step. Used by
-   * flow.fromMermaid() to record decision fields and synthetic-returns
-   * markers on steps it just emitted through the public builder.
+   * Patches the most recently added step. Used by flow.fromMermaid() to
+   * record decision fields, synthetic-returns markers, and the declared
+   * reads/writes of generated projection steps (so signature inference sees
+   * through them) on steps it just emitted through the public builder.
    * @internal
    */
-  public static patchLastStepMeta(
+  public static patchLastStep(
     target: AxFlow<any, any, any, any>,
-    patch: (existing: AxFlowStepMeta | undefined) => AxFlowStepMeta | undefined
+    patch: {
+      meta?: (
+        existing: AxFlowStepMeta | undefined
+      ) => AxFlowStepMeta | undefined;
+      reads?: readonly string[];
+      writes?: readonly string[];
+    }
   ): void {
     const steps = target.currentSteps;
     const last = steps[steps.length - 1];
     if (last) {
-      steps[steps.length - 1] = { ...last, meta: patch(last.meta) };
+      steps[steps.length - 1] = {
+        ...last,
+        ...(patch.meta ? { meta: patch.meta(last.meta) } : {}),
+        ...(patch.reads ? { reads: [...patch.reads] } : {}),
+        ...(patch.writes ? { writes: [...patch.writes] } : {}),
+      };
     }
   }
 }
@@ -1621,7 +1633,7 @@ export const flow = Object.assign(flowFn, {
     compileFlowFromMermaid(text, bindings, {
       createFlow: (options?: AxFlowOptions) =>
         AxFlow.create<any, any, any, any>(options),
-      patchLastStepMeta: (target, patch) =>
-        AxFlow.patchLastStepMeta(target as AxFlow<any, any, any, any>, patch),
+      patchLastStep: (target, patch) =>
+        AxFlow.patchLastStep(target as AxFlow<any, any, any, any>, patch),
     }) as AxFlow<TInput, TOutput, any, any>,
 });

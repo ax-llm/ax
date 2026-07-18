@@ -6,7 +6,9 @@
       "addWords": true
     }
   ],
-  "dictionaries": ["project-words"],
+  "dictionaries": [
+    "project-words"
+  ],
   "ignorePaths": [
     "CHANGELOG.md",
     "node_modules",
@@ -18,5 +20,13 @@
     "src/**/dist",
     "tools/axir/internal/axir/templates"
   ],
-  "words": ["scalarizes"]
+  "words": [
+    "indegree",
+    "parallelizable",
+    "reconvergence",
+    "reconverging",
+    "scalarizes",
+    "topo",
+    "unproduced"
+  ]
 }

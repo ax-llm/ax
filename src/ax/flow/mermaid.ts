@@ -756,9 +756,15 @@ export function parseFlowMermaid(text: string): MermaidAst {
 
 export type AxFlowMermaidCompileHost = {
   createFlow: (options?: AxFlowOptions) => any;
-  patchLastStepMeta: (
+  patchLastStep: (
     flowInstance: unknown,
-    patch: (existing: AxFlowStepMeta | undefined) => AxFlowStepMeta | undefined
+    patch: {
+      meta?: (
+        existing: AxFlowStepMeta | undefined
+      ) => AxFlowStepMeta | undefined;
+      reads?: readonly string[];
+      writes?: readonly string[];
+    }
   ) => void;
 };
 
@@ -1236,7 +1242,7 @@ export function compileFlowFromMermaid(
             `Branches of "${decisionId}" share node "${member}" before reconverging`,
             edge,
             `${edge.from} -->|${edge.label}| ${edge.to}`,
-            'Give each branch its own nodes, or reconverge before the shared node'
+            'Give each branch its own nodes, or converge before the shared node'
           );
         }
         seenBodies.set(member, coerced);
@@ -1423,27 +1429,32 @@ export function compileFlowFromMermaid(
     } else {
       const transform = fnNodes.get(id) as (state: AxFlowState) => any;
       flowInstance.map(transform);
-      host.patchLastStepMeta(flowInstance, () => ({ kind: 'map', name: id }));
+      host.patchLastStep(flowInstance, {
+        meta: () => ({ kind: 'map', name: id }),
+      });
     }
 
     if (activeWhile && activeWhile.source === id) {
+      const closingWhile = activeWhile;
       flowInstance.endWhile();
-      host.patchLastStepMeta(flowInstance, (existing) =>
-        existing?.kind === 'while'
-          ? { ...existing, conditionName: activeWhile?.conditionName }
-          : existing
-      );
+      host.patchLastStep(flowInstance, {
+        meta: (existing) =>
+          existing?.kind === 'while'
+            ? { ...existing, conditionName: closingWhile.conditionName }
+            : existing,
+      });
       activeWhile = undefined;
     }
 
     for (const action of feedbackBySource.get(id) ?? []) {
       if (action.kind !== 'feedback') continue;
       flowInstance.feedback(action.predicate, action.target, action.max);
-      host.patchLastStepMeta(flowInstance, (existing) =>
-        existing?.kind === 'feedback'
-          ? { ...existing, decision: action.decision as any }
-          : existing
-      );
+      host.patchLastStep(flowInstance, {
+        meta: (existing) =>
+          existing?.kind === 'feedback'
+            ? { ...existing, decision: action.decision as any }
+            : existing,
+      });
     }
 
     const plan = branchPlans.get(id);
@@ -1462,11 +1473,12 @@ export function compileFlowFromMermaid(
         }
       }
       flowInstance.merge();
-      host.patchLastStepMeta(flowInstance, (existing) =>
-        existing?.kind === 'branch'
-          ? { ...existing, decision: { nodeName: decisionId, field } }
-          : existing
-      );
+      host.patchLastStep(flowInstance, {
+        meta: (existing) =>
+          existing?.kind === 'branch'
+            ? { ...existing, decision: { nodeName: decisionId, field } }
+            : existing,
+      });
     }
   };
 
@@ -1532,10 +1544,19 @@ export function compileFlowFromMermaid(
       }
       return out;
     });
-    host.patchLastStepMeta(flowInstance, () => ({
-      kind: 'returns',
-      synthetic: true,
-    }));
+    host.patchLastStep(flowInstance, {
+      meta: () => ({ kind: 'returns', synthetic: true }),
+      // Declaring the projection's reads/writes lets signature inference see
+      // the flat output fields instead of node-prefixed result names.
+      reads: [
+        ...new Set(
+          entries.flatMap(([, producers]) =>
+            producers.map((producer) => `${producer}Result`)
+          )
+        ),
+      ],
+      writes: entries.map(([field]) => field),
+    });
   }
 
   return flowInstance;

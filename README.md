@@ -420,6 +420,27 @@ const emailFlow = flow<{ emailText: string }>()
   }));
 ```
 
+### Flows as mermaid diagrams
+
+A whole flow can live in a mermaid flowchart: node contracts travel in `%%ax` comment directives (any mermaid renderer ignores them), labeled edges out of a decision field become branches, and a back-edge is a retry loop with a cap. `flow.fromMermaid()` compiles the diagram into a runnable flow — inputs auto-wire to the nearest upstream node that outputs the same field name — and every flow renders back with `toMermaid()`.
+
+```typescript
+const wf = flow.fromMermaid(`
+flowchart TD
+  %%ax summarize: documentText:string -> summaryText:string(max 500) "concise summary"
+  %%ax check: summaryText:string -> verdict:class "pass, fail", note?:string
+  %%ax format: summaryText:string, note?:string -> finalReport:string
+
+  summarize[Summarize document] --> check{verdict}
+  check -->|pass| format
+  check -->|fail, max 3| summarize
+`);
+const { finalReport } = await wf.forward(llm, { documentText });
+console.log(wf.toMermaid()); // render any flow back to the same dialect
+```
+
+Because the signature grammar is text-complete (constraint bags like `string(max 500)`, nested `object{ ... }` fields), the diagram is the entire program — writable by hand, by an LLM, or exported from a design doc.
+
 Tune the whole flow with **GEPA** (multi-objective Pareto optimizer). Define a metric that returns one or more named scores; GEPA explores the prompt space and returns a Pareto front.
 
 ```typescript

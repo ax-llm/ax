@@ -173,13 +173,15 @@ describe('flow.fromMermaid', () => {
     expect((result as any).articleText).toBe('written');
   });
 
-  it('infers flow inputs from unproduced fields', () => {
+  it('infers flow inputs from unproduced fields and flat projected outputs', () => {
     const wf = flow.fromMermaid(SPEC_DOC);
-    const inputNames = wf
-      .getSignature()
-      .getInputFields()
-      .map((field) => field.name);
-    expect(inputNames).toContain('documentText');
+    const signature = wf.getSignature();
+    expect(signature.getInputFields().map((field) => field.name)).toContain(
+      'documentText'
+    );
+    expect(signature.getOutputFields().map((field) => field.name)).toEqual([
+      'finalReport',
+    ]);
   });
 
   describe('compile errors', () => {

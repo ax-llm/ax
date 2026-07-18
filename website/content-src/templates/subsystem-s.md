@@ -35,10 +35,18 @@ program = ax(signature)
 
 - Keep string signatures for simple contracts.
 - Use parsed signatures when several programs share the same input/output shape.
-- Use fluent/schema builders when field constraints matter.
+- Use fluent/schema builders when Standard Schema (zod/valibot) fields matter; everything else — constraints, nested objects, caching — is expressible in the string form.
 - Use `class` fields for bounded labels instead of vague prose instructions.
 - Use optional fields only when missing data is truly acceptable.
 - Use internal outputs for model scratch structure that should not reach callers.
+
+Constraints and nested objects fit in the string form directly:
+
+```text
+s('userAge:number(min 0, max 120), contextText:string(cache) -> profileList:object{ fullName:string, userAge?:number }[] "matched profiles"')
+```
+
+The string API is strict: a modifier that does not apply to its type (say `min` on a boolean) is a parse error, where the fluent API would silently ignore it. `AxSignature.toString()` renders every construct back to this grammar losslessly, which is what lets flows serialize their node contracts into mermaid `%%ax` directives.
 
 ### Parsed string
 
