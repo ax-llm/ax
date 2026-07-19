@@ -197,7 +197,7 @@ describe('flow(mermaid)', () => {
       '  salesReply --> send',
     ].join('\n');
 
-    const wf = flow.fromMermaid(doc);
+    const wf = flow(doc);
     const signature = wf.getSignature();
     // The join used to leak internal state keys (supportReplyResult,
     // salesReplyResult) as required inputs and the decision class as an
@@ -228,7 +228,7 @@ describe('flow(mermaid)', () => {
       '  grade -->|while keepPolishing, max 5| polish',
     ].join('\n');
 
-    const wf = flow.fromMermaid(doc, {
+    const wf = flow(doc, {
       conditions: {
         keepPolishing: (state) => state.gradeResult === undefined,
       },
