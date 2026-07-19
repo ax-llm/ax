@@ -125,6 +125,29 @@ type _bareArrowFallback = Expect<
   Equal<BareArrowSig['inputs'], Record<string, any>>
 >;
 
+// --- a leading description may end its line in a multiline signature -------
+// Lockstep with the runtime parser, which skips any whitespace between the
+// closing quote and the first field; a literal-space-only match would leak
+// the quoted text into the first input field's inferred key.
+type DescriptionOnOwnLineSig = ParseSignature<`
+  "Analyze the text"
+  sourceText:string ->
+  replyText:string
+`>;
+type _descriptionOwnLineInputs = Expect<
+  Equal<Flatten<DescriptionOnOwnLineSig['inputs']>, { sourceText: string }>
+>;
+type _descriptionOwnLineOutputs = Expect<
+  Equal<Flatten<DescriptionOnOwnLineSig['outputs']>, { replyText: string }>
+>;
+
+// The single-line spelling with a plain space after the quote keeps working.
+type DescriptionSameLineSig =
+  ParseSignature<'"Analyze the text" sourceText:string -> replyText:string'>;
+type _descriptionSameLineInputs = Expect<
+  Equal<Flatten<DescriptionSameLineSig['inputs']>, { sourceText: string }>
+>;
+
 // --- negative control: a wrong expectation must fail to compile ------------
 // (kept out of the witnesses tuple below — after the expected error the alias
 // resolves to `false`. The Equal is computed on its own line so the Expect
@@ -168,6 +191,17 @@ describe('sigtypes extended grammar inference', () => {
     ]);
   });
 
+  it('accepts a description on its own line at runtime', () => {
+    const sig = s(`
+      "Analyze the text"
+      sourceText:string ->
+      replyText:string
+    `);
+    expect(sig.getDescription()).toBe('Analyze the text');
+    expect(sig.getInputFields().map((f) => f.name)).toEqual(['sourceText']);
+    expect(sig.getOutputFields().map((f) => f.name)).toEqual(['replyText']);
+  });
+
   it('compiles the type-level assertions above', () => {
     const witnesses: [
       _bagInputs,
@@ -185,7 +219,13 @@ describe('sigtypes extended grammar inference', () => {
       _tabArrow,
       _quotedArrowInputs,
       _bareArrowFallback,
+      _descriptionOwnLineInputs,
+      _descriptionOwnLineOutputs,
+      _descriptionSameLineInputs,
     ] = [
+      true,
+      true,
+      true,
       true,
       true,
       true,

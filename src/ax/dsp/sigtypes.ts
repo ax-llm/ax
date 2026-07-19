@@ -434,14 +434,15 @@ export type BuildObject<
       : never]?: ResolveType<K['type'], TMode>;
 };
 
-// Helper to strip signature description if present
-type StripSignatureDescription<S extends string> =
-  S extends `"${infer _Desc}" ${infer Rest}` ? Trim<Rest> : S;
-
-// Whitespace accepted around the `->` separator. Mirrors the runtime parser,
-// which calls skipWhitespace() on both sides of the arrow, so multiline
-// signatures may break the line before or after it.
+// Whitespace accepted around the `->` separator and after a leading
+// description. Mirrors the runtime parser, which calls skipWhitespace() at
+// each of those spots, so multiline signatures may break the line there.
 type ArrowWhitespace = ' ' | '\n' | '\t' | '\r';
+
+// Helper to strip signature description if present. Any whitespace may follow
+// the closing quote (as at runtime), e.g. a description on its own line.
+type StripSignatureDescription<S extends string> =
+  S extends `"${infer _Desc}"${ArrowWhitespace}${infer Rest}` ? Trim<Rest> : S;
 
 /**
  * Splits a signature at the first `->` that has whitespace on both sides.
