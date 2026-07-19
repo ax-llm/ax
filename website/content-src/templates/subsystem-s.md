@@ -67,7 +67,7 @@ flowchart TD
   classify --> reply
 ```
 
-In TypeScript, `flow(diagram)` compiles that string into a runnable flow and `String(flow)` renders any flow back, so `flow(String(flow))` round-trips. `flow.fromMermaid()` is the explicit alias, and `toMermaid({ direction: 'LR' })` gives render options.
+In TypeScript, `flow(diagram)` compiles that string into a runnable flow and `String(flow)` renders any flow back, so `flow(String(flow))` round-trips (`toString({ direction: 'LR' })` for render options).
 
 ### Parsed string
 

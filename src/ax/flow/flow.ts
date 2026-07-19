@@ -87,7 +87,7 @@ import type {
 type BranchBuildContext = {
   predicate: (state: AxFlowState) => unknown;
   // The user's unwrapped predicate — step meta keeps this one so
-  // introspection (toMermaid) can read its source.
+  // introspection (toString) can read its source.
   sourcePredicate: (state: AxFlowState) => unknown;
   parentSteps: AxFlowStep[];
   branches: Map<unknown, AxFlowStep[]>;
@@ -1567,14 +1567,18 @@ export class AxFlow<
    * nodes and edges — branch decisions render as diamonds with labeled
    * out-edges, feedback loops as back-edges with `max N` caps.
    *
-   * Flows built from `flow.fromMermaid()` round-trip exactly. Flows built
-   * with opaque closures (map/derive/returns/custom conditions) render with
-   * placeholder nodes plus `%% bind ...` comments naming what must be
-   * supplied via bindings to re-import the diagram. A `while` loop renders
-   * with its body inlined once and a back-edge (the zero-iteration exit is
-   * not drawable).
+   * `String(flow)` and template-literal interpolation yield the diagram —
+   * mirroring `AxSignature.toString()` returning the signature string — and
+   * `flow(String(f))` round-trips exactly. Pass options for render control,
+   * e.g. `f.toString({ direction: 'LR' })` (like `Number.toString(radix)`).
+   *
+   * Flows built with opaque closures (map/derive/returns/custom conditions)
+   * render with placeholder nodes plus `%% bind ...` comments naming what
+   * must be supplied via bindings to re-import the diagram. A `while` loop
+   * renders with its body inlined once and a back-edge (the zero-iteration
+   * exit is not drawable).
    */
-  public toMermaid(options?: AxFlowMermaidRenderOptions): string {
+  public toString(options?: AxFlowMermaidRenderOptions): string {
     return renderFlowMermaid({
       steps: this.steps,
       nodePrograms: this.nodeGenerators,
@@ -1587,16 +1591,6 @@ export class AxFlow<
       },
       options,
     });
-  }
-
-  /**
-   * Returns the flow's mermaid source (same as `toMermaid()` with default
-   * options), so `String(flow)` and template-literal interpolation yield the
-   * diagram — mirroring `AxSignature.toString()` returning the signature
-   * string. `flow(String(f))` round-trips.
-   */
-  public toString(): string {
-    return this.toMermaid();
   }
 
   public getSignature(): AxSignature {
@@ -1658,10 +1652,11 @@ export class AxFlow<
   }
 
   /**
-   * Patches the most recently added step. Used by flow.fromMermaid() to
-   * record decision fields, synthetic-returns markers, and the declared
-   * reads/writes of generated projection steps (so signature inference sees
-   * through them) on steps it just emitted through the public builder.
+   * Patches the most recently added step. Used by the mermaid compiler
+   * (`flow(text)`) to record decision fields, synthetic-returns markers, and
+   * the declared reads/writes of generated projection steps (so signature
+   * inference sees through them) on steps it just emitted through the public
+   * builder.
    * @internal
    */
   public static patchLastStep(
@@ -1687,20 +1682,6 @@ export class AxFlow<
   }
 }
 
-const fromMermaidFn = <
-  TInput extends Record<string, any> = Record<string, any>,
-  TOutput = Record<string, any>,
->(
-  text: string,
-  bindings?: AxFlowMermaidBindings
-): AxFlow<TInput, TOutput, any, any> =>
-  compileFlowFromMermaid(text, bindings, {
-    createFlow: (options?: AxFlowOptions) =>
-      AxFlow.create<any, any, any, any>(options),
-    patchLastStep: (target, patch) =>
-      AxFlow.patchLastStep(target as AxFlow<any, any, any, any>, patch),
-  }) as AxFlow<TInput, TOutput, any, any>;
-
 function flowFn<
   TInput extends Record<string, any> = Record<string, unknown>,
   TOutput = {},
@@ -1717,24 +1698,23 @@ function flowFn(
   bindings?: AxFlowMermaidBindings
 ): AxFlow<any, any, any, any> {
   if (typeof optionsOrMermaid === 'string') {
-    return fromMermaidFn(optionsOrMermaid, bindings);
+    return compileFlowFromMermaid(optionsOrMermaid, bindings, {
+      createFlow: (options?: AxFlowOptions) =>
+        AxFlow.create<any, any, any, any>(options),
+      patchLastStep: (target, patch) =>
+        AxFlow.patchLastStep(target as AxFlow<any, any, any, any>, patch),
+    }) as AxFlow<any, any, any, any>;
   }
   return AxFlow.create<any, any, any, any>(optionsOrMermaid);
 }
 
 /**
  * Creates a new AxFlow builder. Passing a string compiles a mermaid
- * flowchart in the AxFlow dialect (see AxFlow.toMermaid) into a runnable
- * flow — `flow(String(otherFlow))` round-trips. `flow.fromMermaid()` is the
- * explicit alias of the string form.
+ * flowchart in the AxFlow dialect (see AxFlow.toString) into a runnable
+ * flow — node contracts come from `%%ax nodeId: <signature>` directives or
+ * from `bindings.nodes`, data wiring is by field name (a node input binds to
+ * the nearest upstream producer of that field), labeled out-edges of a
+ * decision node become branches, and back-edges become feedback/while
+ * loops. `flow(String(otherFlow))` round-trips.
  */
-export const flow = Object.assign(flowFn, {
-  /**
-   * Compiles a mermaid flowchart in the AxFlow dialect into a runnable flow.
-   * Node contracts come from `%%ax nodeId: <signature>` directives or from
-   * `bindings.nodes`; data wiring is by field name (a node input binds to the
-   * nearest upstream producer of that field); labeled out-edges of a decision
-   * node become branches; back-edges become feedback/while loops.
-   */
-  fromMermaid: fromMermaidFn,
-});
+export const flow = flowFn;

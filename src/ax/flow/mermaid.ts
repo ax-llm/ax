@@ -4,7 +4,7 @@
 // contracts travel in `%%ax nodeId: <signature>` comment directives — real
 // mermaid renderers ignore `%%` comments, so the diagram stays presentable
 // while remaining machine-readable. The same dialect is parsed back into a
-// runnable flow by flow.fromMermaid().
+// runnable flow by flow(text).
 //
 // IMPORTANT: this file must not import runtime values from flow.js (only
 // types) — flow.ts imports the renderer/compiler from here, and a value
@@ -50,7 +50,7 @@ function nextId(ctx: RenderContext, prefix: string): string {
 }
 
 // Resolve which (nodeName, field) decides a branch/feedback step: prefer the
-// explicit decision recorded by fromMermaid, else best-effort sniff the
+// explicit decision recorded by the compiler, else best-effort sniff the
 // closure source for a `state.<node>Result.<field>` access.
 function resolveDecision(
   decision: AxFlowStepDecision | undefined,

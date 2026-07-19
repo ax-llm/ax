@@ -38,12 +38,11 @@ const SPEC_DOC = [
   '  check -->|fail, max 3| summarize',
 ].join('\n');
 
-describe('flow.fromMermaid', () => {
+describe('flow(mermaid)', () => {
   it('compiles and runs the spec document, capping feedback at max 3', async () => {
-    const wf = flow.fromMermaid<
-      { documentText: string },
-      { finalReport: string }
-    >(SPEC_DOC);
+    const wf = flow<{ documentText: string }, { finalReport: string }>(
+      SPEC_DOC
+    );
     // 3 iterations of (summarize, check) — verdict stays "fail" so the cap
     // stops the loop — then format runs once.
     const { ai, calls } = sequencedAI([
@@ -62,7 +61,7 @@ describe('flow.fromMermaid', () => {
   });
 
   it('exits the feedback loop as soon as the verdict passes', async () => {
-    const wf = flow.fromMermaid(SPEC_DOC);
+    const wf = flow(SPEC_DOC);
     const { ai, calls } = sequencedAI([
       'Summary Text: draft one',
       'Verdict: pass',
@@ -84,7 +83,7 @@ describe('flow.fromMermaid', () => {
       '  alpha & beta --> joiner',
     ].join('\n');
 
-    const wf = flow.fromMermaid(doc);
+    const wf = flow(doc);
     const plan = wf.getExecutionPlan();
     // alpha and beta read only splitResult and write distinct results, so the
     // planner must schedule them together — proves generated mappings carry
@@ -112,7 +111,7 @@ describe('flow.fromMermaid', () => {
       '  triage -->|low| autoReply --> record',
     ].join('\n');
 
-    const wf = flow.fromMermaid(doc);
+    const wf = flow(doc);
     const { ai, calls } = sequencedAI([
       'Severity: high',
       'Reply Text: escalated',
@@ -130,7 +129,7 @@ describe('flow.fromMermaid', () => {
       '  polish -->|while keepGoing, max 5| polish',
     ].join('\n');
 
-    const wf = flow.fromMermaid(doc, {
+    const wf = flow(doc, {
       conditions: { keepGoing: (state) => state.polishResult === undefined },
     });
     const { ai, calls } = sequencedAI(['Polished Text: shiny']);
@@ -145,7 +144,7 @@ describe('flow.fromMermaid', () => {
       '  %%ax polish: draftText:string -> polishedText:string',
       '  polish -->|while keepGoing, max 2| polish',
     ].join('\n');
-    const wf = flow.fromMermaid(doc, {
+    const wf = flow(doc, {
       conditions: { keepGoing: () => true },
     });
     const { ai } = sequencedAI(['Polished Text: shiny']);
@@ -160,7 +159,7 @@ describe('flow.fromMermaid', () => {
       '  %%ax draft: briefText:string -> articleText:string',
       '  normalize --> draft',
     ].join('\n');
-    const wf = flow.fromMermaid(doc, {
+    const wf = flow(doc, {
       nodes: {
         normalize: (state) => ({
           ...state,
@@ -174,7 +173,7 @@ describe('flow.fromMermaid', () => {
   });
 
   it('infers flow inputs from unproduced fields and flat projected outputs', () => {
-    const wf = flow.fromMermaid(SPEC_DOC);
+    const wf = flow(SPEC_DOC);
     const signature = wf.getSignature();
     expect(signature.getInputFields().map((field) => field.name)).toContain(
       'documentText'
@@ -350,20 +349,20 @@ describe('flow.fromMermaid', () => {
 
     for (const [label, docLines, matcher] of cases) {
       it(`rejects ${label}`, () => {
-        expect(() => flow.fromMermaid(docLines.join('\n'))).toThrow(matcher);
+        expect(() => flow(docLines.join('\n'))).toThrow(matcher);
       });
     }
   });
 
   describe('round-trips', () => {
-    it('fromMermaid -> toMermaid -> fromMermaid preserves behavior', async () => {
-      const first = flow.fromMermaid(SPEC_DOC);
-      const rendered = first.toMermaid();
+    it('compile -> render -> compile preserves behavior', async () => {
+      const first = flow(SPEC_DOC);
+      const rendered = first.toString();
       expect(rendered).toContain('%%ax summarize:');
       expect(rendered).toContain('check{verdict}');
       expect(rendered).toContain('|fail, max 3|');
 
-      const second = flow.fromMermaid(rendered);
+      const second = flow(rendered);
       const responses = [
         'Summary Text: draft one',
         'Verdict: fail',
@@ -383,7 +382,7 @@ describe('flow.fromMermaid', () => {
       expect(runB.calls()).toBe(runA.calls());
     });
 
-    it('builder flow -> toMermaid -> fromMermaid preserves behavior', async () => {
+    it('builder flow -> String(wf) -> flow(text) preserves behavior', async () => {
       const built = flow<{ documentText: string }>()
         .node('summarize', 'documentText:string -> summaryText:string')
         .node('format', 'summaryText:string -> finalReport:string')
@@ -391,7 +390,7 @@ describe('flow.fromMermaid', () => {
         .execute('format', (s) => ({
           summaryText: s.summarizeResult.summaryText,
         }));
-      const imported = flow.fromMermaid(built.toMermaid());
+      const imported = flow(built.toString());
 
       const responses = ['Summary Text: s', 'Final Report: done'];
       const runA = sequencedAI(responses);
@@ -410,12 +409,12 @@ describe('flow.fromMermaid', () => {
     });
   });
 
-  describe('flow(mermaid) shorthand', () => {
-    it('flow(text) compiles the same as flow.fromMermaid(text)', async () => {
+  describe('string-arg dispatch', () => {
+    it('flow(text) compiles deterministically — same render for same source', async () => {
       const wf = flow<{ documentText: string }, { finalReport: string }>(
         SPEC_DOC
       );
-      expect(wf.toMermaid()).toBe(flow.fromMermaid(SPEC_DOC).toMermaid());
+      expect(wf.toString()).toBe(flow(SPEC_DOC).toString());
 
       const { ai, calls } = sequencedAI([
         'Summary Text: draft one',

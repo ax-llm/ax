@@ -98,7 +98,7 @@ flowchart TD
   review -->|revise, max 2| draft
 ```
 
-In TypeScript, passing the diagram to `flow()` compiles it into a runnable flow, and `String(wf)` renders any flow back to the same dialect — so `flow(String(wf))` round-trips. `flow.fromMermaid()` is the explicit alias, and `toMermaid({ direction: 'LR' })` gives render options. Because the signature grammar is text-complete, the diagram is the entire program — writable by hand, by an LLM, or exported from a design doc.
+In TypeScript, passing the diagram to `flow()` compiles it into a runnable flow, and `String(wf)` renders any flow back to the same dialect — so `flow(String(wf))` round-trips (`wf.toString({ direction: 'LR' })` for render options). Because the signature grammar is text-complete, the diagram is the entire program — writable by hand, by an LLM, or exported from a design doc.
 
 ## Production Notes
 

@@ -437,7 +437,7 @@ const emailFlow = flow<{ emailText: string }>()
 
 ### Flows as mermaid diagrams
 
-A whole flow can live in a mermaid flowchart: node contracts travel in `%%ax` comment directives (any mermaid renderer ignores them), labeled edges out of a decision field become branches, and a back-edge is a retry loop with a cap. Pass the diagram straight to `flow()` to compile it into a runnable flow — inputs auto-wire to the nearest upstream node that outputs the same field name — and `String(wf)` renders any flow back, so `flow(String(wf))` round-trips. (`flow.fromMermaid()` is the explicit alias; `toMermaid({ direction: 'LR' })` when you need render options.)
+A whole flow can live in a mermaid flowchart: node contracts travel in `%%ax` comment directives (any mermaid renderer ignores them), labeled edges out of a decision field become branches, and a back-edge is a retry loop with a cap. Pass the diagram straight to `flow()` to compile it into a runnable flow — inputs auto-wire to the nearest upstream node that outputs the same field name — and `String(wf)` renders any flow back, so `flow(String(wf))` round-trips (`wf.toString({ direction: 'LR' })` when you need render options).
 
 ```typescript
 const wf = flow(`

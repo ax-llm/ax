@@ -33,8 +33,9 @@ export type AxFlowStepRunner = (
 ) => Promise<AxFlowState> | AxFlowState;
 
 // Which node output field decides a branch/feedback, and (for feedback) the
-// option value that keeps the loop running. Set by flow.fromMermaid() so
-// toMermaid() can render exact diamonds and edge labels without sniffing.
+// option value that keeps the loop running. Set by the mermaid compiler
+// (flow(text)) so toString() can render exact diamonds and edge labels
+// without sniffing.
 export type AxFlowStepDecision = {
   readonly nodeName: string;
   readonly field: string;
@@ -42,7 +43,7 @@ export type AxFlowStepDecision = {
 };
 
 // Build-time metadata describing what a control step contains. The executor
-// ignores this entirely — it exists so introspection (toMermaid, debugging)
+// ignores this entirely — it exists so introspection (toString, debugging)
 // can see inside steps whose bodies are otherwise closure-captured.
 export type AxFlowStepMeta =
   | {
@@ -79,8 +80,9 @@ export type AxFlowStepMeta =
   | { readonly kind: 'map'; readonly name?: string }
   | {
       readonly kind: 'returns';
-      // Synthetic returns are added by flow.fromMermaid() to project terminal
-      // node outputs; toMermaid() omits them instead of drawing a node.
+      // Synthetic returns are added by the mermaid compiler to project
+      // terminal node outputs; toString() omits them instead of drawing a
+      // node.
       readonly synthetic?: boolean;
     };
 

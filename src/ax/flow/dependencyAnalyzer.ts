@@ -10,7 +10,7 @@ export interface AxFlowStateDependencyAnalysis {
   isSafe: boolean;
 }
 
-// Escape hatch for generated mapping closures (e.g. flow.fromMermaid's
+// Escape hatch for generated mapping closures (e.g. the mermaid compiler's
 // table-driven wiring): source sniffing can't see through them, which would
 // classify them unsafe and serialize the whole flow. A generator that knows
 // its exact reads attaches them under this key.

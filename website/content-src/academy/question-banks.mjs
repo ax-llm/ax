@@ -450,10 +450,10 @@ export const academyQuestionBanks = {
       'A parallel branch that always fans out three copies.',
     ],
     [
-      'What is the relationship between flow(text) and flow.fromMermaid(text)?',
-      'The same compile path: the string form of flow() is the shorthand and fromMermaid is the explicit alias.',
-      'flow(text) builds an empty flow and discards the string.',
-      'fromMermaid can only draw diagrams and never compiles them.',
+      'What happens when you pass a mermaid flowchart string to flow()?',
+      'The dialect is compiled into a runnable flow — the same flow String() can render back.',
+      'The string is stored as a description and an empty flow is returned.',
+      'flow() only accepts option objects, so any string argument throws.',
     ]
   ),
   'agent-core': bank(

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { flow } from './flow.js';
 
-describe('AxFlow.toMermaid', () => {
+describe('AxFlow.toString (mermaid rendering)', () => {
   it('renders a linear flow with %%ax directives and producer edges', () => {
     const wf = flow<{ documentText: string }>()
       .node('summarize', 'documentText:string -> summaryText:string')
@@ -12,7 +12,7 @@ describe('AxFlow.toMermaid', () => {
         summaryText: s.summarizeResult.summaryText,
       }));
 
-    expect(wf.toMermaid()).toBe(
+    expect(wf.toString()).toBe(
       [
         'flowchart TD',
         '  %%ax summarize: documentText:string -> summaryText:string',
@@ -39,7 +39,7 @@ describe('AxFlow.toMermaid', () => {
       .execute('critique', (s) => ({ userText: s.userText }))
       .merge();
 
-    const rendered = wf.toMermaid();
+    const rendered = wf.toString();
     expect(rendered).toContain('check{verdict}');
     expect(rendered).toContain('check -->|pass| praise');
     expect(rendered).toContain('check -->|fail| critique');
@@ -57,7 +57,7 @@ describe('AxFlow.toMermaid', () => {
       .execute('review', (s) => ({ draftText: s.draftResult.draftText }))
       .feedback((s) => s.reviewResult.verdict === 'revise', 'revisePoint', 3);
 
-    const rendered = wf.toMermaid();
+    const rendered = wf.toString();
     expect(rendered).toContain('review{verdict}');
     expect(rendered).toContain('draft --> review');
     expect(rendered).toContain('review -->|revise, max 3| draft');
@@ -70,7 +70,7 @@ describe('AxFlow.toMermaid', () => {
       .execute('improve', (s) => ({ draftText: s.draftText }))
       .endWhile();
 
-    const rendered = wf.toMermaid();
+    const rendered = wf.toString();
     expect(rendered).toContain('improve[Improve]');
     expect(rendered).toContain('improve -->|while cond1, max 5| improve');
     expect(rendered).toContain('%% bind conditions.cond1 on import');
@@ -94,7 +94,7 @@ describe('AxFlow.toMermaid', () => {
         );
       });
 
-    const rendered = wf.toMermaid();
+    const rendered = wf.toString();
     expect(rendered).toContain('novelty[Novelty]');
     expect(rendered).toContain('clarity[Clarity]');
     expect(rendered).toContain('merge1([merge combinedScore])');
@@ -108,7 +108,7 @@ describe('AxFlow.toMermaid', () => {
       .map((s) => ({ ...s, cleanText: s.userText.trim() }))
       .execute('reply', (s) => ({ userText: s.cleanText as string }));
 
-    const rendered = wf.toMermaid();
+    const rendered = wf.toString();
     expect(rendered).toContain('map1([map])');
     expect(rendered).toContain('map1 --> reply');
     expect(rendered).toContain('%% bind nodes.map1 to a function on import');
@@ -118,23 +118,23 @@ describe('AxFlow.toMermaid', () => {
     const wf = flow<{ userText: string }>()
       .node('reply', 'userText:string -> replyText:string')
       .execute('reply', (s) => ({ userText: s.userText }));
-    expect(wf.toMermaid()).not.toContain('%%{');
+    expect(wf.toString()).not.toContain('%%{');
   });
 
   it('supports the direction option', () => {
     const wf = flow<{ userText: string }>()
       .node('reply', 'userText:string -> replyText:string')
       .execute('reply', (s) => ({ userText: s.userText }));
-    expect(wf.toMermaid({ direction: 'LR' })).toMatch(/^flowchart LR\n/);
+    expect(wf.toString({ direction: 'LR' })).toMatch(/^flowchart LR\n/);
   });
 
-  it('toString() returns the mermaid source with default options', () => {
+  it('String(wf) and template interpolation yield the default rendering', () => {
     const wf = flow<{ userText: string }>()
       .node('reply', 'userText:string -> replyText:string')
       .execute('reply', (s) => ({ userText: s.userText }));
-    expect(wf.toString()).toBe(wf.toMermaid());
-    expect(String(wf)).toBe(wf.toMermaid());
+    expect(String(wf)).toBe(wf.toString());
     expect(`${wf}`).toMatch(/^flowchart TD\n/);
+    expect(wf.toString({ direction: 'LR' })).not.toBe(String(wf));
   });
 
   it('does not disturb the execution plan', () => {
@@ -145,7 +145,7 @@ describe('AxFlow.toMermaid', () => {
       .execute('format', (s) => ({
         summaryText: s.summarizeResult.summaryText,
       }));
-    wf.toMermaid();
+    wf.toString();
     const plan = wf.getExecutionPlan();
     expect(plan.totalSteps).toBe(2);
     expect(plan.autoParallelEnabled).toBe(true);

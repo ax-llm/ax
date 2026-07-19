@@ -17,9 +17,9 @@ flowchart TD
 `;
 
 // Compile the diagram into a runnable flow — a string arg to flow() is
-// mermaid (flow.fromMermaid() is the explicit alias). Inputs auto-wire by
-// field name: check.summaryText binds to summarize's output, format.note to
-// check's, and documentText (produced by no node) becomes the flow input.
+// mermaid. Inputs auto-wire by field name: check.summaryText binds to
+// summarize's output, format.note to check's, and documentText (produced by
+// no node) becomes the flow input.
 const wf = flow<{ documentText: string }, { finalReport: string }>(WORKFLOW);
 
 console.log('=== execution plan ===');
@@ -32,7 +32,7 @@ console.log('\n=== inferred signature ===');
 console.log(wf.getSignature().toString());
 
 // Every flow renders back to the same dialect — round-trippable by design:
-// flow(String(wf)) rebuilds it. Use toMermaid({ direction: 'LR' }) for
+// flow(String(wf)) rebuilds it. Use toString({ direction: 'LR' }) for
 // render options.
 console.log('\n=== String(wf) round-trip ===');
 console.log(String(wf));

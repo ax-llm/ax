@@ -106,7 +106,7 @@ flow
 
 - `class` is output-only: a downstream node consuming the decision declares it `:string`.
 - Optional marks go on the name (`note?:string`), never after the type.
-- `toMermaid()` serializes these contracts losslessly into `%%ax` directives, so rich contracts survive the diagram round-trip.
+- `toString()` serializes these contracts losslessly into `%%ax` directives, so rich contracts survive the diagram round-trip.
 
 ## Extended Nodes (nx)
 
@@ -477,9 +477,8 @@ Dialect:
 - Data auto-wires by field name: each node input binds to the nearest upstream node that outputs that field; a field no node produces becomes a flow input.
 - A diamond `nodeId{field}` names a `class` decision; its labeled out-edges (`-->|pass|`) become branches. A back-edge is a loop: `-->|label, max N|` is feedback, `-->|while cond, max N|` is a while loop.
 
-Explicit surface and render options:
-- `flow.fromMermaid(text, bindings?)` is the explicit alias of the string form.
-- `wf.toMermaid({ direction: 'LR' })` when you need render options; bare `String(wf)` uses defaults (`flowchart TD`).
+Render options and bindings:
+- `wf.toString({ direction: 'LR' })` when you need render options; bare `String(wf)` uses defaults (`flowchart TD`).
 - `bindings` supplies closures the dialect can't inline: `{ nodes: { normalize: (s) => ({...}) }, conditions: { keepGoing: (s) => ... } }` for map steps and `while` conditions.
 
 ### Flow Gallery
