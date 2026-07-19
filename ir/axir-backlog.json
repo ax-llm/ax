@@ -8,9 +8,7 @@
       "createdAt": "2026-06-07",
       "sourcePR": null,
       "sourceCommit": "4e8da4ba",
-      "tsPaths": [
-        "src/ax/mcp"
-      ],
+      "tsPaths": ["src/ax/mcp"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust packages do not yet expose the modern MCP client, transports, OAuth discovery, or SSRF guard behavior.",
       "suggestedAxirWork": [
@@ -51,9 +49,7 @@
       "createdAt": "2026-06-24",
       "sourcePR": 556,
       "sourceCommit": "2d1a5f96f033640bf4e892e866fde99bc92e8268",
-      "tsPaths": [
-        "src/ax/ai"
-      ],
+      "tsPaths": ["src/ax/ai"],
       "portableSurface": "axai",
       "impact": "Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording \u2014 so transient Anthropic errors hard-fail there with no retry or failover.",
       "suggestedAxirWork": [
@@ -121,9 +117,7 @@
       "createdAt": "2026-07-01",
       "sourcePR": null,
       "sourceCommit": "6d7286ce",
-      "tsPaths": [
-        "src/ax/agent/agentInternal/coordinator.ts"
-      ],
+      "tsPaths": ["src/ax/agent/agentInternal/coordinator.ts"],
       "portableSurface": "axagent",
       "impact": "In TS the memories block keeps its prompt-cache breakpoint after the agent rebuilds its signature via setSignature(); a narrow coordinator fix restored this. Generated Python/Java/C++/Go/Rust ports may drop the memories cache breakpoint when the signature is rebuilt mid-run, losing prompt-cache reuse for the memories section and paying full tokens for it every turn.",
       "suggestedAxirWork": [
@@ -290,9 +284,7 @@
       "createdAt": "2026-07-12",
       "sourcePR": null,
       "sourceCommit": "9c0520371669a553eed605351fdd5417a734da1f",
-      "tsPaths": [
-        "src/ax/event"
-      ],
+      "tsPaths": ["src/ax/event"],
       "portableSurface": "axprogram",
       "impact": "Generated Python, Java, C++, Go, and Rust now enforce strict same-instance retry ordering and normalize callback/default event input through the destination signature, including cloning accepted values, stripping undeclared fields, and rejecting invalid values before invocation.",
       "suggestedAxirWork": [
@@ -311,9 +303,7 @@
       "createdAt": "2026-07-12",
       "sourcePR": null,
       "sourceCommit": "47856347b35aed15f2ec0f7884c235f0868c3f88",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust now expose catalog snapshots, explicit/all/selector subscription policies, logical ownership, dynamic catalog reconciliation, reconnect restoration, and real Streamable HTTP/SSE wake/resume behavior.",
       "suggestedAxirWork": [
@@ -425,10 +415,7 @@
       "createdAt": "2026-07-14",
       "sourcePR": 561,
       "sourceCommit": "5dfd044af5b6ac2c1839a40262286fec7c55e2ec",
-      "tsPaths": [
-        "src/ax/ai/anthropic/types.ts",
-        "src/ax/ai/anthropic/api.ts"
-      ],
+      "tsPaths": ["src/ax/ai/anthropic/types.ts", "src/ax/ai/anthropic/api.ts"],
       "portableSurface": "axai",
       "impact": "TS now sets thinking.display on the adaptive request: display='summarized' by default (gated on showThoughts) so the human-readable reasoning summary is returned, or 'omitted' when showThoughts===false. The Anthropic IR's adaptive branch (provider.axir, is_adaptive) builds thinking={type:'adaptive'} with no display field, so generated Python/Java/C++/Go/Rust targets inherit Anthropic's server default of display='omitted' on Sonnet 5 / Opus 4.7+ \u2014 the model still thinks and bills, but streams empty thinking text, and there is no way to request the summary. Fix: mirror the TS derivation by setting thinking['display'] in the is_adaptive block from the showThoughts option (summarized unless showThoughts is false).",
       "suggestedAxirWork": [
@@ -458,7 +445,7 @@
         "src/ax/flow/subContext.ts"
       ],
       "portableSurface": "axflow",
-      "impact": "TS AxFlow steps now carry inspectable build-time meta (branch bodies, loop bodies, feedback targets) and AxFlow.toMermaid() renders flows as mermaid flowcharts with %%ax signature directives; flow.fromMermaid() (landing next) compiles the dialect back into runnable flows. Generated Python/Java/C++/Go/Rust flow surfaces cannot emit or load the dialect. Parity means tools/axir template + codegen builder + golden updates.",
+      "impact": "TS AxFlow steps now carry inspectable build-time meta (branch bodies, loop bodies, feedback targets) and AxFlow.toMermaid() renders flows as mermaid flowcharts with %%ax signature directives; flow.fromMermaid() compiles the dialect back into runnable flows. The primary TS surface is the shorthand: flow(mermaidText, bindings?) compiles (string arg dispatches to fromMermaid) and AxFlow.toString() returns the mermaid source (String(wf) round-trips via flow(String(wf))). Generated Python/Java/C++/Go/Rust flow surfaces cannot emit or load the dialect. Parity means tools/axir template + codegen builder + golden updates, including each language's idiomatic equivalent of the shorthand (constructor/str dunder etc.) alongside the explicit toMermaid/fromMermaid names.",
       "suggestedAxirWork": [
         "Add or update the TS-derived conformance fixture.",
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
@@ -500,10 +487,7 @@
     {
       "id": "webllm-browser-only",
       "surface": "axai",
-      "paths": [
-        "src/ax/ai/webllm",
-        "src/examples/webllm-chat.html"
-      ],
+      "paths": ["src/ax/ai/webllm", "src/examples/webllm-chat.html"],
       "scopedFiles": [
         "src/ax/ai/wrap.ts",
         "src/ax/ai/catalog.ts",
@@ -511,12 +495,7 @@
         "src/ax/ai/wrap.test.ts",
         "src/ax/skills/ax-ai.md"
       ],
-      "tags": [
-        "webllm",
-        "browser-only",
-        "webgpu",
-        "host-engine"
-      ],
+      "tags": ["webllm", "browser-only", "webgpu", "host-engine"],
       "reason": "WebLLM is browser-specific integration code around a caller-supplied MLCEngine/WebGPU runtime. It is not a portable Ax semantic and should not create Python/Java/C++/Go/Rust AxIR backlog work.",
       "createdAt": "2026-06-26"
     }

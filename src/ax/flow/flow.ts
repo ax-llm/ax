@@ -1515,6 +1515,16 @@ export class AxFlow<
     });
   }
 
+  /**
+   * Returns the flow's mermaid source (same as `toMermaid()` with default
+   * options), so `String(flow)` and template-literal interpolation yield the
+   * diagram — mirroring `AxSignature.toString()` returning the signature
+   * string. `flow(String(f))` round-trips.
+   */
+  public toString(): string {
+    return this.toMermaid();
+  }
+
   public getSignature(): AxSignature {
     this.ensureProgram();
     return this.program!.getSignature();
@@ -1603,17 +1613,46 @@ export class AxFlow<
   }
 }
 
+const fromMermaidFn = <
+  TInput extends Record<string, any> = Record<string, any>,
+  TOutput = Record<string, any>,
+>(
+  text: string,
+  bindings?: AxFlowMermaidBindings
+): AxFlow<TInput, TOutput, any, any> =>
+  compileFlowFromMermaid(text, bindings, {
+    createFlow: (options?: AxFlowOptions) =>
+      AxFlow.create<any, any, any, any>(options),
+    patchLastStep: (target, patch) =>
+      AxFlow.patchLastStep(target as AxFlow<any, any, any, any>, patch),
+  }) as AxFlow<TInput, TOutput, any, any>;
+
 function flowFn<
   TInput extends Record<string, any> = Record<string, unknown>,
   TOutput = {},
->(options?: AxFlowOptions): AxFlow<TInput, TOutput, {}, TInput> {
-  return AxFlow.create<TInput, TOutput, {}, TInput>(options);
+>(options?: AxFlowOptions): AxFlow<TInput, TOutput, {}, TInput>;
+function flowFn<
+  TInput extends Record<string, any> = Record<string, any>,
+  TOutput = Record<string, any>,
+>(
+  mermaid: string,
+  bindings?: AxFlowMermaidBindings
+): AxFlow<TInput, TOutput, any, any>;
+function flowFn(
+  optionsOrMermaid?: AxFlowOptions | string,
+  bindings?: AxFlowMermaidBindings
+): AxFlow<any, any, any, any> {
+  if (typeof optionsOrMermaid === 'string') {
+    return fromMermaidFn(optionsOrMermaid, bindings);
+  }
+  return AxFlow.create<any, any, any, any>(optionsOrMermaid);
 }
 
 /**
- * Creates a new AxFlow builder. Also exposes `flow.fromMermaid()` which
- * compiles a mermaid flowchart in the AxFlow dialect (see AxFlow.toMermaid)
- * into a runnable flow.
+ * Creates a new AxFlow builder. Passing a string compiles a mermaid
+ * flowchart in the AxFlow dialect (see AxFlow.toMermaid) into a runnable
+ * flow — `flow(String(otherFlow))` round-trips. `flow.fromMermaid()` is the
+ * explicit alias of the string form.
  */
 export const flow = Object.assign(flowFn, {
   /**
@@ -1623,17 +1662,5 @@ export const flow = Object.assign(flowFn, {
    * nearest upstream producer of that field); labeled out-edges of a decision
    * node become branches; back-edges become feedback/while loops.
    */
-  fromMermaid: <
-    TInput extends Record<string, any> = Record<string, any>,
-    TOutput = Record<string, any>,
-  >(
-    text: string,
-    bindings?: AxFlowMermaidBindings
-  ): AxFlow<TInput, TOutput, any, any> =>
-    compileFlowFromMermaid(text, bindings, {
-      createFlow: (options?: AxFlowOptions) =>
-        AxFlow.create<any, any, any, any>(options),
-      patchLastStep: (target, patch) =>
-        AxFlow.patchLastStep(target as AxFlow<any, any, any, any>, patch),
-    }) as AxFlow<TInput, TOutput, any, any>,
+  fromMermaid: fromMermaidFn,
 });

@@ -340,4 +340,57 @@ describe('flow.fromMermaid', () => {
       expect(runB.calls()).toBe(runA.calls());
     });
   });
+
+  describe('flow(mermaid) shorthand', () => {
+    it('flow(text) compiles the same as flow.fromMermaid(text)', async () => {
+      const wf = flow<{ documentText: string }, { finalReport: string }>(
+        SPEC_DOC
+      );
+      expect(wf.toMermaid()).toBe(flow.fromMermaid(SPEC_DOC).toMermaid());
+
+      const { ai, calls } = sequencedAI([
+        'Summary Text: draft one',
+        'Verdict: pass',
+        'Final Report: shipped',
+      ]);
+      const result = await wf.forward(ai as any, { documentText: 'long' });
+      expect(result.finalReport).toBe('shipped');
+      expect(calls()).toBe(3);
+    });
+
+    it('flow(text, bindings) forwards bindings', async () => {
+      const doc = [
+        'flowchart TD',
+        '  %%ax polish: draftText:string -> polishedText:string',
+        '  polish -->|while keepGoing, max 5| polish',
+      ].join('\n');
+      const wf = flow(doc, {
+        conditions: { keepGoing: (state) => state.polishResult === undefined },
+      });
+      const { ai, calls } = sequencedAI(['Polished Text: shiny']);
+      const result = await wf.forward(ai as any, { draftText: 'rough' });
+      expect((result as any).polishedText).toBe('shiny');
+      expect(calls()).toBe(1);
+    });
+
+    it('flow(String(other)) round-trips via toString()', async () => {
+      const first = flow(SPEC_DOC);
+      const second = flow(String(first));
+      const responses = [
+        'Summary Text: draft one',
+        'Verdict: pass',
+        'Final Report: shipped',
+      ];
+      const runA = sequencedAI(responses);
+      const runB = sequencedAI(responses);
+      const resultA = await first.forward(runA.ai as any, {
+        documentText: 'text',
+      });
+      const resultB = await second.forward(runB.ai as any, {
+        documentText: 'text',
+      });
+      expect((resultB as any).finalReport).toBe((resultA as any).finalReport);
+      expect(runB.calls()).toBe(runA.calls());
+    });
+  });
 });

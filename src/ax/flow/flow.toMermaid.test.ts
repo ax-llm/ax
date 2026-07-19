@@ -128,6 +128,15 @@ describe('AxFlow.toMermaid', () => {
     expect(wf.toMermaid({ direction: 'LR' })).toMatch(/^flowchart LR\n/);
   });
 
+  it('toString() returns the mermaid source with default options', () => {
+    const wf = flow<{ userText: string }>()
+      .node('reply', 'userText:string -> replyText:string')
+      .execute('reply', (s) => ({ userText: s.userText }));
+    expect(wf.toString()).toBe(wf.toMermaid());
+    expect(String(wf)).toBe(wf.toMermaid());
+    expect(`${wf}`).toMatch(/^flowchart TD\n/);
+  });
+
   it('does not disturb the execution plan', () => {
     const wf = flow<{ documentText: string }>()
       .node('summarize', 'documentText:string -> summaryText:string')
