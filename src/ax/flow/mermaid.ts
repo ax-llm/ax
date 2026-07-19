@@ -816,7 +816,7 @@ export function compileFlowFromMermaid(
   const fnNodes = new Map<string, (state: AxFlowState) => any>();
   const unresolved: string[] = [];
 
-  for (const [id, node] of ast.nodes) {
+  for (const id of ast.nodes.keys()) {
     const binding = bindings?.nodes?.[id];
     const directive = ast.directives.get(id);
     if (binding !== undefined) {
