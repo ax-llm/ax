@@ -51,7 +51,7 @@
       "sourceCommit": "2d1a5f96f033640bf4e892e866fde99bc92e8268",
       "tsPaths": ["src/ax/ai"],
       "portableSurface": "axai",
-      "impact": "Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording \u2014 so transient Anthropic errors hard-fail there with no retry or failover.",
+      "impact": "Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording — so transient Anthropic errors hard-fail there with no retry or failover.",
       "suggestedAxirWork": [
         "Add or update the TS-derived conformance fixture.",
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
@@ -246,7 +246,7 @@
         "src/ax/dsp/playbook.test.ts"
       ],
       "portableSurface": "axoptimize",
-      "impact": "TS now normalizes the reflector's model-produced bulletTags (single object or junk instead of an array) before tag application and curator target resolution; live gpt-5.4-mini reflections triggered the unguarded for...of crash mid-update. optimize.axir reads %reflection[\"bulletTags\"] with only a missing-key default (optimize.axir:1725), so ported ACE updates can still crash or mis-iterate on the same malformed reflector output. Additionally, TS delta-history entries now record updatedBulletIds (ADD ids are assigned at apply time and were unrecoverable from the operations alone); the agent playbook dedupe uses it so pruned lessons re-learn \u2014 ports' artifact shape lacks the field. Review follow-ups: renderPlaybook now returns empty string for a zero-bullet/no-description playbook (ports must match to avoid injecting a bare \"## Context Playbook\" header).",
+      "impact": "TS now normalizes the reflector's model-produced bulletTags (single object or junk instead of an array) before tag application and curator target resolution; live gpt-5.4-mini reflections triggered the unguarded for...of crash mid-update. optimize.axir reads %reflection[\"bulletTags\"] with only a missing-key default (optimize.axir:1725), so ported ACE updates can still crash or mis-iterate on the same malformed reflector output. Additionally, TS delta-history entries now record updatedBulletIds (ADD ids are assigned at apply time and were unrecoverable from the operations alone); the agent playbook dedupe uses it so pruned lessons re-learn — ports' artifact shape lacks the field. Review follow-ups: renderPlaybook now returns empty string for a zero-bullet/no-description playbook (ports must match to avoid injecting a bare \"## Context Playbook\" header).",
       "suggestedAxirWork": [
         "Add an is-array guard (wrap single objects, drop malformed entries) around the bulletTags read in optimize.axir's reflection handling.",
         "Record updatedBulletIds on delta-history entries in optimize.axir's apply path.",
@@ -360,7 +360,7 @@
     {
       "id": "axir-2026-07-13-agent-playbook-verified-evolve",
       "status": "open",
-      "title": "Port agent.playbook().evolve() \u2014 verified playbook learning from a task set",
+      "title": "Port agent.playbook().evolve() — verified playbook learning from a task set",
       "createdAt": "2026-07-13",
       "sourcePR": null,
       "sourceCommit": null,
@@ -379,7 +379,7 @@
         "src/ax/agent/agentInternal/playbookEvolve/playbookEvolve.test.ts"
       ],
       "portableSurface": "axagent",
-      "impact": "TS agents gain agent.playbook().evolve(dataset, options): agent.playbook() returns an agent-aware handle (AxAgentPlaybook wrapping the stage AxPlaybook) whose evolve() runs a sequential batch eval over an AxAgentEvalDataset, clusters failures deterministically by the run's structured failureSignals (also threaded onto AxAgentEvalPrediction), mines each cluster for a grounded weakness (evidence quotes must substring-match real run excerpts), and proposes ONE playbook bullet per weakness. With verify (default on) a bullet is kept only when held-in gain >= minHeldInGain AND held-out non-regression within epsilon, else it rolls back exactly; verify:false applies the mined lessons without the gate. Bullets-only \u2014 no instruction editing. The five generated ports have neither the agent-aware playbook handle nor evolve(), and their eval predictions lack failureSignals; ported agents cannot verify-learn from a failing task set.",
+      "impact": "TS agents gain agent.playbook().evolve(dataset, options): agent.playbook() returns an agent-aware handle (AxAgentPlaybook wrapping the stage AxPlaybook) whose evolve() runs a sequential batch eval over an AxAgentEvalDataset, clusters failures deterministically by the run's structured failureSignals (also threaded onto AxAgentEvalPrediction), mines each cluster for a grounded weakness (evidence quotes must substring-match real run excerpts), and proposes ONE playbook bullet per weakness. With verify (default on) a bullet is kept only when held-in gain >= minHeldInGain AND held-out non-regression within epsilon, else it rolls back exactly; verify:false applies the mined lessons without the gate. Bullets-only — no instruction editing. The five generated ports have neither the agent-aware playbook handle nor evolve(), and their eval predictions lack failureSignals; ported agents cannot verify-learn from a failing task set.",
       "suggestedAxirWork": [
         "Decide the port shape: full evolve() loop vs consuming TS-produced playbook snapshots.",
         "Thread failureSignals through the ports' eval prediction shape; expose an agent-aware playbook handle with evolve() over the existing ACE playbook.",
@@ -417,62 +417,7 @@
       "sourceCommit": "5dfd044af5b6ac2c1839a40262286fec7c55e2ec",
       "tsPaths": ["src/ax/ai/anthropic/types.ts", "src/ax/ai/anthropic/api.ts"],
       "portableSurface": "axai",
-      "impact": "TS now sets thinking.display on the adaptive request: display='summarized' by default (gated on showThoughts) so the human-readable reasoning summary is returned, or 'omitted' when showThoughts===false. The Anthropic IR's adaptive branch (provider.axir, is_adaptive) builds thinking={type:'adaptive'} with no display field, so generated Python/Java/C++/Go/Rust targets inherit Anthropic's server default of display='omitted' on Sonnet 5 / Opus 4.7+ \u2014 the model still thinks and bills, but streams empty thinking text, and there is no way to request the summary. Fix: mirror the TS derivation by setting thinking['display'] in the is_adaptive block from the showThoughts option (summarized unless showThoughts is false).",
-      "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
-    },
-    {
-      "id": "axir-2026-07-18-port-axflow-mermaid-dialect-tomermaid-frommermaid",
-      "status": "open",
-      "title": "Port AxFlow mermaid dialect (flow(text) + toString)",
-      "createdAt": "2026-07-18",
-      "sourcePR": null,
-      "sourceCommit": "e7a8e3a8445f1611807d2d8e2447c7fa95534f93",
-      "tsPaths": [
-        "src/ax/flow/dependencyAnalyzer.ts",
-        "src/ax/flow/flow.fromMermaid.test.ts",
-        "src/ax/flow/flow.toMermaid.test.ts",
-        "src/ax/flow/flow.ts",
-        "src/ax/flow/mermaid.parse.test.ts",
-        "src/ax/flow/mermaid.ts",
-        "src/ax/flow/steps.ts",
-        "src/ax/flow/subContext.ts"
-      ],
-      "portableSurface": "axflow",
-      "impact": "TS AxFlow steps now carry inspectable build-time meta (branch bodies, loop bodies, feedback targets); the TS surface is ONLY the shorthand: flow(mermaidText, bindings?) compiles a mermaid flowchart with %%ax signature directives into a runnable flow, and AxFlow.toString(renderOptions?) renders any flow back (String(wf) round-trips via flow(String(wf))). The explicit toMermaid/fromMermaid aliases were removed before any release. Generated Python/Java/C++/Go/Rust flow surfaces cannot emit or load the dialect. Parity means tools/axir template + codegen builder + golden updates: each language's idiomatic equivalent of the shorthand only (factory string arg + str dunder/ToString/Display with render options) — do NOT add explicit toMermaid/fromMermaid names.",
-      "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
-    },
-    {
-      "id": "axir-2026-07-18-port-extended-signature-string-grammar-modifier-bags-nested-obje",
-      "status": "open",
-      "title": "Port extended signature string grammar (modifier bags, nested objects, code language)",
-      "createdAt": "2026-07-18",
-      "sourcePR": null,
-      "sourceCommit": "31f293d0ebe925f398e3310055e4d2b6ef3b1b2e",
-      "tsPaths": [
-        "src/ax/dsp/complex_object_validation.test.ts",
-        "src/ax/dsp/parser.test.ts",
-        "src/ax/dsp/parser.ts",
-        "src/ax/dsp/sig-string-roundtrip.test.ts",
-        "src/ax/dsp/sig-string-vs-fluent.test.ts",
-        "src/ax/dsp/sig.ts",
-        "src/ax/dsp/sigtypes.ts"
-      ],
-      "portableSurface": "axgen",
-      "impact": "TS string signatures now accept type modifier bags \u2014 min/max, format, pattern, cache, item, code language \u2014 and nested object{...} field lists, and AxSignature.toString() serializes them losslessly. Generated Python/Java/C++/Go/Rust string-signature parsers cannot parse the new grammar and their renderers cannot emit it; their FieldType models already carry min/max/format/fields slots (e.g. packages/python/axllm/signature.py) so only the string grammar and serializer lag TS.",
+      "impact": "TS now sets thinking.display on the adaptive request: display='summarized' by default (gated on showThoughts) so the human-readable reasoning summary is returned, or 'omitted' when showThoughts===false. The Anthropic IR's adaptive branch (provider.axir, is_adaptive) builds thinking={type:'adaptive'} with no display field, so generated Python/Java/C++/Go/Rust targets inherit Anthropic's server default of display='omitted' on Sonnet 5 / Opus 4.7+ — the model still thinks and bills, but streams empty thinking text, and there is no way to request the summary. Fix: mirror the TS derivation by setting thinking['display'] in the is_adaptive block from the showThoughts option (summarized unless showThoughts is false).",
       "suggestedAxirWork": [
         "Add or update the TS-derived conformance fixture.",
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
@@ -484,6 +429,18 @@
     }
   ],
   "nonPortableExemptions": [
+    {
+      "id": "axflow-mermaid-ts-only",
+      "surface": "axflow",
+      "paths": ["src/ax/flow/mermaid.ts"],
+      "scopedFiles": [
+        "src/ax/flow/flow.fromMermaid.test.ts",
+        "src/ax/flow/flow.toMermaid.test.ts"
+      ],
+      "tags": ["typescript-only", "mermaid"],
+      "reason": "Mermaid flow authoring (flow(text) compile + toString render dialect) is a TypeScript-only convenience by design; AxIR ports intentionally do not implement the dialect",
+      "createdAt": "2026-07-19"
+    },
     {
       "id": "webllm-browser-only",
       "surface": "axai",
