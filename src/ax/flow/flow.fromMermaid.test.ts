@@ -184,6 +184,75 @@ describe('flow.fromMermaid', () => {
     ]);
   });
 
+  it('infers only natural inputs through branch/merge joins', async () => {
+    const doc = [
+      'flowchart TD',
+      '  %%ax classify: requestText:string -> routeClass:class "support, sales"',
+      '  %%ax supportReply: requestText:string -> replyText:string(max 300)',
+      '  %%ax salesReply: requestText:string -> replyText:string(max 300)',
+      '  %%ax send: replyText:string -> deliveredReply:string',
+      '  classify{routeClass}',
+      '  classify -->|support| supportReply',
+      '  classify -->|sales| salesReply',
+      '  supportReply --> send',
+      '  salesReply --> send',
+    ].join('\n');
+
+    const wf = flow.fromMermaid(doc);
+    const signature = wf.getSignature();
+    // The join used to leak internal state keys (supportReplyResult,
+    // salesReplyResult) as required inputs and the decision class as an
+    // extra output.
+    expect(signature.getInputFields().map((field) => field.name)).toEqual([
+      'requestText',
+    ]);
+    expect(signature.getOutputFields().map((field) => field.name)).toEqual([
+      'deliveredReply',
+    ]);
+
+    const { ai, calls } = sequencedAI([
+      'Route Class: sales',
+      'Reply Text: pitch',
+      'Delivered Reply: sent',
+    ]);
+    const result = await wf.forward(ai as any, { requestText: 'pricing?' });
+    expect((result as any).deliveredReply).toBe('sent');
+    expect(calls()).toBe(3);
+  });
+
+  it('infers loop-external inputs and projected output types through while loops', async () => {
+    const doc = [
+      'flowchart TD',
+      '  %%ax polish: draftText:string -> polishedText:string',
+      '  %%ax grade: polishedText:string -> qualityScore:number(min 0, max 1)',
+      '  polish --> grade',
+      '  grade -->|while keepPolishing, max 5| polish',
+    ].join('\n');
+
+    const wf = flow.fromMermaid(doc, {
+      conditions: {
+        keepPolishing: (state) => state.gradeResult === undefined,
+      },
+    });
+    const signature = wf.getSignature();
+    // The loop used to leak gradeResult as the only input and degrade the
+    // projected output type to a string.
+    expect(signature.getInputFields().map((field) => field.name)).toEqual([
+      'draftText',
+    ]);
+    const outputFields = signature.getOutputFields();
+    expect(outputFields.map((field) => field.name)).toEqual(['qualityScore']);
+    expect(outputFields[0]?.type?.name).toBe('number');
+
+    const { ai, calls } = sequencedAI([
+      'Polished Text: shiny',
+      'Quality Score: 0.9',
+    ]);
+    const result = await wf.forward(ai as any, { draftText: 'rough' });
+    expect((result as any).qualityScore).toBe(0.9);
+    expect(calls()).toBe(2);
+  });
+
   describe('compile errors', () => {
     const cases: [string, string[], RegExp][] = [
       [

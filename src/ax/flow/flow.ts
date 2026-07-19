@@ -101,6 +101,31 @@ type LoopBuildContext<TState extends AxFlowState> = {
   maxIterations: number;
 };
 
+// Aggregate declared I/O of closure-captured sub-steps (branch bodies, while
+// bodies) so the enclosing control step can declare its own reads/writes and
+// signature inference sees through it. A read satisfied by a write anywhere in
+// the same body is internal — at runtime it comes from a sibling step or a
+// prior iteration, never from flow input. Predicate/condition reads are
+// deliberately not included: bodies built from map steps declare no writes, so
+// those reads would surface as phantom flow inputs.
+function collectSubStepIO(bodies: ReadonlyArray<readonly AxFlowStep[]>): {
+  reads: string[];
+  writes: string[];
+} {
+  const reads = new Set<string>();
+  const writes = new Set<string>();
+  for (const body of bodies) {
+    const bodyWrites = new Set(body.flatMap((step) => [...step.writes]));
+    for (const step of body) {
+      for (const read of step.reads) {
+        if (!bodyWrites.has(read)) reads.add(read);
+      }
+    }
+    for (const write of bodyWrites) writes.add(write);
+  }
+  return { reads: [...reads], writes: [...writes] };
+}
+
 export class AxFlow<
   IN extends Record<string, any>,
   OUT,
@@ -288,13 +313,29 @@ export class AxFlow<
     }
 
     const inputNames = [...consumed].filter((field) => !produced.has(field));
+
+    // A trailing returns step replaces the state wholesale at runtime, so when
+    // it declares its writes (flow.fromMermaid's synthetic projection does) the
+    // flow's outputs are exactly those fields. Hand-built returns steps don't
+    // declare writes and keep the produced-but-unconsumed inference below.
+    const lastStep = this.steps[this.steps.length - 1];
+    const finalReturns =
+      lastStep?.kind === 'returns' && lastStep.writes.length > 0
+        ? lastStep
+        : undefined;
     const outputNames = new Set<string>();
-    for (const field of produced) {
-      const consumedLater = executionPlan.steps.some((step) =>
-        step.dependencies.includes(field)
-      );
-      if (!consumedLater && !field.startsWith('_')) {
+    if (finalReturns) {
+      for (const field of finalReturns.writes) {
         outputNames.add(field);
+      }
+    } else {
+      for (const field of produced) {
+        const consumedLater = executionPlan.steps.some((step) =>
+          step.dependencies.includes(field)
+        );
+        if (!consumedLater && !field.startsWith('_')) {
+          outputNames.add(field);
+        }
       }
     }
 
@@ -358,6 +399,13 @@ export class AxFlow<
           continue;
         }
       }
+      const projectedField = finalReturns
+        ? this.findProjectedOutputField(outputName, finalReturns.reads)
+        : undefined;
+      if (projectedField) {
+        outputFields.push({ ...projectedField });
+        continue;
+      }
       outputFields.push({
         name: outputName,
         type: { name: 'string' },
@@ -389,6 +437,26 @@ export class AxFlow<
     );
 
     return inferredSignature;
+  }
+
+  // A flat output declared by a returns projection carries the type of the
+  // node output field it projects; the projection's declared reads name the
+  // candidate producer nodes (as `<node>Result` state keys).
+  private findProjectedOutputField(
+    name: string,
+    projectionReads: readonly string[]
+  ): AxField | undefined {
+    for (const read of projectionReads) {
+      if (!read.endsWith('Result')) continue;
+      const producer = read.slice(0, -'Result'.length);
+      const field = this.nodeGenerators
+        .get(producer)
+        ?.getSignature()
+        .getOutputFields()
+        .find((candidate) => candidate.name === name);
+      if (field) return field;
+    }
+    return undefined;
   }
 
   private ensureProgram(): void {
@@ -1158,10 +1226,13 @@ export class AxFlow<
     const branchContext = this.branchContext;
     this.branchContext = null;
     this.currentSteps = branchContext.parentSteps;
+    const branchIO = collectSubStepIO([...branchContext.branches.values()]);
     this.addStep(
       createFlowStep({
         kind: 'branch',
         isBarrier: true,
+        reads: branchIO.reads,
+        writes: branchIO.writes,
         meta: {
           kind: 'branch',
           predicate: branchContext.sourcePredicate,
@@ -1387,10 +1458,13 @@ export class AxFlow<
       throw new Error('endWhile() called without matching while()');
     }
     this.currentSteps = loop.parentSteps;
+    const loopIO = collectSubStepIO([loop.bodySteps]);
     this.addStep(
       createFlowStep({
         kind: 'while',
         isBarrier: true,
+        reads: loopIO.reads,
+        writes: loopIO.writes,
         meta: {
           kind: 'while',
           bodySteps: loop.bodySteps,
