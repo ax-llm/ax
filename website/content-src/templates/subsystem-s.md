@@ -48,6 +48,19 @@ s('userAge:number(min 0, max 120), contextText:string(cache) -> profileList:obje
 
 The string API is strict: a modifier that does not apply to its type (say `min` on a boolean) is a parse error, where the fluent API would silently ignore it. `AxSignature.toString()` renders every construct back to this grammar losslessly, which is what lets flows serialize their node contracts into mermaid `%%ax` directives.
 
+### Flows as mermaid diagrams
+
+Because every signature renders back losslessly, a whole flow can be written as — or exported to — a mermaid flowchart, with each node's contract in a `%%ax` directive:
+
+```text
+flowchart TD
+  %%ax classify: ticketText:string -> ticketClass:class "bug, billing"
+  %%ax reply: ticketText:string, ticketClass:class -> replyText:string
+  classify --> reply
+```
+
+In TypeScript, `flow(diagram)` compiles that string into a runnable flow and `String(flow)` renders any flow back, so `flow(String(flow))` round-trips. `flow.fromMermaid()` is the explicit alias, and `toMermaid({ direction: 'LR' })` gives render options.
+
 ### Parsed string
 
 {{signatureStringExample}}

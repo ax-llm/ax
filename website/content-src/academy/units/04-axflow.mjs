@@ -107,5 +107,41 @@ export const axflowUnit = {
       ),
       apiSymbols: ['AxFlow', 'flow', 'optimize'],
     }),
+    topic({
+      id: 'flow-mermaid',
+      title: 'Author or serialize a flow as a diagram',
+      minutes: 7,
+      apiLabel: 'flow(mermaid)',
+      prerequisites: ['flow-control'],
+      summary:
+        'You can write a whole flow as a mermaid flowchart and compile it by passing the string to flow(). Any flow renders back with String(flow), so the diagram and the program stay in sync.',
+      example:
+        'const wf = flow(diagramText); const back = flow(String(wf)); // flow(text) compiles mermaid; String(wf) renders it; fromMermaid is the alias',
+      exampleSteps: [
+        {
+          label: 'Write the diagram',
+          note: 'Node contracts live in %%ax directives; labeled edges become branches and loops.',
+        },
+        {
+          label: 'Compile with flow()',
+          note: 'A string argument to flow() compiles the dialect into a runnable flow.',
+        },
+        {
+          label: 'Render it back',
+          note: 'String(wf) returns the diagram, so flow(String(wf)) round-trips the program.',
+        },
+      ],
+      check: choice(
+        'You have a finished flow and want the exact diagram it represents. Which call returns the mermaid source?',
+        [
+          'String(the flow); toString()/toMermaid() render the dialect',
+          'None; a compiled flow cannot be turned back into a diagram',
+          'Only the provider can export it after forward() runs',
+        ],
+        0,
+        'AxFlow.toString() and toMermaid() render the flow back to the dialect, so String(flow) round-trips into flow().'
+      ),
+      apiSymbols: ['AxFlow', 'flow'],
+    }),
   ],
 };

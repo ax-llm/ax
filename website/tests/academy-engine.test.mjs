@@ -69,8 +69,8 @@ test('course schema is complete, acyclic, source-backed, and export-valid', asyn
     publicExports,
     requiredCoverage: requiredAcademyCoverage,
   });
-  assert.deepEqual(result, { topicCount: 53, unitCount: 11 });
-  assert.equal(new Set(academyCourse.topicOrder).size, 53);
+  assert.deepEqual(result, { topicCount: 54, unitCount: 11 });
+  assert.equal(new Set(academyCourse.topicOrder).size, 54);
   const topics = academyCourse.units.flatMap((unit) => unit.topics);
   assert.deepEqual(
     [
@@ -110,7 +110,7 @@ test('every supported language generates a native, complete Academy', async () =
 
   for (const language of languages) {
     const pages = buildAcademyPages(academyCourse, language);
-    assert.equal(pages.length, 68);
+    assert.equal(pages.length, 69);
     assert.ok(
       pages.every((page) => page.relPath.startsWith(`${language.id}/academy/`))
     );

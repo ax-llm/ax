@@ -114,6 +114,19 @@ Start with a string signature, then graduate to parsed or fluent signatures when
 
 {{signatureHybridExample}}
 
+## Signatures As Flow Diagrams
+
+Because the string grammar is text-complete, a whole workflow of signatures can live in one mermaid flowchart — each node's contract travels in a `%%ax` comment directive:
+
+```text
+flowchart TD
+  %%ax summarize: documentText:string -> summaryText:string(max 500)
+  %%ax format: summaryText:string -> finalReport:string
+  summarize --> format
+```
+
+In TypeScript, passing the diagram to `flow()` compiles it into a runnable flow, and `String(flow)` renders any flow back — so the diagram and the program stay in sync.
+
 ## Production Notes
 
 - Keep fields small and typed. Split unrelated jobs into separate signatures or a flow.

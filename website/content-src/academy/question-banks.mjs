@@ -430,6 +430,32 @@ export const academyQuestionBanks = {
       'A public session ID as authorization.',
     ]
   ),
+  'flow-mermaid': bank(
+    [
+      'A flow diagram carries a line "%%ax summarize: doc:string -> summary:string". What is that directive?',
+      'The node signature the compiler reads while mermaid renderers ignore it.',
+      'A plain comment the compiler also skips, so the node has no contract.',
+      'A provider setting that selects the model for that node.',
+    ],
+    [
+      'You pass a mermaid string to flow(). How does data reach each node?',
+      'Every input auto-wires to the nearest upstream node that outputs that field name.',
+      'Each node receives the entire raw provider response.',
+      'Nodes exchange data only when the diagram lists numeric slot ids.',
+    ],
+    [
+      'In the flow dialect, what does a back-edge labeled "fail, max 3" express?',
+      'A feedback loop that retries the target node up to three times.',
+      'A parse error, because flow edges may not carry labels.',
+      'A parallel branch that always fans out three copies.',
+    ],
+    [
+      'What is the relationship between flow(text) and flow.fromMermaid(text)?',
+      'The same compile path: the string form of flow() is the shorthand and fromMermaid is the explicit alias.',
+      'flow(text) builds an empty flow and discards the string.',
+      'fromMermaid can only draw diagrams and never compiles them.',
+    ]
+  ),
   'agent-core': bank(
     [
       'A task requires inspecting evidence, calling tools, and deciding when it is finished. Which surface fits?',

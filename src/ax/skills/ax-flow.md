@@ -431,11 +431,48 @@ const wf = flow({ mcp: [inventory], ucp: [merchant] })
   .node('checkout', checkoutProgram, { mcpInheritance: ['merchant'] });
 ```
 
+## Mermaid Source (Author or Serialize Flows)
+
+A whole flow can be written as (or exported to) a mermaid flowchart. Pass the
+diagram string straight to `flow()` — a string argument compiles the AxFlow
+mermaid dialect into a runnable flow (an options object still constructs an
+empty builder). `String(wf)` / `wf.toString()` renders any flow back, so
+`flow(String(wf))` round-trips.
+
+```typescript
+import { flow } from '@ax-llm/ax';
+
+const wf = flow<{ documentText: string }, { finalReport: string }>(`
+flowchart TD
+  %%ax summarize: documentText:string -> summaryText:string(max 500)
+  %%ax check: summaryText:string -> verdict:class "pass, fail", note?:string
+  %%ax format: summaryText:string, note?:string -> finalReport:string
+
+  summarize[Summarize document] --> check{verdict}
+  check -->|pass| format
+  check -->|fail, max 3| summarize
+`);
+
+const { finalReport } = await wf.forward(llm, { documentText });
+console.log(String(wf)); // render back to the same dialect
+```
+
+Dialect:
+- `%%ax nodeId: <signature>` comment directives carry node contracts (mermaid renderers ignore them); the full string-signature grammar applies (`?` optional on the name, constraint bags, `object{ ... }`).
+- Data auto-wires by field name: each node input binds to the nearest upstream node that outputs that field; a field no node produces becomes a flow input.
+- A diamond `nodeId{field}` names a `class` decision; its labeled out-edges (`-->|pass|`) become branches. A back-edge is a loop: `-->|label, max N|` is feedback, `-->|while cond, max N|` is a while loop.
+
+Explicit surface and render options:
+- `flow.fromMermaid(text, bindings?)` is the explicit alias of the string form.
+- `wf.toMermaid({ direction: 'LR' })` when you need render options; bare `String(wf)` uses defaults (`flowchart TD`).
+- `bindings` supplies closures the dialect can't inline: `{ nodes: { normalize: (s) => ({...}) }, conditions: { keepGoing: (s) => ... } }` for map steps and `while` conditions.
+
 ## Examples
 
 Fetch these for full working code:
 
 - [Flow](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/ax-flow.ts) — complete flow usage
+- [Mermaid Flow](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/ax-flow-mermaid.ts) — author/serialize a flow as a mermaid diagram
 - [Auto-Parallel](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/ax-flow-auto-parallel.ts) — auto-parallelization
 - [Async Map](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/ax-flow-async-map.ts) — async map transforms
 - [Enhanced Demo](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/ax-flow-enhanced-demo.ts) — instance-based nodes
