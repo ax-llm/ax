@@ -1395,6 +1395,23 @@ type InferAudioValueType<
     ? AxAudioInput[]
     : AxAudioInput;
 
+// `options` is an optional property, so its indexed access picks up
+// `| undefined`; strip that so declared literal options survive as a union.
+// Fields without declared options (or widened to string[]) fall back to string.
+type InferClassValueType<
+  T extends { isArray?: boolean; options?: readonly string[] | undefined },
+> = NonNullable<T['options']> extends readonly (infer U)[]
+  ? [U] extends [never]
+    ? T['isArray'] extends true
+      ? string[]
+      : string
+    : T['isArray'] extends true
+      ? U[]
+      : U
+  : T['isArray'] extends true
+    ? string[]
+    : string;
+
 type InferFieldValueType<
   T,
   TMode extends 'input' | 'output' = 'input',
@@ -1455,13 +1472,7 @@ type InferFieldValueType<
                               ? string[]
                               : string
                             : T['type'] extends 'class'
-                              ? T['options'] extends readonly (infer U)[]
-                                ? T['isArray'] extends true
-                                  ? U[]
-                                  : U
-                                : T['isArray'] extends true
-                                  ? string[]
-                                  : string
+                              ? InferClassValueType<T>
                               : T['type'] extends 'object'
                                 ? T extends { fields: infer F }
                                   ? F extends Record<string, any>
@@ -1606,13 +1617,7 @@ type InferFluentType<
                             ? string[]
                             : string
                           : T['type'] extends 'class'
-                            ? T['options'] extends readonly (infer U)[]
-                              ? T['isArray'] extends true
-                                ? U[]
-                                : U
-                              : T['isArray'] extends true
-                                ? string[]
-                                : string
+                            ? InferClassValueType<T>
                             : T['type'] extends 'object'
                               ? T extends { fields: infer F }
                                 ? F extends Record<string, any>
@@ -1648,6 +1653,18 @@ type AddFieldToShape<
   : _IsOptional<T> extends true
     ? S & { readonly [P in K]?: InferFluentType<T, TMode> }
     : S & { readonly [P in K]: InferFluentType<T, TMode> };
+
+// Object shape contributed by one AxSignature field-addition call
+// (append/prepend input/output field): `{ K: V }`, or `{ K?: V }` when the
+// field is declared `isOptional: true`, so optionality survives at the type
+// level alongside the inferred value type.
+type AddedFieldShape<
+  K extends string,
+  T,
+  TMode extends 'input' | 'output',
+> = _IsOptional<T> extends true
+  ? { [P in K]?: InferFieldValueType<T, TMode> }
+  : { [P in K]: InferFieldValueType<T, TMode> };
 
 // Helper function to convert AxFieldType to AxField
 function convertFieldTypeToAxField(
@@ -2398,32 +2415,29 @@ export class AxSignature<
   public getOutputFields = (): Readonly<AxIField[]> => this.outputFields;
   public getDescription = () => this.description;
 
-  // Type-safe field addition methods that return new signature instances
-  public appendInputField = <K extends string, T extends AxFieldType>(
+  // Type-safe field addition methods that return new signature instances.
+  // `const T` keeps object-literal field configs narrow (literal `isOptional`,
+  // tuple `options`) so AddedFieldShape can thread optionality and class-option
+  // unions through to the inferred IN/OUT type params.
+  public appendInputField = <K extends string, const T extends AxFieldType>(
     name: K,
     fieldType: T
-  ): AxSignature<
-    _TInput & Record<K, InferFieldValueType<T, 'input'>>,
-    _TOutput
-  > => {
+  ): AxSignature<_TInput & AddedFieldShape<K, T, 'input'>, _TOutput> => {
     const newSig = AxSignature.from(this);
     newSig.addInputField({
       name,
       ...convertFieldTypeToAxField(fieldType),
     });
     return newSig as AxSignature<
-      _TInput & Record<K, InferFieldValueType<T, 'input'>>,
+      _TInput & AddedFieldShape<K, T, 'input'>,
       _TOutput
     >;
   };
 
-  public prependInputField = <K extends string, T extends AxFieldType>(
+  public prependInputField = <K extends string, const T extends AxFieldType>(
     name: K,
     fieldType: T
-  ): AxSignature<
-    Record<K, InferFieldValueType<T, 'input'>> & _TInput,
-    _TOutput
-  > => {
+  ): AxSignature<AddedFieldShape<K, T, 'input'> & _TInput, _TOutput> => {
     const newSig = AxSignature.from(this);
     const fieldToAdd = {
       name,
@@ -2462,18 +2476,15 @@ export class AxSignature<
     newSig.updateHashLight();
 
     return newSig as AxSignature<
-      Record<K, InferFieldValueType<T, 'input'>> & _TInput,
+      AddedFieldShape<K, T, 'input'> & _TInput,
       _TOutput
     >;
   };
 
-  public appendOutputField = <K extends string, T extends AxFieldType>(
+  public appendOutputField = <K extends string, const T extends AxFieldType>(
     name: K,
     fieldType: T
-  ): AxSignature<
-    _TInput,
-    _TOutput & Record<K, InferFieldValueType<T, 'output'>>
-  > => {
+  ): AxSignature<_TInput, _TOutput & AddedFieldShape<K, T, 'output'>> => {
     const newSig = AxSignature.from(this);
     newSig.addOutputField({
       name,
@@ -2481,17 +2492,14 @@ export class AxSignature<
     });
     return newSig as AxSignature<
       _TInput,
-      _TOutput & Record<K, InferFieldValueType<T, 'output'>>
+      _TOutput & AddedFieldShape<K, T, 'output'>
     >;
   };
 
-  public prependOutputField = <K extends string, T extends AxFieldType>(
+  public prependOutputField = <K extends string, const T extends AxFieldType>(
     name: K,
     fieldType: T
-  ): AxSignature<
-    _TInput,
-    Record<K, InferFieldValueType<T, 'output'>> & _TOutput
-  > => {
+  ): AxSignature<_TInput, AddedFieldShape<K, T, 'output'> & _TOutput> => {
     const newSig = AxSignature.from(this);
     const fieldToAdd = {
       name,
@@ -2531,7 +2539,7 @@ export class AxSignature<
 
     return newSig as AxSignature<
       _TInput,
-      Record<K, InferFieldValueType<T, 'output'>> & _TOutput
+      AddedFieldShape<K, T, 'output'> & _TOutput
     >;
   };
 

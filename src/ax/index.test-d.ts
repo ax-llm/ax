@@ -85,9 +85,9 @@ type _emptyIn = Expect<Equal<SigIn<typeof emptySig>, Record<string, any>>>;
 // Test type-safe field addition methods
 const testSig = AxSignature.create('userInput: string -> responseText: string');
 
-// Test appendInputField type inference. Field-addition methods add the value
-// type but do not thread `isOptional` through to the type level — the added
-// field stays required in the inferred inputs (the runtime field is optional).
+// Test appendInputField type inference. Field-addition methods thread
+// `isOptional` through to the type level — the added field is optional in the
+// inferred inputs, matching the runtime field.
 const withAppendedInput = testSig.appendInputField('contextInfo', {
   type: 'string',
   description: 'Context',
@@ -96,7 +96,7 @@ const withAppendedInput = testSig.appendInputField('contextInfo', {
 type _appendedInputIn = Expect<
   Equal<
     SigIn<typeof withAppendedInput>,
-    { userInput: string; contextInfo: string }
+    { userInput: string; contextInfo?: string }
   >
 >;
 type _appendedInputOut = Expect<
@@ -127,9 +127,9 @@ type _appendedOutputOut = Expect<
   >
 >;
 
-// Test prependOutputField type inference. Class options do not survive the
-// field-addition methods at the type level — the field is typed string (the
-// fluent f() builder path below does preserve the literal union).
+// Test prependOutputField type inference. Class options survive the
+// field-addition methods at the type level — the field is typed as the
+// literal union, whether built with f.class() or a plain config object.
 const withPrependedOutput = testSig.prependOutputField(
   'category',
   f.class(['urgent', 'normal', 'low'], 'Priority')
@@ -137,7 +137,26 @@ const withPrependedOutput = testSig.prependOutputField(
 type _prependedOutputOut = Expect<
   Equal<
     SigOut<typeof withPrependedOutput>,
-    { category: string; responseText: string }
+    { category: 'urgent' | 'normal' | 'low'; responseText: string }
+  >
+>;
+
+// Config-object class options are inferred as tuples (const type param), and
+// an optional class field composes both fixes: optional literal union.
+const withClassConfig = testSig
+  .appendOutputField('priority', {
+    type: 'class',
+    options: ['high', 'low'],
+  })
+  .appendOutputField('mood', f.class(['calm', 'tense'], 'Mood').optional());
+type _classConfigOut = Expect<
+  Equal<
+    SigOut<typeof withClassConfig>,
+    {
+      responseText: string;
+      priority: 'high' | 'low';
+      mood?: 'calm' | 'tense';
+    }
   >
 >;
 
@@ -152,12 +171,16 @@ const chainedSig = testSig
   .appendOutputField('timestamp', f.datetime('Timestamp'));
 
 type _chainedIn = Expect<
-  Equal<SigIn<typeof chainedSig>, { userInput: string; metadata: any }>
+  Equal<SigIn<typeof chainedSig>, { userInput: string; metadata?: any }>
 >;
 type _chainedOut = Expect<
   Equal<
     SigOut<typeof chainedSig>,
-    { status: string; responseText: string; timestamp: Date }
+    {
+      status: 'success' | 'error';
+      responseText: string;
+      timestamp: Date;
+    }
   >
 >;
 
@@ -265,6 +288,21 @@ type _fluentPrimitivesOut = Expect<
   Equal<
     SigOut<typeof fluentPrimitives>,
     { readonly ok: boolean; readonly count: number }
+  >
+>;
+
+// Class options survive the fluent builder path as a literal union
+const fluentClassSig = f()
+  .input('text', f.string('Text'))
+  .output(
+    'sentiment',
+    f.class(['positive', 'negative', 'neutral'], 'Sentiment')
+  )
+  .build();
+type _fluentClassOut = Expect<
+  Equal<
+    SigOut<typeof fluentClassSig>,
+    { readonly sentiment: 'positive' | 'negative' | 'neutral' }
   >
 >;
 
