@@ -93,6 +93,21 @@ flow.node('extractor', 'documentText:string -> entities:string[]');
 flow.n('processor', 'input:string -> output:string');
 ```
 
+### Rich Node Contracts (String Grammar)
+
+Node signatures accept the full extended string grammar — constraint bags, class decisions, optional fields, and nested objects (full modifier table in the ax-signature skill):
+
+```typescript
+flow
+  .node('triage', 'ticketText:string -> ticketClass:class "bug, billing, question", severityScore:number(min 1, max 5)')
+  .node('draft', 'ticketText:string, ticketClass:string, severityScore:number -> replyText:string(max 400)')
+  .node('audit', 'replyText:string -> approved:boolean, flaggedSpans:object{ spanText:string, reasonNote:string }[]');
+```
+
+- `class` is output-only: a downstream node consuming the decision declares it `:string`.
+- Optional marks go on the name (`note?:string`), never after the type.
+- `toMermaid()` serializes these contracts losslessly into `%%ax` directives, so rich contracts survive the diagram round-trip.
+
 ## Extended Nodes (nx)
 
 Add fields to a base signature without rewriting it:
@@ -466,6 +481,74 @@ Explicit surface and render options:
 - `flow.fromMermaid(text, bindings?)` is the explicit alias of the string form.
 - `wf.toMermaid({ direction: 'LR' })` when you need render options; bare `String(wf)` uses defaults (`flowchart TD`).
 - `bindings` supplies closures the dialect can't inline: `{ nodes: { normalize: (s) => ({...}) }, conditions: { keepGoing: (s) => ... } }` for map steps and `while` conditions.
+
+### Flow Gallery
+
+Every diagram below compiles with `flow(text)` as written (the while loop additionally needs its `conditions` binding).
+
+Linear pipeline — three nodes auto-wired by field name:
+
+```text
+flowchart TD
+  %%ax extract: contractText:string -> parties:string[], effectiveDate?:string(format date)
+  %%ax summarize: contractText:string, parties:string[] -> summaryText:string(max 300)
+  %%ax redline: summaryText:string -> riskNotes:string(item "one risk")[]
+
+  extract --> summarize --> redline
+```
+
+Decision branch — a class diamond routes to per-branch responders, then re-joins:
+
+```text
+flowchart TD
+  %%ax classify: requestText:string -> routeClass:class "support, sales"
+  %%ax supportReply: requestText:string -> replyText:string(max 300)
+  %%ax salesReply: requestText:string -> replyText:string(max 300)
+  %%ax send: replyText:string -> deliveredReply:string
+
+  classify{routeClass}
+  classify -->|support| supportReply
+  classify -->|sales| salesReply
+  supportReply --> send
+  salesReply --> send
+```
+
+Retry loop — a reviewer sends drafts back with a capped revise edge:
+
+```text
+flowchart TD
+  %%ax draft: briefText:string -> articleText:string(max 800)
+  %%ax review: articleText:string -> verdict:class "publish, revise", editorNote?:string
+  %%ax publish: articleText:string, editorNote?:string -> finalPost:string
+
+  draft --> review{verdict}
+  review -->|publish| publish
+  review -->|revise, max 2| draft
+```
+
+Fan-out / fan-in — two perspectives run in parallel, then a judge joins them:
+
+```text
+flowchart TD
+  %%ax outline: topicText:string -> questionText:string
+  %%ax proponent: questionText:string -> proArgument:string
+  %%ax skeptic: questionText:string -> conArgument:string
+  %%ax judge: proArgument:string, conArgument:string -> verdictSummary:string
+
+  outline --> proponent & skeptic
+  proponent & skeptic --> judge
+```
+
+While loop — repeat until a host-owned condition says stop (`flow(text, { conditions: { keepPolishing } })`):
+
+```text
+flowchart TD
+  %%ax polish: draftText:string -> polishedText:string
+  %%ax grade: polishedText:string -> qualityScore:number(min 0, max 1)
+
+  polish --> grade
+  grade -->|while keepPolishing, max 5| polish
+```
 
 ## Examples
 

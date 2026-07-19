@@ -183,6 +183,13 @@
           "description": "Build agents with tools, child agents, runtime profiles, and context controls."
         },
         {
+          "slug": "subsystems/flow",
+          "title": "flow() Workflows",
+          "template": "subsystem-flow",
+          "subsystem": "flow",
+          "description": "Compose typed programs into multi-step workflows; author or export them as mermaid flowcharts."
+        },
+        {
           "slug": "subsystems/optimize",
           "title": "optimize() GEPA",
           "template": "subsystem-optimize",
@@ -233,6 +240,13 @@
           "template": "api",
           "subsystem": "agent",
           "description": "Agent, runtime, context, skill, memory, MCP, and RLM APIs."
+        },
+        {
+          "slug": "api/flow",
+          "title": "flow() API",
+          "template": "api",
+          "subsystem": "flow",
+          "description": "Flow builder, workflow graph, and mermaid APIs."
         },
         {
           "slug": "api/optimize",

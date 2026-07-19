@@ -1225,7 +1225,7 @@ function slugify(value) {
 }
 
 function isCuratedApiPage(rel) {
-  return /^(?:typescript|python|java|cpp|go|rust)\/api\/(?:ai|ax|s|agent|optimize)\/index\.html$/.test(
+  return /^(?:typescript|python|java|cpp|go|rust)\/api\/(?:ai|ax|s|agent|flow|optimize)\/index\.html$/.test(
     rel
   );
 }
@@ -1241,7 +1241,7 @@ function isTocExpectedPage(rel) {
 }
 
 function isMermaidExpectedPage(rel) {
-  return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|agents(?:\/(?:standard|long-horizon|internals))?|concepts\/(?:dspy|signatures|tools|llms|mcp|optimization|telemetry)|subsystems\/(?:ai|ax|s|optimize))\/index\.html$/.test(
+  return /^(?:typescript|python|java|cpp|go|rust)\/(?:quick-start|agents(?:\/(?:standard|long-horizon|internals))?|concepts\/(?:dspy|signatures|tools|llms|mcp|optimization|telemetry)|subsystems\/(?:ai|ax|s|flow|optimize))\/index\.html$/.test(
     rel
   );
 }

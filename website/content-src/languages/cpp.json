@@ -71,6 +71,7 @@
     "ax": ["AxGen", "Tools"],
     "s": ["Signatures"],
     "agent": ["Agents And RLM", "Runtime Profiles", "MCP"],
+    "flow": ["Flow"],
     "optimize": ["Optimizers"]
   },
   "snippets": {
@@ -96,6 +97,12 @@
       "auto sig = axllm::s(\"email:string -> priority:class \\\"high, normal, low\\\"\");"
     ],
     "ax": ["auto answer = axllm::ax(\"question:string -> answer:string\");"],
+    "flow": [
+      "auto step = axllm::ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\");",
+      "auto program = axllm::flow(axllm::object({{\"id\", \"supportRouter\"}}))",
+      "    .execute(\"classify\", step)",
+      "    .returns(axllm::object({{\"route\", \"classify\"}}));"
+    ],
     "agent": [
       "auto helper = axllm::agent(\"question:string -> answer:string\");"
     ],

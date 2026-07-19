@@ -127,6 +127,30 @@ flowchart TD
 
 In TypeScript, passing the diagram to `flow()` compiles it into a runnable flow, and `String(flow)` renders any flow back — so the diagram and the program stay in sync.
 
+## Signature Gallery
+
+Real-world contracts, one line each — every entry parses as written:
+
+```text
+# Support triage: several class outputs plus a capped reply draft
+ticketText:string -> priorityClass:class "p0, p1, p2", sentimentClass:class "angry, neutral, happy", replyDraft:string(max 500)
+
+# Invoice extraction: regex-validated id, bounded totals, structured line items
+invoiceText:string -> invoiceNumber:string(pattern "^INV-\\d+$" "INV- then digits"), totalAmount:number(min 0), lineItems:object{ description:string, quantity:number(min 1), unitPrice:number }[]
+
+# RAG: cached corpus input plus per-item described citations
+corpusText:string(cache), userQuestion:string -> answerText:string, citedChunks:string(item "verbatim quote")[]
+
+# Resume parsing: nested objects inside nested arrays
+resumeText:string -> candidateProfile:object{ fullName:string, yearsExperience:number(min 0), skillList:string[], education:object{ schoolName:string, degreeName?:string }[] }
+
+# Code generation: language-tagged code outputs
+taskBrief:string -> pythonScript:code(python), testCases:code(python), riskNotes?:string
+
+# Lead scoring: signature-level description, bounded score, class next step
+"Score sales leads" leadNotes:string -> fitScore:number(min 0, max 100) "0-100 fit", nextStep:class "call, email, drop"
+```
+
 ## Production Notes
 
 - Keep fields small and typed. Split unrelated jobs into separate signatures or a flow.

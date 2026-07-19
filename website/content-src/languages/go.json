@@ -66,6 +66,7 @@
     "ax": ["AxGen", "Tools"],
     "s": ["Signatures"],
     "agent": ["Agents And RLM", "Runtime Profiles", "MCP"],
+    "flow": ["Flow"],
     "optimize": ["Optimizers"]
   },
   "snippets": {
@@ -91,6 +92,12 @@
       "sig := axllm.S(\"email:string -> priority:class \\\"high, normal, low\\\"\")"
     ],
     "ax": ["answer := axllm.NewAx(\"question:string -> answer:string\", nil)"],
+    "flow": [
+      "step := axllm.NewAx(\"request:string -> route:class \\\"support, sales, engineering\\\"\", nil)",
+      "program := axllm.NewFlow(map[string]axllm.Value{\"id\": \"supportRouter\"}).",
+      "    Execute(\"classify\", step, nil).",
+      "    Returns(map[string]axllm.Value{\"route\": \"classify\"})"
+    ],
     "agent": [
       "helper := axllm.NewAgent(\"question:string -> answer:string\", nil)"
     ],

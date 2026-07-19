@@ -139,6 +139,21 @@ const result = await extract.forward(llm, {
 });
 ```
 
+### Constraints and nested objects, still a string
+
+```typescript
+const screen = ax(`
+  applicationText:string(cache),
+  userAge:number(min 0, max 120),
+  contactEmail:string(format email) ->
+  decision:class "approve, review, reject",
+  profileList:object{ fullName:string, userAge?:number }[] "matched profiles",
+  tagList:string(item "a short tag")[]
+`);
+```
+
+The string grammar is constraint-complete and strict — a modifier that doesn't apply to its type is a parse error — and `sig.toString()` renders every construct back losslessly.
+
 ### Nested objects with `f()`
 
 ```typescript
@@ -151,9 +166,9 @@ const productExtractor = f()
     price: f.number(),
     specs: f.object({
       dimensions: f.object({ width: f.number(), height: f.number() }),
-      materials: f.array(f.string()),
+      materials: f.string().array(),
     }),
-    reviews: f.array(f.object({ rating: f.number(), comment: f.string() })),
+    reviews: f.object({ rating: f.number(), comment: f.string() }).array(),
   }))
   .build();
 
@@ -441,6 +456,21 @@ console.log(String(wf)); // render any flow back to the same dialect
 
 Because the signature grammar is text-complete (constraint bags like `string(max 500)`, nested `object{ ... }` fields), the diagram is the entire program — writable by hand, by an LLM, or exported from a design doc.
 
+Fan-out and fan-in are just edges — these two perspectives run in parallel, then a judge joins them:
+
+```typescript
+const debate = flow(`
+flowchart TD
+  %%ax outline: topicText:string -> questionText:string
+  %%ax proponent: questionText:string -> proArgument:string
+  %%ax skeptic: questionText:string -> conArgument:string
+  %%ax judge: proArgument:string, conArgument:string -> verdictSummary:string
+
+  outline --> proponent & skeptic
+  proponent & skeptic --> judge
+`);
+```
+
 Tune the whole flow with **GEPA** (multi-objective Pareto optimizer). Define a metric that returns one or more named scores; GEPA explores the prompt space and returns a Pareto front.
 
 ```typescript
@@ -561,7 +591,7 @@ providers, and read credentials from `.env`. Internal generated-package fixtures
 remain under `packages/<language>/examples` for AxIR verification, but the public
 catalog and website are generated only from `src/examples/<language>/`.
 
-Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `audio-batch-and-agent.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `openai-compatible.ts`, `ax-flow-enhanced-demo.ts`. [Browse all examples →](src/examples/)
+Highlights: `extract.ts`, `react.ts`, `agent.ts`, `streaming1.ts`, `multi-modal.ts`, `audio-chat.ts`, `audio-batch-and-agent.ts`, `standard-schema.ts`, `rlm-memories-and-skills.ts`, `rlm-discovery.ts`, `gepa-flow.ts`, `openai-compatible.ts`, `ax-flow-enhanced-demo.ts`, `ax-flow-mermaid.ts`. [Browse all examples →](src/examples/)
 
 ## Community
 

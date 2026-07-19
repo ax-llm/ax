@@ -66,6 +66,7 @@
     "ax": ["AxGen", "Tools"],
     "s": ["Signatures"],
     "agent": ["Agents And RLM", "Runtime Profiles", "MCP"],
+    "flow": ["Flow"],
     "optimize": ["Optimizers"]
   },
   "snippets": {
@@ -92,6 +93,12 @@
       "let sig = s(\"email:string -> priority:class \\\"high, normal, low\\\"\")?;"
     ],
     "ax": ["let answer = ax(\"question:string -> answer:string\")?;"],
+    "flow": [
+      "let step = ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\")?;",
+      "let program = flow(\"supportRouter\")",
+      "    .execute(\"classify\", step)",
+      "    .returns(json!({\"route\": \"classify\"}));"
+    ],
     "agent": ["let helper = agent(\"question:string -> answer:string\")?;"],
     "llm": [
       "let client = ai(\"openai\", json!({\"apiKey\": std::env::var(\"OPENAI_API_KEY\")?}))?;"

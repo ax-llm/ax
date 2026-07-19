@@ -46,6 +46,14 @@ Constraints and nested objects fit in the string form directly:
 s('userAge:number(min 0, max 120), contextText:string(cache) -> profileList:object{ fullName:string, userAge?:number }[] "matched profiles"')
 ```
 
+More contracts in the same grammar — moderation, extraction, retrieval:
+
+```text
+postText:string -> moderationVerdict:class "allow, review, block", flaggedSpans:object{ spanText:string, reasonNote:string }[]
+invoiceText:string -> invoiceNumber:string(pattern "^INV-\\d+$" "INV- then digits"), totalAmount:number(min 0), lineItems:object{ description:string, quantity:number(min 1), unitPrice:number }[]
+corpusText:string(cache), userQuestion:string -> answerText:string, citedChunks:string(item "verbatim quote")[]
+```
+
 The string API is strict: a modifier that does not apply to its type (say `min` on a boolean) is a parse error, where the fluent API would silently ignore it. `AxSignature.toString()` renders every construct back to this grammar losslessly, which is what lets flows serialize their node contracts into mermaid `%%ax` directives.
 
 ### Flows as mermaid diagrams

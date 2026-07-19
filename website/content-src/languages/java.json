@@ -72,6 +72,7 @@
     "ax": ["AxGen", "Tools"],
     "s": ["Signatures"],
     "agent": ["Agents And RLM", "Runtime Profiles", "MCP"],
+    "flow": ["Flow"],
     "optimize": ["Optimizers"]
   },
   "snippets": {
@@ -97,6 +98,12 @@
       "var sig = Ax.s(\"email:string -> priority:class \\\"high, normal, low\\\"\");"
     ],
     "ax": ["var answer = Ax.ax(\"question:string -> answer:string\");"],
+    "flow": [
+      "AxGen step = Ax.ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\");",
+      "AxFlow program = Ax.flow(Map.of(\"id\", \"supportRouter\"))",
+      "    .execute(\"classify\", step)",
+      "    .returns(Map.of(\"route\", \"classify\"));"
+    ],
     "agent": ["var helper = Ax.agent(\"question:string -> answer:string\");"],
     "llm": [
       "var client = Ax.ai(\"openai\", Map.of(\"apiKey\", System.getenv(\"OPENAI_API_KEY\")));"

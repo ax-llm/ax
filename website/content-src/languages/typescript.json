@@ -73,6 +73,7 @@
       "MCP",
       "Discovery"
     ],
+    "flow": ["flow", "AxFlow", "Mermaid"],
     "optimize": [
       "optimize",
       "GEPA",
@@ -118,6 +119,20 @@
       "  .build();",
       "const answer = ax('question:string -> answer:string');",
       "await answer.forward(llm, { question: 'Find the refund policy' }, { functions: [lookup] });"
+    ],
+    "flow": [
+      "import { ai, flow } from '@ax-llm/ax';",
+      "",
+      "const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });",
+      "",
+      "const wf = flow<{ ticketText: string }>()",
+      "  .node('triage', 'ticketText:string -> ticketClass:class \"bug, billing, question\"')",
+      "  .node('reply', 'ticketText:string, ticketClass:string -> replyText:string(max 300)')",
+      "  .execute('triage', (s) => ({ ticketText: s.ticketText }))",
+      "  .execute('reply', (s) => ({ ticketText: s.ticketText, ticketClass: s.triageResult.ticketClass }))",
+      "  .returns((s) => ({ replyText: s.replyResult.replyText }));",
+      "",
+      "const { replyText } = await wf.forward(llm, { ticketText: 'I was double charged.' });"
     ],
     "agent": [
       "import { agent, ai, f, fn } from '@ax-llm/ax';",

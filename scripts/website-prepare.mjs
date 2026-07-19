@@ -43,6 +43,7 @@ const subsystemHeadings = {
   s: 'Signature, field, schema, and validation APIs.',
   agent:
     'Agent, RLM runtime, context, memory, skill, MCP, and delegation APIs.',
+  flow: 'Flow builder, workflow graph, execution plan, and mermaid APIs.',
   optimize: 'GEPA, Pareto, artifact, and optimizer APIs.',
 };
 
@@ -51,6 +52,7 @@ const subsystemAliases = {
   ax: new Set(['AxGen', 'Tools']),
   s: new Set(['Signatures']),
   agent: new Set(['Agents And RLM', 'Runtime Profiles', 'MCP']),
+  flow: new Set(['Flow']),
   optimize: new Set(['Optimizers']),
 };
 
@@ -99,6 +101,7 @@ const typedocKeywordFallback = {
     'Discovery',
     'Clarification',
   ],
+  flow: ['flow', 'AxFlow', 'Mermaid'],
   optimize: [
     'optimize',
     'GEPA',
@@ -157,6 +160,7 @@ const coreApiSymbols = {
     'AxMCPStreamableHTTPTransport',
     'NewAgent',
   ]),
+  flow: new Set(['flow', 'AxFlow', 'NewFlow']),
   optimize: new Set([
     'optimize',
     'AxGEPA',
@@ -424,6 +428,7 @@ async function renderContext(language, page) {
     axToolsExample: snippetBlock(language, 'ax.tools', 'ax'),
     axStreamingExample: snippetBlock(language, 'ax.streaming'),
     axMCPExample: snippetBlock(language, 'mcp.axTools'),
+    flowCode: lines(snippets.flow),
     agentCode: lines(snippets.agent),
     agentMinimalExample: snippetBlock(language, 'agents.minimal', 'agent'),
     agentToolsExample: snippetBlock(language, 'tools.agentFlat', 'agent'),
@@ -1323,8 +1328,11 @@ function builtInSnippet(languageId, key) {
     'signatures.string': [
       "import { ax, s } from '@ax-llm/ax';",
       '',
-      'const sig = s(\'emailText:string -> priority:class "high, normal, low", rationale:string\');',
-      'const classify = ax(sig);',
+      'const sig = s(',
+      "  'applicantNote:string, userAge:number(min 0, max 120), contactEmail:string(format email)' +",
+      '  \' -> decision:class "approve, review, reject", profileList:object{ fullName:string, userAge?:number }[] "matched profiles"\'',
+      ');',
+      'const screen = ax(sig);',
     ],
     'signatures.fluent': [
       "import { f } from '@ax-llm/ax';",

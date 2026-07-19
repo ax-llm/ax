@@ -70,6 +70,48 @@ objects declare structured fields inline.
 - In quoted values, backslashes are doubled — a regex `\d` is written `pattern "\\d+"`.
 - `AxSignature.toString()` renders every construct back to this grammar losslessly, so a signature round-trips — this is what lets a whole flow serialize its node contracts into mermaid `%%ax` directives (see the ax-flow skill).
 
+## Signature Gallery
+
+Real-world contracts, one line each — every entry below parses with `s()` as written (`#` lines are captions, not part of the signature):
+
+```text
+# Support triage: several class outputs plus a capped reply draft
+ticketText:string -> priorityClass:class "p0, p1, p2", sentimentClass:class "angry, neutral, happy", replyDraft:string(max 500)
+
+# Invoice extraction: regex-validated id, bounded totals, structured line items
+invoiceText:string -> invoiceNumber:string(pattern "^INV-\\d+$" "INV- then digits"), totalAmount:number(min 0), lineItems:object{ description:string, quantity:number(min 1), unitPrice:number }[]
+
+# Contact enrichment: optional format-validated outputs
+bioText:string -> contactEmail?:string(format email), websiteUrl?:string(format uri), birthDate?:string(format date)
+
+# RAG: cached corpus input plus per-item described citations
+corpusText:string(cache), userQuestion:string -> answerText:string, citedChunks:string(item "verbatim quote")[]
+
+# Code generation: language-tagged code outputs
+taskBrief:string -> pythonScript:code(python), testCases:code(python), riskNotes?:string
+
+# Chain of thought: internal reasoning stripped from the result
+problemText:string -> reasoning!:string, solutionText:string
+
+# Resume parsing: nested objects inside nested arrays
+resumeText:string -> candidateProfile:object{ fullName:string, yearsExperience:number(min 0), skillList:string[], education:object{ schoolName:string, degreeName?:string }[] }
+
+# Lead scoring: signature-level description, bounded score, class next step
+"Score sales leads" leadNotes:string -> fitScore:number(min 0, max 100) "0-100 fit", nextStep:class "call, email, drop"
+
+# Multimodal: top-level image input with an optional question
+productPhoto:image, question?:string -> productDescription:string, detectedObjects:string[]
+
+# Meeting audio: audio input, capped summary, per-item action list
+meetingAudio:audio -> meetingSummary:string(max 1000), actionItems:string(item "one action item")[]
+
+# Moderation: class verdict plus structured flagged spans
+postText:string -> moderationVerdict:class "allow, review, block", flaggedSpans:object{ spanText:string, reasonNote:string }[]
+
+# Translation: optional locale input
+sourceText:string, targetLocale?:string -> translatedText:string, glossaryHits:string[]
+```
+
 ## Four Ways to Create Signatures
 
 ### 1. String-Based (Recommended for simple cases)
