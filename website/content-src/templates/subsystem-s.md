@@ -55,7 +55,7 @@ Because every signature renders back losslessly, a whole flow can be written as 
 ```text
 flowchart TD
   %%ax classify: ticketText:string -> ticketClass:class "bug, billing"
-  %%ax reply: ticketText:string, ticketClass:class -> replyText:string
+  %%ax reply: ticketText:string, ticketClass:string -> replyText:string
   classify --> reply
 ```
 
