@@ -236,6 +236,8 @@ tsimp
 tsup
 tunables
 Typesafe
+typetest
+typetests
 ulaw
 unminified
 unranked

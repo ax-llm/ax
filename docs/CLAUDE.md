@@ -128,10 +128,15 @@ npm run fix:format --workspace=@ax-llm/ax         # Fix formatting only
 
 ### 2. Type Definition Tests (`.test-d.ts` files)
 
-- **Location**: `src/ax/index.test-d.ts`
+- **Location**: `src/ax/**/*.test-d.ts` (e.g. `index.test-d.ts`,
+  `dsp/sigtypes.test-d.ts`, `agent/agent.test-d.ts`)
 - **Purpose**: Validate TypeScript type inference and type safety
 - **Testing**: Multi-modal types, signature parsing, optional fields
 - **Note**: These test compile-time type behavior, not runtime
+- **Runner**: `npm run test:type-tests` in `src/ax` (tsc with
+  `tsconfig.typetests.json`; part of `npm test`). Use the `Equal`/`Expect`
+  witnesses from `src/ax/util/typetest.ts` plus `@ts-expect-error` for
+  negative cases
 
 ### 3. Integration Tests
 

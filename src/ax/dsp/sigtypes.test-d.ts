@@ -1,281 +1,409 @@
-import { expectType } from 'tsd';
+// Compile-time tests for ParseSignature/BuildObject inference, enforced by
+// `npm run test:type-tests` (tsc -p tsconfig.typetests.json). Equal compares
+// exact shapes (including optionality); Flatten normalizes the mapped-type
+// intersections BuildObject produces so they can be compared against plain
+// object literals.
 import type { AxAudioInput, AxChatAudioOutput } from '../ai/types.js';
+import type { Equal, Expect, Flatten } from '../util/typetest.js';
 import type { BuildObject, ParseSignature } from './sigtypes.js';
 
-// Test basic string types
+// Basic string types
 type BasicStringResult =
   ParseSignature<'userQuestion:string -> responseText:string'>;
-expectType<{ userQuestion: string }>({} as BasicStringResult['inputs']);
-expectType<{ responseText: string }>({} as BasicStringResult['outputs']);
+type _basicIn = Expect<
+  Equal<Flatten<BasicStringResult['inputs']>, { userQuestion: string }>
+>;
+type _basicOut = Expect<
+  Equal<Flatten<BasicStringResult['outputs']>, { responseText: string }>
+>;
 
-// Test number types
+// Number types
 type NumberResult = ParseSignature<'userInput:number -> responseScore:number'>;
-expectType<{ userInput: number }>({} as NumberResult['inputs']);
-expectType<{ responseScore: number }>({} as NumberResult['outputs']);
+type _numberIn = Expect<
+  Equal<Flatten<NumberResult['inputs']>, { userInput: number }>
+>;
+type _numberOut = Expect<
+  Equal<Flatten<NumberResult['outputs']>, { responseScore: number }>
+>;
 
-// Test boolean types
+// Boolean types
 type BooleanResult = ParseSignature<'isValid:boolean -> isProcessed:boolean'>;
-expectType<{ isValid: boolean }>({} as BooleanResult['inputs']);
-expectType<{ isProcessed: boolean }>({} as BooleanResult['outputs']);
+type _booleanIn = Expect<
+  Equal<Flatten<BooleanResult['inputs']>, { isValid: boolean }>
+>;
+type _booleanOut = Expect<
+  Equal<Flatten<BooleanResult['outputs']>, { isProcessed: boolean }>
+>;
 
-// Test default missing types to string
+// Missing types default to string
 type DefaultStringResult =
   ParseSignature<'userQuestion, imageData:image -> responseText'>;
-expectType<{
-  userQuestion: string;
-  imageData: { mimeType: string; data: string };
-}>({} as DefaultStringResult['inputs']);
-expectType<{ responseText: string }>({} as DefaultStringResult['outputs']);
+type _defaultIn = Expect<
+  Equal<
+    Flatten<DefaultStringResult['inputs']>,
+    { userQuestion: string; imageData: { mimeType: string; data: string } }
+  >
+>;
+type _defaultOut = Expect<
+  Equal<Flatten<DefaultStringResult['outputs']>, { responseText: string }>
+>;
 
-// Test string arrays
+// String arrays
 type StringArrayResult =
   ParseSignature<'userQuestions:string[] -> responseTexts:string[]'>;
-expectType<{ userQuestions: string[] }>({} as StringArrayResult['inputs']);
-expectType<{ responseTexts: string[] }>({} as StringArrayResult['outputs']);
+type _stringArrayIn = Expect<
+  Equal<Flatten<StringArrayResult['inputs']>, { userQuestions: string[] }>
+>;
+type _stringArrayOut = Expect<
+  Equal<Flatten<StringArrayResult['outputs']>, { responseTexts: string[] }>
+>;
 
-// Test number arrays
+// Number arrays
 type NumberArrayResult =
   ParseSignature<'inputScores:number[] -> outputScores:number[]'>;
-expectType<{ inputScores: number[] }>({} as NumberArrayResult['inputs']);
-expectType<{ outputScores: number[] }>({} as NumberArrayResult['outputs']);
+type _numberArrayIn = Expect<
+  Equal<Flatten<NumberArrayResult['inputs']>, { inputScores: number[] }>
+>;
+type _numberArrayOut = Expect<
+  Equal<Flatten<NumberArrayResult['outputs']>, { outputScores: number[] }>
+>;
 
-// Test boolean arrays
+// Boolean arrays
 type BooleanArrayResult =
   ParseSignature<'inputFlags:boolean[] -> outputFlags:boolean[]'>;
-expectType<{ inputFlags: boolean[] }>({} as BooleanArrayResult['inputs']);
-expectType<{ outputFlags: boolean[] }>({} as BooleanArrayResult['outputs']);
+type _booleanArrayIn = Expect<
+  Equal<Flatten<BooleanArrayResult['inputs']>, { inputFlags: boolean[] }>
+>;
+type _booleanArrayOut = Expect<
+  Equal<Flatten<BooleanArrayResult['outputs']>, { outputFlags: boolean[] }>
+>;
 
-// Test class with single option
+// Class with a single option
 type SingleClassResult =
   ParseSignature<'userQuestion:string -> categoryType:class "option1"'>;
-expectType<{ userQuestion: string }>({} as SingleClassResult['inputs']);
-expectType<{ categoryType: 'option1' }>({} as SingleClassResult['outputs']);
+type _singleClassOut = Expect<
+  Equal<Flatten<SingleClassResult['outputs']>, { categoryType: 'option1' }>
+>;
 
-// Test class with multiple options
+// Class with multiple options
 type MultipleClassResult =
   ParseSignature<'userQuestion:string -> categoryType:class "positive, negative, neutral"'>;
-expectType<{ userQuestion: string }>({} as MultipleClassResult['inputs']);
-expectType<{ categoryType: 'positive' | 'negative' | 'neutral' }>(
-  {} as MultipleClassResult['outputs']
-);
+type _multipleClassOut = Expect<
+  Equal<
+    Flatten<MultipleClassResult['outputs']>,
+    { categoryType: 'positive' | 'negative' | 'neutral' }
+  >
+>;
 
-// Test class with pipe separators
+// Class with pipe separators
 type PipeClassResult =
   ParseSignature<'userQuestion:string -> categoryType:class "option1 | option2 | option3"'>;
-expectType<{ userQuestion: string }>({} as PipeClassResult['inputs']);
-expectType<{ categoryType: 'option1' | 'option2' | 'option3' }>(
-  {} as PipeClassResult['outputs']
-);
+type _pipeClassOut = Expect<
+  Equal<
+    Flatten<PipeClassResult['outputs']>,
+    { categoryType: 'option1' | 'option2' | 'option3' }
+  >
+>;
 
-// Test class with mixed separators
+// Class with mixed separators
 type MixedClassResult =
   ParseSignature<'userQuestion:string -> categoryType:class "option1, option2 | option3"'>;
-expectType<{ userQuestion: string }>({} as MixedClassResult['inputs']);
-expectType<{ categoryType: 'option1' | 'option2' | 'option3' }>(
-  {} as MixedClassResult['outputs']
-);
+type _mixedClassOut = Expect<
+  Equal<
+    Flatten<MixedClassResult['outputs']>,
+    { categoryType: 'option1' | 'option2' | 'option3' }
+  >
+>;
 
-// Test class arrays
+// Class arrays
 type ClassArrayResult =
   ParseSignature<'userQuestion:string -> categoryTypes:class[] "option1, option2"'>;
-expectType<{ userQuestion: string }>({} as ClassArrayResult['inputs']);
-expectType<{ categoryTypes: ('option1' | 'option2')[] }>(
-  {} as ClassArrayResult['outputs']
-);
+type _classArrayOut = Expect<
+  Equal<
+    Flatten<ClassArrayResult['outputs']>,
+    { categoryTypes: ('option1' | 'option2')[] }
+  >
+>;
 
-// Test image types
+// Image inputs
 type ImageResult =
   ParseSignature<'userQuestion:string, imageData:image -> responseText:string'>;
-expectType<{
-  userQuestion: string;
-  imageData: { mimeType: string; data: string };
-}>({} as ImageResult['inputs']);
-expectType<{ responseText: string }>({} as ImageResult['outputs']);
+type _imageIn = Expect<
+  Equal<
+    Flatten<ImageResult['inputs']>,
+    { userQuestion: string; imageData: { mimeType: string; data: string } }
+  >
+>;
 
-// Test audio types
+// Audio inputs
 type AudioResult =
   ParseSignature<'userQuestion:string, audioData:audio -> responseText:string'>;
-expectType<{
-  userQuestion: string;
-  audioData: AxAudioInput;
-}>({} as AudioResult['inputs']);
-expectType<{ responseText: string }>({} as AudioResult['outputs']);
+type _audioIn = Expect<
+  Equal<
+    Flatten<AudioResult['inputs']>,
+    { userQuestion: string; audioData: AxAudioInput }
+  >
+>;
 
-// Test output audio types use synthesized audio artifacts
+// Audio outputs use synthesized audio artifacts
 type AudioOutputResult =
   ParseSignature<'userQuestion:string -> speech:audio, summary:string'>;
-expectType<{ userQuestion: string }>({} as AudioOutputResult['inputs']);
-expectType<{ speech: AxChatAudioOutput; summary: string }>(
-  {} as AudioOutputResult['outputs']
-);
+type _audioOut = Expect<
+  Equal<
+    Flatten<AudioOutputResult['outputs']>,
+    { speech: AxChatAudioOutput; summary: string }
+  >
+>;
 
-// Test file types
+// File inputs
 type FileResult =
   ParseSignature<'userQuestion:string, fileData:file -> responseText:string'>;
-expectType<{
-  userQuestion: string;
-  fileData:
-    | { mimeType: string; data: string }
-    | { mimeType: string; fileUri: string };
-}>({} as FileResult['inputs']);
-expectType<{ responseText: string }>({} as FileResult['outputs']);
+type _fileIn = Expect<
+  Equal<
+    Flatten<FileResult['inputs']>,
+    {
+      userQuestion: string;
+      fileData:
+        | { mimeType: string; data: string }
+        | { mimeType: string; fileUri: string };
+    }
+  >
+>;
 
-// Test URL types
+// URL types map to string
 type URLResult = ParseSignature<'websiteUrl:url -> extractedText:string'>;
-expectType<{ websiteUrl: string }>({} as URLResult['inputs']);
-expectType<{ extractedText: string }>({} as URLResult['outputs']);
+type _urlIn = Expect<
+  Equal<Flatten<URLResult['inputs']>, { websiteUrl: string }>
+>;
 
-// Test date types
+// Date types map to Date
 type DateResult = ParseSignature<'startDate:date -> processedDate:date'>;
-expectType<{ startDate: Date }>({} as DateResult['inputs']);
-expectType<{ processedDate: Date }>({} as DateResult['outputs']);
+type _dateIn = Expect<
+  Equal<Flatten<DateResult['inputs']>, { startDate: Date }>
+>;
+type _dateOut = Expect<
+  Equal<Flatten<DateResult['outputs']>, { processedDate: Date }>
+>;
 
-// Test datetime types
+// Datetime types map to Date
 type DateTimeResult =
   ParseSignature<'timestamp:datetime -> processedTime:datetime'>;
-expectType<{ timestamp: Date }>({} as DateTimeResult['inputs']);
-expectType<{ processedTime: Date }>({} as DateTimeResult['outputs']);
+type _dateTimeIn = Expect<
+  Equal<Flatten<DateTimeResult['inputs']>, { timestamp: Date }>
+>;
+type _dateTimeOut = Expect<
+  Equal<Flatten<DateTimeResult['outputs']>, { processedTime: Date }>
+>;
 
-// Test range types
+// Range types map to { start; end }
 type DateRangeResult =
   ParseSignature<'travelDates:dateRange -> processedDates:dateRange'>;
-expectType<{ travelDates: { start: Date; end: Date } }>(
-  {} as DateRangeResult['inputs']
-);
-expectType<{ processedDates: { start: Date; end: Date } }>(
-  {} as DateRangeResult['outputs']
-);
+type _dateRangeIn = Expect<
+  Equal<
+    Flatten<DateRangeResult['inputs']>,
+    { travelDates: { start: Date; end: Date } }
+  >
+>;
+type _dateRangeOut = Expect<
+  Equal<
+    Flatten<DateRangeResult['outputs']>,
+    { processedDates: { start: Date; end: Date } }
+  >
+>;
 
 type DateTimeRangeResult =
   ParseSignature<'availability:datetimeRange -> selectedWindow:datetimeRange'>;
-expectType<{ availability: { start: Date; end: Date } }>(
-  {} as DateTimeRangeResult['inputs']
-);
-expectType<{ selectedWindow: { start: Date; end: Date } }>(
-  {} as DateTimeRangeResult['outputs']
-);
+type _dateTimeRangeIn = Expect<
+  Equal<
+    Flatten<DateTimeRangeResult['inputs']>,
+    { availability: { start: Date; end: Date } }
+  >
+>;
+type _dateTimeRangeOut = Expect<
+  Equal<
+    Flatten<DateTimeRangeResult['outputs']>,
+    { selectedWindow: { start: Date; end: Date } }
+  >
+>;
 
-// Test JSON types
+// JSON types map to any
 type JSONResult = ParseSignature<'configData:json -> resultData:json'>;
-expectType<{ configData: any }>({} as JSONResult['inputs']);
-expectType<{ resultData: any }>({} as JSONResult['outputs']);
+type _jsonIn = Expect<
+  Equal<Flatten<JSONResult['inputs']>, { configData: any }>
+>;
+type _jsonOut = Expect<
+  Equal<Flatten<JSONResult['outputs']>, { resultData: any }>
+>;
 
-// Test code types
+// Code types map to string
 type CodeResult = ParseSignature<'sourceCode:code -> processedCode:code'>;
-expectType<{ sourceCode: string }>({} as CodeResult['inputs']);
-expectType<{ processedCode: string }>({} as CodeResult['outputs']);
+type _codeIn = Expect<
+  Equal<Flatten<CodeResult['inputs']>, { sourceCode: string }>
+>;
+type _codeOut = Expect<
+  Equal<Flatten<CodeResult['outputs']>, { processedCode: string }>
+>;
 
-// Test optional input fields
+// Optional input fields
 type OptionalInputResult =
   ParseSignature<'requiredField:string, optionalField?:number -> responseText:string'>;
-expectType<{ requiredField: string; optionalField?: number }>(
-  {} as OptionalInputResult['inputs']
-);
-expectType<{ responseText: string }>({} as OptionalInputResult['outputs']);
+type _optionalIn = Expect<
+  Equal<
+    Flatten<OptionalInputResult['inputs']>,
+    { requiredField: string; optionalField?: number }
+  >
+>;
 
-// Test optional output fields
+// Optional output fields
 type OptionalOutputResult =
   ParseSignature<'userQuestion:string -> requiredField:string, optionalField?:number'>;
-expectType<{ userQuestion: string }>({} as OptionalOutputResult['inputs']);
-expectType<{ requiredField: string; optionalField?: number }>(
-  {} as OptionalOutputResult['outputs']
-);
+type _optionalOut = Expect<
+  Equal<
+    Flatten<OptionalOutputResult['outputs']>,
+    { requiredField: string; optionalField?: number }
+  >
+>;
 
-// Test optional fields without types
+// Optional fields without types default to string
 type OptionalNoTypeResult =
   ParseSignature<'userQuestion:string -> requiredField, optionalField?'>;
-expectType<{ userQuestion: string }>({} as OptionalNoTypeResult['inputs']);
-expectType<{ requiredField: string; optionalField?: string }>(
-  {} as OptionalNoTypeResult['outputs']
-);
+type _optionalNoTypeOut = Expect<
+  Equal<
+    Flatten<OptionalNoTypeResult['outputs']>,
+    { requiredField: string; optionalField?: string }
+  >
+>;
 
-// Test field descriptions (ignore for type inference)
+// Field descriptions are ignored for type inference
 type DescriptionResult =
   ParseSignature<'userQuestion:string "User input" -> responseText:string "AI response"'>;
-expectType<{ userQuestion: string }>({} as DescriptionResult['inputs']);
-expectType<{ responseText: string }>({} as DescriptionResult['outputs']);
+type _descriptionIn = Expect<
+  Equal<Flatten<DescriptionResult['inputs']>, { userQuestion: string }>
+>;
+type _descriptionOut = Expect<
+  Equal<Flatten<DescriptionResult['outputs']>, { responseText: string }>
+>;
 
-// Test fields with descriptions but no types
+// Descriptions without types
 type DescriptionNoTypeResult =
   ParseSignature<'userQuestion "User input" -> responseText "AI response"'>;
-expectType<{ userQuestion: string }>({} as DescriptionNoTypeResult['inputs']);
-expectType<{ responseText: string }>({} as DescriptionNoTypeResult['outputs']);
+type _descriptionNoTypeIn = Expect<
+  Equal<Flatten<DescriptionNoTypeResult['inputs']>, { userQuestion: string }>
+>;
+type _descriptionNoTypeOut = Expect<
+  Equal<Flatten<DescriptionNoTypeResult['outputs']>, { responseText: string }>
+>;
 
-// Test class with both options and descriptions
+// Class with both options and a description
 type ClassDescriptionResult =
   ParseSignature<'userQuestion:string -> categoryType:class "positive, negative" "Sentiment analysis"'>;
-expectType<{ userQuestion: string }>({} as ClassDescriptionResult['inputs']);
-expectType<{ categoryType: 'positive' | 'negative' }>(
-  {} as ClassDescriptionResult['outputs']
-);
+type _classDescriptionOut = Expect<
+  Equal<
+    Flatten<ClassDescriptionResult['outputs']>,
+    { categoryType: 'positive' | 'negative' }
+  >
+>;
 
-// Test multiple input and output fields
+// Multiple input and output fields
 type MultipleFieldsResult =
   ParseSignature<'userMessage:string, contextData:json, isUrgent:boolean -> responseText:string, confidence:number, needsFollowup:boolean'>;
-expectType<{ userMessage: string; contextData: any; isUrgent: boolean }>(
-  {} as MultipleFieldsResult['inputs']
-);
-expectType<{
-  responseText: string;
-  confidence: number;
-  needsFollowup: boolean;
-}>({} as MultipleFieldsResult['outputs']);
+type _multipleIn = Expect<
+  Equal<
+    Flatten<MultipleFieldsResult['inputs']>,
+    { userMessage: string; contextData: any; isUrgent: boolean }
+  >
+>;
+type _multipleOut = Expect<
+  Equal<
+    Flatten<MultipleFieldsResult['outputs']>,
+    { responseText: string; confidence: number; needsFollowup: boolean }
+  >
+>;
 
-// Test mixed types with arrays and classes
+// Mixed types with arrays and classes
 type MixedTypesResult =
   ParseSignature<'userQuestions:string[], imageData:image -> categories:class[] "urgent, normal, low", responseTexts:string[], confidence:number'>;
-expectType<{
-  userQuestions: string[];
-  imageData: { mimeType: string; data: string };
-}>({} as MixedTypesResult['inputs']);
-expectType<{
-  categories: ('urgent' | 'normal' | 'low')[];
-  responseTexts: string[];
-  confidence: number;
-}>({} as MixedTypesResult['outputs']);
+type _mixedIn = Expect<
+  Equal<
+    Flatten<MixedTypesResult['inputs']>,
+    { userQuestions: string[]; imageData: { mimeType: string; data: string } }
+  >
+>;
+type _mixedOut = Expect<
+  Equal<
+    Flatten<MixedTypesResult['outputs']>,
+    {
+      categories: ('urgent' | 'normal' | 'low')[];
+      responseTexts: string[];
+      confidence: number;
+    }
+  >
+>;
 
-// Test extra whitespace around fields
+// Extra whitespace around fields is tolerated
 type WhitespaceResult =
   ParseSignature<' userQuestion : string ,  imageData : image  ->  responseText : string , confidence : number '>;
-expectType<{
-  userQuestion: string;
-  imageData: { mimeType: string; data: string };
-}>({} as WhitespaceResult['inputs']);
-expectType<{ responseText: string; confidence: number }>(
-  {} as WhitespaceResult['outputs']
-);
+type _whitespaceIn = Expect<
+  Equal<
+    Flatten<WhitespaceResult['inputs']>,
+    { userQuestion: string; imageData: { mimeType: string; data: string } }
+  >
+>;
+type _whitespaceOut = Expect<
+  Equal<
+    Flatten<WhitespaceResult['outputs']>,
+    { responseText: string; confidence: number }
+  >
+>;
 
-// Test single input and output
-type SingleFieldResult =
-  ParseSignature<'userQuestion:string -> responseText:string'>;
-expectType<{ userQuestion: string }>({} as SingleFieldResult['inputs']);
-expectType<{ responseText: string }>({} as SingleFieldResult['outputs']);
-
-// Test fallback for invalid signatures
+// Invalid signatures fall back to the permissive shape
 type InvalidResult = ParseSignature<'invalid signature format'>;
-expectType<Record<string, any>>({} as InvalidResult['inputs']);
-expectType<Record<string, any>>({} as InvalidResult['outputs']);
+type _invalidIn = Expect<Equal<InvalidResult['inputs'], Record<string, any>>>;
+type _invalidOut = Expect<Equal<InvalidResult['outputs'], Record<string, any>>>;
 
-// Test BuildObject helper type
+// BuildObject helper with mixed optionality
 type TestFields = readonly [
   { name: 'required'; type: 'string'; optional: false },
   { name: 'optional'; type: 'number'; optional: true },
 ];
-type BuildObjectResult = BuildObject<TestFields>;
-expectType<{ required: string; optional?: number }>({} as BuildObjectResult);
+type _buildObject = Expect<
+  Equal<
+    Flatten<BuildObject<TestFields>>,
+    { required: string; optional?: number }
+  >
+>;
 
-// Test BuildObject with all required fields
+// BuildObject with all required fields
 type AllRequiredFields = readonly [
   { name: 'field1'; type: 'string'; optional: false },
   { name: 'field2'; type: 'number'; optional: false },
 ];
-type AllRequiredResult = BuildObject<AllRequiredFields>;
-expectType<{ field1: string; field2: number }>({} as AllRequiredResult);
+type _buildObjectRequired = Expect<
+  Equal<
+    Flatten<BuildObject<AllRequiredFields>>,
+    { field1: string; field2: number }
+  >
+>;
 
-// Test BuildObject with all optional fields
+// BuildObject with all optional fields
 type AllOptionalFields = readonly [
   { name: 'field1'; type: 'string'; optional: true },
   { name: 'field2'; type: 'number'; optional: true },
 ];
-type AllOptionalResult = BuildObject<AllOptionalFields>;
-expectType<{ field1?: string; field2?: number }>({} as AllOptionalResult);
+type _buildObjectOptional = Expect<
+  Equal<
+    Flatten<BuildObject<AllOptionalFields>>,
+    { field1?: string; field2?: number }
+  >
+>;
+
+// Negative control: a wrong expectation must fail to compile. The Equal is
+// computed on its own line so the Expect witness stays single-line and the
+// suppressed error lands directly under the directive.
+type _negativeCheck = Equal<
+  Flatten<NumberResult['outputs']>,
+  { responseScore: string }
+>;
+// @ts-expect-error responseScore is a number, not a string
+type _negative = Expect<_negativeCheck>;
+type _negativeIsUsed = _negative | never;

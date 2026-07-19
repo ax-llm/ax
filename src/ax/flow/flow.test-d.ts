@@ -1,4 +1,6 @@
-import { expectError, expectType } from 'tsd';
+// Compile-time tests for AxFlow typing, enforced by `npm run test:type-tests`
+// (tsc -p tsconfig.typetests.json).
+import type { Equal, Expect } from '../util/typetest.js';
 import { flow } from './flow.js';
 
 // setDemos — type-safe programId when nodes are chained
@@ -34,9 +36,8 @@ import { flow } from './flow.js';
     .execute('summarizer', (state) => ({ text: state.input }))
     .returns((state) => ({ final: state.summarizerResult.summary }));
 
-  expectType<Promise<{ final: string }>>(
-    wf.forward({} as any, { input: 'hello' })
-  );
+  const result = wf.forward({} as any, { input: 'hello' });
+  type _result = Expect<Equal<typeof result, Promise<{ final: string }>>>;
 }
 
 // unknown node names are rejected
@@ -46,7 +47,8 @@ import { flow } from './flow.js';
     'text:string -> summary:string'
   );
 
-  expectError(wf.execute('missing', (state) => ({ text: state.input })));
+  // @ts-expect-error unknown node name is rejected by execute()
+  wf.execute('missing', (state) => ({ text: state.input }));
 }
 
 // explicit parallel merge result is preserved in the state type
@@ -65,16 +67,15 @@ import { flow } from './flow.js';
     })
     .returns((state) => ({ combined: state.combined }));
 
-  expectType<Promise<{ combined: string }>>(
-    wf.forward({} as any, { input: 'hello' })
-  );
+  const result = wf.forward({} as any, { input: 'hello' });
+  type _result = Expect<Equal<typeof result, Promise<{ combined: string }>>>;
 }
 
 // removed terminal shaper APIs stay removed
 {
   const wf = flow<{ input: string }>();
-  expectError(
-    wf.mapOutput((state: { input: string }) => ({ input: state.input }))
-  );
-  expectError(wf.mo((state: { input: string }) => ({ input: state.input })));
+  // @ts-expect-error mapOutput() was removed
+  wf.mapOutput((state: { input: string }) => ({ input: state.input }));
+  // @ts-expect-error mo() was removed
+  wf.mo((state: { input: string }) => ({ input: state.input }));
 }

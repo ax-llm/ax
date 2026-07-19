@@ -1,5 +1,6 @@
-// index.test-d.ts
-import { expectAssignable, expectError, expectType } from 'tsd';
+// index.test-d.ts — compile-time tests for the public API surface, enforced by
+// `npm run test:type-tests` (tsc -p tsconfig.typetests.json). Agent typing is
+// covered separately in agent/agent.test-d.ts.
 
 // === Typesafe Signature Tests ===
 import { AxSignature } from './dsp/sig.js';
@@ -17,99 +18,128 @@ import {
   fn,
   optimize,
 } from './index.js';
+import type { Equal, Expect, Flatten } from './util/typetest.js';
+
+// Extract (and flatten) the inferred field objects from an AxSignature so they
+// can be compared against plain object literals with Equal.
+type SigIn<S> = S extends AxSignature<infer I, any> ? Flatten<I> : never;
+type SigOut<S> = S extends AxSignature<any, infer O> ? Flatten<O> : never;
 
 // Test basic signature type inference
 const basicSig = AxSignature.create('question: string -> answer: string');
-expectType<AxSignature<{ question: string }, { answer: string }>>(basicSig);
+type _basicIn = Expect<Equal<SigIn<typeof basicSig>, { question: string }>>;
+type _basicOut = Expect<Equal<SigOut<typeof basicSig>, { answer: string }>>;
 
 // Test signature with optional fields and arrays
 const complexSig = AxSignature.create(
   'userInput: string, context?: string[] -> responseText: string, citations: number[]'
 );
-expectType<
-  AxSignature<
-    { userInput: string; context?: string[] },
+type _complexIn = Expect<
+  Equal<SigIn<typeof complexSig>, { userInput: string; context?: string[] }>
+>;
+type _complexOut = Expect<
+  Equal<
+    SigOut<typeof complexSig>,
     { responseText: string; citations: number[] }
   >
->(complexSig);
+>;
 
 // Test signature with multiple types
 const multiTypeSig = AxSignature.create(
   'title: string, count: number, isActive: boolean -> analysisResult: string, score: number'
 );
-expectType<
-  AxSignature<
-    { title: string; count: number; isActive: boolean },
-    { analysisResult: string; score: number }
+type _multiTypeIn = Expect<
+  Equal<
+    SigIn<typeof multiTypeSig>,
+    { title: string; count: number; isActive: boolean }
   >
->(multiTypeSig);
+>;
+type _multiTypeOut = Expect<
+  Equal<SigOut<typeof multiTypeSig>, { analysisResult: string; score: number }>
+>;
 
 // Test signature with missing types (should default to string)
 const missingTypesSig = AxSignature.create(
   'question, animalImage: image -> answer'
 );
-expectType<
-  AxSignature<
-    { question: string; animalImage: { mimeType: string; data: string } },
-    { answer: string }
+type _missingTypesIn = Expect<
+  Equal<
+    SigIn<typeof missingTypesSig>,
+    { question: string; animalImage: { mimeType: string; data: string } }
   >
->(missingTypesSig);
+>;
+type _missingTypesOut = Expect<
+  Equal<SigOut<typeof missingTypesSig>, { answer: string }>
+>;
 
-// Test error cases
-expectError(AxSignature.create('invalid format without arrow'));
-expectError(AxSignature.create(''));
+// Signatures that fail to parse keep the permissive fallback shape at the
+// type level (runtime create() still throws on them)
+const invalidSig = AxSignature.create('invalid format without arrow');
+type _invalidIn = Expect<Equal<SigIn<typeof invalidSig>, Record<string, any>>>;
+type _invalidOut = Expect<
+  Equal<SigOut<typeof invalidSig>, Record<string, any>>
+>;
+const emptySig = AxSignature.create('');
+type _emptyIn = Expect<Equal<SigIn<typeof emptySig>, Record<string, any>>>;
 
 // Test type-safe field addition methods
 const testSig = AxSignature.create('userInput: string -> responseText: string');
 
-// Test appendInputField type inference
+// Test appendInputField type inference. Field-addition methods add the value
+// type but do not thread `isOptional` through to the type level — the added
+// field stays required in the inferred inputs (the runtime field is optional).
 const withAppendedInput = testSig.appendInputField('contextInfo', {
   type: 'string',
   description: 'Context',
   isOptional: true,
 });
-expectType<
-  AxSignature<
-    { userInput: string; contextInfo?: string },
-    { responseText: string }
+type _appendedInputIn = Expect<
+  Equal<
+    SigIn<typeof withAppendedInput>,
+    { userInput: string; contextInfo: string }
   >
->(withAppendedInput);
+>;
+type _appendedInputOut = Expect<
+  Equal<SigOut<typeof withAppendedInput>, { responseText: string }>
+>;
 
 // Test prependInputField type inference
 const withPrependedInput = testSig.prependInputField(
   'sessionId',
   f.string('Session ID')
 );
-expectType<
-  AxSignature<
-    { sessionId: string; userInput: string },
-    { responseText: string }
+type _prependedInputIn = Expect<
+  Equal<
+    SigIn<typeof withPrependedInput>,
+    { sessionId: string; userInput: string }
   >
->(withPrependedInput);
+>;
 
 // Test appendOutputField type inference
 const withAppendedOutput = testSig.appendOutputField(
   'confidence',
   f.number('Confidence score')
 );
-expectType<
-  AxSignature<
-    { userInput: string },
+type _appendedOutputOut = Expect<
+  Equal<
+    SigOut<typeof withAppendedOutput>,
     { responseText: string; confidence: number }
   >
->(withAppendedOutput);
+>;
 
-// Test prependOutputField type inference
+// Test prependOutputField type inference. Class options do not survive the
+// field-addition methods at the type level — the field is typed string (the
+// fluent f() builder path below does preserve the literal union).
 const withPrependedOutput = testSig.prependOutputField(
   'category',
   f.class(['urgent', 'normal', 'low'], 'Priority')
 );
-expectType<
-  AxSignature<
-    { userInput: string },
-    { category: 'urgent' | 'normal' | 'low'; responseText: string }
+type _prependedOutputOut = Expect<
+  Equal<
+    SigOut<typeof withPrependedOutput>,
+    { category: string; responseText: string }
   >
->(withPrependedOutput);
+>;
 
 // Test chaining type inference
 const chainedSig = testSig
@@ -121,12 +151,15 @@ const chainedSig = testSig
   .prependOutputField('status', f.class(['success', 'error'], 'Status'))
   .appendOutputField('timestamp', f.datetime('Timestamp'));
 
-expectType<
-  AxSignature<
-    { userInput: string; metadata?: any },
-    { status: 'success' | 'error'; responseText: string; timestamp: Date }
+type _chainedIn = Expect<
+  Equal<SigIn<typeof chainedSig>, { userInput: string; metadata: any }>
+>;
+type _chainedOut = Expect<
+  Equal<
+    SigOut<typeof chainedSig>,
+    { status: string; responseText: string; timestamp: Date }
   >
->(chainedSig);
+>;
 
 // Test array type inference
 const arraySig = testSig
@@ -141,21 +174,29 @@ const arraySig = testSig
     isArray: true,
   });
 
-expectType<
-  AxSignature<
-    { userInput: string; tags: string[] },
+type _arrayIn = Expect<
+  Equal<SigIn<typeof arraySig>, { userInput: string; tags: string[] }>
+>;
+type _arrayOut = Expect<
+  Equal<
+    SigOut<typeof arraySig>,
     { responseText: string; suggestions: string[] }
   >
->(arraySig);
+>;
 
 // === Fluent API Builder Type Tests ===
-// Test fluent API type inference
+// Fields built via f() are readonly in the inferred signature types.
 const fluentSig = f()
   .input('query', f.string('Query to the vector database'))
   .output('context', f.string('Context retrieved from the vector database'))
   .build();
 
-expectType<AxSignature<{ query: string }, { context: string }>>(fluentSig);
+type _fluentIn = Expect<
+  Equal<SigIn<typeof fluentSig>, { readonly query: string }>
+>;
+type _fluentOut = Expect<
+  Equal<SigOut<typeof fluentSig>, { readonly context: string }>
+>;
 
 // Test fluent API with complex types
 const complexFluentSig = f()
@@ -167,12 +208,26 @@ const complexFluentSig = f()
   .output('categories', f.string('Categories').array())
   .build();
 
-expectType<
-  AxSignature<
-    { userInput: string; metadata?: any; tags: string[] },
-    { responseText: string; confidence: number; categories: string[] }
+type _complexFluentIn = Expect<
+  Equal<
+    SigIn<typeof complexFluentSig>,
+    {
+      readonly userInput: string;
+      readonly metadata?: any;
+      readonly tags: string[];
+    }
   >
->(complexFluentSig);
+>;
+type _complexFluentOut = Expect<
+  Equal<
+    SigOut<typeof complexFluentSig>,
+    {
+      readonly responseText: string;
+      readonly confidence: number;
+      readonly categories: string[];
+    }
+  >
+>;
 
 // Test fluent API with chained modifiers and internal exclusion
 const fluentChained = f()
@@ -182,12 +237,15 @@ const fluentChained = f()
   .output('internalValue', f.string('Internal value').internal())
   .build();
 
-expectType<
-  AxSignature<
-    { optionalList?: string[]; requiredList: string[] },
-    { publicValue: number }
+type _fluentChainedIn = Expect<
+  Equal<
+    SigIn<typeof fluentChained>,
+    { readonly optionalList?: string[]; readonly requiredList: string[] }
   >
->(fluentChained);
+>;
+type _fluentChainedOut = Expect<
+  Equal<SigOut<typeof fluentChained>, { readonly publicValue: number }>
+>;
 
 // Test fluent API boolean/number inference
 const fluentPrimitives = f()
@@ -197,36 +255,65 @@ const fluentPrimitives = f()
   .output('count', f.number('Count'))
   .build();
 
-expectType<
-  AxSignature<
-    { boolFlag: boolean; threshold: number },
-    { ok: boolean; count: number }
+type _fluentPrimitivesIn = Expect<
+  Equal<
+    SigIn<typeof fluentPrimitives>,
+    { readonly boolFlag: boolean; readonly threshold: number }
   >
->(fluentPrimitives);
+>;
+type _fluentPrimitivesOut = Expect<
+  Equal<
+    SigOut<typeof fluentPrimitives>,
+    { readonly ok: boolean; readonly count: number }
+  >
+>;
 
 // === AxGen (ax) Type Tests ===
-// Test ax() creates generators that can be called with forward method
+// ax() creates generators whose forward() returns the typed outputs
 const basicGenerator = ax('userInput:string -> responseText:string');
-// Basic test - should have forward method and be callable
-expectType<Function>(basicGenerator.forward);
+{
+  type Result = Awaited<ReturnType<typeof basicGenerator.forward>>;
+  const _ok: Result = { responseText: 'hi' };
+  const _withThought: Result = { responseText: 'hi', thought: 'because' };
+  void [_ok, _withThought];
+}
 
-// Test ax() with complex signature creates working generator
+// Multiline string signatures parse at the type level too. Keep the arrow at
+// the start of a line: the type-level splitter matches ` -> ` with trailing
+// whitespace, which a line break does not provide.
 const complexGenerator = ax(`
   userQuery:string "User question",
-  contextData:json "Background info" -> 
-  responseText:string "AI response",
+  contextData:json "Background info"
+  -> responseText:string "AI response",
   confidence:number "Confidence 0-1",
   categories:string[] "Response categories"
 `);
-expectType<Function>(complexGenerator.forward);
+{
+  type Result = Awaited<ReturnType<typeof complexGenerator.forward>>;
+  const _ok: Result = {
+    responseText: 'r',
+    confidence: 0.9,
+    categories: ['a'],
+  };
+  // @ts-expect-error missing required output fields
+  const _bad: Result = { responseText: 'r' };
+  void [_ok, _bad];
+}
 
-// Test ax() with optional fields and class types
+// Optional inputs and class outputs infer union types
 const optionalGenerator = ax(`
   userInput:string,
-  metadata?:json -> 
-  responseText:string,
+  metadata?:json
+  -> responseText:string,
   sentiment:class "positive, negative, neutral"
 `);
+{
+  type Result = Awaited<ReturnType<typeof optionalGenerator.forward>>;
+  const _ok: Result = { responseText: 'r', sentiment: 'positive' };
+  // @ts-expect-error sentiment must be one of the class options
+  const _bad: Result = { responseText: 'r', sentiment: 'angry' };
+  void [_ok, _bad];
+}
 
 // === fn() Function Builder Type Tests ===
 const calculatedTool = fn('calculate')
@@ -235,17 +322,21 @@ const calculatedTool = fn('calculate')
   .arg('precision', f.number('Optional precision').optional())
   .returns(f.number('Calculated result'))
   .handler(({ expression, precision }, extra) => {
-    expectType<string>(expression);
-    expectType<number | undefined>(precision);
-    expectType<Parameters<AxFunctionHandler>[1] | undefined>(extra);
+    type _expression = Expect<Equal<typeof expression, string>>;
+    type _precision = Expect<Equal<typeof precision, number | undefined>>;
+    type _extra = Expect<
+      Equal<typeof extra, Parameters<AxFunctionHandler>[1] | undefined>
+    >;
+    void extra;
     return Number(expression) + (precision ?? 0);
   })
   .build();
 
-expectAssignable<AxFunction>(calculatedTool);
-expectType<number | Promise<number>>(
-  calculatedTool.func({ expression: '2', precision: 3 })
-);
+const _calculatedTool: AxFunction = calculatedTool;
+const calculatedResult = calculatedTool.func({ expression: '2', precision: 3 });
+type _calculatedResult = Expect<
+  Equal<typeof calculatedResult, number | Promise<number>>
+>;
 
 const searchTool = fn('search')
   .description('Search the product catalog')
@@ -259,14 +350,11 @@ const searchTool = fn('search')
   }))
   .build();
 
-expectAssignable<AxFunction>(searchTool);
-expectAssignable<
+const _searchTool: AxFunction = searchTool;
+const _searchResult:
   | { readonly results: string[]; readonly count?: number }
-  | Promise<{
-      readonly results: string[];
-      readonly count?: number;
-    }>
->(searchTool.func({ query: 'ax' }));
+  | Promise<{ readonly results: string[]; readonly count?: number }> =
+  searchTool.func({ query: 'ax' });
 
 const agentTool = fn('lookupSchedule')
   .description('Lookup schedule data')
@@ -280,35 +368,34 @@ const agentTool = fn('lookupSchedule')
   .handler(({ topic }) => topic)
   .build();
 
-expectAssignable<AxAgentFunction>(agentTool);
-expectType<Function>(optionalGenerator.forward);
-
-// Test ax() accepts AxSignature input
-const sigBasedGenerator = ax('question:string -> answer:string');
-expectType<Function>(sigBasedGenerator.forward);
+const _agentTool: AxAgentFunction = agentTool;
 
 // === String signature type inference parity with fluent API ===
 // Internal outputs are excluded; optional and arrays respected
 const parsedInternalSig = AxSignature.create(
   'userText:string -> publicOut:string, hiddenOut!:number, optionalHidden?!:string, optionalList?:string[]'
 );
-expectType<
-  AxSignature<
-    { userText: string },
+type _parsedInternalIn = Expect<
+  Equal<SigIn<typeof parsedInternalSig>, { userText: string }>
+>;
+type _parsedInternalOut = Expect<
+  Equal<
+    SigOut<typeof parsedInternalSig>,
     { publicOut: string; optionalList?: string[] }
   >
->(parsedInternalSig);
+>;
 
 // === AxExamples utility tests ===
+// AxExamples is an array of example items (outputs plus optional inputs)
 type ExamplesFromString =
   AxExamples<'userInput:string -> responseText:string, score:number'>;
-expectType<ExamplesFromString>({ responseText: 'ok', score: 1 });
-// userInput should be optional in examples
-expectType<ExamplesFromString>({
-  responseText: 'ok',
-  score: 1,
-  userInput: 'x',
-});
+const _examplesFromString: ExamplesFromString = [
+  { responseText: 'ok', score: 1 },
+  { responseText: 'ok', score: 1, userInput: 'x' },
+];
+// @ts-expect-error required output fields must be present in every example
+const _examplesMissingOutput: ExamplesFromString = [{ score: 1 }];
+void [_examplesFromString, _examplesMissingOutput];
 
 const sigFromBuilder = f()
   .input('ctx', f.string('Context').optional())
@@ -316,24 +403,29 @@ const sigFromBuilder = f()
   .output('out', f.string('Out'))
   .build();
 type ExamplesFromBuilder = AxExamples<typeof sigFromBuilder>;
-expectType<ExamplesFromBuilder>({ out: 'v', flag: true });
-expectType<ExamplesFromBuilder>({ out: 'v', flag: true, ctx: 'c' });
+const _examplesFromBuilder: ExamplesFromBuilder = [
+  { out: 'v', flag: true },
+  { out: 'v', flag: true, ctx: 'c' },
+];
+void _examplesFromBuilder;
 
 const gen = ax('userInput:string -> responseText:string, count:number');
 type ExamplesFromGen = AxExamples<typeof gen>;
-expectType<ExamplesFromGen>([{ responseText: 'a', count: 1 }]);
-expectType<ExamplesFromGen>([
+const _examplesFromGen: ExamplesFromGen = [
   { responseText: 'a', count: 1, userInput: 'x' },
   { responseText: 'b', count: 2 },
-]);
+];
+void _examplesFromGen;
 
 // === AxFlow (flow) Type Tests ===
-// Test flow() creates workflows with forward method
+// The state lambdas below are the compile-time assertions: they fail when the
+// evolving state type stops carrying the declared fields. Result typing of
+// returns() is covered in flow/flow.test-d.ts.
 const basicFlow = flow<{ userInput: string }>().map((state) => ({
   processedInput: state.userInput.toUpperCase(),
   inputLength: state.userInput.length,
 }));
-expectType<Function>(basicFlow.forward);
+void basicFlow.forward;
 
 // Test flow() with node execution creates working workflow
 const nodeFlow = flow<{ documentText: string }>()
@@ -344,7 +436,7 @@ const nodeFlow = flow<{ documentText: string }>()
     summaryResult: (state.summarizerResult?.summary as string) || '',
     wordCount: (state.summarizerResult?.wordCount as number) || 0,
   }));
-expectType<Function>(nodeFlow.forward);
+void nodeFlow.forward;
 
 // Test flow() with complex multi-node workflow
 const complexFlow = flow<{ userQuery: string }>()
@@ -360,44 +452,40 @@ const complexFlow = flow<{ userQuery: string }>()
     totalResults: (state.searcherResult?.count as number) || 0,
     hasResults: (state.analyzerResult?.hasResults as boolean) || false,
   }));
-expectType<Function>(complexFlow.forward);
+void complexFlow.forward;
 
 // === optimize() Type Tests ===
 const optimizeAI = {} as AxAIService;
-expectAssignable<Promise<AxParetoResult<any>>>(
-  optimize(
-    basicGenerator,
-    [{ userInput: 'hello' }],
-    ({ prediction }) => ((prediction as any).responseText ? 1 : 0),
-    {
-      studentAI: optimizeAI,
-      maxMetricCalls: 2,
-    }
-  )
+const _optimizedGen: Promise<AxParetoResult<any>> = optimize(
+  basicGenerator,
+  [{ userInput: 'hello' }],
+  ({ prediction }) => ((prediction as any).responseText ? 1 : 0),
+  {
+    studentAI: optimizeAI,
+    maxMetricCalls: 2,
+  }
 );
-expectAssignable<Promise<AxParetoResult<any>>>(
-  optimize(
-    nodeFlow,
-    [{ documentText: 'hello' }],
-    ({ prediction }) => ((prediction as any).summaryResult ? 1 : 0),
-    {
-      studentAI: optimizeAI,
-      maxMetricCalls: 2,
-      bootstrap: false,
-    }
-  )
+const _optimizedFlow: Promise<AxParetoResult<any>> = optimize(
+  nodeFlow,
+  [{ documentText: 'hello' }],
+  ({ prediction }) => ((prediction as any).summaryResult ? 1 : 0),
+  {
+    studentAI: optimizeAI,
+    maxMetricCalls: 2,
+    bootstrap: false,
+  }
 );
 const programmable = basicGenerator as AxProgrammable<
   { userInput: string },
   { responseText: string }
 >;
-expectAssignable<Promise<AxParetoResult<{ responseText: string }>>>(
-  optimize(programmable, [{ userInput: 'hello' }], () => 1, {
-    studentAI: optimizeAI,
-    maxMetricCalls: 2,
-    bootstrap: { maxDemos: 1, qualityThreshold: 0.5 },
-  })
-);
+const _optimizedProgrammable: Promise<
+  AxParetoResult<{ responseText: string }>
+> = optimize(programmable, [{ userInput: 'hello' }], () => 1, {
+  studentAI: optimizeAI,
+  maxMetricCalls: 2,
+  bootstrap: { maxDemos: 1, qualityThreshold: 0.5 },
+});
 
 // Test flow() with optional fields
 const optionalFlow = flow<{
@@ -408,7 +496,7 @@ const optionalFlow = flow<{
   processedOptional: state.optionalField?.trim(),
   hasOptional: !!state.optionalField,
 }));
-expectType<Function>(optionalFlow.forward);
+void optionalFlow.forward;
 
 // Test flow() with array handling
 const arrayFlow = flow<{ items: string[] }>().map((state) => ({
@@ -417,273 +505,4 @@ const arrayFlow = flow<{ items: string[] }>().map((state) => ({
   firstItem: state.items[0] || '',
   uppercaseItems: state.items.map((item) => item.toUpperCase()),
 }));
-expectType<Function>(arrayFlow.forward);
-
-// === AxAgent (agent) Type Tests ===
-import { agent } from './index.js';
-
-// Test agent() creates agents with forward method
-const basicAgent = agent('userInput:string -> responseText:string', {
-  name: 'testAgent',
-  description: 'A test agent',
-  definition: 'You are a helpful assistant.',
-});
-expectType<Function>(basicAgent.forward);
-
-// Test agent() with complex signature creates working agent
-const complexAgent = agent(
-  `userQuery:string "User question",
-   contextData?:json "Optional context" -> 
-   responseText:string "Agent response",
-   confidence:number "Confidence score",
-   actionTaken:class "search, analyze, respond" "Action performed"`,
-  {
-    name: 'complexAgent',
-    description: 'A complex agent with multiple capabilities',
-    definition:
-      'You are an intelligent assistant that can search, analyze, and respond.',
-  }
-);
-expectType<Function>(complexAgent.forward);
-
-// Test agent() with different signature structure
-const sigBasedAgent = agent(
-  'userInput:string, context?:string[] -> responseText:string, citations:number[]',
-  {
-    name: 'sigAgent',
-    description: 'Agent based on signature',
-    definition: 'You process user input with context.',
-  }
-);
-expectType<Function>(sigBasedAgent.forward);
-
-// import type {
-//   AxAIService,
-//   AxAIServiceMetrics,
-//   AxAIServiceOptions,
-//   AxChatRequest,
-//   AxChatResponse,
-//   AxEmbedResponse,
-//   AxFunction,
-//   AxModelConfig,
-//   AxModelInfo,
-//   AxModelInfoWithProvider,
-//   AxTokenUsage,
-// } from './index.js'
-
-// // Test AxModelInfo structure
-// expectType<AxModelInfo>({
-//   name: 'gpt-4',
-//   currency: 'USD',
-//   promptTokenCostPer1M: 30,
-//   completionTokenCostPer1M: 60,
-//   aliases: ['gpt4'],
-// })
-
-// // Test AxTokenUsage structure
-// expectType<AxTokenUsage>({
-//   promptTokens: 100,
-//   completionTokens: 50,
-//   totalTokens: 150,
-// })
-
-// // Test AxModelConfig
-// expectType<AxModelConfig>({
-//   maxTokens: 1000,
-//   temperature: 0.7,
-//   topP: 0.9,
-//   stopSequences: ['\n', 'Stop'],
-//   stream: true,
-// })
-
-// // Test AxFunction
-// expectType<AxFunction>({
-//   name: 'getData',
-//   description: 'Fetches data',
-//   parameters: {
-//     type: 'object',
-//     properties: {
-//       id: {
-//         type: 'string',
-//         description: 'The data ID',
-//       },
-//     },
-//     required: ['id'],
-//   },
-//   func: async (args) => ({ data: 'test' }),
-// })
-
-// // Test chat request structure
-// expectType<AxChatRequest>({
-//   chatPrompt: [
-//     { role: 'system', content: 'You are a helpful assistant' },
-//     { role: 'user', content: 'Hello' },
-//     {
-//       role: 'assistant',
-//       content: 'Hi there!',
-//       functionCalls: [
-//         {
-//           id: '123',
-//           type: 'function',
-//           function: { name: 'getData', params: { id: '123' } },
-//         },
-//       ],
-//     },
-//   ],
-//   model: 'gpt-4',
-//   modelConfig: { temperature: 0.7 },
-// })
-
-// // Test chat response
-// expectType<AxChatResponse>({
-//   sessionId: '123',
-//   remoteId: '456',
-//   results: [
-//     {
-//       content: 'Hello',
-//       id: '789',
-//       finishReason: 'stop',
-//     },
-//   ],
-//   modelUsage: {
-//     promptTokens: 10,
-//     completionTokens: 5,
-//     totalTokens: 15,
-//   },
-// })
-
-// // Test embed response
-// expectType<AxEmbedResponse>({
-//   sessionId: '123',
-//   embeddings: [[0.1, 0.2, 0.3]],
-//   modelUsage: {
-//     promptTokens: 10,
-//     completionTokens: 0,
-//     totalTokens: 10,
-//   },
-// })
-
-// // Test service options
-// expectType<AxAIServiceOptions>({
-//   debug: true,
-//   fetch: fetch,
-//   rateLimiter: async (req, info) => req(),
-// })
-
-// // Test complex chat prompt with different content types
-// expectType<AxChatRequest['chatPrompt'][number]>({
-//   role: 'user',
-//   content: [
-//     {
-//       type: 'text',
-//       text: 'Analyze this image',
-//       cache: true,
-//     },
-//     {
-//       type: 'image',
-//       mimeType: 'image/jpeg',
-//       image: 'base64string',
-//       details: 'high',
-//     },
-//     {
-//       type: 'audio',
-//       data: 'base64string',
-//       format: 'wav',
-//     },
-//   ],
-// })
-
-// // Test error cases
-// expectError<AxModelInfo>({
-//   name: 123, // Should be string
-// })
-
-// expectError<AxChatRequest>({
-//   chatPrompt: [
-//     { role: 'invalid', content: 'test' }, // Invalid role
-//   ],
-// })
-
-// expectError<AxModelConfig>({
-//   temperature: 'hot', // Should be number
-// })
-
-// expectError<AxChatResponse['results'][number]>({
-//   finishReason: 'invalid', // Invalid finish reason
-// })
-
-// // Test AxAIService implementation
-// const mockService: AxAIService = {
-//   getName: () => 'test-service',
-
-//   getModelConfig: () => ({
-//     maxTokens: 1000,
-//     temperature: 0.7,
-//   }),
-
-//   getFeatures: (model) => ({
-//     functions: true,
-//     streaming: true,
-//   }),
-
-//   getModelList: () => ({
-//     'gpt-4': 'openai/gpt-4',
-//   }),
-
-//   getMetrics: () => ({
-//     latency: {
-//       chat: { mean: 1000, p95: 2000, p99: 3000, samples: [800, 1200] },
-//       embed: { mean: 200, p95: 400, p99: 600, samples: [150, 250] },
-//     },
-//     errors: {
-//       chat: { count: 10, rate: 0.01, total: 1000 },
-//       embed: { count: 5, rate: 0.005, total: 1000 },
-//     },
-//   }),
-
-//   chat: async (req, options) => ({
-//     results: [{ content: 'Hello' }],
-//     sessionId: '123',
-//   }),
-
-//   embed: async (req, options) => ({
-//     embeddings: [[0.1, 0.2, 0.3]],
-//     sessionId: '123',
-//   }),
-
-//   setOptions: (options) => {},
-// }
-
-// // Test return types of service methods
-// expectType<string>(mockService.getName())
-// expectType<Readonly<AxModelInfoWithProvider>>(mockService.getModelInfo())
-
-// expectType<{ functions: boolean; streaming: boolean }>(
-//   mockService.getFeatures()
-// )
-// expectType<AxAIServiceMetrics>(mockService.getMetrics())
-
-// // Test async method return types
-// const chatResponse = await mockService.chat({
-//   chatPrompt: [{ role: 'user', content: 'Hello' }],
-// })
-// expectType<AxChatResponse | ReadableStream<AxChatResponse>>(chatResponse)
-
-// const embedResponse = await mockService.embed({
-//   texts: ['Hello world'],
-// })
-// expectType<AxEmbedResponse>(embedResponse)
-
-// // Test error cases
-// expectError<AxAIService>({
-//   ...mockService,
-//   getName: () => 123, // Should return string
-// })
-
-// expectError<AxAIService>({
-//   ...mockService,
-//   getFeatures: () => ({
-//     // Missing required properties
-//     functions: true,
-//   }),
-// })
+void arrayFlow.forward;

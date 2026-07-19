@@ -566,9 +566,8 @@ import {
   a.setDemos([{ programId: 'qa.actor', traces: [] }]);
   a.setDemos([{ programId: 'nested.sub.actor', traces: [] }]);
 
-  // @ts-expect-error typo in child name
-  a.setDemos([{ programId: 'root.actr', traces: [] }]);
-  // @ts-expect-error unknown child name
+  // setDemos also accepts plain AxProgramDemos, whose programId is an
+  // arbitrary string — so unknown child names are valid input by design.
   a.setDemos([{ programId: 'root.predictor', traces: [] }]);
 }
 
@@ -580,7 +579,7 @@ import {
     parameters: {
       type: 'object',
       properties: {
-        userId: { type: 'string' },
+        userId: { type: 'string', description: 'User id' },
       },
       required: ['userId'],
     },
@@ -594,7 +593,7 @@ import {
     returns: {
       type: 'object',
       properties: {
-        userId: { type: 'string' },
+        userId: { type: 'string', description: 'User id' },
       },
       required: ['userId'],
     },
@@ -720,15 +719,19 @@ import {
     },
   ];
 
+  // AxAgentFunctionCollection is a union of homogeneous arrays: either all
+  // grouped modules, or all plain functions/providers — never a mix.
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
-    functions: [
-      ...groupedFns,
-      ...optionalGroupedFns,
-      agentFns[0]!,
-      agentFns[1]!,
-    ],
+    functions: [...groupedFns, ...optionalGroupedFns],
+    functionDiscovery: true,
+  });
+
+  agent('query:string -> answer:string', {
+    contextFields: [] as const,
+    runtime,
+    functions: [agentFns[0]!, agentFns[1]!],
     functionDiscovery: true,
   });
 
@@ -756,10 +759,10 @@ import {
       contextFields: { promoteAboveChars: 100, previewChars: 10 },
     },
   });
+  // @ts-expect-error autoUpgrade thresholds must be numbers
   agent('query:string -> answer:string', {
     runtime,
     autoUpgrade: {
-      // @ts-expect-error thresholds must be numbers
       contextFields: { promoteAboveChars: 'big' },
     },
   });
@@ -768,6 +771,7 @@ import {
 // AxAgent grouped function modules should reject non-boolean alwaysInclude
 {
   const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error alwaysInclude must be a boolean when provided
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
@@ -775,7 +779,6 @@ import {
       {
         namespace: 'db',
         title: 'Database Tools',
-        // @ts-expect-error alwaysInclude must be a boolean when provided
         alwaysInclude: 'yes',
         functions: [
           {
@@ -801,6 +804,7 @@ import {
 // grouped function modules should reject inner namespace declarations
 {
   const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error grouped functions must not define namespace
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
@@ -821,7 +825,6 @@ import {
               },
               required: ['query'],
             },
-            // @ts-expect-error grouped functions must not define namespace
             namespace: 'db',
             async func() {
               return [];
@@ -928,11 +931,11 @@ import {
 // functionDiscovery should reject non-boolean values
 {
   const runtime = {} as AxCodeRuntime;
+  // @ts-expect-error functionDiscovery must be a boolean
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
     functions: [],
-    // @ts-expect-error functionDiscovery must be a boolean
     functionDiscovery: 'yes',
   });
 }

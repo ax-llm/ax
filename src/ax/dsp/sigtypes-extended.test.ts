@@ -1,21 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import type { Equal, Expect, Flatten } from '../util/typetest.js';
 import type { ParseSignature } from './sigtypes.js';
 import { s } from './template.js';
 
-// Compile-time assertions for the extended signature grammar. These run under
-// `tsc --noEmit` (part of `npm test`), unlike the tsd-based *.test-d.ts files
-// which are excluded from the type-check and only run via `npm run
-// typecheck:tsd`.
-
-type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B
-  ? 1
-  : 2
-  ? true
-  : false;
-type Expect<T extends true> = T;
-// BuildObject produces an intersection of required and optional mapped types;
-// flatten it so Equal can compare against plain object literals.
-type Flatten<T> = { [K in keyof T]: T[K] };
+// Compile-time assertions for the extended signature grammar. The type-level
+// witnesses are enforced by `npm run test:type-tests` (tsc -p
+// tsconfig.typetests.json, part of `npm test`), which also covers the
+// *.test-d.ts files; the runtime parity check below runs under vitest.
 
 // --- modifier bags are skipped for inference -------------------------------
 type BagSig =
@@ -75,14 +66,15 @@ type _fallback = Expect<Equal<FallbackSig['inputs'], Record<string, any>>>;
 
 // --- negative control: a wrong expectation must fail to compile ------------
 // (kept out of the witnesses tuple below — after the expected error the alias
-// resolves to `false`)
-// @ts-expect-error userAge must infer as optional number, not required string
-type _negative = Expect<
-  Equal<
-    ObjectSig['outputs']['profileList'],
-    { fullName: string; userAge: string }[]
-  >
+// resolves to `false`. The Equal is computed on its own line so the Expect
+// witness stays single-line and the suppressed error lands directly under the
+// directive.)
+type _negativeCheck = Equal<
+  ObjectSig['outputs']['profileList'],
+  { fullName: string; userAge: string }[]
 >;
+// @ts-expect-error userAge must infer as optional number, not required string
+type _negative = Expect<_negativeCheck>;
 type _negativeIsUsed = _negative | never;
 
 describe('sigtypes extended grammar inference', () => {
