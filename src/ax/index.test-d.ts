@@ -278,13 +278,13 @@ const basicGenerator = ax('userInput:string -> responseText:string');
   void [_ok, _withThought];
 }
 
-// Multiline string signatures parse at the type level too. Keep the arrow at
-// the start of a line: the type-level splitter matches ` -> ` with trailing
-// whitespace, which a line break does not provide.
+// Multiline string signatures parse at the type level too. The splitter
+// accepts any whitespace around `->` (lockstep with the runtime grammar), so
+// the arrow may end a line — as here — or start the next one.
 const complexGenerator = ax(`
   userQuery:string "User question",
-  contextData:json "Background info"
-  -> responseText:string "AI response",
+  contextData:json "Background info" ->
+  responseText:string "AI response",
   confidence:number "Confidence 0-1",
   categories:string[] "Response categories"
 `);

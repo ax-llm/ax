@@ -64,6 +64,67 @@ type ObjectLeaf =
 type FallbackSig = ParseSignature<'no arrow in sight'>;
 type _fallback = Expect<Equal<FallbackSig['inputs'], Record<string, any>>>;
 
+// --- any whitespace around the arrow separates inputs from outputs ---------
+// Lockstep with the runtime parser, which skips whitespace on both sides of
+// `->`: in a multiline template literal the arrow may end a line, sit alone
+// on one, or be surrounded by tabs.
+type TrailingArrowSig = ParseSignature<`
+  userQuery:string "User question",
+  topicTags:string[] ->
+  responseText:string "AI response",
+  confidence:number
+`>;
+type _trailingArrowInputs = Expect<
+  Equal<
+    Flatten<TrailingArrowSig['inputs']>,
+    { userQuery: string; topicTags: string[] }
+  >
+>;
+type _trailingArrowOutputs = Expect<
+  Equal<
+    Flatten<TrailingArrowSig['outputs']>,
+    { responseText: string; confidence: number }
+  >
+>;
+
+type ArrowOnOwnLineSig = ParseSignature<`
+  userQuery:string
+  ->
+  responseText:string
+`>;
+type _arrowOnOwnLine = Expect<
+  Equal<Flatten<ArrowOnOwnLineSig['outputs']>, { responseText: string }>
+>;
+
+type LeadingArrowSig = ParseSignature<`
+  userQuery:string
+  -> responseText:string
+`>;
+type _leadingArrow = Expect<
+  Equal<Flatten<LeadingArrowSig['inputs']>, { userQuery: string }>
+>;
+
+type TabArrowSig = ParseSignature<'userQuery:string\t->\tresponseText:string'>;
+type _tabArrow = Expect<
+  Equal<Flatten<TabArrowSig['outputs']>, { responseText: string }>
+>;
+
+// A `->` without surrounding whitespace (here inside a quoted description) is
+// not a separator; the scan resumes and splits at the real arrow after it.
+type QuotedArrowSig =
+  ParseSignature<'sourceText:string "maps a->b" -> replyText:string'>;
+type _quotedArrowInputs = Expect<
+  Equal<Flatten<QuotedArrowSig['inputs']>, { sourceText: string }>
+>;
+
+// The runtime also accepts an arrow with no whitespace at all; the type level
+// deliberately keeps the whitespace requirement (dropping it would split
+// quoted arrows like the one above), so that spelling keeps the fallback.
+type BareArrowSig = ParseSignature<'userQuery:string->responseText:string'>;
+type _bareArrowFallback = Expect<
+  Equal<BareArrowSig['inputs'], Record<string, any>>
+>;
+
 // --- negative control: a wrong expectation must fail to compile ------------
 // (kept out of the witnesses tuple below — after the expected error the alias
 // resolves to `false`. The Equal is computed on its own line so the Expect
@@ -90,6 +151,23 @@ describe('sigtypes extended grammar inference', () => {
     });
   });
 
+  it('accepts a multiline signature with the arrow at end of line at runtime', () => {
+    const sig = s(`
+      userQuery:string "User question",
+      topicTags:string[] ->
+      responseText:string "AI response",
+      confidence:number
+    `);
+    expect(sig.getInputFields().map((f) => f.name)).toEqual([
+      'userQuery',
+      'topicTags',
+    ]);
+    expect(sig.getOutputFields().map((f) => f.name)).toEqual([
+      'responseText',
+      'confidence',
+    ]);
+  });
+
   it('compiles the type-level assertions above', () => {
     const witnesses: [
       _bagInputs,
@@ -100,7 +178,30 @@ describe('sigtypes extended grammar inference', () => {
       _commaInput,
       _budgetLeaf,
       _fallback,
-    ] = [true, true, true, true, true, true, true, true];
+      _trailingArrowInputs,
+      _trailingArrowOutputs,
+      _arrowOnOwnLine,
+      _leadingArrow,
+      _tabArrow,
+      _quotedArrowInputs,
+      _bareArrowFallback,
+    ] = [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+    ];
     expect(witnesses.every(Boolean)).toBe(true);
   });
 });

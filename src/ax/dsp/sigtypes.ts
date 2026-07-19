@@ -438,6 +438,32 @@ export type BuildObject<
 type StripSignatureDescription<S extends string> =
   S extends `"${infer _Desc}" ${infer Rest}` ? Trim<Rest> : S;
 
+// Whitespace accepted around the `->` separator. Mirrors the runtime parser,
+// which calls skipWhitespace() on both sides of the arrow, so multiline
+// signatures may break the line before or after it.
+type ArrowWhitespace = ' ' | '\n' | '\t' | '\r';
+
+/**
+ * Splits a signature at the first `->` that has whitespace on both sides.
+ *
+ * Requiring whitespace keeps arrows inside quoted text (class options or
+ * descriptions like `class "a->b"`) from being mistaken for the separator.
+ * Occurrences without surrounding whitespace are skipped and the scan resumes
+ * after them, accumulating the consumed text in Prefix.
+ *
+ * Resolves to [inputs, outputs] on success, or null when no separator exists.
+ */
+type SplitOnArrow<
+  S extends string,
+  Prefix extends string = '',
+> = S extends `${infer Before}->${infer After}`
+  ? Before extends `${string}${ArrowWhitespace}`
+    ? After extends `${ArrowWhitespace}${string}`
+      ? [`${Prefix}${Before}`, After]
+      : SplitOnArrow<After, `${Prefix}${Before}->`>
+    : SplitOnArrow<After, `${Prefix}${Before}->`>
+  : null;
+
 /**
  * The main signature parser that handles the complete parsing pipeline.
  *
@@ -454,7 +480,8 @@ type StripSignatureDescription<S extends string> =
  *
  * PROCESSING STEPS:
  * 1. StripSignatureDescription: Remove optional description at start
- * 2. Split on " -> " to separate inputs from outputs
+ * 2. SplitOnArrow: Split on whitespace-surrounded "->" to separate inputs
+ *    from outputs (any of space/newline/tab counts, as at runtime)
  * 3. ParseFields: Use quote-aware parsing for both input and output field lists
  * 4. BuildObject: Convert field tuples to TypeScript object types
  *
@@ -466,9 +493,9 @@ type StripSignatureDescription<S extends string> =
  *
  * Where FieldType is inferred from the signature (string, number, 'option1'|'option2', etc.)
  */
-export type ParseSignature<S extends string> = StripSignatureDescription<
-  Trim<S>
-> extends `${infer Inputs} -> ${infer Outputs}`
+export type ParseSignature<S extends string> = SplitOnArrow<
+  StripSignatureDescription<Trim<S>>
+> extends [infer Inputs extends string, infer Outputs extends string]
   ? {
       inputs: BuildObject<ParseFields<Trim<Inputs>>, 'input'>;
       outputs: BuildObject<ParseFields<Trim<Outputs>>, 'output'>;
