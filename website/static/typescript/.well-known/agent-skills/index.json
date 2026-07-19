@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.",
       "url": "ax-signature/SKILL.md",
-      "digest": "sha256:1426245975693e2d1cc24b84ca2cbcfa767ad4d612b089878526aabf228df995"
+      "digest": "sha256:5adbdac138be3070d53bbda1715e1a516a3a3d1c89d3b5ff86996fdceadba308"
     },
     {
       "name": "ax-gen",

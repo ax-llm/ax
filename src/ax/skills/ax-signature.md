@@ -41,6 +41,35 @@ Date, datetime, and range fields are AI-friendly but strict. They accept ISO-sty
 'problem:string -> reasoning!:string, solution:string'  // internal with !
 ```
 
+## Extended String Grammar (Modifier Bags + Nested Objects)
+
+The string form is constraint-complete: everything the fluent API expresses
+(except Standard Schema fields) can be written in the string. A type takes an
+optional comma-separated, order-free **modifier bag** in parentheses, and
+objects declare structured fields inline.
+
+```typescript
+`userAge:number(min 0, max 120), contactEmail:string(format email, cache), codeSnippet:code(python)
+ -> userName:string(pattern "^[a-z_]+$" "lowercase name"), tagList:string(item "a short tag")[] "all tags",
+    profileList:object{ fullName:string, userAge?:number(min 0) }[] "matched profiles"`
+```
+
+| Modifier | Applies to | Effect |
+|----------|-----------|--------|
+| `min N` / `max N` | `string`, `number` | String length bounds / numeric value bounds |
+| `format email\|uri\|date\|date-time` | `string` | Format validation |
+| `pattern "regex" ["desc"]` | `string` | Regex validation with optional description |
+| `cache` | top-level input | Prefix-cache breakpoint |
+| `item "desc"` | arrays | Per-item description: `tags:string(item "a tag")[]` |
+| `<language>` | `code` | Language of the snippet: `snippet:code(python)` |
+
+- `object{ field:type, opt?:type }` nests recursively; append `[]` for an array of objects.
+- Optional goes on the **name** (`userAge?:number`), never after the type.
+- The string API is **strict**: a modifier that does not apply to its type (e.g. `min` on a boolean) is a parse error, where the fluent API silently ignores it.
+- Inside `object{ ... }`, the `!` internal marker, media types, `cache`, and `item` are rejected (they only apply at the top level).
+- In quoted values, backslashes are doubled — a regex `\d` is written `pattern "\\d+"`.
+- `AxSignature.toString()` renders every construct back to this grammar losslessly, so a signature round-trips — this is what lets a whole flow serialize its node contracts into mermaid `%%ax` directives (see the ax-flow skill).
+
 ## Four Ways to Create Signatures
 
 ### 1. String-Based (Recommended for simple cases)
@@ -280,12 +309,20 @@ Bad: `text`, `data`, `input`, `output`, `a`, `x`, `val` (too generic), `1field` 
 // Data Extraction
 'invoiceText:string -> invoiceNumber:string, totalAmount:number, lineItems:json[]'
 
+// Constrained string form (no fluent builder needed)
+'reviewText:string(max 2000) -> rating:number(min 1, max 5), themes:string(item "a theme")[]'
+
+// Nested object output in the string form
+'profileText:string -> profile:object{ fullName:string, age?:number(min 0) }'
+
 // With description
 '"Answer TypeScript questions" question:string -> answer:string, confidence:number'
 ```
 
 ## Critical Rules
 
+- The string form is constraint-complete: reach for modifier bags (`string(max 500)`, `number(min 0, max 10)`, `string(format email)`) and inline `object{ ... }` before switching to fluent/zod just for constraints. Reserve fluent/Standard Schema for zod/valibot-backed fields.
+- The string API is strict — a modifier that does not apply to its type is a parse error (the fluent API silently ignores it).
 - Use `f()` fluent builder, NOT nested `f.array(f.string())` -- those are removed.
 - Field names must be descriptive (not generic like `text`, `data`, `input`).
 - Image/file media types are input-only, top-level only; audio may also be a single top-level output.
