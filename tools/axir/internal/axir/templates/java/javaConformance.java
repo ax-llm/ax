@@ -537,7 +537,7 @@ public final class Conformance {
     String kind = String.valueOf(fixture.getOrDefault("kind", "forward"));
     switch (kind) {
       case "signature_error" -> runSignatureError(fixture);
-      case "signature" -> assertEqual(signaturePayload(buildSignature(fixture)), fixture.get("expected_signature"), "signature");
+      case "signature" -> runSignature(fixture);
       case "json_schema" -> runJsonSchema(fixture);
       case "validate_value" -> runValidateValue(fixture);
       case "validate_output" -> runValidateOutput(fixture);
@@ -630,6 +630,16 @@ public final class Conformance {
       return;
     }
     throw new FixtureError("expected signature construction to fail");
+  }
+
+  static void runSignature(Map<String, Object> fixture) {
+    AxSignature sig = buildSignature(fixture);
+    assertEqual(signaturePayload(sig), fixture.get("expected_signature"), "signature");
+    if (fixture.containsKey("expected_to_string")) {
+      String rendered = sig.toString();
+      assertEqual(rendered, fixture.get("expected_to_string"), "signature toString");
+      assertEqual(signaturePayload(AxSignature.create(rendered)), fixture.get("expected_signature"), "signature round-trip");
+    }
   }
 
   static String errorCategory(RuntimeException e) {
@@ -2118,6 +2128,7 @@ public final class Conformance {
     if (t.pattern != null) out.put("pattern", t.pattern);
     if (t.patternDescription != null) out.put("patternDescription", t.patternDescription);
     if (t.format != null) out.put("format", t.format);
+    if (t.language != null) out.put("language", t.language);
     return out;
   }
 

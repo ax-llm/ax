@@ -664,6 +664,7 @@ func TestBuildRuntimeModel(t *testing.T) {
 	}
 	for _, want := range []string{
 		"parse_signature",
+		"signature_to_string",
 		"to_json_schema",
 		"validate_output",
 		"strip_internal_fields",
@@ -742,12 +743,12 @@ func TestBuildRuntimeModel(t *testing.T) {
 			t.Fatalf("runtime model missing core body source for %s: %#v", want, model.BodySources)
 		}
 	}
-	for _, want := range []string{"signature_parse_impl", "schema_to_json_schema_impl", "validate_value_impl", "template_parse_impl", "prompt_messages_impl", "complete_with_retries_impl", "parse_output_impl", "tool_spec_impl", "ai_model_usage_impl", "openai_message_impl", "openai_stream_choice_impl", "stream_event_content_parts_impl"} {
+	for _, want := range []string{"signature_parse_impl", "signature_parse_type_expr_impl", "signature_parse_modifier_bag_impl", "signature_parse_object_fields_impl", "schema_to_json_schema_impl", "validate_value_impl", "template_parse_impl", "prompt_messages_impl", "complete_with_retries_impl", "parse_output_impl", "tool_spec_impl", "ai_model_usage_impl", "openai_message_impl", "openai_stream_choice_impl", "stream_event_content_parts_impl"} {
 		if model.BodySources[want] != "core" || !model.PrivateSymbols[want] {
 			t.Fatalf("runtime model missing private core helper %s: body=%#v private=%#v", want, model.BodySources, model.PrivateSymbols)
 		}
 	}
-	if model.EmitModules["signature_parse_impl"] != "signature" || model.EmitModules["validate_value_impl"] != "schema" || model.EmitModules["render_prompt"] != "prompt" || model.EmitModules["fold_stream"] != "gen" || model.EmitModules["forward"] != "gen" || model.EmitModules["execute_tool_call"] != "gen" || model.EmitModules["openai_build_chat_request"] != "ai" || model.EmitModules["agent_forward"] != "agent" || model.EmitModules["normalize_agent_runtime"] != "agent" || model.EmitModules["agent_discover"] != "agent" || model.EmitModules["agent_recall"] != "agent" || model.EmitModules["agent_used"] != "agent" || model.EmitModules["agent_export_trace"] != "agent" || model.EmitModules["agent_replay_trace"] != "agent" || model.EmitModules["flow_forward"] != "flow" || model.EmitModules["program_trace_event"] != "program" {
+	if model.EmitModules["signature_parse_impl"] != "signature" || model.EmitModules["signature_to_string"] != "signature" || model.EmitModules["validate_value_impl"] != "schema" || model.EmitModules["render_prompt"] != "prompt" || model.EmitModules["fold_stream"] != "gen" || model.EmitModules["forward"] != "gen" || model.EmitModules["execute_tool_call"] != "gen" || model.EmitModules["openai_build_chat_request"] != "ai" || model.EmitModules["agent_forward"] != "agent" || model.EmitModules["normalize_agent_runtime"] != "agent" || model.EmitModules["agent_discover"] != "agent" || model.EmitModules["agent_recall"] != "agent" || model.EmitModules["agent_used"] != "agent" || model.EmitModules["agent_export_trace"] != "agent" || model.EmitModules["agent_replay_trace"] != "agent" || model.EmitModules["flow_forward"] != "flow" || model.EmitModules["program_trace_event"] != "program" {
 		t.Fatalf("runtime model missing emit module hints: %#v", model.EmitModules)
 	}
 }
@@ -3054,12 +3055,15 @@ func TestSignatureSchemaValidationConformanceFixturesLoad(t *testing.T) {
 	}{
 		{
 			dir:      signatureConformancePath(),
-			minFiles: 10,
+			minFiles: 45,
 			check: func(t *testing.T, file string, fixture map[string]any) {
 				switch fixture["kind"] {
 				case "signature":
 					if _, ok := fixture["expected_signature"]; !ok {
 						t.Fatalf("%s missing expected_signature", file)
+					}
+					if _, ok := fixture["expected_to_string"]; !ok {
+						t.Fatalf("%s missing expected_to_string", file)
 					}
 				case "signature_error":
 					if _, ok := fixture["expected_error_contains"]; !ok {
@@ -3819,9 +3823,13 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"# BEGIN AXIR CORE EMITTED FUNCTIONS",
 		"def _signature_parse_fields_impl(",
 		"def _signature_parse_field_impl(",
+		"def _signature_parse_type_expr_impl(",
+		"def _signature_parse_modifier_bag_impl(",
+		"def _signature_parse_object_fields_impl(",
 		"def _signature_validate_field_shape_impl(",
 		"def _signature_parse_impl(",
 		"def parse_signature(",
+		"def signature_to_string(",
 		"_signature_parse_impl(signature)",
 		"for part in parts:",
 		"if missing_arrow:",
@@ -3991,6 +3999,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	for _, want := range []string{
 		"// BEGIN AXIR CORE EMITTED FUNCTIONS",
 		"static Object parse_signature(",
+		"static Object signature_to_string(",
 		"static Object to_json_schema(",
 		"static Object validate_output(",
 		"static Object render_prompt(",
@@ -4343,6 +4352,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 	for _, want := range []string{
 		"// BEGIN AXIR CORE EMITTED FUNCTIONS",
 		"Value Core::parse_signature(",
+		"Value Core::signature_to_string(",
 		"Value Core::to_json_schema(",
 		"Value Core::validate_output(",
 		"Value Core::render_prompt(",

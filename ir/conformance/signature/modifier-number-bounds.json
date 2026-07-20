@@ -1,0 +1,37 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "tempCelsius",
+        "title": "Temp Celsius",
+        "type": {
+          "isArray": false,
+          "maximum": 60.25,
+          "minimum": -40.5,
+          "name": "number"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "replyText",
+        "title": "Reply Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "expected_to_string": "tempCelsius:number(min -40.5, max 60.25) -> replyText:string",
+  "kind": "signature",
+  "name": "modifier-number-bounds",
+  "signature": "tempCelsius:number(min -40.5, max 60.25) -> replyText:string"
+}

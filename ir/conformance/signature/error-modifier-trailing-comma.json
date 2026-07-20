@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "trailing comma in modifier list",
+  "kind": "signature_error",
+  "name": "error-modifier-trailing-comma",
+  "signature": "userName:string(min 2, ) -> replyText:string",
+  "ts_error_message": "Invalid Signature: Field \"userName\": trailing comma in modifier list",
+  "ts_error_name": "AxSignatureValidationError"
+}

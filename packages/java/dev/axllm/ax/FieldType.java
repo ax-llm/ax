@@ -16,6 +16,7 @@ public final class FieldType {
   public String pattern;
   public String patternDescription;
   public String format;
+  public String language;
   public String description;
 
   public FieldType(String name) {
@@ -34,6 +35,7 @@ public final class FieldType {
     out.pattern = pattern;
     out.patternDescription = patternDescription;
     out.format = format;
+    out.language = language;
     out.description = description;
     return out;
   }

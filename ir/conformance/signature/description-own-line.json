@@ -1,0 +1,35 @@
+{
+  "expected_signature": {
+    "description": "Summarize the supplied article",
+    "inputs": [
+      {
+        "name": "articleText",
+        "title": "Article Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "summaryText",
+        "title": "Summary Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "expected_to_string": "\"Summarize the supplied article\" articleText:string -> summaryText:string",
+  "kind": "signature",
+  "name": "description-own-line",
+  "signature": "\"Summarize the supplied article\"\narticleText:string -> summaryText:string"
+}

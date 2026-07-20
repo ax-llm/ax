@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "unknown modifier \"python\" for type \"string\"",
+  "kind": "signature_error",
+  "name": "error-modifier-unknown",
+  "signature": "userName:string(python) -> replyText:string",
+  "ts_error_message": "Invalid Signature: Field \"userName\": unknown modifier \"python\" for type \"string\"",
+  "ts_error_name": "AxSignatureValidationError"
+}

@@ -6,7 +6,8 @@ import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
 
-const outDir = join(process.cwd(), 'ir/conformance/signature');
+const outRoot = process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd();
+const outDir = join(outRoot, 'ir/conformance/signature');
 
 function stable(value: unknown, parentKey = ''): unknown {
   if (Array.isArray(value)) return value.map((item) => stable(item, parentKey));
@@ -71,6 +72,7 @@ function normalizeNestedField(name: string, fieldType: any): Json {
       pattern: fieldType.pattern,
       patternDescription: fieldType.patternDescription,
       format: fieldType.format,
+      language: fieldType.language,
       description: fieldType.description,
     }),
     isOptional: Boolean(fieldType.isOptional),
@@ -105,6 +107,7 @@ function normalizeType(type: any): Json {
   if (type?.patternDescription !== undefined)
     out.patternDescription = type.patternDescription;
   if (type?.format !== undefined) out.format = type.format;
+  if (type?.language !== undefined) out.language = type.language;
   return out;
 }
 
@@ -117,10 +120,12 @@ function normalizeSignature(sig: AxSignature): Json {
 }
 
 function stringCase(name: string, signature: string): void {
+  const sig = AxSignature.create(signature);
   writeFixture(name, {
     kind: 'signature',
     signature,
-    expected_signature: normalizeSignature(AxSignature.create(signature)),
+    expected_signature: normalizeSignature(sig),
+    expected_to_string: sig.toString(),
   });
 }
 
@@ -129,6 +134,7 @@ function fluentCase(name: string, signatureSpec: Json, sig: AxSignature): void {
     kind: 'signature',
     signature_spec: signatureSpec,
     expected_signature: normalizeSignature(sig),
+    expected_to_string: sig.toString(),
   });
 }
 
@@ -178,6 +184,51 @@ stringCase(
   'documentText:string -> speechAudio:audio, summary:string'
 );
 stringCase('whitespace-trimming', '\t question:string  ->  answer:number \n');
+stringCase(
+  'modifier-string-bounds',
+  'userName:string(min 2, max 50) -> replyText:string'
+);
+stringCase(
+  'modifier-number-bounds',
+  'tempCelsius:number(min -40.5, max 60.25) -> replyText:string'
+);
+stringCase(
+  'modifier-string-formats',
+  'contactEmail:string(format email), siteLink:string(format uri), bornOn:string(format date), seenAt:string(format date-time) -> replyText:string'
+);
+stringCase(
+  'modifier-pattern-description',
+  'userName:string(pattern "^[a-z_]+$" "lowercase identifier"), skuCode:string(pattern "^[A-Z]{3}-\\\\d+$") -> replyText:string'
+);
+stringCase(
+  'modifier-cache-and-item',
+  'contextText:string(cache) "shared context", tagList:string(item "a short tag")[] "all tags" -> replyText:string'
+);
+stringCase(
+  'modifier-code-language',
+  'codeSnippet:code(python) "script to run" -> fixedSnippet:code(typescript)'
+);
+stringCase(
+  'nested-object-simple',
+  'profileInfo:object{ id:string, age?:number "in years", nickName } -> replyText:string'
+);
+stringCase(
+  'nested-object-class',
+  'requestInfo:object{ severity:class "high, low" } -> reviewInfo:object{ verdictNote:string, level:class[] "a | b | c" }'
+);
+stringCase(
+  'nested-object-arrays',
+  'orderInfo:object{ lineItems:object{ sku:string, qty:number }[], notes:string[] }[] -> replyText:string'
+);
+stringCase(
+  'nested-object-constraints',
+  'profileInfo:object{ userAge:number(min 0), mail:string(format email), snip:code(python) } -> replyText:string'
+);
+stringCase('bare-object-flexible', 'metaInfo:object -> replyText:string');
+stringCase(
+  'description-own-line',
+  '"Summarize the supplied article"\narticleText:string -> summaryText:string'
+);
 
 fluentCase(
   'fluent-nested-object',
@@ -300,4 +351,99 @@ errorCase(
   'error-empty-class-options',
   'question:string -> category:class ""',
   'Missing class options'
+);
+errorCase(
+  'error-modifier-min-boolean',
+  'okFlag:boolean(min 1) -> replyText:string',
+  '"min" is not supported for type "boolean"'
+);
+errorCase(
+  'error-modifier-unknown',
+  'userName:string(python) -> replyText:string',
+  'unknown modifier "python" for type "string"'
+);
+errorCase(
+  'error-modifier-min-missing-number',
+  'userAge:number(min abc) -> replyText:string',
+  '"min" requires a numeric value'
+);
+errorCase(
+  'error-modifier-duplicate',
+  'userAge:number(min 1, min 2) -> replyText:string',
+  'duplicate "min" modifier'
+);
+errorCase(
+  'error-modifier-empty-bag',
+  'userName:string() -> replyText:string',
+  'empty modifier list'
+);
+errorCase(
+  'error-modifier-trailing-comma',
+  'userName:string(min 2, ) -> replyText:string',
+  'trailing comma in modifier list'
+);
+errorCase(
+  'error-modifier-class-bag',
+  'userQuestion:string -> verdictLabel:class(min 1) "a, b"',
+  'constraints are not supported on class fields'
+);
+errorCase(
+  'error-modifier-unknown-format',
+  'contactEmail:string(format phone) -> replyText:string',
+  'unknown format "phone"'
+);
+errorCase(
+  'error-modifier-pattern-unquoted',
+  'userName:string(pattern abc) -> replyText:string',
+  '"pattern" requires a quoted regular expression'
+);
+errorCase(
+  'error-modifier-item-without-array',
+  'tagList:string(item "x") -> replyText:string',
+  '"item" modifier requires an array type'
+);
+errorCase(
+  'error-modifier-cache-output',
+  'userQuestion:string -> replyText:string(cache)',
+  '"cache" is only supported on top-level input fields'
+);
+errorCase(
+  'error-modifier-cache-nested',
+  'profileInfo:object{ ctx:string(cache) } -> replyText:string',
+  '"cache" is only supported on top-level input fields'
+);
+errorCase(
+  'error-modifier-item-nested',
+  'profileInfo:object{ tags:string(item "x")[] } -> replyText:string',
+  '"item" is not supported inside object fields'
+);
+errorCase(
+  'error-object-media-nested',
+  'profileInfo:object{ photo:image } -> replyText:string',
+  'image type is not allowed in nested object fields'
+);
+errorCase(
+  'error-object-internal-nested',
+  'userQuestion:string -> reportInfo:object{ scratch!:string }',
+  'cannot use the internal marker'
+);
+errorCase(
+  'error-object-unbalanced',
+  'profileInfo:object{ id:string',
+  'unbalanced "{" in object type'
+);
+errorCase(
+  'error-object-empty',
+  'profileInfo:object{} -> replyText:string',
+  'object type requires at least one field'
+);
+errorCase(
+  'error-object-trailing-comma',
+  'profileInfo:object{ id:string, } -> replyText:string',
+  'trailing comma in object type'
+);
+errorCase(
+  'error-object-duplicate-field',
+  'profileInfo:object{ id:string, id:number } -> replyText:string',
+  'duplicate object field name "id"'
 );

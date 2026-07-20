@@ -1,0 +1,72 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "contactEmail",
+        "title": "Contact Email",
+        "type": {
+          "format": "email",
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      },
+      {
+        "name": "siteLink",
+        "title": "Site Link",
+        "type": {
+          "format": "uri",
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      },
+      {
+        "name": "bornOn",
+        "title": "Born On",
+        "type": {
+          "format": "date",
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      },
+      {
+        "name": "seenAt",
+        "title": "Seen At",
+        "type": {
+          "format": "date-time",
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "replyText",
+        "title": "Reply Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "expected_to_string": "contactEmail:string(format email), siteLink:string(format uri), bornOn:string(format date), seenAt:string(format date-time) -> replyText:string",
+  "kind": "signature",
+  "name": "modifier-string-formats",
+  "signature": "contactEmail:string(format email), siteLink:string(format uri), bornOn:string(format date), seenAt:string(format date-time) -> replyText:string"
+}

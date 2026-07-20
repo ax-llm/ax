@@ -500,7 +500,7 @@ static Value build_signature(Value fixture) {
 static Value field_payload(Value field);
 static Value type_payload(Value typ) {
   Object out{{"name", Core::get(typ, "name")}, {"isArray", Core::get(typ, "is_array", false)}};
-  for (const auto& key : {"options", "description", "fields", "minLength", "maxLength", "minimum", "maximum", "pattern", "patternDescription", "format"}) {
+  for (const auto& key : {"options", "description", "fields", "minLength", "maxLength", "minimum", "maximum", "pattern", "patternDescription", "format", "language"}) {
     Value value = Core::get(typ, key);
     if (!value.is_null()) {
       if (std::string(key) == "fields") {
@@ -2294,7 +2294,13 @@ static void run(Value fixture) {
   if (kind == "signature_error") {
     expect_maybe_error([&] { return build_signature(fixture); }, fixture);
   } else if (kind == "signature") {
-    assert_equal(signature_payload(build_signature(fixture)), Core::get(fixture, "expected_signature"), "signature");
+    Value sig = build_signature(fixture);
+    assert_equal(signature_payload(sig), Core::get(fixture, "expected_signature"), "signature");
+    if (!Core::get(fixture, "expected_to_string").is_null()) {
+      std::string rendered = axllm::to_string(sig);
+      assert_equal(rendered, Core::get(fixture, "expected_to_string"), "signature toString");
+      assert_equal(signature_payload(axllm::s(rendered)), Core::get(fixture, "expected_signature"), "signature round-trip");
+    }
   } else if (kind == "json_schema") {
     Value sig = build_signature(fixture);
     Value fields = display(Core::get(fixture, "target", "outputs")) == "inputs" ? Core::get(sig, "inputs") : Core::get(sig, "outputs");

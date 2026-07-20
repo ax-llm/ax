@@ -1,0 +1,49 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "userName",
+        "title": "User Name",
+        "type": {
+          "isArray": false,
+          "name": "string",
+          "pattern": "^[a-z_]+$",
+          "patternDescription": "lowercase identifier"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      },
+      {
+        "name": "skuCode",
+        "title": "Sku Code",
+        "type": {
+          "isArray": false,
+          "name": "string",
+          "pattern": "^[A-Z]{3}-\\d+$"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "replyText",
+        "title": "Reply Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "expected_to_string": "userName:string(pattern \"^[a-z_]+$\" \"lowercase identifier\"), skuCode:string(pattern \"^[A-Z]{3}-\\\\d+$\") -> replyText:string",
+  "kind": "signature",
+  "name": "modifier-pattern-description",
+  "signature": "userName:string(pattern \"^[a-z_]+$\" \"lowercase identifier\"), skuCode:string(pattern \"^[A-Z]{3}-\\\\d+$\") -> replyText:string"
+}

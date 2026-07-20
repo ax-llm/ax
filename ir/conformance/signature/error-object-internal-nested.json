@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "cannot use the internal marker",
+  "kind": "signature_error",
+  "name": "error-object-internal-nested",
+  "signature": "userQuestion:string -> reportInfo:object{ scratch!:string }",
+  "ts_error_message": "Invalid Signature: Object field \"reportInfo.scratch\" cannot use the internal marker \"!\"",
+  "ts_error_name": "AxSignatureValidationError"
+}

@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "\"cache\" is only supported on top-level input fields",
+  "kind": "signature_error",
+  "name": "error-modifier-cache-output",
+  "signature": "userQuestion:string -> replyText:string(cache)",
+  "ts_error_message": "Invalid Signature: Field \"replyText\": \"cache\" is only supported on top-level input fields",
+  "ts_error_name": "AxSignatureValidationError"
+}

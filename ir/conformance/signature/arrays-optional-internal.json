@@ -50,6 +50,7 @@
       }
     ]
   },
+  "expected_to_string": "questions:string[], context?:string -> answer:string, notes?!:string",
   "kind": "signature",
   "name": "arrays-optional-internal",
   "signature": "questions:string[], context?:string -> answer:string, notes?!:string"

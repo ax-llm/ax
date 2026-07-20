@@ -795,6 +795,61 @@ Value Core::string_split_outside_quotes(Value text, Value sep) {
   if (truthy(trimmed)) out.push_back(trimmed);
   return Value(out);
 }
+Value Core::string_split_top_level(Value text, Value sep) {
+  std::string s = str(text), delimiter = str(sep), cur;
+  Array out;
+  char quote = 0;
+  bool escaped = false;
+  int paren_depth = 0, brace_depth = 0;
+  for (size_t i = 0; i < s.size();) {
+    char ch = s[i];
+    if (escaped) { cur.push_back(ch); escaped = false; ++i; continue; }
+    if (ch == '\\') { cur.push_back(ch); escaped = true; ++i; continue; }
+    if (quote != 0) { cur.push_back(ch); if (ch == quote) quote = 0; ++i; continue; }
+    if (ch == '\'' || ch == '"') { cur.push_back(ch); quote = ch; ++i; continue; }
+    if (ch == '(') ++paren_depth;
+    else if (ch == ')' && paren_depth > 0) --paren_depth;
+    else if (ch == '{') ++brace_depth;
+    else if (ch == '}' && brace_depth > 0) --brace_depth;
+    if (!delimiter.empty() && paren_depth == 0 && brace_depth == 0 && s.compare(i, delimiter.size(), delimiter) == 0) {
+      out.push_back(string_trim(cur));
+      cur.clear();
+      i += delimiter.size();
+      continue;
+    }
+    cur.push_back(ch);
+    ++i;
+  }
+  if (quote != 0) throw AxError("signature", "Unterminated string");
+  out.push_back(string_trim(cur));
+  return Value(out);
+}
+Value Core::string_extract_leading_group(Value text, Value open, Value close) {
+  std::string s = str(text), opening = str(open), closing = str(close);
+  if (opening.empty() || closing.empty() || s.rfind(opening, 0) != 0) {
+    return Value(Object{{"found", false}, {"balanced", true}, {"group", ""}, {"rest", s}});
+  }
+  char quote = 0;
+  bool escaped = false;
+  int depth = 0;
+  for (size_t i = 0; i < s.size(); ++i) {
+    char ch = s[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch == '\\') { escaped = true; continue; }
+    if (quote != 0) { if (ch == quote) quote = 0; continue; }
+    if (ch == '\'' || ch == '"') { quote = ch; continue; }
+    if (s.compare(i, opening.size(), opening) == 0) { ++depth; i += opening.size() - 1; continue; }
+    if (s.compare(i, closing.size(), closing) == 0) {
+      --depth;
+      if (depth == 0) {
+        return Value(Object{{"found", true}, {"balanced", true}, {"group", s.substr(opening.size(), i - opening.size())}, {"rest", s.substr(i + closing.size())}});
+      }
+      i += closing.size() - 1;
+    }
+  }
+  if (quote != 0) throw AxError("signature", "Unterminated string");
+  return Value(Object{{"found", true}, {"balanced", false}, {"group", s.substr(opening.size())}, {"rest", ""}});
+}
 Value Core::string_consume_optional_quoted_prefix(Value text) {
   std::string s = str(text);
   Object out;
@@ -1228,10 +1283,16 @@ Value Core::record_new(Value name, Value values) {
     Object out;
     out["name"] = in.count("name") ? in["name"] : Value("string");
     out["isArray"] = get_key(values, "is_array", false);
-    for (const auto& key : {"options", "fields", "minLength", "maxLength", "minimum", "maximum", "pattern", "patternDescription", "format", "description"}) {
+    for (const auto& key : {"options", "fields", "minimum", "maximum", "pattern", "format", "language", "description"}) {
       if (in.count(key)) out[key] = in[key];
     }
-    for (const auto& kv : in) if (!out.count(kv.first) && kv.first != "is_array") out[kv.first] = kv.second;
+    for (const auto& keys : {std::pair{"minLength", "min_length"}, std::pair{"maxLength", "max_length"}, std::pair{"patternDescription", "pattern_description"}}) {
+      auto value = get_key(values, keys.second);
+      if (!value.is_null()) out[keys.first] = value;
+    }
+    for (const auto& kv : in) {
+      if (!out.count(kv.first) && kv.first != "is_array" && kv.first != "min_length" && kv.first != "max_length" && kv.first != "pattern_description") out[kv.first] = kv.second;
+    }
     return Value(out);
   }
   if (type == "Field") {
@@ -5252,6 +5313,7 @@ Value s(const std::string& source) {
   return sig;
 }
 Value signature(const std::string& source) { return s(source); }
+std::string to_string(const Value& sig) { return display(Core::signature_to_string(sig)); }
 AxGen ax(const std::string& source, Value options) { return AxGen(s(source), std::move(options)); }
 AxGen ax(const char* source, Value options) { return ax(std::string(source == nullptr ? "" : source), std::move(options)); }
 AxGen ax(Value signature, Value options) { return AxGen(std::move(signature), std::move(options)); }

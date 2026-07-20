@@ -26,6 +26,8 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicPromptStructured:    true,
 	IntrinsicStringFindQuoted:    true,
 	IntrinsicStringSplitQuoted:   true,
+	IntrinsicStringSplitTopLevel: true,
+	IntrinsicStringExtractGroup:  true,
 	IntrinsicStringConsumeOpt:    true,
 	IntrinsicStringExtractSuf:    true,
 }

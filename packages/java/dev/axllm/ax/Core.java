@@ -141,6 +141,7 @@ final class Core {
         case "pattern" -> t.pattern;
         case "pattern_description", "patternDescription" -> t.patternDescription;
         case "format" -> t.format;
+        case "language" -> t.language;
         case "description" -> t.description;
         default -> defaultValue;
       };
@@ -353,6 +354,54 @@ final class Core {
     String item = cur.toString().trim(); if (!item.isEmpty()) out.add(item);
     return out;
   }
+  static Object stringSplitTopLevel(Object text, Object sep) {
+    String s = String.valueOf(text), delimiter = String.valueOf(sep);
+    List<Object> out = new ArrayList<>(); StringBuilder cur = new StringBuilder(); Character quote = null; boolean escaped = false;
+    int parenDepth = 0, braceDepth = 0;
+    for (int i = 0; i < s.length();) {
+      char ch = s.charAt(i);
+      if (escaped) { cur.append(ch); escaped = false; i++; continue; }
+      if (ch == '\\') { cur.append(ch); escaped = true; i++; continue; }
+      if (quote != null) { cur.append(ch); if (ch == quote) quote = null; i++; continue; }
+      if (ch == '\'' || ch == '"') { cur.append(ch); quote = ch; i++; continue; }
+      if (ch == '(') parenDepth++;
+      else if (ch == ')' && parenDepth > 0) parenDepth--;
+      else if (ch == '{') braceDepth++;
+      else if (ch == '}' && braceDepth > 0) braceDepth--;
+      if (!delimiter.isEmpty() && parenDepth == 0 && braceDepth == 0 && s.startsWith(delimiter, i)) {
+        out.add(cur.toString().trim()); cur = new StringBuilder(); i += delimiter.length(); continue;
+      }
+      cur.append(ch); i++;
+    }
+    if (quote != null) throw new AxSignatureError("Unterminated string");
+    out.add(cur.toString().trim());
+    return out;
+  }
+  static Object stringExtractLeadingGroup(Object text, Object open, Object close) {
+    String s = String.valueOf(text), opening = String.valueOf(open), closing = String.valueOf(close);
+    Map<String, Object> out = new LinkedHashMap<>();
+    if (opening.isEmpty() || closing.isEmpty() || !s.startsWith(opening)) {
+      out.put("found", false); out.put("balanced", true); out.put("group", ""); out.put("rest", s); return out;
+    }
+    Character quote = null; boolean escaped = false; int depth = 0;
+    for (int i = 0; i < s.length(); i++) {
+      char ch = s.charAt(i);
+      if (escaped) { escaped = false; continue; }
+      if (ch == '\\') { escaped = true; continue; }
+      if (quote != null) { if (ch == quote) quote = null; continue; }
+      if (ch == '\'' || ch == '"') { quote = ch; continue; }
+      if (s.startsWith(opening, i)) { depth++; i += opening.length() - 1; continue; }
+      if (s.startsWith(closing, i)) {
+        depth--;
+        if (depth == 0) {
+          out.put("found", true); out.put("balanced", true); out.put("group", s.substring(opening.length(), i)); out.put("rest", s.substring(i + closing.length())); return out;
+        }
+        i += closing.length() - 1;
+      }
+    }
+    if (quote != null) throw new AxSignatureError("Unterminated string");
+    out.put("found", true); out.put("balanced", false); out.put("group", s.substring(opening.length())); out.put("rest", ""); return out;
+  }
   static Object stringConsumeOptionalQuotedPrefix(Object text) {
     String s = String.valueOf(text);
     Map<String, Object> out = new LinkedHashMap<>();
@@ -432,6 +481,7 @@ final class Core {
     t.pattern = (String) v.get("pattern");
     t.patternDescription = (String) v.getOrDefault("patternDescription", v.get("pattern_description"));
     t.format = (String) v.get("format");
+    t.language = (String) v.get("language");
     t.description = (String) v.get("description");
     return t;
   }
@@ -952,6 +1002,13 @@ final class Core {
     Object arrow = Core.stringFindOutsideQuotes(body, "->");
     Object missing_arrow = Core.lt(arrow, 0);
     if (Core.truthy(missing_arrow)) {
+      Object open_brace = Core.stringFindOutsideQuotes(body, "{");
+      Object brace_missing = Core.lt(open_brace, 0);
+      Object has_open_brace = Core.not(brace_missing);
+      if (Core.truthy(has_open_brace)) {
+        Object error = Core.signatureError("unbalanced \"{\" in object type");
+        throw Core.asRuntime(error);
+      }
       Object error = Core.signatureError("Expected \"->\"");
       throw Core.asRuntime(error);
     }
@@ -984,9 +1041,15 @@ final class Core {
 
   static Object _signature_parse_fields_impl(Object text, Object output) {
     axirCoverageMark("_signature_parse_fields_impl");
-    Object parts = Core.stringSplitOutsideQuotes(text, ",");
+    Object parts = Core.stringSplitTopLevel(text, ",");
     Object fields = new java.util.ArrayList<Object>();
     for (Object part : Core.iter(parts)) {
+      Object trimmed = Core.stringTrim(part);
+      Object empty = Core.eq(trimmed, "");
+      if (Core.truthy(empty)) {
+        Object error = Core.signatureError("Unexpected content after signature");
+        throw Core.asRuntime(error);
+      }
       Object field = Core._signature_parse_field_impl(part, output);
       Core.append(fields, field);
     }
@@ -995,90 +1058,879 @@ final class Core {
 
   static Object _signature_parse_field_impl(Object raw, Object output) {
     axirCoverageMark("_signature_parse_field_impl");
+    Object field = Core._signature_parse_field_common_impl(raw, output, Boolean.FALSE, "");
+    return field;
+  }
+
+  static Object _signature_parse_field_common_impl(Object raw, Object output, Object nested, Object parent) {
+    axirCoverageMark("_signature_parse_field_common_impl");
     Object text = Core.stringTrim(raw);
-    Object quoted_info = Core.stringExtractQuotedSuffix(text);
-    Object quoted = Core.get(quoted_info, "value", null);
-    Object rest_after_quote = Core.get(quoted_info, "rest", null);
-    Object rest_after_quote_trimmed = Core.stringTrim(rest_after_quote);
-    Object has_extra = Core.truthyValue(rest_after_quote_trimmed);
-    if (Core.truthy(has_extra)) {
-      Object error = Core.signatureError("Unexpected content after signature");
-      throw Core.asRuntime(error);
-    }
-    Object head_raw = Core.get(quoted_info, "head", null);
-    Object head = Core.stringTrim(head_raw);
-    Object head_parts = Core.stringSplitOnce(head, ":");
+    Object head_parts = Core.stringSplitOnce(text, ":");
+    Object has_type = Core.get(head_parts, "found", Boolean.FALSE);
     Object name_part_raw = Core.get(head_parts, "left", null);
     Object type_part_raw = Core.get(head_parts, "right", null);
-    Object name_part = Core.stringTrim(name_part_raw);
-    Object type_part_trimmed = Core.stringTrim(type_part_raw);
-    Object type_part = Core.stringDefaultIfEmpty(type_part_trimmed, "string");
+    Object state = new java.util.LinkedHashMap<String, Object>();
+    Core.set(state, "name_part", name_part_raw);
+    Object none = Core.none();
+    Core.set(state, "description", none);
+    Core.set(state, "is_cached", Boolean.FALSE);
+    Object default_type_attrs = new java.util.LinkedHashMap<String, Object>();
+    Core.set(default_type_attrs, "name", "string");
+    Core.set(default_type_attrs, "is_array", Boolean.FALSE);
+    Object default_type = Core.recordNew("FieldType", default_type_attrs);
+    Core.set(state, "type", default_type);
+    if (Core.truthy(has_type)) {
+      Object section_state = new java.util.LinkedHashMap<String, Object>();
+      Core.set(section_state, "value", "input");
+      if (Core.truthy(output)) {
+        Core.set(section_state, "value", "output");
+      }
+      if (Core.truthy(nested)) {
+        Core.set(section_state, "value", "nested");
+      }
+      Object section = Core.get(section_state, "value", null);
+      Object name_for_error = Core.stringTrim(name_part_raw);
+      if (Core.truthy(nested)) {
+        name_for_error = Core.stringFormat("{}.{}", parent, name_for_error);
+      }
+      Object parsed_type = Core._signature_parse_type_expr_impl(type_part_raw, section, name_for_error);
+      Object parsed_field_type = Core.get(parsed_type, "type", null);
+      Object parsed_cached = Core.get(parsed_type, "is_cached", Boolean.FALSE);
+      Core.set(state, "type", parsed_field_type);
+      Core.set(state, "is_cached", parsed_cached);
+      Object language = Core.get(parsed_field_type, "language", null);
+      Object parsed_rest = Core.get(parsed_type, "rest", null);
+      Object description = Core._signature_parse_description_impl(parsed_rest, language);
+      Core.set(state, "description", description);
+    }
+    if (!Core.truthy(has_type)) {
+      Object quoted_info = Core.stringExtractQuotedSuffix(name_part_raw);
+      Object quoted = Core.get(quoted_info, "value", null);
+      Object rest_after_quote_raw = Core.get(quoted_info, "rest", null);
+      Object rest_after_quote = Core.stringTrim(rest_after_quote_raw);
+      Object has_extra = Core.truthyValue(rest_after_quote);
+      if (Core.truthy(has_extra)) {
+        Object error = Core.signatureError("Unexpected content after signature");
+        throw Core.asRuntime(error);
+      }
+      Object quoted_head = Core.get(quoted_info, "head", null);
+      Core.set(state, "name_part", quoted_head);
+      Core.set(state, "description", quoted);
+    }
+    Object name_part_value = Core.get(state, "name_part", null);
+    Object name_part = Core.stringTrim(name_part_value);
     Object is_optional = Core.contains(name_part, "?");
     Object is_internal = Core.contains(name_part, "!");
     Object name_without_optional = Core.stringReplace(name_part, "?", "");
     Object name_without_markers = Core.stringReplace(name_without_optional, "!", "");
     Object name = Core.stringTrim(name_without_markers);
-    Object type_words = Core.stringWords(type_part);
-    Object type_word_count = Core.len(type_words);
-    Object extra_type_tokens = Core.gt(type_word_count, 1);
-    if (Core.truthy(extra_type_tokens)) {
-      Object error = Core.signatureError("Unexpected content after signature");
+    Object nested_internal = Core.and(nested, is_internal);
+    if (Core.truthy(nested_internal)) {
+      Object qualified = Core.stringFormat("{}.{}", parent, name);
+      Object message = Core.stringFormat("Object field \"{}\" cannot use the internal marker \"!\"", qualified);
+      Object error = Core.signatureError(message);
       throw Core.asRuntime(error);
     }
-    Object type_token = Core.listGet(type_words, 0, "string");
-    Object array_info = Core.stringRemoveSuffix(type_token, "[]");
-    Object type_name_raw = Core.get(array_info, "value", null);
-    Object type_name = Core.stringDefaultIfEmpty(type_name_raw, "string");
-    Object is_array = Core.get(array_info, "removed", null);
-    Object is_class = Core.eq(type_name, "class");
-    if (Core.truthy(is_class)) {
-      Object class_input = Core.not(output);
-      if (Core.truthy(class_input)) {
-        Object error = Core.signatureError("Input field cannot use the \"class\" type");
-        throw Core.asRuntime(error);
-      }
-      Object missing_quoted = Core.isNone(quoted);
-      if (Core.truthy(missing_quoted)) {
-        Object error = Core.signatureError("Missing class options after \"class\" type");
-        throw Core.asRuntime(error);
-      }
-      Object class_option_text = Core.stringReplace(quoted, "|", ",");
-      Object options = Core.stringSplitTrimNonEmpty(class_option_text, ",");
-      Object option_count = Core.len(options);
-      Object empty_options = Core.eq(option_count, 0);
-      if (Core.truthy(empty_options)) {
-        Object error = Core.signatureError("Missing class options after \"class\" type");
-        throw Core.asRuntime(error);
-      }
+    Object field_type = Core.get(state, "type", null);
+    Object description = Core.get(state, "description", null);
+    Object has_description = Core.isNotNone(description);
+    Object has_nested_description = Core.and(nested, has_description);
+    if (Core.truthy(has_nested_description)) {
       Object type_attrs = new java.util.LinkedHashMap<String, Object>();
+      Object type_name = Core.get(field_type, "name", null);
+      Object type_is_array = Core.get(field_type, "is_array", Boolean.FALSE);
+      Object type_options = Core.get(field_type, "options", null);
+      Object type_fields = Core.get(field_type, "fields", null);
+      Object type_min_length = Core.get(field_type, "min_length", null);
+      Object type_max_length = Core.get(field_type, "max_length", null);
+      Object type_minimum = Core.get(field_type, "minimum", null);
+      Object type_maximum = Core.get(field_type, "maximum", null);
+      Object type_pattern = Core.get(field_type, "pattern", null);
+      Object type_pattern_description = Core.get(field_type, "pattern_description", null);
+      Object type_format = Core.get(field_type, "format", null);
+      Object type_language = Core.get(field_type, "language", null);
       Core.set(type_attrs, "name", type_name);
-      Core.set(type_attrs, "is_array", is_array);
-      Core.set(type_attrs, "options", options);
-      Object field_type = Core.recordNew("FieldType", type_attrs);
-      Object none = Core.none();
-      Object field_attrs = new java.util.LinkedHashMap<String, Object>();
-      Core.set(field_attrs, "name", name);
-      Core.set(field_attrs, "type", field_type);
-      Core.set(field_attrs, "description", none);
-      Core.set(field_attrs, "is_optional", is_optional);
-      Core.set(field_attrs, "is_internal", is_internal);
-      Object field = Core.recordNew("Field", field_attrs);
-      Core._signature_validate_field_shape_impl(field, output, Boolean.FALSE);
-      return field;
+      Core.set(type_attrs, "is_array", type_is_array);
+      Core.set(type_attrs, "options", type_options);
+      Core.set(type_attrs, "fields", type_fields);
+      Core.set(type_attrs, "min_length", type_min_length);
+      Core.set(type_attrs, "max_length", type_max_length);
+      Core.set(type_attrs, "minimum", type_minimum);
+      Core.set(type_attrs, "maximum", type_maximum);
+      Core.set(type_attrs, "pattern", type_pattern);
+      Core.set(type_attrs, "pattern_description", type_pattern_description);
+      Core.set(type_attrs, "format", type_format);
+      Core.set(type_attrs, "language", type_language);
+      Core.set(type_attrs, "description", description);
+      field_type = Core.recordNew("FieldType", type_attrs);
     }
-    Object type_attrs = new java.util.LinkedHashMap<String, Object>();
-    Core.set(type_attrs, "name", type_name);
-    Core.set(type_attrs, "is_array", is_array);
-    Object field_type = Core.recordNew("FieldType", type_attrs);
     Object field_attrs = new java.util.LinkedHashMap<String, Object>();
     Core.set(field_attrs, "name", name);
     Core.set(field_attrs, "type", field_type);
-    Core.set(field_attrs, "description", quoted);
+    Core.set(field_attrs, "description", description);
     Core.set(field_attrs, "is_optional", is_optional);
     Core.set(field_attrs, "is_internal", is_internal);
+    Object is_cached = Core.get(state, "is_cached", Boolean.FALSE);
+    Core.set(field_attrs, "is_cached", is_cached);
     Object field = Core.recordNew("Field", field_attrs);
-    Core._signature_validate_field_shape_impl(field, output, Boolean.FALSE);
+    Core._signature_validate_field_shape_impl(field, output, nested);
     return field;
+  }
+
+  static Object _signature_parse_description_impl(Object raw, Object fallback) {
+    axirCoverageMark("_signature_parse_description_impl");
+    Object text = Core.stringTrim(raw);
+    Object empty = Core.eq(text, "");
+    if (Core.truthy(empty)) {
+      return fallback;
+    }
+    Object quoted = Core.stringConsumeOptionalQuotedPrefix(text);
+    Object found = Core.get(quoted, "found", Boolean.FALSE);
+    Object missing = Core.not(found);
+    if (Core.truthy(missing)) {
+      Object error = Core.signatureError("Unexpected content after signature");
+      throw Core.asRuntime(error);
+    }
+    Object rest_raw = Core.get(quoted, "rest", null);
+    Object rest = Core.stringTrim(rest_raw);
+    Object has_extra = Core.truthyValue(rest);
+    if (Core.truthy(has_extra)) {
+      Object error = Core.signatureError("Unexpected content after signature");
+      throw Core.asRuntime(error);
+    }
+    Object value_raw = Core.get(quoted, "value", null);
+    Object value = Core.stringTrim(value_raw);
+    return value;
+  }
+
+  static Object _signature_parse_base_type_impl(Object raw) {
+    axirCoverageMark("_signature_parse_base_type_impl");
+    Object text = Core.stringTrim(raw);
+    Object types = new java.util.ArrayList<Object>();
+    Core.append(types, "datetimeRange");
+    Core.append(types, "dateRange");
+    Core.append(types, "datetime");
+    Core.append(types, "boolean");
+    Core.append(types, "string");
+    Core.append(types, "number");
+    Core.append(types, "object");
+    Core.append(types, "class");
+    Core.append(types, "image");
+    Core.append(types, "audio");
+    Core.append(types, "file");
+    Core.append(types, "json");
+    Core.append(types, "date");
+    Core.append(types, "code");
+    Core.append(types, "url");
+    Object state = new java.util.LinkedHashMap<String, Object>();
+    Core.set(state, "name", "");
+    Core.set(state, "rest", text);
+    for (Object candidate : Core.iter(types)) {
+      Object matched_name = Core.get(state, "name", null);
+      Object unmatched = Core.eq(matched_name, "");
+      if (Core.truthy(unmatched)) {
+        Object starts = Core.stringStartsWith(text, candidate);
+        if (Core.truthy(starts)) {
+          Object offset = Core.len(candidate);
+          Object after = Core.stringSlice(text, offset);
+          Object first = Core.stringSlice(after, 0, 1);
+          Object boundary = Core.eq(after, "");
+          Object space = Core.regexMatch("^\\s", after);
+          boundary = Core.or(boundary, space);
+          Object open_paren = Core.eq(first, "(");
+          boundary = Core.or(boundary, open_paren);
+          Object open_brace = Core.eq(first, "{");
+          boundary = Core.or(boundary, open_brace);
+          Object open_array = Core.eq(first, "[");
+          boundary = Core.or(boundary, open_array);
+          Object double_quote = Core.eq(first, "\"");
+          boundary = Core.or(boundary, double_quote);
+          Object single_quote = Core.eq(first, "'");
+          boundary = Core.or(boundary, single_quote);
+          if (Core.truthy(boundary)) {
+            Core.set(state, "name", candidate);
+            Core.set(state, "rest", after);
+          }
+        }
+      }
+    }
+    Object name = Core.get(state, "name", null);
+    Object missing = Core.eq(name, "");
+    if (Core.truthy(missing)) {
+      Object words = Core.stringWords(text);
+      Object word = Core.listGet(words, 0, "empty");
+      Object message = Core.stringFormat("Invalid type \"{}\"", word);
+      Object error = Core.signatureError(message);
+      throw Core.asRuntime(error);
+    }
+    return state;
+  }
+
+  static Object _signature_parse_type_expr_impl(Object raw, Object section, Object field_name) {
+    axirCoverageMark("_signature_parse_type_expr_impl");
+    Object base = Core._signature_parse_base_type_impl(raw);
+    Object type_name = Core.get(base, "name", null);
+    Object base_rest = Core.get(base, "rest", null);
+    Object rest = Core.stringTrim(base_rest);
+    Object nested = Core.eq(section, "nested");
+    Object media = new java.util.ArrayList<Object>();
+    Core.append(media, "image");
+    Core.append(media, "audio");
+    Core.append(media, "file");
+    Object is_media = Core.contains(media, type_name);
+    Object nested_media = Core.and(nested, is_media);
+    if (Core.truthy(nested_media)) {
+      Object message = Core.stringFormat("Object field \"{}\": {} type is not allowed in nested object fields", field_name, type_name);
+      Object error = Core.signatureError(message);
+      throw Core.asRuntime(error);
+    }
+    Object is_class = Core.eq(type_name, "class");
+    if (Core.truthy(is_class)) {
+      Object input = Core.eq(section, "input");
+      if (Core.truthy(input)) {
+        Object error = Core.signatureError("Input field cannot use the \"class\" type");
+        throw Core.asRuntime(error);
+      }
+      Object bag = Core.stringStartsWith(rest, "(");
+      if (Core.truthy(bag)) {
+        Object message = Core.stringFormat("Field \"{}\": constraints are not supported on class fields", field_name);
+        Object error = Core.signatureError(message);
+        throw Core.asRuntime(error);
+      }
+      Object is_array = Core.stringStartsWith(rest, "[]");
+      if (Core.truthy(is_array)) {
+        Object rest_after_array = Core.stringSlice(rest, 2);
+        rest = Core.stringTrim(rest_after_array);
+      }
+      Object bag_after = Core.stringStartsWith(rest, "(");
+      if (Core.truthy(bag_after)) {
+        Object message = Core.stringFormat("Field \"{}\": constraints are not supported on class fields", field_name);
+        Object error = Core.signatureError(message);
+        throw Core.asRuntime(error);
+      }
+      Object quoted = Core.stringConsumeOptionalQuotedPrefix(rest);
+      Object has_options = Core.get(quoted, "found", Boolean.FALSE);
+      if (Core.truthy(has_options)) {
+        Object quoted_value = Core.get(quoted, "value", null);
+        Object option_text = Core.stringReplace(quoted_value, "|", ",");
+        Object options = Core.stringSplitTrimNonEmpty(option_text, ",");
+        Object option_count = Core.len(options);
+        Object empty_options = Core.eq(option_count, 0);
+        if (Core.truthy(empty_options)) {
+          Object error = Core.signatureError("Missing class options after \"class\" type");
+          throw Core.asRuntime(error);
+        }
+        Object attrs = new java.util.LinkedHashMap<String, Object>();
+        Core.set(attrs, "name", "class");
+        Core.set(attrs, "is_array", is_array);
+        Core.set(attrs, "options", options);
+        Object typ = Core.recordNew("FieldType", attrs);
+        Object out = new java.util.LinkedHashMap<String, Object>();
+        Core.set(out, "type", typ);
+        Core.set(out, "is_cached", Boolean.FALSE);
+        Object quoted_rest = Core.get(quoted, "rest", null);
+        Core.set(out, "rest", quoted_rest);
+        return out;
+      }
+      Object error = Core.signatureError("Missing class options after \"class\" type");
+      throw Core.asRuntime(error);
+    }
+    Object is_object = Core.eq(type_name, "object");
+    Object starts_object_fields = Core.stringStartsWith(rest, "{");
+    Object has_object_fields = Core.and(is_object, starts_object_fields);
+    if (Core.truthy(has_object_fields)) {
+      Object group = Core.stringExtractLeadingGroup(rest, "{", "}");
+      Object balanced = Core.get(group, "balanced", Boolean.FALSE);
+      Object unbalanced = Core.not(balanced);
+      if (Core.truthy(unbalanced)) {
+        Object message = Core.stringFormat("Field \"{}\": unbalanced \"{\" in object type", field_name);
+        Object error = Core.signatureError(message);
+        throw Core.asRuntime(error);
+      }
+      Object group_text = Core.get(group, "group", null);
+      Object fields = Core._signature_parse_object_fields_impl(group_text, section, field_name);
+      Object group_rest = Core.get(group, "rest", null);
+      Object after = Core.stringTrim(group_rest);
+      Object is_array = Core.stringStartsWith(after, "[]");
+      if (Core.truthy(is_array)) {
+        Object after_array = Core.stringSlice(after, 2);
+        after = Core.stringTrim(after_array);
+      }
+      Object attrs = new java.util.LinkedHashMap<String, Object>();
+      Core.set(attrs, "name", "object");
+      Core.set(attrs, "is_array", is_array);
+      Core.set(attrs, "fields", fields);
+      Object typ = Core.recordNew("FieldType", attrs);
+      Object out = new java.util.LinkedHashMap<String, Object>();
+      Core.set(out, "type", typ);
+      Core.set(out, "is_cached", Boolean.FALSE);
+      Core.set(out, "rest", after);
+      return out;
+    }
+    Object attrs = new java.util.LinkedHashMap<String, Object>();
+    Core.set(attrs, "name", type_name);
+    Core.set(attrs, "is_array", Boolean.FALSE);
+    Object modifier_state = new java.util.LinkedHashMap<String, Object>();
+    Core.set(modifier_state, "attrs", attrs);
+    Core.set(modifier_state, "is_cached", Boolean.FALSE);
+    Object none = Core.none();
+    Core.set(modifier_state, "item_description", none);
+    Object has_bag = Core.stringStartsWith(rest, "(");
+    if (Core.truthy(has_bag)) {
+      Object group = Core.stringExtractLeadingGroup(rest, "(", ")");
+      Object balanced = Core.get(group, "balanced", Boolean.FALSE);
+      Object unbalanced = Core.not(balanced);
+      if (Core.truthy(unbalanced)) {
+        Object message = Core.stringFormat("Field \"{}\": expected \",\" or \")\" in modifier list", field_name);
+        Object error = Core.signatureError(message);
+        throw Core.asRuntime(error);
+      }
+      Object group_text = Core.get(group, "group", null);
+      Object parsed = Core._signature_parse_modifier_bag_impl(type_name, section, field_name, group_text);
+      Object parsed_attrs = Core.get(parsed, "attrs", null);
+      Object merged_attrs = Core.mapMerge(attrs, parsed_attrs);
+      Object parsed_cached = Core.get(parsed, "is_cached", Boolean.FALSE);
+      Object parsed_item = Core.get(parsed, "item_description", null);
+      Core.set(modifier_state, "attrs", merged_attrs);
+      Core.set(modifier_state, "is_cached", parsed_cached);
+      Core.set(modifier_state, "item_description", parsed_item);
+      Object group_rest = Core.get(group, "rest", null);
+      rest = Core.stringTrim(group_rest);
+    }
+    Object is_array = Core.stringStartsWith(rest, "[]");
+    if (Core.truthy(is_array)) {
+      Object rest_after_array = Core.stringSlice(rest, 2);
+      rest = Core.stringTrim(rest_after_array);
+    }
+    Object type_attrs = Core.get(modifier_state, "attrs", null);
+    Core.set(type_attrs, "is_array", is_array);
+    Object item_description = Core.get(modifier_state, "item_description", null);
+    Object has_item = Core.isNotNone(item_description);
+    Object not_array = Core.not(is_array);
+    Object item_without_array = Core.and(has_item, not_array);
+    if (Core.truthy(item_without_array)) {
+      Object message = Core.stringFormat("Field \"{}\": the \"item\" modifier requires an array type", field_name);
+      Object error = Core.signatureError(message);
+      throw Core.asRuntime(error);
+    }
+    if (Core.truthy(has_item)) {
+      Core.set(type_attrs, "description", item_description);
+    }
+    Object typ = Core.recordNew("FieldType", type_attrs);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "type", typ);
+    Object is_cached = Core.get(modifier_state, "is_cached", Boolean.FALSE);
+    Core.set(out, "is_cached", is_cached);
+    Core.set(out, "rest", rest);
+    return out;
+  }
+
+  static Object _signature_parse_modifier_bag_impl(Object type_name, Object section, Object field_name, Object raw) {
+    axirCoverageMark("_signature_parse_modifier_bag_impl");
+    Object text = Core.stringTrim(raw);
+    Object empty = Core.eq(text, "");
+    if (Core.truthy(empty)) {
+      Object message = Core.stringFormat("Field \"{}\": empty modifier list \"()\"", field_name);
+      Object error = Core.signatureError(message);
+      throw Core.asRuntime(error);
+    }
+    Object parts = Core.stringSplitTopLevel(raw, ",");
+    Object attrs = new java.util.LinkedHashMap<String, Object>();
+    Object seen = new java.util.ArrayList<Object>();
+    Object state = new java.util.LinkedHashMap<String, Object>();
+    Core.set(state, "is_cached", Boolean.FALSE);
+    Object none = Core.none();
+    Core.set(state, "item_description", none);
+    for (Object part : Core.iter(parts)) {
+      Object entry = Core.stringTrim(part);
+      Object entry_empty = Core.eq(entry, "");
+      if (Core.truthy(entry_empty)) {
+        Object message = Core.stringFormat("Field \"{}\": trailing comma in modifier list", field_name);
+        Object error = Core.signatureError(message);
+        throw Core.asRuntime(error);
+      }
+      Object words = Core.stringWords(entry);
+      Object token = Core.listGet(words, 0, "");
+      Object token_len = Core.len(token);
+      Object arg_raw = Core.stringSlice(entry, token_len);
+      Object arg = Core.stringTrim(arg_raw);
+      Object handled = new java.util.LinkedHashMap<String, Object>();
+      Core.set(handled, "value", Boolean.FALSE);
+      Object is_min = Core.eq(token, "min");
+      Object is_max = Core.eq(token, "max");
+      Object is_bound = Core.or(is_min, is_max);
+      if (Core.truthy(is_bound)) {
+        Object duplicate = Core.contains(seen, token);
+        if (Core.truthy(duplicate)) {
+          Object message = Core.stringFormat("Field \"{}\": duplicate \"{}\" modifier", field_name, token);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Core.append(seen, token);
+        Object is_string = Core.eq(type_name, "string");
+        Object is_number = Core.eq(type_name, "number");
+        Object allowed = Core.or(is_string, is_number);
+        Object not_allowed = Core.not(allowed);
+        if (Core.truthy(not_allowed)) {
+          Object message = Core.stringFormat("Field \"{}\": \"{}\" is not supported for type \"{}\"", field_name, token, type_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Object numeric = Core.regexMatch("^-?[0-9]+(\\.[0-9]+)?$", arg);
+        Object not_numeric = Core.not(numeric);
+        if (Core.truthy(not_numeric)) {
+          Object message = Core.stringFormat("Field \"{}\": \"{}\" requires a numeric value", field_name, token);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Object value = Core.jsonParse(arg);
+        if (Core.truthy(is_string)) {
+          if (Core.truthy(is_min)) {
+            Core.set(attrs, "minLength", value);
+          }
+          if (!Core.truthy(is_min)) {
+            Core.set(attrs, "maxLength", value);
+          }
+        }
+        if (!Core.truthy(is_string)) {
+          if (Core.truthy(is_min)) {
+            Core.set(attrs, "minimum", value);
+          }
+          if (!Core.truthy(is_min)) {
+            Core.set(attrs, "maximum", value);
+          }
+        }
+        Core.set(handled, "value", Boolean.TRUE);
+      }
+      Object is_format = Core.eq(token, "format");
+      if (Core.truthy(is_format)) {
+        Object duplicate = Core.contains(seen, "format");
+        if (Core.truthy(duplicate)) {
+          Object message = Core.stringFormat("Field \"{}\": duplicate \"format\" modifier", field_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Core.append(seen, "format");
+        Object is_string = Core.eq(type_name, "string");
+        Object not_string = Core.not(is_string);
+        if (Core.truthy(not_string)) {
+          Object message = Core.stringFormat("Field \"{}\": \"format\" is not supported for type \"{}\"", field_name, type_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Object formats = new java.util.ArrayList<Object>();
+        Core.append(formats, "email");
+        Core.append(formats, "uri");
+        Core.append(formats, "date");
+        Core.append(formats, "date-time");
+        Object known = Core.contains(formats, arg);
+        Object unknown = Core.not(known);
+        if (Core.truthy(unknown)) {
+          Object message = Core.stringFormat("Field \"{}\": unknown format \"{}\"", field_name, arg);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Core.set(attrs, "format", arg);
+        Core.set(handled, "value", Boolean.TRUE);
+      }
+      Object is_pattern = Core.eq(token, "pattern");
+      if (Core.truthy(is_pattern)) {
+        Object duplicate = Core.contains(seen, "pattern");
+        if (Core.truthy(duplicate)) {
+          Object message = Core.stringFormat("Field \"{}\": duplicate \"pattern\" modifier", field_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Core.append(seen, "pattern");
+        Object is_string = Core.eq(type_name, "string");
+        Object not_string = Core.not(is_string);
+        if (Core.truthy(not_string)) {
+          Object message = Core.stringFormat("Field \"{}\": \"pattern\" is not supported for type \"{}\"", field_name, type_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Object quoted = Core.stringConsumeOptionalQuotedPrefix(arg);
+        Object found = Core.get(quoted, "found", Boolean.FALSE);
+        Object missing = Core.not(found);
+        if (Core.truthy(missing)) {
+          Object message = Core.stringFormat("Field \"{}\": \"pattern\" requires a quoted regular expression", field_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Object pattern_value = Core.get(quoted, "value", null);
+        Core.set(attrs, "pattern", pattern_value);
+        Object pattern_rest_raw = Core.get(quoted, "rest", null);
+        Object pattern_rest = Core.stringTrim(pattern_rest_raw);
+        Object has_pattern_rest = Core.truthyValue(pattern_rest);
+        if (Core.truthy(has_pattern_rest)) {
+          Object desc = Core.stringConsumeOptionalQuotedPrefix(pattern_rest);
+          Object desc_found = Core.get(desc, "found", Boolean.FALSE);
+          Object desc_missing = Core.not(desc_found);
+          if (Core.truthy(desc_missing)) {
+            Object message = Core.stringFormat("Field \"{}\": expected \",\" or \")\" in modifier list", field_name);
+            Object error = Core.signatureError(message);
+            throw Core.asRuntime(error);
+          }
+          Object desc_rest_raw = Core.get(desc, "rest", null);
+          Object desc_rest = Core.stringTrim(desc_rest_raw);
+          Object desc_extra = Core.truthyValue(desc_rest);
+          if (Core.truthy(desc_extra)) {
+            Object message = Core.stringFormat("Field \"{}\": expected \",\" or \")\" in modifier list", field_name);
+            Object error = Core.signatureError(message);
+            throw Core.asRuntime(error);
+          }
+          Object desc_value = Core.get(desc, "value", null);
+          Core.set(attrs, "patternDescription", desc_value);
+        }
+        Core.set(handled, "value", Boolean.TRUE);
+      }
+      Object is_cache = Core.eq(token, "cache");
+      if (Core.truthy(is_cache)) {
+        Object duplicate = Core.contains(seen, "cache");
+        if (Core.truthy(duplicate)) {
+          Object message = Core.stringFormat("Field \"{}\": duplicate \"cache\" modifier", field_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Core.append(seen, "cache");
+        Object input = Core.eq(section, "input");
+        Object not_input = Core.not(input);
+        if (Core.truthy(not_input)) {
+          Object message = Core.stringFormat("Field \"{}\": \"cache\" is only supported on top-level input fields", field_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Object extra = Core.truthyValue(arg);
+        if (Core.truthy(extra)) {
+          Object message = Core.stringFormat("Field \"{}\": expected \",\" or \")\" in modifier list", field_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Core.set(state, "is_cached", Boolean.TRUE);
+        Core.set(handled, "value", Boolean.TRUE);
+      }
+      Object is_item = Core.eq(token, "item");
+      if (Core.truthy(is_item)) {
+        Object duplicate = Core.contains(seen, "item");
+        if (Core.truthy(duplicate)) {
+          Object message = Core.stringFormat("Field \"{}\": duplicate \"item\" modifier", field_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Core.append(seen, "item");
+        Object nested = Core.eq(section, "nested");
+        if (Core.truthy(nested)) {
+          Object message = Core.stringFormat("Field \"{}\": \"item\" is not supported inside object fields", field_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Object quoted = Core.stringConsumeOptionalQuotedPrefix(arg);
+        Object found = Core.get(quoted, "found", Boolean.FALSE);
+        Object missing = Core.not(found);
+        if (Core.truthy(missing)) {
+          Object message = Core.stringFormat("Field \"{}\": \"item\" requires a quoted description", field_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Object remaining_raw = Core.get(quoted, "rest", null);
+        Object remaining = Core.stringTrim(remaining_raw);
+        Object extra = Core.truthyValue(remaining);
+        if (Core.truthy(extra)) {
+          Object message = Core.stringFormat("Field \"{}\": expected \",\" or \")\" in modifier list", field_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+        Object item_value = Core.get(quoted, "value", null);
+        Core.set(state, "item_description", item_value);
+        Core.set(handled, "value", Boolean.TRUE);
+      }
+      Object was_handled = Core.get(handled, "value", Boolean.FALSE);
+      Object unhandled = Core.not(was_handled);
+      if (Core.truthy(unhandled)) {
+        Object is_code = Core.eq(type_name, "code");
+        if (Core.truthy(is_code)) {
+          Object duplicate = Core.contains(seen, "language");
+          if (Core.truthy(duplicate)) {
+            Object message = Core.stringFormat("Field \"{}\": duplicate \"language\" modifier", field_name);
+            Object error = Core.signatureError(message);
+            throw Core.asRuntime(error);
+          }
+          Object extra = Core.truthyValue(arg);
+          if (Core.truthy(extra)) {
+            Object message = Core.stringFormat("Field \"{}\": expected \",\" or \")\" in modifier list", field_name);
+            Object error = Core.signatureError(message);
+            throw Core.asRuntime(error);
+          }
+          Core.append(seen, "language");
+          Core.set(attrs, "language", token);
+        }
+        if (!Core.truthy(is_code)) {
+          Object message = Core.stringFormat("Field \"{}\": unknown modifier \"{}\" for type \"{}\"", field_name, token, type_name);
+          Object error = Core.signatureError(message);
+          throw Core.asRuntime(error);
+        }
+      }
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "attrs", attrs);
+    Object is_cached = Core.get(state, "is_cached", Boolean.FALSE);
+    Object item_description = Core.get(state, "item_description", null);
+    Core.set(out, "is_cached", is_cached);
+    Core.set(out, "item_description", item_description);
+    return out;
+  }
+
+  static Object _signature_parse_object_fields_impl(Object raw, Object section, Object parent) {
+    axirCoverageMark("_signature_parse_object_fields_impl");
+    Object text = Core.stringTrim(raw);
+    Object empty = Core.eq(text, "");
+    if (Core.truthy(empty)) {
+      Object message = Core.stringFormat("Field \"{}\": object type requires at least one field", parent);
+      Object error = Core.signatureError(message);
+      throw Core.asRuntime(error);
+    }
+    Object parts = Core.stringSplitTopLevel(raw, ",");
+    Object fields = new java.util.LinkedHashMap<String, Object>();
+    Object output = Core.eq(section, "output");
+    for (Object part : Core.iter(parts)) {
+      Object entry = Core.stringTrim(part);
+      Object entry_empty = Core.eq(entry, "");
+      if (Core.truthy(entry_empty)) {
+        Object message = Core.stringFormat("Field \"{}\": trailing comma in object type", parent);
+        Object error = Core.signatureError(message);
+        throw Core.asRuntime(error);
+      }
+      Object field = Core._signature_parse_field_common_impl(entry, output, Boolean.TRUE, parent);
+      Object name = Core.get(field, "name", null);
+      Object duplicate = Core.mapContains(fields, name);
+      if (Core.truthy(duplicate)) {
+        Object message = Core.stringFormat("Field \"{}\": duplicate object field name \"{}\"", parent, name);
+        Object error = Core.signatureError(message);
+        throw Core.asRuntime(error);
+      }
+      Core.set(fields, name, field);
+    }
+    return fields;
+  }
+
+  static Object signature_to_string(Object signature) {
+    axirCoverageMark("signature_to_string");
+    Object parts = new java.util.ArrayList<Object>();
+    Object description = Core.get(signature, "description", null);
+    Object has_description = Core.truthyValue(description);
+    if (Core.truthy(has_description)) {
+      Object escaped = Core._signature_escape_string_impl(description);
+      Object prefix = Core.stringFormat("\"{}\"", escaped);
+      Core.append(parts, prefix);
+    }
+    Object inputs = Core.get(signature, "input_fields", null);
+    Object input_parts = new java.util.ArrayList<Object>();
+    for (Object field : Core.iter(inputs)) {
+      Object rendered = Core._signature_render_field_impl(field);
+      Core.append(input_parts, rendered);
+    }
+    Object input_text = Core.stringJoin(", ", input_parts);
+    Core.append(parts, input_text);
+    Object left = Core.stringJoin(" ", parts);
+    Object outputs = Core.get(signature, "output_fields", null);
+    Object output_parts = new java.util.ArrayList<Object>();
+    for (Object field : Core.iter(outputs)) {
+      Object rendered = Core._signature_render_field_impl(field);
+      Core.append(output_parts, rendered);
+    }
+    Object right = Core.stringJoin(", ", output_parts);
+    Object result = Core.stringFormat("{} -> {}", left, right);
+    return result;
+  }
+
+  static Object _signature_escape_string_impl(Object value) {
+    axirCoverageMark("_signature_escape_string_impl");
+    Object slashes = Core.stringReplace(value, "\\", "\\\\");
+    Object quotes = Core.stringReplace(slashes, "\"", "\\\"");
+    return quotes;
+  }
+
+  static Object _signature_render_modifier_bag_impl(Object typ, Object is_cached) {
+    axirCoverageMark("_signature_render_modifier_bag_impl");
+    Object entries = new java.util.ArrayList<Object>();
+    Object min_length = Core.get(typ, "min_length", null);
+    Object minimum = Core.get(typ, "minimum", null);
+    Object min = Core.coalesce(min_length, minimum);
+    Object has_min = Core.isNotNone(min);
+    if (Core.truthy(has_min)) {
+      Object entry = Core.stringFormat("min {}", min);
+      Core.append(entries, entry);
+    }
+    Object max_length = Core.get(typ, "max_length", null);
+    Object maximum = Core.get(typ, "maximum", null);
+    Object max = Core.coalesce(max_length, maximum);
+    Object has_max = Core.isNotNone(max);
+    if (Core.truthy(has_max)) {
+      Object entry = Core.stringFormat("max {}", max);
+      Core.append(entries, entry);
+    }
+    Object format = Core.get(typ, "format", null);
+    Object has_format = Core.isNotNone(format);
+    if (Core.truthy(has_format)) {
+      Object entry = Core.stringFormat("format {}", format);
+      Core.append(entries, entry);
+    }
+    Object pattern = Core.get(typ, "pattern", null);
+    Object has_pattern = Core.isNotNone(pattern);
+    if (Core.truthy(has_pattern)) {
+      Object escaped_pattern = Core._signature_escape_string_impl(pattern);
+      Object entry = Core.stringFormat("pattern \"{}\"", escaped_pattern);
+      Object pattern_description = Core.get(typ, "pattern_description", null);
+      Object has_pattern_description = Core.isNotNone(pattern_description);
+      if (Core.truthy(has_pattern_description)) {
+        Object escaped_description = Core._signature_escape_string_impl(pattern_description);
+        entry = Core.stringFormat("{} \"{}\"", entry, escaped_description);
+      }
+      Core.append(entries, entry);
+    }
+    Object is_array = Core.get(typ, "is_array", Boolean.FALSE);
+    Object item_description = Core.get(typ, "description", null);
+    Object has_item_description = Core.truthyValue(item_description);
+    Object render_item = Core.and(is_array, has_item_description);
+    if (Core.truthy(render_item)) {
+      Object escaped_item = Core._signature_escape_string_impl(item_description);
+      Object entry = Core.stringFormat("item \"{}\"", escaped_item);
+      Core.append(entries, entry);
+    }
+    Object type_name = Core.get(typ, "name", null);
+    Object is_code = Core.eq(type_name, "code");
+    Object language = Core.get(typ, "language", null);
+    Object has_language = Core.truthyValue(language);
+    Object render_language = Core.and(is_code, has_language);
+    if (Core.truthy(render_language)) {
+      Core.append(entries, language);
+    }
+    if (Core.truthy(is_cached)) {
+      Core.append(entries, "cache");
+    }
+    Object count = Core.len(entries);
+    Object empty = Core.eq(count, 0);
+    if (Core.truthy(empty)) {
+      return "";
+    }
+    Object body = Core.stringJoin(", ", entries);
+    Object result = Core.stringFormat("({})", body);
+    return result;
+  }
+
+  static Object _signature_render_type_impl(Object typ, Object is_cached) {
+    axirCoverageMark("_signature_render_type_impl");
+    Object type_name = Core.get(typ, "name", null);
+    Object is_array = Core.get(typ, "is_array", Boolean.FALSE);
+    Object is_class = Core.eq(type_name, "class");
+    if (Core.truthy(is_class)) {
+      Object state = new java.util.LinkedHashMap<String, Object>();
+      Core.set(state, "value", "class");
+      if (Core.truthy(is_array)) {
+        Core.set(state, "value", "class[]");
+      }
+      Object options = Core.get(typ, "options", null);
+      Object joined = Core.stringJoin(" | ", options);
+      Object class_name = Core.get(state, "value", null);
+      Object result = Core.stringFormat("{} \"{}\"", class_name, joined);
+      return result;
+    }
+    Object is_object = Core.eq(type_name, "object");
+    Object fields = Core.get(typ, "fields", null);
+    Object has_fields = Core.truthyValue(fields);
+    Object structured_object = Core.and(is_object, has_fields);
+    if (Core.truthy(structured_object)) {
+      Object rendered_fields = Core._signature_render_object_fields_impl(fields);
+      Object result = Core.stringFormat("object{}", rendered_fields);
+      if (Core.truthy(is_array)) {
+        result = Core.stringFormat("{}[]", result);
+      }
+      return result;
+    }
+    Object bag = Core._signature_render_modifier_bag_impl(typ, is_cached);
+    Object result = Core.stringFormat("{}{}", type_name, bag);
+    if (Core.truthy(is_array)) {
+      result = Core.stringFormat("{}[]", result);
+    }
+    return result;
+  }
+
+  static Object _signature_render_object_fields_impl(Object fields) {
+    axirCoverageMark("_signature_render_object_fields_impl");
+    Object parts = new java.util.ArrayList<Object>();
+    Object nested_fields = Core.fieldsFromMap(fields);
+    for (Object field : Core.iter(nested_fields)) {
+      Object name = Core.get(field, "name", null);
+      Object optional = Core.get(field, "is_optional", Boolean.FALSE);
+      Object state = new java.util.LinkedHashMap<String, Object>();
+      Core.set(state, "value", name);
+      if (Core.truthy(optional)) {
+        Object marked = Core.stringFormat("{}?", name);
+        Core.set(state, "value", marked);
+      }
+      Object typ = Core.get(field, "type", null);
+      Object rendered_type = Core._signature_render_type_impl(typ, Boolean.FALSE);
+      Object field_name = Core.get(state, "value", null);
+      Object entry = Core.stringFormat("{}:{}", field_name, rendered_type);
+      Object type_description = Core.get(typ, "description", null);
+      Object field_description = Core.get(field, "description", null);
+      Object description = Core.coalesce(type_description, field_description);
+      Object has_description = Core.truthyValue(description);
+      Object type_name = Core.get(typ, "name", null);
+      Object is_code = Core.eq(type_name, "code");
+      Object language = Core.get(typ, "language", null);
+      Object same_as_language = Core.eq(description, language);
+      Object implicit_code_description = Core.and(is_code, same_as_language);
+      Object not_implicit = Core.not(implicit_code_description);
+      Object explicit_description = Core.and(has_description, not_implicit);
+      if (Core.truthy(explicit_description)) {
+        Object escaped = Core._signature_escape_string_impl(description);
+        entry = Core.stringFormat("{} \"{}\"", entry, escaped);
+      }
+      Core.append(parts, entry);
+    }
+    Object body = Core.stringJoin(", ", parts);
+    Object prefix = Core.add("{ ", body);
+    Object result = Core.add(prefix, " }");
+    return result;
+  }
+
+  static Object _signature_render_field_impl(Object field) {
+    axirCoverageMark("_signature_render_field_impl");
+    Object name = Core.get(field, "name", null);
+    Object optional = Core.get(field, "is_optional", Boolean.FALSE);
+    Object internal = Core.get(field, "is_internal", Boolean.FALSE);
+    Object state = new java.util.LinkedHashMap<String, Object>();
+    Core.set(state, "value", name);
+    if (Core.truthy(optional)) {
+      Object current = Core.get(state, "value", null);
+      Object marked = Core.stringFormat("{}?", current);
+      Core.set(state, "value", marked);
+    }
+    if (Core.truthy(internal)) {
+      Object current = Core.get(state, "value", null);
+      Object marked = Core.stringFormat("{}!", current);
+      Core.set(state, "value", marked);
+    }
+    Object typ = Core.get(field, "type", null);
+    Object cached = Core.get(field, "is_cached", Boolean.FALSE);
+    Object rendered_type = Core._signature_render_type_impl(typ, cached);
+    Object field_name = Core.get(state, "value", null);
+    Object entry = Core.stringFormat("{}:{}", field_name, rendered_type);
+    Object description = Core.get(field, "description", null);
+    Object has_description = Core.truthyValue(description);
+    Object type_name = Core.get(typ, "name", null);
+    Object is_code = Core.eq(type_name, "code");
+    Object language = Core.get(typ, "language", null);
+    Object same_as_language = Core.eq(description, language);
+    Object implicit_code_description = Core.and(is_code, same_as_language);
+    Object not_implicit = Core.not(implicit_code_description);
+    Object explicit_description = Core.and(has_description, not_implicit);
+    if (Core.truthy(explicit_description)) {
+      Object escaped = Core._signature_escape_string_impl(description);
+      entry = Core.stringFormat("{} \"{}\"", entry, escaped);
+    }
+    return entry;
   }
 
   static Object _signature_validate_field_shape_impl(Object field, Object output, Object nested) {
@@ -1137,7 +1989,9 @@ final class Core {
     }
     Object is_class = Core.eq(type_name, "class");
     Object is_input = Core.not(output);
-    Object input_class = Core.and(is_class, is_input);
+    Object top_level = Core.not(nested);
+    Object input_class_base = Core.and(is_class, is_input);
+    Object input_class = Core.and(input_class_base, top_level);
     if (Core.truthy(input_class)) {
       Object error = Core.signatureError("Input field cannot use the \"class\" type");
       throw Core.asRuntime(error);

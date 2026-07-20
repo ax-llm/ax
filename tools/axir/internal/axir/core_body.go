@@ -98,6 +98,8 @@ const (
 	IntrinsicStringSplitTrim        CoreIntrinsic = "intrinsic.string.split_trim_nonempty"
 	IntrinsicStringFindQuoted       CoreIntrinsic = "intrinsic.string.find_outside_quotes"
 	IntrinsicStringSplitQuoted      CoreIntrinsic = "intrinsic.string.split_outside_quotes"
+	IntrinsicStringSplitTopLevel    CoreIntrinsic = "intrinsic.string.split_top_level"
+	IntrinsicStringExtractGroup     CoreIntrinsic = "intrinsic.string.extract_leading_group"
 	IntrinsicStringConsumeOpt       CoreIntrinsic = "intrinsic.string.consume_optional_quoted_prefix"
 	IntrinsicStringExtractSuf       CoreIntrinsic = "intrinsic.string.extract_quoted_suffix"
 	IntrinsicStringSplit            CoreIntrinsic = "intrinsic.string.split"
@@ -216,6 +218,8 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicStringSplitTrim:        "_core_string_split_trim_nonempty",
 	IntrinsicStringFindQuoted:       "_core_string_find_outside_quotes",
 	IntrinsicStringSplitQuoted:      "_core_string_split_outside_quotes",
+	IntrinsicStringSplitTopLevel:    "_core_string_split_top_level",
+	IntrinsicStringExtractGroup:     "_core_string_extract_leading_group",
 	IntrinsicStringConsumeOpt:       "_core_string_consume_optional_quoted_prefix",
 	IntrinsicStringExtractSuf:       "_core_string_extract_quoted_suffix",
 	IntrinsicStringSplit:            "_core_string_split",
@@ -343,6 +347,8 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.string.split_trim_nonempty":            true,
 	"intrinsic.string.find_outside_quotes":            true,
 	"intrinsic.string.split_outside_quotes":           true,
+	"intrinsic.string.split_top_level":                 true,
+	"intrinsic.string.extract_leading_group":           true,
 	"intrinsic.string.consume_optional_quoted_prefix": true,
 	"intrinsic.string.extract_quoted_suffix":          true,
 	"intrinsic.string.split":                          true,
@@ -670,6 +676,8 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.string.slice":                 intrinsicInfo("intrinsic.string.slice", 2, 3, false, "string"),
 	"intrinsic.string.replace":               intrinsicInfo("intrinsic.string.replace", 3, 3, false, "string"),
 	"intrinsic.string.split":                 intrinsicInfo("intrinsic.string.split", 2, 2, false, "list<string>"),
+	"intrinsic.string.split_top_level":       intrinsicInfo("intrinsic.string.split_top_level", 2, 2, false, "list<string>"),
+	"intrinsic.string.extract_leading_group": intrinsicInfo("intrinsic.string.extract_leading_group", 3, 3, false, "json"),
 	"intrinsic.url.valid":                    intrinsicInfo("intrinsic.url.valid", 1, 1, false, "bool"),
 	"intrinsic.stream.event_content_parts":   intrinsicInfo("intrinsic.stream.event_content_parts", 1, 1, false, "list<string>"),
 }

@@ -119,6 +119,8 @@ pub struct FieldType {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
 
@@ -136,6 +138,7 @@ impl FieldType {
             pattern: None,
             pattern_description: None,
             format: None,
+            language: None,
             description: None,
         }
     }
@@ -165,6 +168,7 @@ impl FieldType {
             pattern: None,
             pattern_description: None,
             format: None,
+            language: None,
             description: None,
         }
     }
@@ -218,6 +222,9 @@ impl FieldType {
         }
         if let Some(value) = &self.format {
             out.insert("format".to_string(), Value::String(value.clone()));
+        }
+        if let Some(value) = &self.language {
+            out.insert("language".to_string(), Value::String(value.clone()));
         }
         if include_description {
             if let Some(value) = &self.description {
@@ -319,6 +326,16 @@ impl AxSignature {
             })
             .map(|schema| core_value_to_json(&schema))
             .unwrap_or(Value::Null)
+    }
+}
+
+impl fmt::Display for AxSignature {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let rendered = core_signature_value(self)
+            .and_then(|value| signature_to_string(&[value]))
+            .map(|value| value.text())
+            .map_err(|_| fmt::Error)?;
+        write!(formatter, "{rendered}")
     }
 }
 
@@ -453,6 +470,10 @@ fn field_type_from_payload(raw: &Value) -> FieldType {
         .get("format")
         .and_then(Value::as_str)
         .map(ToString::to_string);
+    field_type.language = raw
+        .get("language")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
     field_type.description = raw
         .get("description")
         .and_then(Value::as_str)
@@ -579,8 +600,8 @@ fn field_payload_impl(field: &Field, include_type_description: bool) -> Value {
 fn signature_payload(sig: &AxSignature) -> Value {
     json!({
         "description": sig.description,
-        "inputs": sig.inputs.iter().map(field_payload).collect::<Vec<_>>(),
-        "outputs": sig.outputs.iter().map(field_payload).collect::<Vec<_>>()
+        "inputs": sig.inputs.iter().map(field_payload_with_type_description).collect::<Vec<_>>(),
+        "outputs": sig.outputs.iter().map(field_payload_with_type_description).collect::<Vec<_>>()
     })
 }
 
@@ -7881,6 +7902,16 @@ fn run_signature_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_signature") {
         expect_json_equal("signature", &signature_payload(&sig), expected)?;
     }
+    if let Some(expected) = fixture.get("expected_to_string") {
+        let rendered = sig.to_string();
+        expect_json_equal("signature toString", &json!(rendered), expected)?;
+        let reparsed = AxSignature::parse(expected.as_str().unwrap_or_default())?;
+        expect_json_equal(
+            "signature round-trip",
+            &signature_payload(&reparsed),
+            &fixture["expected_signature"],
+        )?;
+    }
     Ok(())
 }
 
@@ -14355,6 +14386,21 @@ fn core_record_to_json(kind: &str, map: &CoreMap) -> Value {
             if !matches!(field("fields"), Value::Null) {
                 out.insert("fields".to_string(), field("fields"));
             }
+            for (json_key, map_key) in [
+                ("minLength", "min_length"),
+                ("maxLength", "max_length"),
+                ("minimum", "minimum"),
+                ("maximum", "maximum"),
+                ("pattern", "pattern"),
+                ("patternDescription", "pattern_description"),
+                ("format", "format"),
+                ("language", "language"),
+                ("description", "description"),
+            ] {
+                if !matches!(field(map_key), Value::Null) {
+                    out.insert(json_key.to_string(), field(map_key));
+                }
+            }
             Value::Object(out)
         }
         "Field" => {
@@ -14677,6 +14723,19 @@ fn core_record_new(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             );
             out.set("options", read("options", "options"));
             out.set("fields", read("fields", "fields"));
+            for (snake, camel) in [
+                ("min_length", "minLength"),
+                ("max_length", "maxLength"),
+                ("minimum", "minimum"),
+                ("maximum", "maximum"),
+                ("pattern", "pattern"),
+                ("pattern_description", "patternDescription"),
+                ("format", "format"),
+                ("language", "language"),
+                ("description", "description"),
+            ] {
+                out.set(snake, read(snake, camel));
+            }
         }
         "Field" => {
             out.set("name", read("name", "name"));
@@ -14918,6 +14977,149 @@ fn core_string_split_outside_quotes(args: &[CoreValue]) -> Result<CoreValue, AxE
         items.push(CoreValue::from_string(item));
     }
     Ok(CoreValue::list_from(items))
+}
+
+fn core_string_split_top_level(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text: Vec<char> = core_arg(args, 0).text().chars().collect();
+    let separator: Vec<char> = core_arg(args, 1).text().chars().collect();
+    let mut items: Vec<CoreValue> = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut paren_depth = 0_i32;
+    let mut brace_depth = 0_i32;
+    let mut index = 0_usize;
+    while index < text.len() {
+        let ch = text[index];
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            index += 1;
+            continue;
+        }
+        if ch == '\\' {
+            current.push(ch);
+            escaped = true;
+            index += 1;
+            continue;
+        }
+        if let Some(active) = quote {
+            current.push(ch);
+            if ch == active {
+                quote = None;
+            }
+            index += 1;
+            continue;
+        }
+        if ch == '\'' || ch == '"' {
+            current.push(ch);
+            quote = Some(ch);
+            index += 1;
+            continue;
+        }
+        match ch {
+            '(' => paren_depth += 1,
+            ')' if paren_depth > 0 => paren_depth -= 1,
+            '{' => brace_depth += 1,
+            '}' if brace_depth > 0 => brace_depth -= 1,
+            _ => {}
+        }
+        let matches_separator = !separator.is_empty()
+            && paren_depth == 0
+            && brace_depth == 0
+            && index + separator.len() <= text.len()
+            && text[index..index + separator.len()] == separator[..];
+        if matches_separator {
+            items.push(CoreValue::from_string(current.trim().to_string()));
+            current.clear();
+            index += separator.len();
+            continue;
+        }
+        current.push(ch);
+        index += 1;
+    }
+    if quote.is_some() {
+        return Err(AxError::new("signature", "Unterminated string"));
+    }
+    items.push(CoreValue::from_string(current.trim().to_string()));
+    Ok(CoreValue::list_from(items))
+}
+
+fn core_string_extract_leading_group(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text: Vec<char> = core_arg(args, 0).text().chars().collect();
+    let opening = core_arg(args, 1).text().chars().next();
+    let closing = core_arg(args, 2).text().chars().next();
+    let out = CoreValue::new_map();
+    if opening.is_none() || closing.is_none() || text.first().copied() != opening {
+        core_set(&out, CoreValue::from("found"), CoreValue::Bool(false))?;
+        core_set(&out, CoreValue::from("balanced"), CoreValue::Bool(true))?;
+        core_set(&out, CoreValue::from("group"), CoreValue::from(""))?;
+        core_set(
+            &out,
+            CoreValue::from("rest"),
+            CoreValue::from_string(text.iter().collect()),
+        )?;
+        return Ok(out);
+    }
+    let opening = opening.unwrap();
+    let closing = closing.unwrap();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut depth = 0_i32;
+    for (index, ch) in text.iter().copied().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if let Some(active) = quote {
+            if ch == active {
+                quote = None;
+            }
+            continue;
+        }
+        if ch == '\'' || ch == '"' {
+            quote = Some(ch);
+            continue;
+        }
+        if ch == opening {
+            depth += 1;
+            continue;
+        }
+        if ch == closing {
+            depth -= 1;
+            if depth == 0 {
+                core_set(&out, CoreValue::from("found"), CoreValue::Bool(true))?;
+                core_set(&out, CoreValue::from("balanced"), CoreValue::Bool(true))?;
+                core_set(
+                    &out,
+                    CoreValue::from("group"),
+                    CoreValue::from_string(text[1..index].iter().collect()),
+                )?;
+                core_set(
+                    &out,
+                    CoreValue::from("rest"),
+                    CoreValue::from_string(text[index + 1..].iter().collect()),
+                )?;
+                return Ok(out);
+            }
+        }
+    }
+    if quote.is_some() {
+        return Err(AxError::new("signature", "Unterminated string"));
+    }
+    core_set(&out, CoreValue::from("found"), CoreValue::Bool(true))?;
+    core_set(&out, CoreValue::from("balanced"), CoreValue::Bool(false))?;
+    core_set(
+        &out,
+        CoreValue::from("group"),
+        CoreValue::from_string(text[1..].iter().collect()),
+    )?;
+    core_set(&out, CoreValue::from("rest"), CoreValue::from(""))?;
+    Ok(out)
 }
 
 fn core_string_split_once(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -15250,6 +15452,7 @@ fn core_field_type_value(ft: &FieldType) -> Result<CoreValue, AxError> {
         ("pattern", ft.pattern.as_deref()),
         ("pattern_description", ft.pattern_description.as_deref()),
         ("format", ft.format.as_deref()),
+        ("language", ft.language.as_deref()),
         ("description", ft.description.as_deref()),
     ] {
         if let Some(text) = val {
@@ -19873,8 +20076,10 @@ fn _signature_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_arrow = CoreValue::Null;
     let mut v_attrs = CoreValue::Null;
     let mut v_body = CoreValue::Null;
+    let mut v_brace_missing = CoreValue::Null;
     let mut v_description = CoreValue::Null;
     let mut v_error = CoreValue::Null;
+    let mut v_has_open_brace = CoreValue::Null;
     let mut v_inputs = CoreValue::Null;
     let mut v_is_empty = CoreValue::Null;
     let mut v_left = CoreValue::Null;
@@ -19882,6 +20087,7 @@ fn _signature_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_left_len = CoreValue::Null;
     let mut v_left_raw = CoreValue::Null;
     let mut v_missing_arrow = CoreValue::Null;
+    let mut v_open_brace = CoreValue::Null;
     let mut v_outputs = CoreValue::Null;
     let mut v_parsed = CoreValue::Null;
     let mut v_prefix = CoreValue::Null;
@@ -19907,6 +20113,13 @@ fn _signature_parse_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_arrow = core_string_find_outside_quotes(&[v_body.clone(), CoreValue::from("->")])?;
     v_missing_arrow = core_lt(&[v_arrow.clone(), CoreValue::Num(0f64)])?;
     if core_truthy(&v_missing_arrow) {
+        v_open_brace = core_string_find_outside_quotes(&[v_body.clone(), CoreValue::from("{")])?;
+        v_brace_missing = core_lt(&[v_open_brace.clone(), CoreValue::Num(0f64)])?;
+        v_has_open_brace = core_not(&[v_brace_missing.clone()])?;
+        if core_truthy(&v_has_open_brace) {
+            v_error = core_signature_error(&[CoreValue::from("unbalanced \"{\" in object type")])?;
+            return Err(core_as_error(&v_error));
+        }
         v_error = core_signature_error(&[CoreValue::from("Expected \"->\"")])?;
         return Err(core_as_error(&v_error));
     }
@@ -19952,14 +20165,24 @@ fn _signature_parse_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     axir_coverage_mark("_signature_parse_fields_impl");
     let mut v_text = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
+    let mut v_empty = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
     let mut v_field = CoreValue::Null;
     let mut v_fields = CoreValue::Null;
     let mut v_part = CoreValue::Null;
     let mut v_parts = CoreValue::Null;
-    v_parts = core_string_split_outside_quotes(&[v_text.clone(), CoreValue::from(",")])?;
+    let mut v_trimmed = CoreValue::Null;
+    v_parts = core_string_split_top_level(&[v_text.clone(), CoreValue::from(",")])?;
     v_fields = CoreValue::new_list();
     for v_part in core_iter(&v_parts)? {
         let mut v_part = v_part;
+        v_trimmed = core_string_trim(&v_part);
+        v_empty = core_eq(&[v_trimmed.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_empty) {
+            v_error =
+                core_signature_error(&[CoreValue::from("Unexpected content after signature")])?;
+            return Err(core_as_error(&v_error));
+        }
         v_field = _signature_parse_field_impl(&[v_part.clone(), v_output.clone()])?;
         core_append(&v_fields, v_field.clone())?;
     }
@@ -19977,65 +20200,205 @@ fn _signature_parse_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     axir_coverage_mark("_signature_parse_field_impl");
     let mut v_raw = core_arg(args, 0);
     let mut v_output = core_arg(args, 1);
-    let mut v_array_info = CoreValue::Null;
-    let mut v_class_input = CoreValue::Null;
-    let mut v_class_option_text = CoreValue::Null;
-    let mut v_empty_options = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    v_field = _signature_parse_field_common_impl(&[
+        v_raw.clone(),
+        v_output.clone(),
+        CoreValue::Bool(false),
+        CoreValue::from(""),
+    ])?;
+    return Ok(v_field.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_parse_field_common_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_parse_field_common_impl");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_output = core_arg(args, 1);
+    let mut v_nested = core_arg(args, 2);
+    let mut v_parent = core_arg(args, 3);
+    let mut v_default_type = CoreValue::Null;
+    let mut v_default_type_attrs = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
     let mut v_error = CoreValue::Null;
-    let mut v_extra_type_tokens = CoreValue::Null;
     let mut v_field = CoreValue::Null;
     let mut v_field_attrs = CoreValue::Null;
     let mut v_field_type = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
     let mut v_has_extra = CoreValue::Null;
-    let mut v_head = CoreValue::Null;
+    let mut v_has_nested_description = CoreValue::Null;
+    let mut v_has_type = CoreValue::Null;
     let mut v_head_parts = CoreValue::Null;
-    let mut v_head_raw = CoreValue::Null;
-    let mut v_is_array = CoreValue::Null;
-    let mut v_is_class = CoreValue::Null;
+    let mut v_is_cached = CoreValue::Null;
     let mut v_is_internal = CoreValue::Null;
     let mut v_is_optional = CoreValue::Null;
-    let mut v_missing_quoted = CoreValue::Null;
+    let mut v_language = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
     let mut v_name = CoreValue::Null;
+    let mut v_name_for_error = CoreValue::Null;
     let mut v_name_part = CoreValue::Null;
     let mut v_name_part_raw = CoreValue::Null;
+    let mut v_name_part_value = CoreValue::Null;
     let mut v_name_without_markers = CoreValue::Null;
     let mut v_name_without_optional = CoreValue::Null;
+    let mut v_nested_internal = CoreValue::Null;
     let mut v_none = CoreValue::Null;
-    let mut v_option_count = CoreValue::Null;
-    let mut v_options = CoreValue::Null;
+    let mut v_parsed_cached = CoreValue::Null;
+    let mut v_parsed_field_type = CoreValue::Null;
+    let mut v_parsed_rest = CoreValue::Null;
+    let mut v_parsed_type = CoreValue::Null;
+    let mut v_qualified = CoreValue::Null;
     let mut v_quoted = CoreValue::Null;
+    let mut v_quoted_head = CoreValue::Null;
     let mut v_quoted_info = CoreValue::Null;
     let mut v_rest_after_quote = CoreValue::Null;
-    let mut v_rest_after_quote_trimmed = CoreValue::Null;
+    let mut v_rest_after_quote_raw = CoreValue::Null;
+    let mut v_section = CoreValue::Null;
+    let mut v_section_state = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
     let mut v_text = CoreValue::Null;
     let mut v_type_attrs = CoreValue::Null;
+    let mut v_type_fields = CoreValue::Null;
+    let mut v_type_format = CoreValue::Null;
+    let mut v_type_is_array = CoreValue::Null;
+    let mut v_type_language = CoreValue::Null;
+    let mut v_type_max_length = CoreValue::Null;
+    let mut v_type_maximum = CoreValue::Null;
+    let mut v_type_min_length = CoreValue::Null;
+    let mut v_type_minimum = CoreValue::Null;
     let mut v_type_name = CoreValue::Null;
-    let mut v_type_name_raw = CoreValue::Null;
-    let mut v_type_part = CoreValue::Null;
+    let mut v_type_options = CoreValue::Null;
     let mut v_type_part_raw = CoreValue::Null;
-    let mut v_type_part_trimmed = CoreValue::Null;
-    let mut v_type_token = CoreValue::Null;
-    let mut v_type_word_count = CoreValue::Null;
-    let mut v_type_words = CoreValue::Null;
+    let mut v_type_pattern = CoreValue::Null;
+    let mut v_type_pattern_description = CoreValue::Null;
     v_text = core_string_trim(&v_raw);
-    v_quoted_info = core_string_extract_quoted_suffix(&[v_text.clone()])?;
-    v_quoted = core_get(&v_quoted_info, &CoreValue::from("value"), CoreValue::Null);
-    v_rest_after_quote = core_get(&v_quoted_info, &CoreValue::from("rest"), CoreValue::Null);
-    v_rest_after_quote_trimmed = core_string_trim(&v_rest_after_quote);
-    v_has_extra = core_truthy_value(&[v_rest_after_quote_trimmed.clone()])?;
-    if core_truthy(&v_has_extra) {
-        v_error = core_signature_error(&[CoreValue::from("Unexpected content after signature")])?;
-        return Err(core_as_error(&v_error));
-    }
-    v_head_raw = core_get(&v_quoted_info, &CoreValue::from("head"), CoreValue::Null);
-    v_head = core_string_trim(&v_head_raw);
-    v_head_parts = core_string_split_once(&[v_head.clone(), CoreValue::from(":")])?;
+    v_head_parts = core_string_split_once(&[v_text.clone(), CoreValue::from(":")])?;
+    v_has_type = core_get(
+        &v_head_parts,
+        &CoreValue::from("found"),
+        CoreValue::Bool(false),
+    );
     v_name_part_raw = core_get(&v_head_parts, &CoreValue::from("left"), CoreValue::Null);
     v_type_part_raw = core_get(&v_head_parts, &CoreValue::from("right"), CoreValue::Null);
-    v_name_part = core_string_trim(&v_name_part_raw);
-    v_type_part_trimmed = core_string_trim(&v_type_part_raw);
-    v_type_part =
-        core_string_default_if_empty(&[v_type_part_trimmed.clone(), CoreValue::from("string")])?;
+    v_state = CoreValue::new_map();
+    core_set(
+        &v_state,
+        CoreValue::from("name_part"),
+        v_name_part_raw.clone(),
+    )?;
+    v_none = core_none(&[])?;
+    core_set(&v_state, CoreValue::from("description"), v_none.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("is_cached"),
+        CoreValue::Bool(false),
+    )?;
+    v_default_type_attrs = CoreValue::new_map();
+    core_set(
+        &v_default_type_attrs,
+        CoreValue::from("name"),
+        CoreValue::from("string"),
+    )?;
+    core_set(
+        &v_default_type_attrs,
+        CoreValue::from("is_array"),
+        CoreValue::Bool(false),
+    )?;
+    v_default_type =
+        core_record_new(&[CoreValue::from("FieldType"), v_default_type_attrs.clone()])?;
+    core_set(&v_state, CoreValue::from("type"), v_default_type.clone())?;
+    if core_truthy(&v_has_type) {
+        v_section_state = CoreValue::new_map();
+        core_set(
+            &v_section_state,
+            CoreValue::from("value"),
+            CoreValue::from("input"),
+        )?;
+        if core_truthy(&v_output) {
+            core_set(
+                &v_section_state,
+                CoreValue::from("value"),
+                CoreValue::from("output"),
+            )?;
+        }
+        if core_truthy(&v_nested) {
+            core_set(
+                &v_section_state,
+                CoreValue::from("value"),
+                CoreValue::from("nested"),
+            )?;
+        }
+        v_section = core_get(&v_section_state, &CoreValue::from("value"), CoreValue::Null);
+        v_name_for_error = core_string_trim(&v_name_part_raw);
+        if core_truthy(&v_nested) {
+            v_name_for_error = core_string_format(&[
+                CoreValue::from("{}.{}"),
+                v_parent.clone(),
+                v_name_for_error.clone(),
+            ])?;
+        }
+        v_parsed_type = _signature_parse_type_expr_impl(&[
+            v_type_part_raw.clone(),
+            v_section.clone(),
+            v_name_for_error.clone(),
+        ])?;
+        v_parsed_field_type = core_get(&v_parsed_type, &CoreValue::from("type"), CoreValue::Null);
+        v_parsed_cached = core_get(
+            &v_parsed_type,
+            &CoreValue::from("is_cached"),
+            CoreValue::Bool(false),
+        );
+        core_set(
+            &v_state,
+            CoreValue::from("type"),
+            v_parsed_field_type.clone(),
+        )?;
+        core_set(
+            &v_state,
+            CoreValue::from("is_cached"),
+            v_parsed_cached.clone(),
+        )?;
+        v_language = core_get(
+            &v_parsed_field_type,
+            &CoreValue::from("language"),
+            CoreValue::Null,
+        );
+        v_parsed_rest = core_get(&v_parsed_type, &CoreValue::from("rest"), CoreValue::Null);
+        v_description =
+            _signature_parse_description_impl(&[v_parsed_rest.clone(), v_language.clone()])?;
+        core_set(
+            &v_state,
+            CoreValue::from("description"),
+            v_description.clone(),
+        )?;
+    } else {
+        v_quoted_info = core_string_extract_quoted_suffix(&[v_name_part_raw.clone()])?;
+        v_quoted = core_get(&v_quoted_info, &CoreValue::from("value"), CoreValue::Null);
+        v_rest_after_quote_raw =
+            core_get(&v_quoted_info, &CoreValue::from("rest"), CoreValue::Null);
+        v_rest_after_quote = core_string_trim(&v_rest_after_quote_raw);
+        v_has_extra = core_truthy_value(&[v_rest_after_quote.clone()])?;
+        if core_truthy(&v_has_extra) {
+            v_error =
+                core_signature_error(&[CoreValue::from("Unexpected content after signature")])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_quoted_head = core_get(&v_quoted_info, &CoreValue::from("head"), CoreValue::Null);
+        core_set(
+            &v_state,
+            CoreValue::from("name_part"),
+            v_quoted_head.clone(),
+        )?;
+        core_set(&v_state, CoreValue::from("description"), v_quoted.clone())?;
+    }
+    v_name_part_value = core_get(&v_state, &CoreValue::from("name_part"), CoreValue::Null);
+    v_name_part = core_string_trim(&v_name_part_value);
     v_is_optional = core_contains(&[v_name_part.clone(), CoreValue::from("?")])?;
     v_is_internal = core_contains(&[v_name_part.clone(), CoreValue::from("!")])?;
     v_name_without_optional = core_string_replace(&[
@@ -20049,99 +20412,114 @@ fn _signature_parse_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
         CoreValue::from(""),
     ])?;
     v_name = core_string_trim(&v_name_without_markers);
-    v_type_words = core_string_words(&[v_type_part.clone()])?;
-    v_type_word_count = core_len(&[v_type_words.clone()])?;
-    v_extra_type_tokens = core_gt(&[v_type_word_count.clone(), CoreValue::Num(1f64)])?;
-    if core_truthy(&v_extra_type_tokens) {
-        v_error = core_signature_error(&[CoreValue::from("Unexpected content after signature")])?;
+    v_nested_internal = core_and(&[v_nested.clone(), v_is_internal.clone()])?;
+    if core_truthy(&v_nested_internal) {
+        v_qualified =
+            core_string_format(&[CoreValue::from("{}.{}"), v_parent.clone(), v_name.clone()])?;
+        v_message = core_string_format(&[
+            CoreValue::from("Object field \"{}\" cannot use the internal marker \"!\""),
+            v_qualified.clone(),
+        ])?;
+        v_error = core_signature_error(&[v_message.clone()])?;
         return Err(core_as_error(&v_error));
     }
-    v_type_token = core_list_get(&[
-        v_type_words.clone(),
-        CoreValue::Num(0f64),
-        CoreValue::from("string"),
-    ])?;
-    v_array_info = core_string_remove_suffix(&[v_type_token.clone(), CoreValue::from("[]")])?;
-    v_type_name_raw = core_get(&v_array_info, &CoreValue::from("value"), CoreValue::Null);
-    v_type_name =
-        core_string_default_if_empty(&[v_type_name_raw.clone(), CoreValue::from("string")])?;
-    v_is_array = core_get(&v_array_info, &CoreValue::from("removed"), CoreValue::Null);
-    v_is_class = core_eq(&[v_type_name.clone(), CoreValue::from("class")])?;
-    if core_truthy(&v_is_class) {
-        v_class_input = core_not(&[v_output.clone()])?;
-        if core_truthy(&v_class_input) {
-            v_error = core_signature_error(&[CoreValue::from(
-                "Input field cannot use the \"class\" type",
-            )])?;
-            return Err(core_as_error(&v_error));
-        }
-        v_missing_quoted = core_is_none(&[v_quoted.clone()])?;
-        if core_truthy(&v_missing_quoted) {
-            v_error = core_signature_error(&[CoreValue::from(
-                "Missing class options after \"class\" type",
-            )])?;
-            return Err(core_as_error(&v_error));
-        }
-        v_class_option_text =
-            core_string_replace(&[v_quoted.clone(), CoreValue::from("|"), CoreValue::from(",")])?;
-        v_options =
-            core_string_split_trim_nonempty(&[v_class_option_text.clone(), CoreValue::from(",")])?;
-        v_option_count = core_len(&[v_options.clone()])?;
-        v_empty_options = core_eq(&[v_option_count.clone(), CoreValue::Num(0f64)])?;
-        if core_truthy(&v_empty_options) {
-            v_error = core_signature_error(&[CoreValue::from(
-                "Missing class options after \"class\" type",
-            )])?;
-            return Err(core_as_error(&v_error));
-        }
+    v_field_type = core_get(&v_state, &CoreValue::from("type"), CoreValue::Null);
+    v_description = core_get(&v_state, &CoreValue::from("description"), CoreValue::Null);
+    v_has_description = core_is_not_none(&[v_description.clone()])?;
+    v_has_nested_description = core_and(&[v_nested.clone(), v_has_description.clone()])?;
+    if core_truthy(&v_has_nested_description) {
         v_type_attrs = CoreValue::new_map();
+        v_type_name = core_get(&v_field_type, &CoreValue::from("name"), CoreValue::Null);
+        v_type_is_array = core_get(
+            &v_field_type,
+            &CoreValue::from("is_array"),
+            CoreValue::Bool(false),
+        );
+        v_type_options = core_get(&v_field_type, &CoreValue::from("options"), CoreValue::Null);
+        v_type_fields = core_get(&v_field_type, &CoreValue::from("fields"), CoreValue::Null);
+        v_type_min_length = core_get(
+            &v_field_type,
+            &CoreValue::from("min_length"),
+            CoreValue::Null,
+        );
+        v_type_max_length = core_get(
+            &v_field_type,
+            &CoreValue::from("max_length"),
+            CoreValue::Null,
+        );
+        v_type_minimum = core_get(&v_field_type, &CoreValue::from("minimum"), CoreValue::Null);
+        v_type_maximum = core_get(&v_field_type, &CoreValue::from("maximum"), CoreValue::Null);
+        v_type_pattern = core_get(&v_field_type, &CoreValue::from("pattern"), CoreValue::Null);
+        v_type_pattern_description = core_get(
+            &v_field_type,
+            &CoreValue::from("pattern_description"),
+            CoreValue::Null,
+        );
+        v_type_format = core_get(&v_field_type, &CoreValue::from("format"), CoreValue::Null);
+        v_type_language = core_get(&v_field_type, &CoreValue::from("language"), CoreValue::Null);
         core_set(&v_type_attrs, CoreValue::from("name"), v_type_name.clone())?;
         core_set(
             &v_type_attrs,
             CoreValue::from("is_array"),
-            v_is_array.clone(),
-        )?;
-        core_set(&v_type_attrs, CoreValue::from("options"), v_options.clone())?;
-        v_field_type = core_record_new(&[CoreValue::from("FieldType"), v_type_attrs.clone()])?;
-        v_none = core_none(&[])?;
-        v_field_attrs = CoreValue::new_map();
-        core_set(&v_field_attrs, CoreValue::from("name"), v_name.clone())?;
-        core_set(
-            &v_field_attrs,
-            CoreValue::from("type"),
-            v_field_type.clone(),
+            v_type_is_array.clone(),
         )?;
         core_set(
-            &v_field_attrs,
+            &v_type_attrs,
+            CoreValue::from("options"),
+            v_type_options.clone(),
+        )?;
+        core_set(
+            &v_type_attrs,
+            CoreValue::from("fields"),
+            v_type_fields.clone(),
+        )?;
+        core_set(
+            &v_type_attrs,
+            CoreValue::from("min_length"),
+            v_type_min_length.clone(),
+        )?;
+        core_set(
+            &v_type_attrs,
+            CoreValue::from("max_length"),
+            v_type_max_length.clone(),
+        )?;
+        core_set(
+            &v_type_attrs,
+            CoreValue::from("minimum"),
+            v_type_minimum.clone(),
+        )?;
+        core_set(
+            &v_type_attrs,
+            CoreValue::from("maximum"),
+            v_type_maximum.clone(),
+        )?;
+        core_set(
+            &v_type_attrs,
+            CoreValue::from("pattern"),
+            v_type_pattern.clone(),
+        )?;
+        core_set(
+            &v_type_attrs,
+            CoreValue::from("pattern_description"),
+            v_type_pattern_description.clone(),
+        )?;
+        core_set(
+            &v_type_attrs,
+            CoreValue::from("format"),
+            v_type_format.clone(),
+        )?;
+        core_set(
+            &v_type_attrs,
+            CoreValue::from("language"),
+            v_type_language.clone(),
+        )?;
+        core_set(
+            &v_type_attrs,
             CoreValue::from("description"),
-            v_none.clone(),
+            v_description.clone(),
         )?;
-        core_set(
-            &v_field_attrs,
-            CoreValue::from("is_optional"),
-            v_is_optional.clone(),
-        )?;
-        core_set(
-            &v_field_attrs,
-            CoreValue::from("is_internal"),
-            v_is_internal.clone(),
-        )?;
-        v_field = core_record_new(&[CoreValue::from("Field"), v_field_attrs.clone()])?;
-        _signature_validate_field_shape_impl(&[
-            v_field.clone(),
-            v_output.clone(),
-            CoreValue::Bool(false),
-        ])?;
-        return Ok(v_field.clone());
+        v_field_type = core_record_new(&[CoreValue::from("FieldType"), v_type_attrs.clone()])?;
     }
-    v_type_attrs = CoreValue::new_map();
-    core_set(&v_type_attrs, CoreValue::from("name"), v_type_name.clone())?;
-    core_set(
-        &v_type_attrs,
-        CoreValue::from("is_array"),
-        v_is_array.clone(),
-    )?;
-    v_field_type = core_record_new(&[CoreValue::from("FieldType"), v_type_attrs.clone()])?;
     v_field_attrs = CoreValue::new_map();
     core_set(&v_field_attrs, CoreValue::from("name"), v_name.clone())?;
     core_set(
@@ -20152,7 +20530,7 @@ fn _signature_parse_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     core_set(
         &v_field_attrs,
         CoreValue::from("description"),
-        v_quoted.clone(),
+        v_description.clone(),
     )?;
     core_set(
         &v_field_attrs,
@@ -20164,13 +20542,1470 @@ fn _signature_parse_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
         CoreValue::from("is_internal"),
         v_is_internal.clone(),
     )?;
-    v_field = core_record_new(&[CoreValue::from("Field"), v_field_attrs.clone()])?;
-    _signature_validate_field_shape_impl(&[
-        v_field.clone(),
-        v_output.clone(),
+    v_is_cached = core_get(
+        &v_state,
+        &CoreValue::from("is_cached"),
         CoreValue::Bool(false),
-    ])?;
+    );
+    core_set(
+        &v_field_attrs,
+        CoreValue::from("is_cached"),
+        v_is_cached.clone(),
+    )?;
+    v_field = core_record_new(&[CoreValue::from("Field"), v_field_attrs.clone()])?;
+    _signature_validate_field_shape_impl(&[v_field.clone(), v_output.clone(), v_nested.clone()])?;
     return Ok(v_field.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_parse_description_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_parse_description_impl");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_fallback = core_arg(args, 1);
+    let mut v_empty = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_has_extra = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_quoted = CoreValue::Null;
+    let mut v_rest = CoreValue::Null;
+    let mut v_rest_raw = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_value_raw = CoreValue::Null;
+    v_text = core_string_trim(&v_raw);
+    v_empty = core_eq(&[v_text.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty) {
+        return Ok(v_fallback.clone());
+    }
+    v_quoted = core_string_consume_optional_quoted_prefix(&[v_text.clone()])?;
+    v_found = core_get(&v_quoted, &CoreValue::from("found"), CoreValue::Bool(false));
+    v_missing = core_not(&[v_found.clone()])?;
+    if core_truthy(&v_missing) {
+        v_error = core_signature_error(&[CoreValue::from("Unexpected content after signature")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_rest_raw = core_get(&v_quoted, &CoreValue::from("rest"), CoreValue::Null);
+    v_rest = core_string_trim(&v_rest_raw);
+    v_has_extra = core_truthy_value(&[v_rest.clone()])?;
+    if core_truthy(&v_has_extra) {
+        v_error = core_signature_error(&[CoreValue::from("Unexpected content after signature")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_value_raw = core_get(&v_quoted, &CoreValue::from("value"), CoreValue::Null);
+    v_value = core_string_trim(&v_value_raw);
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_parse_base_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_parse_base_type_impl");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_after = CoreValue::Null;
+    let mut v_boundary = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_double_quote = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_first = CoreValue::Null;
+    let mut v_matched_name = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_offset = CoreValue::Null;
+    let mut v_open_array = CoreValue::Null;
+    let mut v_open_brace = CoreValue::Null;
+    let mut v_open_paren = CoreValue::Null;
+    let mut v_single_quote = CoreValue::Null;
+    let mut v_space = CoreValue::Null;
+    let mut v_starts = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_types = CoreValue::Null;
+    let mut v_unmatched = CoreValue::Null;
+    let mut v_word = CoreValue::Null;
+    let mut v_words = CoreValue::Null;
+    v_text = core_string_trim(&v_raw);
+    v_types = CoreValue::new_list();
+    core_append(&v_types, CoreValue::from("datetimeRange"))?;
+    core_append(&v_types, CoreValue::from("dateRange"))?;
+    core_append(&v_types, CoreValue::from("datetime"))?;
+    core_append(&v_types, CoreValue::from("boolean"))?;
+    core_append(&v_types, CoreValue::from("string"))?;
+    core_append(&v_types, CoreValue::from("number"))?;
+    core_append(&v_types, CoreValue::from("object"))?;
+    core_append(&v_types, CoreValue::from("class"))?;
+    core_append(&v_types, CoreValue::from("image"))?;
+    core_append(&v_types, CoreValue::from("audio"))?;
+    core_append(&v_types, CoreValue::from("file"))?;
+    core_append(&v_types, CoreValue::from("json"))?;
+    core_append(&v_types, CoreValue::from("date"))?;
+    core_append(&v_types, CoreValue::from("code"))?;
+    core_append(&v_types, CoreValue::from("url"))?;
+    v_state = CoreValue::new_map();
+    core_set(&v_state, CoreValue::from("name"), CoreValue::from(""))?;
+    core_set(&v_state, CoreValue::from("rest"), v_text.clone())?;
+    for v_candidate in core_iter(&v_types)? {
+        let mut v_candidate = v_candidate;
+        v_matched_name = core_get(&v_state, &CoreValue::from("name"), CoreValue::Null);
+        v_unmatched = core_eq(&[v_matched_name.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_unmatched) {
+            v_starts = core_string_starts_with(&[v_text.clone(), v_candidate.clone()])?;
+            if core_truthy(&v_starts) {
+                v_offset = core_len(&[v_candidate.clone()])?;
+                v_after = core_string_slice(&[v_text.clone(), v_offset.clone()])?;
+                v_first = core_string_slice(&[
+                    v_after.clone(),
+                    CoreValue::Num(0f64),
+                    CoreValue::Num(1f64),
+                ])?;
+                v_boundary = core_eq(&[v_after.clone(), CoreValue::from("")])?;
+                v_space = core_regex_match(CoreValue::from("^\\s"), &v_after)?;
+                v_boundary = core_or(&[v_boundary.clone(), v_space.clone()])?;
+                v_open_paren = core_eq(&[v_first.clone(), CoreValue::from("(")])?;
+                v_boundary = core_or(&[v_boundary.clone(), v_open_paren.clone()])?;
+                v_open_brace = core_eq(&[v_first.clone(), CoreValue::from("{")])?;
+                v_boundary = core_or(&[v_boundary.clone(), v_open_brace.clone()])?;
+                v_open_array = core_eq(&[v_first.clone(), CoreValue::from("[")])?;
+                v_boundary = core_or(&[v_boundary.clone(), v_open_array.clone()])?;
+                v_double_quote = core_eq(&[v_first.clone(), CoreValue::from("\"")])?;
+                v_boundary = core_or(&[v_boundary.clone(), v_double_quote.clone()])?;
+                v_single_quote = core_eq(&[v_first.clone(), CoreValue::from("'")])?;
+                v_boundary = core_or(&[v_boundary.clone(), v_single_quote.clone()])?;
+                if core_truthy(&v_boundary) {
+                    core_set(&v_state, CoreValue::from("name"), v_candidate.clone())?;
+                    core_set(&v_state, CoreValue::from("rest"), v_after.clone())?;
+                }
+            }
+        }
+    }
+    v_name = core_get(&v_state, &CoreValue::from("name"), CoreValue::Null);
+    v_missing = core_eq(&[v_name.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_missing) {
+        v_words = core_string_words(&[v_text.clone()])?;
+        v_word = core_list_get(&[
+            v_words.clone(),
+            CoreValue::Num(0f64),
+            CoreValue::from("empty"),
+        ])?;
+        v_message = core_string_format(&[CoreValue::from("Invalid type \"{}\""), v_word.clone()])?;
+        v_error = core_signature_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_state.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_parse_type_expr_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_parse_type_expr_impl");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_section = core_arg(args, 1);
+    let mut v_field_name = core_arg(args, 2);
+    let mut v_after = CoreValue::Null;
+    let mut v_after_array = CoreValue::Null;
+    let mut v_attrs = CoreValue::Null;
+    let mut v_bag = CoreValue::Null;
+    let mut v_bag_after = CoreValue::Null;
+    let mut v_balanced = CoreValue::Null;
+    let mut v_base = CoreValue::Null;
+    let mut v_base_rest = CoreValue::Null;
+    let mut v_empty_options = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_group_rest = CoreValue::Null;
+    let mut v_group_text = CoreValue::Null;
+    let mut v_has_bag = CoreValue::Null;
+    let mut v_has_item = CoreValue::Null;
+    let mut v_has_object_fields = CoreValue::Null;
+    let mut v_has_options = CoreValue::Null;
+    let mut v_input = CoreValue::Null;
+    let mut v_is_array = CoreValue::Null;
+    let mut v_is_cached = CoreValue::Null;
+    let mut v_is_class = CoreValue::Null;
+    let mut v_is_media = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_item_description = CoreValue::Null;
+    let mut v_item_without_array = CoreValue::Null;
+    let mut v_media = CoreValue::Null;
+    let mut v_merged_attrs = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_modifier_state = CoreValue::Null;
+    let mut v_nested = CoreValue::Null;
+    let mut v_nested_media = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_array = CoreValue::Null;
+    let mut v_option_count = CoreValue::Null;
+    let mut v_option_text = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_parsed_attrs = CoreValue::Null;
+    let mut v_parsed_cached = CoreValue::Null;
+    let mut v_parsed_item = CoreValue::Null;
+    let mut v_quoted = CoreValue::Null;
+    let mut v_quoted_rest = CoreValue::Null;
+    let mut v_quoted_value = CoreValue::Null;
+    let mut v_rest = CoreValue::Null;
+    let mut v_rest_after_array = CoreValue::Null;
+    let mut v_starts_object_fields = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_type_attrs = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    let mut v_unbalanced = CoreValue::Null;
+    v_base = _signature_parse_base_type_impl(&[v_raw.clone()])?;
+    v_type_name = core_get(&v_base, &CoreValue::from("name"), CoreValue::Null);
+    v_base_rest = core_get(&v_base, &CoreValue::from("rest"), CoreValue::Null);
+    v_rest = core_string_trim(&v_base_rest);
+    v_nested = core_eq(&[v_section.clone(), CoreValue::from("nested")])?;
+    v_media = CoreValue::new_list();
+    core_append(&v_media, CoreValue::from("image"))?;
+    core_append(&v_media, CoreValue::from("audio"))?;
+    core_append(&v_media, CoreValue::from("file"))?;
+    v_is_media = core_contains(&[v_media.clone(), v_type_name.clone()])?;
+    v_nested_media = core_and(&[v_nested.clone(), v_is_media.clone()])?;
+    if core_truthy(&v_nested_media) {
+        v_message = core_string_format(&[
+            CoreValue::from("Object field \"{}\": {} type is not allowed in nested object fields"),
+            v_field_name.clone(),
+            v_type_name.clone(),
+        ])?;
+        v_error = core_signature_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_is_class = core_eq(&[v_type_name.clone(), CoreValue::from("class")])?;
+    if core_truthy(&v_is_class) {
+        v_input = core_eq(&[v_section.clone(), CoreValue::from("input")])?;
+        if core_truthy(&v_input) {
+            v_error = core_signature_error(&[CoreValue::from(
+                "Input field cannot use the \"class\" type",
+            )])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_bag = core_string_starts_with(&[v_rest.clone(), CoreValue::from("(")])?;
+        if core_truthy(&v_bag) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field \"{}\": constraints are not supported on class fields"),
+                v_field_name.clone(),
+            ])?;
+            v_error = core_signature_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_is_array = core_string_starts_with(&[v_rest.clone(), CoreValue::from("[]")])?;
+        if core_truthy(&v_is_array) {
+            v_rest_after_array = core_string_slice(&[v_rest.clone(), CoreValue::Num(2f64)])?;
+            v_rest = core_string_trim(&v_rest_after_array);
+        }
+        v_bag_after = core_string_starts_with(&[v_rest.clone(), CoreValue::from("(")])?;
+        if core_truthy(&v_bag_after) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field \"{}\": constraints are not supported on class fields"),
+                v_field_name.clone(),
+            ])?;
+            v_error = core_signature_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_quoted = core_string_consume_optional_quoted_prefix(&[v_rest.clone()])?;
+        v_has_options = core_get(&v_quoted, &CoreValue::from("found"), CoreValue::Bool(false));
+        if core_truthy(&v_has_options) {
+            v_quoted_value = core_get(&v_quoted, &CoreValue::from("value"), CoreValue::Null);
+            v_option_text = core_string_replace(&[
+                v_quoted_value.clone(),
+                CoreValue::from("|"),
+                CoreValue::from(","),
+            ])?;
+            v_options =
+                core_string_split_trim_nonempty(&[v_option_text.clone(), CoreValue::from(",")])?;
+            v_option_count = core_len(&[v_options.clone()])?;
+            v_empty_options = core_eq(&[v_option_count.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_empty_options) {
+                v_error = core_signature_error(&[CoreValue::from(
+                    "Missing class options after \"class\" type",
+                )])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_attrs = CoreValue::new_map();
+            core_set(&v_attrs, CoreValue::from("name"), CoreValue::from("class"))?;
+            core_set(&v_attrs, CoreValue::from("is_array"), v_is_array.clone())?;
+            core_set(&v_attrs, CoreValue::from("options"), v_options.clone())?;
+            v_typ = core_record_new(&[CoreValue::from("FieldType"), v_attrs.clone()])?;
+            v_out = CoreValue::new_map();
+            core_set(&v_out, CoreValue::from("type"), v_typ.clone())?;
+            core_set(&v_out, CoreValue::from("is_cached"), CoreValue::Bool(false))?;
+            v_quoted_rest = core_get(&v_quoted, &CoreValue::from("rest"), CoreValue::Null);
+            core_set(&v_out, CoreValue::from("rest"), v_quoted_rest.clone())?;
+            return Ok(v_out.clone());
+        }
+        v_error = core_signature_error(&[CoreValue::from(
+            "Missing class options after \"class\" type",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
+    v_starts_object_fields = core_string_starts_with(&[v_rest.clone(), CoreValue::from("{")])?;
+    v_has_object_fields = core_and(&[v_is_object.clone(), v_starts_object_fields.clone()])?;
+    if core_truthy(&v_has_object_fields) {
+        v_group = core_string_extract_leading_group(&[
+            v_rest.clone(),
+            CoreValue::from("{"),
+            CoreValue::from("}"),
+        ])?;
+        v_balanced = core_get(
+            &v_group,
+            &CoreValue::from("balanced"),
+            CoreValue::Bool(false),
+        );
+        v_unbalanced = core_not(&[v_balanced.clone()])?;
+        if core_truthy(&v_unbalanced) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field \"{}\": unbalanced \"{\" in object type"),
+                v_field_name.clone(),
+            ])?;
+            v_error = core_signature_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_group_text = core_get(&v_group, &CoreValue::from("group"), CoreValue::Null);
+        v_fields = _signature_parse_object_fields_impl(&[
+            v_group_text.clone(),
+            v_section.clone(),
+            v_field_name.clone(),
+        ])?;
+        v_group_rest = core_get(&v_group, &CoreValue::from("rest"), CoreValue::Null);
+        v_after = core_string_trim(&v_group_rest);
+        v_is_array = core_string_starts_with(&[v_after.clone(), CoreValue::from("[]")])?;
+        if core_truthy(&v_is_array) {
+            v_after_array = core_string_slice(&[v_after.clone(), CoreValue::Num(2f64)])?;
+            v_after = core_string_trim(&v_after_array);
+        }
+        v_attrs = CoreValue::new_map();
+        core_set(&v_attrs, CoreValue::from("name"), CoreValue::from("object"))?;
+        core_set(&v_attrs, CoreValue::from("is_array"), v_is_array.clone())?;
+        core_set(&v_attrs, CoreValue::from("fields"), v_fields.clone())?;
+        v_typ = core_record_new(&[CoreValue::from("FieldType"), v_attrs.clone()])?;
+        v_out = CoreValue::new_map();
+        core_set(&v_out, CoreValue::from("type"), v_typ.clone())?;
+        core_set(&v_out, CoreValue::from("is_cached"), CoreValue::Bool(false))?;
+        core_set(&v_out, CoreValue::from("rest"), v_after.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_attrs = CoreValue::new_map();
+    core_set(&v_attrs, CoreValue::from("name"), v_type_name.clone())?;
+    core_set(
+        &v_attrs,
+        CoreValue::from("is_array"),
+        CoreValue::Bool(false),
+    )?;
+    v_modifier_state = CoreValue::new_map();
+    core_set(&v_modifier_state, CoreValue::from("attrs"), v_attrs.clone())?;
+    core_set(
+        &v_modifier_state,
+        CoreValue::from("is_cached"),
+        CoreValue::Bool(false),
+    )?;
+    v_none = core_none(&[])?;
+    core_set(
+        &v_modifier_state,
+        CoreValue::from("item_description"),
+        v_none.clone(),
+    )?;
+    v_has_bag = core_string_starts_with(&[v_rest.clone(), CoreValue::from("(")])?;
+    if core_truthy(&v_has_bag) {
+        v_group = core_string_extract_leading_group(&[
+            v_rest.clone(),
+            CoreValue::from("("),
+            CoreValue::from(")"),
+        ])?;
+        v_balanced = core_get(
+            &v_group,
+            &CoreValue::from("balanced"),
+            CoreValue::Bool(false),
+        );
+        v_unbalanced = core_not(&[v_balanced.clone()])?;
+        if core_truthy(&v_unbalanced) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field \"{}\": expected \",\" or \")\" in modifier list"),
+                v_field_name.clone(),
+            ])?;
+            v_error = core_signature_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_group_text = core_get(&v_group, &CoreValue::from("group"), CoreValue::Null);
+        v_parsed = _signature_parse_modifier_bag_impl(&[
+            v_type_name.clone(),
+            v_section.clone(),
+            v_field_name.clone(),
+            v_group_text.clone(),
+        ])?;
+        v_parsed_attrs = core_get(&v_parsed, &CoreValue::from("attrs"), CoreValue::Null);
+        v_merged_attrs = core_map_merge(&[v_attrs.clone(), v_parsed_attrs.clone()])?;
+        v_parsed_cached = core_get(
+            &v_parsed,
+            &CoreValue::from("is_cached"),
+            CoreValue::Bool(false),
+        );
+        v_parsed_item = core_get(
+            &v_parsed,
+            &CoreValue::from("item_description"),
+            CoreValue::Null,
+        );
+        core_set(
+            &v_modifier_state,
+            CoreValue::from("attrs"),
+            v_merged_attrs.clone(),
+        )?;
+        core_set(
+            &v_modifier_state,
+            CoreValue::from("is_cached"),
+            v_parsed_cached.clone(),
+        )?;
+        core_set(
+            &v_modifier_state,
+            CoreValue::from("item_description"),
+            v_parsed_item.clone(),
+        )?;
+        v_group_rest = core_get(&v_group, &CoreValue::from("rest"), CoreValue::Null);
+        v_rest = core_string_trim(&v_group_rest);
+    }
+    v_is_array = core_string_starts_with(&[v_rest.clone(), CoreValue::from("[]")])?;
+    if core_truthy(&v_is_array) {
+        v_rest_after_array = core_string_slice(&[v_rest.clone(), CoreValue::Num(2f64)])?;
+        v_rest = core_string_trim(&v_rest_after_array);
+    }
+    v_type_attrs = core_get(
+        &v_modifier_state,
+        &CoreValue::from("attrs"),
+        CoreValue::Null,
+    );
+    core_set(
+        &v_type_attrs,
+        CoreValue::from("is_array"),
+        v_is_array.clone(),
+    )?;
+    v_item_description = core_get(
+        &v_modifier_state,
+        &CoreValue::from("item_description"),
+        CoreValue::Null,
+    );
+    v_has_item = core_is_not_none(&[v_item_description.clone()])?;
+    v_not_array = core_not(&[v_is_array.clone()])?;
+    v_item_without_array = core_and(&[v_has_item.clone(), v_not_array.clone()])?;
+    if core_truthy(&v_item_without_array) {
+        v_message = core_string_format(&[
+            CoreValue::from("Field \"{}\": the \"item\" modifier requires an array type"),
+            v_field_name.clone(),
+        ])?;
+        v_error = core_signature_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    if core_truthy(&v_has_item) {
+        core_set(
+            &v_type_attrs,
+            CoreValue::from("description"),
+            v_item_description.clone(),
+        )?;
+    }
+    v_typ = core_record_new(&[CoreValue::from("FieldType"), v_type_attrs.clone()])?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("type"), v_typ.clone())?;
+    v_is_cached = core_get(
+        &v_modifier_state,
+        &CoreValue::from("is_cached"),
+        CoreValue::Bool(false),
+    );
+    core_set(&v_out, CoreValue::from("is_cached"), v_is_cached.clone())?;
+    core_set(&v_out, CoreValue::from("rest"), v_rest.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_parse_modifier_bag_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_parse_modifier_bag_impl");
+    let mut v_type_name = core_arg(args, 0);
+    let mut v_section = core_arg(args, 1);
+    let mut v_field_name = core_arg(args, 2);
+    let mut v_raw = core_arg(args, 3);
+    let mut v_allowed = CoreValue::Null;
+    let mut v_arg = CoreValue::Null;
+    let mut v_arg_raw = CoreValue::Null;
+    let mut v_attrs = CoreValue::Null;
+    let mut v_desc = CoreValue::Null;
+    let mut v_desc_extra = CoreValue::Null;
+    let mut v_desc_found = CoreValue::Null;
+    let mut v_desc_missing = CoreValue::Null;
+    let mut v_desc_rest = CoreValue::Null;
+    let mut v_desc_rest_raw = CoreValue::Null;
+    let mut v_desc_value = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_empty = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_extra = CoreValue::Null;
+    let mut v_formats = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_handled = CoreValue::Null;
+    let mut v_has_pattern_rest = CoreValue::Null;
+    let mut v_input = CoreValue::Null;
+    let mut v_is_bound = CoreValue::Null;
+    let mut v_is_cache = CoreValue::Null;
+    let mut v_is_cached = CoreValue::Null;
+    let mut v_is_code = CoreValue::Null;
+    let mut v_is_format = CoreValue::Null;
+    let mut v_is_item = CoreValue::Null;
+    let mut v_is_max = CoreValue::Null;
+    let mut v_is_min = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_is_pattern = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_item_description = CoreValue::Null;
+    let mut v_item_value = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_nested = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_not_allowed = CoreValue::Null;
+    let mut v_not_input = CoreValue::Null;
+    let mut v_not_numeric = CoreValue::Null;
+    let mut v_not_string = CoreValue::Null;
+    let mut v_numeric = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_pattern_rest = CoreValue::Null;
+    let mut v_pattern_rest_raw = CoreValue::Null;
+    let mut v_pattern_value = CoreValue::Null;
+    let mut v_quoted = CoreValue::Null;
+    let mut v_remaining = CoreValue::Null;
+    let mut v_remaining_raw = CoreValue::Null;
+    let mut v_seen = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_token = CoreValue::Null;
+    let mut v_token_len = CoreValue::Null;
+    let mut v_unhandled = CoreValue::Null;
+    let mut v_unknown = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_was_handled = CoreValue::Null;
+    let mut v_words = CoreValue::Null;
+    v_text = core_string_trim(&v_raw);
+    v_empty = core_eq(&[v_text.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty) {
+        v_message = core_string_format(&[
+            CoreValue::from("Field \"{}\": empty modifier list \"()\""),
+            v_field_name.clone(),
+        ])?;
+        v_error = core_signature_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_parts = core_string_split_top_level(&[v_raw.clone(), CoreValue::from(",")])?;
+    v_attrs = CoreValue::new_map();
+    v_seen = CoreValue::new_list();
+    v_state = CoreValue::new_map();
+    core_set(
+        &v_state,
+        CoreValue::from("is_cached"),
+        CoreValue::Bool(false),
+    )?;
+    v_none = core_none(&[])?;
+    core_set(
+        &v_state,
+        CoreValue::from("item_description"),
+        v_none.clone(),
+    )?;
+    for v_part in core_iter(&v_parts)? {
+        let mut v_part = v_part;
+        v_entry = core_string_trim(&v_part);
+        v_entry_empty = core_eq(&[v_entry.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_entry_empty) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field \"{}\": trailing comma in modifier list"),
+                v_field_name.clone(),
+            ])?;
+            v_error = core_signature_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_words = core_string_words(&[v_entry.clone()])?;
+        v_token = core_list_get(&[v_words.clone(), CoreValue::Num(0f64), CoreValue::from("")])?;
+        v_token_len = core_len(&[v_token.clone()])?;
+        v_arg_raw = core_string_slice(&[v_entry.clone(), v_token_len.clone()])?;
+        v_arg = core_string_trim(&v_arg_raw);
+        v_handled = CoreValue::new_map();
+        core_set(&v_handled, CoreValue::from("value"), CoreValue::Bool(false))?;
+        v_is_min = core_eq(&[v_token.clone(), CoreValue::from("min")])?;
+        v_is_max = core_eq(&[v_token.clone(), CoreValue::from("max")])?;
+        v_is_bound = core_or(&[v_is_min.clone(), v_is_max.clone()])?;
+        if core_truthy(&v_is_bound) {
+            v_duplicate = core_contains(&[v_seen.clone(), v_token.clone()])?;
+            if core_truthy(&v_duplicate) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": duplicate \"{}\" modifier"),
+                    v_field_name.clone(),
+                    v_token.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            core_append(&v_seen, v_token.clone())?;
+            v_is_string = core_eq(&[v_type_name.clone(), CoreValue::from("string")])?;
+            v_is_number = core_eq(&[v_type_name.clone(), CoreValue::from("number")])?;
+            v_allowed = core_or(&[v_is_string.clone(), v_is_number.clone()])?;
+            v_not_allowed = core_not(&[v_allowed.clone()])?;
+            if core_truthy(&v_not_allowed) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": \"{}\" is not supported for type \"{}\""),
+                    v_field_name.clone(),
+                    v_token.clone(),
+                    v_type_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_numeric = core_regex_match(CoreValue::from("^-?[0-9]+(\\.[0-9]+)?$"), &v_arg)?;
+            v_not_numeric = core_not(&[v_numeric.clone()])?;
+            if core_truthy(&v_not_numeric) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": \"{}\" requires a numeric value"),
+                    v_field_name.clone(),
+                    v_token.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_value = core_json_parse(&[v_arg.clone()])?;
+            if core_truthy(&v_is_string) {
+                if core_truthy(&v_is_min) {
+                    core_set(&v_attrs, CoreValue::from("minLength"), v_value.clone())?;
+                } else {
+                    core_set(&v_attrs, CoreValue::from("maxLength"), v_value.clone())?;
+                }
+            } else {
+                if core_truthy(&v_is_min) {
+                    core_set(&v_attrs, CoreValue::from("minimum"), v_value.clone())?;
+                } else {
+                    core_set(&v_attrs, CoreValue::from("maximum"), v_value.clone())?;
+                }
+            }
+            core_set(&v_handled, CoreValue::from("value"), CoreValue::Bool(true))?;
+        }
+        v_is_format = core_eq(&[v_token.clone(), CoreValue::from("format")])?;
+        if core_truthy(&v_is_format) {
+            v_duplicate = core_contains(&[v_seen.clone(), CoreValue::from("format")])?;
+            if core_truthy(&v_duplicate) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": duplicate \"format\" modifier"),
+                    v_field_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            core_append(&v_seen, CoreValue::from("format"))?;
+            v_is_string = core_eq(&[v_type_name.clone(), CoreValue::from("string")])?;
+            v_not_string = core_not(&[v_is_string.clone()])?;
+            if core_truthy(&v_not_string) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": \"format\" is not supported for type \"{}\""),
+                    v_field_name.clone(),
+                    v_type_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_formats = CoreValue::new_list();
+            core_append(&v_formats, CoreValue::from("email"))?;
+            core_append(&v_formats, CoreValue::from("uri"))?;
+            core_append(&v_formats, CoreValue::from("date"))?;
+            core_append(&v_formats, CoreValue::from("date-time"))?;
+            v_known = core_contains(&[v_formats.clone(), v_arg.clone()])?;
+            v_unknown = core_not(&[v_known.clone()])?;
+            if core_truthy(&v_unknown) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": unknown format \"{}\""),
+                    v_field_name.clone(),
+                    v_arg.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            core_set(&v_attrs, CoreValue::from("format"), v_arg.clone())?;
+            core_set(&v_handled, CoreValue::from("value"), CoreValue::Bool(true))?;
+        }
+        v_is_pattern = core_eq(&[v_token.clone(), CoreValue::from("pattern")])?;
+        if core_truthy(&v_is_pattern) {
+            v_duplicate = core_contains(&[v_seen.clone(), CoreValue::from("pattern")])?;
+            if core_truthy(&v_duplicate) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": duplicate \"pattern\" modifier"),
+                    v_field_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            core_append(&v_seen, CoreValue::from("pattern"))?;
+            v_is_string = core_eq(&[v_type_name.clone(), CoreValue::from("string")])?;
+            v_not_string = core_not(&[v_is_string.clone()])?;
+            if core_truthy(&v_not_string) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": \"pattern\" is not supported for type \"{}\""),
+                    v_field_name.clone(),
+                    v_type_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_quoted = core_string_consume_optional_quoted_prefix(&[v_arg.clone()])?;
+            v_found = core_get(&v_quoted, &CoreValue::from("found"), CoreValue::Bool(false));
+            v_missing = core_not(&[v_found.clone()])?;
+            if core_truthy(&v_missing) {
+                v_message = core_string_format(&[
+                    CoreValue::from(
+                        "Field \"{}\": \"pattern\" requires a quoted regular expression",
+                    ),
+                    v_field_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_pattern_value = core_get(&v_quoted, &CoreValue::from("value"), CoreValue::Null);
+            core_set(
+                &v_attrs,
+                CoreValue::from("pattern"),
+                v_pattern_value.clone(),
+            )?;
+            v_pattern_rest_raw = core_get(&v_quoted, &CoreValue::from("rest"), CoreValue::Null);
+            v_pattern_rest = core_string_trim(&v_pattern_rest_raw);
+            v_has_pattern_rest = core_truthy_value(&[v_pattern_rest.clone()])?;
+            if core_truthy(&v_has_pattern_rest) {
+                v_desc = core_string_consume_optional_quoted_prefix(&[v_pattern_rest.clone()])?;
+                v_desc_found = core_get(&v_desc, &CoreValue::from("found"), CoreValue::Bool(false));
+                v_desc_missing = core_not(&[v_desc_found.clone()])?;
+                if core_truthy(&v_desc_missing) {
+                    v_message = core_string_format(&[
+                        CoreValue::from("Field \"{}\": expected \",\" or \")\" in modifier list"),
+                        v_field_name.clone(),
+                    ])?;
+                    v_error = core_signature_error(&[v_message.clone()])?;
+                    return Err(core_as_error(&v_error));
+                }
+                v_desc_rest_raw = core_get(&v_desc, &CoreValue::from("rest"), CoreValue::Null);
+                v_desc_rest = core_string_trim(&v_desc_rest_raw);
+                v_desc_extra = core_truthy_value(&[v_desc_rest.clone()])?;
+                if core_truthy(&v_desc_extra) {
+                    v_message = core_string_format(&[
+                        CoreValue::from("Field \"{}\": expected \",\" or \")\" in modifier list"),
+                        v_field_name.clone(),
+                    ])?;
+                    v_error = core_signature_error(&[v_message.clone()])?;
+                    return Err(core_as_error(&v_error));
+                }
+                v_desc_value = core_get(&v_desc, &CoreValue::from("value"), CoreValue::Null);
+                core_set(
+                    &v_attrs,
+                    CoreValue::from("patternDescription"),
+                    v_desc_value.clone(),
+                )?;
+            }
+            core_set(&v_handled, CoreValue::from("value"), CoreValue::Bool(true))?;
+        }
+        v_is_cache = core_eq(&[v_token.clone(), CoreValue::from("cache")])?;
+        if core_truthy(&v_is_cache) {
+            v_duplicate = core_contains(&[v_seen.clone(), CoreValue::from("cache")])?;
+            if core_truthy(&v_duplicate) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": duplicate \"cache\" modifier"),
+                    v_field_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            core_append(&v_seen, CoreValue::from("cache"))?;
+            v_input = core_eq(&[v_section.clone(), CoreValue::from("input")])?;
+            v_not_input = core_not(&[v_input.clone()])?;
+            if core_truthy(&v_not_input) {
+                v_message = core_string_format(&[
+                    CoreValue::from(
+                        "Field \"{}\": \"cache\" is only supported on top-level input fields",
+                    ),
+                    v_field_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_extra = core_truthy_value(&[v_arg.clone()])?;
+            if core_truthy(&v_extra) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": expected \",\" or \")\" in modifier list"),
+                    v_field_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            core_set(
+                &v_state,
+                CoreValue::from("is_cached"),
+                CoreValue::Bool(true),
+            )?;
+            core_set(&v_handled, CoreValue::from("value"), CoreValue::Bool(true))?;
+        }
+        v_is_item = core_eq(&[v_token.clone(), CoreValue::from("item")])?;
+        if core_truthy(&v_is_item) {
+            v_duplicate = core_contains(&[v_seen.clone(), CoreValue::from("item")])?;
+            if core_truthy(&v_duplicate) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": duplicate \"item\" modifier"),
+                    v_field_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            core_append(&v_seen, CoreValue::from("item"))?;
+            v_nested = core_eq(&[v_section.clone(), CoreValue::from("nested")])?;
+            if core_truthy(&v_nested) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": \"item\" is not supported inside object fields"),
+                    v_field_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_quoted = core_string_consume_optional_quoted_prefix(&[v_arg.clone()])?;
+            v_found = core_get(&v_quoted, &CoreValue::from("found"), CoreValue::Bool(false));
+            v_missing = core_not(&[v_found.clone()])?;
+            if core_truthy(&v_missing) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": \"item\" requires a quoted description"),
+                    v_field_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_remaining_raw = core_get(&v_quoted, &CoreValue::from("rest"), CoreValue::Null);
+            v_remaining = core_string_trim(&v_remaining_raw);
+            v_extra = core_truthy_value(&[v_remaining.clone()])?;
+            if core_truthy(&v_extra) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": expected \",\" or \")\" in modifier list"),
+                    v_field_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_item_value = core_get(&v_quoted, &CoreValue::from("value"), CoreValue::Null);
+            core_set(
+                &v_state,
+                CoreValue::from("item_description"),
+                v_item_value.clone(),
+            )?;
+            core_set(&v_handled, CoreValue::from("value"), CoreValue::Bool(true))?;
+        }
+        v_was_handled = core_get(
+            &v_handled,
+            &CoreValue::from("value"),
+            CoreValue::Bool(false),
+        );
+        v_unhandled = core_not(&[v_was_handled.clone()])?;
+        if core_truthy(&v_unhandled) {
+            v_is_code = core_eq(&[v_type_name.clone(), CoreValue::from("code")])?;
+            if core_truthy(&v_is_code) {
+                v_duplicate = core_contains(&[v_seen.clone(), CoreValue::from("language")])?;
+                if core_truthy(&v_duplicate) {
+                    v_message = core_string_format(&[
+                        CoreValue::from("Field \"{}\": duplicate \"language\" modifier"),
+                        v_field_name.clone(),
+                    ])?;
+                    v_error = core_signature_error(&[v_message.clone()])?;
+                    return Err(core_as_error(&v_error));
+                }
+                v_extra = core_truthy_value(&[v_arg.clone()])?;
+                if core_truthy(&v_extra) {
+                    v_message = core_string_format(&[
+                        CoreValue::from("Field \"{}\": expected \",\" or \")\" in modifier list"),
+                        v_field_name.clone(),
+                    ])?;
+                    v_error = core_signature_error(&[v_message.clone()])?;
+                    return Err(core_as_error(&v_error));
+                }
+                core_append(&v_seen, CoreValue::from("language"))?;
+                core_set(&v_attrs, CoreValue::from("language"), v_token.clone())?;
+            } else {
+                v_message = core_string_format(&[
+                    CoreValue::from("Field \"{}\": unknown modifier \"{}\" for type \"{}\""),
+                    v_field_name.clone(),
+                    v_token.clone(),
+                    v_type_name.clone(),
+                ])?;
+                v_error = core_signature_error(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+        }
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("attrs"), v_attrs.clone())?;
+    v_is_cached = core_get(
+        &v_state,
+        &CoreValue::from("is_cached"),
+        CoreValue::Bool(false),
+    );
+    v_item_description = core_get(
+        &v_state,
+        &CoreValue::from("item_description"),
+        CoreValue::Null,
+    );
+    core_set(&v_out, CoreValue::from("is_cached"), v_is_cached.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("item_description"),
+        v_item_description.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_parse_object_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_parse_object_fields_impl");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_section = core_arg(args, 1);
+    let mut v_parent = core_arg(args, 2);
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_empty = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    v_text = core_string_trim(&v_raw);
+    v_empty = core_eq(&[v_text.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty) {
+        v_message = core_string_format(&[
+            CoreValue::from("Field \"{}\": object type requires at least one field"),
+            v_parent.clone(),
+        ])?;
+        v_error = core_signature_error(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_parts = core_string_split_top_level(&[v_raw.clone(), CoreValue::from(",")])?;
+    v_fields = CoreValue::new_map();
+    v_output = core_eq(&[v_section.clone(), CoreValue::from("output")])?;
+    for v_part in core_iter(&v_parts)? {
+        let mut v_part = v_part;
+        v_entry = core_string_trim(&v_part);
+        v_entry_empty = core_eq(&[v_entry.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_entry_empty) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field \"{}\": trailing comma in object type"),
+                v_parent.clone(),
+            ])?;
+            v_error = core_signature_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_field = _signature_parse_field_common_impl(&[
+            v_entry.clone(),
+            v_output.clone(),
+            CoreValue::Bool(true),
+            v_parent.clone(),
+        ])?;
+        v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+        v_duplicate = core_map_contains(&[v_fields.clone(), v_name.clone()])?;
+        if core_truthy(&v_duplicate) {
+            v_message = core_string_format(&[
+                CoreValue::from("Field \"{}\": duplicate object field name \"{}\""),
+                v_parent.clone(),
+                v_name.clone(),
+            ])?;
+            v_error = core_signature_error(&[v_message.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        core_set(&v_fields, v_name.clone(), v_field.clone())?;
+    }
+    return Ok(v_fields.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn signature_to_string(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("signature_to_string");
+    let mut v_signature = core_arg(args, 0);
+    let mut v_description = CoreValue::Null;
+    let mut v_escaped = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_input_parts = CoreValue::Null;
+    let mut v_input_text = CoreValue::Null;
+    let mut v_inputs = CoreValue::Null;
+    let mut v_left = CoreValue::Null;
+    let mut v_output_parts = CoreValue::Null;
+    let mut v_outputs = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    let mut v_rendered = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_right = CoreValue::Null;
+    v_parts = CoreValue::new_list();
+    v_description = core_get(
+        &v_signature,
+        &CoreValue::from("description"),
+        CoreValue::Null,
+    );
+    v_has_description = core_truthy_value(&[v_description.clone()])?;
+    if core_truthy(&v_has_description) {
+        v_escaped = _signature_escape_string_impl(&[v_description.clone()])?;
+        v_prefix = core_string_format(&[CoreValue::from("\"{}\""), v_escaped.clone()])?;
+        core_append(&v_parts, v_prefix.clone())?;
+    }
+    v_inputs = core_get(
+        &v_signature,
+        &CoreValue::from("input_fields"),
+        CoreValue::Null,
+    );
+    v_input_parts = CoreValue::new_list();
+    for v_field in core_iter(&v_inputs)? {
+        let mut v_field = v_field;
+        v_rendered = _signature_render_field_impl(&[v_field.clone()])?;
+        core_append(&v_input_parts, v_rendered.clone())?;
+    }
+    v_input_text = core_string_join_intrinsic(&[CoreValue::from(", "), v_input_parts.clone()])?;
+    core_append(&v_parts, v_input_text.clone())?;
+    v_left = core_string_join_intrinsic(&[CoreValue::from(" "), v_parts.clone()])?;
+    v_outputs = core_get(
+        &v_signature,
+        &CoreValue::from("output_fields"),
+        CoreValue::Null,
+    );
+    v_output_parts = CoreValue::new_list();
+    for v_field in core_iter(&v_outputs)? {
+        let mut v_field = v_field;
+        v_rendered = _signature_render_field_impl(&[v_field.clone()])?;
+        core_append(&v_output_parts, v_rendered.clone())?;
+    }
+    v_right = core_string_join_intrinsic(&[CoreValue::from(", "), v_output_parts.clone()])?;
+    v_result = core_string_format(&[CoreValue::from("{} -> {}"), v_left.clone(), v_right.clone()])?;
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_escape_string_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_escape_string_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_quotes = CoreValue::Null;
+    let mut v_slashes = CoreValue::Null;
+    v_slashes = core_string_replace(&[
+        v_value.clone(),
+        CoreValue::from("\\"),
+        CoreValue::from("\\\\"),
+    ])?;
+    v_quotes = core_string_replace(&[
+        v_slashes.clone(),
+        CoreValue::from("\""),
+        CoreValue::from("\\\""),
+    ])?;
+    return Ok(v_quotes.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_render_modifier_bag_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_render_modifier_bag_impl");
+    let mut v_typ = core_arg(args, 0);
+    let mut v_is_cached = core_arg(args, 1);
+    let mut v_body = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_entries = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_escaped_description = CoreValue::Null;
+    let mut v_escaped_item = CoreValue::Null;
+    let mut v_escaped_pattern = CoreValue::Null;
+    let mut v_format = CoreValue::Null;
+    let mut v_has_format = CoreValue::Null;
+    let mut v_has_item_description = CoreValue::Null;
+    let mut v_has_language = CoreValue::Null;
+    let mut v_has_max = CoreValue::Null;
+    let mut v_has_min = CoreValue::Null;
+    let mut v_has_pattern = CoreValue::Null;
+    let mut v_has_pattern_description = CoreValue::Null;
+    let mut v_is_array = CoreValue::Null;
+    let mut v_is_code = CoreValue::Null;
+    let mut v_item_description = CoreValue::Null;
+    let mut v_language = CoreValue::Null;
+    let mut v_max = CoreValue::Null;
+    let mut v_max_length = CoreValue::Null;
+    let mut v_maximum = CoreValue::Null;
+    let mut v_min = CoreValue::Null;
+    let mut v_min_length = CoreValue::Null;
+    let mut v_minimum = CoreValue::Null;
+    let mut v_pattern = CoreValue::Null;
+    let mut v_pattern_description = CoreValue::Null;
+    let mut v_render_item = CoreValue::Null;
+    let mut v_render_language = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_entries = CoreValue::new_list();
+    v_min_length = core_get(&v_typ, &CoreValue::from("min_length"), CoreValue::Null);
+    v_minimum = core_get(&v_typ, &CoreValue::from("minimum"), CoreValue::Null);
+    v_min = core_coalesce(&[v_min_length.clone(), v_minimum.clone()])?;
+    v_has_min = core_is_not_none(&[v_min.clone()])?;
+    if core_truthy(&v_has_min) {
+        v_entry = core_string_format(&[CoreValue::from("min {}"), v_min.clone()])?;
+        core_append(&v_entries, v_entry.clone())?;
+    }
+    v_max_length = core_get(&v_typ, &CoreValue::from("max_length"), CoreValue::Null);
+    v_maximum = core_get(&v_typ, &CoreValue::from("maximum"), CoreValue::Null);
+    v_max = core_coalesce(&[v_max_length.clone(), v_maximum.clone()])?;
+    v_has_max = core_is_not_none(&[v_max.clone()])?;
+    if core_truthy(&v_has_max) {
+        v_entry = core_string_format(&[CoreValue::from("max {}"), v_max.clone()])?;
+        core_append(&v_entries, v_entry.clone())?;
+    }
+    v_format = core_get(&v_typ, &CoreValue::from("format"), CoreValue::Null);
+    v_has_format = core_is_not_none(&[v_format.clone()])?;
+    if core_truthy(&v_has_format) {
+        v_entry = core_string_format(&[CoreValue::from("format {}"), v_format.clone()])?;
+        core_append(&v_entries, v_entry.clone())?;
+    }
+    v_pattern = core_get(&v_typ, &CoreValue::from("pattern"), CoreValue::Null);
+    v_has_pattern = core_is_not_none(&[v_pattern.clone()])?;
+    if core_truthy(&v_has_pattern) {
+        v_escaped_pattern = _signature_escape_string_impl(&[v_pattern.clone()])?;
+        v_entry =
+            core_string_format(&[CoreValue::from("pattern \"{}\""), v_escaped_pattern.clone()])?;
+        v_pattern_description = core_get(
+            &v_typ,
+            &CoreValue::from("pattern_description"),
+            CoreValue::Null,
+        );
+        v_has_pattern_description = core_is_not_none(&[v_pattern_description.clone()])?;
+        if core_truthy(&v_has_pattern_description) {
+            v_escaped_description =
+                _signature_escape_string_impl(&[v_pattern_description.clone()])?;
+            v_entry = core_string_format(&[
+                CoreValue::from("{} \"{}\""),
+                v_entry.clone(),
+                v_escaped_description.clone(),
+            ])?;
+        }
+        core_append(&v_entries, v_entry.clone())?;
+    }
+    v_is_array = core_get(&v_typ, &CoreValue::from("is_array"), CoreValue::Bool(false));
+    v_item_description = core_get(&v_typ, &CoreValue::from("description"), CoreValue::Null);
+    v_has_item_description = core_truthy_value(&[v_item_description.clone()])?;
+    v_render_item = core_and(&[v_is_array.clone(), v_has_item_description.clone()])?;
+    if core_truthy(&v_render_item) {
+        v_escaped_item = _signature_escape_string_impl(&[v_item_description.clone()])?;
+        v_entry = core_string_format(&[CoreValue::from("item \"{}\""), v_escaped_item.clone()])?;
+        core_append(&v_entries, v_entry.clone())?;
+    }
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_is_code = core_eq(&[v_type_name.clone(), CoreValue::from("code")])?;
+    v_language = core_get(&v_typ, &CoreValue::from("language"), CoreValue::Null);
+    v_has_language = core_truthy_value(&[v_language.clone()])?;
+    v_render_language = core_and(&[v_is_code.clone(), v_has_language.clone()])?;
+    if core_truthy(&v_render_language) {
+        core_append(&v_entries, v_language.clone())?;
+    }
+    if core_truthy(&v_is_cached) {
+        core_append(&v_entries, CoreValue::from("cache"))?;
+    }
+    v_count = core_len(&[v_entries.clone()])?;
+    v_empty = core_eq(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_empty) {
+        return Ok(CoreValue::from(""));
+    }
+    v_body = core_string_join_intrinsic(&[CoreValue::from(", "), v_entries.clone()])?;
+    v_result = core_string_format(&[CoreValue::from("({})"), v_body.clone()])?;
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_render_type_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_render_type_impl");
+    let mut v_typ = core_arg(args, 0);
+    let mut v_is_cached = core_arg(args, 1);
+    let mut v_bag = CoreValue::Null;
+    let mut v_class_name = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_has_fields = CoreValue::Null;
+    let mut v_is_array = CoreValue::Null;
+    let mut v_is_class = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_joined = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_rendered_fields = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_structured_object = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_is_array = core_get(&v_typ, &CoreValue::from("is_array"), CoreValue::Bool(false));
+    v_is_class = core_eq(&[v_type_name.clone(), CoreValue::from("class")])?;
+    if core_truthy(&v_is_class) {
+        v_state = CoreValue::new_map();
+        core_set(&v_state, CoreValue::from("value"), CoreValue::from("class"))?;
+        if core_truthy(&v_is_array) {
+            core_set(
+                &v_state,
+                CoreValue::from("value"),
+                CoreValue::from("class[]"),
+            )?;
+        }
+        v_options = core_get(&v_typ, &CoreValue::from("options"), CoreValue::Null);
+        v_joined = core_string_join_intrinsic(&[CoreValue::from(" | "), v_options.clone()])?;
+        v_class_name = core_get(&v_state, &CoreValue::from("value"), CoreValue::Null);
+        v_result = core_string_format(&[
+            CoreValue::from("{} \"{}\""),
+            v_class_name.clone(),
+            v_joined.clone(),
+        ])?;
+        return Ok(v_result.clone());
+    }
+    v_is_object = core_eq(&[v_type_name.clone(), CoreValue::from("object")])?;
+    v_fields = core_get(&v_typ, &CoreValue::from("fields"), CoreValue::Null);
+    v_has_fields = core_truthy_value(&[v_fields.clone()])?;
+    v_structured_object = core_and(&[v_is_object.clone(), v_has_fields.clone()])?;
+    if core_truthy(&v_structured_object) {
+        v_rendered_fields = _signature_render_object_fields_impl(&[v_fields.clone()])?;
+        v_result = core_string_format(&[CoreValue::from("object{}"), v_rendered_fields.clone()])?;
+        if core_truthy(&v_is_array) {
+            v_result = core_string_format(&[CoreValue::from("{}[]"), v_result.clone()])?;
+        }
+        return Ok(v_result.clone());
+    }
+    v_bag = _signature_render_modifier_bag_impl(&[v_typ.clone(), v_is_cached.clone()])?;
+    v_result = core_string_format(&[CoreValue::from("{}{}"), v_type_name.clone(), v_bag.clone()])?;
+    if core_truthy(&v_is_array) {
+        v_result = core_string_format(&[CoreValue::from("{}[]"), v_result.clone()])?;
+    }
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_render_object_fields_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_render_object_fields_impl");
+    let mut v_fields = core_arg(args, 0);
+    let mut v_body = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_escaped = CoreValue::Null;
+    let mut v_explicit_description = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_description = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_implicit_code_description = CoreValue::Null;
+    let mut v_is_code = CoreValue::Null;
+    let mut v_language = CoreValue::Null;
+    let mut v_marked = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_nested_fields = CoreValue::Null;
+    let mut v_not_implicit = CoreValue::Null;
+    let mut v_optional = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    let mut v_rendered_type = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_same_as_language = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_type_description = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_parts = CoreValue::new_list();
+    v_nested_fields = core_fields_from_map(&[v_fields.clone()])?;
+    for v_field in core_iter(&v_nested_fields)? {
+        let mut v_field = v_field;
+        v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+        v_optional = core_get(
+            &v_field,
+            &CoreValue::from("is_optional"),
+            CoreValue::Bool(false),
+        );
+        v_state = CoreValue::new_map();
+        core_set(&v_state, CoreValue::from("value"), v_name.clone())?;
+        if core_truthy(&v_optional) {
+            v_marked = core_string_format(&[CoreValue::from("{}?"), v_name.clone()])?;
+            core_set(&v_state, CoreValue::from("value"), v_marked.clone())?;
+        }
+        v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+        v_rendered_type = _signature_render_type_impl(&[v_typ.clone(), CoreValue::Bool(false)])?;
+        v_field_name = core_get(&v_state, &CoreValue::from("value"), CoreValue::Null);
+        v_entry = core_string_format(&[
+            CoreValue::from("{}:{}"),
+            v_field_name.clone(),
+            v_rendered_type.clone(),
+        ])?;
+        v_type_description = core_get(&v_typ, &CoreValue::from("description"), CoreValue::Null);
+        v_field_description = core_get(&v_field, &CoreValue::from("description"), CoreValue::Null);
+        v_description = core_coalesce(&[v_type_description.clone(), v_field_description.clone()])?;
+        v_has_description = core_truthy_value(&[v_description.clone()])?;
+        v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+        v_is_code = core_eq(&[v_type_name.clone(), CoreValue::from("code")])?;
+        v_language = core_get(&v_typ, &CoreValue::from("language"), CoreValue::Null);
+        v_same_as_language = core_eq(&[v_description.clone(), v_language.clone()])?;
+        v_implicit_code_description = core_and(&[v_is_code.clone(), v_same_as_language.clone()])?;
+        v_not_implicit = core_not(&[v_implicit_code_description.clone()])?;
+        v_explicit_description = core_and(&[v_has_description.clone(), v_not_implicit.clone()])?;
+        if core_truthy(&v_explicit_description) {
+            v_escaped = _signature_escape_string_impl(&[v_description.clone()])?;
+            v_entry = core_string_format(&[
+                CoreValue::from("{} \"{}\""),
+                v_entry.clone(),
+                v_escaped.clone(),
+            ])?;
+        }
+        core_append(&v_parts, v_entry.clone())?;
+    }
+    v_body = core_string_join_intrinsic(&[CoreValue::from(", "), v_parts.clone()])?;
+    v_prefix = core_add(&[CoreValue::from("{ "), v_body.clone()])?;
+    v_result = core_add(&[v_prefix.clone(), CoreValue::from(" }")])?;
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_render_field_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_render_field_impl");
+    let mut v_field = core_arg(args, 0);
+    let mut v_cached = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_escaped = CoreValue::Null;
+    let mut v_explicit_description = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_implicit_code_description = CoreValue::Null;
+    let mut v_internal = CoreValue::Null;
+    let mut v_is_code = CoreValue::Null;
+    let mut v_language = CoreValue::Null;
+    let mut v_marked = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_not_implicit = CoreValue::Null;
+    let mut v_optional = CoreValue::Null;
+    let mut v_rendered_type = CoreValue::Null;
+    let mut v_same_as_language = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_typ = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::Null);
+    v_optional = core_get(
+        &v_field,
+        &CoreValue::from("is_optional"),
+        CoreValue::Bool(false),
+    );
+    v_internal = core_get(
+        &v_field,
+        &CoreValue::from("is_internal"),
+        CoreValue::Bool(false),
+    );
+    v_state = CoreValue::new_map();
+    core_set(&v_state, CoreValue::from("value"), v_name.clone())?;
+    if core_truthy(&v_optional) {
+        v_current = core_get(&v_state, &CoreValue::from("value"), CoreValue::Null);
+        v_marked = core_string_format(&[CoreValue::from("{}?"), v_current.clone()])?;
+        core_set(&v_state, CoreValue::from("value"), v_marked.clone())?;
+    }
+    if core_truthy(&v_internal) {
+        v_current = core_get(&v_state, &CoreValue::from("value"), CoreValue::Null);
+        v_marked = core_string_format(&[CoreValue::from("{}!"), v_current.clone()])?;
+        core_set(&v_state, CoreValue::from("value"), v_marked.clone())?;
+    }
+    v_typ = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+    v_cached = core_get(
+        &v_field,
+        &CoreValue::from("is_cached"),
+        CoreValue::Bool(false),
+    );
+    v_rendered_type = _signature_render_type_impl(&[v_typ.clone(), v_cached.clone()])?;
+    v_field_name = core_get(&v_state, &CoreValue::from("value"), CoreValue::Null);
+    v_entry = core_string_format(&[
+        CoreValue::from("{}:{}"),
+        v_field_name.clone(),
+        v_rendered_type.clone(),
+    ])?;
+    v_description = core_get(&v_field, &CoreValue::from("description"), CoreValue::Null);
+    v_has_description = core_truthy_value(&[v_description.clone()])?;
+    v_type_name = core_get(&v_typ, &CoreValue::from("name"), CoreValue::Null);
+    v_is_code = core_eq(&[v_type_name.clone(), CoreValue::from("code")])?;
+    v_language = core_get(&v_typ, &CoreValue::from("language"), CoreValue::Null);
+    v_same_as_language = core_eq(&[v_description.clone(), v_language.clone()])?;
+    v_implicit_code_description = core_and(&[v_is_code.clone(), v_same_as_language.clone()])?;
+    v_not_implicit = core_not(&[v_implicit_code_description.clone()])?;
+    v_explicit_description = core_and(&[v_has_description.clone(), v_not_implicit.clone()])?;
+    if core_truthy(&v_explicit_description) {
+        v_escaped = _signature_escape_string_impl(&[v_description.clone()])?;
+        v_entry = core_string_format(&[
+            CoreValue::from("{} \"{}\""),
+            v_entry.clone(),
+            v_escaped.clone(),
+        ])?;
+    }
+    return Ok(v_entry.clone());
 }
 
 #[allow(
@@ -20191,6 +22026,7 @@ fn _signature_validate_field_shape_impl(args: &[CoreValue]) -> Result<CoreValue,
     let mut v_has_class_options = CoreValue::Null;
     let mut v_has_nested = CoreValue::Null;
     let mut v_input_class = CoreValue::Null;
+    let mut v_input_class_base = CoreValue::Null;
     let mut v_internal_input = CoreValue::Null;
     let mut v_invalid_name = CoreValue::Null;
     let mut v_is_array = CoreValue::Null;
@@ -20215,6 +22051,7 @@ fn _signature_validate_field_shape_impl(args: &[CoreValue]) -> Result<CoreValue,
     let mut v_output_file = CoreValue::Null;
     let mut v_output_image = CoreValue::Null;
     let mut v_starts_number = CoreValue::Null;
+    let mut v_top_level = CoreValue::Null;
     let mut v_typ = CoreValue::Null;
     let mut v_type_name = CoreValue::Null;
     let mut v_unknown_type = CoreValue::Null;
@@ -20283,7 +22120,9 @@ fn _signature_validate_field_shape_impl(args: &[CoreValue]) -> Result<CoreValue,
     }
     v_is_class = core_eq(&[v_type_name.clone(), CoreValue::from("class")])?;
     v_is_input = core_not(&[v_output.clone()])?;
-    v_input_class = core_and(&[v_is_class.clone(), v_is_input.clone()])?;
+    v_top_level = core_not(&[v_nested.clone()])?;
+    v_input_class_base = core_and(&[v_is_class.clone(), v_is_input.clone()])?;
+    v_input_class = core_and(&[v_input_class_base.clone(), v_top_level.clone()])?;
     if core_truthy(&v_input_class) {
         v_error =
             core_signature_error(&[CoreValue::from("Input field cannot use the \"class\" type")])?;
@@ -61182,4 +63021,4 @@ fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (467 of 467 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (479 of 479 core functions)

@@ -1024,6 +1024,12 @@ func _core_string_find_outside_quotes(text Value, needle Value) (Value, error) {
 func _core_string_split_outside_quotes(text Value, sep Value) (Value, error) {
 	return splitOutsideQuotes(display(text), display(sep))
 }
+func _core_string_split_top_level(text Value, sep Value) (Value, error) {
+	return splitTopLevel(display(text), display(sep))
+}
+func _core_string_extract_leading_group(text Value, open Value, close Value) (Value, error) {
+	return extractLeadingGroup(display(text), display(open), display(close))
+}
 func _core_string_consume_optional_quoted_prefix(text Value) (Value, error) {
 	return consumeOptionalQuotedPrefix(display(text))
 }
@@ -1290,8 +1296,10 @@ func _signature_parse_impl(args ...Value) (Value, error) {
 	var v_arrow Value
 	var v_attrs Value
 	var v_body Value
+	var v_brace_missing Value
 	var v_description Value
 	var v_error Value
+	var v_has_open_brace Value
 	var v_inputs Value
 	var v_is_empty Value
 	var v_left Value
@@ -1299,6 +1307,7 @@ func _signature_parse_impl(args ...Value) (Value, error) {
 	var v_left_len Value
 	var v_left_raw Value
 	var v_missing_arrow Value
+	var v_open_brace Value
 	var v_outputs Value
 	var v_parsed Value
 	var v_prefix Value
@@ -1315,8 +1324,10 @@ func _signature_parse_impl(args ...Value) (Value, error) {
 	_ = v_arrow
 	_ = v_attrs
 	_ = v_body
+	_ = v_brace_missing
 	_ = v_description
 	_ = v_error
+	_ = v_has_open_brace
 	_ = v_inputs
 	_ = v_is_empty
 	_ = v_left
@@ -1324,6 +1335,7 @@ func _signature_parse_impl(args ...Value) (Value, error) {
 	_ = v_left_len
 	_ = v_left_raw
 	_ = v_missing_arrow
+	_ = v_open_brace
 	_ = v_outputs
 	_ = v_parsed
 	_ = v_prefix
@@ -1351,6 +1363,15 @@ func _signature_parse_impl(args ...Value) (Value, error) {
 	{ v, err := _core_string_find_outside_quotes(v_body, "->"); if err != nil { return nil, err }; v_arrow = v }
 	v_missing_arrow = _core_lt(v_arrow, 0)
 	if coreTruthy(v_missing_arrow) {
+		{ v, err := _core_string_find_outside_quotes(v_body, "{"); if err != nil { return nil, err }; v_open_brace = v }
+		v_brace_missing = _core_lt(v_open_brace, 0)
+		v_has_open_brace = _core_not(v_brace_missing)
+		if coreTruthy(v_has_open_brace) {
+			v_error = _core_signature_error("unbalanced \"{\" in object type")
+			return nil, asAxError(v_error)
+		} else {
+		// empty
+		}
 		v_error = _core_signature_error("Expected \"->\"")
 		return nil, asAxError(v_error)
 	} else {
@@ -1391,21 +1412,35 @@ func _signature_parse_fields_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_signature_parse_fields_impl")
 	var v_text Value
 	var v_output Value
+	var v_empty Value
+	var v_error Value
 	var v_field Value
 	var v_fields Value
 	var v_part Value
 	var v_parts Value
+	var v_trimmed Value
 	if len(args) > 0 { v_text = args[0] }
 	_ = v_text
 	if len(args) > 1 { v_output = args[1] }
 	_ = v_output
+	_ = v_empty
+	_ = v_error
 	_ = v_field
 	_ = v_fields
 	_ = v_part
 	_ = v_parts
-	{ v, err := _core_string_split_outside_quotes(v_text, ","); if err != nil { return nil, err }; v_parts = v }
+	_ = v_trimmed
+	{ v, err := _core_string_split_top_level(v_text, ","); if err != nil { return nil, err }; v_parts = v }
 	v_fields = MutableArray()
 	for _, v_part = range coreIter(v_parts) {
+		v_trimmed = coreStringTrim(v_part)
+		v_empty = _core_eq(v_trimmed, "")
+		if coreTruthy(v_empty) {
+			v_error = _core_signature_error("Unexpected content after signature")
+			return nil, asAxError(v_error)
+		} else {
+		// empty
+		}
 		{ v, err := _signature_parse_field_impl(v_part, v_output); if err != nil { return nil, err }; v_field = v }
 		v_fields = coreAppend(v_fields, v_field)
 	}
@@ -1416,186 +1451,1771 @@ func _signature_parse_field_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_signature_parse_field_impl")
 	var v_raw Value
 	var v_output Value
-	var v_array_info Value
-	var v_class_input Value
-	var v_class_option_text Value
-	var v_empty_options Value
-	var v_error Value
-	var v_extra_type_tokens Value
 	var v_field Value
-	var v_field_attrs Value
-	var v_field_type Value
-	var v_has_extra Value
-	var v_head Value
-	var v_head_parts Value
-	var v_head_raw Value
-	var v_is_array Value
-	var v_is_class Value
-	var v_is_internal Value
-	var v_is_optional Value
-	var v_missing_quoted Value
-	var v_name Value
-	var v_name_part Value
-	var v_name_part_raw Value
-	var v_name_without_markers Value
-	var v_name_without_optional Value
-	var v_none Value
-	var v_option_count Value
-	var v_options Value
-	var v_quoted Value
-	var v_quoted_info Value
-	var v_rest_after_quote Value
-	var v_rest_after_quote_trimmed Value
-	var v_text Value
-	var v_type_attrs Value
-	var v_type_name Value
-	var v_type_name_raw Value
-	var v_type_part Value
-	var v_type_part_raw Value
-	var v_type_part_trimmed Value
-	var v_type_token Value
-	var v_type_word_count Value
-	var v_type_words Value
 	if len(args) > 0 { v_raw = args[0] }
 	_ = v_raw
 	if len(args) > 1 { v_output = args[1] }
 	_ = v_output
-	_ = v_array_info
-	_ = v_class_input
-	_ = v_class_option_text
-	_ = v_empty_options
+	_ = v_field
+	{ v, err := _signature_parse_field_common_impl(v_raw, v_output, false, ""); if err != nil { return nil, err }; v_field = v }
+	return v_field, nil
+}
+
+func _signature_parse_field_common_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_parse_field_common_impl")
+	var v_raw Value
+	var v_output Value
+	var v_nested Value
+	var v_parent Value
+	var v_default_type Value
+	var v_default_type_attrs Value
+	var v_description Value
+	var v_error Value
+	var v_field Value
+	var v_field_attrs Value
+	var v_field_type Value
+	var v_has_description Value
+	var v_has_extra Value
+	var v_has_nested_description Value
+	var v_has_type Value
+	var v_head_parts Value
+	var v_is_cached Value
+	var v_is_internal Value
+	var v_is_optional Value
+	var v_language Value
+	var v_message Value
+	var v_name Value
+	var v_name_for_error Value
+	var v_name_part Value
+	var v_name_part_raw Value
+	var v_name_part_value Value
+	var v_name_without_markers Value
+	var v_name_without_optional Value
+	var v_nested_internal Value
+	var v_none Value
+	var v_parsed_cached Value
+	var v_parsed_field_type Value
+	var v_parsed_rest Value
+	var v_parsed_type Value
+	var v_qualified Value
+	var v_quoted Value
+	var v_quoted_head Value
+	var v_quoted_info Value
+	var v_rest_after_quote Value
+	var v_rest_after_quote_raw Value
+	var v_section Value
+	var v_section_state Value
+	var v_state Value
+	var v_text Value
+	var v_type_attrs Value
+	var v_type_fields Value
+	var v_type_format Value
+	var v_type_is_array Value
+	var v_type_language Value
+	var v_type_max_length Value
+	var v_type_maximum Value
+	var v_type_min_length Value
+	var v_type_minimum Value
+	var v_type_name Value
+	var v_type_options Value
+	var v_type_part_raw Value
+	var v_type_pattern Value
+	var v_type_pattern_description Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_output = args[1] }
+	_ = v_output
+	if len(args) > 2 { v_nested = args[2] }
+	_ = v_nested
+	if len(args) > 3 { v_parent = args[3] }
+	_ = v_parent
+	_ = v_default_type
+	_ = v_default_type_attrs
+	_ = v_description
 	_ = v_error
-	_ = v_extra_type_tokens
 	_ = v_field
 	_ = v_field_attrs
 	_ = v_field_type
+	_ = v_has_description
 	_ = v_has_extra
-	_ = v_head
+	_ = v_has_nested_description
+	_ = v_has_type
 	_ = v_head_parts
-	_ = v_head_raw
-	_ = v_is_array
-	_ = v_is_class
+	_ = v_is_cached
 	_ = v_is_internal
 	_ = v_is_optional
-	_ = v_missing_quoted
+	_ = v_language
+	_ = v_message
 	_ = v_name
+	_ = v_name_for_error
 	_ = v_name_part
 	_ = v_name_part_raw
+	_ = v_name_part_value
 	_ = v_name_without_markers
 	_ = v_name_without_optional
+	_ = v_nested_internal
 	_ = v_none
-	_ = v_option_count
-	_ = v_options
+	_ = v_parsed_cached
+	_ = v_parsed_field_type
+	_ = v_parsed_rest
+	_ = v_parsed_type
+	_ = v_qualified
 	_ = v_quoted
+	_ = v_quoted_head
 	_ = v_quoted_info
 	_ = v_rest_after_quote
-	_ = v_rest_after_quote_trimmed
+	_ = v_rest_after_quote_raw
+	_ = v_section
+	_ = v_section_state
+	_ = v_state
 	_ = v_text
 	_ = v_type_attrs
+	_ = v_type_fields
+	_ = v_type_format
+	_ = v_type_is_array
+	_ = v_type_language
+	_ = v_type_max_length
+	_ = v_type_maximum
+	_ = v_type_min_length
+	_ = v_type_minimum
 	_ = v_type_name
-	_ = v_type_name_raw
-	_ = v_type_part
+	_ = v_type_options
 	_ = v_type_part_raw
-	_ = v_type_part_trimmed
-	_ = v_type_token
-	_ = v_type_word_count
-	_ = v_type_words
+	_ = v_type_pattern
+	_ = v_type_pattern_description
 	v_text = coreStringTrim(v_raw)
-	{ v, err := _core_string_extract_quoted_suffix(v_text); if err != nil { return nil, err }; v_quoted_info = v }
-	v_quoted = coreGet(v_quoted_info, "value", nil)
-	v_rest_after_quote = coreGet(v_quoted_info, "rest", nil)
-	v_rest_after_quote_trimmed = coreStringTrim(v_rest_after_quote)
-	v_has_extra = _core_truthy(v_rest_after_quote_trimmed)
+	v_head_parts = _core_string_split_once(v_text, ":")
+	v_has_type = coreGet(v_head_parts, "found", false)
+	v_name_part_raw = coreGet(v_head_parts, "left", nil)
+	v_type_part_raw = coreGet(v_head_parts, "right", nil)
+	v_state = Object()
+	if err := coreSet(v_state, "name_part", v_name_part_raw); err != nil { return nil, err }
+	v_none = _core_none()
+	if err := coreSet(v_state, "description", v_none); err != nil { return nil, err }
+	if err := coreSet(v_state, "is_cached", false); err != nil { return nil, err }
+	v_default_type_attrs = Object()
+	if err := coreSet(v_default_type_attrs, "name", "string"); err != nil { return nil, err }
+	if err := coreSet(v_default_type_attrs, "is_array", false); err != nil { return nil, err }
+	v_default_type = _core_record_new("FieldType", v_default_type_attrs)
+	if err := coreSet(v_state, "type", v_default_type); err != nil { return nil, err }
+	if coreTruthy(v_has_type) {
+		v_section_state = Object()
+		if err := coreSet(v_section_state, "value", "input"); err != nil { return nil, err }
+		if coreTruthy(v_output) {
+			if err := coreSet(v_section_state, "value", "output"); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		if coreTruthy(v_nested) {
+			if err := coreSet(v_section_state, "value", "nested"); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_section = coreGet(v_section_state, "value", nil)
+		v_name_for_error = coreStringTrim(v_name_part_raw)
+		if coreTruthy(v_nested) {
+			v_name_for_error = _core_string_format("{}.{}", v_parent, v_name_for_error)
+		} else {
+		// empty
+		}
+		{ v, err := _signature_parse_type_expr_impl(v_type_part_raw, v_section, v_name_for_error); if err != nil { return nil, err }; v_parsed_type = v }
+		v_parsed_field_type = coreGet(v_parsed_type, "type", nil)
+		v_parsed_cached = coreGet(v_parsed_type, "is_cached", false)
+		if err := coreSet(v_state, "type", v_parsed_field_type); err != nil { return nil, err }
+		if err := coreSet(v_state, "is_cached", v_parsed_cached); err != nil { return nil, err }
+		v_language = coreGet(v_parsed_field_type, "language", nil)
+		v_parsed_rest = coreGet(v_parsed_type, "rest", nil)
+		{ v, err := _signature_parse_description_impl(v_parsed_rest, v_language); if err != nil { return nil, err }; v_description = v }
+		if err := coreSet(v_state, "description", v_description); err != nil { return nil, err }
+	} else {
+		{ v, err := _core_string_extract_quoted_suffix(v_name_part_raw); if err != nil { return nil, err }; v_quoted_info = v }
+		v_quoted = coreGet(v_quoted_info, "value", nil)
+		v_rest_after_quote_raw = coreGet(v_quoted_info, "rest", nil)
+		v_rest_after_quote = coreStringTrim(v_rest_after_quote_raw)
+		v_has_extra = _core_truthy(v_rest_after_quote)
+		if coreTruthy(v_has_extra) {
+			v_error = _core_signature_error("Unexpected content after signature")
+			return nil, asAxError(v_error)
+		} else {
+		// empty
+		}
+		v_quoted_head = coreGet(v_quoted_info, "head", nil)
+		if err := coreSet(v_state, "name_part", v_quoted_head); err != nil { return nil, err }
+		if err := coreSet(v_state, "description", v_quoted); err != nil { return nil, err }
+	}
+	v_name_part_value = coreGet(v_state, "name_part", nil)
+	v_name_part = coreStringTrim(v_name_part_value)
+	v_is_optional = _core_contains(v_name_part, "?")
+	v_is_internal = _core_contains(v_name_part, "!")
+	v_name_without_optional = _core_string_replace(v_name_part, "?", "")
+	v_name_without_markers = _core_string_replace(v_name_without_optional, "!", "")
+	v_name = coreStringTrim(v_name_without_markers)
+	v_nested_internal = _core_and(v_nested, v_is_internal)
+	if coreTruthy(v_nested_internal) {
+		v_qualified = _core_string_format("{}.{}", v_parent, v_name)
+		v_message = _core_string_format("Object field \"{}\" cannot use the internal marker \"!\"", v_qualified)
+		v_error = _core_signature_error(v_message)
+		return nil, asAxError(v_error)
+	} else {
+	// empty
+	}
+	v_field_type = coreGet(v_state, "type", nil)
+	v_description = coreGet(v_state, "description", nil)
+	v_has_description = _core_is_not_none(v_description)
+	v_has_nested_description = _core_and(v_nested, v_has_description)
+	if coreTruthy(v_has_nested_description) {
+		v_type_attrs = Object()
+		v_type_name = coreGet(v_field_type, "name", nil)
+		v_type_is_array = coreGet(v_field_type, "is_array", false)
+		v_type_options = coreGet(v_field_type, "options", nil)
+		v_type_fields = coreGet(v_field_type, "fields", nil)
+		v_type_min_length = coreGet(v_field_type, "min_length", nil)
+		v_type_max_length = coreGet(v_field_type, "max_length", nil)
+		v_type_minimum = coreGet(v_field_type, "minimum", nil)
+		v_type_maximum = coreGet(v_field_type, "maximum", nil)
+		v_type_pattern = coreGet(v_field_type, "pattern", nil)
+		v_type_pattern_description = coreGet(v_field_type, "pattern_description", nil)
+		v_type_format = coreGet(v_field_type, "format", nil)
+		v_type_language = coreGet(v_field_type, "language", nil)
+		if err := coreSet(v_type_attrs, "name", v_type_name); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "is_array", v_type_is_array); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "options", v_type_options); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "fields", v_type_fields); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "min_length", v_type_min_length); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "max_length", v_type_max_length); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "minimum", v_type_minimum); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "maximum", v_type_maximum); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "pattern", v_type_pattern); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "pattern_description", v_type_pattern_description); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "format", v_type_format); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "language", v_type_language); err != nil { return nil, err }
+		if err := coreSet(v_type_attrs, "description", v_description); err != nil { return nil, err }
+		v_field_type = _core_record_new("FieldType", v_type_attrs)
+	} else {
+	// empty
+	}
+	v_field_attrs = Object()
+	if err := coreSet(v_field_attrs, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_field_attrs, "type", v_field_type); err != nil { return nil, err }
+	if err := coreSet(v_field_attrs, "description", v_description); err != nil { return nil, err }
+	if err := coreSet(v_field_attrs, "is_optional", v_is_optional); err != nil { return nil, err }
+	if err := coreSet(v_field_attrs, "is_internal", v_is_internal); err != nil { return nil, err }
+	v_is_cached = coreGet(v_state, "is_cached", false)
+	if err := coreSet(v_field_attrs, "is_cached", v_is_cached); err != nil { return nil, err }
+	v_field = _core_record_new("Field", v_field_attrs)
+	if _, err := _signature_validate_field_shape_impl(v_field, v_output, v_nested); err != nil { return nil, err }
+	return v_field, nil
+}
+
+func _signature_parse_description_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_parse_description_impl")
+	var v_raw Value
+	var v_fallback Value
+	var v_empty Value
+	var v_error Value
+	var v_found Value
+	var v_has_extra Value
+	var v_missing Value
+	var v_quoted Value
+	var v_rest Value
+	var v_rest_raw Value
+	var v_text Value
+	var v_value Value
+	var v_value_raw Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_fallback = args[1] }
+	_ = v_fallback
+	_ = v_empty
+	_ = v_error
+	_ = v_found
+	_ = v_has_extra
+	_ = v_missing
+	_ = v_quoted
+	_ = v_rest
+	_ = v_rest_raw
+	_ = v_text
+	_ = v_value
+	_ = v_value_raw
+	v_text = coreStringTrim(v_raw)
+	v_empty = _core_eq(v_text, "")
+	if coreTruthy(v_empty) {
+		return v_fallback, nil
+	} else {
+	// empty
+	}
+	{ v, err := _core_string_consume_optional_quoted_prefix(v_text); if err != nil { return nil, err }; v_quoted = v }
+	v_found = coreGet(v_quoted, "found", false)
+	v_missing = _core_not(v_found)
+	if coreTruthy(v_missing) {
+		v_error = _core_signature_error("Unexpected content after signature")
+		return nil, asAxError(v_error)
+	} else {
+	// empty
+	}
+	v_rest_raw = coreGet(v_quoted, "rest", nil)
+	v_rest = coreStringTrim(v_rest_raw)
+	v_has_extra = _core_truthy(v_rest)
 	if coreTruthy(v_has_extra) {
 		v_error = _core_signature_error("Unexpected content after signature")
 		return nil, asAxError(v_error)
 	} else {
 	// empty
 	}
-	v_head_raw = coreGet(v_quoted_info, "head", nil)
-	v_head = coreStringTrim(v_head_raw)
-	v_head_parts = _core_string_split_once(v_head, ":")
-	v_name_part_raw = coreGet(v_head_parts, "left", nil)
-	v_type_part_raw = coreGet(v_head_parts, "right", nil)
-	v_name_part = coreStringTrim(v_name_part_raw)
-	v_type_part_trimmed = coreStringTrim(v_type_part_raw)
-	v_type_part = _core_string_default_if_empty(v_type_part_trimmed, "string")
-	v_is_optional = _core_contains(v_name_part, "?")
-	v_is_internal = _core_contains(v_name_part, "!")
-	v_name_without_optional = _core_string_replace(v_name_part, "?", "")
-	v_name_without_markers = _core_string_replace(v_name_without_optional, "!", "")
-	v_name = coreStringTrim(v_name_without_markers)
-	v_type_words = _core_string_words(v_type_part)
-	v_type_word_count = _core_len(v_type_words)
-	v_extra_type_tokens = _core_gt(v_type_word_count, 1)
-	if coreTruthy(v_extra_type_tokens) {
-		v_error = _core_signature_error("Unexpected content after signature")
+	v_value_raw = coreGet(v_quoted, "value", nil)
+	v_value = coreStringTrim(v_value_raw)
+	return v_value, nil
+}
+
+func _signature_parse_base_type_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_parse_base_type_impl")
+	var v_raw Value
+	var v_after Value
+	var v_boundary Value
+	var v_candidate Value
+	var v_double_quote Value
+	var v_error Value
+	var v_first Value
+	var v_matched_name Value
+	var v_message Value
+	var v_missing Value
+	var v_name Value
+	var v_offset Value
+	var v_open_array Value
+	var v_open_brace Value
+	var v_open_paren Value
+	var v_single_quote Value
+	var v_space Value
+	var v_starts Value
+	var v_state Value
+	var v_text Value
+	var v_types Value
+	var v_unmatched Value
+	var v_word Value
+	var v_words Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_after
+	_ = v_boundary
+	_ = v_candidate
+	_ = v_double_quote
+	_ = v_error
+	_ = v_first
+	_ = v_matched_name
+	_ = v_message
+	_ = v_missing
+	_ = v_name
+	_ = v_offset
+	_ = v_open_array
+	_ = v_open_brace
+	_ = v_open_paren
+	_ = v_single_quote
+	_ = v_space
+	_ = v_starts
+	_ = v_state
+	_ = v_text
+	_ = v_types
+	_ = v_unmatched
+	_ = v_word
+	_ = v_words
+	v_text = coreStringTrim(v_raw)
+	v_types = MutableArray()
+	v_types = coreAppend(v_types, "datetimeRange")
+	v_types = coreAppend(v_types, "dateRange")
+	v_types = coreAppend(v_types, "datetime")
+	v_types = coreAppend(v_types, "boolean")
+	v_types = coreAppend(v_types, "string")
+	v_types = coreAppend(v_types, "number")
+	v_types = coreAppend(v_types, "object")
+	v_types = coreAppend(v_types, "class")
+	v_types = coreAppend(v_types, "image")
+	v_types = coreAppend(v_types, "audio")
+	v_types = coreAppend(v_types, "file")
+	v_types = coreAppend(v_types, "json")
+	v_types = coreAppend(v_types, "date")
+	v_types = coreAppend(v_types, "code")
+	v_types = coreAppend(v_types, "url")
+	v_state = Object()
+	if err := coreSet(v_state, "name", ""); err != nil { return nil, err }
+	if err := coreSet(v_state, "rest", v_text); err != nil { return nil, err }
+	for _, v_candidate = range coreIter(v_types) {
+		v_matched_name = coreGet(v_state, "name", nil)
+		v_unmatched = _core_eq(v_matched_name, "")
+		if coreTruthy(v_unmatched) {
+			v_starts = _core_string_starts_with(v_text, v_candidate)
+			if coreTruthy(v_starts) {
+				v_offset = _core_len(v_candidate)
+				v_after = _core_string_slice(v_text, v_offset)
+				v_first = _core_string_slice(v_after, 0, 1)
+				v_boundary = _core_eq(v_after, "")
+				v_space = coreRegexMatch("^\\s", v_after)
+				v_boundary = _core_or(v_boundary, v_space)
+				v_open_paren = _core_eq(v_first, "(")
+				v_boundary = _core_or(v_boundary, v_open_paren)
+				v_open_brace = _core_eq(v_first, "{")
+				v_boundary = _core_or(v_boundary, v_open_brace)
+				v_open_array = _core_eq(v_first, "[")
+				v_boundary = _core_or(v_boundary, v_open_array)
+				v_double_quote = _core_eq(v_first, "\"")
+				v_boundary = _core_or(v_boundary, v_double_quote)
+				v_single_quote = _core_eq(v_first, "'")
+				v_boundary = _core_or(v_boundary, v_single_quote)
+				if coreTruthy(v_boundary) {
+					if err := coreSet(v_state, "name", v_candidate); err != nil { return nil, err }
+					if err := coreSet(v_state, "rest", v_after); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_name = coreGet(v_state, "name", nil)
+	v_missing = _core_eq(v_name, "")
+	if coreTruthy(v_missing) {
+		v_words = _core_string_words(v_text)
+		v_word = _core_list_get(v_words, 0, "empty")
+		v_message = _core_string_format("Invalid type \"{}\"", v_word)
+		v_error = _core_signature_error(v_message)
 		return nil, asAxError(v_error)
 	} else {
 	// empty
 	}
-	v_type_token = _core_list_get(v_type_words, 0, "string")
-	v_array_info = _core_string_remove_suffix(v_type_token, "[]")
-	v_type_name_raw = coreGet(v_array_info, "value", nil)
-	v_type_name = _core_string_default_if_empty(v_type_name_raw, "string")
-	v_is_array = coreGet(v_array_info, "removed", nil)
+	return v_state, nil
+}
+
+func _signature_parse_type_expr_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_parse_type_expr_impl")
+	var v_raw Value
+	var v_section Value
+	var v_field_name Value
+	var v_after Value
+	var v_after_array Value
+	var v_attrs Value
+	var v_bag Value
+	var v_bag_after Value
+	var v_balanced Value
+	var v_base Value
+	var v_base_rest Value
+	var v_empty_options Value
+	var v_error Value
+	var v_fields Value
+	var v_group Value
+	var v_group_rest Value
+	var v_group_text Value
+	var v_has_bag Value
+	var v_has_item Value
+	var v_has_object_fields Value
+	var v_has_options Value
+	var v_input Value
+	var v_is_array Value
+	var v_is_cached Value
+	var v_is_class Value
+	var v_is_media Value
+	var v_is_object Value
+	var v_item_description Value
+	var v_item_without_array Value
+	var v_media Value
+	var v_merged_attrs Value
+	var v_message Value
+	var v_modifier_state Value
+	var v_nested Value
+	var v_nested_media Value
+	var v_none Value
+	var v_not_array Value
+	var v_option_count Value
+	var v_option_text Value
+	var v_options Value
+	var v_out Value
+	var v_parsed Value
+	var v_parsed_attrs Value
+	var v_parsed_cached Value
+	var v_parsed_item Value
+	var v_quoted Value
+	var v_quoted_rest Value
+	var v_quoted_value Value
+	var v_rest Value
+	var v_rest_after_array Value
+	var v_starts_object_fields Value
+	var v_typ Value
+	var v_type_attrs Value
+	var v_type_name Value
+	var v_unbalanced Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_section = args[1] }
+	_ = v_section
+	if len(args) > 2 { v_field_name = args[2] }
+	_ = v_field_name
+	_ = v_after
+	_ = v_after_array
+	_ = v_attrs
+	_ = v_bag
+	_ = v_bag_after
+	_ = v_balanced
+	_ = v_base
+	_ = v_base_rest
+	_ = v_empty_options
+	_ = v_error
+	_ = v_fields
+	_ = v_group
+	_ = v_group_rest
+	_ = v_group_text
+	_ = v_has_bag
+	_ = v_has_item
+	_ = v_has_object_fields
+	_ = v_has_options
+	_ = v_input
+	_ = v_is_array
+	_ = v_is_cached
+	_ = v_is_class
+	_ = v_is_media
+	_ = v_is_object
+	_ = v_item_description
+	_ = v_item_without_array
+	_ = v_media
+	_ = v_merged_attrs
+	_ = v_message
+	_ = v_modifier_state
+	_ = v_nested
+	_ = v_nested_media
+	_ = v_none
+	_ = v_not_array
+	_ = v_option_count
+	_ = v_option_text
+	_ = v_options
+	_ = v_out
+	_ = v_parsed
+	_ = v_parsed_attrs
+	_ = v_parsed_cached
+	_ = v_parsed_item
+	_ = v_quoted
+	_ = v_quoted_rest
+	_ = v_quoted_value
+	_ = v_rest
+	_ = v_rest_after_array
+	_ = v_starts_object_fields
+	_ = v_typ
+	_ = v_type_attrs
+	_ = v_type_name
+	_ = v_unbalanced
+	{ v, err := _signature_parse_base_type_impl(v_raw); if err != nil { return nil, err }; v_base = v }
+	v_type_name = coreGet(v_base, "name", nil)
+	v_base_rest = coreGet(v_base, "rest", nil)
+	v_rest = coreStringTrim(v_base_rest)
+	v_nested = _core_eq(v_section, "nested")
+	v_media = MutableArray()
+	v_media = coreAppend(v_media, "image")
+	v_media = coreAppend(v_media, "audio")
+	v_media = coreAppend(v_media, "file")
+	v_is_media = _core_contains(v_media, v_type_name)
+	v_nested_media = _core_and(v_nested, v_is_media)
+	if coreTruthy(v_nested_media) {
+		v_message = _core_string_format("Object field \"{}\": {} type is not allowed in nested object fields", v_field_name, v_type_name)
+		v_error = _core_signature_error(v_message)
+		return nil, asAxError(v_error)
+	} else {
+	// empty
+	}
 	v_is_class = _core_eq(v_type_name, "class")
 	if coreTruthy(v_is_class) {
-		v_class_input = _core_not(v_output)
-		if coreTruthy(v_class_input) {
+		v_input = _core_eq(v_section, "input")
+		if coreTruthy(v_input) {
 			v_error = _core_signature_error("Input field cannot use the \"class\" type")
 			return nil, asAxError(v_error)
 		} else {
 		// empty
 		}
-		v_missing_quoted = _core_is_none(v_quoted)
-		if coreTruthy(v_missing_quoted) {
-			v_error = _core_signature_error("Missing class options after \"class\" type")
+		v_bag = _core_string_starts_with(v_rest, "(")
+		if coreTruthy(v_bag) {
+			v_message = _core_string_format("Field \"{}\": constraints are not supported on class fields", v_field_name)
+			v_error = _core_signature_error(v_message)
 			return nil, asAxError(v_error)
 		} else {
 		// empty
 		}
-		v_class_option_text = _core_string_replace(v_quoted, "|", ",")
-		v_options = _core_string_split_trim_nonempty(v_class_option_text, ",")
-		v_option_count = _core_len(v_options)
-		v_empty_options = _core_eq(v_option_count, 0)
-		if coreTruthy(v_empty_options) {
-			v_error = _core_signature_error("Missing class options after \"class\" type")
+		v_is_array = _core_string_starts_with(v_rest, "[]")
+		if coreTruthy(v_is_array) {
+			v_rest_after_array = _core_string_slice(v_rest, 2)
+			v_rest = coreStringTrim(v_rest_after_array)
+		} else {
+		// empty
+		}
+		v_bag_after = _core_string_starts_with(v_rest, "(")
+		if coreTruthy(v_bag_after) {
+			v_message = _core_string_format("Field \"{}\": constraints are not supported on class fields", v_field_name)
+			v_error = _core_signature_error(v_message)
 			return nil, asAxError(v_error)
 		} else {
 		// empty
 		}
-		v_type_attrs = Object()
-		if err := coreSet(v_type_attrs, "name", v_type_name); err != nil { return nil, err }
-		if err := coreSet(v_type_attrs, "is_array", v_is_array); err != nil { return nil, err }
-		if err := coreSet(v_type_attrs, "options", v_options); err != nil { return nil, err }
-		v_field_type = _core_record_new("FieldType", v_type_attrs)
-		v_none = _core_none()
-		v_field_attrs = Object()
-		if err := coreSet(v_field_attrs, "name", v_name); err != nil { return nil, err }
-		if err := coreSet(v_field_attrs, "type", v_field_type); err != nil { return nil, err }
-		if err := coreSet(v_field_attrs, "description", v_none); err != nil { return nil, err }
-		if err := coreSet(v_field_attrs, "is_optional", v_is_optional); err != nil { return nil, err }
-		if err := coreSet(v_field_attrs, "is_internal", v_is_internal); err != nil { return nil, err }
-		v_field = _core_record_new("Field", v_field_attrs)
-		if _, err := _signature_validate_field_shape_impl(v_field, v_output, false); err != nil { return nil, err }
-		return v_field, nil
+		{ v, err := _core_string_consume_optional_quoted_prefix(v_rest); if err != nil { return nil, err }; v_quoted = v }
+		v_has_options = coreGet(v_quoted, "found", false)
+		if coreTruthy(v_has_options) {
+			v_quoted_value = coreGet(v_quoted, "value", nil)
+			v_option_text = _core_string_replace(v_quoted_value, "|", ",")
+			v_options = _core_string_split_trim_nonempty(v_option_text, ",")
+			v_option_count = _core_len(v_options)
+			v_empty_options = _core_eq(v_option_count, 0)
+			if coreTruthy(v_empty_options) {
+				v_error = _core_signature_error("Missing class options after \"class\" type")
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_attrs = Object()
+			if err := coreSet(v_attrs, "name", "class"); err != nil { return nil, err }
+			if err := coreSet(v_attrs, "is_array", v_is_array); err != nil { return nil, err }
+			if err := coreSet(v_attrs, "options", v_options); err != nil { return nil, err }
+			v_typ = _core_record_new("FieldType", v_attrs)
+			v_out = Object()
+			if err := coreSet(v_out, "type", v_typ); err != nil { return nil, err }
+			if err := coreSet(v_out, "is_cached", false); err != nil { return nil, err }
+			v_quoted_rest = coreGet(v_quoted, "rest", nil)
+			if err := coreSet(v_out, "rest", v_quoted_rest); err != nil { return nil, err }
+			return v_out, nil
+		} else {
+		// empty
+		}
+		v_error = _core_signature_error("Missing class options after \"class\" type")
+		return nil, asAxError(v_error)
 	} else {
 	// empty
 	}
-	v_type_attrs = Object()
-	if err := coreSet(v_type_attrs, "name", v_type_name); err != nil { return nil, err }
+	v_is_object = _core_eq(v_type_name, "object")
+	v_starts_object_fields = _core_string_starts_with(v_rest, "{")
+	v_has_object_fields = _core_and(v_is_object, v_starts_object_fields)
+	if coreTruthy(v_has_object_fields) {
+		{ v, err := _core_string_extract_leading_group(v_rest, "{", "}"); if err != nil { return nil, err }; v_group = v }
+		v_balanced = coreGet(v_group, "balanced", false)
+		v_unbalanced = _core_not(v_balanced)
+		if coreTruthy(v_unbalanced) {
+			v_message = _core_string_format("Field \"{}\": unbalanced \"{\" in object type", v_field_name)
+			v_error = _core_signature_error(v_message)
+			return nil, asAxError(v_error)
+		} else {
+		// empty
+		}
+		v_group_text = coreGet(v_group, "group", nil)
+		{ v, err := _signature_parse_object_fields_impl(v_group_text, v_section, v_field_name); if err != nil { return nil, err }; v_fields = v }
+		v_group_rest = coreGet(v_group, "rest", nil)
+		v_after = coreStringTrim(v_group_rest)
+		v_is_array = _core_string_starts_with(v_after, "[]")
+		if coreTruthy(v_is_array) {
+			v_after_array = _core_string_slice(v_after, 2)
+			v_after = coreStringTrim(v_after_array)
+		} else {
+		// empty
+		}
+		v_attrs = Object()
+		if err := coreSet(v_attrs, "name", "object"); err != nil { return nil, err }
+		if err := coreSet(v_attrs, "is_array", v_is_array); err != nil { return nil, err }
+		if err := coreSet(v_attrs, "fields", v_fields); err != nil { return nil, err }
+		v_typ = _core_record_new("FieldType", v_attrs)
+		v_out = Object()
+		if err := coreSet(v_out, "type", v_typ); err != nil { return nil, err }
+		if err := coreSet(v_out, "is_cached", false); err != nil { return nil, err }
+		if err := coreSet(v_out, "rest", v_after); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_attrs = Object()
+	if err := coreSet(v_attrs, "name", v_type_name); err != nil { return nil, err }
+	if err := coreSet(v_attrs, "is_array", false); err != nil { return nil, err }
+	v_modifier_state = Object()
+	if err := coreSet(v_modifier_state, "attrs", v_attrs); err != nil { return nil, err }
+	if err := coreSet(v_modifier_state, "is_cached", false); err != nil { return nil, err }
+	v_none = _core_none()
+	if err := coreSet(v_modifier_state, "item_description", v_none); err != nil { return nil, err }
+	v_has_bag = _core_string_starts_with(v_rest, "(")
+	if coreTruthy(v_has_bag) {
+		{ v, err := _core_string_extract_leading_group(v_rest, "(", ")"); if err != nil { return nil, err }; v_group = v }
+		v_balanced = coreGet(v_group, "balanced", false)
+		v_unbalanced = _core_not(v_balanced)
+		if coreTruthy(v_unbalanced) {
+			v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
+			v_error = _core_signature_error(v_message)
+			return nil, asAxError(v_error)
+		} else {
+		// empty
+		}
+		v_group_text = coreGet(v_group, "group", nil)
+		{ v, err := _signature_parse_modifier_bag_impl(v_type_name, v_section, v_field_name, v_group_text); if err != nil { return nil, err }; v_parsed = v }
+		v_parsed_attrs = coreGet(v_parsed, "attrs", nil)
+		v_merged_attrs = _core_map_merge(v_attrs, v_parsed_attrs)
+		v_parsed_cached = coreGet(v_parsed, "is_cached", false)
+		v_parsed_item = coreGet(v_parsed, "item_description", nil)
+		if err := coreSet(v_modifier_state, "attrs", v_merged_attrs); err != nil { return nil, err }
+		if err := coreSet(v_modifier_state, "is_cached", v_parsed_cached); err != nil { return nil, err }
+		if err := coreSet(v_modifier_state, "item_description", v_parsed_item); err != nil { return nil, err }
+		v_group_rest = coreGet(v_group, "rest", nil)
+		v_rest = coreStringTrim(v_group_rest)
+	} else {
+	// empty
+	}
+	v_is_array = _core_string_starts_with(v_rest, "[]")
+	if coreTruthy(v_is_array) {
+		v_rest_after_array = _core_string_slice(v_rest, 2)
+		v_rest = coreStringTrim(v_rest_after_array)
+	} else {
+	// empty
+	}
+	v_type_attrs = coreGet(v_modifier_state, "attrs", nil)
 	if err := coreSet(v_type_attrs, "is_array", v_is_array); err != nil { return nil, err }
-	v_field_type = _core_record_new("FieldType", v_type_attrs)
-	v_field_attrs = Object()
-	if err := coreSet(v_field_attrs, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_field_attrs, "type", v_field_type); err != nil { return nil, err }
-	if err := coreSet(v_field_attrs, "description", v_quoted); err != nil { return nil, err }
-	if err := coreSet(v_field_attrs, "is_optional", v_is_optional); err != nil { return nil, err }
-	if err := coreSet(v_field_attrs, "is_internal", v_is_internal); err != nil { return nil, err }
-	v_field = _core_record_new("Field", v_field_attrs)
-	if _, err := _signature_validate_field_shape_impl(v_field, v_output, false); err != nil { return nil, err }
-	return v_field, nil
+	v_item_description = coreGet(v_modifier_state, "item_description", nil)
+	v_has_item = _core_is_not_none(v_item_description)
+	v_not_array = _core_not(v_is_array)
+	v_item_without_array = _core_and(v_has_item, v_not_array)
+	if coreTruthy(v_item_without_array) {
+		v_message = _core_string_format("Field \"{}\": the \"item\" modifier requires an array type", v_field_name)
+		v_error = _core_signature_error(v_message)
+		return nil, asAxError(v_error)
+	} else {
+	// empty
+	}
+	if coreTruthy(v_has_item) {
+		if err := coreSet(v_type_attrs, "description", v_item_description); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_typ = _core_record_new("FieldType", v_type_attrs)
+	v_out = Object()
+	if err := coreSet(v_out, "type", v_typ); err != nil { return nil, err }
+	v_is_cached = coreGet(v_modifier_state, "is_cached", false)
+	if err := coreSet(v_out, "is_cached", v_is_cached); err != nil { return nil, err }
+	if err := coreSet(v_out, "rest", v_rest); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _signature_parse_modifier_bag_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_parse_modifier_bag_impl")
+	var v_type_name Value
+	var v_section Value
+	var v_field_name Value
+	var v_raw Value
+	var v_allowed Value
+	var v_arg Value
+	var v_arg_raw Value
+	var v_attrs Value
+	var v_desc Value
+	var v_desc_extra Value
+	var v_desc_found Value
+	var v_desc_missing Value
+	var v_desc_rest Value
+	var v_desc_rest_raw Value
+	var v_desc_value Value
+	var v_duplicate Value
+	var v_empty Value
+	var v_entry Value
+	var v_entry_empty Value
+	var v_error Value
+	var v_extra Value
+	var v_formats Value
+	var v_found Value
+	var v_handled Value
+	var v_has_pattern_rest Value
+	var v_input Value
+	var v_is_bound Value
+	var v_is_cache Value
+	var v_is_cached Value
+	var v_is_code Value
+	var v_is_format Value
+	var v_is_item Value
+	var v_is_max Value
+	var v_is_min Value
+	var v_is_number Value
+	var v_is_pattern Value
+	var v_is_string Value
+	var v_item_description Value
+	var v_item_value Value
+	var v_known Value
+	var v_message Value
+	var v_missing Value
+	var v_nested Value
+	var v_none Value
+	var v_not_allowed Value
+	var v_not_input Value
+	var v_not_numeric Value
+	var v_not_string Value
+	var v_numeric Value
+	var v_out Value
+	var v_part Value
+	var v_parts Value
+	var v_pattern_rest Value
+	var v_pattern_rest_raw Value
+	var v_pattern_value Value
+	var v_quoted Value
+	var v_remaining Value
+	var v_remaining_raw Value
+	var v_seen Value
+	var v_state Value
+	var v_text Value
+	var v_token Value
+	var v_token_len Value
+	var v_unhandled Value
+	var v_unknown Value
+	var v_value Value
+	var v_was_handled Value
+	var v_words Value
+	if len(args) > 0 { v_type_name = args[0] }
+	_ = v_type_name
+	if len(args) > 1 { v_section = args[1] }
+	_ = v_section
+	if len(args) > 2 { v_field_name = args[2] }
+	_ = v_field_name
+	if len(args) > 3 { v_raw = args[3] }
+	_ = v_raw
+	_ = v_allowed
+	_ = v_arg
+	_ = v_arg_raw
+	_ = v_attrs
+	_ = v_desc
+	_ = v_desc_extra
+	_ = v_desc_found
+	_ = v_desc_missing
+	_ = v_desc_rest
+	_ = v_desc_rest_raw
+	_ = v_desc_value
+	_ = v_duplicate
+	_ = v_empty
+	_ = v_entry
+	_ = v_entry_empty
+	_ = v_error
+	_ = v_extra
+	_ = v_formats
+	_ = v_found
+	_ = v_handled
+	_ = v_has_pattern_rest
+	_ = v_input
+	_ = v_is_bound
+	_ = v_is_cache
+	_ = v_is_cached
+	_ = v_is_code
+	_ = v_is_format
+	_ = v_is_item
+	_ = v_is_max
+	_ = v_is_min
+	_ = v_is_number
+	_ = v_is_pattern
+	_ = v_is_string
+	_ = v_item_description
+	_ = v_item_value
+	_ = v_known
+	_ = v_message
+	_ = v_missing
+	_ = v_nested
+	_ = v_none
+	_ = v_not_allowed
+	_ = v_not_input
+	_ = v_not_numeric
+	_ = v_not_string
+	_ = v_numeric
+	_ = v_out
+	_ = v_part
+	_ = v_parts
+	_ = v_pattern_rest
+	_ = v_pattern_rest_raw
+	_ = v_pattern_value
+	_ = v_quoted
+	_ = v_remaining
+	_ = v_remaining_raw
+	_ = v_seen
+	_ = v_state
+	_ = v_text
+	_ = v_token
+	_ = v_token_len
+	_ = v_unhandled
+	_ = v_unknown
+	_ = v_value
+	_ = v_was_handled
+	_ = v_words
+	v_text = coreStringTrim(v_raw)
+	v_empty = _core_eq(v_text, "")
+	if coreTruthy(v_empty) {
+		v_message = _core_string_format("Field \"{}\": empty modifier list \"()\"", v_field_name)
+		v_error = _core_signature_error(v_message)
+		return nil, asAxError(v_error)
+	} else {
+	// empty
+	}
+	{ v, err := _core_string_split_top_level(v_raw, ","); if err != nil { return nil, err }; v_parts = v }
+	v_attrs = Object()
+	v_seen = MutableArray()
+	v_state = Object()
+	if err := coreSet(v_state, "is_cached", false); err != nil { return nil, err }
+	v_none = _core_none()
+	if err := coreSet(v_state, "item_description", v_none); err != nil { return nil, err }
+	for _, v_part = range coreIter(v_parts) {
+		v_entry = coreStringTrim(v_part)
+		v_entry_empty = _core_eq(v_entry, "")
+		if coreTruthy(v_entry_empty) {
+			v_message = _core_string_format("Field \"{}\": trailing comma in modifier list", v_field_name)
+			v_error = _core_signature_error(v_message)
+			return nil, asAxError(v_error)
+		} else {
+		// empty
+		}
+		v_words = _core_string_words(v_entry)
+		v_token = _core_list_get(v_words, 0, "")
+		v_token_len = _core_len(v_token)
+		v_arg_raw = _core_string_slice(v_entry, v_token_len)
+		v_arg = coreStringTrim(v_arg_raw)
+		v_handled = Object()
+		if err := coreSet(v_handled, "value", false); err != nil { return nil, err }
+		v_is_min = _core_eq(v_token, "min")
+		v_is_max = _core_eq(v_token, "max")
+		v_is_bound = _core_or(v_is_min, v_is_max)
+		if coreTruthy(v_is_bound) {
+			v_duplicate = _core_contains(v_seen, v_token)
+			if coreTruthy(v_duplicate) {
+				v_message = _core_string_format("Field \"{}\": duplicate \"{}\" modifier", v_field_name, v_token)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_seen = coreAppend(v_seen, v_token)
+			v_is_string = _core_eq(v_type_name, "string")
+			v_is_number = _core_eq(v_type_name, "number")
+			v_allowed = _core_or(v_is_string, v_is_number)
+			v_not_allowed = _core_not(v_allowed)
+			if coreTruthy(v_not_allowed) {
+				v_message = _core_string_format("Field \"{}\": \"{}\" is not supported for type \"{}\"", v_field_name, v_token, v_type_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_numeric = coreRegexMatch("^-?[0-9]+(\\.[0-9]+)?$", v_arg)
+			v_not_numeric = _core_not(v_numeric)
+			if coreTruthy(v_not_numeric) {
+				v_message = _core_string_format("Field \"{}\": \"{}\" requires a numeric value", v_field_name, v_token)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			{ v, err := _core_json_parse(v_arg); if err != nil { return nil, err }; v_value = v }
+			if coreTruthy(v_is_string) {
+				if coreTruthy(v_is_min) {
+					if err := coreSet(v_attrs, "minLength", v_value); err != nil { return nil, err }
+				} else {
+					if err := coreSet(v_attrs, "maxLength", v_value); err != nil { return nil, err }
+				}
+			} else {
+				if coreTruthy(v_is_min) {
+					if err := coreSet(v_attrs, "minimum", v_value); err != nil { return nil, err }
+				} else {
+					if err := coreSet(v_attrs, "maximum", v_value); err != nil { return nil, err }
+				}
+			}
+			if err := coreSet(v_handled, "value", true); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_is_format = _core_eq(v_token, "format")
+		if coreTruthy(v_is_format) {
+			v_duplicate = _core_contains(v_seen, "format")
+			if coreTruthy(v_duplicate) {
+				v_message = _core_string_format("Field \"{}\": duplicate \"format\" modifier", v_field_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_seen = coreAppend(v_seen, "format")
+			v_is_string = _core_eq(v_type_name, "string")
+			v_not_string = _core_not(v_is_string)
+			if coreTruthy(v_not_string) {
+				v_message = _core_string_format("Field \"{}\": \"format\" is not supported for type \"{}\"", v_field_name, v_type_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_formats = MutableArray()
+			v_formats = coreAppend(v_formats, "email")
+			v_formats = coreAppend(v_formats, "uri")
+			v_formats = coreAppend(v_formats, "date")
+			v_formats = coreAppend(v_formats, "date-time")
+			v_known = _core_contains(v_formats, v_arg)
+			v_unknown = _core_not(v_known)
+			if coreTruthy(v_unknown) {
+				v_message = _core_string_format("Field \"{}\": unknown format \"{}\"", v_field_name, v_arg)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			if err := coreSet(v_attrs, "format", v_arg); err != nil { return nil, err }
+			if err := coreSet(v_handled, "value", true); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_is_pattern = _core_eq(v_token, "pattern")
+		if coreTruthy(v_is_pattern) {
+			v_duplicate = _core_contains(v_seen, "pattern")
+			if coreTruthy(v_duplicate) {
+				v_message = _core_string_format("Field \"{}\": duplicate \"pattern\" modifier", v_field_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_seen = coreAppend(v_seen, "pattern")
+			v_is_string = _core_eq(v_type_name, "string")
+			v_not_string = _core_not(v_is_string)
+			if coreTruthy(v_not_string) {
+				v_message = _core_string_format("Field \"{}\": \"pattern\" is not supported for type \"{}\"", v_field_name, v_type_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			{ v, err := _core_string_consume_optional_quoted_prefix(v_arg); if err != nil { return nil, err }; v_quoted = v }
+			v_found = coreGet(v_quoted, "found", false)
+			v_missing = _core_not(v_found)
+			if coreTruthy(v_missing) {
+				v_message = _core_string_format("Field \"{}\": \"pattern\" requires a quoted regular expression", v_field_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_pattern_value = coreGet(v_quoted, "value", nil)
+			if err := coreSet(v_attrs, "pattern", v_pattern_value); err != nil { return nil, err }
+			v_pattern_rest_raw = coreGet(v_quoted, "rest", nil)
+			v_pattern_rest = coreStringTrim(v_pattern_rest_raw)
+			v_has_pattern_rest = _core_truthy(v_pattern_rest)
+			if coreTruthy(v_has_pattern_rest) {
+				{ v, err := _core_string_consume_optional_quoted_prefix(v_pattern_rest); if err != nil { return nil, err }; v_desc = v }
+				v_desc_found = coreGet(v_desc, "found", false)
+				v_desc_missing = _core_not(v_desc_found)
+				if coreTruthy(v_desc_missing) {
+					v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
+					v_error = _core_signature_error(v_message)
+					return nil, asAxError(v_error)
+				} else {
+				// empty
+				}
+				v_desc_rest_raw = coreGet(v_desc, "rest", nil)
+				v_desc_rest = coreStringTrim(v_desc_rest_raw)
+				v_desc_extra = _core_truthy(v_desc_rest)
+				if coreTruthy(v_desc_extra) {
+					v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
+					v_error = _core_signature_error(v_message)
+					return nil, asAxError(v_error)
+				} else {
+				// empty
+				}
+				v_desc_value = coreGet(v_desc, "value", nil)
+				if err := coreSet(v_attrs, "patternDescription", v_desc_value); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			if err := coreSet(v_handled, "value", true); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_is_cache = _core_eq(v_token, "cache")
+		if coreTruthy(v_is_cache) {
+			v_duplicate = _core_contains(v_seen, "cache")
+			if coreTruthy(v_duplicate) {
+				v_message = _core_string_format("Field \"{}\": duplicate \"cache\" modifier", v_field_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_seen = coreAppend(v_seen, "cache")
+			v_input = _core_eq(v_section, "input")
+			v_not_input = _core_not(v_input)
+			if coreTruthy(v_not_input) {
+				v_message = _core_string_format("Field \"{}\": \"cache\" is only supported on top-level input fields", v_field_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_extra = _core_truthy(v_arg)
+			if coreTruthy(v_extra) {
+				v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			if err := coreSet(v_state, "is_cached", true); err != nil { return nil, err }
+			if err := coreSet(v_handled, "value", true); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_is_item = _core_eq(v_token, "item")
+		if coreTruthy(v_is_item) {
+			v_duplicate = _core_contains(v_seen, "item")
+			if coreTruthy(v_duplicate) {
+				v_message = _core_string_format("Field \"{}\": duplicate \"item\" modifier", v_field_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_seen = coreAppend(v_seen, "item")
+			v_nested = _core_eq(v_section, "nested")
+			if coreTruthy(v_nested) {
+				v_message = _core_string_format("Field \"{}\": \"item\" is not supported inside object fields", v_field_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			{ v, err := _core_string_consume_optional_quoted_prefix(v_arg); if err != nil { return nil, err }; v_quoted = v }
+			v_found = coreGet(v_quoted, "found", false)
+			v_missing = _core_not(v_found)
+			if coreTruthy(v_missing) {
+				v_message = _core_string_format("Field \"{}\": \"item\" requires a quoted description", v_field_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_remaining_raw = coreGet(v_quoted, "rest", nil)
+			v_remaining = coreStringTrim(v_remaining_raw)
+			v_extra = _core_truthy(v_remaining)
+			if coreTruthy(v_extra) {
+				v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_item_value = coreGet(v_quoted, "value", nil)
+			if err := coreSet(v_state, "item_description", v_item_value); err != nil { return nil, err }
+			if err := coreSet(v_handled, "value", true); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_was_handled = coreGet(v_handled, "value", false)
+		v_unhandled = _core_not(v_was_handled)
+		if coreTruthy(v_unhandled) {
+			v_is_code = _core_eq(v_type_name, "code")
+			if coreTruthy(v_is_code) {
+				v_duplicate = _core_contains(v_seen, "language")
+				if coreTruthy(v_duplicate) {
+					v_message = _core_string_format("Field \"{}\": duplicate \"language\" modifier", v_field_name)
+					v_error = _core_signature_error(v_message)
+					return nil, asAxError(v_error)
+				} else {
+				// empty
+				}
+				v_extra = _core_truthy(v_arg)
+				if coreTruthy(v_extra) {
+					v_message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", v_field_name)
+					v_error = _core_signature_error(v_message)
+					return nil, asAxError(v_error)
+				} else {
+				// empty
+				}
+				v_seen = coreAppend(v_seen, "language")
+				if err := coreSet(v_attrs, "language", v_token); err != nil { return nil, err }
+			} else {
+				v_message = _core_string_format("Field \"{}\": unknown modifier \"{}\" for type \"{}\"", v_field_name, v_token, v_type_name)
+				v_error = _core_signature_error(v_message)
+				return nil, asAxError(v_error)
+			}
+		} else {
+		// empty
+		}
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "attrs", v_attrs); err != nil { return nil, err }
+	v_is_cached = coreGet(v_state, "is_cached", false)
+	v_item_description = coreGet(v_state, "item_description", nil)
+	if err := coreSet(v_out, "is_cached", v_is_cached); err != nil { return nil, err }
+	if err := coreSet(v_out, "item_description", v_item_description); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _signature_parse_object_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_parse_object_fields_impl")
+	var v_raw Value
+	var v_section Value
+	var v_parent Value
+	var v_duplicate Value
+	var v_empty Value
+	var v_entry Value
+	var v_entry_empty Value
+	var v_error Value
+	var v_field Value
+	var v_fields Value
+	var v_message Value
+	var v_name Value
+	var v_output Value
+	var v_part Value
+	var v_parts Value
+	var v_text Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_section = args[1] }
+	_ = v_section
+	if len(args) > 2 { v_parent = args[2] }
+	_ = v_parent
+	_ = v_duplicate
+	_ = v_empty
+	_ = v_entry
+	_ = v_entry_empty
+	_ = v_error
+	_ = v_field
+	_ = v_fields
+	_ = v_message
+	_ = v_name
+	_ = v_output
+	_ = v_part
+	_ = v_parts
+	_ = v_text
+	v_text = coreStringTrim(v_raw)
+	v_empty = _core_eq(v_text, "")
+	if coreTruthy(v_empty) {
+		v_message = _core_string_format("Field \"{}\": object type requires at least one field", v_parent)
+		v_error = _core_signature_error(v_message)
+		return nil, asAxError(v_error)
+	} else {
+	// empty
+	}
+	{ v, err := _core_string_split_top_level(v_raw, ","); if err != nil { return nil, err }; v_parts = v }
+	v_fields = Object()
+	v_output = _core_eq(v_section, "output")
+	for _, v_part = range coreIter(v_parts) {
+		v_entry = coreStringTrim(v_part)
+		v_entry_empty = _core_eq(v_entry, "")
+		if coreTruthy(v_entry_empty) {
+			v_message = _core_string_format("Field \"{}\": trailing comma in object type", v_parent)
+			v_error = _core_signature_error(v_message)
+			return nil, asAxError(v_error)
+		} else {
+		// empty
+		}
+		{ v, err := _signature_parse_field_common_impl(v_entry, v_output, true, v_parent); if err != nil { return nil, err }; v_field = v }
+		v_name = coreGet(v_field, "name", nil)
+		v_duplicate = _core_map_contains(v_fields, v_name)
+		if coreTruthy(v_duplicate) {
+			v_message = _core_string_format("Field \"{}\": duplicate object field name \"{}\"", v_parent, v_name)
+			v_error = _core_signature_error(v_message)
+			return nil, asAxError(v_error)
+		} else {
+		// empty
+		}
+		if err := coreSet(v_fields, v_name, v_field); err != nil { return nil, err }
+	}
+	return v_fields, nil
+}
+
+func signature_to_string(args ...Value) (Value, error) {
+	axirCoverageMark("signature_to_string")
+	var v_signature Value
+	var v_description Value
+	var v_escaped Value
+	var v_field Value
+	var v_has_description Value
+	var v_input_parts Value
+	var v_input_text Value
+	var v_inputs Value
+	var v_left Value
+	var v_output_parts Value
+	var v_outputs Value
+	var v_parts Value
+	var v_prefix Value
+	var v_rendered Value
+	var v_result Value
+	var v_right Value
+	if len(args) > 0 { v_signature = args[0] }
+	_ = v_signature
+	_ = v_description
+	_ = v_escaped
+	_ = v_field
+	_ = v_has_description
+	_ = v_input_parts
+	_ = v_input_text
+	_ = v_inputs
+	_ = v_left
+	_ = v_output_parts
+	_ = v_outputs
+	_ = v_parts
+	_ = v_prefix
+	_ = v_rendered
+	_ = v_result
+	_ = v_right
+	v_parts = MutableArray()
+	v_description = coreGet(v_signature, "description", nil)
+	v_has_description = _core_truthy(v_description)
+	if coreTruthy(v_has_description) {
+		{ v, err := _signature_escape_string_impl(v_description); if err != nil { return nil, err }; v_escaped = v }
+		v_prefix = _core_string_format("\"{}\"", v_escaped)
+		v_parts = coreAppend(v_parts, v_prefix)
+	} else {
+	// empty
+	}
+	v_inputs = coreGet(v_signature, "input_fields", nil)
+	v_input_parts = MutableArray()
+	for _, v_field = range coreIter(v_inputs) {
+		{ v, err := _signature_render_field_impl(v_field); if err != nil { return nil, err }; v_rendered = v }
+		v_input_parts = coreAppend(v_input_parts, v_rendered)
+	}
+	v_input_text = _core_string_join(", ", v_input_parts)
+	v_parts = coreAppend(v_parts, v_input_text)
+	v_left = _core_string_join(" ", v_parts)
+	v_outputs = coreGet(v_signature, "output_fields", nil)
+	v_output_parts = MutableArray()
+	for _, v_field = range coreIter(v_outputs) {
+		{ v, err := _signature_render_field_impl(v_field); if err != nil { return nil, err }; v_rendered = v }
+		v_output_parts = coreAppend(v_output_parts, v_rendered)
+	}
+	v_right = _core_string_join(", ", v_output_parts)
+	v_result = _core_string_format("{} -> {}", v_left, v_right)
+	return v_result, nil
+}
+
+func _signature_escape_string_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_escape_string_impl")
+	var v_value Value
+	var v_quotes Value
+	var v_slashes Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_quotes
+	_ = v_slashes
+	v_slashes = _core_string_replace(v_value, "\\", "\\\\")
+	v_quotes = _core_string_replace(v_slashes, "\"", "\\\"")
+	return v_quotes, nil
+}
+
+func _signature_render_modifier_bag_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_render_modifier_bag_impl")
+	var v_typ Value
+	var v_is_cached Value
+	var v_body Value
+	var v_count Value
+	var v_empty Value
+	var v_entries Value
+	var v_entry Value
+	var v_escaped_description Value
+	var v_escaped_item Value
+	var v_escaped_pattern Value
+	var v_format Value
+	var v_has_format Value
+	var v_has_item_description Value
+	var v_has_language Value
+	var v_has_max Value
+	var v_has_min Value
+	var v_has_pattern Value
+	var v_has_pattern_description Value
+	var v_is_array Value
+	var v_is_code Value
+	var v_item_description Value
+	var v_language Value
+	var v_max Value
+	var v_max_length Value
+	var v_maximum Value
+	var v_min Value
+	var v_min_length Value
+	var v_minimum Value
+	var v_pattern Value
+	var v_pattern_description Value
+	var v_render_item Value
+	var v_render_language Value
+	var v_result Value
+	var v_type_name Value
+	if len(args) > 0 { v_typ = args[0] }
+	_ = v_typ
+	if len(args) > 1 { v_is_cached = args[1] }
+	_ = v_is_cached
+	_ = v_body
+	_ = v_count
+	_ = v_empty
+	_ = v_entries
+	_ = v_entry
+	_ = v_escaped_description
+	_ = v_escaped_item
+	_ = v_escaped_pattern
+	_ = v_format
+	_ = v_has_format
+	_ = v_has_item_description
+	_ = v_has_language
+	_ = v_has_max
+	_ = v_has_min
+	_ = v_has_pattern
+	_ = v_has_pattern_description
+	_ = v_is_array
+	_ = v_is_code
+	_ = v_item_description
+	_ = v_language
+	_ = v_max
+	_ = v_max_length
+	_ = v_maximum
+	_ = v_min
+	_ = v_min_length
+	_ = v_minimum
+	_ = v_pattern
+	_ = v_pattern_description
+	_ = v_render_item
+	_ = v_render_language
+	_ = v_result
+	_ = v_type_name
+	v_entries = MutableArray()
+	v_min_length = coreGet(v_typ, "min_length", nil)
+	v_minimum = coreGet(v_typ, "minimum", nil)
+	v_min = _core_coalesce(v_min_length, v_minimum)
+	v_has_min = _core_is_not_none(v_min)
+	if coreTruthy(v_has_min) {
+		v_entry = _core_string_format("min {}", v_min)
+		v_entries = coreAppend(v_entries, v_entry)
+	} else {
+	// empty
+	}
+	v_max_length = coreGet(v_typ, "max_length", nil)
+	v_maximum = coreGet(v_typ, "maximum", nil)
+	v_max = _core_coalesce(v_max_length, v_maximum)
+	v_has_max = _core_is_not_none(v_max)
+	if coreTruthy(v_has_max) {
+		v_entry = _core_string_format("max {}", v_max)
+		v_entries = coreAppend(v_entries, v_entry)
+	} else {
+	// empty
+	}
+	v_format = coreGet(v_typ, "format", nil)
+	v_has_format = _core_is_not_none(v_format)
+	if coreTruthy(v_has_format) {
+		v_entry = _core_string_format("format {}", v_format)
+		v_entries = coreAppend(v_entries, v_entry)
+	} else {
+	// empty
+	}
+	v_pattern = coreGet(v_typ, "pattern", nil)
+	v_has_pattern = _core_is_not_none(v_pattern)
+	if coreTruthy(v_has_pattern) {
+		{ v, err := _signature_escape_string_impl(v_pattern); if err != nil { return nil, err }; v_escaped_pattern = v }
+		v_entry = _core_string_format("pattern \"{}\"", v_escaped_pattern)
+		v_pattern_description = coreGet(v_typ, "pattern_description", nil)
+		v_has_pattern_description = _core_is_not_none(v_pattern_description)
+		if coreTruthy(v_has_pattern_description) {
+			{ v, err := _signature_escape_string_impl(v_pattern_description); if err != nil { return nil, err }; v_escaped_description = v }
+			v_entry = _core_string_format("{} \"{}\"", v_entry, v_escaped_description)
+		} else {
+		// empty
+		}
+		v_entries = coreAppend(v_entries, v_entry)
+	} else {
+	// empty
+	}
+	v_is_array = coreGet(v_typ, "is_array", false)
+	v_item_description = coreGet(v_typ, "description", nil)
+	v_has_item_description = _core_truthy(v_item_description)
+	v_render_item = _core_and(v_is_array, v_has_item_description)
+	if coreTruthy(v_render_item) {
+		{ v, err := _signature_escape_string_impl(v_item_description); if err != nil { return nil, err }; v_escaped_item = v }
+		v_entry = _core_string_format("item \"{}\"", v_escaped_item)
+		v_entries = coreAppend(v_entries, v_entry)
+	} else {
+	// empty
+	}
+	v_type_name = coreGet(v_typ, "name", nil)
+	v_is_code = _core_eq(v_type_name, "code")
+	v_language = coreGet(v_typ, "language", nil)
+	v_has_language = _core_truthy(v_language)
+	v_render_language = _core_and(v_is_code, v_has_language)
+	if coreTruthy(v_render_language) {
+		v_entries = coreAppend(v_entries, v_language)
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_cached) {
+		v_entries = coreAppend(v_entries, "cache")
+	} else {
+	// empty
+	}
+	v_count = _core_len(v_entries)
+	v_empty = _core_eq(v_count, 0)
+	if coreTruthy(v_empty) {
+		return "", nil
+	} else {
+	// empty
+	}
+	v_body = _core_string_join(", ", v_entries)
+	v_result = _core_string_format("({})", v_body)
+	return v_result, nil
+}
+
+func _signature_render_type_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_render_type_impl")
+	var v_typ Value
+	var v_is_cached Value
+	var v_bag Value
+	var v_class_name Value
+	var v_fields Value
+	var v_has_fields Value
+	var v_is_array Value
+	var v_is_class Value
+	var v_is_object Value
+	var v_joined Value
+	var v_options Value
+	var v_rendered_fields Value
+	var v_result Value
+	var v_state Value
+	var v_structured_object Value
+	var v_type_name Value
+	if len(args) > 0 { v_typ = args[0] }
+	_ = v_typ
+	if len(args) > 1 { v_is_cached = args[1] }
+	_ = v_is_cached
+	_ = v_bag
+	_ = v_class_name
+	_ = v_fields
+	_ = v_has_fields
+	_ = v_is_array
+	_ = v_is_class
+	_ = v_is_object
+	_ = v_joined
+	_ = v_options
+	_ = v_rendered_fields
+	_ = v_result
+	_ = v_state
+	_ = v_structured_object
+	_ = v_type_name
+	v_type_name = coreGet(v_typ, "name", nil)
+	v_is_array = coreGet(v_typ, "is_array", false)
+	v_is_class = _core_eq(v_type_name, "class")
+	if coreTruthy(v_is_class) {
+		v_state = Object()
+		if err := coreSet(v_state, "value", "class"); err != nil { return nil, err }
+		if coreTruthy(v_is_array) {
+			if err := coreSet(v_state, "value", "class[]"); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_options = coreGet(v_typ, "options", nil)
+		v_joined = _core_string_join(" | ", v_options)
+		v_class_name = coreGet(v_state, "value", nil)
+		v_result = _core_string_format("{} \"{}\"", v_class_name, v_joined)
+		return v_result, nil
+	} else {
+	// empty
+	}
+	v_is_object = _core_eq(v_type_name, "object")
+	v_fields = coreGet(v_typ, "fields", nil)
+	v_has_fields = _core_truthy(v_fields)
+	v_structured_object = _core_and(v_is_object, v_has_fields)
+	if coreTruthy(v_structured_object) {
+		{ v, err := _signature_render_object_fields_impl(v_fields); if err != nil { return nil, err }; v_rendered_fields = v }
+		v_result = _core_string_format("object{}", v_rendered_fields)
+		if coreTruthy(v_is_array) {
+			v_result = _core_string_format("{}[]", v_result)
+		} else {
+		// empty
+		}
+		return v_result, nil
+	} else {
+	// empty
+	}
+	{ v, err := _signature_render_modifier_bag_impl(v_typ, v_is_cached); if err != nil { return nil, err }; v_bag = v }
+	v_result = _core_string_format("{}{}", v_type_name, v_bag)
+	if coreTruthy(v_is_array) {
+		v_result = _core_string_format("{}[]", v_result)
+	} else {
+	// empty
+	}
+	return v_result, nil
+}
+
+func _signature_render_object_fields_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_render_object_fields_impl")
+	var v_fields Value
+	var v_body Value
+	var v_description Value
+	var v_entry Value
+	var v_escaped Value
+	var v_explicit_description Value
+	var v_field Value
+	var v_field_description Value
+	var v_field_name Value
+	var v_has_description Value
+	var v_implicit_code_description Value
+	var v_is_code Value
+	var v_language Value
+	var v_marked Value
+	var v_name Value
+	var v_nested_fields Value
+	var v_not_implicit Value
+	var v_optional Value
+	var v_parts Value
+	var v_prefix Value
+	var v_rendered_type Value
+	var v_result Value
+	var v_same_as_language Value
+	var v_state Value
+	var v_typ Value
+	var v_type_description Value
+	var v_type_name Value
+	if len(args) > 0 { v_fields = args[0] }
+	_ = v_fields
+	_ = v_body
+	_ = v_description
+	_ = v_entry
+	_ = v_escaped
+	_ = v_explicit_description
+	_ = v_field
+	_ = v_field_description
+	_ = v_field_name
+	_ = v_has_description
+	_ = v_implicit_code_description
+	_ = v_is_code
+	_ = v_language
+	_ = v_marked
+	_ = v_name
+	_ = v_nested_fields
+	_ = v_not_implicit
+	_ = v_optional
+	_ = v_parts
+	_ = v_prefix
+	_ = v_rendered_type
+	_ = v_result
+	_ = v_same_as_language
+	_ = v_state
+	_ = v_typ
+	_ = v_type_description
+	_ = v_type_name
+	v_parts = MutableArray()
+	v_nested_fields = _core_fields_from_map(v_fields)
+	for _, v_field = range coreIter(v_nested_fields) {
+		v_name = coreGet(v_field, "name", nil)
+		v_optional = coreGet(v_field, "is_optional", false)
+		v_state = Object()
+		if err := coreSet(v_state, "value", v_name); err != nil { return nil, err }
+		if coreTruthy(v_optional) {
+			v_marked = _core_string_format("{}?", v_name)
+			if err := coreSet(v_state, "value", v_marked); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_typ = coreGet(v_field, "type", nil)
+		{ v, err := _signature_render_type_impl(v_typ, false); if err != nil { return nil, err }; v_rendered_type = v }
+		v_field_name = coreGet(v_state, "value", nil)
+		v_entry = _core_string_format("{}:{}", v_field_name, v_rendered_type)
+		v_type_description = coreGet(v_typ, "description", nil)
+		v_field_description = coreGet(v_field, "description", nil)
+		v_description = _core_coalesce(v_type_description, v_field_description)
+		v_has_description = _core_truthy(v_description)
+		v_type_name = coreGet(v_typ, "name", nil)
+		v_is_code = _core_eq(v_type_name, "code")
+		v_language = coreGet(v_typ, "language", nil)
+		v_same_as_language = _core_eq(v_description, v_language)
+		v_implicit_code_description = _core_and(v_is_code, v_same_as_language)
+		v_not_implicit = _core_not(v_implicit_code_description)
+		v_explicit_description = _core_and(v_has_description, v_not_implicit)
+		if coreTruthy(v_explicit_description) {
+			{ v, err := _signature_escape_string_impl(v_description); if err != nil { return nil, err }; v_escaped = v }
+			v_entry = _core_string_format("{} \"{}\"", v_entry, v_escaped)
+		} else {
+		// empty
+		}
+		v_parts = coreAppend(v_parts, v_entry)
+	}
+	v_body = _core_string_join(", ", v_parts)
+	v_prefix = _core_add("{ ", v_body)
+	v_result = _core_add(v_prefix, " }")
+	return v_result, nil
+}
+
+func _signature_render_field_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_render_field_impl")
+	var v_field Value
+	var v_cached Value
+	var v_current Value
+	var v_description Value
+	var v_entry Value
+	var v_escaped Value
+	var v_explicit_description Value
+	var v_field_name Value
+	var v_has_description Value
+	var v_implicit_code_description Value
+	var v_internal Value
+	var v_is_code Value
+	var v_language Value
+	var v_marked Value
+	var v_name Value
+	var v_not_implicit Value
+	var v_optional Value
+	var v_rendered_type Value
+	var v_same_as_language Value
+	var v_state Value
+	var v_typ Value
+	var v_type_name Value
+	if len(args) > 0 { v_field = args[0] }
+	_ = v_field
+	_ = v_cached
+	_ = v_current
+	_ = v_description
+	_ = v_entry
+	_ = v_escaped
+	_ = v_explicit_description
+	_ = v_field_name
+	_ = v_has_description
+	_ = v_implicit_code_description
+	_ = v_internal
+	_ = v_is_code
+	_ = v_language
+	_ = v_marked
+	_ = v_name
+	_ = v_not_implicit
+	_ = v_optional
+	_ = v_rendered_type
+	_ = v_same_as_language
+	_ = v_state
+	_ = v_typ
+	_ = v_type_name
+	v_name = coreGet(v_field, "name", nil)
+	v_optional = coreGet(v_field, "is_optional", false)
+	v_internal = coreGet(v_field, "is_internal", false)
+	v_state = Object()
+	if err := coreSet(v_state, "value", v_name); err != nil { return nil, err }
+	if coreTruthy(v_optional) {
+		v_current = coreGet(v_state, "value", nil)
+		v_marked = _core_string_format("{}?", v_current)
+		if err := coreSet(v_state, "value", v_marked); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_internal) {
+		v_current = coreGet(v_state, "value", nil)
+		v_marked = _core_string_format("{}!", v_current)
+		if err := coreSet(v_state, "value", v_marked); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_typ = coreGet(v_field, "type", nil)
+	v_cached = coreGet(v_field, "is_cached", false)
+	{ v, err := _signature_render_type_impl(v_typ, v_cached); if err != nil { return nil, err }; v_rendered_type = v }
+	v_field_name = coreGet(v_state, "value", nil)
+	v_entry = _core_string_format("{}:{}", v_field_name, v_rendered_type)
+	v_description = coreGet(v_field, "description", nil)
+	v_has_description = _core_truthy(v_description)
+	v_type_name = coreGet(v_typ, "name", nil)
+	v_is_code = _core_eq(v_type_name, "code")
+	v_language = coreGet(v_typ, "language", nil)
+	v_same_as_language = _core_eq(v_description, v_language)
+	v_implicit_code_description = _core_and(v_is_code, v_same_as_language)
+	v_not_implicit = _core_not(v_implicit_code_description)
+	v_explicit_description = _core_and(v_has_description, v_not_implicit)
+	if coreTruthy(v_explicit_description) {
+		{ v, err := _signature_escape_string_impl(v_description); if err != nil { return nil, err }; v_escaped = v }
+		v_entry = _core_string_format("{} \"{}\"", v_entry, v_escaped)
+	} else {
+	// empty
+	}
+	return v_entry, nil
 }
 
 func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
@@ -1609,6 +3229,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	var v_has_class_options Value
 	var v_has_nested Value
 	var v_input_class Value
+	var v_input_class_base Value
 	var v_internal_input Value
 	var v_invalid_name Value
 	var v_is_array Value
@@ -1633,6 +3254,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	var v_output_file Value
 	var v_output_image Value
 	var v_starts_number Value
+	var v_top_level Value
 	var v_typ Value
 	var v_type_name Value
 	var v_unknown_type Value
@@ -1650,6 +3272,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	_ = v_has_class_options
 	_ = v_has_nested
 	_ = v_input_class
+	_ = v_input_class_base
 	_ = v_internal_input
 	_ = v_invalid_name
 	_ = v_is_array
@@ -1674,6 +3297,7 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	_ = v_output_file
 	_ = v_output_image
 	_ = v_starts_number
+	_ = v_top_level
 	_ = v_typ
 	_ = v_type_name
 	_ = v_unknown_type
@@ -1738,7 +3362,9 @@ func _signature_validate_field_shape_impl(args ...Value) (Value, error) {
 	}
 	v_is_class = _core_eq(v_type_name, "class")
 	v_is_input = _core_not(v_output)
-	v_input_class = _core_and(v_is_class, v_is_input)
+	v_top_level = _core_not(v_nested)
+	v_input_class_base = _core_and(v_is_class, v_is_input)
+	v_input_class = _core_and(v_input_class_base, v_top_level)
 	if coreTruthy(v_input_class) {
 		v_error = _core_signature_error("Input field cannot use the \"class\" type")
 		return nil, asAxError(v_error)
@@ -37586,6 +39212,7 @@ type FieldType struct {
 	Pattern            string
 	PatternDescription string
 	Format             string
+	Language           string
 	Description        string
 }
 
@@ -37619,6 +39246,7 @@ func (s AxSignature) ToJSONSchema(options map[string]Value) Value {
 }
 func (s AxSignature) GetInputFields() []Field  { return append([]Field(nil), s.Inputs...) }
 func (s AxSignature) GetOutputFields() []Field { return append([]Field(nil), s.Outputs...) }
+func (s AxSignature) String() string { return display(mustCore(signature_to_string(s))) }
 func (s AxSignature) toMap() map[string]Value {
 	inputs := Array()
 	for _, f := range s.Inputs {
@@ -37656,7 +39284,7 @@ func (t FieldType) toMap() map[string]Value {
 	for _, o := range t.Options {
 		opts = append(opts, o)
 	}
-	return Object("name", t.Name, "isArray", t.IsArray, "options", opts, "fields", fields, "minLength", t.MinLength, "maxLength", t.MaxLength, "minimum", t.Minimum, "maximum", t.Maximum, "pattern", nilIfEmpty(t.Pattern), "patternDescription", nilIfEmpty(t.PatternDescription), "format", nilIfEmpty(t.Format), "description", nilIfEmpty(t.Description))
+	return Object("name", t.Name, "isArray", t.IsArray, "options", opts, "fields", fields, "minLength", t.MinLength, "maxLength", t.MaxLength, "minimum", t.Minimum, "maximum", t.Maximum, "pattern", nilIfEmpty(t.Pattern), "patternDescription", nilIfEmpty(t.PatternDescription), "format", nilIfEmpty(t.Format), "language", nilIfEmpty(t.Language), "description", nilIfEmpty(t.Description))
 }
 
 func recordNew(name string, values map[string]Value) Value {
@@ -37730,6 +39358,7 @@ func fieldTypeFromValue(value Value) FieldType {
 	t.Pattern = display(coreGet(m, "pattern", ""))
 	t.PatternDescription = display(coreGet(m, "patternDescription", coreGet(m, "pattern_description", "")))
 	t.Format = display(coreGet(m, "format", ""))
+	t.Language = display(coreGet(m, "language", ""))
 	t.Description = display(coreGet(m, "description", ""))
 	return t
 }
@@ -42701,7 +44330,13 @@ func runConformanceFixture(fixture map[string]Value) {
 	case "signature_error":
 		expectFixtureError(func() { _ = conformanceBuildSignature(fixture) }, fixture)
 	case "signature":
-		assertEqual(conformanceSignaturePayload(conformanceBuildSignature(fixture)), coreGet(fixture, "expected_signature", nil), "signature")
+		sig := conformanceBuildSignature(fixture)
+		assertEqual(conformanceSignaturePayload(sig), coreGet(fixture, "expected_signature", nil), "signature")
+		if expected := coreGet(fixture, "expected_to_string", nil); expected != nil {
+			rendered := sig.String()
+			assertEqual(rendered, expected, "signature toString")
+			assertEqual(conformanceSignaturePayload(NewSignature(rendered)), coreGet(fixture, "expected_signature", nil), "signature round-trip")
+		}
 	case "json_schema":
 		sig := conformanceBuildSignature(fixture)
 		fields := sig.Outputs
@@ -43302,7 +44937,7 @@ func conformanceSignaturePayload(sig AxSignature) Value {
 	for _, f := range sig.Outputs {
 		outputs = append(outputs, conformanceFieldPayload(f))
 	}
-	return Object("description", nil, "inputs", inputs, "outputs", outputs)
+	return Object("description", nilIfEmpty(sig.Description), "inputs", inputs, "outputs", outputs)
 }
 func conformanceFieldPayload(f Field) Value {
 	out := Object("name", f.Name, "title", f.Title, "type", conformanceFieldTypePayload(f.Type), "isOptional", f.IsOptional, "isInternal", f.IsInternal, "isCached", f.IsCached)
@@ -43354,6 +44989,9 @@ func conformanceFieldTypePayload(t FieldType) Value {
 	}
 	if t.Format != "" {
 		coreSet(out, "format", t.Format)
+	}
+	if t.Language != "" {
+		coreSet(out, "language", t.Language)
 	}
 	if t.Description != "" {
 		coreSet(out, "description", t.Description)
@@ -46261,6 +47899,60 @@ func splitOutsideQuotes(s string, sep string) (Value, error) {
 		out = append(out, item)
 	}
 	return out, nil
+}
+func splitTopLevel(s string, sep string) (Value, error) {
+	out := Array()
+	var cur strings.Builder
+	var quote byte
+	escaped := false
+	parenDepth, braceDepth := 0, 0
+	for i := 0; i < len(s); {
+		ch := s[i]
+		if escaped { cur.WriteByte(ch); escaped = false; i++; continue }
+		if ch == '\\' { cur.WriteByte(ch); escaped = true; i++; continue }
+		if quote != 0 { cur.WriteByte(ch); if ch == quote { quote = 0 }; i++; continue }
+		if ch == '\'' || ch == '"' { cur.WriteByte(ch); quote = ch; i++; continue }
+		switch ch {
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 { parenDepth-- }
+		case '{':
+			braceDepth++
+		case '}':
+			if braceDepth > 0 { braceDepth-- }
+		}
+		if sep != "" && parenDepth == 0 && braceDepth == 0 && strings.HasPrefix(s[i:], sep) {
+			out = append(out, strings.TrimSpace(cur.String())); cur.Reset(); i += len(sep); continue
+		}
+		cur.WriteByte(ch); i++
+	}
+	if quote != 0 { return nil, AxError{Category: "signature", Message: "Unterminated string"} }
+	out = append(out, strings.TrimSpace(cur.String()))
+	return out, nil
+}
+func extractLeadingGroup(s string, open string, close string) (Value, error) {
+	if open == "" || close == "" || !strings.HasPrefix(s, open) {
+		return Object("found", false, "balanced", true, "group", "", "rest", s), nil
+	}
+	var quote byte
+	escaped := false
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if escaped { escaped = false; continue }
+		if ch == '\\' { escaped = true; continue }
+		if quote != 0 { if ch == quote { quote = 0 }; continue }
+		if ch == '\'' || ch == '"' { quote = ch; continue }
+		if strings.HasPrefix(s[i:], open) { depth++; i += len(open) - 1; continue }
+		if strings.HasPrefix(s[i:], close) {
+			depth--
+			if depth == 0 { return Object("found", true, "balanced", true, "group", s[len(open):i], "rest", s[i+len(close):]), nil }
+			i += len(close) - 1
+		}
+	}
+	if quote != 0 { return nil, AxError{Category: "signature", Message: "Unterminated string"} }
+	return Object("found", true, "balanced", false, "group", s[len(open):], "rest", ""), nil
 }
 func consumeOptionalQuotedPrefix(s string) (Value, error) {
 	if s == "" || (s[0] != '\'' && s[0] != '"') {

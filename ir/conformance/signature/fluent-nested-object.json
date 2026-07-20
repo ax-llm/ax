@@ -57,6 +57,7 @@
       }
     ]
   },
+  "expected_to_string": "user:object{ name:string(min 2) \"User name\", email?:string(format email) } \"User profile\" -> responseText:string",
   "kind": "signature",
   "name": "fluent-nested-object",
   "signature_spec": {

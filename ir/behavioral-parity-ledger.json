@@ -116,6 +116,28 @@
       "state": "VERIFIED IN ALL FIVE LANGUAGES. agent-tombstone-llm restores an action_log with an error entry (tags:[error]) followed by a success entry, sets options.tombstoning:true, and asserts the exported action_log[0].tombstone == the model response with tombstone_source==model (the action-log sanitizer was extended to preserve tombstone_source). Mutating the model response fails the test (anti-hardcode verified). Mirrors the checkpoint summarizer pattern (llm_pending/llm_input set in @agent_apply_context_management, consumed by @agent_apply_llm_tombstone_summary post-loop)."
     },
     {
+      "capability": "signature.extended_string_grammar",
+      "summary": "String signatures parse and canonically render modifier bags, nested object fields, code languages, and escaped descriptions with a parse-render-reparse fixpoint.",
+      "ir_ops": [
+        "@signature_parse_type_expr_impl",
+        "@signature_parse_modifier_bag_impl",
+        "@signature_parse_object_fields_impl",
+        "@signature_to_string"
+      ],
+      "fixtures": [
+        "signature/modifier-cache-and-item.json",
+        "signature/modifier-pattern-description.json",
+        "signature/nested-object-arrays.json",
+        "signature/nested-object-constraints.json",
+        "signature/description-own-line.json",
+        "signature/error-object-unbalanced.json"
+      ],
+      "gate": "cross-target signature conformance + round-trip fixpoint",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Every positive signature fixture asserts the canonical string and reparses it to the same normalized signature; malformed modifier and object cases assert TS-derived error substrings. The arrays-optional-internal fixture carries expected_to_string so response perturbation exercises the serializer assertion."
+    },
+    {
       "capability": "flow.node_execution",
       "summary": "An AxFlow node executes its program by invoking the model through intrinsic.agent.stage_forward and writes the result into flow state (as {name}Result + merged fields); the final state is projected via the returns spec. Nested flows recurse through the same path.",
       "ir_ops": [

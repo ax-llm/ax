@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "object type requires at least one field",
+  "kind": "signature_error",
+  "name": "error-object-empty",
+  "signature": "profileInfo:object{} -> replyText:string",
+  "ts_error_message": "Invalid Signature: Field \"profileInfo\": object type requires at least one field",
+  "ts_error_name": "AxSignatureValidationError"
+}

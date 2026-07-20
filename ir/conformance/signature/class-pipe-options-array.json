@@ -29,6 +29,7 @@
       }
     ]
   },
+  "expected_to_string": "documentText:string -> labels:class[] \"bug | feature | docs\"",
   "kind": "signature",
   "name": "class-pipe-options-array",
   "signature": "documentText:string -> labels:class[] \"bug | feature | docs\""

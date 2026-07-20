@@ -43,6 +43,7 @@
       }
     ]
   },
+  "expected_to_string": "document:string(cache) -> rating:number(min 1, max 5), outputCode:string(pattern \"^[A-Z0-9]+$\" \"Uppercase letters and numbers only\")",
   "kind": "signature",
   "name": "fluent-cache-and-constraints",
   "signature_spec": {

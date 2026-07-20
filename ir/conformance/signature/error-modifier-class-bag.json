@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "constraints are not supported on class fields",
+  "kind": "signature_error",
+  "name": "error-modifier-class-bag",
+  "signature": "userQuestion:string -> verdictLabel:class(min 1) \"a, b\"",
+  "ts_error_message": "Invalid Signature: Field \"verdictLabel\": constraints are not supported on class fields",
+  "ts_error_name": "AxSignatureValidationError"
+}

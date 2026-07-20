@@ -29,6 +29,7 @@
       }
     ]
   },
+  "expected_to_string": "documentText:string -> sentiment:class \"positive | negative | neutral\"",
   "kind": "signature",
   "name": "class-comma-options",
   "signature": "documentText:string -> sentiment:class \"positive, negative, neutral\""

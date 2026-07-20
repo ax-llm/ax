@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "\"min\" is not supported for type \"boolean\"",
+  "kind": "signature_error",
+  "name": "error-modifier-min-boolean",
+  "signature": "okFlag:boolean(min 1) -> replyText:string",
+  "ts_error_message": "Invalid Signature: Field \"okFlag\": \"min\" is not supported for type \"boolean\"",
+  "ts_error_name": "AxSignatureValidationError"
+}

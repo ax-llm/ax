@@ -749,6 +749,10 @@ def _run_signature_error(fixture):
 def _run_signature(fixture):
     sig = _build_signature(fixture)
     _assert_equal(_signature_payload(sig), fixture["expected_signature"], "signature")
+    if "expected_to_string" in fixture:
+        rendered = str(sig)
+        _assert_equal(rendered, fixture["expected_to_string"], "signature toString")
+        _assert_equal(_signature_payload(s(rendered)), fixture["expected_signature"], "signature round-trip")
 
 
 def _run_json_schema(fixture):
@@ -2365,6 +2369,8 @@ def _type_payload(typ):
         out["patternDescription"] = typ.pattern_description
     if typ.format is not None:
         out["format"] = typ.format
+    if typ.language is not None:
+        out["language"] = typ.language
     return out
 
 

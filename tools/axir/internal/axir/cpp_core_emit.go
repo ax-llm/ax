@@ -391,6 +391,8 @@ var coreIntrinsicCpp = map[CoreIntrinsic]string{
 	IntrinsicStringSplitTrim:        "Core::string_split_trim_nonempty",
 	IntrinsicStringFindQuoted:       "Core::string_find_outside_quotes",
 	IntrinsicStringSplitQuoted:      "Core::string_split_outside_quotes",
+	IntrinsicStringSplitTopLevel:    "Core::string_split_top_level",
+	IntrinsicStringExtractGroup:     "Core::string_extract_leading_group",
 	IntrinsicStringConsumeOpt:       "Core::string_consume_optional_quoted_prefix",
 	IntrinsicStringExtractSuf:       "Core::string_extract_quoted_suffix",
 	IntrinsicStringSplit:            "Core::string_split",

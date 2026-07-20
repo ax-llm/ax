@@ -1,0 +1,39 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "codeSnippet",
+        "title": "Code Snippet",
+        "type": {
+          "isArray": false,
+          "language": "python",
+          "name": "code"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false,
+        "description": "script to run"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "fixedSnippet",
+        "title": "Fixed Snippet",
+        "type": {
+          "isArray": false,
+          "language": "typescript",
+          "name": "code"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false,
+        "description": "typescript"
+      }
+    ]
+  },
+  "expected_to_string": "codeSnippet:code(python) \"script to run\" -> fixedSnippet:code(typescript)",
+  "kind": "signature",
+  "name": "modifier-code-language",
+  "signature": "codeSnippet:code(python) \"script to run\" -> fixedSnippet:code(typescript)"
+}

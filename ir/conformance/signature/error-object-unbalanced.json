@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "unbalanced \"{\" in object type",
+  "kind": "signature_error",
+  "name": "error-object-unbalanced",
+  "signature": "profileInfo:object{ id:string",
+  "ts_error_message": "Invalid Signature: Field \"profileInfo\": unbalanced \"{\" in object type",
+  "ts_error_name": "AxSignatureValidationError"
+}

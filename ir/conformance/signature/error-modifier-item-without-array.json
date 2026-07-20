@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "\"item\" modifier requires an array type",
+  "kind": "signature_error",
+  "name": "error-modifier-item-without-array",
+  "signature": "tagList:string(item \"x\") -> replyText:string",
+  "ts_error_message": "Invalid Signature: Field \"tagList\": the \"item\" modifier requires an array type",
+  "ts_error_name": "AxSignatureValidationError"
+}

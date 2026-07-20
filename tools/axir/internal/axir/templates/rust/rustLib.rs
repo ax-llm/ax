@@ -105,6 +105,8 @@ pub struct FieldType {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
 
@@ -122,6 +124,7 @@ impl FieldType {
             pattern: None,
             pattern_description: None,
             format: None,
+            language: None,
             description: None,
         }
     }
@@ -151,6 +154,7 @@ impl FieldType {
             pattern: None,
             pattern_description: None,
             format: None,
+            language: None,
             description: None,
         }
     }
@@ -204,6 +208,9 @@ impl FieldType {
         }
         if let Some(value) = &self.format {
             out.insert("format".to_string(), Value::String(value.clone()));
+        }
+        if let Some(value) = &self.language {
+            out.insert("language".to_string(), Value::String(value.clone()));
         }
         if include_description {
             if let Some(value) = &self.description {
@@ -301,6 +308,16 @@ impl AxSignature {
             })
             .map(|schema| core_value_to_json(&schema))
             .unwrap_or(Value::Null)
+    }
+}
+
+impl fmt::Display for AxSignature {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let rendered = core_signature_value(self)
+            .and_then(|value| signature_to_string(&[value]))
+            .map(|value| value.text())
+            .map_err(|_| fmt::Error)?;
+        write!(formatter, "{rendered}")
     }
 }
 
@@ -413,6 +430,7 @@ fn field_type_from_payload(raw: &Value) -> FieldType {
         .and_then(Value::as_str)
         .map(ToString::to_string);
     field_type.format = raw.get("format").and_then(Value::as_str).map(ToString::to_string);
+    field_type.language = raw.get("language").and_then(Value::as_str).map(ToString::to_string);
     field_type.description = raw.get("description").and_then(Value::as_str).map(ToString::to_string);
     field_type
 }
@@ -516,8 +534,8 @@ fn field_payload_impl(field: &Field, include_type_description: bool) -> Value {
 fn signature_payload(sig: &AxSignature) -> Value {
     json!({
         "description": sig.description,
-        "inputs": sig.inputs.iter().map(field_payload).collect::<Vec<_>>(),
-        "outputs": sig.outputs.iter().map(field_payload).collect::<Vec<_>>()
+        "inputs": sig.inputs.iter().map(field_payload_with_type_description).collect::<Vec<_>>(),
+        "outputs": sig.outputs.iter().map(field_payload_with_type_description).collect::<Vec<_>>()
     })
 }
 
@@ -6047,6 +6065,12 @@ fn run_signature_fixture(fixture: &Value) -> AxResult<()> {
     let sig = build_fixture_signature(fixture)?;
     if let Some(expected) = fixture.get("expected_signature") {
         expect_json_equal("signature", &signature_payload(&sig), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_to_string") {
+        let rendered = sig.to_string();
+        expect_json_equal("signature toString", &json!(rendered), expected)?;
+        let reparsed = AxSignature::parse(expected.as_str().unwrap_or_default())?;
+        expect_json_equal("signature round-trip", &signature_payload(&reparsed), &fixture["expected_signature"])?;
     }
     Ok(())
 }
@@ -11595,6 +11619,21 @@ fn core_record_to_json(kind: &str, map: &CoreMap) -> Value {
             if !matches!(field("fields"), Value::Null) {
                 out.insert("fields".to_string(), field("fields"));
             }
+            for (json_key, map_key) in [
+                ("minLength", "min_length"),
+                ("maxLength", "max_length"),
+                ("minimum", "minimum"),
+                ("maximum", "maximum"),
+                ("pattern", "pattern"),
+                ("patternDescription", "pattern_description"),
+                ("format", "format"),
+                ("language", "language"),
+                ("description", "description"),
+            ] {
+                if !matches!(field(map_key), Value::Null) {
+                    out.insert(json_key.to_string(), field(map_key));
+                }
+            }
             Value::Object(out)
         }
         "Field" => {
@@ -11908,6 +11947,13 @@ fn core_record_new(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             out.set("is_array", CoreValue::Bool(core_truthy(&read("is_array", "isArray"))));
             out.set("options", read("options", "options"));
             out.set("fields", read("fields", "fields"));
+            for (snake, camel) in [
+                ("min_length", "minLength"), ("max_length", "maxLength"),
+                ("minimum", "minimum"), ("maximum", "maximum"),
+                ("pattern", "pattern"), ("pattern_description", "patternDescription"),
+                ("format", "format"), ("language", "language"),
+                ("description", "description"),
+            ] { out.set(snake, read(snake, camel)); }
         }
         "Field" => {
             out.set("name", read("name", "name"));
@@ -12103,6 +12149,95 @@ fn core_string_split_outside_quotes(args: &[CoreValue]) -> Result<CoreValue, AxE
         items.push(CoreValue::from_string(item));
     }
     Ok(CoreValue::list_from(items))
+}
+
+fn core_string_split_top_level(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text: Vec<char> = core_arg(args, 0).text().chars().collect();
+    let separator: Vec<char> = core_arg(args, 1).text().chars().collect();
+    let mut items: Vec<CoreValue> = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut paren_depth = 0_i32;
+    let mut brace_depth = 0_i32;
+    let mut index = 0_usize;
+    while index < text.len() {
+        let ch = text[index];
+        if escaped { current.push(ch); escaped = false; index += 1; continue; }
+        if ch == '\\' { current.push(ch); escaped = true; index += 1; continue; }
+        if let Some(active) = quote {
+            current.push(ch);
+            if ch == active { quote = None; }
+            index += 1;
+            continue;
+        }
+        if ch == '\'' || ch == '"' { current.push(ch); quote = Some(ch); index += 1; continue; }
+        match ch {
+            '(' => paren_depth += 1,
+            ')' if paren_depth > 0 => paren_depth -= 1,
+            '{' => brace_depth += 1,
+            '}' if brace_depth > 0 => brace_depth -= 1,
+            _ => {}
+        }
+        let matches_separator = !separator.is_empty()
+            && paren_depth == 0
+            && brace_depth == 0
+            && index + separator.len() <= text.len()
+            && text[index..index + separator.len()] == separator[..];
+        if matches_separator {
+            items.push(CoreValue::from_string(current.trim().to_string()));
+            current.clear();
+            index += separator.len();
+            continue;
+        }
+        current.push(ch);
+        index += 1;
+    }
+    if quote.is_some() { return Err(AxError::new("signature", "Unterminated string")); }
+    items.push(CoreValue::from_string(current.trim().to_string()));
+    Ok(CoreValue::list_from(items))
+}
+
+fn core_string_extract_leading_group(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let text: Vec<char> = core_arg(args, 0).text().chars().collect();
+    let opening = core_arg(args, 1).text().chars().next();
+    let closing = core_arg(args, 2).text().chars().next();
+    let out = CoreValue::new_map();
+    if opening.is_none() || closing.is_none() || text.first().copied() != opening {
+        core_set(&out, CoreValue::from("found"), CoreValue::Bool(false))?;
+        core_set(&out, CoreValue::from("balanced"), CoreValue::Bool(true))?;
+        core_set(&out, CoreValue::from("group"), CoreValue::from(""))?;
+        core_set(&out, CoreValue::from("rest"), CoreValue::from_string(text.iter().collect()))?;
+        return Ok(out);
+    }
+    let opening = opening.unwrap();
+    let closing = closing.unwrap();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut depth = 0_i32;
+    for (index, ch) in text.iter().copied().enumerate() {
+        if escaped { escaped = false; continue; }
+        if ch == '\\' { escaped = true; continue; }
+        if let Some(active) = quote { if ch == active { quote = None; } continue; }
+        if ch == '\'' || ch == '"' { quote = Some(ch); continue; }
+        if ch == opening { depth += 1; continue; }
+        if ch == closing {
+            depth -= 1;
+            if depth == 0 {
+                core_set(&out, CoreValue::from("found"), CoreValue::Bool(true))?;
+                core_set(&out, CoreValue::from("balanced"), CoreValue::Bool(true))?;
+                core_set(&out, CoreValue::from("group"), CoreValue::from_string(text[1..index].iter().collect()))?;
+                core_set(&out, CoreValue::from("rest"), CoreValue::from_string(text[index + 1..].iter().collect()))?;
+                return Ok(out);
+            }
+        }
+    }
+    if quote.is_some() { return Err(AxError::new("signature", "Unterminated string")); }
+    core_set(&out, CoreValue::from("found"), CoreValue::Bool(true))?;
+    core_set(&out, CoreValue::from("balanced"), CoreValue::Bool(false))?;
+    core_set(&out, CoreValue::from("group"), CoreValue::from_string(text[1..].iter().collect()))?;
+    core_set(&out, CoreValue::from("rest"), CoreValue::from(""))?;
+    Ok(out)
 }
 
 fn core_string_split_once(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -12383,6 +12518,7 @@ fn core_field_type_value(ft: &FieldType) -> Result<CoreValue, AxError> {
         ("pattern", ft.pattern.as_deref()),
         ("pattern_description", ft.pattern_description.as_deref()),
         ("format", ft.format.as_deref()),
+        ("language", ft.language.as_deref()),
         ("description", ft.description.as_deref()),
     ] {
         if let Some(text) = val {

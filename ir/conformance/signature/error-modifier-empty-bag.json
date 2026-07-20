@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "empty modifier list",
+  "kind": "signature_error",
+  "name": "error-modifier-empty-bag",
+  "signature": "userName:string() -> replyText:string",
+  "ts_error_message": "Invalid Signature: Field \"userName\": empty modifier list \"()\"",
+  "ts_error_name": "AxSignatureValidationError"
+}

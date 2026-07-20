@@ -39,6 +39,7 @@
       }
     ]
   },
+  "expected_to_string": "documentText:string -> speechAudio:audio, summary:string",
   "kind": "signature",
   "name": "output-audio-script",
   "signature": "documentText:string -> speechAudio:audio, summary:string"

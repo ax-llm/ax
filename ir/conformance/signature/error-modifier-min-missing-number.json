@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "\"min\" requires a numeric value",
+  "kind": "signature_error",
+  "name": "error-modifier-min-missing-number",
+  "signature": "userAge:number(min abc) -> replyText:string",
+  "ts_error_message": "Invalid Signature: Field \"userAge\": \"min\" requires a numeric value",
+  "ts_error_name": "AxSignatureValidationError"
+}

@@ -4,7 +4,7 @@ module @ax.signature version "0.1" {
   op ax.signature.record @FieldType {
     attr core_kind = "record"
     tag "src/ax/dsp/sig.ts"
-    type fields = "name:string,isArray:bool,options?:list<string>,fields?:map<string,FieldType>,constraints?:json"
+    type fields = "name:string,isArray:bool,options?:list<string>,fields?:map<string,FieldType>,minLength?:f64,maxLength?:f64,minimum?:f64,maximum?:f64,pattern?:string,patternDescription?:string,format?:string,language?:string,description?:string"
   }
 
   op ax.signature.record @Field {
@@ -65,6 +65,13 @@ module @ax.signature version "0.1" {
       %arrow = core.call intrinsic.string.find_outside_quotes(%body, "->")
       %missing_arrow = core.call intrinsic.lt(%arrow, 0)
       core.if %missing_arrow {
+        %open_brace = core.call intrinsic.string.find_outside_quotes(%body, "{")
+        %brace_missing = core.call intrinsic.lt(%open_brace, 0)
+        %has_open_brace = core.call intrinsic.not(%brace_missing)
+        core.if %has_open_brace {
+          %error = core.call intrinsic.error.signature("unbalanced \"{\" in object type")
+          core.raise %error
+        }
         %error = core.call intrinsic.error.signature("Expected \"->\"")
         core.raise %error
       }
@@ -104,9 +111,15 @@ module @ax.signature version "0.1" {
     tag "signature-parser-field-list-core-helper"
     type signature = "(string, bool) -> list<Field> throws"
     body @entry(%text: string, %output: bool) {
-      %parts = core.call intrinsic.string.split_outside_quotes(%text, ",")
+      %parts = core.call intrinsic.string.split_top_level(%text, ",")
       %fields = core.list
       core.for %part in %parts {
+        %trimmed = core.string_trim %part
+        %empty = core.call intrinsic.eq(%trimmed, "")
+        core.if %empty {
+          %error = core.call intrinsic.error.signature("Unexpected content after signature")
+          core.raise %error
+        }
         %field = core.call @signature_parse_field_impl(%part, %output)
         core.append %fields, %field
       }
@@ -122,90 +135,951 @@ module @ax.signature version "0.1" {
     tag "signature-parser-field-core-helper"
     type signature = "(string, bool) -> Field throws"
     body @entry(%raw: string, %output: bool) {
+      %field = core.call @signature_parse_field_common_impl(%raw, %output, false, "")
+      core.return %field
+    }
+  }
+
+  op ax.signature.semantic @signature_parse_field_common_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "signature-parser-shared-field-core-helper"
+    type signature = "(string, bool, bool, string) -> Field throws"
+    body @entry(%raw: string, %output: bool, %nested: bool, %parent: string) {
       %text = core.string_trim %raw
-      %quoted_info = core.call intrinsic.string.extract_quoted_suffix(%text)
-      %quoted = core.get %quoted_info["value"]
-      %rest_after_quote = core.get %quoted_info["rest"]
-      %rest_after_quote_trimmed = core.string_trim %rest_after_quote
-      %has_extra = core.call intrinsic.truthy(%rest_after_quote_trimmed)
-      core.if %has_extra {
-        %error = core.call intrinsic.error.signature("Unexpected content after signature")
-        core.raise %error
-      }
-      %head_raw = core.get %quoted_info["head"]
-      %head = core.string_trim %head_raw
-      %head_parts = core.call intrinsic.string.split_once(%head, ":")
+      %head_parts = core.call intrinsic.string.split_once(%text, ":")
+      %has_type = core.get %head_parts["found"] default false
       %name_part_raw = core.get %head_parts["left"]
       %type_part_raw = core.get %head_parts["right"]
-      %name_part = core.string_trim %name_part_raw
-      %type_part_trimmed = core.string_trim %type_part_raw
-      %type_part = core.call intrinsic.string.default_if_empty(%type_part_trimmed, "string")
+      %state = core.map
+      core.set %state["name_part"] = %name_part_raw
+      %none = core.call intrinsic.none()
+      core.set %state["description"] = %none
+      core.set %state["is_cached"] = false
+      %default_type_attrs = core.map
+      core.set %default_type_attrs["name"] = "string"
+      core.set %default_type_attrs["is_array"] = false
+      %default_type = core.call intrinsic.record.new("FieldType", %default_type_attrs)
+      core.set %state["type"] = %default_type
+      core.if %has_type {
+        %section_state = core.map
+        core.set %section_state["value"] = "input"
+        core.if %output {
+          core.set %section_state["value"] = "output"
+        }
+        core.if %nested {
+          core.set %section_state["value"] = "nested"
+        }
+        %section = core.get %section_state["value"]
+        %name_for_error = core.string_trim %name_part_raw
+        core.if %nested {
+          %name_for_error = core.call intrinsic.string.format("{}.{}", %parent, %name_for_error)
+        }
+        %parsed_type = core.call @signature_parse_type_expr_impl(%type_part_raw, %section, %name_for_error)
+        %parsed_field_type = core.get %parsed_type["type"]
+        %parsed_cached = core.get %parsed_type["is_cached"] default false
+        core.set %state["type"] = %parsed_field_type
+        core.set %state["is_cached"] = %parsed_cached
+        %language = core.get %parsed_field_type["language"]
+        %parsed_rest = core.get %parsed_type["rest"]
+        %description = core.call @signature_parse_description_impl(%parsed_rest, %language)
+        core.set %state["description"] = %description
+      } else {
+        %quoted_info = core.call intrinsic.string.extract_quoted_suffix(%name_part_raw)
+        %quoted = core.get %quoted_info["value"]
+        %rest_after_quote_raw = core.get %quoted_info["rest"]
+        %rest_after_quote = core.string_trim %rest_after_quote_raw
+        %has_extra = core.call intrinsic.truthy(%rest_after_quote)
+        core.if %has_extra {
+          %error = core.call intrinsic.error.signature("Unexpected content after signature")
+          core.raise %error
+        }
+        %quoted_head = core.get %quoted_info["head"]
+        core.set %state["name_part"] = %quoted_head
+        core.set %state["description"] = %quoted
+      }
+      %name_part_value = core.get %state["name_part"]
+      %name_part = core.string_trim %name_part_value
       %is_optional = core.call intrinsic.contains(%name_part, "?")
       %is_internal = core.call intrinsic.contains(%name_part, "!")
       %name_without_optional = core.call intrinsic.string.replace(%name_part, "?", "")
       %name_without_markers = core.call intrinsic.string.replace(%name_without_optional, "!", "")
       %name = core.string_trim %name_without_markers
-      %type_words = core.call intrinsic.string.words(%type_part)
-      %type_word_count = core.call intrinsic.len(%type_words)
-      %extra_type_tokens = core.call intrinsic.gt(%type_word_count, 1)
-      core.if %extra_type_tokens {
-        %error = core.call intrinsic.error.signature("Unexpected content after signature")
+      %nested_internal = core.call intrinsic.and(%nested, %is_internal)
+      core.if %nested_internal {
+        %qualified = core.call intrinsic.string.format("{}.{}", %parent, %name)
+        %message = core.call intrinsic.string.format("Object field \"{}\" cannot use the internal marker \"!\"", %qualified)
+        %error = core.call intrinsic.error.signature(%message)
         core.raise %error
       }
-      %type_token = core.call intrinsic.list.get(%type_words, 0, "string")
-      %array_info = core.call intrinsic.string.remove_suffix(%type_token, "[]")
-      %type_name_raw = core.get %array_info["value"]
-      %type_name = core.call intrinsic.string.default_if_empty(%type_name_raw, "string")
-      %is_array = core.get %array_info["removed"]
-      %is_class = core.call intrinsic.eq(%type_name, "class")
-      core.if %is_class {
-        %class_input = core.call intrinsic.not(%output)
-        core.if %class_input {
-          %error = core.call intrinsic.error.signature("Input field cannot use the \"class\" type")
-          core.raise %error
-        }
-        %missing_quoted = core.call intrinsic.is_none(%quoted)
-        core.if %missing_quoted {
-          %error = core.call intrinsic.error.signature("Missing class options after \"class\" type")
-          core.raise %error
-        }
-        %class_option_text = core.call intrinsic.string.replace(%quoted, "|", ",")
-        %options = core.call intrinsic.string.split_trim_nonempty(%class_option_text, ",")
-        %option_count = core.call intrinsic.len(%options)
-        %empty_options = core.call intrinsic.eq(%option_count, 0)
-        core.if %empty_options {
-          %error = core.call intrinsic.error.signature("Missing class options after \"class\" type")
-          core.raise %error
-        }
+      %field_type = core.get %state["type"]
+      %description = core.get %state["description"]
+      %has_description = core.call intrinsic.is_not_none(%description)
+      %has_nested_description = core.call intrinsic.and(%nested, %has_description)
+      core.if %has_nested_description {
         %type_attrs = core.map
+        %type_name = core.get %field_type["name"]
+        %type_is_array = core.get %field_type["is_array"] default false
+        %type_options = core.get %field_type["options"]
+        %type_fields = core.get %field_type["fields"]
+        %type_min_length = core.get %field_type["min_length"]
+        %type_max_length = core.get %field_type["max_length"]
+        %type_minimum = core.get %field_type["minimum"]
+        %type_maximum = core.get %field_type["maximum"]
+        %type_pattern = core.get %field_type["pattern"]
+        %type_pattern_description = core.get %field_type["pattern_description"]
+        %type_format = core.get %field_type["format"]
+        %type_language = core.get %field_type["language"]
         core.set %type_attrs["name"] = %type_name
-        core.set %type_attrs["is_array"] = %is_array
-        core.set %type_attrs["options"] = %options
+        core.set %type_attrs["is_array"] = %type_is_array
+        core.set %type_attrs["options"] = %type_options
+        core.set %type_attrs["fields"] = %type_fields
+        core.set %type_attrs["min_length"] = %type_min_length
+        core.set %type_attrs["max_length"] = %type_max_length
+        core.set %type_attrs["minimum"] = %type_minimum
+        core.set %type_attrs["maximum"] = %type_maximum
+        core.set %type_attrs["pattern"] = %type_pattern
+        core.set %type_attrs["pattern_description"] = %type_pattern_description
+        core.set %type_attrs["format"] = %type_format
+        core.set %type_attrs["language"] = %type_language
+        core.set %type_attrs["description"] = %description
         %field_type = core.call intrinsic.record.new("FieldType", %type_attrs)
-        %none = core.call intrinsic.none()
-        %field_attrs = core.map
-        core.set %field_attrs["name"] = %name
-        core.set %field_attrs["type"] = %field_type
-        core.set %field_attrs["description"] = %none
-        core.set %field_attrs["is_optional"] = %is_optional
-        core.set %field_attrs["is_internal"] = %is_internal
-        %field = core.call intrinsic.record.new("Field", %field_attrs)
-        core.call @signature_validate_field_shape_impl(%field, %output, false)
-        core.return %field
       }
-      %type_attrs = core.map
-      core.set %type_attrs["name"] = %type_name
-      core.set %type_attrs["is_array"] = %is_array
-      %field_type = core.call intrinsic.record.new("FieldType", %type_attrs)
       %field_attrs = core.map
       core.set %field_attrs["name"] = %name
       core.set %field_attrs["type"] = %field_type
-      core.set %field_attrs["description"] = %quoted
+      core.set %field_attrs["description"] = %description
       core.set %field_attrs["is_optional"] = %is_optional
       core.set %field_attrs["is_internal"] = %is_internal
+      %is_cached = core.get %state["is_cached"] default false
+      core.set %field_attrs["is_cached"] = %is_cached
       %field = core.call intrinsic.record.new("Field", %field_attrs)
-      core.call @signature_validate_field_shape_impl(%field, %output, false)
+      core.call @signature_validate_field_shape_impl(%field, %output, %nested)
       core.return %field
+    }
+  }
+
+  op ax.signature.semantic @signature_parse_description_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "signature-parser-description-core-helper"
+    type signature = "(string, json) -> json throws"
+    body @entry(%raw: string, %fallback: json) {
+      %text = core.string_trim %raw
+      %empty = core.call intrinsic.eq(%text, "")
+      core.if %empty {
+        core.return %fallback
+      }
+      %quoted = core.call intrinsic.string.consume_optional_quoted_prefix(%text)
+      %found = core.get %quoted["found"] default false
+      %missing = core.call intrinsic.not(%found)
+      core.if %missing {
+        %error = core.call intrinsic.error.signature("Unexpected content after signature")
+        core.raise %error
+      }
+      %rest_raw = core.get %quoted["rest"]
+      %rest = core.string_trim %rest_raw
+      %has_extra = core.call intrinsic.truthy(%rest)
+      core.if %has_extra {
+        %error = core.call intrinsic.error.signature("Unexpected content after signature")
+        core.raise %error
+      }
+      %value_raw = core.get %quoted["value"]
+      %value = core.string_trim %value_raw
+      core.return %value
+    }
+  }
+
+  op ax.signature.semantic @signature_parse_base_type_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "signature-parser-base-type-core-helper"
+    type signature = "(string) -> json throws"
+    body @entry(%raw: string) {
+      %text = core.string_trim %raw
+      %types = core.list
+      core.append %types, "datetimeRange"
+      core.append %types, "dateRange"
+      core.append %types, "datetime"
+      core.append %types, "boolean"
+      core.append %types, "string"
+      core.append %types, "number"
+      core.append %types, "object"
+      core.append %types, "class"
+      core.append %types, "image"
+      core.append %types, "audio"
+      core.append %types, "file"
+      core.append %types, "json"
+      core.append %types, "date"
+      core.append %types, "code"
+      core.append %types, "url"
+      %state = core.map
+      core.set %state["name"] = ""
+      core.set %state["rest"] = %text
+      core.for %candidate in %types {
+        %matched_name = core.get %state["name"]
+        %unmatched = core.call intrinsic.eq(%matched_name, "")
+        core.if %unmatched {
+          %starts = core.call intrinsic.string.starts_with(%text, %candidate)
+          core.if %starts {
+            %offset = core.call intrinsic.len(%candidate)
+            %after = core.call intrinsic.string.slice(%text, %offset)
+            %first = core.call intrinsic.string.slice(%after, 0, 1)
+            %boundary = core.call intrinsic.eq(%after, "")
+            %space = core.regex_match %after pattern "^\\s"
+            %boundary = core.call intrinsic.or(%boundary, %space)
+            %open_paren = core.call intrinsic.eq(%first, "(")
+            %boundary = core.call intrinsic.or(%boundary, %open_paren)
+            %open_brace = core.call intrinsic.eq(%first, "{")
+            %boundary = core.call intrinsic.or(%boundary, %open_brace)
+            %open_array = core.call intrinsic.eq(%first, "[")
+            %boundary = core.call intrinsic.or(%boundary, %open_array)
+            %double_quote = core.call intrinsic.eq(%first, "\"")
+            %boundary = core.call intrinsic.or(%boundary, %double_quote)
+            %single_quote = core.call intrinsic.eq(%first, "'")
+            %boundary = core.call intrinsic.or(%boundary, %single_quote)
+            core.if %boundary {
+              core.set %state["name"] = %candidate
+              core.set %state["rest"] = %after
+            }
+          }
+        }
+      }
+      %name = core.get %state["name"]
+      %missing = core.call intrinsic.eq(%name, "")
+      core.if %missing {
+        %words = core.call intrinsic.string.words(%text)
+        %word = core.call intrinsic.list.get(%words, 0, "empty")
+        %message = core.call intrinsic.string.format("Invalid type \"{}\"", %word)
+        %error = core.call intrinsic.error.signature(%message)
+        core.raise %error
+      }
+      core.return %state
+    }
+  }
+
+  op ax.signature.semantic @signature_parse_type_expr_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "signature-parser-type-expression-core-helper"
+    type signature = "(string, string, string) -> json throws"
+    body @entry(%raw: string, %section: string, %field_name: string) {
+      %base = core.call @signature_parse_base_type_impl(%raw)
+      %type_name = core.get %base["name"]
+      %base_rest = core.get %base["rest"]
+      %rest = core.string_trim %base_rest
+      %nested = core.call intrinsic.eq(%section, "nested")
+      %media = core.list
+      core.append %media, "image"
+      core.append %media, "audio"
+      core.append %media, "file"
+      %is_media = core.call intrinsic.contains(%media, %type_name)
+      %nested_media = core.call intrinsic.and(%nested, %is_media)
+      core.if %nested_media {
+        %message = core.call intrinsic.string.format("Object field \"{}\": {} type is not allowed in nested object fields", %field_name, %type_name)
+        %error = core.call intrinsic.error.signature(%message)
+        core.raise %error
+      }
+      %is_class = core.call intrinsic.eq(%type_name, "class")
+      core.if %is_class {
+        %input = core.call intrinsic.eq(%section, "input")
+        core.if %input {
+          %error = core.call intrinsic.error.signature("Input field cannot use the \"class\" type")
+          core.raise %error
+        }
+        %bag = core.call intrinsic.string.starts_with(%rest, "(")
+        core.if %bag {
+          %message = core.call intrinsic.string.format("Field \"{}\": constraints are not supported on class fields", %field_name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        %is_array = core.call intrinsic.string.starts_with(%rest, "[]")
+        core.if %is_array {
+          %rest_after_array = core.call intrinsic.string.slice(%rest, 2)
+          %rest = core.string_trim %rest_after_array
+        }
+        %bag_after = core.call intrinsic.string.starts_with(%rest, "(")
+        core.if %bag_after {
+          %message = core.call intrinsic.string.format("Field \"{}\": constraints are not supported on class fields", %field_name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        %quoted = core.call intrinsic.string.consume_optional_quoted_prefix(%rest)
+        %has_options = core.get %quoted["found"] default false
+        core.if %has_options {
+          %quoted_value = core.get %quoted["value"]
+          %option_text = core.call intrinsic.string.replace(%quoted_value, "|", ",")
+          %options = core.call intrinsic.string.split_trim_nonempty(%option_text, ",")
+          %option_count = core.call intrinsic.len(%options)
+          %empty_options = core.call intrinsic.eq(%option_count, 0)
+          core.if %empty_options {
+            %error = core.call intrinsic.error.signature("Missing class options after \"class\" type")
+            core.raise %error
+          }
+          %attrs = core.map
+          core.set %attrs["name"] = "class"
+          core.set %attrs["is_array"] = %is_array
+          core.set %attrs["options"] = %options
+          %typ = core.call intrinsic.record.new("FieldType", %attrs)
+          %out = core.map
+          core.set %out["type"] = %typ
+          core.set %out["is_cached"] = false
+          %quoted_rest = core.get %quoted["rest"]
+          core.set %out["rest"] = %quoted_rest
+          core.return %out
+        }
+        %error = core.call intrinsic.error.signature("Missing class options after \"class\" type")
+        core.raise %error
+      }
+      %is_object = core.call intrinsic.eq(%type_name, "object")
+      %starts_object_fields = core.call intrinsic.string.starts_with(%rest, "{")
+      %has_object_fields = core.call intrinsic.and(%is_object, %starts_object_fields)
+      core.if %has_object_fields {
+        %group = core.call intrinsic.string.extract_leading_group(%rest, "{", "}")
+        %balanced = core.get %group["balanced"] default false
+        %unbalanced = core.call intrinsic.not(%balanced)
+        core.if %unbalanced {
+          %message = core.call intrinsic.string.format("Field \"{}\": unbalanced \"{\" in object type", %field_name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        %group_text = core.get %group["group"]
+        %fields = core.call @signature_parse_object_fields_impl(%group_text, %section, %field_name)
+        %group_rest = core.get %group["rest"]
+        %after = core.string_trim %group_rest
+        %is_array = core.call intrinsic.string.starts_with(%after, "[]")
+        core.if %is_array {
+          %after_array = core.call intrinsic.string.slice(%after, 2)
+          %after = core.string_trim %after_array
+        }
+        %attrs = core.map
+        core.set %attrs["name"] = "object"
+        core.set %attrs["is_array"] = %is_array
+        core.set %attrs["fields"] = %fields
+        %typ = core.call intrinsic.record.new("FieldType", %attrs)
+        %out = core.map
+        core.set %out["type"] = %typ
+        core.set %out["is_cached"] = false
+        core.set %out["rest"] = %after
+        core.return %out
+      }
+      %attrs = core.map
+      core.set %attrs["name"] = %type_name
+      core.set %attrs["is_array"] = false
+      %modifier_state = core.map
+      core.set %modifier_state["attrs"] = %attrs
+      core.set %modifier_state["is_cached"] = false
+      %none = core.call intrinsic.none()
+      core.set %modifier_state["item_description"] = %none
+      %has_bag = core.call intrinsic.string.starts_with(%rest, "(")
+      core.if %has_bag {
+        %group = core.call intrinsic.string.extract_leading_group(%rest, "(", ")")
+        %balanced = core.get %group["balanced"] default false
+        %unbalanced = core.call intrinsic.not(%balanced)
+        core.if %unbalanced {
+          %message = core.call intrinsic.string.format("Field \"{}\": expected \",\" or \")\" in modifier list", %field_name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        %group_text = core.get %group["group"]
+        %parsed = core.call @signature_parse_modifier_bag_impl(%type_name, %section, %field_name, %group_text)
+        %parsed_attrs = core.get %parsed["attrs"]
+        %merged_attrs = core.call intrinsic.map.merge(%attrs, %parsed_attrs)
+        %parsed_cached = core.get %parsed["is_cached"] default false
+        %parsed_item = core.get %parsed["item_description"]
+        core.set %modifier_state["attrs"] = %merged_attrs
+        core.set %modifier_state["is_cached"] = %parsed_cached
+        core.set %modifier_state["item_description"] = %parsed_item
+        %group_rest = core.get %group["rest"]
+        %rest = core.string_trim %group_rest
+      }
+      %is_array = core.call intrinsic.string.starts_with(%rest, "[]")
+      core.if %is_array {
+        %rest_after_array = core.call intrinsic.string.slice(%rest, 2)
+        %rest = core.string_trim %rest_after_array
+      }
+      %type_attrs = core.get %modifier_state["attrs"]
+      core.set %type_attrs["is_array"] = %is_array
+      %item_description = core.get %modifier_state["item_description"]
+      %has_item = core.call intrinsic.is_not_none(%item_description)
+      %not_array = core.call intrinsic.not(%is_array)
+      %item_without_array = core.call intrinsic.and(%has_item, %not_array)
+      core.if %item_without_array {
+        %message = core.call intrinsic.string.format("Field \"{}\": the \"item\" modifier requires an array type", %field_name)
+        %error = core.call intrinsic.error.signature(%message)
+        core.raise %error
+      }
+      core.if %has_item {
+        core.set %type_attrs["description"] = %item_description
+      }
+      %typ = core.call intrinsic.record.new("FieldType", %type_attrs)
+      %out = core.map
+      core.set %out["type"] = %typ
+      %is_cached = core.get %modifier_state["is_cached"] default false
+      core.set %out["is_cached"] = %is_cached
+      core.set %out["rest"] = %rest
+      core.return %out
+    }
+  }
+
+  op ax.signature.semantic @signature_parse_modifier_bag_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "signature-parser-modifier-bag-core-helper"
+    type signature = "(string, string, string, string) -> json throws"
+    body @entry(%type_name: string, %section: string, %field_name: string, %raw: string) {
+      %text = core.string_trim %raw
+      %empty = core.call intrinsic.eq(%text, "")
+      core.if %empty {
+        %message = core.call intrinsic.string.format("Field \"{}\": empty modifier list \"()\"", %field_name)
+        %error = core.call intrinsic.error.signature(%message)
+        core.raise %error
+      }
+      %parts = core.call intrinsic.string.split_top_level(%raw, ",")
+      %attrs = core.map
+      %seen = core.list
+      %state = core.map
+      core.set %state["is_cached"] = false
+      %none = core.call intrinsic.none()
+      core.set %state["item_description"] = %none
+      core.for %part in %parts {
+        %entry = core.string_trim %part
+        %entry_empty = core.call intrinsic.eq(%entry, "")
+        core.if %entry_empty {
+          %message = core.call intrinsic.string.format("Field \"{}\": trailing comma in modifier list", %field_name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        %words = core.call intrinsic.string.words(%entry)
+        %token = core.call intrinsic.list.get(%words, 0, "")
+        %token_len = core.call intrinsic.len(%token)
+        %arg_raw = core.call intrinsic.string.slice(%entry, %token_len)
+        %arg = core.string_trim %arg_raw
+        %handled = core.map
+        core.set %handled["value"] = false
+        %is_min = core.call intrinsic.eq(%token, "min")
+        %is_max = core.call intrinsic.eq(%token, "max")
+        %is_bound = core.call intrinsic.or(%is_min, %is_max)
+        core.if %is_bound {
+          %duplicate = core.call intrinsic.contains(%seen, %token)
+          core.if %duplicate {
+            %message = core.call intrinsic.string.format("Field \"{}\": duplicate \"{}\" modifier", %field_name, %token)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          core.append %seen, %token
+          %is_string = core.call intrinsic.eq(%type_name, "string")
+          %is_number = core.call intrinsic.eq(%type_name, "number")
+          %allowed = core.call intrinsic.or(%is_string, %is_number)
+          %not_allowed = core.call intrinsic.not(%allowed)
+          core.if %not_allowed {
+            %message = core.call intrinsic.string.format("Field \"{}\": \"{}\" is not supported for type \"{}\"", %field_name, %token, %type_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          %numeric = core.regex_match %arg pattern "^-?[0-9]+(\\.[0-9]+)?$"
+          %not_numeric = core.call intrinsic.not(%numeric)
+          core.if %not_numeric {
+            %message = core.call intrinsic.string.format("Field \"{}\": \"{}\" requires a numeric value", %field_name, %token)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          %value = core.call intrinsic.json.parse(%arg)
+          core.if %is_string {
+            core.if %is_min {
+              core.set %attrs["minLength"] = %value
+            } else {
+              core.set %attrs["maxLength"] = %value
+            }
+          } else {
+            core.if %is_min {
+              core.set %attrs["minimum"] = %value
+            } else {
+              core.set %attrs["maximum"] = %value
+            }
+          }
+          core.set %handled["value"] = true
+        }
+        %is_format = core.call intrinsic.eq(%token, "format")
+        core.if %is_format {
+          %duplicate = core.call intrinsic.contains(%seen, "format")
+          core.if %duplicate {
+            %message = core.call intrinsic.string.format("Field \"{}\": duplicate \"format\" modifier", %field_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          core.append %seen, "format"
+          %is_string = core.call intrinsic.eq(%type_name, "string")
+          %not_string = core.call intrinsic.not(%is_string)
+          core.if %not_string {
+            %message = core.call intrinsic.string.format("Field \"{}\": \"format\" is not supported for type \"{}\"", %field_name, %type_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          %formats = core.list
+          core.append %formats, "email"
+          core.append %formats, "uri"
+          core.append %formats, "date"
+          core.append %formats, "date-time"
+          %known = core.call intrinsic.contains(%formats, %arg)
+          %unknown = core.call intrinsic.not(%known)
+          core.if %unknown {
+            %message = core.call intrinsic.string.format("Field \"{}\": unknown format \"{}\"", %field_name, %arg)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          core.set %attrs["format"] = %arg
+          core.set %handled["value"] = true
+        }
+        %is_pattern = core.call intrinsic.eq(%token, "pattern")
+        core.if %is_pattern {
+          %duplicate = core.call intrinsic.contains(%seen, "pattern")
+          core.if %duplicate {
+            %message = core.call intrinsic.string.format("Field \"{}\": duplicate \"pattern\" modifier", %field_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          core.append %seen, "pattern"
+          %is_string = core.call intrinsic.eq(%type_name, "string")
+          %not_string = core.call intrinsic.not(%is_string)
+          core.if %not_string {
+            %message = core.call intrinsic.string.format("Field \"{}\": \"pattern\" is not supported for type \"{}\"", %field_name, %type_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          %quoted = core.call intrinsic.string.consume_optional_quoted_prefix(%arg)
+          %found = core.get %quoted["found"] default false
+          %missing = core.call intrinsic.not(%found)
+          core.if %missing {
+            %message = core.call intrinsic.string.format("Field \"{}\": \"pattern\" requires a quoted regular expression", %field_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          %pattern_value = core.get %quoted["value"]
+          core.set %attrs["pattern"] = %pattern_value
+          %pattern_rest_raw = core.get %quoted["rest"]
+          %pattern_rest = core.string_trim %pattern_rest_raw
+          %has_pattern_rest = core.call intrinsic.truthy(%pattern_rest)
+          core.if %has_pattern_rest {
+            %desc = core.call intrinsic.string.consume_optional_quoted_prefix(%pattern_rest)
+            %desc_found = core.get %desc["found"] default false
+            %desc_missing = core.call intrinsic.not(%desc_found)
+            core.if %desc_missing {
+              %message = core.call intrinsic.string.format("Field \"{}\": expected \",\" or \")\" in modifier list", %field_name)
+              %error = core.call intrinsic.error.signature(%message)
+              core.raise %error
+            }
+            %desc_rest_raw = core.get %desc["rest"]
+            %desc_rest = core.string_trim %desc_rest_raw
+            %desc_extra = core.call intrinsic.truthy(%desc_rest)
+            core.if %desc_extra {
+              %message = core.call intrinsic.string.format("Field \"{}\": expected \",\" or \")\" in modifier list", %field_name)
+              %error = core.call intrinsic.error.signature(%message)
+              core.raise %error
+            }
+            %desc_value = core.get %desc["value"]
+            core.set %attrs["patternDescription"] = %desc_value
+          }
+          core.set %handled["value"] = true
+        }
+        %is_cache = core.call intrinsic.eq(%token, "cache")
+        core.if %is_cache {
+          %duplicate = core.call intrinsic.contains(%seen, "cache")
+          core.if %duplicate {
+            %message = core.call intrinsic.string.format("Field \"{}\": duplicate \"cache\" modifier", %field_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          core.append %seen, "cache"
+          %input = core.call intrinsic.eq(%section, "input")
+          %not_input = core.call intrinsic.not(%input)
+          core.if %not_input {
+            %message = core.call intrinsic.string.format("Field \"{}\": \"cache\" is only supported on top-level input fields", %field_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          %extra = core.call intrinsic.truthy(%arg)
+          core.if %extra {
+            %message = core.call intrinsic.string.format("Field \"{}\": expected \",\" or \")\" in modifier list", %field_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          core.set %state["is_cached"] = true
+          core.set %handled["value"] = true
+        }
+        %is_item = core.call intrinsic.eq(%token, "item")
+        core.if %is_item {
+          %duplicate = core.call intrinsic.contains(%seen, "item")
+          core.if %duplicate {
+            %message = core.call intrinsic.string.format("Field \"{}\": duplicate \"item\" modifier", %field_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          core.append %seen, "item"
+          %nested = core.call intrinsic.eq(%section, "nested")
+          core.if %nested {
+            %message = core.call intrinsic.string.format("Field \"{}\": \"item\" is not supported inside object fields", %field_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          %quoted = core.call intrinsic.string.consume_optional_quoted_prefix(%arg)
+          %found = core.get %quoted["found"] default false
+          %missing = core.call intrinsic.not(%found)
+          core.if %missing {
+            %message = core.call intrinsic.string.format("Field \"{}\": \"item\" requires a quoted description", %field_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          %remaining_raw = core.get %quoted["rest"]
+          %remaining = core.string_trim %remaining_raw
+          %extra = core.call intrinsic.truthy(%remaining)
+          core.if %extra {
+            %message = core.call intrinsic.string.format("Field \"{}\": expected \",\" or \")\" in modifier list", %field_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+          %item_value = core.get %quoted["value"]
+          core.set %state["item_description"] = %item_value
+          core.set %handled["value"] = true
+        }
+        %was_handled = core.get %handled["value"] default false
+        %unhandled = core.call intrinsic.not(%was_handled)
+        core.if %unhandled {
+          %is_code = core.call intrinsic.eq(%type_name, "code")
+          core.if %is_code {
+            %duplicate = core.call intrinsic.contains(%seen, "language")
+            core.if %duplicate {
+              %message = core.call intrinsic.string.format("Field \"{}\": duplicate \"language\" modifier", %field_name)
+              %error = core.call intrinsic.error.signature(%message)
+              core.raise %error
+            }
+            %extra = core.call intrinsic.truthy(%arg)
+            core.if %extra {
+              %message = core.call intrinsic.string.format("Field \"{}\": expected \",\" or \")\" in modifier list", %field_name)
+              %error = core.call intrinsic.error.signature(%message)
+              core.raise %error
+            }
+            core.append %seen, "language"
+            core.set %attrs["language"] = %token
+          } else {
+            %message = core.call intrinsic.string.format("Field \"{}\": unknown modifier \"{}\" for type \"{}\"", %field_name, %token, %type_name)
+            %error = core.call intrinsic.error.signature(%message)
+            core.raise %error
+          }
+        }
+      }
+      %out = core.map
+      core.set %out["attrs"] = %attrs
+      %is_cached = core.get %state["is_cached"] default false
+      %item_description = core.get %state["item_description"]
+      core.set %out["is_cached"] = %is_cached
+      core.set %out["item_description"] = %item_description
+      core.return %out
+    }
+  }
+
+  op ax.signature.semantic @signature_parse_object_fields_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "signature"
+    attr private = true
+    tag "signature-parser-object-fields-core-helper"
+    type signature = "(string, string, string) -> json throws"
+    body @entry(%raw: string, %section: string, %parent: string) {
+      %text = core.string_trim %raw
+      %empty = core.call intrinsic.eq(%text, "")
+      core.if %empty {
+        %message = core.call intrinsic.string.format("Field \"{}\": object type requires at least one field", %parent)
+        %error = core.call intrinsic.error.signature(%message)
+        core.raise %error
+      }
+      %parts = core.call intrinsic.string.split_top_level(%raw, ",")
+      %fields = core.map
+      %output = core.call intrinsic.eq(%section, "output")
+      core.for %part in %parts {
+        %entry = core.string_trim %part
+        %entry_empty = core.call intrinsic.eq(%entry, "")
+        core.if %entry_empty {
+          %message = core.call intrinsic.string.format("Field \"{}\": trailing comma in object type", %parent)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        %field = core.call @signature_parse_field_common_impl(%entry, %output, true, %parent)
+        %name = core.get %field["name"]
+        %duplicate = core.call intrinsic.map.contains(%fields, %name)
+        core.if %duplicate {
+          %message = core.call intrinsic.string.format("Field \"{}\": duplicate object field name \"{}\"", %parent, %name)
+          %error = core.call intrinsic.error.signature(%message)
+          core.raise %error
+        }
+        core.set %fields[%name] = %field
+      }
+      core.return %fields
+    }
+  }
+
+  op ax.signature.semantic @signature_to_string {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    tag "src/ax/dsp/sig.ts"
+    type signature = "(AxSignature) -> string"
+    body @entry(%signature: AxSignature) {
+      %parts = core.list
+      %description = core.get %signature["description"]
+      %has_description = core.call intrinsic.truthy(%description)
+      core.if %has_description {
+        %escaped = core.call @signature_escape_string_impl(%description)
+        %prefix = core.call intrinsic.string.format("\"{}\"", %escaped)
+        core.append %parts, %prefix
+      }
+      %inputs = core.get %signature["input_fields"]
+      %input_parts = core.list
+      core.for %field in %inputs {
+        %rendered = core.call @signature_render_field_impl(%field)
+        core.append %input_parts, %rendered
+      }
+      %input_text = core.call intrinsic.string.join(", ", %input_parts)
+      core.append %parts, %input_text
+      %left = core.call intrinsic.string.join(" ", %parts)
+      %outputs = core.get %signature["output_fields"]
+      %output_parts = core.list
+      core.for %field in %outputs {
+        %rendered = core.call @signature_render_field_impl(%field)
+        core.append %output_parts, %rendered
+      }
+      %right = core.call intrinsic.string.join(", ", %output_parts)
+      %result = core.call intrinsic.string.format("{} -> {}", %left, %right)
+      core.return %result
+    }
+  }
+
+  op ax.signature.semantic @signature_escape_string_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "signature-render-escape-core-helper"
+    type signature = "(string) -> string"
+    body @entry(%value: string) {
+      %slashes = core.call intrinsic.string.replace(%value, "\\", "\\\\")
+      %quotes = core.call intrinsic.string.replace(%slashes, "\"", "\\\"")
+      core.return %quotes
+    }
+  }
+
+  op ax.signature.semantic @signature_render_modifier_bag_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "signature-render-modifier-bag-core-helper"
+    type signature = "(FieldType, bool) -> string"
+    body @entry(%typ: FieldType, %is_cached: bool) {
+      %entries = core.list
+      %min_length = core.get %typ["min_length"]
+      %minimum = core.get %typ["minimum"]
+      %min = core.call intrinsic.coalesce(%min_length, %minimum)
+      %has_min = core.call intrinsic.is_not_none(%min)
+      core.if %has_min {
+        %entry = core.call intrinsic.string.format("min {}", %min)
+        core.append %entries, %entry
+      }
+      %max_length = core.get %typ["max_length"]
+      %maximum = core.get %typ["maximum"]
+      %max = core.call intrinsic.coalesce(%max_length, %maximum)
+      %has_max = core.call intrinsic.is_not_none(%max)
+      core.if %has_max {
+        %entry = core.call intrinsic.string.format("max {}", %max)
+        core.append %entries, %entry
+      }
+      %format = core.get %typ["format"]
+      %has_format = core.call intrinsic.is_not_none(%format)
+      core.if %has_format {
+        %entry = core.call intrinsic.string.format("format {}", %format)
+        core.append %entries, %entry
+      }
+      %pattern = core.get %typ["pattern"]
+      %has_pattern = core.call intrinsic.is_not_none(%pattern)
+      core.if %has_pattern {
+        %escaped_pattern = core.call @signature_escape_string_impl(%pattern)
+        %entry = core.call intrinsic.string.format("pattern \"{}\"", %escaped_pattern)
+        %pattern_description = core.get %typ["pattern_description"]
+        %has_pattern_description = core.call intrinsic.is_not_none(%pattern_description)
+        core.if %has_pattern_description {
+          %escaped_description = core.call @signature_escape_string_impl(%pattern_description)
+          %entry = core.call intrinsic.string.format("{} \"{}\"", %entry, %escaped_description)
+        }
+        core.append %entries, %entry
+      }
+      %is_array = core.get %typ["is_array"] default false
+      %item_description = core.get %typ["description"]
+      %has_item_description = core.call intrinsic.truthy(%item_description)
+      %render_item = core.call intrinsic.and(%is_array, %has_item_description)
+      core.if %render_item {
+        %escaped_item = core.call @signature_escape_string_impl(%item_description)
+        %entry = core.call intrinsic.string.format("item \"{}\"", %escaped_item)
+        core.append %entries, %entry
+      }
+      %type_name = core.get %typ["name"]
+      %is_code = core.call intrinsic.eq(%type_name, "code")
+      %language = core.get %typ["language"]
+      %has_language = core.call intrinsic.truthy(%language)
+      %render_language = core.call intrinsic.and(%is_code, %has_language)
+      core.if %render_language {
+        core.append %entries, %language
+      }
+      core.if %is_cached {
+        core.append %entries, "cache"
+      }
+      %count = core.call intrinsic.len(%entries)
+      %empty = core.call intrinsic.eq(%count, 0)
+      core.if %empty {
+        core.return ""
+      }
+      %body = core.call intrinsic.string.join(", ", %entries)
+      %result = core.call intrinsic.string.format("({})", %body)
+      core.return %result
+    }
+  }
+
+  op ax.signature.semantic @signature_render_type_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "signature-render-type-core-helper"
+    type signature = "(FieldType, bool) -> string"
+    body @entry(%typ: FieldType, %is_cached: bool) {
+      %type_name = core.get %typ["name"]
+      %is_array = core.get %typ["is_array"] default false
+      %is_class = core.call intrinsic.eq(%type_name, "class")
+      core.if %is_class {
+        %state = core.map
+        core.set %state["value"] = "class"
+        core.if %is_array {
+          core.set %state["value"] = "class[]"
+        }
+        %options = core.get %typ["options"]
+        %joined = core.call intrinsic.string.join(" | ", %options)
+        %class_name = core.get %state["value"]
+        %result = core.call intrinsic.string.format("{} \"{}\"", %class_name, %joined)
+        core.return %result
+      }
+      %is_object = core.call intrinsic.eq(%type_name, "object")
+      %fields = core.get %typ["fields"]
+      %has_fields = core.call intrinsic.truthy(%fields)
+      %structured_object = core.call intrinsic.and(%is_object, %has_fields)
+      core.if %structured_object {
+        %rendered_fields = core.call @signature_render_object_fields_impl(%fields)
+        %result = core.call intrinsic.string.format("object{}", %rendered_fields)
+        core.if %is_array {
+          %result = core.call intrinsic.string.format("{}[]", %result)
+        }
+        core.return %result
+      }
+      %bag = core.call @signature_render_modifier_bag_impl(%typ, %is_cached)
+      %result = core.call intrinsic.string.format("{}{}", %type_name, %bag)
+      core.if %is_array {
+        %result = core.call intrinsic.string.format("{}[]", %result)
+      }
+      core.return %result
+    }
+  }
+
+  op ax.signature.semantic @signature_render_object_fields_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "signature-render-object-fields-core-helper"
+    type signature = "(json) -> string"
+    body @entry(%fields: json) {
+      %parts = core.list
+      %nested_fields = core.call intrinsic.fields.from_map(%fields)
+      core.for %field in %nested_fields {
+        %name = core.get %field["name"]
+        %optional = core.get %field["is_optional"] default false
+        %state = core.map
+        core.set %state["value"] = %name
+        core.if %optional {
+          %marked = core.call intrinsic.string.format("{}?", %name)
+          core.set %state["value"] = %marked
+        }
+        %typ = core.get %field["type"]
+        %rendered_type = core.call @signature_render_type_impl(%typ, false)
+        %field_name = core.get %state["value"]
+        %entry = core.call intrinsic.string.format("{}:{}", %field_name, %rendered_type)
+        %type_description = core.get %typ["description"]
+        %field_description = core.get %field["description"]
+        %description = core.call intrinsic.coalesce(%type_description, %field_description)
+        %has_description = core.call intrinsic.truthy(%description)
+        %type_name = core.get %typ["name"]
+        %is_code = core.call intrinsic.eq(%type_name, "code")
+        %language = core.get %typ["language"]
+        %same_as_language = core.call intrinsic.eq(%description, %language)
+        %implicit_code_description = core.call intrinsic.and(%is_code, %same_as_language)
+        %not_implicit = core.call intrinsic.not(%implicit_code_description)
+        %explicit_description = core.call intrinsic.and(%has_description, %not_implicit)
+        core.if %explicit_description {
+          %escaped = core.call @signature_escape_string_impl(%description)
+          %entry = core.call intrinsic.string.format("{} \"{}\"", %entry, %escaped)
+        }
+        core.append %parts, %entry
+      }
+      %body = core.call intrinsic.string.join(", ", %parts)
+      %prefix = core.call intrinsic.add("{ ", %body)
+      %result = core.call intrinsic.add(%prefix, " }")
+      core.return %result
+    }
+  }
+
+  op ax.signature.semantic @signature_render_field_impl {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    tag "signature-render-field-core-helper"
+    type signature = "(Field) -> string"
+    body @entry(%field: Field) {
+      %name = core.get %field["name"]
+      %optional = core.get %field["is_optional"] default false
+      %internal = core.get %field["is_internal"] default false
+      %state = core.map
+      core.set %state["value"] = %name
+      core.if %optional {
+        %current = core.get %state["value"]
+        %marked = core.call intrinsic.string.format("{}?", %current)
+        core.set %state["value"] = %marked
+      }
+      core.if %internal {
+        %current = core.get %state["value"]
+        %marked = core.call intrinsic.string.format("{}!", %current)
+        core.set %state["value"] = %marked
+      }
+      %typ = core.get %field["type"]
+      %cached = core.get %field["is_cached"] default false
+      %rendered_type = core.call @signature_render_type_impl(%typ, %cached)
+      %field_name = core.get %state["value"]
+      %entry = core.call intrinsic.string.format("{}:{}", %field_name, %rendered_type)
+      %description = core.get %field["description"]
+      %has_description = core.call intrinsic.truthy(%description)
+      %type_name = core.get %typ["name"]
+      %is_code = core.call intrinsic.eq(%type_name, "code")
+      %language = core.get %typ["language"]
+      %same_as_language = core.call intrinsic.eq(%description, %language)
+      %implicit_code_description = core.call intrinsic.and(%is_code, %same_as_language)
+      %not_implicit = core.call intrinsic.not(%implicit_code_description)
+      %explicit_description = core.call intrinsic.and(%has_description, %not_implicit)
+      core.if %explicit_description {
+        %escaped = core.call @signature_escape_string_impl(%description)
+        %entry = core.call intrinsic.string.format("{} \"{}\"", %entry, %escaped)
+      }
+      core.return %entry
     }
   }
 
@@ -270,7 +1144,9 @@ module @ax.signature version "0.1" {
       }
       %is_class = core.call intrinsic.eq(%type_name, "class")
       %is_input = core.call intrinsic.not(%output)
-      %input_class = core.call intrinsic.and(%is_class, %is_input)
+      %top_level = core.call intrinsic.not(%nested)
+      %input_class_base = core.call intrinsic.and(%is_class, %is_input)
+      %input_class = core.call intrinsic.and(%input_class_base, %top_level)
       core.if %input_class {
         %error = core.call intrinsic.error.signature("Input field cannot use the \"class\" type")
         core.raise %error

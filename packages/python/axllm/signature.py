@@ -3,6 +3,7 @@ import os
 
 from dataclasses import dataclass, field as dataclass_field
 import copy
+import json
 import re
 from typing import Any
 
@@ -43,6 +44,7 @@ class FieldType:
     pattern: str | None = None
     pattern_description: str | None = None
     format: str | None = None
+    language: str | None = None
     description: str | None = None
 
 
@@ -265,7 +267,7 @@ class AxSignature:
         return True
 
     def __str__(self):
-        return ", ".join(_render_field(f) for f in self.input_fields) + " -> " + ", ".join(_render_field(f) for f in self.output_fields)
+        return signature_to_string(self)
 
 
 def s(signature: str) -> AxSignature:
@@ -285,7 +287,9 @@ def _core_len(value): return len(value)
 def _core_contains(container, item): return False if container is None else item in container
 def _core_truthy(value): return bool(value)
 def _core_is_none(value): return value is None
+def _core_is_not_none(value): return value is not None
 def _core_none(): return None
+def _core_coalesce(value, fallback): return fallback if value is None else value
 
 
 def _core_signature_error(message):
@@ -314,12 +318,34 @@ def _core_get(target, key, default=None):
     return getattr(target, key, default)
 
 
+def _core_map_merge(left, right):
+    merged = dict(left or {})
+    merged.update(right or {})
+    return merged
+
+
+def _core_map_contains(values, key):
+    return isinstance(values, dict) and key in values
+
+
+def _core_json_parse(value):
+    return json.loads(str(value))
+
+
 def _core_regex_match(pattern, value):
     return isinstance(value, str) and re.search(pattern, value) is not None
 
 
 def _core_string_format(template, *args):
     return str(template).format(*args)
+
+
+def _core_string_join(sep, values):
+    return str(sep).join(str(item) for item in values)
+
+
+def _core_string_starts_with(value, prefix):
+    return isinstance(value, str) and value.startswith(str(prefix))
 
 
 def _core_string_slice(value, start, end=None):
@@ -419,6 +445,92 @@ def _core_string_split_outside_quotes(text, sep):
     return items
 
 
+def _core_string_split_top_level(text, sep):
+    text, sep = str(text), str(sep)
+    items, current = [], []
+    quote, escaped, paren_depth, brace_depth = None, False, 0, 0
+    index = 0
+    while index < len(text):
+        ch = text[index]
+        if escaped:
+            current.append(ch)
+            escaped = False
+            index += 1
+            continue
+        if ch == "\\":
+            current.append(ch)
+            escaped = True
+            index += 1
+            continue
+        if quote:
+            current.append(ch)
+            if ch == quote:
+                quote = None
+            index += 1
+            continue
+        if ch in ("'", '"'):
+            current.append(ch)
+            quote = ch
+            index += 1
+            continue
+        if ch == "(":
+            paren_depth += 1
+        elif ch == ")" and paren_depth > 0:
+            paren_depth -= 1
+        elif ch == "{":
+            brace_depth += 1
+        elif ch == "}" and brace_depth > 0:
+            brace_depth -= 1
+        if sep and paren_depth == 0 and brace_depth == 0 and text.startswith(sep, index):
+            items.append("".join(current).strip())
+            current = []
+            index += len(sep)
+            continue
+        current.append(ch)
+        index += 1
+    if quote:
+        raise AxSignatureError("Unterminated string")
+    items.append("".join(current).strip())
+    return items
+
+
+def _core_string_extract_leading_group(text, open_char, close_char):
+    text, open_char, close_char = str(text), str(open_char), str(close_char)
+    if not open_char or not close_char or not text.startswith(open_char):
+        return {"found": False, "balanced": True, "group": "", "rest": text}
+    quote, escaped, depth = None, False, 0
+    index = 0
+    while index < len(text):
+        ch = text[index]
+        if escaped:
+            escaped = False
+        elif ch == "\\":
+            escaped = True
+        elif quote:
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif text.startswith(open_char, index):
+            depth += 1
+            index += len(open_char) - 1
+        elif text.startswith(close_char, index):
+            depth -= 1
+            if depth == 0:
+                start = len(open_char)
+                return {
+                    "found": True,
+                    "balanced": True,
+                    "group": text[start:index],
+                    "rest": text[index + len(close_char):],
+                }
+            index += len(close_char) - 1
+        index += 1
+    if quote:
+        raise AxSignatureError("Unterminated string")
+    return {"found": True, "balanced": False, "group": text[len(open_char):], "rest": ""}
+
+
 def _core_consume_quoted_prefix(text):
     if not text or text[0] not in ("'", '"'):
         return {"value": None, "rest": text, "found": False}
@@ -474,6 +586,15 @@ def _core_record_new(name, values):
             is_array=bool(values.get("is_array", values.get("isArray", False))),
             options=values.get("options"),
             fields=values.get("fields"),
+            min_length=values.get("min_length", values.get("minLength")),
+            max_length=values.get("max_length", values.get("maxLength")),
+            minimum=values.get("minimum"),
+            maximum=values.get("maximum"),
+            pattern=values.get("pattern"),
+            pattern_description=values.get("pattern_description", values.get("patternDescription")),
+            format=values.get("format"),
+            language=values.get("language"),
+            description=values.get("description"),
         )
     if name == "Field":
         return Field(
@@ -510,12 +631,6 @@ def _title(name: str) -> str:
     return text[:1].upper() + text[1:]
 
 
-def _render_field(field: Field) -> str:
-    marker = ("?" if field.is_optional else "") + ("!" if field.is_internal else "")
-    typ = field.type.name + ("[]" if field.type.is_array else "")
-    return f"{field.name}{marker}:{typ}"
-
-
 # BEGIN AXIR CORE EMITTED FUNCTIONS
 def parse_signature(signature: str) -> AxSignature:
     _core_coverage_mark("parse_signature")
@@ -546,6 +661,14 @@ def _signature_parse_impl(signature: str) -> AxSignature:
     arrow = _core_string_find_outside_quotes(body, "->")
     missing_arrow = _core_lt(arrow, 0)
     if missing_arrow:
+        open_brace = _core_string_find_outside_quotes(body, "{")
+        brace_missing = _core_lt(open_brace, 0)
+        has_open_brace = _core_not(brace_missing)
+        if has_open_brace:
+            error = _core_signature_error("unbalanced \"{\" in object type")
+            raise error
+        else:
+            pass
         error = _core_signature_error("Expected \"->\"")
         raise error
     else:
@@ -581,9 +704,16 @@ def _signature_parse_impl(signature: str) -> AxSignature:
 
 def _signature_parse_fields_impl(text: str, output: bool) -> list[Any]:
     _core_coverage_mark("_signature_parse_fields_impl")
-    parts = _core_string_split_outside_quotes(text, ",")
+    parts = _core_string_split_top_level(text, ",")
     fields = []
     for part in parts:
+        trimmed = str(part).strip()
+        empty = _core_eq(trimmed, "")
+        if empty:
+            error = _core_signature_error("Unexpected content after signature")
+            raise error
+        else:
+            pass
         field = _signature_parse_field_impl(part, output)
         fields.append(field)
     return fields
@@ -591,96 +721,944 @@ def _signature_parse_fields_impl(text: str, output: bool) -> list[Any]:
 
 def _signature_parse_field_impl(raw: str, output: bool) -> Field:
     _core_coverage_mark("_signature_parse_field_impl")
+    field = _signature_parse_field_common_impl(raw, output, False, "")
+    return field
+
+
+def _signature_parse_field_common_impl(raw: str, output: bool, nested: bool, parent: str) -> Field:
+    _core_coverage_mark("_signature_parse_field_common_impl")
     text = str(raw).strip()
-    quoted_info = _core_string_extract_quoted_suffix(text)
-    quoted = _core_get(quoted_info, "value", None)
-    rest_after_quote = _core_get(quoted_info, "rest", None)
-    rest_after_quote_trimmed = str(rest_after_quote).strip()
-    has_extra = _core_truthy(rest_after_quote_trimmed)
-    if has_extra:
-        error = _core_signature_error("Unexpected content after signature")
-        raise error
-    else:
-        pass
-    head_raw = _core_get(quoted_info, "head", None)
-    head = str(head_raw).strip()
-    head_parts = _core_string_split_once(head, ":")
+    head_parts = _core_string_split_once(text, ":")
+    has_type = _core_get(head_parts, "found", False)
     name_part_raw = _core_get(head_parts, "left", None)
     type_part_raw = _core_get(head_parts, "right", None)
-    name_part = str(name_part_raw).strip()
-    type_part_trimmed = str(type_part_raw).strip()
-    type_part = _core_string_default_if_empty(type_part_trimmed, "string")
+    state = {}
+    state["name_part"] = name_part_raw
+    none = _core_none()
+    state["description"] = none
+    state["is_cached"] = False
+    default_type_attrs = {}
+    default_type_attrs["name"] = "string"
+    default_type_attrs["is_array"] = False
+    default_type = _core_record_new("FieldType", default_type_attrs)
+    state["type"] = default_type
+    if has_type:
+        section_state = {}
+        section_state["value"] = "input"
+        if output:
+            section_state["value"] = "output"
+        else:
+            pass
+        if nested:
+            section_state["value"] = "nested"
+        else:
+            pass
+        section = _core_get(section_state, "value", None)
+        name_for_error = str(name_part_raw).strip()
+        if nested:
+            name_for_error = _core_string_format("{}.{}", parent, name_for_error)
+        else:
+            pass
+        parsed_type = _signature_parse_type_expr_impl(type_part_raw, section, name_for_error)
+        parsed_field_type = _core_get(parsed_type, "type", None)
+        parsed_cached = _core_get(parsed_type, "is_cached", False)
+        state["type"] = parsed_field_type
+        state["is_cached"] = parsed_cached
+        language = _core_get(parsed_field_type, "language", None)
+        parsed_rest = _core_get(parsed_type, "rest", None)
+        description = _signature_parse_description_impl(parsed_rest, language)
+        state["description"] = description
+    else:
+        quoted_info = _core_string_extract_quoted_suffix(name_part_raw)
+        quoted = _core_get(quoted_info, "value", None)
+        rest_after_quote_raw = _core_get(quoted_info, "rest", None)
+        rest_after_quote = str(rest_after_quote_raw).strip()
+        has_extra = _core_truthy(rest_after_quote)
+        if has_extra:
+            error = _core_signature_error("Unexpected content after signature")
+            raise error
+        else:
+            pass
+        quoted_head = _core_get(quoted_info, "head", None)
+        state["name_part"] = quoted_head
+        state["description"] = quoted
+    name_part_value = _core_get(state, "name_part", None)
+    name_part = str(name_part_value).strip()
     is_optional = _core_contains(name_part, "?")
     is_internal = _core_contains(name_part, "!")
     name_without_optional = _core_string_replace(name_part, "?", "")
     name_without_markers = _core_string_replace(name_without_optional, "!", "")
     name = str(name_without_markers).strip()
-    type_words = _core_string_words(type_part)
-    type_word_count = _core_len(type_words)
-    extra_type_tokens = _core_gt(type_word_count, 1)
-    if extra_type_tokens:
+    nested_internal = _core_and(nested, is_internal)
+    if nested_internal:
+        qualified = _core_string_format("{}.{}", parent, name)
+        message = _core_string_format("Object field \"{}\" cannot use the internal marker \"!\"", qualified)
+        error = _core_signature_error(message)
+        raise error
+    else:
+        pass
+    field_type = _core_get(state, "type", None)
+    description = _core_get(state, "description", None)
+    has_description = _core_is_not_none(description)
+    has_nested_description = _core_and(nested, has_description)
+    if has_nested_description:
+        type_attrs = {}
+        type_name = _core_get(field_type, "name", None)
+        type_is_array = _core_get(field_type, "is_array", False)
+        type_options = _core_get(field_type, "options", None)
+        type_fields = _core_get(field_type, "fields", None)
+        type_min_length = _core_get(field_type, "min_length", None)
+        type_max_length = _core_get(field_type, "max_length", None)
+        type_minimum = _core_get(field_type, "minimum", None)
+        type_maximum = _core_get(field_type, "maximum", None)
+        type_pattern = _core_get(field_type, "pattern", None)
+        type_pattern_description = _core_get(field_type, "pattern_description", None)
+        type_format = _core_get(field_type, "format", None)
+        type_language = _core_get(field_type, "language", None)
+        type_attrs["name"] = type_name
+        type_attrs["is_array"] = type_is_array
+        type_attrs["options"] = type_options
+        type_attrs["fields"] = type_fields
+        type_attrs["min_length"] = type_min_length
+        type_attrs["max_length"] = type_max_length
+        type_attrs["minimum"] = type_minimum
+        type_attrs["maximum"] = type_maximum
+        type_attrs["pattern"] = type_pattern
+        type_attrs["pattern_description"] = type_pattern_description
+        type_attrs["format"] = type_format
+        type_attrs["language"] = type_language
+        type_attrs["description"] = description
+        field_type = _core_record_new("FieldType", type_attrs)
+    else:
+        pass
+    field_attrs = {}
+    field_attrs["name"] = name
+    field_attrs["type"] = field_type
+    field_attrs["description"] = description
+    field_attrs["is_optional"] = is_optional
+    field_attrs["is_internal"] = is_internal
+    is_cached = _core_get(state, "is_cached", False)
+    field_attrs["is_cached"] = is_cached
+    field = _core_record_new("Field", field_attrs)
+    _signature_validate_field_shape_impl(field, output, nested)
+    return field
+
+
+def _signature_parse_description_impl(raw: str, fallback: Any) -> Any:
+    _core_coverage_mark("_signature_parse_description_impl")
+    text = str(raw).strip()
+    empty = _core_eq(text, "")
+    if empty:
+        return fallback
+    else:
+        pass
+    quoted = _core_string_consume_optional_quoted_prefix(text)
+    found = _core_get(quoted, "found", False)
+    missing = _core_not(found)
+    if missing:
         error = _core_signature_error("Unexpected content after signature")
         raise error
     else:
         pass
-    type_token = _core_list_get(type_words, 0, "string")
-    array_info = _core_string_remove_suffix(type_token, "[]")
-    type_name_raw = _core_get(array_info, "value", None)
-    type_name = _core_string_default_if_empty(type_name_raw, "string")
-    is_array = _core_get(array_info, "removed", None)
+    rest_raw = _core_get(quoted, "rest", None)
+    rest = str(rest_raw).strip()
+    has_extra = _core_truthy(rest)
+    if has_extra:
+        error = _core_signature_error("Unexpected content after signature")
+        raise error
+    else:
+        pass
+    value_raw = _core_get(quoted, "value", None)
+    value = str(value_raw).strip()
+    return value
+
+
+def _signature_parse_base_type_impl(raw: str) -> Any:
+    _core_coverage_mark("_signature_parse_base_type_impl")
+    text = str(raw).strip()
+    types = []
+    types.append("datetimeRange")
+    types.append("dateRange")
+    types.append("datetime")
+    types.append("boolean")
+    types.append("string")
+    types.append("number")
+    types.append("object")
+    types.append("class")
+    types.append("image")
+    types.append("audio")
+    types.append("file")
+    types.append("json")
+    types.append("date")
+    types.append("code")
+    types.append("url")
+    state = {}
+    state["name"] = ""
+    state["rest"] = text
+    for candidate in types:
+        matched_name = _core_get(state, "name", None)
+        unmatched = _core_eq(matched_name, "")
+        if unmatched:
+            starts = _core_string_starts_with(text, candidate)
+            if starts:
+                offset = _core_len(candidate)
+                after = _core_string_slice(text, offset)
+                first = _core_string_slice(after, 0, 1)
+                boundary = _core_eq(after, "")
+                space = _core_regex_match("^\\s", after)
+                boundary = _core_or(boundary, space)
+                open_paren = _core_eq(first, "(")
+                boundary = _core_or(boundary, open_paren)
+                open_brace = _core_eq(first, "{")
+                boundary = _core_or(boundary, open_brace)
+                open_array = _core_eq(first, "[")
+                boundary = _core_or(boundary, open_array)
+                double_quote = _core_eq(first, "\"")
+                boundary = _core_or(boundary, double_quote)
+                single_quote = _core_eq(first, "'")
+                boundary = _core_or(boundary, single_quote)
+                if boundary:
+                    state["name"] = candidate
+                    state["rest"] = after
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+    name = _core_get(state, "name", None)
+    missing = _core_eq(name, "")
+    if missing:
+        words = _core_string_words(text)
+        word = _core_list_get(words, 0, "empty")
+        message = _core_string_format("Invalid type \"{}\"", word)
+        error = _core_signature_error(message)
+        raise error
+    else:
+        pass
+    return state
+
+
+def _signature_parse_type_expr_impl(raw: str, section: str, field_name: str) -> Any:
+    _core_coverage_mark("_signature_parse_type_expr_impl")
+    base = _signature_parse_base_type_impl(raw)
+    type_name = _core_get(base, "name", None)
+    base_rest = _core_get(base, "rest", None)
+    rest = str(base_rest).strip()
+    nested = _core_eq(section, "nested")
+    media = []
+    media.append("image")
+    media.append("audio")
+    media.append("file")
+    is_media = _core_contains(media, type_name)
+    nested_media = _core_and(nested, is_media)
+    if nested_media:
+        message = _core_string_format("Object field \"{}\": {} type is not allowed in nested object fields", field_name, type_name)
+        error = _core_signature_error(message)
+        raise error
+    else:
+        pass
     is_class = _core_eq(type_name, "class")
     if is_class:
-        class_input = _core_not(output)
-        if class_input:
+        input = _core_eq(section, "input")
+        if input:
             error = _core_signature_error("Input field cannot use the \"class\" type")
             raise error
         else:
             pass
-        missing_quoted = _core_is_none(quoted)
-        if missing_quoted:
-            error = _core_signature_error("Missing class options after \"class\" type")
+        bag = _core_string_starts_with(rest, "(")
+        if bag:
+            message = _core_string_format("Field \"{}\": constraints are not supported on class fields", field_name)
+            error = _core_signature_error(message)
             raise error
         else:
             pass
-        class_option_text = _core_string_replace(quoted, "|", ",")
-        options = _core_string_split_trim_nonempty(class_option_text, ",")
-        option_count = _core_len(options)
-        empty_options = _core_eq(option_count, 0)
-        if empty_options:
-            error = _core_signature_error("Missing class options after \"class\" type")
+        is_array = _core_string_starts_with(rest, "[]")
+        if is_array:
+            rest_after_array = _core_string_slice(rest, 2)
+            rest = str(rest_after_array).strip()
+        else:
+            pass
+        bag_after = _core_string_starts_with(rest, "(")
+        if bag_after:
+            message = _core_string_format("Field \"{}\": constraints are not supported on class fields", field_name)
+            error = _core_signature_error(message)
             raise error
         else:
             pass
-        type_attrs = {}
-        type_attrs["name"] = type_name
-        type_attrs["is_array"] = is_array
-        type_attrs["options"] = options
-        field_type = _core_record_new("FieldType", type_attrs)
-        none = _core_none()
-        field_attrs = {}
-        field_attrs["name"] = name
-        field_attrs["type"] = field_type
-        field_attrs["description"] = none
-        field_attrs["is_optional"] = is_optional
-        field_attrs["is_internal"] = is_internal
-        field = _core_record_new("Field", field_attrs)
-        _signature_validate_field_shape_impl(field, output, False)
-        return field
+        quoted = _core_string_consume_optional_quoted_prefix(rest)
+        has_options = _core_get(quoted, "found", False)
+        if has_options:
+            quoted_value = _core_get(quoted, "value", None)
+            option_text = _core_string_replace(quoted_value, "|", ",")
+            options = _core_string_split_trim_nonempty(option_text, ",")
+            option_count = _core_len(options)
+            empty_options = _core_eq(option_count, 0)
+            if empty_options:
+                error = _core_signature_error("Missing class options after \"class\" type")
+                raise error
+            else:
+                pass
+            attrs = {}
+            attrs["name"] = "class"
+            attrs["is_array"] = is_array
+            attrs["options"] = options
+            typ = _core_record_new("FieldType", attrs)
+            out = {}
+            out["type"] = typ
+            out["is_cached"] = False
+            quoted_rest = _core_get(quoted, "rest", None)
+            out["rest"] = quoted_rest
+            return out
+        else:
+            pass
+        error = _core_signature_error("Missing class options after \"class\" type")
+        raise error
     else:
         pass
-    type_attrs = {}
-    type_attrs["name"] = type_name
+    is_object = _core_eq(type_name, "object")
+    starts_object_fields = _core_string_starts_with(rest, "{")
+    has_object_fields = _core_and(is_object, starts_object_fields)
+    if has_object_fields:
+        group = _core_string_extract_leading_group(rest, "{", "}")
+        balanced = _core_get(group, "balanced", False)
+        unbalanced = _core_not(balanced)
+        if unbalanced:
+            message = _core_string_format("Field \"{}\": unbalanced \"{\" in object type", field_name)
+            error = _core_signature_error(message)
+            raise error
+        else:
+            pass
+        group_text = _core_get(group, "group", None)
+        fields = _signature_parse_object_fields_impl(group_text, section, field_name)
+        group_rest = _core_get(group, "rest", None)
+        after = str(group_rest).strip()
+        is_array = _core_string_starts_with(after, "[]")
+        if is_array:
+            after_array = _core_string_slice(after, 2)
+            after = str(after_array).strip()
+        else:
+            pass
+        attrs = {}
+        attrs["name"] = "object"
+        attrs["is_array"] = is_array
+        attrs["fields"] = fields
+        typ = _core_record_new("FieldType", attrs)
+        out = {}
+        out["type"] = typ
+        out["is_cached"] = False
+        out["rest"] = after
+        return out
+    else:
+        pass
+    attrs = {}
+    attrs["name"] = type_name
+    attrs["is_array"] = False
+    modifier_state = {}
+    modifier_state["attrs"] = attrs
+    modifier_state["is_cached"] = False
+    none = _core_none()
+    modifier_state["item_description"] = none
+    has_bag = _core_string_starts_with(rest, "(")
+    if has_bag:
+        group = _core_string_extract_leading_group(rest, "(", ")")
+        balanced = _core_get(group, "balanced", False)
+        unbalanced = _core_not(balanced)
+        if unbalanced:
+            message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", field_name)
+            error = _core_signature_error(message)
+            raise error
+        else:
+            pass
+        group_text = _core_get(group, "group", None)
+        parsed = _signature_parse_modifier_bag_impl(type_name, section, field_name, group_text)
+        parsed_attrs = _core_get(parsed, "attrs", None)
+        merged_attrs = _core_map_merge(attrs, parsed_attrs)
+        parsed_cached = _core_get(parsed, "is_cached", False)
+        parsed_item = _core_get(parsed, "item_description", None)
+        modifier_state["attrs"] = merged_attrs
+        modifier_state["is_cached"] = parsed_cached
+        modifier_state["item_description"] = parsed_item
+        group_rest = _core_get(group, "rest", None)
+        rest = str(group_rest).strip()
+    else:
+        pass
+    is_array = _core_string_starts_with(rest, "[]")
+    if is_array:
+        rest_after_array = _core_string_slice(rest, 2)
+        rest = str(rest_after_array).strip()
+    else:
+        pass
+    type_attrs = _core_get(modifier_state, "attrs", None)
     type_attrs["is_array"] = is_array
-    field_type = _core_record_new("FieldType", type_attrs)
-    field_attrs = {}
-    field_attrs["name"] = name
-    field_attrs["type"] = field_type
-    field_attrs["description"] = quoted
-    field_attrs["is_optional"] = is_optional
-    field_attrs["is_internal"] = is_internal
-    field = _core_record_new("Field", field_attrs)
-    _signature_validate_field_shape_impl(field, output, False)
-    return field
+    item_description = _core_get(modifier_state, "item_description", None)
+    has_item = _core_is_not_none(item_description)
+    not_array = _core_not(is_array)
+    item_without_array = _core_and(has_item, not_array)
+    if item_without_array:
+        message = _core_string_format("Field \"{}\": the \"item\" modifier requires an array type", field_name)
+        error = _core_signature_error(message)
+        raise error
+    else:
+        pass
+    if has_item:
+        type_attrs["description"] = item_description
+    else:
+        pass
+    typ = _core_record_new("FieldType", type_attrs)
+    out = {}
+    out["type"] = typ
+    is_cached = _core_get(modifier_state, "is_cached", False)
+    out["is_cached"] = is_cached
+    out["rest"] = rest
+    return out
+
+
+def _signature_parse_modifier_bag_impl(type_name: str, section: str, field_name: str, raw: str) -> Any:
+    _core_coverage_mark("_signature_parse_modifier_bag_impl")
+    text = str(raw).strip()
+    empty = _core_eq(text, "")
+    if empty:
+        message = _core_string_format("Field \"{}\": empty modifier list \"()\"", field_name)
+        error = _core_signature_error(message)
+        raise error
+    else:
+        pass
+    parts = _core_string_split_top_level(raw, ",")
+    attrs = {}
+    seen = []
+    state = {}
+    state["is_cached"] = False
+    none = _core_none()
+    state["item_description"] = none
+    for part in parts:
+        entry = str(part).strip()
+        entry_empty = _core_eq(entry, "")
+        if entry_empty:
+            message = _core_string_format("Field \"{}\": trailing comma in modifier list", field_name)
+            error = _core_signature_error(message)
+            raise error
+        else:
+            pass
+        words = _core_string_words(entry)
+        token = _core_list_get(words, 0, "")
+        token_len = _core_len(token)
+        arg_raw = _core_string_slice(entry, token_len)
+        arg = str(arg_raw).strip()
+        handled = {}
+        handled["value"] = False
+        is_min = _core_eq(token, "min")
+        is_max = _core_eq(token, "max")
+        is_bound = _core_or(is_min, is_max)
+        if is_bound:
+            duplicate = _core_contains(seen, token)
+            if duplicate:
+                message = _core_string_format("Field \"{}\": duplicate \"{}\" modifier", field_name, token)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            seen.append(token)
+            is_string = _core_eq(type_name, "string")
+            is_number = _core_eq(type_name, "number")
+            allowed = _core_or(is_string, is_number)
+            not_allowed = _core_not(allowed)
+            if not_allowed:
+                message = _core_string_format("Field \"{}\": \"{}\" is not supported for type \"{}\"", field_name, token, type_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            numeric = _core_regex_match("^-?[0-9]+(\\.[0-9]+)?$", arg)
+            not_numeric = _core_not(numeric)
+            if not_numeric:
+                message = _core_string_format("Field \"{}\": \"{}\" requires a numeric value", field_name, token)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            value = _core_json_parse(arg)
+            if is_string:
+                if is_min:
+                    attrs["minLength"] = value
+                else:
+                    attrs["maxLength"] = value
+            else:
+                if is_min:
+                    attrs["minimum"] = value
+                else:
+                    attrs["maximum"] = value
+            handled["value"] = True
+        else:
+            pass
+        is_format = _core_eq(token, "format")
+        if is_format:
+            duplicate = _core_contains(seen, "format")
+            if duplicate:
+                message = _core_string_format("Field \"{}\": duplicate \"format\" modifier", field_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            seen.append("format")
+            is_string = _core_eq(type_name, "string")
+            not_string = _core_not(is_string)
+            if not_string:
+                message = _core_string_format("Field \"{}\": \"format\" is not supported for type \"{}\"", field_name, type_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            formats = []
+            formats.append("email")
+            formats.append("uri")
+            formats.append("date")
+            formats.append("date-time")
+            known = _core_contains(formats, arg)
+            unknown = _core_not(known)
+            if unknown:
+                message = _core_string_format("Field \"{}\": unknown format \"{}\"", field_name, arg)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            attrs["format"] = arg
+            handled["value"] = True
+        else:
+            pass
+        is_pattern = _core_eq(token, "pattern")
+        if is_pattern:
+            duplicate = _core_contains(seen, "pattern")
+            if duplicate:
+                message = _core_string_format("Field \"{}\": duplicate \"pattern\" modifier", field_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            seen.append("pattern")
+            is_string = _core_eq(type_name, "string")
+            not_string = _core_not(is_string)
+            if not_string:
+                message = _core_string_format("Field \"{}\": \"pattern\" is not supported for type \"{}\"", field_name, type_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            quoted = _core_string_consume_optional_quoted_prefix(arg)
+            found = _core_get(quoted, "found", False)
+            missing = _core_not(found)
+            if missing:
+                message = _core_string_format("Field \"{}\": \"pattern\" requires a quoted regular expression", field_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            pattern_value = _core_get(quoted, "value", None)
+            attrs["pattern"] = pattern_value
+            pattern_rest_raw = _core_get(quoted, "rest", None)
+            pattern_rest = str(pattern_rest_raw).strip()
+            has_pattern_rest = _core_truthy(pattern_rest)
+            if has_pattern_rest:
+                desc = _core_string_consume_optional_quoted_prefix(pattern_rest)
+                desc_found = _core_get(desc, "found", False)
+                desc_missing = _core_not(desc_found)
+                if desc_missing:
+                    message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", field_name)
+                    error = _core_signature_error(message)
+                    raise error
+                else:
+                    pass
+                desc_rest_raw = _core_get(desc, "rest", None)
+                desc_rest = str(desc_rest_raw).strip()
+                desc_extra = _core_truthy(desc_rest)
+                if desc_extra:
+                    message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", field_name)
+                    error = _core_signature_error(message)
+                    raise error
+                else:
+                    pass
+                desc_value = _core_get(desc, "value", None)
+                attrs["patternDescription"] = desc_value
+            else:
+                pass
+            handled["value"] = True
+        else:
+            pass
+        is_cache = _core_eq(token, "cache")
+        if is_cache:
+            duplicate = _core_contains(seen, "cache")
+            if duplicate:
+                message = _core_string_format("Field \"{}\": duplicate \"cache\" modifier", field_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            seen.append("cache")
+            input = _core_eq(section, "input")
+            not_input = _core_not(input)
+            if not_input:
+                message = _core_string_format("Field \"{}\": \"cache\" is only supported on top-level input fields", field_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            extra = _core_truthy(arg)
+            if extra:
+                message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", field_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            state["is_cached"] = True
+            handled["value"] = True
+        else:
+            pass
+        is_item = _core_eq(token, "item")
+        if is_item:
+            duplicate = _core_contains(seen, "item")
+            if duplicate:
+                message = _core_string_format("Field \"{}\": duplicate \"item\" modifier", field_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            seen.append("item")
+            nested = _core_eq(section, "nested")
+            if nested:
+                message = _core_string_format("Field \"{}\": \"item\" is not supported inside object fields", field_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            quoted = _core_string_consume_optional_quoted_prefix(arg)
+            found = _core_get(quoted, "found", False)
+            missing = _core_not(found)
+            if missing:
+                message = _core_string_format("Field \"{}\": \"item\" requires a quoted description", field_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            remaining_raw = _core_get(quoted, "rest", None)
+            remaining = str(remaining_raw).strip()
+            extra = _core_truthy(remaining)
+            if extra:
+                message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", field_name)
+                error = _core_signature_error(message)
+                raise error
+            else:
+                pass
+            item_value = _core_get(quoted, "value", None)
+            state["item_description"] = item_value
+            handled["value"] = True
+        else:
+            pass
+        was_handled = _core_get(handled, "value", False)
+        unhandled = _core_not(was_handled)
+        if unhandled:
+            is_code = _core_eq(type_name, "code")
+            if is_code:
+                duplicate = _core_contains(seen, "language")
+                if duplicate:
+                    message = _core_string_format("Field \"{}\": duplicate \"language\" modifier", field_name)
+                    error = _core_signature_error(message)
+                    raise error
+                else:
+                    pass
+                extra = _core_truthy(arg)
+                if extra:
+                    message = _core_string_format("Field \"{}\": expected \",\" or \")\" in modifier list", field_name)
+                    error = _core_signature_error(message)
+                    raise error
+                else:
+                    pass
+                seen.append("language")
+                attrs["language"] = token
+            else:
+                message = _core_string_format("Field \"{}\": unknown modifier \"{}\" for type \"{}\"", field_name, token, type_name)
+                error = _core_signature_error(message)
+                raise error
+        else:
+            pass
+    out = {}
+    out["attrs"] = attrs
+    is_cached = _core_get(state, "is_cached", False)
+    item_description = _core_get(state, "item_description", None)
+    out["is_cached"] = is_cached
+    out["item_description"] = item_description
+    return out
+
+
+def _signature_parse_object_fields_impl(raw: str, section: str, parent: str) -> Any:
+    _core_coverage_mark("_signature_parse_object_fields_impl")
+    text = str(raw).strip()
+    empty = _core_eq(text, "")
+    if empty:
+        message = _core_string_format("Field \"{}\": object type requires at least one field", parent)
+        error = _core_signature_error(message)
+        raise error
+    else:
+        pass
+    parts = _core_string_split_top_level(raw, ",")
+    fields = {}
+    output = _core_eq(section, "output")
+    for part in parts:
+        entry = str(part).strip()
+        entry_empty = _core_eq(entry, "")
+        if entry_empty:
+            message = _core_string_format("Field \"{}\": trailing comma in object type", parent)
+            error = _core_signature_error(message)
+            raise error
+        else:
+            pass
+        field = _signature_parse_field_common_impl(entry, output, True, parent)
+        name = _core_get(field, "name", None)
+        duplicate = _core_map_contains(fields, name)
+        if duplicate:
+            message = _core_string_format("Field \"{}\": duplicate object field name \"{}\"", parent, name)
+            error = _core_signature_error(message)
+            raise error
+        else:
+            pass
+        fields[name] = field
+    return fields
+
+
+def signature_to_string(signature: AxSignature) -> str:
+    _core_coverage_mark("signature_to_string")
+    parts = []
+    description = _core_get(signature, "description", None)
+    has_description = _core_truthy(description)
+    if has_description:
+        escaped = _signature_escape_string_impl(description)
+        prefix = _core_string_format("\"{}\"", escaped)
+        parts.append(prefix)
+    else:
+        pass
+    inputs = _core_get(signature, "input_fields", None)
+    input_parts = []
+    for field in inputs:
+        rendered = _signature_render_field_impl(field)
+        input_parts.append(rendered)
+    input_text = _core_string_join(", ", input_parts)
+    parts.append(input_text)
+    left = _core_string_join(" ", parts)
+    outputs = _core_get(signature, "output_fields", None)
+    output_parts = []
+    for field in outputs:
+        rendered = _signature_render_field_impl(field)
+        output_parts.append(rendered)
+    right = _core_string_join(", ", output_parts)
+    result = _core_string_format("{} -> {}", left, right)
+    return result
+
+
+def _signature_escape_string_impl(value: str) -> str:
+    _core_coverage_mark("_signature_escape_string_impl")
+    slashes = _core_string_replace(value, "\\", "\\\\")
+    quotes = _core_string_replace(slashes, "\"", "\\\"")
+    return quotes
+
+
+def _signature_render_modifier_bag_impl(typ: FieldType, is_cached: bool) -> str:
+    _core_coverage_mark("_signature_render_modifier_bag_impl")
+    entries = []
+    min_length = _core_get(typ, "min_length", None)
+    minimum = _core_get(typ, "minimum", None)
+    min = _core_coalesce(min_length, minimum)
+    has_min = _core_is_not_none(min)
+    if has_min:
+        entry = _core_string_format("min {}", min)
+        entries.append(entry)
+    else:
+        pass
+    max_length = _core_get(typ, "max_length", None)
+    maximum = _core_get(typ, "maximum", None)
+    max = _core_coalesce(max_length, maximum)
+    has_max = _core_is_not_none(max)
+    if has_max:
+        entry = _core_string_format("max {}", max)
+        entries.append(entry)
+    else:
+        pass
+    format = _core_get(typ, "format", None)
+    has_format = _core_is_not_none(format)
+    if has_format:
+        entry = _core_string_format("format {}", format)
+        entries.append(entry)
+    else:
+        pass
+    pattern = _core_get(typ, "pattern", None)
+    has_pattern = _core_is_not_none(pattern)
+    if has_pattern:
+        escaped_pattern = _signature_escape_string_impl(pattern)
+        entry = _core_string_format("pattern \"{}\"", escaped_pattern)
+        pattern_description = _core_get(typ, "pattern_description", None)
+        has_pattern_description = _core_is_not_none(pattern_description)
+        if has_pattern_description:
+            escaped_description = _signature_escape_string_impl(pattern_description)
+            entry = _core_string_format("{} \"{}\"", entry, escaped_description)
+        else:
+            pass
+        entries.append(entry)
+    else:
+        pass
+    is_array = _core_get(typ, "is_array", False)
+    item_description = _core_get(typ, "description", None)
+    has_item_description = _core_truthy(item_description)
+    render_item = _core_and(is_array, has_item_description)
+    if render_item:
+        escaped_item = _signature_escape_string_impl(item_description)
+        entry = _core_string_format("item \"{}\"", escaped_item)
+        entries.append(entry)
+    else:
+        pass
+    type_name = _core_get(typ, "name", None)
+    is_code = _core_eq(type_name, "code")
+    language = _core_get(typ, "language", None)
+    has_language = _core_truthy(language)
+    render_language = _core_and(is_code, has_language)
+    if render_language:
+        entries.append(language)
+    else:
+        pass
+    if is_cached:
+        entries.append("cache")
+    else:
+        pass
+    count = _core_len(entries)
+    empty = _core_eq(count, 0)
+    if empty:
+        return ""
+    else:
+        pass
+    body = _core_string_join(", ", entries)
+    result = _core_string_format("({})", body)
+    return result
+
+
+def _signature_render_type_impl(typ: FieldType, is_cached: bool) -> str:
+    _core_coverage_mark("_signature_render_type_impl")
+    type_name = _core_get(typ, "name", None)
+    is_array = _core_get(typ, "is_array", False)
+    is_class = _core_eq(type_name, "class")
+    if is_class:
+        state = {}
+        state["value"] = "class"
+        if is_array:
+            state["value"] = "class[]"
+        else:
+            pass
+        options = _core_get(typ, "options", None)
+        joined = _core_string_join(" | ", options)
+        class_name = _core_get(state, "value", None)
+        result = _core_string_format("{} \"{}\"", class_name, joined)
+        return result
+    else:
+        pass
+    is_object = _core_eq(type_name, "object")
+    fields = _core_get(typ, "fields", None)
+    has_fields = _core_truthy(fields)
+    structured_object = _core_and(is_object, has_fields)
+    if structured_object:
+        rendered_fields = _signature_render_object_fields_impl(fields)
+        result = _core_string_format("object{}", rendered_fields)
+        if is_array:
+            result = _core_string_format("{}[]", result)
+        else:
+            pass
+        return result
+    else:
+        pass
+    bag = _signature_render_modifier_bag_impl(typ, is_cached)
+    result = _core_string_format("{}{}", type_name, bag)
+    if is_array:
+        result = _core_string_format("{}[]", result)
+    else:
+        pass
+    return result
+
+
+def _signature_render_object_fields_impl(fields: Any) -> str:
+    _core_coverage_mark("_signature_render_object_fields_impl")
+    parts = []
+    nested_fields = _core_fields_from_map(fields)
+    for field in nested_fields:
+        name = _core_get(field, "name", None)
+        optional = _core_get(field, "is_optional", False)
+        state = {}
+        state["value"] = name
+        if optional:
+            marked = _core_string_format("{}?", name)
+            state["value"] = marked
+        else:
+            pass
+        typ = _core_get(field, "type", None)
+        rendered_type = _signature_render_type_impl(typ, False)
+        field_name = _core_get(state, "value", None)
+        entry = _core_string_format("{}:{}", field_name, rendered_type)
+        type_description = _core_get(typ, "description", None)
+        field_description = _core_get(field, "description", None)
+        description = _core_coalesce(type_description, field_description)
+        has_description = _core_truthy(description)
+        type_name = _core_get(typ, "name", None)
+        is_code = _core_eq(type_name, "code")
+        language = _core_get(typ, "language", None)
+        same_as_language = _core_eq(description, language)
+        implicit_code_description = _core_and(is_code, same_as_language)
+        not_implicit = _core_not(implicit_code_description)
+        explicit_description = _core_and(has_description, not_implicit)
+        if explicit_description:
+            escaped = _signature_escape_string_impl(description)
+            entry = _core_string_format("{} \"{}\"", entry, escaped)
+        else:
+            pass
+        parts.append(entry)
+    body = _core_string_join(", ", parts)
+    prefix = _core_add("{ ", body)
+    result = _core_add(prefix, " }")
+    return result
+
+
+def _signature_render_field_impl(field: Field) -> str:
+    _core_coverage_mark("_signature_render_field_impl")
+    name = _core_get(field, "name", None)
+    optional = _core_get(field, "is_optional", False)
+    internal = _core_get(field, "is_internal", False)
+    state = {}
+    state["value"] = name
+    if optional:
+        current = _core_get(state, "value", None)
+        marked = _core_string_format("{}?", current)
+        state["value"] = marked
+    else:
+        pass
+    if internal:
+        current = _core_get(state, "value", None)
+        marked = _core_string_format("{}!", current)
+        state["value"] = marked
+    else:
+        pass
+    typ = _core_get(field, "type", None)
+    cached = _core_get(field, "is_cached", False)
+    rendered_type = _signature_render_type_impl(typ, cached)
+    field_name = _core_get(state, "value", None)
+    entry = _core_string_format("{}:{}", field_name, rendered_type)
+    description = _core_get(field, "description", None)
+    has_description = _core_truthy(description)
+    type_name = _core_get(typ, "name", None)
+    is_code = _core_eq(type_name, "code")
+    language = _core_get(typ, "language", None)
+    same_as_language = _core_eq(description, language)
+    implicit_code_description = _core_and(is_code, same_as_language)
+    not_implicit = _core_not(implicit_code_description)
+    explicit_description = _core_and(has_description, not_implicit)
+    if explicit_description:
+        escaped = _signature_escape_string_impl(description)
+        entry = _core_string_format("{} \"{}\"", entry, escaped)
+    else:
+        pass
+    return entry
 
 
 def _signature_validate_field_shape_impl(field: Field, output: bool, nested: bool) -> None:
@@ -740,7 +1718,9 @@ def _signature_validate_field_shape_impl(field: Field, output: bool, nested: boo
         pass
     is_class = _core_eq(type_name, "class")
     is_input = _core_not(output)
-    input_class = _core_and(is_class, is_input)
+    top_level = _core_not(nested)
+    input_class_base = _core_and(is_class, is_input)
+    input_class = _core_and(input_class_base, top_level)
     if input_class:
         error = _core_signature_error("Input field cannot use the \"class\" type")
         raise error

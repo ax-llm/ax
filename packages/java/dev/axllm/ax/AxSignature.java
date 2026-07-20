@@ -32,6 +32,8 @@ public final class AxSignature {
     return false;
   }
 
+  @Override public String toString() { return String.valueOf(Core.signature_to_string(this)); }
+
   public java.util.Map<String, Object> toJsonSchema(String target, java.util.Map<String, Object> options) {
     List<Field> fields = "inputs".equals(target) ? inputs : outputs;
     return Core.asMap(Core.to_json_schema(fields, "Schema", options == null ? java.util.Map.of() : options));

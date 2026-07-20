@@ -1,0 +1,74 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "requestInfo",
+        "title": "Request Info",
+        "type": {
+          "fields": {
+            "severity": {
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": false,
+              "name": "severity",
+              "title": "Severity",
+              "type": {
+                "isArray": false,
+                "name": "class",
+                "options": ["high", "low"]
+              }
+            }
+          },
+          "isArray": false,
+          "name": "object"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "reviewInfo",
+        "title": "Review Info",
+        "type": {
+          "fields": {
+            "verdictNote": {
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": false,
+              "name": "verdictNote",
+              "title": "Verdict Note",
+              "type": {
+                "isArray": false,
+                "name": "string"
+              }
+            },
+            "level": {
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": false,
+              "name": "level",
+              "title": "Level",
+              "type": {
+                "isArray": true,
+                "name": "class",
+                "options": ["a", "b", "c"]
+              }
+            }
+          },
+          "isArray": false,
+          "name": "object"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "expected_to_string": "requestInfo:object{ severity:class \"high | low\" } -> reviewInfo:object{ verdictNote:string, level:class[] \"a | b | c\" }",
+  "kind": "signature",
+  "name": "nested-object-class",
+  "signature": "requestInfo:object{ severity:class \"high, low\" } -> reviewInfo:object{ verdictNote:string, level:class[] \"a | b | c\" }"
+}

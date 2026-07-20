@@ -139,6 +139,8 @@ struct Core {
   static Value string_split_trim_nonempty(Value value, Value sep);
   static Value string_find_outside_quotes(Value text, Value needle);
   static Value string_split_outside_quotes(Value text, Value sep);
+  static Value string_split_top_level(Value text, Value sep);
+  static Value string_extract_leading_group(Value text, Value open, Value close);
   static Value string_consume_optional_quoted_prefix(Value text);
   static Value string_extract_quoted_suffix(Value text);
   static Value string_str(Value value);
@@ -934,6 +936,7 @@ Value object(std::initializer_list<std::pair<std::string, Value>> entries);
 Value array(std::initializer_list<Value> entries);
 Value s(const std::string& signature);
 Value signature(const std::string& source);
+std::string to_string(const Value& signature);
 AxGen ax(const std::string& signature, Value options = Value::object());
 AxGen ax(const char* signature, Value options = Value::object());
 AxGen ax(Value signature, Value options = Value::object());

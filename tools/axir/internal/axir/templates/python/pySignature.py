@@ -3,6 +3,7 @@ import os
 
 from dataclasses import dataclass, field as dataclass_field
 import copy
+import json
 import re
 from typing import Any
 # AXIR_CORE_IMPORTS
@@ -44,6 +45,7 @@ class FieldType:
     pattern: str | None = None
     pattern_description: str | None = None
     format: str | None = None
+    language: str | None = None
     description: str | None = None
 
 
@@ -266,7 +268,7 @@ class AxSignature:
         return True
 
     def __str__(self):
-        return ", ".join(_render_field(f) for f in self.input_fields) + " -> " + ", ".join(_render_field(f) for f in self.output_fields)
+        return signature_to_string(self)
 
 
 def s(signature: str) -> AxSignature:
@@ -286,7 +288,9 @@ def _core_len(value): return len(value)
 def _core_contains(container, item): return False if container is None else item in container
 def _core_truthy(value): return bool(value)
 def _core_is_none(value): return value is None
+def _core_is_not_none(value): return value is not None
 def _core_none(): return None
+def _core_coalesce(value, fallback): return fallback if value is None else value
 
 
 def _core_signature_error(message):
@@ -315,12 +319,34 @@ def _core_get(target, key, default=None):
     return getattr(target, key, default)
 
 
+def _core_map_merge(left, right):
+    merged = dict(left or {})
+    merged.update(right or {})
+    return merged
+
+
+def _core_map_contains(values, key):
+    return isinstance(values, dict) and key in values
+
+
+def _core_json_parse(value):
+    return json.loads(str(value))
+
+
 def _core_regex_match(pattern, value):
     return isinstance(value, str) and re.search(pattern, value) is not None
 
 
 def _core_string_format(template, *args):
     return str(template).format(*args)
+
+
+def _core_string_join(sep, values):
+    return str(sep).join(str(item) for item in values)
+
+
+def _core_string_starts_with(value, prefix):
+    return isinstance(value, str) and value.startswith(str(prefix))
 
 
 def _core_string_slice(value, start, end=None):
@@ -420,6 +446,92 @@ def _core_string_split_outside_quotes(text, sep):
     return items
 
 
+def _core_string_split_top_level(text, sep):
+    text, sep = str(text), str(sep)
+    items, current = [], []
+    quote, escaped, paren_depth, brace_depth = None, False, 0, 0
+    index = 0
+    while index < len(text):
+        ch = text[index]
+        if escaped:
+            current.append(ch)
+            escaped = False
+            index += 1
+            continue
+        if ch == "\\":
+            current.append(ch)
+            escaped = True
+            index += 1
+            continue
+        if quote:
+            current.append(ch)
+            if ch == quote:
+                quote = None
+            index += 1
+            continue
+        if ch in ("'", '"'):
+            current.append(ch)
+            quote = ch
+            index += 1
+            continue
+        if ch == "(":
+            paren_depth += 1
+        elif ch == ")" and paren_depth > 0:
+            paren_depth -= 1
+        elif ch == "{":
+            brace_depth += 1
+        elif ch == "}" and brace_depth > 0:
+            brace_depth -= 1
+        if sep and paren_depth == 0 and brace_depth == 0 and text.startswith(sep, index):
+            items.append("".join(current).strip())
+            current = []
+            index += len(sep)
+            continue
+        current.append(ch)
+        index += 1
+    if quote:
+        raise AxSignatureError("Unterminated string")
+    items.append("".join(current).strip())
+    return items
+
+
+def _core_string_extract_leading_group(text, open_char, close_char):
+    text, open_char, close_char = str(text), str(open_char), str(close_char)
+    if not open_char or not close_char or not text.startswith(open_char):
+        return {"found": False, "balanced": True, "group": "", "rest": text}
+    quote, escaped, depth = None, False, 0
+    index = 0
+    while index < len(text):
+        ch = text[index]
+        if escaped:
+            escaped = False
+        elif ch == "\\":
+            escaped = True
+        elif quote:
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif text.startswith(open_char, index):
+            depth += 1
+            index += len(open_char) - 1
+        elif text.startswith(close_char, index):
+            depth -= 1
+            if depth == 0:
+                start = len(open_char)
+                return {
+                    "found": True,
+                    "balanced": True,
+                    "group": text[start:index],
+                    "rest": text[index + len(close_char):],
+                }
+            index += len(close_char) - 1
+        index += 1
+    if quote:
+        raise AxSignatureError("Unterminated string")
+    return {"found": True, "balanced": False, "group": text[len(open_char):], "rest": ""}
+
+
 def _core_consume_quoted_prefix(text):
     if not text or text[0] not in ("'", '"'):
         return {"value": None, "rest": text, "found": False}
@@ -475,6 +587,15 @@ def _core_record_new(name, values):
             is_array=bool(values.get("is_array", values.get("isArray", False))),
             options=values.get("options"),
             fields=values.get("fields"),
+            min_length=values.get("min_length", values.get("minLength")),
+            max_length=values.get("max_length", values.get("maxLength")),
+            minimum=values.get("minimum"),
+            maximum=values.get("maximum"),
+            pattern=values.get("pattern"),
+            pattern_description=values.get("pattern_description", values.get("patternDescription")),
+            format=values.get("format"),
+            language=values.get("language"),
+            description=values.get("description"),
         )
     if name == "Field":
         return Field(
@@ -509,12 +630,6 @@ def _title(name: str) -> str:
         out.append(ch)
     text = "".join(out).strip()
     return text[:1].upper() + text[1:]
-
-
-def _render_field(field: Field) -> str:
-    marker = ("?" if field.is_optional else "") + ("!" if field.is_internal else "")
-    typ = field.type.name + ("[]" if field.type.is_array else "")
-    return f"{field.name}{marker}:{typ}"
 
 
 # AXIR_CORE_SIGNATURE_FUNCTIONS

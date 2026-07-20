@@ -1,0 +1,72 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "profileInfo",
+        "title": "Profile Info",
+        "type": {
+          "fields": {
+            "id": {
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": false,
+              "name": "id",
+              "title": "Id",
+              "type": {
+                "isArray": false,
+                "name": "string"
+              }
+            },
+            "age": {
+              "description": "in years",
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": true,
+              "name": "age",
+              "title": "Age",
+              "type": {
+                "description": "in years",
+                "isArray": false,
+                "name": "number"
+              }
+            },
+            "nickName": {
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": false,
+              "name": "nickName",
+              "title": "Nick Name",
+              "type": {
+                "isArray": false,
+                "name": "string"
+              }
+            }
+          },
+          "isArray": false,
+          "name": "object"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "replyText",
+        "title": "Reply Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "expected_to_string": "profileInfo:object{ id:string, age?:number \"in years\", nickName:string } -> replyText:string",
+  "kind": "signature",
+  "name": "nested-object-simple",
+  "signature": "profileInfo:object{ id:string, age?:number \"in years\", nickName } -> replyText:string"
+}

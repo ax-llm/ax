@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "image type is not allowed in nested object fields",
+  "kind": "signature_error",
+  "name": "error-object-media-nested",
+  "signature": "profileInfo:object{ photo:image } -> replyText:string",
+  "ts_error_message": "Invalid Signature: Object field \"profileInfo.photo\": image type is not allowed in nested object fields",
+  "ts_error_name": "AxSignatureValidationError"
+}

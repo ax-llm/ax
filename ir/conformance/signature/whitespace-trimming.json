@@ -28,6 +28,7 @@
       }
     ]
   },
+  "expected_to_string": "question:string -> answer:number",
   "kind": "signature",
   "name": "whitespace-trimming",
   "signature": "\t question:string  ->  answer:number \n"

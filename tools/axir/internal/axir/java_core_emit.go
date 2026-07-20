@@ -352,6 +352,8 @@ var coreIntrinsicJava = map[CoreIntrinsic]string{
 	IntrinsicStringSplitTrim:        "Core.stringSplitTrimNonEmpty",
 	IntrinsicStringFindQuoted:       "Core.stringFindOutsideQuotes",
 	IntrinsicStringSplitQuoted:      "Core.stringSplitOutsideQuotes",
+	IntrinsicStringSplitTopLevel:    "Core.stringSplitTopLevel",
+	IntrinsicStringExtractGroup:     "Core.stringExtractLeadingGroup",
 	IntrinsicStringConsumeOpt:       "Core.stringConsumeOptionalQuotedPrefix",
 	IntrinsicStringExtractSuf:       "Core.stringExtractQuotedSuffix",
 	IntrinsicStringSplit:            "Core.stringSplit",

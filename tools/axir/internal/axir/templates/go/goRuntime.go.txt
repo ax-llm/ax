@@ -1024,6 +1024,12 @@ func _core_string_find_outside_quotes(text Value, needle Value) (Value, error) {
 func _core_string_split_outside_quotes(text Value, sep Value) (Value, error) {
 	return splitOutsideQuotes(display(text), display(sep))
 }
+func _core_string_split_top_level(text Value, sep Value) (Value, error) {
+	return splitTopLevel(display(text), display(sep))
+}
+func _core_string_extract_leading_group(text Value, open Value, close Value) (Value, error) {
+	return extractLeadingGroup(display(text), display(open), display(close))
+}
 func _core_string_consume_optional_quoted_prefix(text Value) (Value, error) {
 	return consumeOptionalQuotedPrefix(display(text))
 }
@@ -1279,6 +1285,7 @@ type FieldType struct {
 	Pattern            string
 	PatternDescription string
 	Format             string
+	Language           string
 	Description        string
 }
 
@@ -1312,6 +1319,7 @@ func (s AxSignature) ToJSONSchema(options map[string]Value) Value {
 }
 func (s AxSignature) GetInputFields() []Field  { return append([]Field(nil), s.Inputs...) }
 func (s AxSignature) GetOutputFields() []Field { return append([]Field(nil), s.Outputs...) }
+func (s AxSignature) String() string { return display(mustCore(signature_to_string(s))) }
 func (s AxSignature) toMap() map[string]Value {
 	inputs := Array()
 	for _, f := range s.Inputs {
@@ -1349,7 +1357,7 @@ func (t FieldType) toMap() map[string]Value {
 	for _, o := range t.Options {
 		opts = append(opts, o)
 	}
-	return Object("name", t.Name, "isArray", t.IsArray, "options", opts, "fields", fields, "minLength", t.MinLength, "maxLength", t.MaxLength, "minimum", t.Minimum, "maximum", t.Maximum, "pattern", nilIfEmpty(t.Pattern), "patternDescription", nilIfEmpty(t.PatternDescription), "format", nilIfEmpty(t.Format), "description", nilIfEmpty(t.Description))
+	return Object("name", t.Name, "isArray", t.IsArray, "options", opts, "fields", fields, "minLength", t.MinLength, "maxLength", t.MaxLength, "minimum", t.Minimum, "maximum", t.Maximum, "pattern", nilIfEmpty(t.Pattern), "patternDescription", nilIfEmpty(t.PatternDescription), "format", nilIfEmpty(t.Format), "language", nilIfEmpty(t.Language), "description", nilIfEmpty(t.Description))
 }
 
 func recordNew(name string, values map[string]Value) Value {
@@ -1423,6 +1431,7 @@ func fieldTypeFromValue(value Value) FieldType {
 	t.Pattern = display(coreGet(m, "pattern", ""))
 	t.PatternDescription = display(coreGet(m, "patternDescription", coreGet(m, "pattern_description", "")))
 	t.Format = display(coreGet(m, "format", ""))
+	t.Language = display(coreGet(m, "language", ""))
 	t.Description = display(coreGet(m, "description", ""))
 	return t
 }
@@ -6394,7 +6403,13 @@ func runConformanceFixture(fixture map[string]Value) {
 	case "signature_error":
 		expectFixtureError(func() { _ = conformanceBuildSignature(fixture) }, fixture)
 	case "signature":
-		assertEqual(conformanceSignaturePayload(conformanceBuildSignature(fixture)), coreGet(fixture, "expected_signature", nil), "signature")
+		sig := conformanceBuildSignature(fixture)
+		assertEqual(conformanceSignaturePayload(sig), coreGet(fixture, "expected_signature", nil), "signature")
+		if expected := coreGet(fixture, "expected_to_string", nil); expected != nil {
+			rendered := sig.String()
+			assertEqual(rendered, expected, "signature toString")
+			assertEqual(conformanceSignaturePayload(NewSignature(rendered)), coreGet(fixture, "expected_signature", nil), "signature round-trip")
+		}
 	case "json_schema":
 		sig := conformanceBuildSignature(fixture)
 		fields := sig.Outputs
@@ -6995,7 +7010,7 @@ func conformanceSignaturePayload(sig AxSignature) Value {
 	for _, f := range sig.Outputs {
 		outputs = append(outputs, conformanceFieldPayload(f))
 	}
-	return Object("description", nil, "inputs", inputs, "outputs", outputs)
+	return Object("description", nilIfEmpty(sig.Description), "inputs", inputs, "outputs", outputs)
 }
 func conformanceFieldPayload(f Field) Value {
 	out := Object("name", f.Name, "title", f.Title, "type", conformanceFieldTypePayload(f.Type), "isOptional", f.IsOptional, "isInternal", f.IsInternal, "isCached", f.IsCached)
@@ -7047,6 +7062,9 @@ func conformanceFieldTypePayload(t FieldType) Value {
 	}
 	if t.Format != "" {
 		coreSet(out, "format", t.Format)
+	}
+	if t.Language != "" {
+		coreSet(out, "language", t.Language)
 	}
 	if t.Description != "" {
 		coreSet(out, "description", t.Description)
@@ -9954,6 +9972,60 @@ func splitOutsideQuotes(s string, sep string) (Value, error) {
 		out = append(out, item)
 	}
 	return out, nil
+}
+func splitTopLevel(s string, sep string) (Value, error) {
+	out := Array()
+	var cur strings.Builder
+	var quote byte
+	escaped := false
+	parenDepth, braceDepth := 0, 0
+	for i := 0; i < len(s); {
+		ch := s[i]
+		if escaped { cur.WriteByte(ch); escaped = false; i++; continue }
+		if ch == '\\' { cur.WriteByte(ch); escaped = true; i++; continue }
+		if quote != 0 { cur.WriteByte(ch); if ch == quote { quote = 0 }; i++; continue }
+		if ch == '\'' || ch == '"' { cur.WriteByte(ch); quote = ch; i++; continue }
+		switch ch {
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 { parenDepth-- }
+		case '{':
+			braceDepth++
+		case '}':
+			if braceDepth > 0 { braceDepth-- }
+		}
+		if sep != "" && parenDepth == 0 && braceDepth == 0 && strings.HasPrefix(s[i:], sep) {
+			out = append(out, strings.TrimSpace(cur.String())); cur.Reset(); i += len(sep); continue
+		}
+		cur.WriteByte(ch); i++
+	}
+	if quote != 0 { return nil, AxError{Category: "signature", Message: "Unterminated string"} }
+	out = append(out, strings.TrimSpace(cur.String()))
+	return out, nil
+}
+func extractLeadingGroup(s string, open string, close string) (Value, error) {
+	if open == "" || close == "" || !strings.HasPrefix(s, open) {
+		return Object("found", false, "balanced", true, "group", "", "rest", s), nil
+	}
+	var quote byte
+	escaped := false
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if escaped { escaped = false; continue }
+		if ch == '\\' { escaped = true; continue }
+		if quote != 0 { if ch == quote { quote = 0 }; continue }
+		if ch == '\'' || ch == '"' { quote = ch; continue }
+		if strings.HasPrefix(s[i:], open) { depth++; i += len(open) - 1; continue }
+		if strings.HasPrefix(s[i:], close) {
+			depth--
+			if depth == 0 { return Object("found", true, "balanced", true, "group", s[len(open):i], "rest", s[i+len(close):]), nil }
+			i += len(close) - 1
+		}
+	}
+	if quote != 0 { return nil, AxError{Category: "signature", Message: "Unterminated string"} }
+	return Object("found", true, "balanced", false, "group", s[len(open):], "rest", ""), nil
 }
 func consumeOptionalQuotedPrefix(s string) (Value, error) {
 	if s == "" || (s[0] != '\'' && s[0] != '"') {

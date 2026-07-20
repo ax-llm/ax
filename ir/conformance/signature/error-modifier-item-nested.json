@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "\"item\" is not supported inside object fields",
+  "kind": "signature_error",
+  "name": "error-modifier-item-nested",
+  "signature": "profileInfo:object{ tags:string(item \"x\")[] } -> replyText:string",
+  "ts_error_message": "Invalid Signature: Field \"profileInfo.tags\": \"item\" is not supported inside object fields",
+  "ts_error_name": "AxSignatureValidationError"
+}

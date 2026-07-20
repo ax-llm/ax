@@ -28,6 +28,7 @@
       }
     ]
   },
+  "expected_to_string": "question:string -> answer:string",
   "kind": "signature",
   "name": "default-string-type",
   "signature": "question -> answer"

@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "trailing comma in object type",
+  "kind": "signature_error",
+  "name": "error-object-trailing-comma",
+  "signature": "profileInfo:object{ id:string, } -> replyText:string",
+  "ts_error_message": "Invalid Signature: Field \"profileInfo\": trailing comma in object type",
+  "ts_error_name": "AxSignatureValidationError"
+}

@@ -42,6 +42,8 @@ var coreIntrinsicRust = map[CoreIntrinsic]string{
 	"intrinsic.string.words":                          "core_string_words",
 	"intrinsic.string.split_trim_nonempty":            "core_string_split_trim_nonempty",
 	"intrinsic.string.split_outside_quotes":           "core_string_split_outside_quotes",
+	"intrinsic.string.split_top_level":                 "core_string_split_top_level",
+	"intrinsic.string.extract_leading_group":           "core_string_extract_leading_group",
 	"intrinsic.string.split_once":                     "core_string_split_once",
 	"intrinsic.string.remove_suffix":                  "core_string_remove_suffix",
 	"intrinsic.string.find_outside_quotes":            "core_string_find_outside_quotes",

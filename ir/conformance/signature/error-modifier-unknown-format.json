@@ -1,0 +1,9 @@
+{
+  "expected_error_category": "signature",
+  "expected_error_contains": "unknown format \"phone\"",
+  "kind": "signature_error",
+  "name": "error-modifier-unknown-format",
+  "signature": "contactEmail:string(format phone) -> replyText:string",
+  "ts_error_message": "Invalid Signature: Field \"contactEmail\": unknown format \"phone\"",
+  "ts_error_name": "AxSignatureValidationError"
+}

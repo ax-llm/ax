@@ -1,0 +1,75 @@
+{
+  "expected_signature": {
+    "description": null,
+    "inputs": [
+      {
+        "name": "profileInfo",
+        "title": "Profile Info",
+        "type": {
+          "fields": {
+            "userAge": {
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": false,
+              "name": "userAge",
+              "title": "User Age",
+              "type": {
+                "isArray": false,
+                "minimum": 0,
+                "name": "number"
+              }
+            },
+            "mail": {
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": false,
+              "name": "mail",
+              "title": "Mail",
+              "type": {
+                "format": "email",
+                "isArray": false,
+                "name": "string"
+              }
+            },
+            "snip": {
+              "description": "python",
+              "isCached": false,
+              "isInternal": false,
+              "isOptional": false,
+              "name": "snip",
+              "title": "Snip",
+              "type": {
+                "description": "python",
+                "isArray": false,
+                "language": "python",
+                "name": "code"
+              }
+            }
+          },
+          "isArray": false,
+          "name": "object"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ],
+    "outputs": [
+      {
+        "name": "replyText",
+        "title": "Reply Text",
+        "type": {
+          "isArray": false,
+          "name": "string"
+        },
+        "isOptional": false,
+        "isInternal": false,
+        "isCached": false
+      }
+    ]
+  },
+  "expected_to_string": "profileInfo:object{ userAge:number(min 0), mail:string(format email), snip:code(python) } -> replyText:string",
+  "kind": "signature",
+  "name": "nested-object-constraints",
+  "signature": "profileInfo:object{ userAge:number(min 0), mail:string(format email), snip:code(python) } -> replyText:string"
+}

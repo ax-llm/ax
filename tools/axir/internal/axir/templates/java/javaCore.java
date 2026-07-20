@@ -141,6 +141,7 @@ final class Core {
         case "pattern" -> t.pattern;
         case "pattern_description", "patternDescription" -> t.patternDescription;
         case "format" -> t.format;
+        case "language" -> t.language;
         case "description" -> t.description;
         default -> defaultValue;
       };
@@ -353,6 +354,54 @@ final class Core {
     String item = cur.toString().trim(); if (!item.isEmpty()) out.add(item);
     return out;
   }
+  static Object stringSplitTopLevel(Object text, Object sep) {
+    String s = String.valueOf(text), delimiter = String.valueOf(sep);
+    List<Object> out = new ArrayList<>(); StringBuilder cur = new StringBuilder(); Character quote = null; boolean escaped = false;
+    int parenDepth = 0, braceDepth = 0;
+    for (int i = 0; i < s.length();) {
+      char ch = s.charAt(i);
+      if (escaped) { cur.append(ch); escaped = false; i++; continue; }
+      if (ch == '\\') { cur.append(ch); escaped = true; i++; continue; }
+      if (quote != null) { cur.append(ch); if (ch == quote) quote = null; i++; continue; }
+      if (ch == '\'' || ch == '"') { cur.append(ch); quote = ch; i++; continue; }
+      if (ch == '(') parenDepth++;
+      else if (ch == ')' && parenDepth > 0) parenDepth--;
+      else if (ch == '{') braceDepth++;
+      else if (ch == '}' && braceDepth > 0) braceDepth--;
+      if (!delimiter.isEmpty() && parenDepth == 0 && braceDepth == 0 && s.startsWith(delimiter, i)) {
+        out.add(cur.toString().trim()); cur = new StringBuilder(); i += delimiter.length(); continue;
+      }
+      cur.append(ch); i++;
+    }
+    if (quote != null) throw new AxSignatureError("Unterminated string");
+    out.add(cur.toString().trim());
+    return out;
+  }
+  static Object stringExtractLeadingGroup(Object text, Object open, Object close) {
+    String s = String.valueOf(text), opening = String.valueOf(open), closing = String.valueOf(close);
+    Map<String, Object> out = new LinkedHashMap<>();
+    if (opening.isEmpty() || closing.isEmpty() || !s.startsWith(opening)) {
+      out.put("found", false); out.put("balanced", true); out.put("group", ""); out.put("rest", s); return out;
+    }
+    Character quote = null; boolean escaped = false; int depth = 0;
+    for (int i = 0; i < s.length(); i++) {
+      char ch = s.charAt(i);
+      if (escaped) { escaped = false; continue; }
+      if (ch == '\\') { escaped = true; continue; }
+      if (quote != null) { if (ch == quote) quote = null; continue; }
+      if (ch == '\'' || ch == '"') { quote = ch; continue; }
+      if (s.startsWith(opening, i)) { depth++; i += opening.length() - 1; continue; }
+      if (s.startsWith(closing, i)) {
+        depth--;
+        if (depth == 0) {
+          out.put("found", true); out.put("balanced", true); out.put("group", s.substring(opening.length(), i)); out.put("rest", s.substring(i + closing.length())); return out;
+        }
+        i += closing.length() - 1;
+      }
+    }
+    if (quote != null) throw new AxSignatureError("Unterminated string");
+    out.put("found", true); out.put("balanced", false); out.put("group", s.substring(opening.length())); out.put("rest", ""); return out;
+  }
   static Object stringConsumeOptionalQuotedPrefix(Object text) {
     String s = String.valueOf(text);
     Map<String, Object> out = new LinkedHashMap<>();
@@ -432,6 +481,7 @@ final class Core {
     t.pattern = (String) v.get("pattern");
     t.patternDescription = (String) v.getOrDefault("patternDescription", v.get("pattern_description"));
     t.format = (String) v.get("format");
+    t.language = (String) v.get("language");
     t.description = (String) v.get("description");
     return t;
   }

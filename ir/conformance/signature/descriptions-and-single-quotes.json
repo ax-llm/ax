@@ -42,6 +42,7 @@
       }
     ]
   },
+  "expected_to_string": "question:string \"double quote\", context:string \"single quote\" -> answer:string \"result\"",
   "kind": "signature",
   "name": "descriptions-and-single-quotes",
   "signature": "question:string \"double quote\", context:string 'single quote' -> answer:string \"result\""

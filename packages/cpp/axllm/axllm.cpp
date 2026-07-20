@@ -795,6 +795,61 @@ Value Core::string_split_outside_quotes(Value text, Value sep) {
   if (truthy(trimmed)) out.push_back(trimmed);
   return Value(out);
 }
+Value Core::string_split_top_level(Value text, Value sep) {
+  std::string s = str(text), delimiter = str(sep), cur;
+  Array out;
+  char quote = 0;
+  bool escaped = false;
+  int paren_depth = 0, brace_depth = 0;
+  for (size_t i = 0; i < s.size();) {
+    char ch = s[i];
+    if (escaped) { cur.push_back(ch); escaped = false; ++i; continue; }
+    if (ch == '\\') { cur.push_back(ch); escaped = true; ++i; continue; }
+    if (quote != 0) { cur.push_back(ch); if (ch == quote) quote = 0; ++i; continue; }
+    if (ch == '\'' || ch == '"') { cur.push_back(ch); quote = ch; ++i; continue; }
+    if (ch == '(') ++paren_depth;
+    else if (ch == ')' && paren_depth > 0) --paren_depth;
+    else if (ch == '{') ++brace_depth;
+    else if (ch == '}' && brace_depth > 0) --brace_depth;
+    if (!delimiter.empty() && paren_depth == 0 && brace_depth == 0 && s.compare(i, delimiter.size(), delimiter) == 0) {
+      out.push_back(string_trim(cur));
+      cur.clear();
+      i += delimiter.size();
+      continue;
+    }
+    cur.push_back(ch);
+    ++i;
+  }
+  if (quote != 0) throw AxError("signature", "Unterminated string");
+  out.push_back(string_trim(cur));
+  return Value(out);
+}
+Value Core::string_extract_leading_group(Value text, Value open, Value close) {
+  std::string s = str(text), opening = str(open), closing = str(close);
+  if (opening.empty() || closing.empty() || s.rfind(opening, 0) != 0) {
+    return Value(Object{{"found", false}, {"balanced", true}, {"group", ""}, {"rest", s}});
+  }
+  char quote = 0;
+  bool escaped = false;
+  int depth = 0;
+  for (size_t i = 0; i < s.size(); ++i) {
+    char ch = s[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch == '\\') { escaped = true; continue; }
+    if (quote != 0) { if (ch == quote) quote = 0; continue; }
+    if (ch == '\'' || ch == '"') { quote = ch; continue; }
+    if (s.compare(i, opening.size(), opening) == 0) { ++depth; i += opening.size() - 1; continue; }
+    if (s.compare(i, closing.size(), closing) == 0) {
+      --depth;
+      if (depth == 0) {
+        return Value(Object{{"found", true}, {"balanced", true}, {"group", s.substr(opening.size(), i - opening.size())}, {"rest", s.substr(i + closing.size())}});
+      }
+      i += closing.size() - 1;
+    }
+  }
+  if (quote != 0) throw AxError("signature", "Unterminated string");
+  return Value(Object{{"found", true}, {"balanced", false}, {"group", s.substr(opening.size())}, {"rest", ""}});
+}
 Value Core::string_consume_optional_quoted_prefix(Value text) {
   std::string s = str(text);
   Object out;
@@ -1228,10 +1283,16 @@ Value Core::record_new(Value name, Value values) {
     Object out;
     out["name"] = in.count("name") ? in["name"] : Value("string");
     out["isArray"] = get_key(values, "is_array", false);
-    for (const auto& key : {"options", "fields", "minLength", "maxLength", "minimum", "maximum", "pattern", "patternDescription", "format", "description"}) {
+    for (const auto& key : {"options", "fields", "minimum", "maximum", "pattern", "format", "language", "description"}) {
       if (in.count(key)) out[key] = in[key];
     }
-    for (const auto& kv : in) if (!out.count(kv.first) && kv.first != "is_array") out[kv.first] = kv.second;
+    for (const auto& keys : {std::pair{"minLength", "min_length"}, std::pair{"maxLength", "max_length"}, std::pair{"patternDescription", "pattern_description"}}) {
+      auto value = get_key(values, keys.second);
+      if (!value.is_null()) out[keys.first] = value;
+    }
+    for (const auto& kv : in) {
+      if (!out.count(kv.first) && kv.first != "is_array" && kv.first != "min_length" && kv.first != "max_length" && kv.first != "pattern_description") out[kv.first] = kv.second;
+    }
     return Value(out);
   }
   if (type == "Field") {
@@ -1958,6 +2019,13 @@ Value Core::_signature_parse_impl(Value signature) {
   Value arrow = Core::string_find_outside_quotes(body, Value("->"));
   Value missing_arrow = Core::lt(arrow, Value(0));
   if (Core::truthy(missing_arrow)) {
+    Value open_brace = Core::string_find_outside_quotes(body, Value("{"));
+    Value brace_missing = Core::lt(open_brace, Value(0));
+    Value has_open_brace = Core::not_(brace_missing);
+    if (Core::truthy(has_open_brace)) {
+      Value error = Core::signature_error(Value("unbalanced \"{\" in object type"));
+      throw Core::as_error(error);
+    }
     Value error = Core::signature_error(Value("Expected \"->\""));
     throw Core::as_error(error);
   }
@@ -1990,9 +2058,15 @@ Value Core::_signature_parse_impl(Value signature) {
 
 Value Core::_signature_parse_fields_impl(Value text, Value output) {
   axir_coverage_mark("_signature_parse_fields_impl");
-  Value parts = Core::string_split_outside_quotes(text, Value(","));
+  Value parts = Core::string_split_top_level(text, Value(","));
   Value fields = Value::array();
   for (auto part : Core::iter(parts)) {
+    Value trimmed = Core::string_trim(part);
+    Value empty = Core::eq(trimmed, Value(""));
+    if (Core::truthy(empty)) {
+      Value error = Core::signature_error(Value("Unexpected content after signature"));
+      throw Core::as_error(error);
+    }
     Value field = Core::_signature_parse_field_impl(part, output);
     Core::append(fields, field);
   }
@@ -2001,90 +2075,879 @@ Value Core::_signature_parse_fields_impl(Value text, Value output) {
 
 Value Core::_signature_parse_field_impl(Value raw, Value output) {
   axir_coverage_mark("_signature_parse_field_impl");
+  Value field = Core::_signature_parse_field_common_impl(raw, output, Value(false), Value(""));
+  return field;
+}
+
+Value Core::_signature_parse_field_common_impl(Value raw, Value output, Value nested, Value parent) {
+  axir_coverage_mark("_signature_parse_field_common_impl");
   Value text = Core::string_trim(raw);
-  Value quoted_info = Core::string_extract_quoted_suffix(text);
-  Value quoted = Core::get(quoted_info, Value("value"), Value());
-  Value rest_after_quote = Core::get(quoted_info, Value("rest"), Value());
-  Value rest_after_quote_trimmed = Core::string_trim(rest_after_quote);
-  Value has_extra = Core::truthy_value(rest_after_quote_trimmed);
-  if (Core::truthy(has_extra)) {
-    Value error = Core::signature_error(Value("Unexpected content after signature"));
-    throw Core::as_error(error);
-  }
-  Value head_raw = Core::get(quoted_info, Value("head"), Value());
-  Value head = Core::string_trim(head_raw);
-  Value head_parts = Core::string_split_once(head, Value(":"));
+  Value head_parts = Core::string_split_once(text, Value(":"));
+  Value has_type = Core::get(head_parts, Value("found"), Value(false));
   Value name_part_raw = Core::get(head_parts, Value("left"), Value());
   Value type_part_raw = Core::get(head_parts, Value("right"), Value());
-  Value name_part = Core::string_trim(name_part_raw);
-  Value type_part_trimmed = Core::string_trim(type_part_raw);
-  Value type_part = Core::string_default_if_empty(type_part_trimmed, Value("string"));
+  Value state = Value::object();
+  Core::set(state, Value("name_part"), name_part_raw);
+  Value none = Core::none();
+  Core::set(state, Value("description"), none);
+  Core::set(state, Value("is_cached"), Value(false));
+  Value default_type_attrs = Value::object();
+  Core::set(default_type_attrs, Value("name"), Value("string"));
+  Core::set(default_type_attrs, Value("is_array"), Value(false));
+  Value default_type = Core::record_new(Value("FieldType"), default_type_attrs);
+  Core::set(state, Value("type"), default_type);
+  if (Core::truthy(has_type)) {
+    Value section_state = Value::object();
+    Core::set(section_state, Value("value"), Value("input"));
+    if (Core::truthy(output)) {
+      Core::set(section_state, Value("value"), Value("output"));
+    }
+    if (Core::truthy(nested)) {
+      Core::set(section_state, Value("value"), Value("nested"));
+    }
+    Value section = Core::get(section_state, Value("value"), Value());
+    Value name_for_error = Core::string_trim(name_part_raw);
+    if (Core::truthy(nested)) {
+      name_for_error = Core::string_format(Value("{}.{}"), parent, name_for_error);
+    }
+    Value parsed_type = Core::_signature_parse_type_expr_impl(type_part_raw, section, name_for_error);
+    Value parsed_field_type = Core::get(parsed_type, Value("type"), Value());
+    Value parsed_cached = Core::get(parsed_type, Value("is_cached"), Value(false));
+    Core::set(state, Value("type"), parsed_field_type);
+    Core::set(state, Value("is_cached"), parsed_cached);
+    Value language = Core::get(parsed_field_type, Value("language"), Value());
+    Value parsed_rest = Core::get(parsed_type, Value("rest"), Value());
+    Value description = Core::_signature_parse_description_impl(parsed_rest, language);
+    Core::set(state, Value("description"), description);
+  }
+  if (!Core::truthy(has_type)) {
+    Value quoted_info = Core::string_extract_quoted_suffix(name_part_raw);
+    Value quoted = Core::get(quoted_info, Value("value"), Value());
+    Value rest_after_quote_raw = Core::get(quoted_info, Value("rest"), Value());
+    Value rest_after_quote = Core::string_trim(rest_after_quote_raw);
+    Value has_extra = Core::truthy_value(rest_after_quote);
+    if (Core::truthy(has_extra)) {
+      Value error = Core::signature_error(Value("Unexpected content after signature"));
+      throw Core::as_error(error);
+    }
+    Value quoted_head = Core::get(quoted_info, Value("head"), Value());
+    Core::set(state, Value("name_part"), quoted_head);
+    Core::set(state, Value("description"), quoted);
+  }
+  Value name_part_value = Core::get(state, Value("name_part"), Value());
+  Value name_part = Core::string_trim(name_part_value);
   Value is_optional = Core::contains(name_part, Value("?"));
   Value is_internal = Core::contains(name_part, Value("!"));
   Value name_without_optional = Core::string_replace(name_part, Value("?"), Value(""));
   Value name_without_markers = Core::string_replace(name_without_optional, Value("!"), Value(""));
   Value name = Core::string_trim(name_without_markers);
-  Value type_words = Core::string_words(type_part);
-  Value type_word_count = Core::len(type_words);
-  Value extra_type_tokens = Core::gt(type_word_count, Value(1));
-  if (Core::truthy(extra_type_tokens)) {
-    Value error = Core::signature_error(Value("Unexpected content after signature"));
+  Value nested_internal = Core::and_(nested, is_internal);
+  if (Core::truthy(nested_internal)) {
+    Value qualified = Core::string_format(Value("{}.{}"), parent, name);
+    Value message = Core::string_format(Value("Object field \"{}\" cannot use the internal marker \"!\""), qualified);
+    Value error = Core::signature_error(message);
     throw Core::as_error(error);
   }
-  Value type_token = Core::list_get(type_words, Value(0), Value("string"));
-  Value array_info = Core::string_remove_suffix(type_token, Value("[]"));
-  Value type_name_raw = Core::get(array_info, Value("value"), Value());
-  Value type_name = Core::string_default_if_empty(type_name_raw, Value("string"));
-  Value is_array = Core::get(array_info, Value("removed"), Value());
-  Value is_class = Core::eq(type_name, Value("class"));
-  if (Core::truthy(is_class)) {
-    Value class_input = Core::not_(output);
-    if (Core::truthy(class_input)) {
-      Value error = Core::signature_error(Value("Input field cannot use the \"class\" type"));
-      throw Core::as_error(error);
-    }
-    Value missing_quoted = Core::is_none(quoted);
-    if (Core::truthy(missing_quoted)) {
-      Value error = Core::signature_error(Value("Missing class options after \"class\" type"));
-      throw Core::as_error(error);
-    }
-    Value class_option_text = Core::string_replace(quoted, Value("|"), Value(","));
-    Value options = Core::string_split_trim_nonempty(class_option_text, Value(","));
-    Value option_count = Core::len(options);
-    Value empty_options = Core::eq(option_count, Value(0));
-    if (Core::truthy(empty_options)) {
-      Value error = Core::signature_error(Value("Missing class options after \"class\" type"));
-      throw Core::as_error(error);
-    }
+  Value field_type = Core::get(state, Value("type"), Value());
+  Value description = Core::get(state, Value("description"), Value());
+  Value has_description = Core::is_not_none(description);
+  Value has_nested_description = Core::and_(nested, has_description);
+  if (Core::truthy(has_nested_description)) {
     Value type_attrs = Value::object();
+    Value type_name = Core::get(field_type, Value("name"), Value());
+    Value type_is_array = Core::get(field_type, Value("is_array"), Value(false));
+    Value type_options = Core::get(field_type, Value("options"), Value());
+    Value type_fields = Core::get(field_type, Value("fields"), Value());
+    Value type_min_length = Core::get(field_type, Value("min_length"), Value());
+    Value type_max_length = Core::get(field_type, Value("max_length"), Value());
+    Value type_minimum = Core::get(field_type, Value("minimum"), Value());
+    Value type_maximum = Core::get(field_type, Value("maximum"), Value());
+    Value type_pattern = Core::get(field_type, Value("pattern"), Value());
+    Value type_pattern_description = Core::get(field_type, Value("pattern_description"), Value());
+    Value type_format = Core::get(field_type, Value("format"), Value());
+    Value type_language = Core::get(field_type, Value("language"), Value());
     Core::set(type_attrs, Value("name"), type_name);
-    Core::set(type_attrs, Value("is_array"), is_array);
-    Core::set(type_attrs, Value("options"), options);
-    Value field_type = Core::record_new(Value("FieldType"), type_attrs);
-    Value none = Core::none();
-    Value field_attrs = Value::object();
-    Core::set(field_attrs, Value("name"), name);
-    Core::set(field_attrs, Value("type"), field_type);
-    Core::set(field_attrs, Value("description"), none);
-    Core::set(field_attrs, Value("is_optional"), is_optional);
-    Core::set(field_attrs, Value("is_internal"), is_internal);
-    Value field = Core::record_new(Value("Field"), field_attrs);
-    Core::_signature_validate_field_shape_impl(field, output, Value(false));
-    return field;
+    Core::set(type_attrs, Value("is_array"), type_is_array);
+    Core::set(type_attrs, Value("options"), type_options);
+    Core::set(type_attrs, Value("fields"), type_fields);
+    Core::set(type_attrs, Value("min_length"), type_min_length);
+    Core::set(type_attrs, Value("max_length"), type_max_length);
+    Core::set(type_attrs, Value("minimum"), type_minimum);
+    Core::set(type_attrs, Value("maximum"), type_maximum);
+    Core::set(type_attrs, Value("pattern"), type_pattern);
+    Core::set(type_attrs, Value("pattern_description"), type_pattern_description);
+    Core::set(type_attrs, Value("format"), type_format);
+    Core::set(type_attrs, Value("language"), type_language);
+    Core::set(type_attrs, Value("description"), description);
+    field_type = Core::record_new(Value("FieldType"), type_attrs);
   }
-  Value type_attrs = Value::object();
-  Core::set(type_attrs, Value("name"), type_name);
-  Core::set(type_attrs, Value("is_array"), is_array);
-  Value field_type = Core::record_new(Value("FieldType"), type_attrs);
   Value field_attrs = Value::object();
   Core::set(field_attrs, Value("name"), name);
   Core::set(field_attrs, Value("type"), field_type);
-  Core::set(field_attrs, Value("description"), quoted);
+  Core::set(field_attrs, Value("description"), description);
   Core::set(field_attrs, Value("is_optional"), is_optional);
   Core::set(field_attrs, Value("is_internal"), is_internal);
+  Value is_cached = Core::get(state, Value("is_cached"), Value(false));
+  Core::set(field_attrs, Value("is_cached"), is_cached);
   Value field = Core::record_new(Value("Field"), field_attrs);
-  Core::_signature_validate_field_shape_impl(field, output, Value(false));
+  Core::_signature_validate_field_shape_impl(field, output, nested);
   return field;
+}
+
+Value Core::_signature_parse_description_impl(Value raw, Value fallback) {
+  axir_coverage_mark("_signature_parse_description_impl");
+  Value text = Core::string_trim(raw);
+  Value empty = Core::eq(text, Value(""));
+  if (Core::truthy(empty)) {
+    return fallback;
+  }
+  Value quoted = Core::string_consume_optional_quoted_prefix(text);
+  Value found = Core::get(quoted, Value("found"), Value(false));
+  Value missing = Core::not_(found);
+  if (Core::truthy(missing)) {
+    Value error = Core::signature_error(Value("Unexpected content after signature"));
+    throw Core::as_error(error);
+  }
+  Value rest_raw = Core::get(quoted, Value("rest"), Value());
+  Value rest = Core::string_trim(rest_raw);
+  Value has_extra = Core::truthy_value(rest);
+  if (Core::truthy(has_extra)) {
+    Value error = Core::signature_error(Value("Unexpected content after signature"));
+    throw Core::as_error(error);
+  }
+  Value value_raw = Core::get(quoted, Value("value"), Value());
+  Value value = Core::string_trim(value_raw);
+  return value;
+}
+
+Value Core::_signature_parse_base_type_impl(Value raw) {
+  axir_coverage_mark("_signature_parse_base_type_impl");
+  Value text = Core::string_trim(raw);
+  Value types = Value::array();
+  Core::append(types, Value("datetimeRange"));
+  Core::append(types, Value("dateRange"));
+  Core::append(types, Value("datetime"));
+  Core::append(types, Value("boolean"));
+  Core::append(types, Value("string"));
+  Core::append(types, Value("number"));
+  Core::append(types, Value("object"));
+  Core::append(types, Value("class"));
+  Core::append(types, Value("image"));
+  Core::append(types, Value("audio"));
+  Core::append(types, Value("file"));
+  Core::append(types, Value("json"));
+  Core::append(types, Value("date"));
+  Core::append(types, Value("code"));
+  Core::append(types, Value("url"));
+  Value state = Value::object();
+  Core::set(state, Value("name"), Value(""));
+  Core::set(state, Value("rest"), text);
+  for (auto candidate : Core::iter(types)) {
+    Value matched_name = Core::get(state, Value("name"), Value());
+    Value unmatched = Core::eq(matched_name, Value(""));
+    if (Core::truthy(unmatched)) {
+      Value starts = Core::string_starts_with(text, candidate);
+      if (Core::truthy(starts)) {
+        Value offset = Core::len(candidate);
+        Value after = Core::string_slice(text, offset);
+        Value first = Core::string_slice(after, Value(0), Value(1));
+        Value boundary = Core::eq(after, Value(""));
+        Value space = Core::regex_match(Value("^\\s"), after);
+        boundary = Core::or_(boundary, space);
+        Value open_paren = Core::eq(first, Value("("));
+        boundary = Core::or_(boundary, open_paren);
+        Value open_brace = Core::eq(first, Value("{"));
+        boundary = Core::or_(boundary, open_brace);
+        Value open_array = Core::eq(first, Value("["));
+        boundary = Core::or_(boundary, open_array);
+        Value double_quote = Core::eq(first, Value("\""));
+        boundary = Core::or_(boundary, double_quote);
+        Value single_quote = Core::eq(first, Value("'"));
+        boundary = Core::or_(boundary, single_quote);
+        if (Core::truthy(boundary)) {
+          Core::set(state, Value("name"), candidate);
+          Core::set(state, Value("rest"), after);
+        }
+      }
+    }
+  }
+  Value name = Core::get(state, Value("name"), Value());
+  Value missing = Core::eq(name, Value(""));
+  if (Core::truthy(missing)) {
+    Value words = Core::string_words(text);
+    Value word = Core::list_get(words, Value(0), Value("empty"));
+    Value message = Core::string_format(Value("Invalid type \"{}\""), word);
+    Value error = Core::signature_error(message);
+    throw Core::as_error(error);
+  }
+  return state;
+}
+
+Value Core::_signature_parse_type_expr_impl(Value raw, Value section, Value field_name) {
+  axir_coverage_mark("_signature_parse_type_expr_impl");
+  Value base = Core::_signature_parse_base_type_impl(raw);
+  Value type_name = Core::get(base, Value("name"), Value());
+  Value base_rest = Core::get(base, Value("rest"), Value());
+  Value rest = Core::string_trim(base_rest);
+  Value nested = Core::eq(section, Value("nested"));
+  Value media = Value::array();
+  Core::append(media, Value("image"));
+  Core::append(media, Value("audio"));
+  Core::append(media, Value("file"));
+  Value is_media = Core::contains(media, type_name);
+  Value nested_media = Core::and_(nested, is_media);
+  if (Core::truthy(nested_media)) {
+    Value message = Core::string_format(Value("Object field \"{}\": {} type is not allowed in nested object fields"), field_name, type_name);
+    Value error = Core::signature_error(message);
+    throw Core::as_error(error);
+  }
+  Value is_class = Core::eq(type_name, Value("class"));
+  if (Core::truthy(is_class)) {
+    Value input = Core::eq(section, Value("input"));
+    if (Core::truthy(input)) {
+      Value error = Core::signature_error(Value("Input field cannot use the \"class\" type"));
+      throw Core::as_error(error);
+    }
+    Value bag = Core::string_starts_with(rest, Value("("));
+    if (Core::truthy(bag)) {
+      Value message = Core::string_format(Value("Field \"{}\": constraints are not supported on class fields"), field_name);
+      Value error = Core::signature_error(message);
+      throw Core::as_error(error);
+    }
+    Value is_array = Core::string_starts_with(rest, Value("[]"));
+    if (Core::truthy(is_array)) {
+      Value rest_after_array = Core::string_slice(rest, Value(2));
+      rest = Core::string_trim(rest_after_array);
+    }
+    Value bag_after = Core::string_starts_with(rest, Value("("));
+    if (Core::truthy(bag_after)) {
+      Value message = Core::string_format(Value("Field \"{}\": constraints are not supported on class fields"), field_name);
+      Value error = Core::signature_error(message);
+      throw Core::as_error(error);
+    }
+    Value quoted = Core::string_consume_optional_quoted_prefix(rest);
+    Value has_options = Core::get(quoted, Value("found"), Value(false));
+    if (Core::truthy(has_options)) {
+      Value quoted_value = Core::get(quoted, Value("value"), Value());
+      Value option_text = Core::string_replace(quoted_value, Value("|"), Value(","));
+      Value options = Core::string_split_trim_nonempty(option_text, Value(","));
+      Value option_count = Core::len(options);
+      Value empty_options = Core::eq(option_count, Value(0));
+      if (Core::truthy(empty_options)) {
+        Value error = Core::signature_error(Value("Missing class options after \"class\" type"));
+        throw Core::as_error(error);
+      }
+      Value attrs = Value::object();
+      Core::set(attrs, Value("name"), Value("class"));
+      Core::set(attrs, Value("is_array"), is_array);
+      Core::set(attrs, Value("options"), options);
+      Value typ = Core::record_new(Value("FieldType"), attrs);
+      Value out = Value::object();
+      Core::set(out, Value("type"), typ);
+      Core::set(out, Value("is_cached"), Value(false));
+      Value quoted_rest = Core::get(quoted, Value("rest"), Value());
+      Core::set(out, Value("rest"), quoted_rest);
+      return out;
+    }
+    Value error = Core::signature_error(Value("Missing class options after \"class\" type"));
+    throw Core::as_error(error);
+  }
+  Value is_object = Core::eq(type_name, Value("object"));
+  Value starts_object_fields = Core::string_starts_with(rest, Value("{"));
+  Value has_object_fields = Core::and_(is_object, starts_object_fields);
+  if (Core::truthy(has_object_fields)) {
+    Value group = Core::string_extract_leading_group(rest, Value("{"), Value("}"));
+    Value balanced = Core::get(group, Value("balanced"), Value(false));
+    Value unbalanced = Core::not_(balanced);
+    if (Core::truthy(unbalanced)) {
+      Value message = Core::string_format(Value("Field \"{}\": unbalanced \"{\" in object type"), field_name);
+      Value error = Core::signature_error(message);
+      throw Core::as_error(error);
+    }
+    Value group_text = Core::get(group, Value("group"), Value());
+    Value fields = Core::_signature_parse_object_fields_impl(group_text, section, field_name);
+    Value group_rest = Core::get(group, Value("rest"), Value());
+    Value after = Core::string_trim(group_rest);
+    Value is_array = Core::string_starts_with(after, Value("[]"));
+    if (Core::truthy(is_array)) {
+      Value after_array = Core::string_slice(after, Value(2));
+      after = Core::string_trim(after_array);
+    }
+    Value attrs = Value::object();
+    Core::set(attrs, Value("name"), Value("object"));
+    Core::set(attrs, Value("is_array"), is_array);
+    Core::set(attrs, Value("fields"), fields);
+    Value typ = Core::record_new(Value("FieldType"), attrs);
+    Value out = Value::object();
+    Core::set(out, Value("type"), typ);
+    Core::set(out, Value("is_cached"), Value(false));
+    Core::set(out, Value("rest"), after);
+    return out;
+  }
+  Value attrs = Value::object();
+  Core::set(attrs, Value("name"), type_name);
+  Core::set(attrs, Value("is_array"), Value(false));
+  Value modifier_state = Value::object();
+  Core::set(modifier_state, Value("attrs"), attrs);
+  Core::set(modifier_state, Value("is_cached"), Value(false));
+  Value none = Core::none();
+  Core::set(modifier_state, Value("item_description"), none);
+  Value has_bag = Core::string_starts_with(rest, Value("("));
+  if (Core::truthy(has_bag)) {
+    Value group = Core::string_extract_leading_group(rest, Value("("), Value(")"));
+    Value balanced = Core::get(group, Value("balanced"), Value(false));
+    Value unbalanced = Core::not_(balanced);
+    if (Core::truthy(unbalanced)) {
+      Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
+      Value error = Core::signature_error(message);
+      throw Core::as_error(error);
+    }
+    Value group_text = Core::get(group, Value("group"), Value());
+    Value parsed = Core::_signature_parse_modifier_bag_impl(type_name, section, field_name, group_text);
+    Value parsed_attrs = Core::get(parsed, Value("attrs"), Value());
+    Value merged_attrs = Core::map_merge(attrs, parsed_attrs);
+    Value parsed_cached = Core::get(parsed, Value("is_cached"), Value(false));
+    Value parsed_item = Core::get(parsed, Value("item_description"), Value());
+    Core::set(modifier_state, Value("attrs"), merged_attrs);
+    Core::set(modifier_state, Value("is_cached"), parsed_cached);
+    Core::set(modifier_state, Value("item_description"), parsed_item);
+    Value group_rest = Core::get(group, Value("rest"), Value());
+    rest = Core::string_trim(group_rest);
+  }
+  Value is_array = Core::string_starts_with(rest, Value("[]"));
+  if (Core::truthy(is_array)) {
+    Value rest_after_array = Core::string_slice(rest, Value(2));
+    rest = Core::string_trim(rest_after_array);
+  }
+  Value type_attrs = Core::get(modifier_state, Value("attrs"), Value());
+  Core::set(type_attrs, Value("is_array"), is_array);
+  Value item_description = Core::get(modifier_state, Value("item_description"), Value());
+  Value has_item = Core::is_not_none(item_description);
+  Value not_array = Core::not_(is_array);
+  Value item_without_array = Core::and_(has_item, not_array);
+  if (Core::truthy(item_without_array)) {
+    Value message = Core::string_format(Value("Field \"{}\": the \"item\" modifier requires an array type"), field_name);
+    Value error = Core::signature_error(message);
+    throw Core::as_error(error);
+  }
+  if (Core::truthy(has_item)) {
+    Core::set(type_attrs, Value("description"), item_description);
+  }
+  Value typ = Core::record_new(Value("FieldType"), type_attrs);
+  Value out = Value::object();
+  Core::set(out, Value("type"), typ);
+  Value is_cached = Core::get(modifier_state, Value("is_cached"), Value(false));
+  Core::set(out, Value("is_cached"), is_cached);
+  Core::set(out, Value("rest"), rest);
+  return out;
+}
+
+Value Core::_signature_parse_modifier_bag_impl(Value type_name, Value section, Value field_name, Value raw) {
+  axir_coverage_mark("_signature_parse_modifier_bag_impl");
+  Value text = Core::string_trim(raw);
+  Value empty = Core::eq(text, Value(""));
+  if (Core::truthy(empty)) {
+    Value message = Core::string_format(Value("Field \"{}\": empty modifier list \"()\""), field_name);
+    Value error = Core::signature_error(message);
+    throw Core::as_error(error);
+  }
+  Value parts = Core::string_split_top_level(raw, Value(","));
+  Value attrs = Value::object();
+  Value seen = Value::array();
+  Value state = Value::object();
+  Core::set(state, Value("is_cached"), Value(false));
+  Value none = Core::none();
+  Core::set(state, Value("item_description"), none);
+  for (auto part : Core::iter(parts)) {
+    Value entry = Core::string_trim(part);
+    Value entry_empty = Core::eq(entry, Value(""));
+    if (Core::truthy(entry_empty)) {
+      Value message = Core::string_format(Value("Field \"{}\": trailing comma in modifier list"), field_name);
+      Value error = Core::signature_error(message);
+      throw Core::as_error(error);
+    }
+    Value words = Core::string_words(entry);
+    Value token = Core::list_get(words, Value(0), Value(""));
+    Value token_len = Core::len(token);
+    Value arg_raw = Core::string_slice(entry, token_len);
+    Value arg = Core::string_trim(arg_raw);
+    Value handled = Value::object();
+    Core::set(handled, Value("value"), Value(false));
+    Value is_min = Core::eq(token, Value("min"));
+    Value is_max = Core::eq(token, Value("max"));
+    Value is_bound = Core::or_(is_min, is_max);
+    if (Core::truthy(is_bound)) {
+      Value duplicate = Core::contains(seen, token);
+      if (Core::truthy(duplicate)) {
+        Value message = Core::string_format(Value("Field \"{}\": duplicate \"{}\" modifier"), field_name, token);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Core::append(seen, token);
+      Value is_string = Core::eq(type_name, Value("string"));
+      Value is_number = Core::eq(type_name, Value("number"));
+      Value allowed = Core::or_(is_string, is_number);
+      Value not_allowed = Core::not_(allowed);
+      if (Core::truthy(not_allowed)) {
+        Value message = Core::string_format(Value("Field \"{}\": \"{}\" is not supported for type \"{}\""), field_name, token, type_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Value numeric = Core::regex_match(Value("^-?[0-9]+(\\.[0-9]+)?$"), arg);
+      Value not_numeric = Core::not_(numeric);
+      if (Core::truthy(not_numeric)) {
+        Value message = Core::string_format(Value("Field \"{}\": \"{}\" requires a numeric value"), field_name, token);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Value value = Core::json_parse(arg);
+      if (Core::truthy(is_string)) {
+        if (Core::truthy(is_min)) {
+          Core::set(attrs, Value("minLength"), value);
+        }
+        if (!Core::truthy(is_min)) {
+          Core::set(attrs, Value("maxLength"), value);
+        }
+      }
+      if (!Core::truthy(is_string)) {
+        if (Core::truthy(is_min)) {
+          Core::set(attrs, Value("minimum"), value);
+        }
+        if (!Core::truthy(is_min)) {
+          Core::set(attrs, Value("maximum"), value);
+        }
+      }
+      Core::set(handled, Value("value"), Value(true));
+    }
+    Value is_format = Core::eq(token, Value("format"));
+    if (Core::truthy(is_format)) {
+      Value duplicate = Core::contains(seen, Value("format"));
+      if (Core::truthy(duplicate)) {
+        Value message = Core::string_format(Value("Field \"{}\": duplicate \"format\" modifier"), field_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Core::append(seen, Value("format"));
+      Value is_string = Core::eq(type_name, Value("string"));
+      Value not_string = Core::not_(is_string);
+      if (Core::truthy(not_string)) {
+        Value message = Core::string_format(Value("Field \"{}\": \"format\" is not supported for type \"{}\""), field_name, type_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Value formats = Value::array();
+      Core::append(formats, Value("email"));
+      Core::append(formats, Value("uri"));
+      Core::append(formats, Value("date"));
+      Core::append(formats, Value("date-time"));
+      Value known = Core::contains(formats, arg);
+      Value unknown = Core::not_(known);
+      if (Core::truthy(unknown)) {
+        Value message = Core::string_format(Value("Field \"{}\": unknown format \"{}\""), field_name, arg);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Core::set(attrs, Value("format"), arg);
+      Core::set(handled, Value("value"), Value(true));
+    }
+    Value is_pattern = Core::eq(token, Value("pattern"));
+    if (Core::truthy(is_pattern)) {
+      Value duplicate = Core::contains(seen, Value("pattern"));
+      if (Core::truthy(duplicate)) {
+        Value message = Core::string_format(Value("Field \"{}\": duplicate \"pattern\" modifier"), field_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Core::append(seen, Value("pattern"));
+      Value is_string = Core::eq(type_name, Value("string"));
+      Value not_string = Core::not_(is_string);
+      if (Core::truthy(not_string)) {
+        Value message = Core::string_format(Value("Field \"{}\": \"pattern\" is not supported for type \"{}\""), field_name, type_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Value quoted = Core::string_consume_optional_quoted_prefix(arg);
+      Value found = Core::get(quoted, Value("found"), Value(false));
+      Value missing = Core::not_(found);
+      if (Core::truthy(missing)) {
+        Value message = Core::string_format(Value("Field \"{}\": \"pattern\" requires a quoted regular expression"), field_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Value pattern_value = Core::get(quoted, Value("value"), Value());
+      Core::set(attrs, Value("pattern"), pattern_value);
+      Value pattern_rest_raw = Core::get(quoted, Value("rest"), Value());
+      Value pattern_rest = Core::string_trim(pattern_rest_raw);
+      Value has_pattern_rest = Core::truthy_value(pattern_rest);
+      if (Core::truthy(has_pattern_rest)) {
+        Value desc = Core::string_consume_optional_quoted_prefix(pattern_rest);
+        Value desc_found = Core::get(desc, Value("found"), Value(false));
+        Value desc_missing = Core::not_(desc_found);
+        if (Core::truthy(desc_missing)) {
+          Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
+          Value error = Core::signature_error(message);
+          throw Core::as_error(error);
+        }
+        Value desc_rest_raw = Core::get(desc, Value("rest"), Value());
+        Value desc_rest = Core::string_trim(desc_rest_raw);
+        Value desc_extra = Core::truthy_value(desc_rest);
+        if (Core::truthy(desc_extra)) {
+          Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
+          Value error = Core::signature_error(message);
+          throw Core::as_error(error);
+        }
+        Value desc_value = Core::get(desc, Value("value"), Value());
+        Core::set(attrs, Value("patternDescription"), desc_value);
+      }
+      Core::set(handled, Value("value"), Value(true));
+    }
+    Value is_cache = Core::eq(token, Value("cache"));
+    if (Core::truthy(is_cache)) {
+      Value duplicate = Core::contains(seen, Value("cache"));
+      if (Core::truthy(duplicate)) {
+        Value message = Core::string_format(Value("Field \"{}\": duplicate \"cache\" modifier"), field_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Core::append(seen, Value("cache"));
+      Value input = Core::eq(section, Value("input"));
+      Value not_input = Core::not_(input);
+      if (Core::truthy(not_input)) {
+        Value message = Core::string_format(Value("Field \"{}\": \"cache\" is only supported on top-level input fields"), field_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Value extra = Core::truthy_value(arg);
+      if (Core::truthy(extra)) {
+        Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Core::set(state, Value("is_cached"), Value(true));
+      Core::set(handled, Value("value"), Value(true));
+    }
+    Value is_item = Core::eq(token, Value("item"));
+    if (Core::truthy(is_item)) {
+      Value duplicate = Core::contains(seen, Value("item"));
+      if (Core::truthy(duplicate)) {
+        Value message = Core::string_format(Value("Field \"{}\": duplicate \"item\" modifier"), field_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Core::append(seen, Value("item"));
+      Value nested = Core::eq(section, Value("nested"));
+      if (Core::truthy(nested)) {
+        Value message = Core::string_format(Value("Field \"{}\": \"item\" is not supported inside object fields"), field_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Value quoted = Core::string_consume_optional_quoted_prefix(arg);
+      Value found = Core::get(quoted, Value("found"), Value(false));
+      Value missing = Core::not_(found);
+      if (Core::truthy(missing)) {
+        Value message = Core::string_format(Value("Field \"{}\": \"item\" requires a quoted description"), field_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Value remaining_raw = Core::get(quoted, Value("rest"), Value());
+      Value remaining = Core::string_trim(remaining_raw);
+      Value extra = Core::truthy_value(remaining);
+      if (Core::truthy(extra)) {
+        Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+      Value item_value = Core::get(quoted, Value("value"), Value());
+      Core::set(state, Value("item_description"), item_value);
+      Core::set(handled, Value("value"), Value(true));
+    }
+    Value was_handled = Core::get(handled, Value("value"), Value(false));
+    Value unhandled = Core::not_(was_handled);
+    if (Core::truthy(unhandled)) {
+      Value is_code = Core::eq(type_name, Value("code"));
+      if (Core::truthy(is_code)) {
+        Value duplicate = Core::contains(seen, Value("language"));
+        if (Core::truthy(duplicate)) {
+          Value message = Core::string_format(Value("Field \"{}\": duplicate \"language\" modifier"), field_name);
+          Value error = Core::signature_error(message);
+          throw Core::as_error(error);
+        }
+        Value extra = Core::truthy_value(arg);
+        if (Core::truthy(extra)) {
+          Value message = Core::string_format(Value("Field \"{}\": expected \",\" or \")\" in modifier list"), field_name);
+          Value error = Core::signature_error(message);
+          throw Core::as_error(error);
+        }
+        Core::append(seen, Value("language"));
+        Core::set(attrs, Value("language"), token);
+      }
+      if (!Core::truthy(is_code)) {
+        Value message = Core::string_format(Value("Field \"{}\": unknown modifier \"{}\" for type \"{}\""), field_name, token, type_name);
+        Value error = Core::signature_error(message);
+        throw Core::as_error(error);
+      }
+    }
+  }
+  Value out = Value::object();
+  Core::set(out, Value("attrs"), attrs);
+  Value is_cached = Core::get(state, Value("is_cached"), Value(false));
+  Value item_description = Core::get(state, Value("item_description"), Value());
+  Core::set(out, Value("is_cached"), is_cached);
+  Core::set(out, Value("item_description"), item_description);
+  return out;
+}
+
+Value Core::_signature_parse_object_fields_impl(Value raw, Value section, Value parent) {
+  axir_coverage_mark("_signature_parse_object_fields_impl");
+  Value text = Core::string_trim(raw);
+  Value empty = Core::eq(text, Value(""));
+  if (Core::truthy(empty)) {
+    Value message = Core::string_format(Value("Field \"{}\": object type requires at least one field"), parent);
+    Value error = Core::signature_error(message);
+    throw Core::as_error(error);
+  }
+  Value parts = Core::string_split_top_level(raw, Value(","));
+  Value fields = Value::object();
+  Value output = Core::eq(section, Value("output"));
+  for (auto part : Core::iter(parts)) {
+    Value entry = Core::string_trim(part);
+    Value entry_empty = Core::eq(entry, Value(""));
+    if (Core::truthy(entry_empty)) {
+      Value message = Core::string_format(Value("Field \"{}\": trailing comma in object type"), parent);
+      Value error = Core::signature_error(message);
+      throw Core::as_error(error);
+    }
+    Value field = Core::_signature_parse_field_common_impl(entry, output, Value(true), parent);
+    Value name = Core::get(field, Value("name"), Value());
+    Value duplicate = Core::map_contains(fields, name);
+    if (Core::truthy(duplicate)) {
+      Value message = Core::string_format(Value("Field \"{}\": duplicate object field name \"{}\""), parent, name);
+      Value error = Core::signature_error(message);
+      throw Core::as_error(error);
+    }
+    Core::set(fields, name, field);
+  }
+  return fields;
+}
+
+Value Core::signature_to_string(Value signature) {
+  axir_coverage_mark("signature_to_string");
+  Value parts = Value::array();
+  Value description = Core::get(signature, Value("description"), Value());
+  Value has_description = Core::truthy_value(description);
+  if (Core::truthy(has_description)) {
+    Value escaped = Core::_signature_escape_string_impl(description);
+    Value prefix = Core::string_format(Value("\"{}\""), escaped);
+    Core::append(parts, prefix);
+  }
+  Value inputs = Core::get(signature, Value("input_fields"), Value());
+  Value input_parts = Value::array();
+  for (auto field : Core::iter(inputs)) {
+    Value rendered = Core::_signature_render_field_impl(field);
+    Core::append(input_parts, rendered);
+  }
+  Value input_text = Core::string_join(Value(", "), input_parts);
+  Core::append(parts, input_text);
+  Value left = Core::string_join(Value(" "), parts);
+  Value outputs = Core::get(signature, Value("output_fields"), Value());
+  Value output_parts = Value::array();
+  for (auto field : Core::iter(outputs)) {
+    Value rendered = Core::_signature_render_field_impl(field);
+    Core::append(output_parts, rendered);
+  }
+  Value right = Core::string_join(Value(", "), output_parts);
+  Value result = Core::string_format(Value("{} -> {}"), left, right);
+  return result;
+}
+
+Value Core::_signature_escape_string_impl(Value value) {
+  axir_coverage_mark("_signature_escape_string_impl");
+  Value slashes = Core::string_replace(value, Value("\\"), Value("\\\\"));
+  Value quotes = Core::string_replace(slashes, Value("\""), Value("\\\""));
+  return quotes;
+}
+
+Value Core::_signature_render_modifier_bag_impl(Value typ, Value is_cached) {
+  axir_coverage_mark("_signature_render_modifier_bag_impl");
+  Value entries = Value::array();
+  Value min_length = Core::get(typ, Value("min_length"), Value());
+  Value minimum = Core::get(typ, Value("minimum"), Value());
+  Value min = Core::coalesce(min_length, minimum);
+  Value has_min = Core::is_not_none(min);
+  if (Core::truthy(has_min)) {
+    Value entry = Core::string_format(Value("min {}"), min);
+    Core::append(entries, entry);
+  }
+  Value max_length = Core::get(typ, Value("max_length"), Value());
+  Value maximum = Core::get(typ, Value("maximum"), Value());
+  Value max = Core::coalesce(max_length, maximum);
+  Value has_max = Core::is_not_none(max);
+  if (Core::truthy(has_max)) {
+    Value entry = Core::string_format(Value("max {}"), max);
+    Core::append(entries, entry);
+  }
+  Value format = Core::get(typ, Value("format"), Value());
+  Value has_format = Core::is_not_none(format);
+  if (Core::truthy(has_format)) {
+    Value entry = Core::string_format(Value("format {}"), format);
+    Core::append(entries, entry);
+  }
+  Value pattern = Core::get(typ, Value("pattern"), Value());
+  Value has_pattern = Core::is_not_none(pattern);
+  if (Core::truthy(has_pattern)) {
+    Value escaped_pattern = Core::_signature_escape_string_impl(pattern);
+    Value entry = Core::string_format(Value("pattern \"{}\""), escaped_pattern);
+    Value pattern_description = Core::get(typ, Value("pattern_description"), Value());
+    Value has_pattern_description = Core::is_not_none(pattern_description);
+    if (Core::truthy(has_pattern_description)) {
+      Value escaped_description = Core::_signature_escape_string_impl(pattern_description);
+      entry = Core::string_format(Value("{} \"{}\""), entry, escaped_description);
+    }
+    Core::append(entries, entry);
+  }
+  Value is_array = Core::get(typ, Value("is_array"), Value(false));
+  Value item_description = Core::get(typ, Value("description"), Value());
+  Value has_item_description = Core::truthy_value(item_description);
+  Value render_item = Core::and_(is_array, has_item_description);
+  if (Core::truthy(render_item)) {
+    Value escaped_item = Core::_signature_escape_string_impl(item_description);
+    Value entry = Core::string_format(Value("item \"{}\""), escaped_item);
+    Core::append(entries, entry);
+  }
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_code = Core::eq(type_name, Value("code"));
+  Value language = Core::get(typ, Value("language"), Value());
+  Value has_language = Core::truthy_value(language);
+  Value render_language = Core::and_(is_code, has_language);
+  if (Core::truthy(render_language)) {
+    Core::append(entries, language);
+  }
+  if (Core::truthy(is_cached)) {
+    Core::append(entries, Value("cache"));
+  }
+  Value count = Core::len(entries);
+  Value empty = Core::eq(count, Value(0));
+  if (Core::truthy(empty)) {
+    return Value("");
+  }
+  Value body = Core::string_join(Value(", "), entries);
+  Value result = Core::string_format(Value("({})"), body);
+  return result;
+}
+
+Value Core::_signature_render_type_impl(Value typ, Value is_cached) {
+  axir_coverage_mark("_signature_render_type_impl");
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_array = Core::get(typ, Value("is_array"), Value(false));
+  Value is_class = Core::eq(type_name, Value("class"));
+  if (Core::truthy(is_class)) {
+    Value state = Value::object();
+    Core::set(state, Value("value"), Value("class"));
+    if (Core::truthy(is_array)) {
+      Core::set(state, Value("value"), Value("class[]"));
+    }
+    Value options = Core::get(typ, Value("options"), Value());
+    Value joined = Core::string_join(Value(" | "), options);
+    Value class_name = Core::get(state, Value("value"), Value());
+    Value result = Core::string_format(Value("{} \"{}\""), class_name, joined);
+    return result;
+  }
+  Value is_object = Core::eq(type_name, Value("object"));
+  Value fields = Core::get(typ, Value("fields"), Value());
+  Value has_fields = Core::truthy_value(fields);
+  Value structured_object = Core::and_(is_object, has_fields);
+  if (Core::truthy(structured_object)) {
+    Value rendered_fields = Core::_signature_render_object_fields_impl(fields);
+    Value result = Core::string_format(Value("object{}"), rendered_fields);
+    if (Core::truthy(is_array)) {
+      result = Core::string_format(Value("{}[]"), result);
+    }
+    return result;
+  }
+  Value bag = Core::_signature_render_modifier_bag_impl(typ, is_cached);
+  Value result = Core::string_format(Value("{}{}"), type_name, bag);
+  if (Core::truthy(is_array)) {
+    result = Core::string_format(Value("{}[]"), result);
+  }
+  return result;
+}
+
+Value Core::_signature_render_object_fields_impl(Value fields) {
+  axir_coverage_mark("_signature_render_object_fields_impl");
+  Value parts = Value::array();
+  Value nested_fields = Core::fields_from_map(fields);
+  for (auto field : Core::iter(nested_fields)) {
+    Value name = Core::get(field, Value("name"), Value());
+    Value optional = Core::get(field, Value("is_optional"), Value(false));
+    Value state = Value::object();
+    Core::set(state, Value("value"), name);
+    if (Core::truthy(optional)) {
+      Value marked = Core::string_format(Value("{}?"), name);
+      Core::set(state, Value("value"), marked);
+    }
+    Value typ = Core::get(field, Value("type"), Value());
+    Value rendered_type = Core::_signature_render_type_impl(typ, Value(false));
+    Value field_name = Core::get(state, Value("value"), Value());
+    Value entry = Core::string_format(Value("{}:{}"), field_name, rendered_type);
+    Value type_description = Core::get(typ, Value("description"), Value());
+    Value field_description = Core::get(field, Value("description"), Value());
+    Value description = Core::coalesce(type_description, field_description);
+    Value has_description = Core::truthy_value(description);
+    Value type_name = Core::get(typ, Value("name"), Value());
+    Value is_code = Core::eq(type_name, Value("code"));
+    Value language = Core::get(typ, Value("language"), Value());
+    Value same_as_language = Core::eq(description, language);
+    Value implicit_code_description = Core::and_(is_code, same_as_language);
+    Value not_implicit = Core::not_(implicit_code_description);
+    Value explicit_description = Core::and_(has_description, not_implicit);
+    if (Core::truthy(explicit_description)) {
+      Value escaped = Core::_signature_escape_string_impl(description);
+      entry = Core::string_format(Value("{} \"{}\""), entry, escaped);
+    }
+    Core::append(parts, entry);
+  }
+  Value body = Core::string_join(Value(", "), parts);
+  Value prefix = Core::add(Value("{ "), body);
+  Value result = Core::add(prefix, Value(" }"));
+  return result;
+}
+
+Value Core::_signature_render_field_impl(Value field) {
+  axir_coverage_mark("_signature_render_field_impl");
+  Value name = Core::get(field, Value("name"), Value());
+  Value optional = Core::get(field, Value("is_optional"), Value(false));
+  Value internal = Core::get(field, Value("is_internal"), Value(false));
+  Value state = Value::object();
+  Core::set(state, Value("value"), name);
+  if (Core::truthy(optional)) {
+    Value current = Core::get(state, Value("value"), Value());
+    Value marked = Core::string_format(Value("{}?"), current);
+    Core::set(state, Value("value"), marked);
+  }
+  if (Core::truthy(internal)) {
+    Value current = Core::get(state, Value("value"), Value());
+    Value marked = Core::string_format(Value("{}!"), current);
+    Core::set(state, Value("value"), marked);
+  }
+  Value typ = Core::get(field, Value("type"), Value());
+  Value cached = Core::get(field, Value("is_cached"), Value(false));
+  Value rendered_type = Core::_signature_render_type_impl(typ, cached);
+  Value field_name = Core::get(state, Value("value"), Value());
+  Value entry = Core::string_format(Value("{}:{}"), field_name, rendered_type);
+  Value description = Core::get(field, Value("description"), Value());
+  Value has_description = Core::truthy_value(description);
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_code = Core::eq(type_name, Value("code"));
+  Value language = Core::get(typ, Value("language"), Value());
+  Value same_as_language = Core::eq(description, language);
+  Value implicit_code_description = Core::and_(is_code, same_as_language);
+  Value not_implicit = Core::not_(implicit_code_description);
+  Value explicit_description = Core::and_(has_description, not_implicit);
+  if (Core::truthy(explicit_description)) {
+    Value escaped = Core::_signature_escape_string_impl(description);
+    entry = Core::string_format(Value("{} \"{}\""), entry, escaped);
+  }
+  return entry;
 }
 
 Value Core::_signature_validate_field_shape_impl(Value field, Value output, Value nested) {
@@ -2143,7 +3006,9 @@ Value Core::_signature_validate_field_shape_impl(Value field, Value output, Valu
   }
   Value is_class = Core::eq(type_name, Value("class"));
   Value is_input = Core::not_(output);
-  Value input_class = Core::and_(is_class, is_input);
+  Value top_level = Core::not_(nested);
+  Value input_class_base = Core::and_(is_class, is_input);
+  Value input_class = Core::and_(input_class_base, top_level);
   if (Core::truthy(input_class)) {
     Value error = Core::signature_error(Value("Input field cannot use the \"class\" type"));
     throw Core::as_error(error);
@@ -22690,6 +23555,7 @@ Value s(const std::string& source) {
   return sig;
 }
 Value signature(const std::string& source) { return s(source); }
+std::string to_string(const Value& sig) { return display(Core::signature_to_string(sig)); }
 AxGen ax(const std::string& source, Value options) { return AxGen(s(source), std::move(options)); }
 AxGen ax(const char* source, Value options) { return ax(std::string(source == nullptr ? "" : source), std::move(options)); }
 AxGen ax(Value signature, Value options) { return AxGen(std::move(signature), std::move(options)); }
