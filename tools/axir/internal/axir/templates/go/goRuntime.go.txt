@@ -5146,7 +5146,7 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 		prediction := coreGet(record, "prediction", Object())
 		score := num(coreGet(record, "score", 0))
 		completion := display(coreGet(prediction, "completionType", ""))
-		if coreGet(record, "error", nil) == nil && score >= threshold && completion != "askClarification" { continue }
+		if coreGet(record, "error", nil) == nil && score >= threshold && completion == "final" { continue }
 		signature := playbookRecordSignature(record)
 		if _, ok := clusters[signature]; !ok { order = append(order, signature) }
 		clusters[signature] = append(clusters[signature], record)
@@ -6478,6 +6478,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAgentForward(fixture)
 	case "agent_playbook_coverage":
 		runConformanceAgentPlaybookCoverage(fixture)
+	case "agent_playbook_evolve":
+		runConformanceAgentPlaybookEvolve(fixture)
 	case "agent_runtime_policy":
 		runConformanceAgentRuntimePolicy(fixture)
 	case "agent_runtime_adapter":
@@ -8807,6 +8809,42 @@ func runConformanceAgentPlaybookCoverage(fixture map[string]Value) {
 		testCase := asMap(rawCase)
 		actual := mustCore(_agent_collect_covered_failure_signatures(coreGet(testCase, "snapshot", Object())))
 		assertEqual(actual, coreGet(testCase, "expected_covered", Array()), "playbook coverage "+display(coreGet(testCase, "name", "case")))
+	}
+}
+
+func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
+	sourceResponses := asSlice(coreGet(fixture, "responses", Array()))
+	response := Value(Object())
+	if len(sourceResponses) > 0 { response = sourceResponses[0] }
+	for _, rawCase := range asSlice(coreGet(fixture, "cases", Array())) {
+		testCase := asMap(rawCase)
+		responses := Array()
+		for i := 0; i < 32; i++ { responses = append(responses, cloneValue(response)) }
+		client := &conformanceScriptedAI{Responses: responses}
+		runtime := newConformanceScriptedCodeRuntime(coreGet(fixture, "runtime_script", Array()), Object())
+		runtime.LanguageName = display(coreGet(fixture, "runtime_language", "Python"))
+		agentOptions := cloneMap(asMap(coreGet(fixture, "options", Object())))
+		coreSet(agentOptions, "runtime", runtime)
+		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), agentOptions)
+		playbook := ag.Playbook(Object("target", "responder", "studentAI", client, "teacherAI", client, "maxEpochs", 1))
+		if seed := coreGet(fixture, "seed", nil); seed != nil { playbook.Load(asMap(seed)) }
+		before := stableStringify(playbook.ToJSON())
+		actual, err := playbook.EvolveAgent(context.Background(), coreGet(fixture, "dataset", Object()), asMap(coreGet(testCase, "options", Object())))
+		if err != nil { panic(err) }
+		outcomes := asSlice(coreGet(actual, "outcomes", Array()))
+		label := "playbook evolve " + display(coreGet(testCase, "name", "case"))
+		if len(outcomes) == 0 { panic(AxError{Category: "fixture", Message: label + " produced no outcome: " + stableStringify(actual)}) }
+		outcome := outcomes[0]
+		expected := asMap(coreGet(testCase, "expected", Object()))
+		if value := coreGet(expected, "accepted", nil); value != nil { assertEqual(coreGet(outcome, "accepted", nil), value, label+" accepted") }
+		if value := coreGet(expected, "metricCallsUsed", nil); value != nil { assertEqual(coreGet(actual, "metricCallsUsed", nil), value, label+" metric calls") }
+		if value := coreGet(expected, "heldIn", nil); value != nil { assertSubset(coreGet(outcome, "heldIn", Object()), value, label+" held-in") }
+		if needle := display(coreGet(expected, "reason_contains", "")); needle != "" && !strings.Contains(display(coreGet(outcome, "reason", "")), needle) {
+			panic(AxError{Category: "fixture", Message: label + " reason missing " + needle + ": " + stableStringify(outcome)})
+		}
+		afterState := playbook.ToJSON()
+		if coreTruthy(coreGet(testCase, "expected_rollback", false)) { assertEqual(stableStringify(afterState), before, label+" byte-exact rollback") }
+		if expectedState := coreGet(testCase, "expected_exported_state_subset", nil); expectedState != nil { assertSubset(afterState, expectedState, label+" exported state") }
 	}
 }
 

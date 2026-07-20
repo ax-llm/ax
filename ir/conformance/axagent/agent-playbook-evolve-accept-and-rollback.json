@@ -1,0 +1,113 @@
+{
+  "name": "agent-playbook-evolve-accept-and-rollback",
+  "kind": "agent_playbook_evolve",
+  "signature": "question:string -> answer:string",
+  "runtime_language": "Python",
+  "options": {
+    "name": "qa",
+    "description": "Answer the question.",
+    "contextFields": []
+  },
+  "responses": [
+    {
+      "content": "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\",\"answer\":\"Ax composes typed LLM programs.\",\"reasoning\":\"The playbook lacked a verification rule.\",\"errorIdentification\":\"The final step was not checked.\",\"rootCauseAnalysis\":\"No verification guidance.\",\"correctApproach\":\"Add a verification guideline.\",\"keyInsight\":\"Verify before finishing.\",\"weaknessDescription\":\"The agent does not verify its final step.\",\"rootCause\":\"The final step is accepted without a check.\",\"proposedGuidance\":\"Verify the final step before completing the task.\",\"evidenceQuotes\":[\"Answer\"],\"configRecommendations\":[],\"bulletTags\":[],\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Verify the final step before completing the task.\"}]}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
+      "result": {
+        "type": "final",
+        "args": ["Answer", { "answer": "Ax composes typed LLM programs." }]
+      }
+    },
+    {
+      "expected_code": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
+      "result": {
+        "type": "final",
+        "args": ["Answer", { "answer": "Ax composes typed LLM programs." }]
+      }
+    }
+  ],
+  "seed": {
+    "playbook": {
+      "version": 1,
+      "sections": {
+        "failures_to_avoid": [
+          {
+            "id": "failures-to-avoid-00001",
+            "section": "failures_to_avoid",
+            "content": "Check the evidence before answering.",
+            "helpfulCount": 0,
+            "harmfulCount": 0,
+            "createdAt": "2026-07-15T00:00:00.000Z",
+            "updatedAt": "2026-07-15T00:00:00.000Z"
+          }
+        ]
+      },
+      "updatedAt": "2026-07-15T00:00:00.000Z"
+    },
+    "artifact": {
+      "feedback": [],
+      "history": []
+    }
+  },
+  "dataset": {
+    "train": [
+      {
+        "input": { "question": "Answer briefly." },
+        "score": 0
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "accept-flat-score-at-zero-minimum-gain",
+      "options": {
+        "verify": true,
+        "minHeldInGain": 0,
+        "maxProposals": 1,
+        "maxMetricCalls": 2
+      },
+      "expected": {
+        "accepted": true,
+        "metricCallsUsed": 2,
+        "heldIn": { "before": 0, "after": 0 }
+      }
+    },
+    {
+      "name": "reject-and-restore-flat-score",
+      "options": {
+        "verify": true,
+        "minHeldInGain": 0.1,
+        "maxProposals": 1,
+        "maxMetricCalls": 2
+      },
+      "expected": {
+        "accepted": false,
+        "metricCallsUsed": 2,
+        "heldIn": { "before": 0, "after": 0 },
+        "reason_contains": "held-in gain"
+      },
+      "expected_rollback": true,
+      "expected_exported_state_subset": {
+        "playbook": {
+          "version": 1,
+          "sections": {
+            "failures_to_avoid": [
+              {
+                "id": "failures-to-avoid-00001",
+                "section": "failures_to_avoid",
+                "content": "Check the evidence before answering.",
+                "helpfulCount": 0,
+                "harmfulCount": 0,
+                "createdAt": "2026-07-15T00:00:00.000Z",
+                "updatedAt": "2026-07-15T00:00:00.000Z"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

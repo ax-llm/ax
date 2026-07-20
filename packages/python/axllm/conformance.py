@@ -513,6 +513,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_agent_forward(fixture)
         elif kind == "agent_playbook_coverage":
             _run_agent_playbook_coverage(fixture)
+        elif kind == "agent_playbook_evolve":
+            _run_agent_playbook_evolve(fixture)
         elif kind == "agent_runtime_policy":
             _run_agent_runtime_policy(fixture)
         elif kind == "agent_runtime_session":
@@ -1674,6 +1676,52 @@ def _run_agent_playbook_coverage(fixture):
     for case in fixture.get("cases") or []:
         actual = _agent_collect_covered_failure_signatures(case.get("snapshot") or {})
         _assert_equal(actual, case.get("expected_covered") or [], f"playbook coverage {case.get('name')}")
+
+
+def _run_agent_playbook_evolve(fixture):
+    response = (fixture.get("responses") or [{}])[0]
+    for case in fixture.get("cases") or []:
+        client = ConformanceScriptedAI([copy.deepcopy(response) for _ in range(32)])
+        runtime = ScriptedCodeRuntime(
+            copy.deepcopy(fixture.get("runtime_script") or []),
+            language=fixture.get("runtime_language", "Python"),
+        )
+        agent_options = copy.deepcopy(fixture.get("options") or {})
+        agent_options["runtime"] = runtime
+        ag = agent(fixture.get("signature", "question:string -> answer:string"), agent_options)
+        playbook = ag.playbook({
+            "target": "responder",
+            "studentAI": client,
+            "teacherAI": client,
+            "maxEpochs": 1,
+        })
+        seed = fixture.get("seed")
+        if isinstance(seed, dict):
+            playbook.load(copy.deepcopy(seed))
+        before = json.dumps(playbook.to_json(), sort_keys=True, separators=(",", ":"))
+        actual = playbook.evolve(
+            copy.deepcopy(fixture.get("dataset") or {}),
+            copy.deepcopy(case.get("options") or {}),
+        )
+        outcomes = actual.get("outcomes") or []
+        if not outcomes:
+            raise FixtureError(f"playbook evolve {case.get('name')} produced no outcome: {actual}")
+        outcome = outcomes[0]
+        expected = case.get("expected") or {}
+        if "accepted" in expected:
+            _assert_equal(outcome.get("accepted"), expected["accepted"], f"playbook evolve {case.get('name')} accepted")
+        if "metricCallsUsed" in expected:
+            _assert_equal(actual.get("metricCallsUsed"), expected["metricCallsUsed"], f"playbook evolve {case.get('name')} metric calls")
+        if "heldIn" in expected:
+            _assert_subset(outcome.get("heldIn") or {}, expected["heldIn"], f"playbook evolve {case.get('name')} held-in")
+        if "reason_contains" in expected and expected["reason_contains"] not in str(outcome.get("reason", "")):
+            raise FixtureError(f"playbook evolve {case.get('name')} reason missing {expected['reason_contains']!r}: {outcome}")
+        after_state = playbook.to_json()
+        if case.get("expected_rollback"):
+            after = json.dumps(after_state, sort_keys=True, separators=(",", ":"))
+            _assert_equal(after, before, f"playbook evolve {case.get('name')} byte-exact rollback")
+        if "expected_exported_state_subset" in case:
+            _assert_subset(after_state, case["expected_exported_state_subset"], f"playbook evolve {case.get('name')} exported state")
 
 
 def _run_agent_runtime_policy(fixture):

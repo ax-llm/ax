@@ -5109,7 +5109,7 @@ impl<S: AxAIClient + 'static, T: AxAIClient + 'static> AxPlaybook<S, T> {
             let prediction = record.get("prediction").unwrap_or(&Value::Null);
             let score = record.get("score").and_then(Value::as_f64).unwrap_or(0.0);
             let completion = prediction.get("completionType").and_then(Value::as_str).unwrap_or("");
-            if record.get("error").is_none() && score >= threshold && completion != "askClarification" { continue; }
+            if record.get("error").is_none() && score >= threshold && completion == "final" { continue; }
             let signature = playbook_record_signature(record);
             if let Some((_, records)) = clusters.iter_mut().find(|(candidate, _)| candidate == &signature) {
                 records.push(record.clone());
@@ -5968,6 +5968,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         | "ai_unsupported" => run_ai_support_fixture(kind, &fixture)?,
         "agent_forward"
         | "agent_playbook_coverage"
+        | "agent_playbook_evolve"
         | "agent_prompt"
         | "agent_runtime_adapter"
         | "agent_runtime_policy"
@@ -6342,6 +6343,7 @@ fn run_agent_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     match kind {
         "agent_forward" => run_agent_forward_contract_fixture(fixture),
         "agent_playbook_coverage" => run_agent_playbook_coverage_fixture(fixture),
+        "agent_playbook_evolve" => run_agent_playbook_evolve_fixture(fixture),
         "agent_prompt" => run_agent_prompt_fixture(fixture),
         "agent_runtime_real" => run_agent_forward_contract_fixture(fixture),
         "agent_runtime_protocol" => run_agent_runtime_protocol_fixture(fixture),
@@ -6373,6 +6375,63 @@ fn run_agent_playbook_coverage_fixture(fixture: &Value) -> AxResult<()> {
             &actual,
             test_case.get("expected_covered").unwrap_or(&Value::Null),
         )?;
+    }
+    Ok(())
+}
+
+fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
+    let scripted_response = fixture.get("responses").and_then(Value::as_array).and_then(|items| items.first()).cloned().unwrap_or_else(|| json!({}));
+    for test_case in fixture.get("cases").and_then(Value::as_array).cloned().unwrap_or_default() {
+        let responses = std::iter::repeat(scripted_response.clone()).take(32).collect::<VecDeque<_>>();
+        let playbook_client = Rc::new(RefCell::new(FixtureClient {
+            responses: responses.clone(),
+            transcribe_responses: VecDeque::new(),
+            requests: Vec::new(),
+        }));
+        let mut evaluation_client = FixtureClient {
+            responses,
+            transcribe_responses: VecDeque::new(),
+            requests: Vec::new(),
+        };
+        let agent_options = core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
+        let script = fixture.get("runtime_script").and_then(Value::as_array).cloned().unwrap_or_default();
+        let language = fixture.get("runtime_language").and_then(Value::as_str).unwrap_or("Python").to_string();
+        let runtime = ScriptedCodeRuntime::new(script, language, String::new());
+        let host = core_code_runtime_host_shared(
+            Rc::new(RefCell::new(Box::new(runtime) as Box<dyn AxCodeRuntime>)),
+            core_runtime_capabilities_full(),
+        );
+        core_set(&agent_options, CoreValue::from("runtime"), host)?;
+        let signature = fixture.get("signature").and_then(Value::as_str).unwrap_or("question:string -> answer:string");
+        let mut agent = agent_with_core_options(signature, agent_options)?;
+        let mut playbook = agent.playbook(
+            playbook_client,
+            None::<Rc<RefCell<FixtureClient>>>,
+            json!({"target":"responder","maxEpochs":1}),
+        )?;
+        if let Some(seed) = fixture.get("seed") { playbook.load(seed); }
+        let before = playbook.to_json().to_string();
+        let dataset = fixture.get("dataset").cloned().unwrap_or_else(|| json!({}));
+        let options = test_case.get("options").cloned().unwrap_or_else(|| json!({}));
+        let actual = playbook.evolve_agent(&mut agent, &mut evaluation_client, &dataset, &options)?;
+        let outcomes = actual.get("outcomes").and_then(Value::as_array).cloned().unwrap_or_default();
+        let label = format!("playbook evolve {}", test_case.get("name").and_then(Value::as_str).unwrap_or("case"));
+        let Some(outcome) = outcomes.first() else { return Err(AxError::new("fixture", format!("{label} produced no outcome: {actual}"))); };
+        let expected = test_case.get("expected").cloned().unwrap_or_else(|| json!({}));
+        if let Some(value) = expected.get("accepted") { expect_json_equal(&format!("{label} accepted"), outcome.get("accepted").unwrap_or(&Value::Null), value)?; }
+        if let Some(value) = expected.get("metricCallsUsed") { expect_json_equal(&format!("{label} metric calls"), actual.get("metricCallsUsed").unwrap_or(&Value::Null), value)?; }
+        if let Some(value) = expected.get("heldIn") { expect_json_subset(&format!("{label} held-in"), outcome.get("heldIn").unwrap_or(&Value::Null), value)?; }
+        if let Some(needle) = expected.get("reason_contains").and_then(Value::as_str) {
+            let reason = outcome.get("reason").and_then(Value::as_str).unwrap_or("");
+            if !reason.contains(needle) { return Err(AxError::new("fixture", format!("{label} reason missing {needle:?}: {outcome}"))); }
+        }
+        let after_state = playbook.to_json();
+        if test_case.get("expected_rollback").and_then(Value::as_bool).unwrap_or(false) {
+            expect_json_equal(&format!("{label} byte-exact rollback"), &json!(after_state.to_string()), &json!(before))?;
+        }
+        if let Some(expected_state) = test_case.get("expected_exported_state_subset") {
+            expect_json_subset(&format!("{label} exported state"), &after_state, expected_state)?;
+        }
     }
     Ok(())
 }

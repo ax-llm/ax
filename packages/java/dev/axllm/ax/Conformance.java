@@ -565,6 +565,7 @@ public final class Conformance {
       case "ai_realtime" -> runAIRealtime(fixture);
       case "agent_forward" -> runAgentForward(fixture);
       case "agent_playbook_coverage" -> runAgentPlaybookCoverage(fixture);
+      case "agent_playbook_evolve" -> runAgentPlaybookEvolve(fixture);
       case "agent_prompt" -> runAgentPrompt(fixture);
       case "agent_runtime_real" -> runAgentForward(fixture);
       case "agent_runtime_policy" -> runAgentRuntimePolicy(fixture);
@@ -1339,6 +1340,49 @@ public final class Conformance {
       Map<String, Object> testCase = Core.asMap(rawCase);
       Object actual = Core._agent_collect_covered_failure_signatures(testCase.getOrDefault("snapshot", Map.of()));
       assertEqual(actual, testCase.getOrDefault("expected_covered", List.of()), "playbook coverage " + testCase.get("name"));
+    }
+  }
+
+  static void runAgentPlaybookEvolve(Map<String, Object> fixture) {
+    List<Object> sourceResponses = Core.asList(fixture.getOrDefault("responses", List.of()));
+    Object scriptedResponse = sourceResponses.isEmpty() ? Map.of() : sourceResponses.get(0);
+    for (Object rawCase : Core.asList(fixture.getOrDefault("cases", List.of()))) {
+      Map<String, Object> testCase = Core.asMap(rawCase);
+      List<Object> responses = new ArrayList<>();
+      for (int i = 0; i < 32; i++) responses.add(scriptedResponse);
+      ConformanceScriptedAI client = new ConformanceScriptedAI(responses, List.of());
+      ScriptedCodeRuntime runtime = new ScriptedCodeRuntime(
+          Core.asList(fixture.getOrDefault("runtime_script", List.of())),
+          String.valueOf(fixture.getOrDefault("runtime_language", "Python")),
+          "");
+      Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
+      agentOptions.put("runtime", runtime);
+      AxAgent agent = Ax.agent(String.valueOf(fixture.getOrDefault("signature", "question:string -> answer:string")), agentOptions);
+      Map<String, Object> playbookOptions = new LinkedHashMap<>();
+      playbookOptions.put("target", "responder");
+      playbookOptions.put("studentAI", client);
+      playbookOptions.put("teacherAI", client);
+      playbookOptions.put("maxEpochs", 1);
+      AxPlaybook playbook = agent.playbook(playbookOptions);
+      if (fixture.get("seed") instanceof Map<?, ?>) playbook.load(Core.asMap(fixture.get("seed")));
+      String before = Json.stringify(playbook.toJson());
+      Map<String, Object> actual = playbook.evolve(
+          fixture.getOrDefault("dataset", Map.of()),
+          Core.asMap(testCase.getOrDefault("options", Map.of())));
+      List<Object> outcomes = Core.asList(actual.getOrDefault("outcomes", List.of()));
+      if (outcomes.isEmpty()) throw new FixtureError("playbook evolve " + testCase.get("name") + " produced no outcome: " + Json.stringify(actual));
+      Map<String, Object> outcome = Core.asMap(outcomes.get(0));
+      Map<String, Object> expected = Core.asMap(testCase.getOrDefault("expected", Map.of()));
+      String label = "playbook evolve " + testCase.get("name");
+      if (expected.containsKey("accepted")) assertEqual(outcome.get("accepted"), expected.get("accepted"), label + " accepted");
+      if (expected.containsKey("metricCallsUsed")) assertEqual(actual.get("metricCallsUsed"), expected.get("metricCallsUsed"), label + " metric calls");
+      if (expected.containsKey("heldIn")) assertSubset(outcome.getOrDefault("heldIn", Map.of()), expected.get("heldIn"), label + " held-in");
+      if (expected.containsKey("reason_contains") && !String.valueOf(outcome.getOrDefault("reason", "")).contains(String.valueOf(expected.get("reason_contains")))) {
+        throw new FixtureError(label + " reason missing " + expected.get("reason_contains") + ": " + Json.stringify(outcome));
+      }
+      Map<String, Object> afterState = playbook.toJson();
+      if (Boolean.TRUE.equals(testCase.get("expected_rollback"))) assertEqual(Json.stringify(afterState), before, label + " byte-exact rollback");
+      if (testCase.containsKey("expected_exported_state_subset")) assertSubset(afterState, testCase.get("expected_exported_state_subset"), label + " exported state");
     }
   }
 

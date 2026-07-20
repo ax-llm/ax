@@ -1700,7 +1700,7 @@ func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
 			{
 				category: "conformance",
 				rel:      "src/lib.rs",
-				contains: []string{"\"signature\" => run_signature_fixture(&fixture)?", "\"json_schema\" => run_json_schema_fixture(&fixture)?", "\"validate_output\" => run_validate_output_fixture(&fixture)?", "\"prompt\" => run_prompt_fixture(&fixture)?", "\"forward\" => run_simple_forward_fixture(&fixture)?", "\"stream\" => run_stream_fixture(&fixture)?", "\"ai_stream\" => run_ai_stream_fixture(&fixture)?", "\"ai_embed\" => run_ai_embed_fixture(&fixture)?", "\"ai_transcribe\" => run_ai_transcribe_fixture(&fixture)?", "\"ai_speak\" => run_ai_speak_fixture(&fixture)?", "\"ai_realtime\" => run_ai_realtime_fixture(&fixture)?", "\"agent_forward\"", "\"flow\" => run_flow_fixture(&fixture)?", "\"optimize\" => run_optimize_fixture(&fixture)?", "unsupported Rust conformance fixture kind", "expect_transport_request_subset"},
+				contains: []string{"\"signature\" => run_signature_fixture(&fixture)?", "\"json_schema\" => run_json_schema_fixture(&fixture)?", "\"validate_output\" => run_validate_output_fixture(&fixture)?", "\"prompt\" => run_prompt_fixture(&fixture)?", "\"forward\" => run_simple_forward_fixture(&fixture)?", "\"stream\" => run_stream_fixture(&fixture)?", "\"ai_stream\" => run_ai_stream_fixture(&fixture)?", "\"ai_embed\" => run_ai_embed_fixture(&fixture)?", "\"ai_transcribe\" => run_ai_transcribe_fixture(&fixture)?", "\"ai_speak\" => run_ai_speak_fixture(&fixture)?", "\"ai_realtime\" => run_ai_realtime_fixture(&fixture)?", "\"agent_forward\"", "\"agent_playbook_evolve\"", "\"flow\" => run_flow_fixture(&fixture)?", "\"optimize\" => run_optimize_fixture(&fixture)?", "unsupported Rust conformance fixture kind", "expect_transport_request_subset"},
 				forbidden: []string{
 					"| \"flow\"\n        | \"json_schema\"",
 					"| \"validate_value\" => Ok(())",
@@ -2898,6 +2898,17 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 				if _, ok := item["expected_covered"]; !ok {
 					t.Fatalf("%s case %d missing expected_covered", file, index)
 				}
+			}
+		case "agent_playbook_evolve":
+			cases, ok := fixture["cases"].([]any)
+			if !ok || len(cases) == 0 {
+				t.Fatalf("%s missing playbook evolve cases", file)
+			}
+			if responses, ok := fixture["responses"].([]any); !ok || len(responses) == 0 {
+				t.Fatalf("%s missing responses", file)
+			}
+			if _, ok := fixture["runtime_script"]; !ok {
+				t.Fatalf("%s missing runtime_script", file)
 			}
 		default:
 			t.Fatalf("%s has unknown axagent kind %v", file, fixture["kind"])
@@ -4410,6 +4421,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		`kind == "ai_error"`,
 		`kind == "ai_unsupported"`,
 		`kind == "agent_forward"`,
+		`kind == "agent_playbook_evolve"`,
 		`kind == "agent_runtime_policy"`,
 		`kind == "agent_runtime_session"`,
 		`kind == "agent_runtime_adapter"`,

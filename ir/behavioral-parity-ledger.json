@@ -234,6 +234,131 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES. direct-respond-skip asserts expected_request_count:2 with the evidence value materialized in the responder request and no executor-shaped request; direct-respond-covenant-with-functions asserts the dynamic prompt (covenant section + both completion primitives) with the executor still running on final(); direct-respond-kill-switch asserts directResponse:off removes respond from the prompt and the final flow is unchanged. agent-runtime-real-javascript-respond executes MODEL-AUTHORED respond() code through the real engine (goja verified in-repo; other engines follow the real-final fixture lanes) and asserts the two-request skip. TS parity: agent.directRespond.test.ts (20 cases incl. shared/fallback sessions, cross-run state export, streaming/eval paths)."
+    },
+    {
+      "capability": "agent.citations.chain_of_evidence",
+      "summary": "Nested record identifiers are collected into a citation chain, invalid citations trigger a retry, and hidden citations remain available in agent state without leaking into the typed answer.",
+      "ir_ops": [
+        "@resolve_agent_citations",
+        "@agent_collect_citation_ids",
+        "@agent_validate_citations",
+        "@agent_finalize_citations"
+      ],
+      "fixtures": [
+        "axagent/citations-validation-retry.json",
+        "axagent/citations-hidden-nested-record-ids.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. The retry fixture rejects an invalid citation before accepting the corrected response; the hidden-surface fixture proves nested record ids populate exported citation state while the public answer stays clean."
+    },
+    {
+      "capability": "agent.failure_signals.run_end_learning",
+      "summary": "Repeated runtime errors and dead ends become stable failure signals, and playbook coverage only suppresses signatures backed by retained or deliberately no-op curated feedback.",
+      "ir_ops": [
+        "@agent_build_failure_signals",
+        "@agent_collect_covered_failure_signatures"
+      ],
+      "fixtures": [
+        "axagent/failure-signals-error-dead-end.json",
+        "axagent/playbook-failure-signature-coverage.json"
+      ],
+      "gate": "cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Runtime error and dead-end traces carry normalized signatures, while coverage distinguishes live, pruned, no-op, transient-failure, and legacy history states."
+    },
+    {
+      "capability": "agent.playbook.config_attach",
+      "summary": "An agent playbook configuration can attach a seeded snapshot before the first forward call and inject its durable guidance into the live stage request.",
+      "ir_ops": ["@agent_factory"],
+      "fixtures": ["axagent/playbook-config-seed-attach.json"],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. A fresh configured agent renders the seeded failures_to_avoid rule into the request and returns the scripted typed answer."
+    },
+    {
+      "capability": "agent.stage_instruction.composition",
+      "summary": "setInstruction replaces the actor-stage instruction, addActorInstruction appends a durable addendum, and the composed text reaches the actor request without changing the responder contract.",
+      "ir_ops": [
+        "@agent_refresh_actor_instruction",
+        "@agent_set_instruction",
+        "@agent_add_actor_instruction"
+      ],
+      "fixtures": [
+        "axagent/stage-instruction-composition.json",
+        "axagent/playbook-config-seed-attach.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Request assertions prove both explicit instruction fragments and attached playbook guidance are composed into live stage prompts."
+    },
+    {
+      "capability": "optimize.ace.bullet_tags_shape_guard",
+      "summary": "ACE reflection normalizes scalar, string, object, and array bullet-tag shapes before feedback updates so malformed tag containers cannot corrupt a playbook.",
+      "ir_ops": ["@ace_normalize_reflection_bullet_tags"],
+      "fixtures": [
+        "axoptimize/ace-online-update-scalar-bullet-tag.json",
+        "axoptimize/ace-online-update-string-tag-shape.json"
+      ],
+      "gate": "cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Scalar object and string tag variants normalize deterministically before curator operations and artifact persistence."
+    },
+    {
+      "capability": "ai.anthropic.adaptive_thinking_request",
+      "summary": "Current adaptive Anthropic models, including qualified provider model ids, emit adaptive thinking with effort mapping and summarized or omitted display according to showThoughts.",
+      "ir_ops": [
+        "@anthropic_build_chat_request",
+        "@anthropic_is_adaptive_model_impl",
+        "@anthropic_thinking_config_impl"
+      ],
+      "fixtures": [
+        "axai/anthropic-sonnet-5-adaptive-thinking-request.json",
+        "axai/anthropic-qualified-adaptive-model-request.json",
+        "axai/anthropic-adaptive-thinking-hidden-request.json"
+      ],
+      "gate": "G6 perturbation + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Stable and qualified adaptive model ids select adaptive thinking; showThoughts false selects omitted display while the normal path uses summarized display."
+    },
+    {
+      "capability": "ai.anthropic.adaptive_sampling_suppression",
+      "summary": "Adaptive Anthropic requests omit temperature, top_p, and top_k while retaining thinking and output effort configuration.",
+      "ir_ops": [
+        "@anthropic_build_chat_request",
+        "@anthropic_is_adaptive_model_impl"
+      ],
+      "fixtures": [
+        "axai/anthropic-sonnet-5-adaptive-thinking-request.json",
+        "axai/anthropic-qualified-adaptive-model-request.json"
+      ],
+      "gate": "cross-target transport request coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Both direct and qualified adaptive model fixtures assert the sampling keys are absent from the provider JSON."
+    },
+    {
+      "capability": "agent.playbook.verified_evolve",
+      "summary": "Agent playbook evolution evaluates a baseline, mines grounded weaknesses, applies a proposal, re-evaluates within a metric budget, accepts sufficient held-in gain, and restores the exact prior snapshot on rejection.",
+      "ir_ops": [
+        "@normalize_optimization_dataset",
+        "@build_agent_eval_prediction",
+        "@ace_apply_curator_operations"
+      ],
+      "fixtures": [
+        "axagent/agent-playbook-evolve-accept-and-rollback.json",
+        "axagent/agent-playbook-evolve-budget-exhausted.json"
+      ],
+      "gate": "scripted transport + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. The shared fixtures assert accepted and rejected outcomes, metricCallsUsed, held-in values, byte-exact rollback with an exported-state subset, and metric_budget exhaustion before validation."
     }
   ]
 }

@@ -4242,7 +4242,7 @@ Value AxPlaybook::evolve(Value dataset, Value options) {
     Value prediction = Core::get(record, "prediction", Value::object());
     double score = num(Core::get(record, "score", Value(0)));
     std::string completion = display(Core::get(prediction, "completionType", Value("")));
-    if (Core::get(record, "error").is_null() && score >= threshold && completion != "askClarification") continue;
+    if (Core::get(record, "error").is_null() && score >= threshold && completion == "final") continue;
     std::string signature = playbook_record_signature(record);
     auto cluster = std::find_if(clusters.begin(), clusters.end(), [&](const auto& entry) { return entry.first == signature; });
     if (cluster == clusters.end()) clusters.push_back({signature, {record}});

@@ -329,7 +329,7 @@ public final class AxPlaybook {
       Map<String, Object> record = Core.asMap(raw);
       Map<String, Object> prediction = Core.asMap(record.get("prediction"));
       double score = ((Number) record.get("score")).doubleValue();
-      if (record.get("error") == null && score >= threshold && !"askClarification".equals(prediction.get("completionType"))) continue;
+      if (record.get("error") == null && score >= threshold && "final".equals(prediction.get("completionType"))) continue;
       String signature = recordSignature(record);
       clusters.computeIfAbsent(signature, ignored -> new ArrayList<>()).add(record);
     }

@@ -1226,6 +1226,47 @@ static void run_agent_playbook_coverage(Value fixture) {
   }
 }
 
+static void run_agent_playbook_evolve(Value fixture) {
+  Array source_responses = Core::iter(Core::get(fixture, "responses", Value::array()));
+  Value scripted_response = source_responses.empty() ? Value::object() : source_responses.front();
+  for (const auto& test_case : Core::iter(Core::get(fixture, "cases", Value::array()))) {
+    Array responses;
+    for (int i = 0; i < 32; ++i) responses.push_back(scripted_response);
+    ConformanceScriptedAI client{Value(responses)};
+    ScriptedCodeRuntime runtime(
+        Core::get(fixture, "runtime_script", Value::array()),
+        display(Core::get(fixture, "runtime_language", "Python")),
+        "");
+    Value agent_options = Core::get(fixture, "options", Value::object());
+    Core::set(agent_options, "runtime", Core::code_runtime_ref(runtime));
+    AxAgent ag(Core::get(fixture, "signature", "question:string -> answer:string"), agent_options);
+    AxPlaybook& playbook = ag.playbook(client, object({
+        {"target", "responder"}, {"maxEpochs", 1},
+    }));
+    Value seed = Core::get(fixture, "seed");
+    if (!seed.is_null()) playbook.load(seed);
+    std::string before = stringify(playbook.to_json());
+    Value actual = playbook.evolve(
+        Core::get(fixture, "dataset", Value::object()),
+        Core::get(test_case, "options", Value::object()));
+    Array outcomes = Core::iter(Core::get(actual, "outcomes", Value::array()));
+    std::string label = "playbook evolve " + display(Core::get(test_case, "name", "case"));
+    if (outcomes.empty()) throw AxError("fixture", label + " produced no outcome: " + stringify(actual));
+    Value outcome = outcomes.front();
+    Value expected = Core::get(test_case, "expected", Value::object());
+    if (!Core::get(expected, "accepted").is_null()) assert_equal(Core::get(outcome, "accepted"), Core::get(expected, "accepted"), label + " accepted");
+    if (!Core::get(expected, "metricCallsUsed").is_null()) assert_equal(Core::get(actual, "metricCallsUsed"), Core::get(expected, "metricCallsUsed"), label + " metric calls");
+    if (!Core::get(expected, "heldIn").is_null()) assert_subset(Core::get(outcome, "heldIn", Value::object()), Core::get(expected, "heldIn"), label + " held-in");
+    Value reason_contains = Core::get(expected, "reason_contains");
+    if (!reason_contains.is_null() && display(Core::get(outcome, "reason", "")).find(display(reason_contains)) == std::string::npos) {
+      throw AxError("fixture", label + " reason missing " + display(reason_contains) + ": " + stringify(outcome));
+    }
+    Value after_state = playbook.to_json();
+    if (Core::truthy(Core::get(test_case, "expected_rollback", false))) assert_equal(stringify(after_state), before, label + " byte-exact rollback");
+    if (!Core::get(test_case, "expected_exported_state_subset").is_null()) assert_subset(after_state, Core::get(test_case, "expected_exported_state_subset"), label + " exported state");
+  }
+}
+
 static void run_agent_forward(Value fixture) {
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
   client.transcribe_responses = as_array(Core::get(fixture, "transcribe_responses", Value::array()));
@@ -2298,6 +2339,8 @@ static void run(Value fixture) {
     run_agent_forward(fixture);
   } else if (kind == "agent_playbook_coverage") {
     run_agent_playbook_coverage(fixture);
+  } else if (kind == "agent_playbook_evolve") {
+    run_agent_playbook_evolve(fixture);
   } else if (kind == "agent_prompt") {
     run_agent_prompt(fixture);
   } else if (kind == "agent_runtime_real") {

@@ -62,6 +62,13 @@ module @ax.gen version "0.1" {
       %mode_raw = core.get %options["functionCallMode"] default %mode_snake
       %mode = core.call @function_call_mode_impl(%mode_raw)
       core.set %request["function_call"] = %mode
+      // Structured-output enforcement. A strict json_schema makes the model emit
+      // exactly the declared output fields (e.g. javascriptCode for RLM stages, or a
+      // responder's typed fields) — without it a live model picks its own keys and
+      // drifts (the responder drops required fields, an llmQuery sub-query answers
+      // off-shape), which stalls the agent loop. Mirrors TS AxGen. Only
+      // function-calling gens (no code field, functions present) keep json_object,
+      // so the model stays free to choose tool calls instead of structured output.
       %signature = core.get %gen["signature"]
       %output_fields = core.get %signature["output_fields"]
       %has_code_field = core.let false
@@ -81,6 +88,11 @@ module @ax.gen version "0.1" {
       core.if %use_json_schema {
         %schema_options = core.map
         core.set %schema_options["strictStructuredOutputs"] = true
+        // A freeform `json`/`json[]` output field has no declared properties, and a
+        // strict schema forces additionalProperties:false, which pins every such
+        // object to `{}` (a forensics `findings:json[]` came back as `[{}]`). Mirror
+        // TS AxGen: encode flexible-json fields as JSON strings the model CAN fill,
+        // then parse them back after the response (see @parse_json_string_fields).
         core.set %schema_options["flexibleJsonFieldsAsString"] = true
         %code_schema = core.call @schema_to_json_schema_impl(%output_fields, "output", %schema_options)
         %code_schema_wrap = core.map
@@ -374,6 +386,11 @@ module @ax.gen version "0.1" {
     }
   }
 
+  // A freeform `json`/`json[]` output field is encoded as a JSON-encoded string in
+  // the strict schema (see flexibleJsonFieldsAsString in @build_gen_chat_request),
+  // so the model can actually fill it instead of being pinned to `{}`. After the
+  // response is parsed we walk the output fields and parse those string values back
+  // into real json. Mirrors TS AxGen parseStructuredJsonFieldValues / isFlexibleJsonField.
   op ax.gen.semantic @is_flexible_json_field {
     attr core_kind = "func"
     attr emit_module = "gen"
@@ -387,6 +404,8 @@ module @ax.gen version "0.1" {
       %fields = core.get %typ["fields"]
       %has_fields = core.call intrinsic.truthy(%fields)
       %no_fields = core.call intrinsic.not(%has_fields)
+      // %flexible = is_json OR (is_object AND no_fields); nested if avoids
+      // intrinsic.and, which the gen module does not emit a helper for.
       %flexible = core.let %is_json
       core.if %is_object {
         core.if %no_fields {
@@ -450,6 +469,8 @@ module @ax.gen version "0.1" {
           }
           core.return %out
         }
+        // object[] with declared sub-fields: recurse into each item's nested
+        // flexible-json leaves (mirrors TS parseJsonStringValuesForField array branch).
         core.if %has_typ_fields {
           %rebuilt = core.list
           core.for %item in %value {
@@ -469,6 +490,7 @@ module @ax.gen version "0.1" {
         %parsed_scalar = core.call @parse_json_string_value(%value)
         core.return %parsed_scalar
       }
+      // shaped object: recurse into its nested flexible-json leaves.
       %type_name = core.get %typ["name"]
       %is_object = core.call intrinsic.eq(%type_name, "object")
       core.if %is_object {
@@ -506,6 +528,9 @@ module @ax.gen version "0.1" {
     }
   }
 
+  // Recurse into a shaped object's / object[] item's nested sub-fields and parse any
+  // flexible-json leaves back. Mirrors TS parseJsonStringValuesForFields: convert the
+  // FieldType `fields` map to a Field list, then parse each present value.
   op ax.gen.semantic @parse_json_string_for_fields {
     attr core_kind = "func"
     attr emit_module = "gen"

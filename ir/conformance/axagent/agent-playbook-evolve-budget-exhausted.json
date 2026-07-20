@@ -1,0 +1,57 @@
+{
+  "name": "agent-playbook-evolve-budget-exhausted",
+  "kind": "agent_playbook_evolve",
+  "signature": "question:string -> answer:string",
+  "runtime_language": "Python",
+  "options": {
+    "name": "qa",
+    "description": "Answer the question.",
+    "contextFields": []
+  },
+  "responses": [
+    {
+      "content": "{\"pythonCode\":\"final('Answer', {'answer': 'Ax composes typed LLM programs.'})\",\"answer\":\"Ax composes typed LLM programs.\",\"reasoning\":\"The playbook lacked a verification rule.\",\"errorIdentification\":\"The final step was not checked.\",\"rootCauseAnalysis\":\"No verification guidance.\",\"correctApproach\":\"Add a verification guideline.\",\"keyInsight\":\"Verify before finishing.\",\"weaknessDescription\":\"The agent does not verify its final step.\",\"rootCause\":\"The final step is accepted without a check.\",\"proposedGuidance\":\"Verify the final step before completing the task.\",\"evidenceQuotes\":[\"Answer\"],\"configRecommendations\":[],\"bulletTags\":[],\"operations\":[{\"type\":\"ADD\",\"section\":\"Guidelines\",\"content\":\"Verify the final step before completing the task.\"}]}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
+      "result": {
+        "type": "final",
+        "args": ["Answer", { "answer": "Ax composes typed LLM programs." }]
+      }
+    },
+    {
+      "expected_code": "final('Answer', {'answer': 'Ax composes typed LLM programs.'})",
+      "result": {
+        "type": "final",
+        "args": ["Answer", { "answer": "Ax composes typed LLM programs." }]
+      }
+    }
+  ],
+  "dataset": {
+    "train": [
+      {
+        "input": { "question": "Answer briefly." },
+        "score": 0
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "budget-exhausted-before-validation",
+      "options": {
+        "verify": true,
+        "minHeldInGain": 0,
+        "maxProposals": 1,
+        "maxMetricCalls": 1
+      },
+      "expected": {
+        "accepted": false,
+        "metricCallsUsed": 1,
+        "heldIn": { "before": 0, "after": 0 },
+        "reason_contains": "metric_budget exhausted"
+      }
+    }
+  ]
+}

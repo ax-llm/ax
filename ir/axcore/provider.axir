@@ -1745,6 +1745,10 @@ module @ax.provider version "0.1" {
     }
   }
 
+  // Build the realtime WebSocket URL + auth headers for the provider's grammar so
+  // the per-language drivers stay grammar-agnostic: gemini_live_bidi authenticates
+  // with ?key= in the URL, the openai-compatible grammars use a Bearer header and
+  // a ?model= query.
   op ax.provider.semantic @provider_realtime_ws_url {
     attr core_kind = "func"
     attr effect = "throws"
@@ -1773,6 +1777,10 @@ module @ax.provider version "0.1" {
     }
   }
 
+  // Decide whether a chat() request should be served over the realtime WebSocket
+  // transport: true when the provider exposes a realtime_audio operation, the
+  // model is a realtime/live audio model, and audio output is not explicitly
+  // disabled. Lets chat()/stream() route realtime models transparently.
   op ax.provider.semantic @provider_should_use_realtime {
     attr core_kind = "func"
     attr effect = "throws"
@@ -2080,6 +2088,8 @@ module @ax.provider version "0.1" {
           core.append %turns, %turn
           %client_content = core.map
           core.set %client_content["turns"] = %turns
+          // turnComplete is true for a text-only turn (tells Gemini to respond now);
+          // an audio turn stays open and is closed by the audioStreamEnd below.
           %turn_complete = core.call intrinsic.not(%msg_has_audio)
           core.set %client_content["turnComplete"] = %turn_complete
           %content_event = core.map

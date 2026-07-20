@@ -1474,7 +1474,7 @@ class AxAgentPlaybook:
         clusters = {}
         for record in baseline_records:
             prediction = record.get("prediction") or {}
-            failed = bool(record.get("error")) or prediction.get("completionType") == "askClarification" or record["score"] < score_threshold
+            failed = bool(record.get("error")) or prediction.get("completionType") != "final" or record["score"] < score_threshold
             if not failed:
                 continue
             signature = record_signature(record)
