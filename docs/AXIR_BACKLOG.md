@@ -20,12 +20,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/flow/dependencyAnalyzer.ts`, `src/ax/flow/flow.fromMermaid.test.ts`, `src/ax/flow/flow.toMermaid.test.ts`, `src/ax/flow/flow.ts`, `src/ax/flow/mermaid.parse.test.ts`, `src/ax/flow/mermaid.ts`, `src/ax/flow/steps.ts`, `src/ax/flow/subContext.ts`
   - Impact: TS AxFlow steps now carry inspectable build-time meta (branch bodies, loop bodies, feedback targets); the TS surface is ONLY the shorthand: flow(mermaidText, bindings?) compiles a mermaid flowchart with %%ax signature directives into a runnable flow, and AxFlow.toString(renderOptions?) renders any flow back (String(wf) round-trips via flow(String(wf))). The explicit toMermaid/fromMermaid aliases were removed before any release. Generated Python/Java/C++/Go/Rust flow surfaces cannot emit or load the dialect. Parity means tools/axir template + codegen builder + golden updates: each language's idiomatic equivalent of the shorthand only (factory string arg + str dunder/ToString/Display with render options) — do NOT add explicit toMermaid/fromMermaid names. The diagram text is language-neutral by design (signatures in %%ax comments + edges); parity is one implementation in tools/axir generated into all five ports, not five hand-written parsers. Depends on the extended-grammar entry.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-07-18-port-extended-signature-string-grammar-modifier-bags-nested-obje` [axgen] Port extended signature string grammar (modifier bags, nested objects, code language)
-  - Status: open
-  - Source commit: `31f293d0ebe925f398e3310055e4d2b6ef3b1b2e`
-  - TS paths: `src/ax/dsp/complex_object_validation.test.ts`, `src/ax/dsp/parser.test.ts`, `src/ax/dsp/parser.ts`, `src/ax/dsp/sig-string-roundtrip.test.ts`, `src/ax/dsp/sig-string-vs-fluent.test.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`
-  - Impact: TS string signatures now accept type modifier bags — min/max, format, pattern, cache, item, code language — and nested object{...} field lists, and AxSignature.toString() serializes them losslessly. Generated Python/Java/C++/Go/Rust string-signature parsers cannot parse the new grammar and their renderers cannot emit it; their FieldType models already carry min/max/format/fields slots (e.g. packages/python/axllm/signature.py) so only the string grammar and serializer lag TS. PORTABILITY-CRITICAL: signature strings are the cross-language contract and TS toString() now emits this grammar, so until ported, signatures/diagrams authored or serialized in TS are unreadable by the other five languages.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -199,3 +193,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-20
   - Completed by: `1e1e849eb2c09f36068f15f885e2f0e66fddf68d`
   - Verification: `AxIR emits adaptive thinking display summarized or omitted from showThoughts and preserves streamed thinking text; shared fixtures and five-target release verify passed.`
+- `axir-2026-07-18-port-extended-signature-string-grammar-modifier-bags-nested-obje` [axgen] Port extended signature string grammar (modifier bags, nested objects, code language)
+  - Status: done
+  - Source commit: `31f293d0ebe925f398e3310055e4d2b6ef3b1b2e`
+  - TS paths: `src/ax/dsp/complex_object_validation.test.ts`, `src/ax/dsp/parser.test.ts`, `src/ax/dsp/parser.ts`, `src/ax/dsp/sig-string-roundtrip.test.ts`, `src/ax/dsp/sig-string-vs-fluent.test.ts`, `src/ax/dsp/sig.ts`, `src/ax/dsp/sigtypes.ts`
+  - Impact: TS string signatures now accept type modifier bags — min/max, format, pattern, cache, item, code language — and nested object{...} field lists, and AxSignature.toString() serializes them losslessly. Generated Python/Java/C++/Go/Rust string-signature parsers cannot parse the new grammar and their renderers cannot emit it; their FieldType models already carry min/max/format/fields slots (e.g. packages/python/axllm/signature.py) so only the string grammar and serializer lag TS. PORTABILITY-CRITICAL: signature strings are the cross-language contract and TS toString() now emits this grammar, so until ported, signatures/diagrams authored or serialized in TS are unreadable by the other five languages.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-20
+  - Completed by: `08d64949a801a03ae531352a29e4406c7d053112`
+  - Verification: `npm run test:axir; npm run axir:check-packages; npm run axir:gate:ledger`

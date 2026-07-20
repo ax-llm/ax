@@ -472,7 +472,7 @@
     },
     {
       "id": "axir-2026-07-18-port-extended-signature-string-grammar-modifier-bags-nested-obje",
-      "status": "open",
+      "status": "done",
       "title": "Port extended signature string grammar (modifier bags, nested objects, code language)",
       "createdAt": "2026-07-18",
       "sourcePR": null,
@@ -493,9 +493,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-20",
+      "completedByCommit": "08d64949a801a03ae531352a29e4406c7d053112",
+      "verification": "npm run test:axir; npm run axir:check-packages; npm run axir:gate:ledger"
     }
   ],
   "nonPortableExemptions": [
