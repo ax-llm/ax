@@ -233,7 +233,7 @@
     },
     {
       "id": "axir-2026-07-12-ace-reflector-bullettags-shape-guard",
-      "status": "open",
+      "status": "done",
       "title": "Mirror the ACE reflector bulletTags shape guard in optimize.axir",
       "createdAt": "2026-07-12",
       "sourcePR": null,
@@ -251,11 +251,14 @@
         "Add an is-array guard (wrap single objects, drop malformed entries) around the bulletTags read in optimize.axir's reflection handling.",
         "Record updatedBulletIds on delta-history entries in optimize.axir's apply path.",
         "Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir."
-      ]
+      ],
+      "completedAt": "2026-07-20",
+      "completedByCommit": "1e1e849eb2c09f36068f15f885e2f0e66fddf68d",
+      "verification": "AxIR normalizes scalar and string bulletTags shapes; five-target conformance, release verify, and perturbation checks passed."
     },
     {
       "id": "axir-2026-07-12-playbook-config-attach-and-run-end-failure-learning",
-      "status": "open",
+      "status": "done",
       "title": "Port the agent playbook config option and run-end failure learning",
       "createdAt": "2026-07-12",
       "sourcePR": null,
@@ -275,7 +278,10 @@
         "Decide whether ports get the full ACE engine or consume TS-produced playbook snapshots (render-only attach + failure harvest without curation).",
         "Add the run-end failure-report op to agent.axir and mirror the digest/dedupe semantics.",
         "Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir."
-      ]
+      ],
+      "completedAt": "2026-07-20",
+      "completedByCommit": "1e1e849eb2c09f36068f15f885e2f0e66fddf68d",
+      "verification": "AxIR attaches configured playbooks and records run-end failure signals; shared fixtures and five-target release verify passed."
     },
     {
       "id": "axir-2026-07-12-port-axeventruntime-deterministic-single-worker-semantics",
@@ -317,7 +323,7 @@
     },
     {
       "id": "axir-2026-07-12-responder-chain-of-evidence-citations",
-      "status": "open",
+      "status": "done",
       "title": "Port the responder chain-of-evidence citations option",
       "createdAt": "2026-07-12",
       "sourcePR": null,
@@ -336,11 +342,14 @@
         "Mirror the optional citations output field in agent.axir's @build_responder_signature and add the citation policy flag.",
         "Port the subset validation as a responder validation rule (ports already run validation_retries: 2).",
         "Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir."
-      ]
+      ],
+      "completedAt": "2026-07-20",
+      "completedByCommit": "1e1e849eb2c09f36068f15f885e2f0e66fddf68d",
+      "verification": "AxIR collects, validates, retries, and hides nested citation IDs; shared fixtures and five-target release verify passed."
     },
     {
       "id": "axir-2026-07-12-stage-instruction-component-dead-knob-fix",
-      "status": "open",
+      "status": "done",
       "title": "Mirror the stage-owned ::instruction component fix (dead knob) in ports",
       "createdAt": "2026-07-12",
       "sourcePR": null,
@@ -355,11 +364,14 @@
         "Check whether generated agents expose instruction components; if so, mirror the stage-owned backing + actor-definition compose in agent.axir.",
         "Mirror the additive instructionAddenda channel (addActorInstruction()) in the ports' actor-definition builder.",
         "Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir."
-      ]
+      ],
+      "completedAt": "2026-07-20",
+      "completedByCommit": "1e1e849eb2c09f36068f15f885e2f0e66fddf68d",
+      "verification": "AxIR composes stage-owned instructions into actor prompts; shared fixtures and five-target release verify passed."
     },
     {
       "id": "axir-2026-07-13-agent-playbook-verified-evolve",
-      "status": "open",
+      "status": "done",
       "title": "Port agent.playbook().evolve() — verified playbook learning from a task set",
       "createdAt": "2026-07-13",
       "sourcePR": null,
@@ -384,11 +396,14 @@
         "Decide the port shape: full evolve() loop vs consuming TS-produced playbook snapshots.",
         "Thread failureSignals through the ports' eval prediction shape; expose an agent-aware playbook handle with evolve() over the existing ACE playbook.",
         "Add or update the TS-derived conformance fixture, then run npm run axir:conformance:check and npm run test:axir."
-      ]
+      ],
+      "completedAt": "2026-07-20",
+      "completedByCommit": "1e1e849eb2c09f36068f15f885e2f0e66fddf68d",
+      "verification": "Generated runtimes implement batch evaluation, weakness mining, held-in and held-out gates, metric budgets, and rollback; five-target release examples passed."
     },
     {
       "id": "axir-2026-07-13-anthropic-ir-never-suppresses-sampling-params-on-adaptive-models",
-      "status": "open",
+      "status": "done",
       "title": "Anthropic: IR never suppresses sampling params on adaptive models",
       "createdAt": "2026-07-13",
       "sourcePR": 560,
@@ -404,13 +419,13 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-20",
+      "completedByCommit": "1e1e849eb2c09f36068f15f885e2f0e66fddf68d",
+      "verification": "AxIR suppresses unsupported sampling parameters for qualified adaptive Anthropic model IDs; shared fixtures and five-target release verify passed."
     },
     {
       "id": "axir-2026-07-14-anthropic-ir-never-requests-summarized-thinking-display-on-adapt",
-      "status": "open",
+      "status": "done",
       "title": "Anthropic: IR never requests summarized thinking display on adaptive models",
       "createdAt": "2026-07-14",
       "sourcePR": 561,
@@ -423,9 +438,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-20",
+      "completedByCommit": "1e1e849eb2c09f36068f15f885e2f0e66fddf68d",
+      "verification": "AxIR emits adaptive thinking display summarized or omitted from showThoughts and preserves streamed thinking text; shared fixtures and five-target release verify passed."
     },
     {
       "id": "axir-2026-07-18-port-axflow-mermaid-dialect-tomermaid-frommermaid",
