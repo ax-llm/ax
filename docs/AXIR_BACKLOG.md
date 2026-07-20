@@ -14,12 +14,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-07-18-port-axflow-mermaid-dialect-tomermaid-frommermaid` [axflow] Port AxFlow mermaid dialect (flow(text) + toString)
-  - Status: open
-  - Source commit: `e7a8e3a8445f1611807d2d8e2447c7fa95534f93`
-  - TS paths: `src/ax/flow/dependencyAnalyzer.ts`, `src/ax/flow/flow.fromMermaid.test.ts`, `src/ax/flow/flow.toMermaid.test.ts`, `src/ax/flow/flow.ts`, `src/ax/flow/mermaid.parse.test.ts`, `src/ax/flow/mermaid.ts`, `src/ax/flow/steps.ts`, `src/ax/flow/subContext.ts`
-  - Impact: TS AxFlow steps now carry inspectable build-time meta (branch bodies, loop bodies, feedback targets); the TS surface is ONLY the shorthand: flow(mermaidText, bindings?) compiles a mermaid flowchart with %%ax signature directives into a runnable flow, and AxFlow.toString(renderOptions?) renders any flow back (String(wf) round-trips via flow(String(wf))). The explicit toMermaid/fromMermaid aliases were removed before any release. Generated Python/Java/C++/Go/Rust flow surfaces cannot emit or load the dialect. Parity means tools/axir template + codegen builder + golden updates: each language's idiomatic equivalent of the shorthand only (factory string arg + str dunder/ToString/Display with render options) — do NOT add explicit toMermaid/fromMermaid names. The diagram text is language-neutral by design (signatures in %%ax comments + edges); parity is one implementation in tools/axir generated into all five ports, not five hand-written parsers. Depends on the extended-grammar entry.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -193,6 +188,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-20
   - Completed by: `1e1e849eb2c09f36068f15f885e2f0e66fddf68d`
   - Verification: `AxIR emits adaptive thinking display summarized or omitted from showThoughts and preserves streamed thinking text; shared fixtures and five-target release verify passed.`
+- `axir-2026-07-18-port-axflow-mermaid-dialect-tomermaid-frommermaid` [axflow] Port AxFlow mermaid dialect (flow(text) + toString)
+  - Status: done
+  - Source commit: `e7a8e3a8445f1611807d2d8e2447c7fa95534f93`
+  - TS paths: `src/ax/flow/dependencyAnalyzer.ts`, `src/ax/flow/flow.fromMermaid.test.ts`, `src/ax/flow/flow.toMermaid.test.ts`, `src/ax/flow/flow.ts`, `src/ax/flow/mermaid.parse.test.ts`, `src/ax/flow/mermaid.ts`, `src/ax/flow/steps.ts`, `src/ax/flow/subContext.ts`
+  - Impact: TS AxFlow steps now carry inspectable build-time meta (branch bodies, loop bodies, feedback targets); the TS surface is ONLY the shorthand: flow(mermaidText, bindings?) compiles a mermaid flowchart with %%ax signature directives into a runnable flow, and AxFlow.toString(renderOptions?) renders any flow back (String(wf) round-trips via flow(String(wf))). The explicit toMermaid/fromMermaid aliases were removed before any release. Generated Python/Java/C++/Go/Rust flow surfaces cannot emit or load the dialect. Parity means tools/axir template + codegen builder + golden updates: each language's idiomatic equivalent of the shorthand only (factory string arg + str dunder/ToString/Display with render options) — do NOT add explicit toMermaid/fromMermaid names. The diagram text is language-neutral by design (signatures in %%ax comments + edges); parity is one implementation in tools/axir generated into all five ports, not five hand-written parsers. Depends on the extended-grammar entry.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-20
+  - Completed by: `3e88dbf03237645723aef7261d86177d2eec20f5`
+  - Verification: `Shared AxIR Mermaid parser/compiler/renderer, 14 cross-language fixtures, offline examples, package freshness, five-target release verification, perturbation gates, website checks, and full npm test.`
 - `axir-2026-07-18-port-extended-signature-string-grammar-modifier-bags-nested-obje` [axgen] Port extended signature string grammar (modifier bags, nested objects, code language)
   - Status: done
   - Source commit: `31f293d0ebe925f398e3310055e4d2b6ef3b1b2e`

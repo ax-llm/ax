@@ -444,7 +444,7 @@
     },
     {
       "id": "axir-2026-07-18-port-axflow-mermaid-dialect-tomermaid-frommermaid",
-      "status": "open",
+      "status": "done",
       "title": "Port AxFlow mermaid dialect (flow(text) + toString)",
       "createdAt": "2026-07-18",
       "sourcePR": null,
@@ -466,9 +466,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-20",
+      "completedByCommit": "3e88dbf03237645723aef7261d86177d2eec20f5",
+      "verification": "Shared AxIR Mermaid parser/compiler/renderer, 14 cross-language fixtures, offline examples, package freshness, five-target release verification, perturbation gates, website checks, and full npm test."
     },
     {
       "id": "axir-2026-07-18-port-extended-signature-string-grammar-modifier-bags-nested-obje",
