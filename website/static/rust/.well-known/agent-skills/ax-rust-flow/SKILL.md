@@ -27,8 +27,12 @@ This skill helps an agent write Rust code with the generated Ax package `axllm`.
 ## Core Pattern
 
 ```rust
-let wf = axllm::flow("workflow")?;
-// See examples/axflow_program_graph.rs for node wiring.
+let mermaid = r#"flowchart TD
+  %%ax classify: request:string -> route:class "support, sales"
+  classify{route}"#;
+let wf = axllm::flow(mermaid);
+println!("{}", wf);
+// See examples/flow_mermaid.rs.
 ```
 
 ## Relevant API Surface

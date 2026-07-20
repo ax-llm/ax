@@ -644,6 +644,50 @@ def validate_signature(signature: AxSignature) -> None:
     return None
 
 
+def _signature_input_fields(signature: AxSignature) -> list[Any]:
+    _core_coverage_mark("_signature_input_fields")
+    fields = _core_get(signature, "input_fields", None)
+    out = []
+    for field in fields:
+        type = _core_get(field, "type", None)
+        type_out = {}
+        type_name = _core_get(type, "name", "")
+        type_out["name"] = type_name
+        empty_options = []
+        type_options = _core_get(type, "options", empty_options)
+        type_out["options"] = type_options
+        item = {}
+        field_name = _core_get(field, "name", "")
+        field_optional = _core_get(field, "is_optional", False)
+        item["name"] = field_name
+        item["isOptional"] = field_optional
+        item["type"] = type_out
+        out.append(item)
+    return out
+
+
+def _signature_output_fields(signature: AxSignature) -> list[Any]:
+    _core_coverage_mark("_signature_output_fields")
+    fields = _core_get(signature, "output_fields", None)
+    out = []
+    for field in fields:
+        type = _core_get(field, "type", None)
+        type_out = {}
+        type_name = _core_get(type, "name", "")
+        type_out["name"] = type_name
+        empty_options = []
+        type_options = _core_get(type, "options", empty_options)
+        type_out["options"] = type_options
+        item = {}
+        field_name = _core_get(field, "name", "")
+        field_optional = _core_get(field, "is_optional", False)
+        item["name"] = field_name
+        item["isOptional"] = field_optional
+        item["type"] = type_out
+        out.append(item)
+    return out
+
+
 def _signature_parse_impl(signature: str) -> AxSignature:
     _core_coverage_mark("_signature_parse_impl")
     text = str(signature).strip()

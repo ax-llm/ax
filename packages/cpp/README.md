@@ -55,6 +55,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/provider_mapping_no_key.cpp`: provider mapping through a scripted transport
 - `examples/provider_stream_no_key.cpp`: provider streaming through a scripted SSE transport
 - `examples/axflow_program_graph.cpp`: AxFlow program graph
+- `examples/flow_mermaid.cpp`: portable Mermaid flow parsing and canonical round-trip
 - `examples/audio_responses_mapping.cpp`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `examples/realtime_audio_events.cpp`: Grok/Gemini realtime audio setup, input, and event folding
 - `examples/realtime_audio_turn.cpp`: drive a full realtime audio turn through `realtime_chat` (offline, scripted transport)

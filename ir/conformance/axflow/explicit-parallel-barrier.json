@@ -10,6 +10,8 @@
       "src/ax/flow/steps.ts",
       "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
     "name": "explicit-parallel-barrier",
@@ -23,21 +25,15 @@
             "name": "_parallelResults",
             "kind": "parallel",
             "reads": [],
-            "writes": [
-              "_parallelResults"
-            ],
+            "writes": ["_parallelResults"],
             "barrier": true,
             "stepIndex": 0
           },
           {
             "name": "combined",
             "kind": "parallelMerge",
-            "reads": [
-              "_parallelResults"
-            ],
-            "writes": [
-              "combined"
-            ],
+            "reads": ["_parallelResults"],
+            "writes": ["combined"],
             "barrier": true,
             "stepIndex": 1
           }
@@ -50,9 +46,7 @@
                 "name": "_parallelResults",
                 "kind": "parallel",
                 "reads": [],
-                "writes": [
-                  "_parallelResults"
-                ],
+                "writes": ["_parallelResults"],
                 "barrier": true,
                 "stepIndex": 0
               }
@@ -64,12 +58,8 @@
               {
                 "name": "combined",
                 "kind": "parallelMerge",
-                "reads": [
-                  "_parallelResults"
-                ],
-                "writes": [
-                  "combined"
-                ],
+                "reads": ["_parallelResults"],
+                "writes": ["combined"],
                 "barrier": true,
                 "stepIndex": 1
               }
@@ -84,9 +74,7 @@
       "kind": "parallel",
       "name": "_parallelResults",
       "options": {
-        "writes": [
-          "_parallelResults"
-        ],
+        "writes": ["_parallelResults"],
         "isBarrier": true
       }
     },
@@ -94,12 +82,8 @@
       "kind": "parallelMerge",
       "name": "combined",
       "options": {
-        "reads": [
-          "_parallelResults"
-        ],
-        "writes": [
-          "combined"
-        ],
+        "reads": ["_parallelResults"],
+        "writes": ["combined"],
         "isBarrier": true
       }
     }
@@ -113,21 +97,15 @@
         "name": "_parallelResults",
         "kind": "parallel",
         "reads": [],
-        "writes": [
-          "_parallelResults"
-        ],
+        "writes": ["_parallelResults"],
         "barrier": true,
         "stepIndex": 0
       },
       {
         "name": "combined",
         "kind": "parallelMerge",
-        "reads": [
-          "_parallelResults"
-        ],
-        "writes": [
-          "combined"
-        ],
+        "reads": ["_parallelResults"],
+        "writes": ["combined"],
         "barrier": true,
         "stepIndex": 1
       }
@@ -140,9 +118,7 @@
             "name": "_parallelResults",
             "kind": "parallel",
             "reads": [],
-            "writes": [
-              "_parallelResults"
-            ],
+            "writes": ["_parallelResults"],
             "barrier": true,
             "stepIndex": 0
           }
@@ -154,12 +130,8 @@
           {
             "name": "combined",
             "kind": "parallelMerge",
-            "reads": [
-              "_parallelResults"
-            ],
-            "writes": [
-              "combined"
-            ],
+            "reads": ["_parallelResults"],
+            "writes": ["combined"],
             "barrier": true,
             "stepIndex": 1
           }

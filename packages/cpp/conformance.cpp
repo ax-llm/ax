@@ -2289,6 +2289,42 @@ static void run_flow(Value fixture) {
   }
 }
 
+static void run_flow_mermaid(Value fixture) {
+  std::string operation = display(Core::get(fixture, "operation", ""));
+  Value conditions = Value::object();
+  for (const auto& raw : Core::iter(Core::get(fixture, "condition_names", Value::array()))) {
+    Core::set(conditions, display(raw), flow_callback([](Value) { return Value(false); }));
+  }
+  Value bindings = object({{"conditions", conditions}});
+  if (operation == "error") {
+    try {
+      AxFlow ignored(display(Core::get(fixture, "document", "")), bindings);
+    } catch (const std::exception& error) {
+      std::string expected = display(Core::get(fixture, "expected_error_contains", ""));
+      if (std::string(error.what()).find(expected) == std::string::npos) throw;
+      return;
+    }
+    throw AxError("fixture", "expected mermaid compilation to fail");
+  }
+  if (operation == "builder_render") {
+    AxFlow built;
+    std::vector<std::unique_ptr<AxGen>> programs;
+    for (const auto& raw : Core::iter(Core::get(fixture, "builder_steps", Value::array()))) {
+      Value options = object({{"reads", Core::get(raw, "reads", Value::array())}});
+      auto program = std::make_unique<AxGen>(s(display(Core::get(raw, "signature"))));
+      built.execute(display(Core::get(raw, "name")), *program, options);
+      programs.push_back(std::move(program));
+    }
+    assert_equal(built.str(), Core::get(fixture, "expected_rendered"), "flow mermaid builder render");
+    return;
+  }
+  AxFlow first(display(Core::get(fixture, "document")), bindings);
+  Value expected = Core::get(fixture, "expected_rerendered", Core::get(fixture, "expected_rendered"));
+  assert_equal(first.str(), expected, "flow mermaid render");
+  AxFlow second(first.str(), bindings);
+  assert_equal(second.str(), expected, "flow mermaid canonical roundtrip");
+}
+
 static void run(Value fixture) {
   std::string kind = display(Core::get(fixture, "kind", "forward"));
   if (kind == "signature_error") {
@@ -2363,6 +2399,8 @@ static void run(Value fixture) {
     run_program_contract(fixture);
   } else if (kind == "flow") {
     run_flow(fixture);
+  } else if (kind == "flow_mermaid") {
+    run_flow_mermaid(fixture);
   } else if (kind == "optimize") {
     run_optimize(fixture);
   } else if (kind == "mcp") {

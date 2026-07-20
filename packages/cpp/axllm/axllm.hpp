@@ -225,6 +225,8 @@ struct Core {
   // BEGIN AXIR CORE EMITTED DECLARATIONS
   static Value parse_signature(Value signature);
   static Value validate_signature(Value signature);
+  static Value _signature_input_fields(Value signature);
+  static Value _signature_output_fields(Value signature);
   static Value _signature_parse_impl(Value signature);
   static Value _signature_parse_fields_impl(Value text, Value output);
   static Value _signature_parse_field_impl(Value raw, Value output);
@@ -680,6 +682,23 @@ struct Core {
   static Value _flow_restore_components(Value flow, Value snapshot);
   static Value _flow_evaluate_optimization(Value flow, Value client, Value dataset, Value candidate_map, Value options);
   static Value _flow_optimize_with(Value flow, Value dataset, Value options, Value evaluator_available);
+  static Value _flow_evaluate_data_predicate(Value predicate, Value state, Value fallback);
+  static Value _flow_mermaid_fail(Value message, Value line);
+  static Value _flow_mermaid_register_node(Value ast, Value id, Value shape, Value label, Value line);
+  static Value _flow_mermaid_parse_node_ref(Value ast, Value text, Value line);
+  static Value _flow_mermaid_parse_group(Value ast, Value text, Value line);
+  static Value _flow_mermaid_parse(Value text);
+  static Value _flow_mermaid_reachable(Value start, Value target, Value edges);
+  static Value _flow_mermaid_topological_order(Value document_order, Value edges);
+  static Value _flow_mermaid_decision(Value node, Value ast, Value infos);
+  static Value _flow_mermaid_guards_compatible(Value nodes, Value guards);
+  static Value _flow_mermaid_execute_step(Value info, Value guard);
+  static Value _flow_mermaid_parse_max(Value label, Value fallback);
+  static Value _flow_mermaid_compile(Value ast, Value bindings);
+  static Value _flow_mermaid_render_ast(Value ast, Value options);
+  static Value _flow_mermaid_render_flow(Value flow, Value options);
+  static Value _flow_from_mermaid(Value text, Value bindings);
+  static Value _flow_to_mermaid(Value flow, Value options);
   static Value ucp_negotiate_profile(Value profile, Value supportedVersions, Value requestedServices);
   static Value ucp_normalize_outcome(Value operation, Value response);
   static Value mcp_execution_context_descriptor(Value namespaces, Value inheritance);
@@ -1087,6 +1106,7 @@ class AxGen : public AxProgram {
 class AxFlow : public AxProgram {
  public:
   explicit AxFlow(Value options = Value::object());
+  explicit AxFlow(std::string mermaid, Value bindings = Value::object());
   AxFlow& execute(std::string name, AxProgram& program, Value options = Value::object());
   AxFlow& derive(std::string name, AxProgram& program, Value options = Value::object());
   AxFlow& map(std::string name, std::function<Value(Value)> mapper);
@@ -1112,11 +1132,14 @@ class AxFlow : public AxProgram {
   Value optimize_with(OptimizerEngine& engine, Value dataset, Value options = Value::object());
   Value optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options = Value::object());
   Value value() const;
+  std::string str(Value options = Value::object()) const;
   AxFlow& add_raw_step(Value step);
 
  private:
   Value state_;
+  std::vector<std::shared_ptr<AxGen>> mermaid_programs_;
   AxFlow& add_step(Value kind, Value name, Value program, Value options);
+  Value hydrate_mermaid_steps(Value steps, Value bindings);
 };
 
 Value flow_callback(std::function<Value(Value)> mapper);
@@ -1430,6 +1453,7 @@ AxAgent agent(Value signature, Value options = Value::object());
 Value register_memories_search(std::function<Value(Value, Value)> fn);
 Value register_skills_search(std::function<Value(Value)> fn);
 AxFlow flow(Value options = Value::object());
+AxFlow flow(const std::string& mermaid, Value bindings = Value::object());
 Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxFlow& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxAgent& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);

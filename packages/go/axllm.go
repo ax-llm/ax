@@ -1290,6 +1290,102 @@ func validate_signature(args ...Value) (Value, error) {
 	return nil, nil
 }
 
+func _signature_input_fields(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_input_fields")
+	var v_signature Value
+	var v_empty_options Value
+	var v_field Value
+	var v_field_name Value
+	var v_field_optional Value
+	var v_fields Value
+	var v_item Value
+	var v_out Value
+	var v_type Value
+	var v_type_name Value
+	var v_type_options Value
+	var v_type_out Value
+	if len(args) > 0 { v_signature = args[0] }
+	_ = v_signature
+	_ = v_empty_options
+	_ = v_field
+	_ = v_field_name
+	_ = v_field_optional
+	_ = v_fields
+	_ = v_item
+	_ = v_out
+	_ = v_type
+	_ = v_type_name
+	_ = v_type_options
+	_ = v_type_out
+	v_fields = coreGet(v_signature, "input_fields", nil)
+	v_out = MutableArray()
+	for _, v_field = range coreIter(v_fields) {
+		v_type = coreGet(v_field, "type", nil)
+		v_type_out = Object()
+		v_type_name = coreGet(v_type, "name", "")
+		if err := coreSet(v_type_out, "name", v_type_name); err != nil { return nil, err }
+		v_empty_options = MutableArray()
+		v_type_options = coreGet(v_type, "options", v_empty_options)
+		if err := coreSet(v_type_out, "options", v_type_options); err != nil { return nil, err }
+		v_item = Object()
+		v_field_name = coreGet(v_field, "name", "")
+		v_field_optional = coreGet(v_field, "is_optional", false)
+		if err := coreSet(v_item, "name", v_field_name); err != nil { return nil, err }
+		if err := coreSet(v_item, "isOptional", v_field_optional); err != nil { return nil, err }
+		if err := coreSet(v_item, "type", v_type_out); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_item)
+	}
+	return v_out, nil
+}
+
+func _signature_output_fields(args ...Value) (Value, error) {
+	axirCoverageMark("_signature_output_fields")
+	var v_signature Value
+	var v_empty_options Value
+	var v_field Value
+	var v_field_name Value
+	var v_field_optional Value
+	var v_fields Value
+	var v_item Value
+	var v_out Value
+	var v_type Value
+	var v_type_name Value
+	var v_type_options Value
+	var v_type_out Value
+	if len(args) > 0 { v_signature = args[0] }
+	_ = v_signature
+	_ = v_empty_options
+	_ = v_field
+	_ = v_field_name
+	_ = v_field_optional
+	_ = v_fields
+	_ = v_item
+	_ = v_out
+	_ = v_type
+	_ = v_type_name
+	_ = v_type_options
+	_ = v_type_out
+	v_fields = coreGet(v_signature, "output_fields", nil)
+	v_out = MutableArray()
+	for _, v_field = range coreIter(v_fields) {
+		v_type = coreGet(v_field, "type", nil)
+		v_type_out = Object()
+		v_type_name = coreGet(v_type, "name", "")
+		if err := coreSet(v_type_out, "name", v_type_name); err != nil { return nil, err }
+		v_empty_options = MutableArray()
+		v_type_options = coreGet(v_type, "options", v_empty_options)
+		if err := coreSet(v_type_out, "options", v_type_options); err != nil { return nil, err }
+		v_item = Object()
+		v_field_name = coreGet(v_field, "name", "")
+		v_field_optional = coreGet(v_field, "is_optional", false)
+		if err := coreSet(v_item, "name", v_field_name); err != nil { return nil, err }
+		if err := coreSet(v_item, "isOptional", v_field_optional); err != nil { return nil, err }
+		if err := coreSet(v_item, "type", v_type_out); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_item)
+	}
+	return v_out, nil
+}
+
 func _signature_parse_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_signature_parse_impl")
 	var v_signature Value
@@ -36783,7 +36879,10 @@ func _flow_execute_step(args ...Value) (Value, error) {
 	var v_err Value
 	var v_event_payload Value
 	var v_existing_iterations Value
+	var v_guard Value
+	var v_guard_matches Value
 	var v_has_condition Value
+	var v_has_guard Value
 	var v_has_predicate Value
 	var v_input_field Value
 	var v_input_is_list Value
@@ -36828,9 +36927,11 @@ func _flow_execute_step(args ...Value) (Value, error) {
 	var v_results Value
 	var v_results_is_list Value
 	var v_should_continue Value
+	var v_skip_guarded_step Value
 	var v_step_event Value
 	var v_step_index Value
 	var v_step_options Value
+	var v_step_options_for_guard Value
 	var v_too_many Value
 	var v_traces Value
 	var v_when Value
@@ -36867,7 +36968,10 @@ func _flow_execute_step(args ...Value) (Value, error) {
 	_ = v_err
 	_ = v_event_payload
 	_ = v_existing_iterations
+	_ = v_guard
+	_ = v_guard_matches
 	_ = v_has_condition
+	_ = v_has_guard
 	_ = v_has_predicate
 	_ = v_input_field
 	_ = v_input_is_list
@@ -36912,9 +37016,11 @@ func _flow_execute_step(args ...Value) (Value, error) {
 	_ = v_results
 	_ = v_results_is_list
 	_ = v_should_continue
+	_ = v_skip_guarded_step
 	_ = v_step_event
 	_ = v_step_index
 	_ = v_step_options
+	_ = v_step_options_for_guard
 	_ = v_too_many
 	_ = v_traces
 	_ = v_when
@@ -36928,6 +37034,20 @@ func _flow_execute_step(args ...Value) (Value, error) {
 	}
 	v_kind = coreGet(v_step, "kind", "execute")
 	v_name = coreGet(v_step, "name", "")
+	v_step_options_for_guard = coreGet(v_step, "options", v_empty_map)
+	v_guard = coreGet(v_step_options_for_guard, "guard", nil)
+	v_has_guard = _core_is_not_none(v_guard)
+	if coreTruthy(v_has_guard) {
+		{ v, err := _flow_evaluate_data_predicate(v_guard, v_state, false); if err != nil { return nil, err }; v_guard_matches = v }
+		v_skip_guarded_step = _core_not(v_guard_matches)
+		if coreTruthy(v_skip_guarded_step) {
+			return v_state, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
 	v_location = _core_string_format("flow-step-{}", v_name)
 	if _, err := _flow_check_abort(v_options, v_location); err != nil { return nil, err }
 	v_traces = coreGet(v_flow, "traces", nil)
@@ -36959,7 +37079,7 @@ func _flow_execute_step(args ...Value) (Value, error) {
 		v_branch_value_default = coreGet(v_step_options, "value", false)
 		v_branch_value = coreGet(v_step_options, "branchValue", v_branch_value_default)
 		if coreTruthy(v_has_predicate) {
-			{ v, err := _core_object_call_method(v_predicate, "call", v_state); if err != nil { return nil, err }; v_branch_value = v }
+			{ v, err := _flow_evaluate_data_predicate(v_predicate, v_state, v_branch_value); if err != nil { return nil, err }; v_branch_value = v }
 		} else {
 		// empty
 		}
@@ -36996,7 +37116,7 @@ func _flow_execute_step(args ...Value) (Value, error) {
 		for {
 			v_condition_result = coreGet(v_step_options, "conditionResult", false)
 			if coreTruthy(v_has_condition) {
-				{ v, err := _core_object_call_method(v_condition, "call", v_current); if err != nil { return nil, err }; v_condition_result = v }
+				{ v, err := _flow_evaluate_data_predicate(v_condition, v_current, v_condition_result); if err != nil { return nil, err }; v_condition_result = v }
 			} else {
 			// empty
 			}
@@ -37046,7 +37166,7 @@ func _flow_execute_step(args ...Value) (Value, error) {
 		for {
 			v_condition_result = coreGet(v_step_options, "conditionResult", false)
 			if coreTruthy(v_has_condition) {
-				{ v, err := _core_object_call_method(v_condition, "call", v_current); if err != nil { return nil, err }; v_condition_result = v }
+				{ v, err := _flow_evaluate_data_predicate(v_condition, v_current, v_condition_result); if err != nil { return nil, err }; v_condition_result = v }
 			} else {
 			// empty
 			}
@@ -37893,6 +38013,2406 @@ func _flow_optimize_with(args ...Value) (Value, error) {
 	{ v, err := _prepare_optimizer_run("axflow", v_components, v_dataset, v_options, v_trace, v_evaluator_available); if err != nil { return nil, err }; v_run = v }
 	v_request = coreGet(v_run, "request", v_empty_map)
 	return v_request, nil
+}
+
+func _flow_evaluate_data_predicate(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_evaluate_data_predicate")
+	var v_predicate Value
+	var v_state Value
+	var v_fallback Value
+	var v_actual Value
+	var v_called Value
+	var v_empty Value
+	var v_expected Value
+	var v_expected_text Value
+	var v_field Value
+	var v_has_expected Value
+	var v_has_field Value
+	var v_has_node Value
+	var v_is_data Value
+	var v_is_false Value
+	var v_is_true Value
+	var v_matches Value
+	var v_missing Value
+	var v_missing_nested Value
+	var v_node Value
+	var v_result Value
+	var v_result_key Value
+	var v_truthy Value
+	var v_value Value
+	if len(args) > 0 { v_predicate = args[0] }
+	_ = v_predicate
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	if len(args) > 2 { v_fallback = args[2] }
+	_ = v_fallback
+	_ = v_actual
+	_ = v_called
+	_ = v_empty
+	_ = v_expected
+	_ = v_expected_text
+	_ = v_field
+	_ = v_has_expected
+	_ = v_has_field
+	_ = v_has_node
+	_ = v_is_data
+	_ = v_is_false
+	_ = v_is_true
+	_ = v_matches
+	_ = v_missing
+	_ = v_missing_nested
+	_ = v_node
+	_ = v_result
+	_ = v_result_key
+	_ = v_truthy
+	_ = v_value
+	v_missing = _core_is_none(v_predicate)
+	if coreTruthy(v_missing) {
+		return v_fallback, nil
+	} else {
+	// empty
+	}
+	v_has_node = _core_map_contains(v_predicate, "nodeName")
+	v_has_field = _core_map_contains(v_predicate, "field")
+	v_is_data = _core_and(v_has_node, v_has_field)
+	if coreTruthy(v_is_data) {
+		v_node = coreGet(v_predicate, "nodeName", "")
+		v_field = coreGet(v_predicate, "field", "")
+		v_result_key = _core_string_format("{}Result", v_node)
+		v_empty = Object()
+		v_result = coreGet(v_state, v_result_key, v_empty)
+		v_value = coreGet(v_result, v_field, nil)
+		v_missing_nested = _core_is_none(v_value)
+		if coreTruthy(v_missing_nested) {
+			v_value = coreGet(v_state, v_field, nil)
+		} else {
+		// empty
+		}
+		v_has_expected = _core_map_contains(v_predicate, "value")
+		if coreTruthy(v_has_expected) {
+			v_expected = coreGet(v_predicate, "value", nil)
+			v_expected_text = _core_string_lower(v_expected)
+			v_is_true = _core_eq(v_expected_text, "true")
+			v_is_false = _core_eq(v_expected_text, "false")
+			if coreTruthy(v_is_true) {
+				v_actual = _core_truthy(v_value)
+				return v_actual, nil
+			} else {
+			// empty
+			}
+			if coreTruthy(v_is_false) {
+				v_actual = _core_truthy(v_value)
+				v_actual = _core_not(v_actual)
+				return v_actual, nil
+			} else {
+			// empty
+			}
+			v_matches = _core_eq(v_value, v_expected)
+			return v_matches, nil
+		} else {
+		// empty
+		}
+		v_truthy = _core_truthy(v_value)
+		return v_truthy, nil
+	} else {
+	// empty
+	}
+	{ v, err := _core_object_call_method(v_predicate, "call", v_state); if err != nil { return nil, err }; v_called = v }
+	return v_called, nil
+}
+
+func _flow_mermaid_fail(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_fail")
+	var v_message Value
+	var v_line Value
+	var v_err Value
+	var v_with_line Value
+	if len(args) > 0 { v_message = args[0] }
+	_ = v_message
+	if len(args) > 1 { v_line = args[1] }
+	_ = v_line
+	_ = v_err
+	_ = v_with_line
+	v_with_line = _core_string_format("{} (line {})", v_message, v_line)
+	v_err = _core_runtime_error(v_with_line)
+	return nil, asAxError(v_err)
+}
+
+func _flow_mermaid_register_node(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_register_node")
+	var v_ast Value
+	var v_id Value
+	var v_shape Value
+	var v_label Value
+	var v_line Value
+	var v_existing Value
+	var v_existing_label Value
+	var v_has_label Value
+	var v_index Value
+	var v_invalid Value
+	var v_known Value
+	var v_missing_existing_label Value
+	var v_node Value
+	var v_nodes Value
+	var v_order Value
+	var v_order_index Value
+	var v_replace Value
+	var v_valid Value
+	if len(args) > 0 { v_ast = args[0] }
+	_ = v_ast
+	if len(args) > 1 { v_id = args[1] }
+	_ = v_id
+	if len(args) > 2 { v_shape = args[2] }
+	_ = v_shape
+	if len(args) > 3 { v_label = args[3] }
+	_ = v_label
+	if len(args) > 4 { v_line = args[4] }
+	_ = v_line
+	_ = v_existing
+	_ = v_existing_label
+	_ = v_has_label
+	_ = v_index
+	_ = v_invalid
+	_ = v_known
+	_ = v_missing_existing_label
+	_ = v_node
+	_ = v_nodes
+	_ = v_order
+	_ = v_order_index
+	_ = v_replace
+	_ = v_valid
+	v_valid = coreRegexMatch("^[A-Za-z_][A-Za-z0-9_]*$", v_id)
+	v_invalid = _core_not(v_valid)
+	if coreTruthy(v_invalid) {
+		if _, err := _flow_mermaid_fail("Expected a node id", v_line); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_nodes = coreGet(v_ast, "nodes", nil)
+	v_known = _core_map_contains(v_nodes, v_id)
+	if coreTruthy(v_known) {
+		v_existing = coreGet(v_nodes, v_id, nil)
+		v_existing_label = coreGet(v_existing, "label", nil)
+		v_missing_existing_label = _core_is_none(v_existing_label)
+		v_has_label = _core_is_not_none(v_label)
+		v_replace = _core_and(v_missing_existing_label, v_has_label)
+		if coreTruthy(v_replace) {
+			if err := coreSet(v_existing, "shape", v_shape); err != nil { return nil, err }
+			if err := coreSet(v_existing, "label", v_label); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		return v_existing, nil
+	} else {
+	// empty
+	}
+	v_node = Object()
+	if err := coreSet(v_node, "id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_node, "shape", v_shape); err != nil { return nil, err }
+	if err := coreSet(v_node, "label", v_label); err != nil { return nil, err }
+	if err := coreSet(v_node, "line", v_line); err != nil { return nil, err }
+	if err := coreSet(v_nodes, v_id, v_node); err != nil { return nil, err }
+	v_order = coreGet(v_ast, "order", nil)
+	v_index = _core_len(v_order)
+	v_order = coreAppend(v_order, v_id)
+	v_order_index = coreGet(v_ast, "orderIndex", nil)
+	if err := coreSet(v_order_index, v_id, v_index); err != nil { return nil, err }
+	return v_node, nil
+}
+
+func _flow_mermaid_parse_node_ref(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_parse_node_ref")
+	var v_ast Value
+	var v_text Value
+	var v_line Value
+	var v_bad Value
+	var v_balanced Value
+	var v_candidate Value
+	var v_close_brace Value
+	var v_close_index Value
+	var v_delimiter Value
+	var v_delimiters Value
+	var v_earlier Value
+	var v_empty Value
+	var v_found Value
+	var v_group Value
+	var v_has_tail Value
+	var v_id Value
+	var v_id_raw Value
+	var v_inner_end Value
+	var v_inner_len Value
+	var v_is_diamond Value
+	var v_label Value
+	var v_label_end Value
+	var v_label_len Value
+	var v_label_text Value
+	var v_node Value
+	var v_open_brace Value
+	var v_quoted Value
+	var v_quoted_double Value
+	var v_quoted_single Value
+	var v_rest Value
+	var v_shape Value
+	var v_source Value
+	var v_source_len Value
+	var v_split_at Value
+	var v_starts_diamond Value
+	var v_starts_double_round Value
+	var v_starts_rect Value
+	var v_starts_round Value
+	var v_starts_round_bracket Value
+	var v_tail Value
+	var v_tail_len Value
+	var v_trailing Value
+	var v_use Value
+	if len(args) > 0 { v_ast = args[0] }
+	_ = v_ast
+	if len(args) > 1 { v_text = args[1] }
+	_ = v_text
+	if len(args) > 2 { v_line = args[2] }
+	_ = v_line
+	_ = v_bad
+	_ = v_balanced
+	_ = v_candidate
+	_ = v_close_brace
+	_ = v_close_index
+	_ = v_delimiter
+	_ = v_delimiters
+	_ = v_earlier
+	_ = v_empty
+	_ = v_found
+	_ = v_group
+	_ = v_has_tail
+	_ = v_id
+	_ = v_id_raw
+	_ = v_inner_end
+	_ = v_inner_len
+	_ = v_is_diamond
+	_ = v_label
+	_ = v_label_end
+	_ = v_label_len
+	_ = v_label_text
+	_ = v_node
+	_ = v_open_brace
+	_ = v_quoted
+	_ = v_quoted_double
+	_ = v_quoted_single
+	_ = v_rest
+	_ = v_shape
+	_ = v_source
+	_ = v_source_len
+	_ = v_split_at
+	_ = v_starts_diamond
+	_ = v_starts_double_round
+	_ = v_starts_rect
+	_ = v_starts_round
+	_ = v_starts_round_bracket
+	_ = v_tail
+	_ = v_tail_len
+	_ = v_trailing
+	_ = v_use
+	v_source = coreStringTrim(v_text)
+	v_source_len = _core_len(v_source)
+	v_empty = _core_eq(v_source_len, 0)
+	if coreTruthy(v_empty) {
+		if _, err := _flow_mermaid_fail("Expected a node id", v_line); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_split_at = v_source_len
+	v_delimiters = MutableArray()
+	v_delimiters = coreAppend(v_delimiters, "[")
+	v_delimiters = coreAppend(v_delimiters, "(")
+	v_delimiters = coreAppend(v_delimiters, "{")
+	for _, v_delimiter = range coreIter(v_delimiters) {
+		{ v, err := _core_string_find_outside_quotes(v_source, v_delimiter); if err != nil { return nil, err }; v_candidate = v }
+		v_found = _core_gte(v_candidate, 0)
+		v_earlier = _core_lt(v_candidate, v_split_at)
+		v_use = _core_and(v_found, v_earlier)
+		if coreTruthy(v_use) {
+			v_split_at = v_candidate
+		} else {
+		// empty
+		}
+	}
+	v_id_raw = _core_string_slice(v_source, 0, v_split_at)
+	v_id = coreStringTrim(v_id_raw)
+	v_tail = _core_string_slice(v_source, v_split_at)
+	v_tail = coreStringTrim(v_tail)
+	v_shape = "rect"
+	v_label = _core_none()
+	v_has_tail = _core_truthy(v_tail)
+	if coreTruthy(v_has_tail) {
+		v_starts_round_bracket = _core_string_starts_with(v_tail, "([")
+		v_starts_double_round = _core_string_starts_with(v_tail, "((")
+		v_starts_round = _core_string_starts_with(v_tail, "(")
+		v_starts_rect = _core_string_starts_with(v_tail, "[")
+		v_starts_diamond = _core_string_starts_with(v_tail, "{")
+		v_group = Object()
+		if coreTruthy(v_starts_round) {
+			{ v, err := _core_string_extract_leading_group(v_tail, "(", ")"); if err != nil { return nil, err }; v_group = v }
+			v_shape = "round"
+		} else {
+			if coreTruthy(v_starts_rect) {
+				{ v, err := _core_string_extract_leading_group(v_tail, "[", "]"); if err != nil { return nil, err }; v_group = v }
+				v_shape = "rect"
+			} else {
+				if coreTruthy(v_starts_diamond) {
+					{ v, err := _core_string_extract_leading_group(v_tail, "{", "}"); if err != nil { return nil, err }; v_group = v }
+					v_shape = "diamond"
+				} else {
+					if _, err := _flow_mermaid_fail("Unexpected content after node id", v_line); err != nil { return nil, err }
+				}
+			}
+		}
+		v_balanced = coreGet(v_group, "balanced", false)
+		v_rest = coreGet(v_group, "rest", "")
+		v_rest = coreStringTrim(v_rest)
+		v_trailing = _core_truthy(v_rest)
+		v_bad = _core_not(v_balanced)
+		v_bad = _core_or(v_bad, v_trailing)
+		if coreTruthy(v_bad) {
+			if _, err := _flow_mermaid_fail("Unexpected content after node shape", v_line); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_label_text = coreGet(v_group, "group", "")
+		if coreTruthy(v_starts_round_bracket) {
+			v_shape = "round"
+			v_inner_len = _core_len(v_label_text)
+			v_inner_end = _core_add(v_inner_len, -1)
+			v_label_text = _core_string_slice(v_label_text, 1, v_inner_end)
+		} else {
+		// empty
+		}
+		if coreTruthy(v_starts_double_round) {
+			v_shape = "rect"
+			v_inner_len = _core_len(v_label_text)
+			v_inner_end = _core_add(v_inner_len, -1)
+			v_label_text = _core_string_slice(v_label_text, 1, v_inner_end)
+		} else {
+		// empty
+		}
+		v_label_text = coreStringTrim(v_label_text)
+		v_quoted_double = _core_string_starts_with(v_label_text, "\"")
+		v_quoted_single = _core_string_starts_with(v_label_text, "'")
+		v_quoted = _core_or(v_quoted_double, v_quoted_single)
+		if coreTruthy(v_quoted) {
+			v_label_len = _core_len(v_label_text)
+			v_label_end = _core_add(v_label_len, -1)
+			v_label_text = _core_string_slice(v_label_text, 1, v_label_end)
+		} else {
+		// empty
+		}
+		v_label = v_label_text
+	} else {
+	// empty
+	}
+	{ v, err := _flow_mermaid_register_node(v_ast, v_id, v_shape, v_label, v_line); if err != nil { return nil, err }; v_node = v }
+	v_is_diamond = _core_eq(v_shape, "diamond")
+	if coreTruthy(v_is_diamond) {
+		v_tail_len = _core_len(v_tail)
+		v_close_index = _core_add(v_tail_len, -1)
+		v_open_brace = _core_string_slice(v_tail, 0, 1)
+		v_close_brace = _core_string_slice(v_tail, v_close_index)
+		if err := coreSet(v_node, "open", v_open_brace); err != nil { return nil, err }
+		if err := coreSet(v_node, "close", v_close_brace); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_id, nil
+}
+
+func _flow_mermaid_parse_group(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_parse_group")
+	var v_ast Value
+	var v_text Value
+	var v_line Value
+	var v_id Value
+	var v_ids Value
+	var v_part Value
+	var v_parts Value
+	if len(args) > 0 { v_ast = args[0] }
+	_ = v_ast
+	if len(args) > 1 { v_text = args[1] }
+	_ = v_text
+	if len(args) > 2 { v_line = args[2] }
+	_ = v_line
+	_ = v_id
+	_ = v_ids
+	_ = v_part
+	_ = v_parts
+	{ v, err := _core_string_split_top_level(v_text, "&"); if err != nil { return nil, err }; v_parts = v }
+	v_ids = MutableArray()
+	for _, v_part = range coreIter(v_parts) {
+		{ v, err := _flow_mermaid_parse_node_ref(v_ast, v_part, v_line); if err != nil { return nil, err }; v_id = v }
+		v_ids = coreAppend(v_ids, v_id)
+	}
+	return v_ids, nil
+}
+
+func _flow_mermaid_parse(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_parse")
+	var v_text Value
+	var v_after_bar Value
+	var v_ast Value
+	var v_direction Value
+	var v_directive_body Value
+	var v_directive_order Value
+	var v_directives Value
+	var v_done Value
+	var v_duplicate Value
+	var v_edge Value
+	var v_edges Value
+	var v_found_colon Value
+	var v_from_ids Value
+	var v_from_node Value
+	var v_from_text Value
+	var v_has_label Value
+	var v_id Value
+	var v_invalid_id Value
+	var v_is_ax Value
+	var v_is_bt Value
+	var v_is_comment Value
+	var v_is_empty Value
+	var v_is_flowchart Value
+	var v_is_graph Value
+	var v_is_header Value
+	var v_is_lr Value
+	var v_is_rl Value
+	var v_is_td Value
+	var v_label Value
+	var v_label_closed Value
+	var v_label_parts Value
+	var v_line Value
+	var v_line_number Value
+	var v_lines Value
+	var v_message Value
+	var v_no_nodes Value
+	var v_node_count Value
+	var v_nodes Value
+	var v_order Value
+	var v_order_index Value
+	var v_parts Value
+	var v_percent Value
+	var v_raw Value
+	var v_saw_header Value
+	var v_segment Value
+	var v_segment_count Value
+	var v_segment_index Value
+	var v_segments Value
+	var v_sig Value
+	var v_supported Value
+	var v_supported_a Value
+	var v_supported_b Value
+	var v_to Value
+	var v_to_ids Value
+	var v_unsupported Value
+	var v_unsupported_arrow Value
+	var v_unsupported_construct Value
+	var v_valid_id Value
+	var v_words Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	_ = v_after_bar
+	_ = v_ast
+	_ = v_direction
+	_ = v_directive_body
+	_ = v_directive_order
+	_ = v_directives
+	_ = v_done
+	_ = v_duplicate
+	_ = v_edge
+	_ = v_edges
+	_ = v_found_colon
+	_ = v_from_ids
+	_ = v_from_node
+	_ = v_from_text
+	_ = v_has_label
+	_ = v_id
+	_ = v_invalid_id
+	_ = v_is_ax
+	_ = v_is_bt
+	_ = v_is_comment
+	_ = v_is_empty
+	_ = v_is_flowchart
+	_ = v_is_graph
+	_ = v_is_header
+	_ = v_is_lr
+	_ = v_is_rl
+	_ = v_is_td
+	_ = v_label
+	_ = v_label_closed
+	_ = v_label_parts
+	_ = v_line
+	_ = v_line_number
+	_ = v_lines
+	_ = v_message
+	_ = v_no_nodes
+	_ = v_node_count
+	_ = v_nodes
+	_ = v_order
+	_ = v_order_index
+	_ = v_parts
+	_ = v_percent
+	_ = v_raw
+	_ = v_saw_header
+	_ = v_segment
+	_ = v_segment_count
+	_ = v_segment_index
+	_ = v_segments
+	_ = v_sig
+	_ = v_supported
+	_ = v_supported_a
+	_ = v_supported_b
+	_ = v_to
+	_ = v_to_ids
+	_ = v_unsupported
+	_ = v_unsupported_arrow
+	_ = v_unsupported_construct
+	_ = v_valid_id
+	_ = v_words
+	v_ast = Object()
+	v_directives = Object()
+	v_directive_order = MutableArray()
+	v_nodes = Object()
+	v_order = MutableArray()
+	v_order_index = Object()
+	v_edges = MutableArray()
+	if err := coreSet(v_ast, "direction", "TD"); err != nil { return nil, err }
+	if err := coreSet(v_ast, "directives", v_directives); err != nil { return nil, err }
+	if err := coreSet(v_ast, "directiveOrder", v_directive_order); err != nil { return nil, err }
+	if err := coreSet(v_ast, "nodes", v_nodes); err != nil { return nil, err }
+	if err := coreSet(v_ast, "order", v_order); err != nil { return nil, err }
+	if err := coreSet(v_ast, "orderIndex", v_order_index); err != nil { return nil, err }
+	if err := coreSet(v_ast, "edges", v_edges); err != nil { return nil, err }
+	v_saw_header = false
+	v_lines = _core_string_split(v_text, "\n")
+	v_line_number = 0
+	for _, v_raw = range coreIter(v_lines) {
+		v_line_number = _core_add(v_line_number, 1)
+		v_line = coreStringTrim(v_raw)
+		v_is_empty = _core_eq(v_line, "")
+		if coreTruthy(v_is_empty) {
+		// empty
+		} else {
+			v_is_ax = coreRegexMatch("^%%ax\\s+", v_line)
+			v_is_comment = coreRegexMatch("^%%", v_line)
+			if coreTruthy(v_is_ax) {
+				v_percent = _core_string_slice(v_line, 0, 1)
+				if err := coreSet(v_ast, "percent", v_percent); err != nil { return nil, err }
+				v_directive_body = _core_string_slice(v_line, 5)
+				v_parts = _core_string_split_once(v_directive_body, ":")
+				v_found_colon = coreGet(v_parts, "found", false)
+				if coreTruthy(v_found_colon) {
+				// empty
+				} else {
+					if _, err := _flow_mermaid_fail("Invalid Ax directive", v_line_number); err != nil { return nil, err }
+				}
+				v_id = coreGet(v_parts, "left", "")
+				v_id = coreStringTrim(v_id)
+				v_sig = coreGet(v_parts, "right", "")
+				v_sig = coreStringTrim(v_sig)
+				v_valid_id = coreRegexMatch("^[A-Za-z_][A-Za-z0-9_]*$", v_id)
+				v_invalid_id = _core_not(v_valid_id)
+				if coreTruthy(v_invalid_id) {
+					if _, err := _flow_mermaid_fail("Invalid Ax directive node id", v_line_number); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+				v_duplicate = _core_map_contains(v_directives, v_id)
+				if coreTruthy(v_duplicate) {
+					v_message = _core_string_format("Duplicate Ax directive for node \"{}\"", v_id)
+					if _, err := _flow_mermaid_fail(v_message, v_line_number); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+				if err := coreSet(v_directives, v_id, v_sig); err != nil { return nil, err }
+				v_directive_order = coreAppend(v_directive_order, v_id)
+			} else {
+				if coreTruthy(v_is_comment) {
+				// empty
+				} else {
+					v_is_flowchart = _core_string_starts_with(v_line, "flowchart ")
+					v_is_graph = _core_string_starts_with(v_line, "graph ")
+					v_is_header = _core_or(v_is_flowchart, v_is_graph)
+					if coreTruthy(v_is_header) {
+						if coreTruthy(v_saw_header) {
+							if _, err := _flow_mermaid_fail("Multiple flowchart headers", v_line_number); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						v_words = _core_string_words(v_line)
+						v_direction = _core_list_get(v_words, 1, "")
+						v_is_td = _core_eq(v_direction, "TD")
+						v_is_lr = _core_eq(v_direction, "LR")
+						v_is_bt = _core_eq(v_direction, "BT")
+						v_is_rl = _core_eq(v_direction, "RL")
+						v_supported_a = _core_or(v_is_td, v_is_lr)
+						v_supported_b = _core_or(v_is_bt, v_is_rl)
+						v_supported = _core_or(v_supported_a, v_supported_b)
+						v_unsupported = _core_not(v_supported)
+						if coreTruthy(v_unsupported) {
+							if _, err := _flow_mermaid_fail("Unsupported flowchart direction", v_line_number); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						if err := coreSet(v_ast, "direction", v_direction); err != nil { return nil, err }
+						v_saw_header = true
+					} else {
+						if coreTruthy(v_saw_header) {
+						// empty
+						} else {
+							if _, err := _flow_mermaid_fail("Missing flowchart header", v_line_number); err != nil { return nil, err }
+						}
+						v_unsupported_construct = coreRegexMatch("^(subgraph\\b|end\\b|style\\b|classDef\\b|class\\b|linkStyle\\b|click\\b|direction\\b)", v_line)
+						if coreTruthy(v_unsupported_construct) {
+							if _, err := _flow_mermaid_fail("Unsupported mermaid construct", v_line_number); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						v_unsupported_arrow = coreRegexMatch("(-\\.+->|={2,}>|---|~~~)", v_line)
+						if coreTruthy(v_unsupported_arrow) {
+							if _, err := _flow_mermaid_fail("Unsupported arrow syntax", v_line_number); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						{ v, err := _core_string_split_top_level(v_line, "-->"); if err != nil { return nil, err }; v_segments = v }
+						v_segment_count = _core_len(v_segments)
+						v_from_text = _core_list_get(v_segments, 0, "")
+						{ v, err := _flow_mermaid_parse_group(v_ast, v_from_text, v_line_number); if err != nil { return nil, err }; v_from_ids = v }
+						v_segment_index = 1
+						for {
+							v_done = _core_gte(v_segment_index, v_segment_count)
+							if coreTruthy(v_done) {
+								break
+							} else {
+							// empty
+							}
+							v_segment = _core_list_get(v_segments, v_segment_index, "")
+							v_segment = coreStringTrim(v_segment)
+							v_label = _core_none()
+							v_has_label = _core_string_starts_with(v_segment, "|")
+							if coreTruthy(v_has_label) {
+								v_after_bar = _core_string_slice(v_segment, 1)
+								v_label_parts = _core_string_split_once(v_after_bar, "|")
+								v_label_closed = coreGet(v_label_parts, "found", false)
+								if coreTruthy(v_label_closed) {
+								// empty
+								} else {
+									if _, err := _flow_mermaid_fail("Unterminated edge label", v_line_number); err != nil { return nil, err }
+								}
+								v_label = coreGet(v_label_parts, "left", "")
+								v_label = coreStringTrim(v_label)
+								v_segment = coreGet(v_label_parts, "right", "")
+								v_segment = coreStringTrim(v_segment)
+							} else {
+							// empty
+							}
+							{ v, err := _flow_mermaid_parse_group(v_ast, v_segment, v_line_number); if err != nil { return nil, err }; v_to_ids = v }
+							for _, v_from_node = range coreIter(v_from_ids) {
+								for _, v_to = range coreIter(v_to_ids) {
+									v_edge = Object()
+									if err := coreSet(v_edge, "from", v_from_node); err != nil { return nil, err }
+									if err := coreSet(v_edge, "to", v_to); err != nil { return nil, err }
+									if err := coreSet(v_edge, "label", v_label); err != nil { return nil, err }
+									if err := coreSet(v_edge, "line", v_line_number); err != nil { return nil, err }
+									v_edges = coreAppend(v_edges, v_edge)
+								}
+							}
+							v_from_ids = v_to_ids
+							v_segment_index = _core_add(v_segment_index, 1)
+						}
+					}
+				}
+			}
+		}
+	}
+	if coreTruthy(v_saw_header) {
+	// empty
+	} else {
+		if _, err := _flow_mermaid_fail("Missing flowchart header", 1); err != nil { return nil, err }
+	}
+	v_node_count = _core_len(v_order)
+	v_no_nodes = _core_eq(v_node_count, 0)
+	if coreTruthy(v_no_nodes) {
+		if _, err := _flow_mermaid_fail("No nodes found in the diagram", 1); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_ast, nil
+}
+
+func _flow_mermaid_reachable(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_reachable")
+	var v_start Value
+	var v_target Value
+	var v_edges Value
+	var v_count Value
+	var v_current Value
+	var v_done Value
+	var v_edge Value
+	var v_found Value
+	var v_from_node Value
+	var v_index Value
+	var v_is_new Value
+	var v_known Value
+	var v_matches Value
+	var v_queue Value
+	var v_seen Value
+	var v_to Value
+	if len(args) > 0 { v_start = args[0] }
+	_ = v_start
+	if len(args) > 1 { v_target = args[1] }
+	_ = v_target
+	if len(args) > 2 { v_edges = args[2] }
+	_ = v_edges
+	_ = v_count
+	_ = v_current
+	_ = v_done
+	_ = v_edge
+	_ = v_found
+	_ = v_from_node
+	_ = v_index
+	_ = v_is_new
+	_ = v_known
+	_ = v_matches
+	_ = v_queue
+	_ = v_seen
+	_ = v_to
+	v_queue = MutableArray()
+	v_queue = coreAppend(v_queue, v_start)
+	v_seen = Object()
+	if err := coreSet(v_seen, v_start, true); err != nil { return nil, err }
+	v_index = 0
+	for {
+		v_count = _core_len(v_queue)
+		v_done = _core_gte(v_index, v_count)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_current = _core_list_get(v_queue, v_index, "")
+		v_index = _core_add(v_index, 1)
+		for _, v_edge = range coreIter(v_edges) {
+			v_from_node = coreGet(v_edge, "from", "")
+			v_matches = _core_eq(v_from_node, v_current)
+			if coreTruthy(v_matches) {
+				v_to = coreGet(v_edge, "to", "")
+				v_found = _core_eq(v_to, v_target)
+				if coreTruthy(v_found) {
+					return true, nil
+				} else {
+				// empty
+				}
+				v_known = _core_map_contains(v_seen, v_to)
+				v_is_new = _core_not(v_known)
+				if coreTruthy(v_is_new) {
+					if err := coreSet(v_seen, v_to, true); err != nil { return nil, err }
+					v_queue = coreAppend(v_queue, v_to)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+	}
+	return false, nil
+}
+
+func _flow_mermaid_topological_order(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_topological_order")
+	var v_document_order Value
+	var v_edges Value
+	var v_count Value
+	var v_done Value
+	var v_edge Value
+	var v_id Value
+	var v_incoming Value
+	var v_known Value
+	var v_parent Value
+	var v_parent_done Value
+	var v_processed Value
+	var v_progress Value
+	var v_ready Value
+	var v_result Value
+	var v_to Value
+	var v_total Value
+	var v_waiting Value
+	if len(args) > 0 { v_document_order = args[0] }
+	_ = v_document_order
+	if len(args) > 1 { v_edges = args[1] }
+	_ = v_edges
+	_ = v_count
+	_ = v_done
+	_ = v_edge
+	_ = v_id
+	_ = v_incoming
+	_ = v_known
+	_ = v_parent
+	_ = v_parent_done
+	_ = v_processed
+	_ = v_progress
+	_ = v_ready
+	_ = v_result
+	_ = v_to
+	_ = v_total
+	_ = v_waiting
+	v_result = MutableArray()
+	v_processed = Object()
+	v_total = _core_len(v_document_order)
+	for {
+		v_count = _core_len(v_result)
+		v_done = _core_gte(v_count, v_total)
+		if coreTruthy(v_done) {
+			break
+		} else {
+		// empty
+		}
+		v_progress = false
+		for _, v_id = range coreIter(v_document_order) {
+			v_known = _core_map_contains(v_processed, v_id)
+			if coreTruthy(v_known) {
+			// empty
+			} else {
+				v_ready = true
+				for _, v_edge = range coreIter(v_edges) {
+					v_to = coreGet(v_edge, "to", "")
+					v_incoming = _core_eq(v_to, v_id)
+					if coreTruthy(v_incoming) {
+						v_parent = coreGet(v_edge, "from", "")
+						v_parent_done = _core_map_contains(v_processed, v_parent)
+						v_waiting = _core_not(v_parent_done)
+						if coreTruthy(v_waiting) {
+							v_ready = false
+						} else {
+						// empty
+						}
+					} else {
+					// empty
+					}
+				}
+				if coreTruthy(v_ready) {
+					if err := coreSet(v_processed, v_id, true); err != nil { return nil, err }
+					v_result = coreAppend(v_result, v_id)
+					v_progress = true
+				} else {
+				// empty
+				}
+			}
+		}
+		if coreTruthy(v_progress) {
+		// empty
+		} else {
+			if _, err := _flow_mermaid_fail("Cycle without a classified back-edge", 1); err != nil { return nil, err }
+		}
+	}
+	return v_result, nil
+}
+
+func _flow_mermaid_decision(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_decision")
+	var v_node Value
+	var v_ast Value
+	var v_infos Value
+	var v_candidate_count Value
+	var v_chosen Value
+	var v_decision Value
+	var v_decision_options Value
+	var v_decision_type Value
+	var v_eligible Value
+	var v_empty Value
+	var v_empty_options Value
+	var v_field Value
+	var v_field_name Value
+	var v_info Value
+	var v_is_boolean Value
+	var v_is_class Value
+	var v_is_diamond Value
+	var v_matches Value
+	var v_message Value
+	var v_missing Value
+	var v_missing_signature Value
+	var v_name Value
+	var v_node_ast Value
+	var v_nodes Value
+	var v_one Value
+	var v_outputs Value
+	var v_shape Value
+	var v_signature Value
+	var v_type Value
+	var v_type_name Value
+	if len(args) > 0 { v_node = args[0] }
+	_ = v_node
+	if len(args) > 1 { v_ast = args[1] }
+	_ = v_ast
+	if len(args) > 2 { v_infos = args[2] }
+	_ = v_infos
+	_ = v_candidate_count
+	_ = v_chosen
+	_ = v_decision
+	_ = v_decision_options
+	_ = v_decision_type
+	_ = v_eligible
+	_ = v_empty
+	_ = v_empty_options
+	_ = v_field
+	_ = v_field_name
+	_ = v_info
+	_ = v_is_boolean
+	_ = v_is_class
+	_ = v_is_diamond
+	_ = v_matches
+	_ = v_message
+	_ = v_missing
+	_ = v_missing_signature
+	_ = v_name
+	_ = v_node_ast
+	_ = v_nodes
+	_ = v_one
+	_ = v_outputs
+	_ = v_shape
+	_ = v_signature
+	_ = v_type
+	_ = v_type_name
+	v_empty = Object()
+	v_info = coreGet(v_infos, v_node, v_empty)
+	v_signature = coreGet(v_info, "signature", nil)
+	v_missing_signature = _core_is_none(v_signature)
+	if coreTruthy(v_missing_signature) {
+		v_message = _core_string_format("Decision node \"{}\" needs an Ax signature directive", v_node)
+		if _, err := _flow_mermaid_fail(v_message, 1); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_outputs = coreGet(v_info, "outputs", nil)
+	v_nodes = coreGet(v_ast, "nodes", nil)
+	v_node_ast = coreGet(v_nodes, v_node, nil)
+	v_shape = coreGet(v_node_ast, "shape", "rect")
+	v_is_diamond = _core_eq(v_shape, "diamond")
+	v_field_name = ""
+	if coreTruthy(v_is_diamond) {
+		v_field_name = coreGet(v_node_ast, "label", "")
+	} else {
+		v_candidate_count = 0
+		for _, v_field = range coreIter(v_outputs) {
+			v_type = coreGet(v_field, "type", nil)
+			v_type_name = coreGet(v_type, "name", "")
+			v_is_class = _core_eq(v_type_name, "class")
+			v_is_boolean = _core_eq(v_type_name, "boolean")
+			v_eligible = _core_or(v_is_class, v_is_boolean)
+			if coreTruthy(v_eligible) {
+				v_candidate_count = _core_add(v_candidate_count, 1)
+				v_field_name = coreGet(v_field, "name", "")
+			} else {
+			// empty
+			}
+		}
+		v_one = _core_eq(v_candidate_count, 1)
+		if coreTruthy(v_one) {
+		// empty
+		} else {
+			v_message = _core_string_format("Cannot infer decision field for node \"{}\"", v_node)
+			if _, err := _flow_mermaid_fail(v_message, 1); err != nil { return nil, err }
+		}
+	}
+	v_chosen = _core_none()
+	for _, v_field = range coreIter(v_outputs) {
+		v_name = coreGet(v_field, "name", "")
+		v_matches = _core_eq(v_name, v_field_name)
+		if coreTruthy(v_matches) {
+			v_chosen = v_field
+		} else {
+		// empty
+		}
+	}
+	v_missing = _core_is_none(v_chosen)
+	if coreTruthy(v_missing) {
+		v_message = _core_string_format("Decision field \"{}\" is not an output of node \"{}\"", v_field_name, v_node)
+		if _, err := _flow_mermaid_fail(v_message, 1); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_type = coreGet(v_chosen, "type", nil)
+	v_decision = Object()
+	if err := coreSet(v_decision, "nodeName", v_node); err != nil { return nil, err }
+	if err := coreSet(v_decision, "field", v_field_name); err != nil { return nil, err }
+	v_decision_type = coreGet(v_type, "name", "")
+	if err := coreSet(v_decision, "type", v_decision_type); err != nil { return nil, err }
+	v_empty_options = MutableArray()
+	v_decision_options = coreGet(v_type, "options", v_empty_options)
+	if err := coreSet(v_decision, "options", v_decision_options); err != nil { return nil, err }
+	return v_decision, nil
+}
+
+func _flow_mermaid_guards_compatible(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_guards_compatible")
+	var v_nodes Value
+	var v_guards Value
+	var v_count Value
+	var v_different Value
+	var v_duplicate Value
+	var v_enough Value
+	var v_field Value
+	var v_first Value
+	var v_first_node Value
+	var v_guard Value
+	var v_guard_field Value
+	var v_guard_owner Value
+	var v_missing Value
+	var v_missing_first Value
+	var v_node Value
+	var v_owner Value
+	var v_same Value
+	var v_same_field Value
+	var v_same_owner Value
+	var v_value Value
+	var v_value_key Value
+	var v_values Value
+	if len(args) > 0 { v_nodes = args[0] }
+	_ = v_nodes
+	if len(args) > 1 { v_guards = args[1] }
+	_ = v_guards
+	_ = v_count
+	_ = v_different
+	_ = v_duplicate
+	_ = v_enough
+	_ = v_field
+	_ = v_first
+	_ = v_first_node
+	_ = v_guard
+	_ = v_guard_field
+	_ = v_guard_owner
+	_ = v_missing
+	_ = v_missing_first
+	_ = v_node
+	_ = v_owner
+	_ = v_same
+	_ = v_same_field
+	_ = v_same_owner
+	_ = v_value
+	_ = v_value_key
+	_ = v_values
+	v_count = _core_len(v_nodes)
+	v_enough = _core_gt(v_count, 1)
+	if coreTruthy(v_enough) {
+	// empty
+	} else {
+		return false, nil
+	}
+	v_first_node = _core_list_get(v_nodes, 0, "")
+	v_first = coreGet(v_guards, v_first_node, nil)
+	v_missing_first = _core_is_none(v_first)
+	if coreTruthy(v_missing_first) {
+		return false, nil
+	} else {
+	// empty
+	}
+	v_owner = coreGet(v_first, "nodeName", "")
+	v_field = coreGet(v_first, "field", "")
+	v_values = Object()
+	for _, v_node = range coreIter(v_nodes) {
+		v_guard = coreGet(v_guards, v_node, nil)
+		v_missing = _core_is_none(v_guard)
+		if coreTruthy(v_missing) {
+			return false, nil
+		} else {
+		// empty
+		}
+		v_guard_owner = coreGet(v_guard, "nodeName", "")
+		v_guard_field = coreGet(v_guard, "field", "")
+		v_same_owner = _core_eq(v_guard_owner, v_owner)
+		v_same_field = _core_eq(v_guard_field, v_field)
+		v_same = _core_and(v_same_owner, v_same_field)
+		v_different = _core_not(v_same)
+		if coreTruthy(v_different) {
+			return false, nil
+		} else {
+		// empty
+		}
+		v_value = coreGet(v_guard, "value", nil)
+		v_value_key = _core_string_str(v_value)
+		v_duplicate = _core_map_contains(v_values, v_value_key)
+		if coreTruthy(v_duplicate) {
+			return false, nil
+		} else {
+		// empty
+		}
+		if err := coreSet(v_values, v_value_key, true); err != nil { return nil, err }
+	}
+	return true, nil
+}
+
+func _flow_mermaid_execute_step(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_execute_step")
+	var v_info Value
+	var v_guard Value
+	var v_guard_node Value
+	var v_guard_read Value
+	var v_has_guard Value
+	var v_has_guard_read Value
+	var v_has_signature Value
+	var v_kind Value
+	var v_meta Value
+	var v_missing_guard_read Value
+	var v_name Value
+	var v_options Value
+	var v_program Value
+	var v_read Value
+	var v_reads Value
+	var v_resolved_reads Value
+	var v_result_key Value
+	var v_signature_text Value
+	var v_step Value
+	var v_writes Value
+	if len(args) > 0 { v_info = args[0] }
+	_ = v_info
+	if len(args) > 1 { v_guard = args[1] }
+	_ = v_guard
+	_ = v_guard_node
+	_ = v_guard_read
+	_ = v_has_guard
+	_ = v_has_guard_read
+	_ = v_has_signature
+	_ = v_kind
+	_ = v_meta
+	_ = v_missing_guard_read
+	_ = v_name
+	_ = v_options
+	_ = v_program
+	_ = v_read
+	_ = v_reads
+	_ = v_resolved_reads
+	_ = v_result_key
+	_ = v_signature_text
+	_ = v_step
+	_ = v_writes
+	v_name = coreGet(v_info, "id", "")
+	v_program = coreGet(v_info, "program", nil)
+	v_kind = coreGet(v_info, "kind", "execute")
+	v_options = Object()
+	v_reads = coreGet(v_info, "reads", nil)
+	v_resolved_reads = MutableArray()
+	for _, v_read = range coreIter(v_reads) {
+		v_resolved_reads = coreAppend(v_resolved_reads, v_read)
+	}
+	v_writes = MutableArray()
+	v_result_key = _core_string_format("{}Result", v_name)
+	v_writes = coreAppend(v_writes, v_result_key)
+	if err := coreSet(v_options, "writes", v_writes); err != nil { return nil, err }
+	v_signature_text = coreGet(v_info, "signatureText", "")
+	v_has_signature = _core_truthy(v_signature_text)
+	if coreTruthy(v_has_signature) {
+		if err := coreSet(v_options, "signatureText", v_signature_text); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_has_guard = _core_is_not_none(v_guard)
+	if coreTruthy(v_has_guard) {
+		if err := coreSet(v_options, "guard", v_guard); err != nil { return nil, err }
+		v_guard_node = coreGet(v_guard, "nodeName", "")
+		v_guard_read = _core_string_format("{}Result", v_guard_node)
+		v_has_guard_read = _core_contains(v_resolved_reads, v_guard_read)
+		v_missing_guard_read = _core_not(v_has_guard_read)
+		if coreTruthy(v_missing_guard_read) {
+			v_resolved_reads = coreAppend(v_resolved_reads, v_guard_read)
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	if err := coreSet(v_options, "reads", v_resolved_reads); err != nil { return nil, err }
+	{ v, err := _flow_step(v_kind, v_name, v_program, v_options); if err != nil { return nil, err }; v_step = v }
+	v_meta = Object()
+	if err := coreSet(v_meta, "kind", v_kind); err != nil { return nil, err }
+	if err := coreSet(v_meta, "nodeName", v_name); err != nil { return nil, err }
+	if err := coreSet(v_step, "meta", v_meta); err != nil { return nil, err }
+	return v_step, nil
+}
+
+func _flow_mermaid_parse_max(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_parse_max")
+	var v_label Value
+	var v_fallback Value
+	var v_max Value
+	var v_parsed Value
+	var v_part Value
+	var v_parts Value
+	var v_raw Value
+	var v_starts Value
+	if len(args) > 0 { v_label = args[0] }
+	_ = v_label
+	if len(args) > 1 { v_fallback = args[1] }
+	_ = v_fallback
+	_ = v_max
+	_ = v_parsed
+	_ = v_part
+	_ = v_parts
+	_ = v_raw
+	_ = v_starts
+	v_parts = _core_string_split_trim_nonempty(v_label, ",")
+	v_max = v_fallback
+	for _, v_part = range coreIter(v_parts) {
+		v_starts = _core_string_starts_with(v_part, "max ")
+		if coreTruthy(v_starts) {
+			v_raw = _core_string_slice(v_part, 4)
+			{ v, err := _core_json_parse(v_raw); if err != nil { return nil, err }; v_parsed = v }
+			v_max = v_parsed
+		} else {
+		// empty
+		}
+	}
+	return v_max, nil
+}
+
+func _flow_mermaid_compile(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_compile")
+	var v_ast Value
+	var v_bindings Value
+	var v_a Value
+	var v_after_start Value
+	var v_all_producers Value
+	var v_already_guarded Value
+	var v_ambiguous Value
+	var v_b Value
+	var v_back_edges Value
+	var v_bad_ambiguity Value
+	var v_before_end Value
+	var v_binding_only Value
+	var v_body Value
+	var v_body_guard Value
+	var v_body_id Value
+	var v_body_index Value
+	var v_body_info Value
+	var v_body_step Value
+	var v_closes_cycle Value
+	var v_compatible Value
+	var v_compile_id Value
+	var v_compile_index Value
+	var v_compile_order Value
+	var v_compile_order_index Value
+	var v_condition Value
+	var v_condition_name Value
+	var v_conditions Value
+	var v_decision Value
+	var v_directives Value
+	var v_duplicate Value
+	var v_edge Value
+	var v_edge_line_number Value
+	var v_edges Value
+	var v_empty_list Value
+	var v_empty_map Value
+	var v_fallback_max Value
+	var v_field Value
+	var v_field_name Value
+	var v_field_producers Value
+	var v_flow Value
+	var v_forward_edges Value
+	var v_from_index Value
+	var v_from_node Value
+	var v_guard Value
+	var v_guards Value
+	var v_has_binding Value
+	var v_has_directive Value
+	var v_has_label Value
+	var v_has_missing Value
+	var v_has_other_producer Value
+	var v_has_outgoing Value
+	var v_has_parent_guard Value
+	var v_has_self_while Value
+	var v_has_signature Value
+	var v_has_upstream Value
+	var v_id Value
+	var v_in_body Value
+	var v_incoming Value
+	var v_incoming_count Value
+	var v_incoming_from Value
+	var v_info Value
+	var v_info_reads Value
+	var v_infos Value
+	var v_inputs Value
+	var v_invalid_option Value
+	var v_is_back Value
+	var v_is_class Value
+	var v_is_if Value
+	var v_is_while Value
+	var v_joined Value
+	var v_label Value
+	var v_label_parts Value
+	var v_loop_index Value
+	var v_loop_kind Value
+	var v_loop_name Value
+	var v_loop_options Value
+	var v_loop_step Value
+	var v_main Value
+	var v_matches Value
+	var v_matches_source Value
+	var v_max Value
+	var v_message Value
+	var v_meta Value
+	var v_missing_condition Value
+	var v_missing_count Value
+	var v_missing_directive Value
+	var v_missing_field_producers Value
+	var v_missing_label Value
+	var v_missing_nodes Value
+	var v_name Value
+	var v_natural_inputs Value
+	var v_node_bindings Value
+	var v_not_self Value
+	var v_one_incoming Value
+	var v_options Value
+	var v_opts Value
+	var v_order Value
+	var v_order_index Value
+	var v_outputs Value
+	var v_pair Value
+	var v_parent Value
+	var v_parent_guard Value
+	var v_parts Value
+	var v_path Value
+	var v_points_backward Value
+	var v_producer Value
+	var v_producer_count Value
+	var v_producers Value
+	var v_program Value
+	var v_reachable Value
+	var v_read Value
+	var v_reads Value
+	var v_reserved Value
+	var v_resolved Value
+	var v_returns Value
+	var v_same_only Value
+	var v_self Value
+	var v_self_loop Value
+	var v_self_while Value
+	var v_signature Value
+	var v_signature_text Value
+	var v_starts_if Value
+	var v_starts_while Value
+	var v_step Value
+	var v_steps Value
+	var v_terminal_fields Value
+	var v_to Value
+	var v_to_index Value
+	var v_type Value
+	var v_upstream Value
+	var v_upstream_count Value
+	var v_valid_option Value
+	if len(args) > 0 { v_ast = args[0] }
+	_ = v_ast
+	if len(args) > 1 { v_bindings = args[1] }
+	_ = v_bindings
+	_ = v_a
+	_ = v_after_start
+	_ = v_all_producers
+	_ = v_already_guarded
+	_ = v_ambiguous
+	_ = v_b
+	_ = v_back_edges
+	_ = v_bad_ambiguity
+	_ = v_before_end
+	_ = v_binding_only
+	_ = v_body
+	_ = v_body_guard
+	_ = v_body_id
+	_ = v_body_index
+	_ = v_body_info
+	_ = v_body_step
+	_ = v_closes_cycle
+	_ = v_compatible
+	_ = v_compile_id
+	_ = v_compile_index
+	_ = v_compile_order
+	_ = v_compile_order_index
+	_ = v_condition
+	_ = v_condition_name
+	_ = v_conditions
+	_ = v_decision
+	_ = v_directives
+	_ = v_duplicate
+	_ = v_edge
+	_ = v_edge_line_number
+	_ = v_edges
+	_ = v_empty_list
+	_ = v_empty_map
+	_ = v_fallback_max
+	_ = v_field
+	_ = v_field_name
+	_ = v_field_producers
+	_ = v_flow
+	_ = v_forward_edges
+	_ = v_from_index
+	_ = v_from_node
+	_ = v_guard
+	_ = v_guards
+	_ = v_has_binding
+	_ = v_has_directive
+	_ = v_has_label
+	_ = v_has_missing
+	_ = v_has_other_producer
+	_ = v_has_outgoing
+	_ = v_has_parent_guard
+	_ = v_has_self_while
+	_ = v_has_signature
+	_ = v_has_upstream
+	_ = v_id
+	_ = v_in_body
+	_ = v_incoming
+	_ = v_incoming_count
+	_ = v_incoming_from
+	_ = v_info
+	_ = v_info_reads
+	_ = v_infos
+	_ = v_inputs
+	_ = v_invalid_option
+	_ = v_is_back
+	_ = v_is_class
+	_ = v_is_if
+	_ = v_is_while
+	_ = v_joined
+	_ = v_label
+	_ = v_label_parts
+	_ = v_loop_index
+	_ = v_loop_kind
+	_ = v_loop_name
+	_ = v_loop_options
+	_ = v_loop_step
+	_ = v_main
+	_ = v_matches
+	_ = v_matches_source
+	_ = v_max
+	_ = v_message
+	_ = v_meta
+	_ = v_missing_condition
+	_ = v_missing_count
+	_ = v_missing_directive
+	_ = v_missing_field_producers
+	_ = v_missing_label
+	_ = v_missing_nodes
+	_ = v_name
+	_ = v_natural_inputs
+	_ = v_node_bindings
+	_ = v_not_self
+	_ = v_one_incoming
+	_ = v_options
+	_ = v_opts
+	_ = v_order
+	_ = v_order_index
+	_ = v_outputs
+	_ = v_pair
+	_ = v_parent
+	_ = v_parent_guard
+	_ = v_parts
+	_ = v_path
+	_ = v_points_backward
+	_ = v_producer
+	_ = v_producer_count
+	_ = v_producers
+	_ = v_program
+	_ = v_reachable
+	_ = v_read
+	_ = v_reads
+	_ = v_reserved
+	_ = v_resolved
+	_ = v_returns
+	_ = v_same_only
+	_ = v_self
+	_ = v_self_loop
+	_ = v_self_while
+	_ = v_signature
+	_ = v_signature_text
+	_ = v_starts_if
+	_ = v_starts_while
+	_ = v_step
+	_ = v_steps
+	_ = v_terminal_fields
+	_ = v_to
+	_ = v_to_index
+	_ = v_type
+	_ = v_upstream
+	_ = v_upstream_count
+	_ = v_valid_option
+	v_empty_map = Object()
+	v_empty_list = MutableArray()
+	v_opts = coreGet(v_bindings, "options", v_empty_map)
+	{ v, err := _flow_factory(v_opts); if err != nil { return nil, err }; v_flow = v }
+	v_order = coreGet(v_ast, "order", nil)
+	v_order_index = coreGet(v_ast, "orderIndex", nil)
+	v_edges = coreGet(v_ast, "edges", nil)
+	v_directives = coreGet(v_ast, "directives", nil)
+	v_node_bindings = coreGet(v_bindings, "nodes", v_empty_map)
+	v_conditions = coreGet(v_bindings, "conditions", v_empty_map)
+	v_forward_edges = MutableArray()
+	v_back_edges = MutableArray()
+	for _, v_edge = range coreIter(v_edges) {
+		v_from_node = coreGet(v_edge, "from", nil)
+		v_to = coreGet(v_edge, "to", nil)
+		v_from_index = coreGet(v_order_index, v_from_node, nil)
+		v_to_index = coreGet(v_order_index, v_to, nil)
+		v_points_backward = _core_gte(v_from_index, v_to_index)
+		{ v, err := _flow_mermaid_reachable(v_to, v_from_node, v_edges); if err != nil { return nil, err }; v_closes_cycle = v }
+		v_is_back = _core_and(v_points_backward, v_closes_cycle)
+		if coreTruthy(v_is_back) {
+			v_label = coreGet(v_edge, "label", nil)
+			v_missing_label = _core_is_none(v_label)
+			if coreTruthy(v_missing_label) {
+				v_message = _core_string_format("Back-edges need a label: {} --> {}", v_from_node, v_to)
+				v_edge_line_number = coreGet(v_edge, "line", 1)
+				if _, err := _flow_mermaid_fail(v_message, v_edge_line_number); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_back_edges = coreAppend(v_back_edges, v_edge)
+		} else {
+			v_forward_edges = coreAppend(v_forward_edges, v_edge)
+		}
+	}
+	{ v, err := _flow_mermaid_topological_order(v_order, v_forward_edges); if err != nil { return nil, err }; v_compile_order = v }
+	v_compile_order_index = Object()
+	v_compile_index = 0
+	for _, v_compile_id = range coreIter(v_compile_order) {
+		if err := coreSet(v_compile_order_index, v_compile_id, v_compile_index); err != nil { return nil, err }
+		v_compile_index = _core_add(v_compile_index, 1)
+	}
+	if err := coreSet(v_ast, "compileOrder", v_compile_order); err != nil { return nil, err }
+	v_infos = Object()
+	v_producers = Object()
+	v_missing_nodes = MutableArray()
+	for _, v_id = range coreIter(v_compile_order) {
+		v_has_directive = _core_map_contains(v_directives, v_id)
+		v_has_binding = _core_map_contains(v_node_bindings, v_id)
+		v_resolved = _core_or(v_has_directive, v_has_binding)
+		if coreTruthy(v_resolved) {
+		// empty
+		} else {
+			v_missing_nodes = coreAppend(v_missing_nodes, v_id)
+		}
+		v_info = Object()
+		v_info_reads = MutableArray()
+		if err := coreSet(v_info, "id", v_id); err != nil { return nil, err }
+		if err := coreSet(v_info, "kind", "execute"); err != nil { return nil, err }
+		if err := coreSet(v_info, "reads", v_info_reads); err != nil { return nil, err }
+		v_signature_text = coreGet(v_directives, v_id, "")
+		if err := coreSet(v_info, "signatureText", v_signature_text); err != nil { return nil, err }
+		v_program = coreGet(v_node_bindings, v_id, v_signature_text)
+		if err := coreSet(v_info, "program", v_program); err != nil { return nil, err }
+		v_missing_directive = _core_not(v_has_directive)
+		v_binding_only = _core_and(v_has_binding, v_missing_directive)
+		if coreTruthy(v_binding_only) {
+			if err := coreSet(v_info, "kind", "map"); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		if coreTruthy(v_has_directive) {
+			{ v, err := parse_signature(v_signature_text); if err != nil { return nil, err }; v_signature = v }
+			if err := coreSet(v_info, "signature", v_signature); err != nil { return nil, err }
+			{ v, err := _signature_input_fields(v_signature); if err != nil { return nil, err }; v_inputs = v }
+			{ v, err := _signature_output_fields(v_signature); if err != nil { return nil, err }; v_outputs = v }
+			if err := coreSet(v_info, "inputs", v_inputs); err != nil { return nil, err }
+			if err := coreSet(v_info, "outputs", v_outputs); err != nil { return nil, err }
+			for _, v_field = range coreIter(v_outputs) {
+				v_field_name = coreGet(v_field, "name", "")
+				v_field_producers = coreGet(v_producers, v_field_name, nil)
+				v_missing_field_producers = _core_is_none(v_field_producers)
+				if coreTruthy(v_missing_field_producers) {
+					v_field_producers = MutableArray()
+					if err := coreSet(v_producers, v_field_name, v_field_producers); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+				v_field_producers = coreAppend(v_field_producers, v_id)
+			}
+		} else {
+		// empty
+		}
+		if err := coreSet(v_infos, v_id, v_info); err != nil { return nil, err }
+	}
+	v_missing_count = _core_len(v_missing_nodes)
+	v_has_missing = _core_gt(v_missing_count, 0)
+	if coreTruthy(v_has_missing) {
+		v_joined = _core_string_join(", ", v_missing_nodes)
+		v_message = _core_string_format("No signature for node(s): {}", v_joined)
+		if _, err := _flow_mermaid_fail(v_message, 1); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_guards = Object()
+	for _, v_edge = range coreIter(v_forward_edges) {
+		v_label = coreGet(v_edge, "label", nil)
+		v_has_label = _core_is_not_none(v_label)
+		if coreTruthy(v_has_label) {
+			v_starts_if = _core_string_starts_with(v_label, "if ")
+			v_starts_while = _core_string_starts_with(v_label, "while ")
+			v_reserved = _core_or(v_starts_if, v_starts_while)
+			if coreTruthy(v_reserved) {
+				v_edge_line_number = coreGet(v_edge, "line", 1)
+				if _, err := _flow_mermaid_fail("if/while labels are only valid on back-edges", v_edge_line_number); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+			v_from_node = coreGet(v_edge, "from", nil)
+			{ v, err := _flow_mermaid_decision(v_from_node, v_ast, v_infos); if err != nil { return nil, err }; v_decision = v }
+			v_type = coreGet(v_decision, "type", "")
+			v_is_class = _core_eq(v_type, "class")
+			if coreTruthy(v_is_class) {
+				v_options = coreGet(v_decision, "options", v_empty_list)
+				v_valid_option = _core_contains(v_options, v_label)
+				v_invalid_option = _core_not(v_valid_option)
+				if coreTruthy(v_invalid_option) {
+					v_field = coreGet(v_decision, "field", "")
+					v_message = _core_string_format("\"{}\" is not an option of \"{}.{}\"", v_label, v_from_node, v_field)
+					v_edge_line_number = coreGet(v_edge, "line", 1)
+					if _, err := _flow_mermaid_fail(v_message, v_edge_line_number); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+			if err := coreSet(v_decision, "value", v_label); err != nil { return nil, err }
+			v_to = coreGet(v_edge, "to", nil)
+			if err := coreSet(v_guards, v_to, v_decision); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	for _, v_id = range coreIter(v_compile_order) {
+		v_already_guarded = _core_map_contains(v_guards, v_id)
+		if coreTruthy(v_already_guarded) {
+		// empty
+		} else {
+			v_incoming = MutableArray()
+			for _, v_edge = range coreIter(v_forward_edges) {
+				v_to = coreGet(v_edge, "to", "")
+				v_matches = _core_eq(v_to, v_id)
+				if coreTruthy(v_matches) {
+					v_incoming_from = coreGet(v_edge, "from", "")
+					v_incoming = coreAppend(v_incoming, v_incoming_from)
+				} else {
+				// empty
+				}
+			}
+			v_incoming_count = _core_len(v_incoming)
+			v_one_incoming = _core_eq(v_incoming_count, 1)
+			if coreTruthy(v_one_incoming) {
+				v_parent = _core_list_get(v_incoming, 0, "")
+				v_parent_guard = coreGet(v_guards, v_parent, nil)
+				v_has_parent_guard = _core_is_not_none(v_parent_guard)
+				if coreTruthy(v_has_parent_guard) {
+					if err := coreSet(v_guards, v_id, v_parent_guard); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+	}
+	v_natural_inputs = Object()
+	for _, v_id = range coreIter(v_compile_order) {
+		v_info = coreGet(v_infos, v_id, nil)
+		v_signature = coreGet(v_info, "signature", nil)
+		v_has_signature = _core_is_not_none(v_signature)
+		if coreTruthy(v_has_signature) {
+			v_inputs = coreGet(v_info, "inputs", v_empty_list)
+			v_reads = MutableArray()
+			for _, v_field = range coreIter(v_inputs) {
+				v_field_name = coreGet(v_field, "name", "")
+				v_all_producers = coreGet(v_producers, v_field_name, v_empty_list)
+				v_upstream = MutableArray()
+				for _, v_producer = range coreIter(v_all_producers) {
+					v_not_self = _core_ne(v_producer, v_id)
+					if coreTruthy(v_not_self) {
+						{ v, err := _flow_mermaid_reachable(v_producer, v_id, v_forward_edges); if err != nil { return nil, err }; v_reachable = v }
+						if coreTruthy(v_reachable) {
+							v_upstream = coreAppend(v_upstream, v_producer)
+						} else {
+						// empty
+						}
+					} else {
+					// empty
+					}
+				}
+				v_upstream_count = _core_len(v_upstream)
+				v_ambiguous = _core_gt(v_upstream_count, 1)
+				if coreTruthy(v_ambiguous) {
+					{ v, err := _flow_mermaid_guards_compatible(v_upstream, v_guards); if err != nil { return nil, err }; v_compatible = v }
+					v_bad_ambiguity = _core_not(v_compatible)
+					if coreTruthy(v_bad_ambiguity) {
+						v_a = _core_list_get(v_upstream, 0, "")
+						v_b = _core_list_get(v_upstream, 1, "")
+						v_pair = _core_string_format("{} and {}", v_a, v_b)
+						v_message = _core_string_format("Input \"{}\" of node \"{}\" is produced by {} at the same distance", v_field_name, v_id, v_pair)
+						if _, err := _flow_mermaid_fail(v_message, 1); err != nil { return nil, err }
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+				v_has_upstream = _core_gt(v_upstream_count, 0)
+				if coreTruthy(v_has_upstream) {
+					for _, v_producer = range coreIter(v_upstream) {
+						v_read = _core_string_format("{}Result", v_producer)
+						v_reads = coreAppend(v_reads, v_read)
+					}
+				} else {
+					v_producer_count = _core_len(v_all_producers)
+					v_has_other_producer = _core_gt(v_producer_count, 0)
+					if coreTruthy(v_has_other_producer) {
+						v_producer = _core_list_get(v_all_producers, 0, "")
+						v_same_only = _core_eq(v_producer, v_id)
+						if coreTruthy(v_same_only) {
+							if err := coreSet(v_natural_inputs, v_field_name, v_field); err != nil { return nil, err }
+						} else {
+							v_message = _core_string_format("\"{}\" of node \"{}\" is produced by \"{}\" which is not upstream", v_field_name, v_id, v_producer)
+							if _, err := _flow_mermaid_fail(v_message, 1); err != nil { return nil, err }
+						}
+					} else {
+						if err := coreSet(v_natural_inputs, v_field_name, v_field); err != nil { return nil, err }
+					}
+				}
+			}
+			if err := coreSet(v_info, "reads", v_reads); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	v_self_while = Object()
+	for _, v_edge = range coreIter(v_back_edges) {
+		v_from_node = coreGet(v_edge, "from", nil)
+		v_to = coreGet(v_edge, "to", nil)
+		v_label = coreGet(v_edge, "label", "")
+		v_parts = _core_string_split_trim_nonempty(v_label, ",")
+		v_main = _core_list_get(v_parts, 0, "")
+		v_is_while = _core_string_starts_with(v_main, "while ")
+		v_self = _core_eq(v_from_node, v_to)
+		v_self_loop = _core_and(v_is_while, v_self)
+		if coreTruthy(v_self_loop) {
+			if err := coreSet(v_self_while, v_from_node, v_edge); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	v_steps = coreGet(v_flow, "steps", nil)
+	v_loop_index = 0
+	for _, v_id = range coreIter(v_compile_order) {
+		v_info = coreGet(v_infos, v_id, nil)
+		v_guard = coreGet(v_guards, v_id, nil)
+		v_has_self_while = _core_map_contains(v_self_while, v_id)
+		if coreTruthy(v_has_self_while) {
+		// empty
+		} else {
+			{ v, err := _flow_mermaid_execute_step(v_info, v_guard); if err != nil { return nil, err }; v_step = v }
+			v_steps = coreAppend(v_steps, v_step)
+		}
+		for _, v_edge = range coreIter(v_back_edges) {
+			v_from_node = coreGet(v_edge, "from", nil)
+			v_matches_source = _core_eq(v_from_node, v_id)
+			if coreTruthy(v_matches_source) {
+				v_loop_index = _core_add(v_loop_index, 1)
+				v_to = coreGet(v_edge, "to", nil)
+				v_label = coreGet(v_edge, "label", "")
+				v_label_parts = _core_string_split_trim_nonempty(v_label, ",")
+				v_main = _core_list_get(v_label_parts, 0, "")
+				v_is_while = _core_string_starts_with(v_main, "while ")
+				v_is_if = _core_string_starts_with(v_main, "if ")
+				v_loop_kind = "feedback"
+				v_fallback_max = 10
+				if coreTruthy(v_is_while) {
+					v_loop_kind = "while"
+					v_fallback_max = 100
+				} else {
+				// empty
+				}
+				{ v, err := _flow_mermaid_parse_max(v_label, v_fallback_max); if err != nil { return nil, err }; v_max = v }
+				v_body = MutableArray()
+				v_to_index = coreGet(v_compile_order_index, v_to, nil)
+				v_from_index = coreGet(v_compile_order_index, v_from_node, nil)
+				for _, v_body_id = range coreIter(v_compile_order) {
+					v_body_index = coreGet(v_compile_order_index, v_body_id, nil)
+					v_after_start = _core_gte(v_body_index, v_to_index)
+					v_before_end = _core_lte(v_body_index, v_from_index)
+					v_in_body = _core_and(v_after_start, v_before_end)
+					if coreTruthy(v_in_body) {
+						v_body_info = coreGet(v_infos, v_body_id, nil)
+						v_body_guard = coreGet(v_guards, v_body_id, nil)
+						{ v, err := _flow_mermaid_execute_step(v_body_info, v_body_guard); if err != nil { return nil, err }; v_body_step = v }
+						v_body = coreAppend(v_body, v_body_step)
+					} else {
+					// empty
+					}
+				}
+				v_loop_options = Object()
+				if err := coreSet(v_loop_options, "steps", v_body); err != nil { return nil, err }
+				if err := coreSet(v_loop_options, "maxIterations", v_max); err != nil { return nil, err }
+				if err := coreSet(v_loop_options, "label", v_to); err != nil { return nil, err }
+				v_meta = Object()
+				if err := coreSet(v_meta, "kind", v_loop_kind); err != nil { return nil, err }
+				if err := coreSet(v_meta, "maxIterations", v_max); err != nil { return nil, err }
+				if err := coreSet(v_meta, "target", v_to); err != nil { return nil, err }
+				if coreTruthy(v_is_while) {
+					v_condition_name = _core_string_slice(v_main, 6)
+					v_condition_name = coreStringTrim(v_condition_name)
+					v_condition = coreGet(v_conditions, v_condition_name, nil)
+					v_missing_condition = _core_is_none(v_condition)
+					if coreTruthy(v_missing_condition) {
+						v_message = _core_string_format("Missing condition binding \"{}\"", v_condition_name)
+						v_edge_line_number = coreGet(v_edge, "line", 1)
+						if _, err := _flow_mermaid_fail(v_message, v_edge_line_number); err != nil { return nil, err }
+					} else {
+					// empty
+					}
+					if err := coreSet(v_loop_options, "condition", v_condition); err != nil { return nil, err }
+					if err := coreSet(v_loop_options, "conditionName", v_condition_name); err != nil { return nil, err }
+					if err := coreSet(v_meta, "conditionName", v_condition_name); err != nil { return nil, err }
+				} else {
+					if coreTruthy(v_is_if) {
+						v_condition_name = _core_string_slice(v_main, 3)
+						v_condition_name = coreStringTrim(v_condition_name)
+						v_condition = coreGet(v_conditions, v_condition_name, nil)
+						v_missing_condition = _core_is_none(v_condition)
+						if coreTruthy(v_missing_condition) {
+							v_message = _core_string_format("Missing condition binding \"{}\"", v_condition_name)
+							v_edge_line_number = coreGet(v_edge, "line", 1)
+							if _, err := _flow_mermaid_fail(v_message, v_edge_line_number); err != nil { return nil, err }
+						} else {
+						// empty
+						}
+						if err := coreSet(v_loop_options, "condition", v_condition); err != nil { return nil, err }
+						if err := coreSet(v_loop_options, "conditionName", v_condition_name); err != nil { return nil, err }
+						if err := coreSet(v_meta, "conditionName", v_condition_name); err != nil { return nil, err }
+					} else {
+						{ v, err := _flow_mermaid_decision(v_from_node, v_ast, v_infos); if err != nil { return nil, err }; v_decision = v }
+						if err := coreSet(v_decision, "value", v_main); err != nil { return nil, err }
+						if err := coreSet(v_loop_options, "condition", v_decision); err != nil { return nil, err }
+						if err := coreSet(v_loop_options, "decision", v_decision); err != nil { return nil, err }
+						if err := coreSet(v_meta, "decision", v_decision); err != nil { return nil, err }
+					}
+				}
+				v_loop_name = _core_string_format("{}{}", v_loop_kind, v_loop_index)
+				{ v, err := _flow_step(v_loop_kind, v_loop_name, nil, v_loop_options); if err != nil { return nil, err }; v_loop_step = v }
+				if err := coreSet(v_loop_step, "meta", v_meta); err != nil { return nil, err }
+				v_steps = coreAppend(v_steps, v_loop_step)
+			} else {
+			// empty
+			}
+		}
+	}
+	v_terminal_fields = Object()
+	v_returns = Object()
+	for _, v_id = range coreIter(v_compile_order) {
+		v_has_outgoing = false
+		for _, v_edge = range coreIter(v_forward_edges) {
+			v_from_node = coreGet(v_edge, "from", "")
+			v_matches = _core_eq(v_from_node, v_id)
+			if coreTruthy(v_matches) {
+				v_has_outgoing = true
+			} else {
+			// empty
+			}
+		}
+		if coreTruthy(v_has_outgoing) {
+		// empty
+		} else {
+			v_info = coreGet(v_infos, v_id, nil)
+			v_signature = coreGet(v_info, "signature", nil)
+			v_has_signature = _core_is_not_none(v_signature)
+			if coreTruthy(v_has_signature) {
+				v_outputs = coreGet(v_info, "outputs", v_empty_list)
+				for _, v_field = range coreIter(v_outputs) {
+					v_name = coreGet(v_field, "name", "")
+					v_duplicate = _core_map_contains(v_terminal_fields, v_name)
+					if coreTruthy(v_duplicate) {
+						v_message = _core_string_format("Output field \"{}\" is produced by multiple terminal nodes", v_name)
+						if _, err := _flow_mermaid_fail(v_message, 1); err != nil { return nil, err }
+					} else {
+					// empty
+					}
+					if err := coreSet(v_terminal_fields, v_name, v_field); err != nil { return nil, err }
+					v_path = _core_string_format("{}Result.{}", v_id, v_name)
+					if err := coreSet(v_returns, v_name, v_path); err != nil { return nil, err }
+				}
+			} else {
+			// empty
+			}
+		}
+	}
+	if err := coreSet(v_flow, "returns", v_returns); err != nil { return nil, err }
+	if err := coreSet(v_flow, "mermaidAst", v_ast); err != nil { return nil, err }
+	if err := coreSet(v_flow, "mermaidBindings", v_bindings); err != nil { return nil, err }
+	if err := coreSet(v_flow, "mermaidInputFields", v_natural_inputs); err != nil { return nil, err }
+	if err := coreSet(v_flow, "mermaidOutputFields", v_terminal_fields); err != nil { return nil, err }
+	return v_flow, nil
+}
+
+func _flow_mermaid_render_ast(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_render_ast")
+	var v_ast Value
+	var v_options Value
+	var v_arrives Value
+	var v_back Value
+	var v_canonical Value
+	var v_close_brace Value
+	var v_closes_cycle Value
+	var v_compile_order Value
+	var v_direction Value
+	var v_directive Value
+	var v_directive_order Value
+	var v_directives Value
+	var v_edge Value
+	var v_edge_line Value
+	var v_edges Value
+	var v_empty_map Value
+	var v_forward Value
+	var v_from_index Value
+	var v_from_node Value
+	var v_has_label Value
+	var v_header Value
+	var v_id Value
+	var v_is_diamond Value
+	var v_label Value
+	var v_lines Value
+	var v_lower_title Value
+	var v_node Value
+	var v_nodes Value
+	var v_open_brace Value
+	var v_opts Value
+	var v_opts_missing Value
+	var v_order Value
+	var v_order_index Value
+	var v_percent Value
+	var v_points_backward Value
+	var v_prefix Value
+	var v_rendered Value
+	var v_shape Value
+	var v_signature Value
+	var v_signature_text Value
+	var v_spaced_title Value
+	var v_statement Value
+	var v_to Value
+	var v_to_index Value
+	var v_wrapped Value
+	if len(args) > 0 { v_ast = args[0] }
+	_ = v_ast
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_arrives
+	_ = v_back
+	_ = v_canonical
+	_ = v_close_brace
+	_ = v_closes_cycle
+	_ = v_compile_order
+	_ = v_direction
+	_ = v_directive
+	_ = v_directive_order
+	_ = v_directives
+	_ = v_edge
+	_ = v_edge_line
+	_ = v_edges
+	_ = v_empty_map
+	_ = v_forward
+	_ = v_from_index
+	_ = v_from_node
+	_ = v_has_label
+	_ = v_header
+	_ = v_id
+	_ = v_is_diamond
+	_ = v_label
+	_ = v_lines
+	_ = v_lower_title
+	_ = v_node
+	_ = v_nodes
+	_ = v_open_brace
+	_ = v_opts
+	_ = v_opts_missing
+	_ = v_order
+	_ = v_order_index
+	_ = v_percent
+	_ = v_points_backward
+	_ = v_prefix
+	_ = v_rendered
+	_ = v_shape
+	_ = v_signature
+	_ = v_signature_text
+	_ = v_spaced_title
+	_ = v_statement
+	_ = v_to
+	_ = v_to_index
+	_ = v_wrapped
+	v_empty_map = Object()
+	v_opts_missing = _core_is_none(v_options)
+	v_opts = v_options
+	if coreTruthy(v_opts_missing) {
+		v_opts = v_empty_map
+	} else {
+	// empty
+	}
+	v_direction = coreGet(v_opts, "direction", "TD")
+	v_lines = MutableArray()
+	v_header = _core_string_format("flowchart {}", v_direction)
+	v_lines = coreAppend(v_lines, v_header)
+	v_directives = coreGet(v_ast, "directives", nil)
+	v_directive_order = coreGet(v_ast, "directiveOrder", nil)
+	v_percent = coreGet(v_ast, "percent", "")
+	for _, v_id = range coreIter(v_directive_order) {
+		v_signature_text = coreGet(v_directives, v_id, nil)
+		{ v, err := parse_signature(v_signature_text); if err != nil { return nil, err }; v_signature = v }
+		{ v, err := signature_to_string(v_signature); if err != nil { return nil, err }; v_canonical = v }
+		v_prefix = _core_string_format("{}{}ax", v_percent, v_percent)
+		v_directive = _core_string_format("  {} {}: {}", v_prefix, v_id, v_canonical)
+		v_lines = coreAppend(v_lines, v_directive)
+	}
+	v_lines = coreAppend(v_lines, "")
+	v_nodes = coreGet(v_ast, "nodes", nil)
+	v_order = coreGet(v_ast, "order", nil)
+	v_compile_order = coreGet(v_ast, "compileOrder", v_order)
+	v_order_index = coreGet(v_ast, "orderIndex", nil)
+	v_edges = coreGet(v_ast, "edges", nil)
+	for _, v_id = range coreIter(v_compile_order) {
+		v_node = coreGet(v_nodes, v_id, nil)
+		v_shape = coreGet(v_node, "shape", "rect")
+		v_label = coreGet(v_node, "label", nil)
+		v_is_diamond = _core_eq(v_shape, "diamond")
+		if coreTruthy(v_is_diamond) {
+		// empty
+		} else {
+			v_spaced_title = _core_string_title_from_camel(v_id)
+			v_lower_title = _core_string_lower(v_spaced_title)
+			v_label = _core_string_title_from_camel(v_lower_title)
+		}
+		v_statement = _core_string_format("  {}[{}]", v_id, v_label)
+		if coreTruthy(v_is_diamond) {
+			v_open_brace = coreGet(v_node, "open", "")
+			v_close_brace = coreGet(v_node, "close", "")
+			v_wrapped = _core_string_format("{}{}{}", v_open_brace, v_label, v_close_brace)
+			v_statement = _core_string_format("  {}{}", v_id, v_wrapped)
+		} else {
+		// empty
+		}
+		v_lines = coreAppend(v_lines, v_statement)
+		for _, v_edge = range coreIter(v_edges) {
+			v_to = coreGet(v_edge, "to", "")
+			v_arrives = _core_eq(v_to, v_id)
+			if coreTruthy(v_arrives) {
+				v_from_node = coreGet(v_edge, "from", "")
+				v_from_index = coreGet(v_order_index, v_from_node, nil)
+				v_to_index = coreGet(v_order_index, v_to, nil)
+				v_points_backward = _core_gte(v_from_index, v_to_index)
+				{ v, err := _flow_mermaid_reachable(v_to, v_from_node, v_edges); if err != nil { return nil, err }; v_closes_cycle = v }
+				v_back = _core_and(v_points_backward, v_closes_cycle)
+				v_forward = _core_not(v_back)
+				if coreTruthy(v_forward) {
+					v_label = coreGet(v_edge, "label", nil)
+					v_has_label = _core_is_not_none(v_label)
+					v_edge_line = _core_string_format("  {} --> {}", v_from_node, v_to)
+					if coreTruthy(v_has_label) {
+						v_edge_line = _core_string_format("  {} -->|{}| {}", v_from_node, v_label, v_to)
+					} else {
+					// empty
+					}
+					v_lines = coreAppend(v_lines, v_edge_line)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+	}
+	for _, v_edge = range coreIter(v_edges) {
+		v_from_node = coreGet(v_edge, "from", "")
+		v_to = coreGet(v_edge, "to", "")
+		v_from_index = coreGet(v_order_index, v_from_node, nil)
+		v_to_index = coreGet(v_order_index, v_to, nil)
+		v_points_backward = _core_gte(v_from_index, v_to_index)
+		{ v, err := _flow_mermaid_reachable(v_to, v_from_node, v_edges); if err != nil { return nil, err }; v_closes_cycle = v }
+		v_back = _core_and(v_points_backward, v_closes_cycle)
+		if coreTruthy(v_back) {
+			v_label = coreGet(v_edge, "label", nil)
+			v_has_label = _core_is_not_none(v_label)
+			v_edge_line = _core_string_format("  {} --> {}", v_from_node, v_to)
+			if coreTruthy(v_has_label) {
+				v_edge_line = _core_string_format("  {} -->|{}| {}", v_from_node, v_label, v_to)
+			} else {
+			// empty
+			}
+			v_lines = coreAppend(v_lines, v_edge_line)
+		} else {
+		// empty
+		}
+	}
+	v_lines = coreAppend(v_lines, "")
+	v_rendered = _core_string_join("\n", v_lines)
+	return v_rendered, nil
+}
+
+func _flow_mermaid_render_flow(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_mermaid_render_flow")
+	var v_flow Value
+	var v_options Value
+	var v_canonical Value
+	var v_close_brace Value
+	var v_decision Value
+	var v_diamond Value
+	var v_diamonds Value
+	var v_direction Value
+	var v_directive Value
+	var v_edge_line Value
+	var v_empty_map Value
+	var v_empty_reads Value
+	var v_field Value
+	var v_has_decision Value
+	var v_has_diamond Value
+	var v_has_signature Value
+	var v_header Value
+	var v_is_execute Value
+	var v_is_map Value
+	var v_is_result Value
+	var v_kind Value
+	var v_known Value
+	var v_lines Value
+	var v_lower_title Value
+	var v_material Value
+	var v_meta Value
+	var v_name Value
+	var v_node Value
+	var v_open_brace Value
+	var v_opts Value
+	var v_opts_missing Value
+	var v_percent Value
+	var v_prefix Value
+	var v_producer Value
+	var v_producer_end Value
+	var v_read Value
+	var v_read_len Value
+	var v_reads Value
+	var v_rendered Value
+	var v_seen Value
+	var v_signature Value
+	var v_signature_text Value
+	var v_spaced_title Value
+	var v_statement Value
+	var v_step Value
+	var v_step_options Value
+	var v_step_reads Value
+	var v_steps Value
+	var v_title Value
+	var v_wrapped Value
+	if len(args) > 0 { v_flow = args[0] }
+	_ = v_flow
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_canonical
+	_ = v_close_brace
+	_ = v_decision
+	_ = v_diamond
+	_ = v_diamonds
+	_ = v_direction
+	_ = v_directive
+	_ = v_edge_line
+	_ = v_empty_map
+	_ = v_empty_reads
+	_ = v_field
+	_ = v_has_decision
+	_ = v_has_diamond
+	_ = v_has_signature
+	_ = v_header
+	_ = v_is_execute
+	_ = v_is_map
+	_ = v_is_result
+	_ = v_kind
+	_ = v_known
+	_ = v_lines
+	_ = v_lower_title
+	_ = v_material
+	_ = v_meta
+	_ = v_name
+	_ = v_node
+	_ = v_open_brace
+	_ = v_opts
+	_ = v_opts_missing
+	_ = v_percent
+	_ = v_prefix
+	_ = v_producer
+	_ = v_producer_end
+	_ = v_read
+	_ = v_read_len
+	_ = v_reads
+	_ = v_rendered
+	_ = v_seen
+	_ = v_signature
+	_ = v_signature_text
+	_ = v_spaced_title
+	_ = v_statement
+	_ = v_step
+	_ = v_step_options
+	_ = v_step_reads
+	_ = v_steps
+	_ = v_title
+	_ = v_wrapped
+	v_empty_map = Object()
+	v_opts_missing = _core_is_none(v_options)
+	v_opts = v_options
+	if coreTruthy(v_opts_missing) {
+		v_opts = v_empty_map
+	} else {
+	// empty
+	}
+	v_direction = coreGet(v_opts, "direction", "TD")
+	v_lines = MutableArray()
+	v_header = _core_string_format("flowchart {}", v_direction)
+	v_lines = coreAppend(v_lines, v_header)
+	v_steps = coreGet(v_flow, "steps", nil)
+	v_percent = coreGet(v_flow, "mermaidPercent", "")
+	for _, v_step = range coreIter(v_steps) {
+		v_kind = coreGet(v_step, "kind", "execute")
+		v_is_execute = _core_eq(v_kind, "execute")
+		if coreTruthy(v_is_execute) {
+			v_step_options = coreGet(v_step, "options", v_empty_map)
+			v_signature_text = coreGet(v_step_options, "signatureText", "")
+			v_has_signature = _core_truthy(v_signature_text)
+			if coreTruthy(v_has_signature) {
+				{ v, err := parse_signature(v_signature_text); if err != nil { return nil, err }; v_signature = v }
+				{ v, err := signature_to_string(v_signature); if err != nil { return nil, err }; v_canonical = v }
+				v_name = coreGet(v_step, "name", "")
+				v_prefix = _core_string_format("{}{}ax", v_percent, v_percent)
+				v_directive = _core_string_format("  {} {}: {}", v_prefix, v_name, v_canonical)
+				v_lines = coreAppend(v_lines, v_directive)
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_lines = coreAppend(v_lines, "")
+	v_diamonds = Object()
+	for _, v_step = range coreIter(v_steps) {
+		v_meta = coreGet(v_step, "meta", v_empty_map)
+		v_decision = coreGet(v_meta, "decision", nil)
+		v_has_decision = _core_is_not_none(v_decision)
+		if coreTruthy(v_has_decision) {
+			v_node = coreGet(v_decision, "nodeName", "")
+			v_field = coreGet(v_decision, "field", "")
+			if err := coreSet(v_diamonds, v_node, v_field); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	v_seen = Object()
+	for _, v_step = range coreIter(v_steps) {
+		v_kind = coreGet(v_step, "kind", "execute")
+		v_is_execute = _core_eq(v_kind, "execute")
+		v_is_map = _core_eq(v_kind, "map")
+		v_material = _core_or(v_is_execute, v_is_map)
+		if coreTruthy(v_material) {
+			v_name = coreGet(v_step, "name", "")
+			v_known = _core_map_contains(v_seen, v_name)
+			if coreTruthy(v_known) {
+			// empty
+			} else {
+				if err := coreSet(v_seen, v_name, true); err != nil { return nil, err }
+				v_spaced_title = _core_string_title_from_camel(v_name)
+				v_lower_title = _core_string_lower(v_spaced_title)
+				v_title = _core_string_title_from_camel(v_lower_title)
+				v_diamond = coreGet(v_diamonds, v_name, nil)
+				v_has_diamond = _core_is_not_none(v_diamond)
+				v_statement = _core_string_format("  {}[{}]", v_name, v_title)
+				if coreTruthy(v_has_diamond) {
+					v_open_brace = coreGet(v_flow, "mermaidOpenBrace", "")
+					v_close_brace = coreGet(v_flow, "mermaidCloseBrace", "")
+					v_wrapped = _core_string_format("{}{}{}", v_open_brace, v_diamond, v_close_brace)
+					v_statement = _core_string_format("  {}{}", v_name, v_wrapped)
+				} else {
+				// empty
+				}
+				v_lines = coreAppend(v_lines, v_statement)
+				v_step_options = coreGet(v_step, "options", v_empty_map)
+				v_empty_reads = MutableArray()
+				v_step_reads = coreGet(v_step, "reads", v_empty_reads)
+				v_reads = coreGet(v_step_options, "reads", v_step_reads)
+				for _, v_read = range coreIter(v_reads) {
+					v_is_result = _core_string_ends_with(v_read, "Result")
+					if coreTruthy(v_is_result) {
+						v_read_len = _core_len(v_read)
+						v_producer_end = _core_add(v_read_len, -6)
+						v_producer = _core_string_slice(v_read, 0, v_producer_end)
+						v_edge_line = _core_string_format("  {} --> {}", v_producer, v_name)
+						v_lines = coreAppend(v_lines, v_edge_line)
+					} else {
+					// empty
+					}
+				}
+			}
+		} else {
+		// empty
+		}
+	}
+	v_lines = coreAppend(v_lines, "")
+	v_rendered = _core_string_join("\n", v_lines)
+	return v_rendered, nil
+}
+
+func _flow_from_mermaid(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_from_mermaid")
+	var v_text Value
+	var v_bindings Value
+	var v_ast Value
+	var v_empty_map Value
+	var v_flow Value
+	var v_missing Value
+	var v_resolved Value
+	if len(args) > 0 { v_text = args[0] }
+	_ = v_text
+	if len(args) > 1 { v_bindings = args[1] }
+	_ = v_bindings
+	_ = v_ast
+	_ = v_empty_map
+	_ = v_flow
+	_ = v_missing
+	_ = v_resolved
+	v_empty_map = Object()
+	v_missing = _core_is_none(v_bindings)
+	v_resolved = v_bindings
+	if coreTruthy(v_missing) {
+		v_resolved = v_empty_map
+	} else {
+	// empty
+	}
+	{ v, err := _flow_mermaid_parse(v_text); if err != nil { return nil, err }; v_ast = v }
+	{ v, err := _flow_mermaid_compile(v_ast, v_resolved); if err != nil { return nil, err }; v_flow = v }
+	return v_flow, nil
+}
+
+func _flow_to_mermaid(args ...Value) (Value, error) {
+	axirCoverageMark("_flow_to_mermaid")
+	var v_flow Value
+	var v_options Value
+	var v_ast Value
+	var v_has_ast Value
+	var v_rendered Value
+	if len(args) > 0 { v_flow = args[0] }
+	_ = v_flow
+	if len(args) > 1 { v_options = args[1] }
+	_ = v_options
+	_ = v_ast
+	_ = v_has_ast
+	_ = v_rendered
+	v_ast = coreGet(v_flow, "mermaidAst", nil)
+	v_has_ast = _core_is_not_none(v_ast)
+	if coreTruthy(v_has_ast) {
+		{ v, err := _flow_mermaid_render_ast(v_ast, v_options); if err != nil { return nil, err }; v_rendered = v }
+		return v_rendered, nil
+	} else {
+	// empty
+	}
+	{ v, err := _flow_mermaid_render_flow(v_flow, v_options); if err != nil { return nil, err }; v_rendered = v }
+	return v_rendered, nil
 }
 
 func ucp_negotiate_profile(args ...Value) (Value, error) {
@@ -41739,11 +44259,25 @@ type AxFlow struct {
 	ExecutionContextError error
 }
 
-func NewFlow(options map[string]Value) *AxFlow {
-	if options == nil {
-		options = Object()
-	}
-	state := asMap(mustCore(_flow_factory(options)))
+func NewFlow(source Value, bindings ...map[string]Value) *AxFlow {
+    if text, ok := source.(string); ok {
+        resolved := Object()
+        if len(bindings) > 0 && bindings[0] != nil { resolved = bindings[0] }
+        state := asMap(mustCore(_flow_from_mermaid(text, resolved)))
+        state["mermaidPercent"] = "%"
+        state["mermaidOpenBrace"] = "{"
+        state["mermaidCloseBrace"] = "}"
+        state["steps"] = hydrateMermaidSteps(coreGet(state, "steps", Array()), resolved)
+        options := asMap(coreGet(resolved, "options", Object()))
+        executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
+        return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options,ExecutionContext:executionContext,ExecutionContextError:contextErr}
+    }
+    options := asMap(source)
+    if options == nil { options = Object() }
+    state := asMap(mustCore(_flow_factory(options)))
+    state["mermaidPercent"] = "%"
+    state["mermaidOpenBrace"] = "{"
+    state["mermaidCloseBrace"] = "}"
 	executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
 	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options,ExecutionContext:executionContext,ExecutionContextError:contextErr}
 }
@@ -41751,11 +44285,38 @@ func (f *AxFlow) Execute(name string, program AxProgram, options map[string]Valu
 	if options == nil {
 		options = Object()
 	}
-	step := mustCore(_flow_step("program", name, program, options))
+    if gen, ok := program.(*AxGen); ok { if _, found := options["signatureText"]; !found { options["signatureText"] = gen.Signature.String() } }
+    step := mustCore(_flow_step("execute", name, program, options))
 	mustCore(_flow_add_step(f.State, step))
 	f.Steps = coreGet(f.State, "steps", Array())
 	return f
 }
+func hydrateMermaidSteps(raw Value, bindings map[string]Value) Value {
+    out := MutableArray()
+    nodes := asMap(coreGet(bindings, "nodes", Object()))
+    for _, item := range asSlice(raw) {
+        step := asMap(item)
+        name := display(coreGet(step, "name", ""))
+        program := coreGet(step, "program", nil)
+        if binding, ok := nodes[name]; ok { program = binding }
+        if _, ok := program.(func(map[string]Value) Value); ok {
+            coreSet(step, "kind", "map")
+            coreSet(step, "program", program)
+        } else if signature, ok := program.(string); ok {
+            coreSet(step, "program", NewAx(signature, asMap(coreGet(step, "options", Object()))))
+        } else if program != nil { coreSet(step, "program", program) }
+        options := asMap(coreGet(step, "options", Object()))
+        nested := coreGet(options, "steps", Array())
+        if len(asSlice(nested)) > 0 { coreSet(options, "steps", hydrateMermaidSteps(nested, bindings)); coreSet(step, "options", options) }
+        out = coreAppend(out, step).(*AxArray)
+    }
+    return out
+}
+func (f *AxFlow) ToString(options ...map[string]Value) string {
+    resolved := Object(); if len(options) > 0 && options[0] != nil { resolved = options[0] }
+    return display(mustCore(_flow_to_mermaid(f.State, resolved)))
+}
+func (f *AxFlow) String() string { return f.ToString() }
 func (f *AxFlow) Returns(mapping map[string]Value) *AxFlow {
 	mustCore(_flow_set_returns(f.State, mapping))
 	return f
@@ -44410,6 +46971,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceProgramContract(fixture)
 	case "flow":
 		runConformanceFlow(fixture)
+	case "flow_mermaid":
+		runConformanceFlowMermaid(fixture)
 	case "optimize":
 		runConformanceOptimize(fixture)
 	case "mcp":
@@ -45531,6 +48094,33 @@ func runConformanceFlow(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_components_subset", nil); expected != nil {
 		assertListSubset(flow.GetOptimizableComponents(), expected, "flow components")
 	}
+}
+
+func runConformanceFlowMermaid(fixture map[string]Value) {
+	operation := display(coreGet(fixture, "operation", ""))
+	conditions := Object()
+	for _, raw := range asSlice(coreGet(fixture, "condition_names", Array())) {
+		conditions[display(raw)] = func(map[string]Value) Value { return false }
+	}
+	bindings := Object("conditions", conditions)
+	if operation == "error" {
+		expectFixtureError(func() { _ = NewFlow(display(coreGet(fixture, "document", "")), bindings) }, fixture)
+		return
+	}
+	if operation == "builder_render" {
+		built := NewFlow(Object())
+		for _, raw := range asSlice(coreGet(fixture, "builder_steps", Array())) {
+			step := asMap(raw)
+			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), Object("reads", coreGet(step, "reads", Array())))
+		}
+		assertEqual(built.String(), coreGet(fixture, "expected_rendered", ""), "flow mermaid builder render")
+		return
+	}
+	first := NewFlow(display(coreGet(fixture, "document", "")), bindings)
+	expected := coreGet(fixture, "expected_rerendered", coreGet(fixture, "expected_rendered", ""))
+	assertEqual(first.String(), expected, "flow mermaid render")
+	second := NewFlow(first.String(), bindings)
+	assertEqual(second.String(), expected, "flow mermaid canonical roundtrip")
 }
 
 func conformanceValidateFlowDemos(fixture map[string]Value) {

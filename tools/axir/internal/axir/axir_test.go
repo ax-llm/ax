@@ -98,6 +98,27 @@ func TestAgentCrossLanguageParity(t *testing.T) {
 	}
 }
 
+func TestFlowMermaidCrossLanguageParity(t *testing.T) {
+	sources := map[string]string{
+		"go":     goRuntime + goConformance,
+		"cpp":    cppConformance,
+		"java":   javaConformance,
+		"rust":   rustLib,
+		"python": pyConformance,
+	}
+	for language, source := range sources {
+		if !strings.Contains(source, "flow_mermaid") {
+			t.Errorf("DRIFT: flow_mermaid fixtures are not dispatched by the %s runner", language)
+		}
+	}
+	flowIR := readRepoFile(t, repoRootPath(), "ir/axcore/flow.axir")
+	for _, operation := range []string{"@flow_from_mermaid", "@flow_to_mermaid", "@flow_mermaid_parse", "@flow_mermaid_compile"} {
+		if !strings.Contains(flowIR, operation) {
+			t.Errorf("shared flow IR is missing %s", operation)
+		}
+	}
+}
+
 // TestAgentPublicAPIParity is the G9 gate: cross-language public-API parity for AxAgent.
 //
 // The Rust agent shipped without optimize()/playbook(), and Go without optimize(), because no
@@ -796,6 +817,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/runtime_profiles/resolve_pyodide_runtime_server.sh",
 				"examples/runtime_profiles/README.md",
 				"examples/axflow_program_graph.py",
+				"examples/flow_mermaid.py",
 				"examples/flow_openai_api.py",
 				"examples/audio_responses_mapping.py",
 				"examples/audio_http_roundtrip.py",
@@ -871,6 +893,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/runtime_profiles/resolve_pyodide_runtime_server.sh",
 				"examples/runtime_profiles/README.md",
 				"examples/AxFlowProgramGraphExample.java",
+				"examples/FlowMermaidExample.java",
 				"examples/FlowOpenAIExample.java",
 				"examples/AudioResponsesMappingExample.java",
 				"examples/AudioHTTPRoundtripExample.java",
@@ -912,6 +935,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/runtime_profiles/pyodide-runtime-policy.json",
 				"examples/runtime_profiles/README.md",
 				"examples/axflow_program_graph.cpp",
+				"examples/flow_mermaid.cpp",
 				"examples/flow_openai_api.cpp",
 				"examples/audio_responses_mapping.cpp",
 				"examples/audio_http_roundtrip.cpp",
@@ -947,6 +971,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/runtime_protocol/main.go",
 				"examples/runtime_profiles/javascript_goja/main.go",
 				"examples/axflow_program_graph/main.go",
+				"examples/flow_mermaid/main.go",
 				"examples/flow_openai_api/main.go",
 				"examples/audio_responses_mapping/main.go",
 				"examples/audio_http_roundtrip/main.go",
@@ -982,6 +1007,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/runtime_profiles/javascript_quickjs.rs",
 				"examples/runtime_profiles/README.md",
 				"examples/axflow_program_graph.rs",
+				"examples/flow_mermaid.rs",
 				"examples/flow_openai_api.rs",
 				"examples/audio_responses_mapping.rs",
 				"examples/audio_http_roundtrip.rs",
@@ -1701,7 +1727,7 @@ func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
 			{
 				category: "conformance",
 				rel:      "src/lib.rs",
-				contains: []string{"\"signature\" => run_signature_fixture(&fixture)?", "\"json_schema\" => run_json_schema_fixture(&fixture)?", "\"validate_output\" => run_validate_output_fixture(&fixture)?", "\"prompt\" => run_prompt_fixture(&fixture)?", "\"forward\" => run_simple_forward_fixture(&fixture)?", "\"stream\" => run_stream_fixture(&fixture)?", "\"ai_stream\" => run_ai_stream_fixture(&fixture)?", "\"ai_embed\" => run_ai_embed_fixture(&fixture)?", "\"ai_transcribe\" => run_ai_transcribe_fixture(&fixture)?", "\"ai_speak\" => run_ai_speak_fixture(&fixture)?", "\"ai_realtime\" => run_ai_realtime_fixture(&fixture)?", "\"agent_forward\"", "\"agent_playbook_evolve\"", "\"flow\" => run_flow_fixture(&fixture)?", "\"optimize\" => run_optimize_fixture(&fixture)?", "unsupported Rust conformance fixture kind", "expect_transport_request_subset"},
+				contains: []string{"\"signature\" => run_signature_fixture(&fixture)?", "\"json_schema\" => run_json_schema_fixture(&fixture)?", "\"validate_output\" => run_validate_output_fixture(&fixture)?", "\"prompt\" => run_prompt_fixture(&fixture)?", "\"forward\" => run_simple_forward_fixture(&fixture)?", "\"stream\" => run_stream_fixture(&fixture)?", "\"ai_stream\" => run_ai_stream_fixture(&fixture)?", "\"ai_embed\" => run_ai_embed_fixture(&fixture)?", "\"ai_transcribe\" => run_ai_transcribe_fixture(&fixture)?", "\"ai_speak\" => run_ai_speak_fixture(&fixture)?", "\"ai_realtime\" => run_ai_realtime_fixture(&fixture)?", "\"agent_forward\"", "\"agent_playbook_evolve\"", "\"flow\" => run_flow_fixture(&fixture)?", "\"flow_mermaid\" => run_flow_mermaid_fixture(&fixture)?", "\"optimize\" => run_optimize_fixture(&fixture)?", "unsupported Rust conformance fixture kind", "expect_transport_request_subset"},
 				forbidden: []string{
 					"| \"flow\"\n        | \"json_schema\"",
 					"| \"validate_value\" => Ok(())",
@@ -2193,6 +2219,10 @@ func TestFlowGoldensExtractorUsesTSReference(t *testing.T) {
 		"getExecutionPlan()",
 		"forward(",
 		"tsDerived: true",
+		"src/ax/flow/mermaid.ts",
+		"src/ax/flow/dependencyAnalyzer.ts",
+		"kind: 'flow_mermaid'",
+		"expected_rerendered",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("flow extractor no longer exercises TS Flow reference; missing %q", want)

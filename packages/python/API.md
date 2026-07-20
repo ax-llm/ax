@@ -199,13 +199,13 @@ Compose AxGen, AxAgent, and nested flows into a portable program graph.
 
 ### `flow`
 
-Create an AxFlow program graph.
+Create an AxFlow program graph or compile the portable Mermaid shorthand.
 
 - Canonical Ax concept: `flow`
 - Kind: `function`
-- Form: `flow(options=None)`
+- Form: `flow(options=None) / flow(mermaid, bindings=None)`
 - Returns: `AxFlow`
-- Important options: nodes, execute mappers, conditions, cache, returns
+- Important options: nodes, execute mappers, conditions, cache, returns, Mermaid roundtrip
 
 ```python
 wf = flow().node("qa", ax("question:string -> answer:string"))
@@ -217,7 +217,7 @@ Workflow graph with Core-owned planning, cache keys, state merge, child aggregat
 
 - Canonical Ax concept: `AxFlow`
 - Kind: `type`
-- Form: `AxFlow(options=None)`
+- Form: `AxFlow(options=None, bindings=None)`
 - Returns: `flow program`
 - Important options: steps, state, parallel groups, returns
 

@@ -1,0 +1,117 @@
+{
+  "kind": "flow_mermaid",
+  "name": "mermaid-feedback-loop",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "mermaid-feedback-loop",
+    "observed": {
+      "rendered": "flowchart TD\n  %%ax draft: taskText:string -> draftText:string\n  %%ax review: draftText:string -> verdict:class \"approve | revise\"\n\n  draft[Draft]\n  review{verdict}\n  draft --> review\n  review -->|revise, max 3| draft\n",
+      "rerendered": "flowchart TD\n  %%ax draft: taskText:string -> draftText:string\n  %%ax review: draftText:string -> verdict:class \"approve | revise\"\n\n  draft[Draft]\n  review{verdict}\n  draft --> review\n  review -->|revise, max 3| draft\n",
+      "plan": {
+        "totalSteps": 4,
+        "parallelGroups": 4,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "type": "execute",
+            "nodeName": "draft",
+            "dependencies": ["taskText"],
+            "produces": ["draftResult"],
+            "stepIndex": 0,
+            "isBarrier": false
+          },
+          {
+            "type": "execute",
+            "nodeName": "review",
+            "dependencies": ["draftResult"],
+            "produces": ["reviewResult"],
+            "stepIndex": 1,
+            "isBarrier": false
+          },
+          {
+            "type": "feedback",
+            "dependencies": [],
+            "produces": [],
+            "stepIndex": 2,
+            "isBarrier": true
+          },
+          {
+            "type": "returns",
+            "dependencies": ["reviewResult"],
+            "produces": ["verdict"],
+            "stepIndex": 3,
+            "isBarrier": true
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "draft",
+                "dependencies": ["taskText"],
+                "produces": ["draftResult"],
+                "stepIndex": 0,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "review",
+                "dependencies": ["draftResult"],
+                "produces": ["reviewResult"],
+                "stepIndex": 1,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 2,
+            "steps": [
+              {
+                "type": "feedback",
+                "dependencies": [],
+                "produces": [],
+                "stepIndex": 2,
+                "isBarrier": true
+              }
+            ]
+          },
+          {
+            "level": 3,
+            "steps": [
+              {
+                "type": "returns",
+                "dependencies": ["reviewResult"],
+                "produces": ["verdict"],
+                "stepIndex": 3,
+                "isBarrier": true
+              }
+            ]
+          }
+        ],
+        "autoParallelEnabled": true
+      }
+    }
+  },
+  "document": "flowchart TD\n  %%ax draft: taskText:string -> draftText:string\n  %%ax review: draftText:string -> verdict:class \"approve, revise\"\n  draft --> review{verdict}\n  review -->|revise, max 3| draft",
+  "condition_names": [],
+  "expected_rendered": "flowchart TD\n  %%ax draft: taskText:string -> draftText:string\n  %%ax review: draftText:string -> verdict:class \"approve | revise\"\n\n  draft[Draft]\n  review{verdict}\n  draft --> review\n  review -->|revise, max 3| draft\n",
+  "expected_rerendered": "flowchart TD\n  %%ax draft: taskText:string -> draftText:string\n  %%ax review: draftText:string -> verdict:class \"approve | revise\"\n\n  draft[Draft]\n  review{verdict}\n  draft --> review\n  review -->|revise, max 3| draft\n",
+  "expected_direction": "TD"
+}

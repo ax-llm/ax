@@ -37,6 +37,14 @@ public final class Ax {
     return new AxFlow(options == null ? java.util.Map.of() : options);
   }
 
+  public static AxFlow flow(String mermaid) {
+    return new AxFlow(mermaid);
+  }
+
+  public static AxFlow flow(String mermaid, java.util.Map<String, Object> bindings) {
+    return new AxFlow(mermaid, bindings);
+  }
+
   public static AxAIService ai(String provider, java.util.Map<String, Object> options) {
     java.util.Map<String, Object> resolved = Core.asMap(Core.provider_resolve_profile(provider == null ? "openai" : provider));
     if (!Core.truthy(resolved.get("known"))) {

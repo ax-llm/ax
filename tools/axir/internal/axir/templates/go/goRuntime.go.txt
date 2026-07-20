@@ -3812,11 +3812,25 @@ type AxFlow struct {
 	ExecutionContextError error
 }
 
-func NewFlow(options map[string]Value) *AxFlow {
-	if options == nil {
-		options = Object()
-	}
-	state := asMap(mustCore(_flow_factory(options)))
+func NewFlow(source Value, bindings ...map[string]Value) *AxFlow {
+    if text, ok := source.(string); ok {
+        resolved := Object()
+        if len(bindings) > 0 && bindings[0] != nil { resolved = bindings[0] }
+        state := asMap(mustCore(_flow_from_mermaid(text, resolved)))
+        state["mermaidPercent"] = "%"
+        state["mermaidOpenBrace"] = "{"
+        state["mermaidCloseBrace"] = "}"
+        state["steps"] = hydrateMermaidSteps(coreGet(state, "steps", Array()), resolved)
+        options := asMap(coreGet(resolved, "options", Object()))
+        executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
+        return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options,ExecutionContext:executionContext,ExecutionContextError:contextErr}
+    }
+    options := asMap(source)
+    if options == nil { options = Object() }
+    state := asMap(mustCore(_flow_factory(options)))
+    state["mermaidPercent"] = "%"
+    state["mermaidOpenBrace"] = "{"
+    state["mermaidCloseBrace"] = "}"
 	executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
 	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options,ExecutionContext:executionContext,ExecutionContextError:contextErr}
 }
@@ -3824,11 +3838,38 @@ func (f *AxFlow) Execute(name string, program AxProgram, options map[string]Valu
 	if options == nil {
 		options = Object()
 	}
-	step := mustCore(_flow_step("program", name, program, options))
+    if gen, ok := program.(*AxGen); ok { if _, found := options["signatureText"]; !found { options["signatureText"] = gen.Signature.String() } }
+    step := mustCore(_flow_step("execute", name, program, options))
 	mustCore(_flow_add_step(f.State, step))
 	f.Steps = coreGet(f.State, "steps", Array())
 	return f
 }
+func hydrateMermaidSteps(raw Value, bindings map[string]Value) Value {
+    out := MutableArray()
+    nodes := asMap(coreGet(bindings, "nodes", Object()))
+    for _, item := range asSlice(raw) {
+        step := asMap(item)
+        name := display(coreGet(step, "name", ""))
+        program := coreGet(step, "program", nil)
+        if binding, ok := nodes[name]; ok { program = binding }
+        if _, ok := program.(func(map[string]Value) Value); ok {
+            coreSet(step, "kind", "map")
+            coreSet(step, "program", program)
+        } else if signature, ok := program.(string); ok {
+            coreSet(step, "program", NewAx(signature, asMap(coreGet(step, "options", Object()))))
+        } else if program != nil { coreSet(step, "program", program) }
+        options := asMap(coreGet(step, "options", Object()))
+        nested := coreGet(options, "steps", Array())
+        if len(asSlice(nested)) > 0 { coreSet(options, "steps", hydrateMermaidSteps(nested, bindings)); coreSet(step, "options", options) }
+        out = coreAppend(out, step).(*AxArray)
+    }
+    return out
+}
+func (f *AxFlow) ToString(options ...map[string]Value) string {
+    resolved := Object(); if len(options) > 0 && options[0] != nil { resolved = options[0] }
+    return display(mustCore(_flow_to_mermaid(f.State, resolved)))
+}
+func (f *AxFlow) String() string { return f.ToString() }
 func (f *AxFlow) Returns(mapping map[string]Value) *AxFlow {
 	mustCore(_flow_set_returns(f.State, mapping))
 	return f
@@ -6483,6 +6524,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceProgramContract(fixture)
 	case "flow":
 		runConformanceFlow(fixture)
+	case "flow_mermaid":
+		runConformanceFlowMermaid(fixture)
 	case "optimize":
 		runConformanceOptimize(fixture)
 	case "mcp":
@@ -7604,6 +7647,33 @@ func runConformanceFlow(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_components_subset", nil); expected != nil {
 		assertListSubset(flow.GetOptimizableComponents(), expected, "flow components")
 	}
+}
+
+func runConformanceFlowMermaid(fixture map[string]Value) {
+	operation := display(coreGet(fixture, "operation", ""))
+	conditions := Object()
+	for _, raw := range asSlice(coreGet(fixture, "condition_names", Array())) {
+		conditions[display(raw)] = func(map[string]Value) Value { return false }
+	}
+	bindings := Object("conditions", conditions)
+	if operation == "error" {
+		expectFixtureError(func() { _ = NewFlow(display(coreGet(fixture, "document", "")), bindings) }, fixture)
+		return
+	}
+	if operation == "builder_render" {
+		built := NewFlow(Object())
+		for _, raw := range asSlice(coreGet(fixture, "builder_steps", Array())) {
+			step := asMap(raw)
+			built.Execute(display(coreGet(step, "name", "")), NewAx(display(coreGet(step, "signature", "")), Object()), Object("reads", coreGet(step, "reads", Array())))
+		}
+		assertEqual(built.String(), coreGet(fixture, "expected_rendered", ""), "flow mermaid builder render")
+		return
+	}
+	first := NewFlow(display(coreGet(fixture, "document", "")), bindings)
+	expected := coreGet(fixture, "expected_rerendered", coreGet(fixture, "expected_rendered", ""))
+	assertEqual(first.String(), expected, "flow mermaid render")
+	second := NewFlow(first.String(), bindings)
+	assertEqual(second.String(), expected, "flow mermaid canonical roundtrip")
 }
 
 func conformanceValidateFlowDemos(fixture map[string]Value) {

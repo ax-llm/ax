@@ -1,0 +1,117 @@
+{
+  "kind": "flow_mermaid",
+  "name": "mermaid-class-branch-join",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "mermaid-class-branch-join",
+    "observed": {
+      "rendered": "flowchart TD\n  %%ax classify: requestText:string -> routeClass:class \"support | sales\"\n  %%ax supportReply: requestText:string -> replyText:string(max 300)\n  %%ax send: replyText:string -> deliveredReply:string\n  %%ax salesReply: requestText:string -> replyText:string(max 300)\n\n  classify{routeClass}\n  supportReply[Support reply]\n  classify -->|support| supportReply\n  salesReply[Sales reply]\n  classify -->|sales| salesReply\n  send[Send]\n  supportReply --> send\n  salesReply --> send\n",
+      "rerendered": "flowchart TD\n  %%ax classify: requestText:string -> routeClass:class \"support | sales\"\n  %%ax supportReply: requestText:string -> replyText:string(max 300)\n  %%ax salesReply: requestText:string -> replyText:string(max 300)\n  %%ax send: replyText:string -> deliveredReply:string\n\n  classify{routeClass}\n  supportReply[Support reply]\n  classify -->|support| supportReply\n  salesReply[Sales reply]\n  classify -->|sales| salesReply\n  send[Send]\n  supportReply --> send\n  salesReply --> send\n",
+      "plan": {
+        "totalSteps": 4,
+        "parallelGroups": 4,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "type": "execute",
+            "nodeName": "classify",
+            "dependencies": ["requestText"],
+            "produces": ["classifyResult"],
+            "stepIndex": 0,
+            "isBarrier": false
+          },
+          {
+            "type": "branch",
+            "dependencies": ["requestText"],
+            "produces": ["supportReplyResult", "salesReplyResult"],
+            "stepIndex": 1,
+            "isBarrier": true
+          },
+          {
+            "type": "execute",
+            "nodeName": "send",
+            "dependencies": ["supportReplyResult", "salesReplyResult"],
+            "produces": ["sendResult"],
+            "stepIndex": 2,
+            "isBarrier": false
+          },
+          {
+            "type": "returns",
+            "dependencies": ["sendResult"],
+            "produces": ["deliveredReply"],
+            "stepIndex": 3,
+            "isBarrier": true
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "classify",
+                "dependencies": ["requestText"],
+                "produces": ["classifyResult"],
+                "stepIndex": 0,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "type": "branch",
+                "dependencies": ["requestText"],
+                "produces": ["supportReplyResult", "salesReplyResult"],
+                "stepIndex": 1,
+                "isBarrier": true
+              }
+            ]
+          },
+          {
+            "level": 2,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "send",
+                "dependencies": ["supportReplyResult", "salesReplyResult"],
+                "produces": ["sendResult"],
+                "stepIndex": 2,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 3,
+            "steps": [
+              {
+                "type": "returns",
+                "dependencies": ["sendResult"],
+                "produces": ["deliveredReply"],
+                "stepIndex": 3,
+                "isBarrier": true
+              }
+            ]
+          }
+        ],
+        "autoParallelEnabled": true
+      }
+    }
+  },
+  "document": "flowchart LR\n  %%ax classify: requestText:string -> routeClass:class \"support, sales\"\n  %%ax supportReply: requestText:string -> replyText:string(max 300)\n  %%ax salesReply: requestText:string -> replyText:string(max 300)\n  %%ax send: replyText:string -> deliveredReply:string\n  classify{routeClass} -->|support| supportReply --> send\n  classify -->|sales| salesReply --> send",
+  "condition_names": [],
+  "expected_rendered": "flowchart TD\n  %%ax classify: requestText:string -> routeClass:class \"support | sales\"\n  %%ax supportReply: requestText:string -> replyText:string(max 300)\n  %%ax send: replyText:string -> deliveredReply:string\n  %%ax salesReply: requestText:string -> replyText:string(max 300)\n\n  classify{routeClass}\n  supportReply[Support reply]\n  classify -->|support| supportReply\n  salesReply[Sales reply]\n  classify -->|sales| salesReply\n  send[Send]\n  supportReply --> send\n  salesReply --> send\n",
+  "expected_rerendered": "flowchart TD\n  %%ax classify: requestText:string -> routeClass:class \"support | sales\"\n  %%ax supportReply: requestText:string -> replyText:string(max 300)\n  %%ax salesReply: requestText:string -> replyText:string(max 300)\n  %%ax send: replyText:string -> deliveredReply:string\n\n  classify{routeClass}\n  supportReply[Support reply]\n  classify -->|support| supportReply\n  salesReply[Sales reply]\n  classify -->|sales| salesReply\n  send[Send]\n  supportReply --> send\n  salesReply --> send\n",
+  "expected_direction": "LR"
+}

@@ -39,10 +39,9 @@
     },
     "snippets": {
       "flow": [
-        "AxGen step = Ax.ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\");",
-        "AxFlow program = Ax.flow(Map.of(\"id\", \"supportRouter\"))",
-        "    .execute(\"classify\", step)",
-        "    .returns(Map.of(\"route\", \"classify\"));"
+        "String mermaid = \"flowchart TD\\n  %%ax classify: request:string -> route:class \\\"support, sales\\\"\\n  classify{route}\";",
+        "AxFlow program = Ax.flow(mermaid);",
+        "System.out.println(program);"
       ],
       "rlm": [
         "AxAgent investigator = Ax.agent(signature, Map.of(",
@@ -99,10 +98,9 @@
     ],
     "ax": ["var answer = Ax.ax(\"question:string -> answer:string\");"],
     "flow": [
-      "AxGen step = Ax.ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\");",
-      "AxFlow program = Ax.flow(Map.of(\"id\", \"supportRouter\"))",
-      "    .execute(\"classify\", step)",
-      "    .returns(Map.of(\"route\", \"classify\"));"
+      "String mermaid = \"flowchart TD\\n  %%ax classify: request:string -> route:class \\\"support, sales\\\"\\n  classify{route}\";",
+      "AxFlow program = Ax.flow(mermaid);",
+      "System.out.println(program);"
     ],
     "agent": ["var helper = Ax.agent(\"question:string -> answer:string\");"],
     "llm": [

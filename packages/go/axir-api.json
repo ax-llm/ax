@@ -276,14 +276,15 @@
           "canonical_name": "flow",
           "public_name": "axllm.NewFlow",
           "kind": "function",
-          "description": "Create an AxFlow program graph.",
-          "form": "axllm.NewFlow(options)",
+          "description": "Create an AxFlow program graph or compile the portable Mermaid shorthand.",
+          "form": "axllm.NewFlow(optionsOrMermaid, bindings...)",
           "important_options": [
             "nodes",
             "execute mappers",
             "conditions",
             "cache",
-            "returns"
+            "returns",
+            "Mermaid roundtrip"
           ],
           "returns": "*AxFlow",
           "example": "wf := axllm.NewFlow(nil)"
@@ -294,7 +295,7 @@
           "public_name": "axllm.AxFlow",
           "kind": "type",
           "description": "Workflow graph with Core-owned planning, cache keys, state merge, child aggregation, optimization, and returns projection.",
-          "form": "axllm.NewFlow(options)",
+          "form": "axllm.NewFlow(optionsOrMermaid, bindings...)",
           "important_options": [
             "steps",
             "state",

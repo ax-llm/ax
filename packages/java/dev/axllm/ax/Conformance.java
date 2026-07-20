@@ -574,6 +574,7 @@ public final class Conformance {
       case "agent_runtime_protocol" -> runAgentRuntimeProtocol(fixture);
       case "program_contract" -> runProgramContract(fixture);
       case "flow" -> runFlow(fixture);
+      case "flow_mermaid" -> runFlowMermaid(fixture);
       case "optimize" -> runOptimize(fixture);
       case "mcp" -> AxMCPClient.runConformanceFixture(fixture);
       case "event" -> runEvent(fixture);
@@ -946,6 +947,43 @@ public final class Conformance {
       if (expected != null && String.valueOf(e.getMessage()).contains(expected)) return;
       throw e;
     }
+  }
+
+  static void runFlowMermaid(Map<String, Object> fixture) {
+    String operation = String.valueOf(fixture.getOrDefault("operation", ""));
+    Map<String, Object> conditions = new LinkedHashMap<>();
+    for (Object raw : Core.asList(fixture.getOrDefault("condition_names", List.of()))) {
+      conditions.put(String.valueOf(raw), (AxFlow.Mapper) state -> false);
+    }
+    Map<String, Object> bindings = Map.of("conditions", conditions);
+    if ("error".equals(operation)) {
+      try {
+        new AxFlow(String.valueOf(fixture.getOrDefault("document", "")), bindings);
+      } catch (RuntimeException error) {
+        String expected = String.valueOf(fixture.getOrDefault("expected_error_contains", ""));
+        if (!String.valueOf(error.getMessage()).contains(expected)) throw error;
+        return;
+      }
+      throw new FixtureError("expected mermaid compilation to fail");
+    }
+    if ("builder_render".equals(operation)) {
+      AxFlow built = new AxFlow();
+      for (Object raw : Core.asList(fixture.getOrDefault("builder_steps", List.of()))) {
+        Map<String, Object> step = Core.asMap(raw);
+        built.execute(
+          String.valueOf(step.get("name")),
+          new AxGen(AxSignature.create(String.valueOf(step.get("signature")))),
+          Map.of("reads", Core.asList(step.getOrDefault("reads", List.of())))
+        );
+      }
+      assertEqual(built.toString(), fixture.get("expected_rendered"), "flow mermaid builder render");
+      return;
+    }
+    AxFlow first = new AxFlow(String.valueOf(fixture.get("document")), bindings);
+    String expected = String.valueOf(fixture.getOrDefault("expected_rerendered", fixture.get("expected_rendered")));
+    assertEqual(first.toString(), expected, "flow mermaid render");
+    AxFlow second = new AxFlow(first.toString(), bindings);
+    assertEqual(second.toString(), expected, "flow mermaid canonical roundtrip");
   }
 
   static void runOptimize(Map<String, Object> fixture) {

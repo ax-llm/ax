@@ -199,13 +199,13 @@ Compose AxGen, AxAgent, and nested flows into a portable program graph.
 
 ### `flow`
 
-Create an AxFlow program graph.
+Create an AxFlow program graph or compile the portable Mermaid shorthand.
 
 - Canonical Ax concept: `flow`
 - Kind: `function`
-- Form: `flow(id)`
+- Form: `flow(source) / flow_with_bindings(source, bindings)`
 - Returns: `AxFlow`
-- Important options: nodes, execute mappers, conditions, cache, returns
+- Important options: nodes, execute mappers, conditions, cache, returns, Mermaid roundtrip
 
 ```rust
 let wf = flow("workflow");

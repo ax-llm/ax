@@ -27,8 +27,12 @@ This skill helps an agent write C++ code with the generated Ax package `axllm`. 
 ## Core Pattern
 
 ```cpp
-auto wf = axllm::flow();
-// See examples/axflow_program_graph.cpp for node wiring.
+std::string mermaid = R"(flowchart TD
+  %%ax classify: request:string -> route:class "support, sales"
+  classify{route})";
+auto wf = axllm::flow(mermaid);
+std::cout << wf.str();
+// See examples/flow_mermaid.cpp.
 ```
 
 ## Relevant API Surface

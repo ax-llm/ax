@@ -144,6 +144,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_profiles/resolve_pyodide_runtime_server.sh": pyodideRuntimeHelper,
 		"examples/runtime_profiles/README.md":                         pyodideProfileReadme,
 		"examples/axflow_program_graph.py":                            pyAxFlowProgramGraphExample,
+		"examples/flow_mermaid.py":                                    pyFlowMermaidExample,
 		"examples/flow_openai_api.py":                                 pyAxFlowOpenAIExample,
 		"examples/audio_responses_mapping.py":                         pyAudioResponsesMappingExample,
 		"examples/audio_http_roundtrip.py":                            pyAudioHTTPRoundtripExample,
@@ -263,6 +264,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_profiles/resolve_pyodide_runtime_server.sh": pyodideRuntimeHelper,
 		"examples/runtime_profiles/README.md":                         javaRuntimeProfilesReadme,
 		"examples/AxFlowProgramGraphExample.java":                     javaAxFlowProgramGraphExample,
+		"examples/FlowMermaidExample.java":                            javaFlowMermaidExample,
 		"examples/FlowOpenAIExample.java":                             javaFlowOpenAIExample,
 		"examples/AudioResponsesMappingExample.java":                  javaAudioResponsesMappingExample,
 		"examples/AudioHTTPRoundtripExample.java":                     javaAudioHTTPRoundtripExample,
@@ -319,6 +321,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_profiles/pyodide-runtime-policy.json": pyodideRuntimePolicyJSON,
 		"examples/runtime_profiles/README.md":                   cppRuntimeProfilesReadme,
 		"examples/axflow_program_graph.cpp":                     cppAxFlowProgramGraphExample,
+		"examples/flow_mermaid.cpp":                             cppFlowMermaidExample,
 		"examples/flow_openai_api.cpp":                          cppFlowOpenAIExample,
 		"examples/audio_responses_mapping.cpp":                  cppAudioResponsesMappingExample,
 		"examples/audio_http_roundtrip.cpp":                     cppAudioHTTPRoundtripExample,
@@ -364,6 +367,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"examples/runtime_protocol/main.go":                 goRuntimeProtocolExample,
 		"examples/runtime_profiles/javascript_goja/main.go": goJavaScriptGojaProfileExample,
 		"examples/axflow_program_graph/main.go":             goAxFlowProgramGraphExample,
+		"examples/flow_mermaid/main.go":                     goFlowMermaidExample,
 		"examples/flow_openai_api/main.go":                  goAxFlowOpenAIExample,
 		"examples/audio_responses_mapping/main.go":          goAudioResponsesMappingExample,
 		"examples/audio_http_roundtrip/main.go":             goAudioHTTPRoundtripExample,
@@ -405,6 +409,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_scripted_client_tool.rs":          rustAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api.rs":                    rustAxGenOpenAIExample,
 		"examples/axflow_program_graph.rs":                rustAxFlowProgramGraphExample,
+		"examples/flow_mermaid.rs":                        rustFlowMermaidExample,
 		"examples/flow_openai_api.rs":                     rustAxFlowOpenAIExample,
 		"examples/audio_responses_mapping.rs":             rustAudioResponsesMappingExample,
 		"examples/audio_http_roundtrip.rs":                rustAudioHTTPRoundtripExample,
@@ -994,7 +999,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Title:   "Flow",
 			Summary: "Compose AxGen, AxAgent, and nested flows into a portable program graph.",
 			Symbols: []APIReferenceSymbol{
-				sym("flow", "function", "Create an AxFlow program graph.", []string{"nodes", "execute mappers", "conditions", "cache", "returns"}, "AxFlow"),
+				sym("flow", "function", "Create an AxFlow program graph or compile the portable Mermaid shorthand.", []string{"nodes", "execute mappers", "conditions", "cache", "returns", "Mermaid roundtrip"}, "AxFlow"),
 				sym("AxFlow", "type", "Workflow graph with Core-owned planning, cache keys, state merge, child aggregation, optimization, and returns projection.", []string{"steps", "state", "parallel groups", "returns"}, "flow program"),
 			},
 		},
@@ -1165,9 +1170,9 @@ func apiReferenceForm(target, canonical, publicName string) string {
 	case "AxAgent":
 		return mapTarget(target, "AxAgent(signature, config=None)", "new AxAgent(signature, options)", "axllm::AxAgent(signature, options)", "axllm.NewAgent(signature, options)", "AxAgent")
 	case "flow":
-		return mapTarget(target, "flow(options=None)", "Ax.flow(options)", "axllm::flow(options)", "axllm.NewFlow(options)", "flow(id)")
+		return mapTarget(target, "flow(options=None) / flow(mermaid, bindings=None)", "Ax.flow(options) / Ax.flow(mermaid, bindings)", "axllm::flow(options) / axllm::flow(mermaid, bindings)", "axllm.NewFlow(optionsOrMermaid, bindings...)", "flow(source) / flow_with_bindings(source, bindings)")
 	case "AxFlow":
-		return mapTarget(target, "AxFlow(options=None)", "new AxFlow(options)", "axllm::AxFlow(options)", "axllm.NewFlow(options)", "AxFlow")
+		return mapTarget(target, "AxFlow(options=None, bindings=None)", "new AxFlow(optionsOrMermaid, bindings)", "axllm::AxFlow(optionsOrMermaid, bindings)", "axllm.NewFlow(optionsOrMermaid, bindings...)", "AxFlow")
 	case "fn":
 		return mapTarget(target, "fn(name).description(...).arg(...).handler(...).build()", "Ax.fn(name).description(...).arg(...).handler(...).build()", "axllm::Tool(name, description, parameters, handler)", "axllm.Fn(name).Description(...).Arg(...).Handler(...)", "tool(name).description(...).arg(...).handler(...).build()")
 	case "Tool":
@@ -1629,6 +1634,9 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axflow", "flow", "plan", "semantic"},
 		{"axflow", "flow", "cache_key", "semantic"},
 		{"axflow", "flow", "streaming", "semantic"},
+		{"axflow", "flow_mermaid", "", "semantic"},
+		{"axflow", "flow_mermaid", "builder_render", "semantic"},
+		{"axflow", "flow_mermaid", "error", "validation-error"},
 		{"axprogram", "program_contract", "", "semantic"},
 		{"axoptimize", "optimize", "components", "semantic"},
 		{"axoptimize", "optimize", "filter", "semantic"},
@@ -2039,6 +2047,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport",
 				"- `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport",
 				"- `python examples/axflow_program_graph.py`: AxFlow program graph",
+				"- `python examples/flow_mermaid.py`: portable Mermaid flow parsing and canonical round-trip",
 				"- `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `python examples/realtime_audio_events.py`: Grok/Gemini realtime audio setup, input, and event folding",
 				"- `python examples/realtime_audio_turn.py`: drive a full realtime audio turn through the productized `realtime_chat()` driver (offline, scripted transport)",
@@ -2110,6 +2119,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport",
 				"- `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport",
 				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph",
+				"- `examples/FlowMermaidExample.java`: portable Mermaid flow parsing and canonical round-trip",
 				"- `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `examples/RealtimeAudioEventsExample.java`: Grok/Gemini realtime audio setup, input, and event folding",
 				"- `examples/RealtimeAudioTurnExample.java`: drive a full realtime audio turn through `realtimeChat` (offline, scripted transport)",
@@ -2176,6 +2186,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/provider_mapping_no_key.cpp`: provider mapping through a scripted transport",
 				"- `examples/provider_stream_no_key.cpp`: provider streaming through a scripted SSE transport",
 				"- `examples/axflow_program_graph.cpp`: AxFlow program graph",
+				"- `examples/flow_mermaid.cpp`: portable Mermaid flow parsing and canonical round-trip",
 				"- `examples/audio_responses_mapping.cpp`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `examples/realtime_audio_events.cpp`: Grok/Gemini realtime audio setup, input, and event folding",
 				"- `examples/realtime_audio_turn.cpp`: drive a full realtime audio turn through `realtime_chat` (offline, scripted transport)",
@@ -2237,6 +2248,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `go run ./examples/provider_mapping_no_key`: provider mapping through a scripted transport",
 				"- `go run ./examples/provider_stream_no_key`: provider streaming through a scripted SSE transport",
 				"- `go run ./examples/axflow_program_graph`: AxFlow program graph",
+				"- `go run ./examples/flow_mermaid`: portable Mermaid flow parsing and canonical round-trip",
 				"- `go run ./examples/audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `go run ./examples/realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding",
 				"- `go run ./examples/realtime_audio_turn`: drive a full realtime audio turn through `RealtimeChat` (offline, scripted transport)",
@@ -2308,6 +2320,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport",
 				"- `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool",
 				"- `cargo run --example axflow_program_graph`: AxFlow program graph",
+				"- `cargo run --example flow_mermaid`: portable Mermaid flow parsing and canonical round-trip",
 				"- `cargo run --example audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport",
 				"- `cargo run --example realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding",
 				"- `cargo run --example realtime_audio_turn`: drive a full realtime audio turn through `realtime_chat` (offline, scripted transport)",

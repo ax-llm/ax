@@ -35,10 +35,11 @@
     },
     "snippets": {
       "flow": [
-        "auto step = axllm::ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\");",
-        "auto program = axllm::flow(axllm::object({{\"id\", \"supportRouter\"}}))",
-        "    .execute(\"classify\", step)",
-        "    .returns(axllm::object({{\"route\", \"classify\"}}));"
+        "std::string mermaid = R\"(flowchart TD",
+        "  %%ax classify: request:string -> route:class \"support, sales\"",
+        "  classify{route})\";",
+        "auto program = axllm::flow(mermaid);",
+        "std::cout << program.str();"
       ],
       "rlm": [
         "auto investigator = axllm::agent(signature, axllm::object({",
@@ -98,10 +99,11 @@
     ],
     "ax": ["auto answer = axllm::ax(\"question:string -> answer:string\");"],
     "flow": [
-      "auto step = axllm::ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\");",
-      "auto program = axllm::flow(axllm::object({{\"id\", \"supportRouter\"}}))",
-      "    .execute(\"classify\", step)",
-      "    .returns(axllm::object({{\"route\", \"classify\"}}));"
+      "std::string mermaid = R\"(flowchart TD",
+      "  %%ax classify: request:string -> route:class \"support, sales\"",
+      "  classify{route})\";",
+      "auto program = axllm::flow(mermaid);",
+      "std::cout << program.str();"
     ],
     "agent": [
       "auto helper = axllm::agent(\"question:string -> answer:string\");"

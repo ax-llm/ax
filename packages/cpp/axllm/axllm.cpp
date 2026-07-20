@@ -2003,6 +2003,52 @@ Value Core::validate_signature(Value signature) {
   return Value();
 }
 
+Value Core::_signature_input_fields(Value signature) {
+  axir_coverage_mark("_signature_input_fields");
+  Value fields = Core::get(signature, Value("input_fields"), Value());
+  Value out = Value::array();
+  for (auto field : Core::iter(fields)) {
+    Value type = Core::get(field, Value("type"), Value());
+    Value type_out = Value::object();
+    Value type_name = Core::get(type, Value("name"), Value(""));
+    Core::set(type_out, Value("name"), type_name);
+    Value empty_options = Value::array();
+    Value type_options = Core::get(type, Value("options"), empty_options);
+    Core::set(type_out, Value("options"), type_options);
+    Value item = Value::object();
+    Value field_name = Core::get(field, Value("name"), Value(""));
+    Value field_optional = Core::get(field, Value("is_optional"), Value(false));
+    Core::set(item, Value("name"), field_name);
+    Core::set(item, Value("isOptional"), field_optional);
+    Core::set(item, Value("type"), type_out);
+    Core::append(out, item);
+  }
+  return out;
+}
+
+Value Core::_signature_output_fields(Value signature) {
+  axir_coverage_mark("_signature_output_fields");
+  Value fields = Core::get(signature, Value("output_fields"), Value());
+  Value out = Value::array();
+  for (auto field : Core::iter(fields)) {
+    Value type = Core::get(field, Value("type"), Value());
+    Value type_out = Value::object();
+    Value type_name = Core::get(type, Value("name"), Value(""));
+    Core::set(type_out, Value("name"), type_name);
+    Value empty_options = Value::array();
+    Value type_options = Core::get(type, Value("options"), empty_options);
+    Core::set(type_out, Value("options"), type_options);
+    Value item = Value::object();
+    Value field_name = Core::get(field, Value("name"), Value(""));
+    Value field_optional = Core::get(field, Value("is_optional"), Value(false));
+    Core::set(item, Value("name"), field_name);
+    Core::set(item, Value("isOptional"), field_optional);
+    Core::set(item, Value("type"), type_out);
+    Core::append(out, item);
+  }
+  return out;
+}
+
 Value Core::_signature_parse_impl(Value signature) {
   axir_coverage_mark("_signature_parse_impl");
   Value text = Core::string_trim(signature);
@@ -19077,6 +19123,16 @@ Value Core::_flow_execute_step(Value flow, Value step, Value plan_step, Value cl
   }
   Value kind = Core::get(step, Value("kind"), Value("execute"));
   Value name = Core::get(step, Value("name"), Value(""));
+  Value step_options_for_guard = Core::get(step, Value("options"), empty_map);
+  Value guard = Core::get(step_options_for_guard, Value("guard"), Value());
+  Value has_guard = Core::is_not_none(guard);
+  if (Core::truthy(has_guard)) {
+    Value guard_matches = Core::_flow_evaluate_data_predicate(guard, state, Value(false));
+    Value skip_guarded_step = Core::not_(guard_matches);
+    if (Core::truthy(skip_guarded_step)) {
+      return state;
+    }
+  }
   Value location = Core::string_format(Value("flow-step-{}"), name);
   Core::_flow_check_abort(options, location);
   Value traces = Core::get(flow, Value("traces"), Value());
@@ -19106,7 +19162,7 @@ Value Core::_flow_execute_step(Value flow, Value step, Value plan_step, Value cl
     Value branch_value_default = Core::get(step_options, Value("value"), Value(false));
     Value branch_value = Core::get(step_options, Value("branchValue"), branch_value_default);
     if (Core::truthy(has_predicate)) {
-      branch_value = Core::object_call_method(predicate, Value("call"), state);
+      branch_value = Core::_flow_evaluate_data_predicate(predicate, state, branch_value);
     }
     Value default_branches = Value::array();
     Value branches = Core::get(step_options, Value("branches"), default_branches);
@@ -19137,7 +19193,7 @@ Value Core::_flow_execute_step(Value flow, Value step, Value plan_step, Value cl
     while (true) {
       Value condition_result = Core::get(step_options, Value("conditionResult"), Value(false));
       if (Core::truthy(has_condition)) {
-        condition_result = Core::object_call_method(condition, Value("call"), current);
+        condition_result = Core::_flow_evaluate_data_predicate(condition, current, condition_result);
       }
       Value should_continue = Core::truthy_value(condition_result);
       Value done = Core::not_(should_continue);
@@ -19177,7 +19233,7 @@ Value Core::_flow_execute_step(Value flow, Value step, Value plan_step, Value cl
     while (true) {
       Value condition_result = Core::get(step_options, Value("conditionResult"), Value(false));
       if (Core::truthy(has_condition)) {
-        condition_result = Core::object_call_method(condition, Value("call"), current);
+        condition_result = Core::_flow_evaluate_data_predicate(condition, current, condition_result);
       }
       Value should_continue = Core::truthy_value(condition_result);
       Value done = Core::not_(should_continue);
@@ -19583,6 +19639,1205 @@ Value Core::_flow_optimize_with(Value flow, Value dataset, Value options, Value 
   Value run = Core::_prepare_optimizer_run(Value("axflow"), components, dataset, options, trace, evaluator_available);
   Value request = Core::get(run, Value("request"), empty_map);
   return request;
+}
+
+Value Core::_flow_evaluate_data_predicate(Value predicate, Value state, Value fallback) {
+  axir_coverage_mark("_flow_evaluate_data_predicate");
+  Value missing = Core::is_none(predicate);
+  if (Core::truthy(missing)) {
+    return fallback;
+  }
+  Value has_node = Core::map_contains(predicate, Value("nodeName"));
+  Value has_field = Core::map_contains(predicate, Value("field"));
+  Value is_data = Core::and_(has_node, has_field);
+  if (Core::truthy(is_data)) {
+    Value node = Core::get(predicate, Value("nodeName"), Value(""));
+    Value field = Core::get(predicate, Value("field"), Value(""));
+    Value result_key = Core::string_format(Value("{}Result"), node);
+    Value empty = Value::object();
+    Value result = Core::get(state, result_key, empty);
+    Value value = Core::get(result, field, Value());
+    Value missing_nested = Core::is_none(value);
+    if (Core::truthy(missing_nested)) {
+      value = Core::get(state, field, Value());
+    }
+    Value has_expected = Core::map_contains(predicate, Value("value"));
+    if (Core::truthy(has_expected)) {
+      Value expected = Core::get(predicate, Value("value"), Value());
+      Value expected_text = Core::string_lower(expected);
+      Value is_true = Core::eq(expected_text, Value("true"));
+      Value is_false = Core::eq(expected_text, Value("false"));
+      if (Core::truthy(is_true)) {
+        Value actual = Core::truthy_value(value);
+        return actual;
+      }
+      if (Core::truthy(is_false)) {
+        Value actual = Core::truthy_value(value);
+        actual = Core::not_(actual);
+        return actual;
+      }
+      Value matches = Core::eq(value, expected);
+      return matches;
+    }
+    Value truthy = Core::truthy_value(value);
+    return truthy;
+  }
+  Value called = Core::object_call_method(predicate, Value("call"), state);
+  return called;
+}
+
+Value Core::_flow_mermaid_fail(Value message, Value line) {
+  axir_coverage_mark("_flow_mermaid_fail");
+  Value with_line = Core::string_format(Value("{} (line {})"), message, line);
+  Value err = Core::runtime_error(with_line);
+  throw Core::as_error(err);
+}
+
+Value Core::_flow_mermaid_register_node(Value ast, Value id, Value shape, Value label, Value line) {
+  axir_coverage_mark("_flow_mermaid_register_node");
+  Value valid = Core::regex_match(Value("^[A-Za-z_][A-Za-z0-9_]*$"), id);
+  Value invalid = Core::not_(valid);
+  if (Core::truthy(invalid)) {
+    Core::_flow_mermaid_fail(Value("Expected a node id"), line);
+  }
+  Value nodes = Core::get(ast, Value("nodes"), Value());
+  Value known = Core::map_contains(nodes, id);
+  if (Core::truthy(known)) {
+    Value existing = Core::get(nodes, id, Value());
+    Value existing_label = Core::get(existing, Value("label"), Value());
+    Value missing_existing_label = Core::is_none(existing_label);
+    Value has_label = Core::is_not_none(label);
+    Value replace = Core::and_(missing_existing_label, has_label);
+    if (Core::truthy(replace)) {
+      Core::set(existing, Value("shape"), shape);
+      Core::set(existing, Value("label"), label);
+    }
+    return existing;
+  }
+  Value node = Value::object();
+  Core::set(node, Value("id"), id);
+  Core::set(node, Value("shape"), shape);
+  Core::set(node, Value("label"), label);
+  Core::set(node, Value("line"), line);
+  Core::set(nodes, id, node);
+  Value order = Core::get(ast, Value("order"), Value());
+  Value index = Core::len(order);
+  Core::append(order, id);
+  Value order_index = Core::get(ast, Value("orderIndex"), Value());
+  Core::set(order_index, id, index);
+  return node;
+}
+
+Value Core::_flow_mermaid_parse_node_ref(Value ast, Value text, Value line) {
+  axir_coverage_mark("_flow_mermaid_parse_node_ref");
+  Value source = Core::string_trim(text);
+  Value source_len = Core::len(source);
+  Value empty = Core::eq(source_len, Value(0));
+  if (Core::truthy(empty)) {
+    Core::_flow_mermaid_fail(Value("Expected a node id"), line);
+  }
+  Value split_at = source_len;
+  Value delimiters = Value::array();
+  Core::append(delimiters, Value("["));
+  Core::append(delimiters, Value("("));
+  Core::append(delimiters, Value("{"));
+  for (auto delimiter : Core::iter(delimiters)) {
+    Value candidate = Core::string_find_outside_quotes(source, delimiter);
+    Value found = Core::gte(candidate, Value(0));
+    Value earlier = Core::lt(candidate, split_at);
+    Value use = Core::and_(found, earlier);
+    if (Core::truthy(use)) {
+      split_at = candidate;
+    }
+  }
+  Value id_raw = Core::string_slice(source, Value(0), split_at);
+  Value id = Core::string_trim(id_raw);
+  Value tail = Core::string_slice(source, split_at);
+  tail = Core::string_trim(tail);
+  Value shape = Value("rect");
+  Value label = Core::none();
+  Value has_tail = Core::truthy_value(tail);
+  if (Core::truthy(has_tail)) {
+    Value starts_round_bracket = Core::string_starts_with(tail, Value("(["));
+    Value starts_double_round = Core::string_starts_with(tail, Value("(("));
+    Value starts_round = Core::string_starts_with(tail, Value("("));
+    Value starts_rect = Core::string_starts_with(tail, Value("["));
+    Value starts_diamond = Core::string_starts_with(tail, Value("{"));
+    Value group = Value::object();
+    if (Core::truthy(starts_round)) {
+      group = Core::string_extract_leading_group(tail, Value("("), Value(")"));
+      shape = Value("round");
+    }
+    if (!Core::truthy(starts_round)) {
+      if (Core::truthy(starts_rect)) {
+        group = Core::string_extract_leading_group(tail, Value("["), Value("]"));
+        shape = Value("rect");
+      }
+      if (!Core::truthy(starts_rect)) {
+        if (Core::truthy(starts_diamond)) {
+          group = Core::string_extract_leading_group(tail, Value("{"), Value("}"));
+          shape = Value("diamond");
+        }
+        if (!Core::truthy(starts_diamond)) {
+          Core::_flow_mermaid_fail(Value("Unexpected content after node id"), line);
+        }
+      }
+    }
+    Value balanced = Core::get(group, Value("balanced"), Value(false));
+    Value rest = Core::get(group, Value("rest"), Value(""));
+    rest = Core::string_trim(rest);
+    Value trailing = Core::truthy_value(rest);
+    Value bad = Core::not_(balanced);
+    bad = Core::or_(bad, trailing);
+    if (Core::truthy(bad)) {
+      Core::_flow_mermaid_fail(Value("Unexpected content after node shape"), line);
+    }
+    Value label_text = Core::get(group, Value("group"), Value(""));
+    if (Core::truthy(starts_round_bracket)) {
+      shape = Value("round");
+      Value inner_len = Core::len(label_text);
+      Value inner_end = Core::add(inner_len, Value(-1));
+      label_text = Core::string_slice(label_text, Value(1), inner_end);
+    }
+    if (Core::truthy(starts_double_round)) {
+      shape = Value("rect");
+      Value inner_len = Core::len(label_text);
+      Value inner_end = Core::add(inner_len, Value(-1));
+      label_text = Core::string_slice(label_text, Value(1), inner_end);
+    }
+    label_text = Core::string_trim(label_text);
+    Value quoted_double = Core::string_starts_with(label_text, Value("\""));
+    Value quoted_single = Core::string_starts_with(label_text, Value("'"));
+    Value quoted = Core::or_(quoted_double, quoted_single);
+    if (Core::truthy(quoted)) {
+      Value label_len = Core::len(label_text);
+      Value label_end = Core::add(label_len, Value(-1));
+      label_text = Core::string_slice(label_text, Value(1), label_end);
+    }
+    label = label_text;
+  }
+  Value node = Core::_flow_mermaid_register_node(ast, id, shape, label, line);
+  Value is_diamond = Core::eq(shape, Value("diamond"));
+  if (Core::truthy(is_diamond)) {
+    Value tail_len = Core::len(tail);
+    Value close_index = Core::add(tail_len, Value(-1));
+    Value open_brace = Core::string_slice(tail, Value(0), Value(1));
+    Value close_brace = Core::string_slice(tail, close_index);
+    Core::set(node, Value("open"), open_brace);
+    Core::set(node, Value("close"), close_brace);
+  }
+  return id;
+}
+
+Value Core::_flow_mermaid_parse_group(Value ast, Value text, Value line) {
+  axir_coverage_mark("_flow_mermaid_parse_group");
+  Value parts = Core::string_split_top_level(text, Value("&"));
+  Value ids = Value::array();
+  for (auto part : Core::iter(parts)) {
+    Value id = Core::_flow_mermaid_parse_node_ref(ast, part, line);
+    Core::append(ids, id);
+  }
+  return ids;
+}
+
+Value Core::_flow_mermaid_parse(Value text) {
+  axir_coverage_mark("_flow_mermaid_parse");
+  Value ast = Value::object();
+  Value directives = Value::object();
+  Value directive_order = Value::array();
+  Value nodes = Value::object();
+  Value order = Value::array();
+  Value order_index = Value::object();
+  Value edges = Value::array();
+  Core::set(ast, Value("direction"), Value("TD"));
+  Core::set(ast, Value("directives"), directives);
+  Core::set(ast, Value("directiveOrder"), directive_order);
+  Core::set(ast, Value("nodes"), nodes);
+  Core::set(ast, Value("order"), order);
+  Core::set(ast, Value("orderIndex"), order_index);
+  Core::set(ast, Value("edges"), edges);
+  Value saw_header = Value(false);
+  Value lines = Core::string_split(text, Value("\n"));
+  Value line_number = Value(0);
+  for (auto raw : Core::iter(lines)) {
+    line_number = Core::add(line_number, Value(1));
+    Value line = Core::string_trim(raw);
+    Value is_empty = Core::eq(line, Value(""));
+    if (Core::truthy(is_empty)) {
+      // empty
+    }
+    if (!Core::truthy(is_empty)) {
+      Value is_ax = Core::regex_match(Value("^%%ax\\s+"), line);
+      Value is_comment = Core::regex_match(Value("^%%"), line);
+      if (Core::truthy(is_ax)) {
+        Value percent = Core::string_slice(line, Value(0), Value(1));
+        Core::set(ast, Value("percent"), percent);
+        Value directive_body = Core::string_slice(line, Value(5));
+        Value parts = Core::string_split_once(directive_body, Value(":"));
+        Value found_colon = Core::get(parts, Value("found"), Value(false));
+        if (Core::truthy(found_colon)) {
+          // empty
+        }
+        if (!Core::truthy(found_colon)) {
+          Core::_flow_mermaid_fail(Value("Invalid Ax directive"), line_number);
+        }
+        Value id = Core::get(parts, Value("left"), Value(""));
+        id = Core::string_trim(id);
+        Value sig = Core::get(parts, Value("right"), Value(""));
+        sig = Core::string_trim(sig);
+        Value valid_id = Core::regex_match(Value("^[A-Za-z_][A-Za-z0-9_]*$"), id);
+        Value invalid_id = Core::not_(valid_id);
+        if (Core::truthy(invalid_id)) {
+          Core::_flow_mermaid_fail(Value("Invalid Ax directive node id"), line_number);
+        }
+        Value duplicate = Core::map_contains(directives, id);
+        if (Core::truthy(duplicate)) {
+          Value message = Core::string_format(Value("Duplicate Ax directive for node \"{}\""), id);
+          Core::_flow_mermaid_fail(message, line_number);
+        }
+        Core::set(directives, id, sig);
+        Core::append(directive_order, id);
+      }
+      if (!Core::truthy(is_ax)) {
+        if (Core::truthy(is_comment)) {
+          // empty
+        }
+        if (!Core::truthy(is_comment)) {
+          Value is_flowchart = Core::string_starts_with(line, Value("flowchart "));
+          Value is_graph = Core::string_starts_with(line, Value("graph "));
+          Value is_header = Core::or_(is_flowchart, is_graph);
+          if (Core::truthy(is_header)) {
+            if (Core::truthy(saw_header)) {
+              Core::_flow_mermaid_fail(Value("Multiple flowchart headers"), line_number);
+            }
+            Value words = Core::string_words(line);
+            Value direction = Core::list_get(words, Value(1), Value(""));
+            Value is_td = Core::eq(direction, Value("TD"));
+            Value is_lr = Core::eq(direction, Value("LR"));
+            Value is_bt = Core::eq(direction, Value("BT"));
+            Value is_rl = Core::eq(direction, Value("RL"));
+            Value supported_a = Core::or_(is_td, is_lr);
+            Value supported_b = Core::or_(is_bt, is_rl);
+            Value supported = Core::or_(supported_a, supported_b);
+            Value unsupported = Core::not_(supported);
+            if (Core::truthy(unsupported)) {
+              Core::_flow_mermaid_fail(Value("Unsupported flowchart direction"), line_number);
+            }
+            Core::set(ast, Value("direction"), direction);
+            saw_header = Value(true);
+          }
+          if (!Core::truthy(is_header)) {
+            if (Core::truthy(saw_header)) {
+              // empty
+            }
+            if (!Core::truthy(saw_header)) {
+              Core::_flow_mermaid_fail(Value("Missing flowchart header"), line_number);
+            }
+            Value unsupported_construct = Core::regex_match(Value("^(subgraph\\b|end\\b|style\\b|classDef\\b|class\\b|linkStyle\\b|click\\b|direction\\b)"), line);
+            if (Core::truthy(unsupported_construct)) {
+              Core::_flow_mermaid_fail(Value("Unsupported mermaid construct"), line_number);
+            }
+            Value unsupported_arrow = Core::regex_match(Value("(-\\.+->|={2,}>|---|~~~)"), line);
+            if (Core::truthy(unsupported_arrow)) {
+              Core::_flow_mermaid_fail(Value("Unsupported arrow syntax"), line_number);
+            }
+            Value segments = Core::string_split_top_level(line, Value("-->"));
+            Value segment_count = Core::len(segments);
+            Value from_text = Core::list_get(segments, Value(0), Value(""));
+            Value from_ids = Core::_flow_mermaid_parse_group(ast, from_text, line_number);
+            Value segment_index = Value(1);
+            while (true) {
+              Value done = Core::gte(segment_index, segment_count);
+              if (Core::truthy(done)) {
+                break;
+              }
+              Value segment = Core::list_get(segments, segment_index, Value(""));
+              segment = Core::string_trim(segment);
+              Value label = Core::none();
+              Value has_label = Core::string_starts_with(segment, Value("|"));
+              if (Core::truthy(has_label)) {
+                Value after_bar = Core::string_slice(segment, Value(1));
+                Value label_parts = Core::string_split_once(after_bar, Value("|"));
+                Value label_closed = Core::get(label_parts, Value("found"), Value(false));
+                if (Core::truthy(label_closed)) {
+                  // empty
+                }
+                if (!Core::truthy(label_closed)) {
+                  Core::_flow_mermaid_fail(Value("Unterminated edge label"), line_number);
+                }
+                label = Core::get(label_parts, Value("left"), Value(""));
+                label = Core::string_trim(label);
+                segment = Core::get(label_parts, Value("right"), Value(""));
+                segment = Core::string_trim(segment);
+              }
+              Value to_ids = Core::_flow_mermaid_parse_group(ast, segment, line_number);
+              for (auto from_node : Core::iter(from_ids)) {
+                for (auto to : Core::iter(to_ids)) {
+                  Value edge = Value::object();
+                  Core::set(edge, Value("from"), from_node);
+                  Core::set(edge, Value("to"), to);
+                  Core::set(edge, Value("label"), label);
+                  Core::set(edge, Value("line"), line_number);
+                  Core::append(edges, edge);
+                }
+              }
+              from_ids = to_ids;
+              segment_index = Core::add(segment_index, Value(1));
+            }
+          }
+        }
+      }
+    }
+  }
+  if (Core::truthy(saw_header)) {
+    // empty
+  }
+  if (!Core::truthy(saw_header)) {
+    Core::_flow_mermaid_fail(Value("Missing flowchart header"), Value(1));
+  }
+  Value node_count = Core::len(order);
+  Value no_nodes = Core::eq(node_count, Value(0));
+  if (Core::truthy(no_nodes)) {
+    Core::_flow_mermaid_fail(Value("No nodes found in the diagram"), Value(1));
+  }
+  return ast;
+}
+
+Value Core::_flow_mermaid_reachable(Value start, Value target, Value edges) {
+  axir_coverage_mark("_flow_mermaid_reachable");
+  Value queue = Value::array();
+  Core::append(queue, start);
+  Value seen = Value::object();
+  Core::set(seen, start, Value(true));
+  Value index = Value(0);
+  while (true) {
+    Value count = Core::len(queue);
+    Value done = Core::gte(index, count);
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value current = Core::list_get(queue, index, Value(""));
+    index = Core::add(index, Value(1));
+    for (auto edge : Core::iter(edges)) {
+      Value from_node = Core::get(edge, Value("from"), Value(""));
+      Value matches = Core::eq(from_node, current);
+      if (Core::truthy(matches)) {
+        Value to = Core::get(edge, Value("to"), Value(""));
+        Value found = Core::eq(to, target);
+        if (Core::truthy(found)) {
+          return Value(true);
+        }
+        Value known = Core::map_contains(seen, to);
+        Value is_new = Core::not_(known);
+        if (Core::truthy(is_new)) {
+          Core::set(seen, to, Value(true));
+          Core::append(queue, to);
+        }
+      }
+    }
+  }
+  return Value(false);
+}
+
+Value Core::_flow_mermaid_topological_order(Value document_order, Value edges) {
+  axir_coverage_mark("_flow_mermaid_topological_order");
+  Value result = Value::array();
+  Value processed = Value::object();
+  Value total = Core::len(document_order);
+  while (true) {
+    Value count = Core::len(result);
+    Value done = Core::gte(count, total);
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value progress = Value(false);
+    for (auto id : Core::iter(document_order)) {
+      Value known = Core::map_contains(processed, id);
+      if (Core::truthy(known)) {
+        // empty
+      }
+      if (!Core::truthy(known)) {
+        Value ready = Value(true);
+        for (auto edge : Core::iter(edges)) {
+          Value to = Core::get(edge, Value("to"), Value(""));
+          Value incoming = Core::eq(to, id);
+          if (Core::truthy(incoming)) {
+            Value parent = Core::get(edge, Value("from"), Value(""));
+            Value parent_done = Core::map_contains(processed, parent);
+            Value waiting = Core::not_(parent_done);
+            if (Core::truthy(waiting)) {
+              ready = Value(false);
+            }
+          }
+        }
+        if (Core::truthy(ready)) {
+          Core::set(processed, id, Value(true));
+          Core::append(result, id);
+          progress = Value(true);
+        }
+      }
+    }
+    if (Core::truthy(progress)) {
+      // empty
+    }
+    if (!Core::truthy(progress)) {
+      Core::_flow_mermaid_fail(Value("Cycle without a classified back-edge"), Value(1));
+    }
+  }
+  return result;
+}
+
+Value Core::_flow_mermaid_decision(Value node, Value ast, Value infos) {
+  axir_coverage_mark("_flow_mermaid_decision");
+  Value empty = Value::object();
+  Value info = Core::get(infos, node, empty);
+  Value signature = Core::get(info, Value("signature"), Value());
+  Value missing_signature = Core::is_none(signature);
+  if (Core::truthy(missing_signature)) {
+    Value message = Core::string_format(Value("Decision node \"{}\" needs an Ax signature directive"), node);
+    Core::_flow_mermaid_fail(message, Value(1));
+  }
+  Value outputs = Core::get(info, Value("outputs"), Value());
+  Value nodes = Core::get(ast, Value("nodes"), Value());
+  Value node_ast = Core::get(nodes, node, Value());
+  Value shape = Core::get(node_ast, Value("shape"), Value("rect"));
+  Value is_diamond = Core::eq(shape, Value("diamond"));
+  Value field_name = Value("");
+  if (Core::truthy(is_diamond)) {
+    field_name = Core::get(node_ast, Value("label"), Value(""));
+  }
+  if (!Core::truthy(is_diamond)) {
+    Value candidate_count = Value(0);
+    for (auto field : Core::iter(outputs)) {
+      Value type = Core::get(field, Value("type"), Value());
+      Value type_name = Core::get(type, Value("name"), Value(""));
+      Value is_class = Core::eq(type_name, Value("class"));
+      Value is_boolean = Core::eq(type_name, Value("boolean"));
+      Value eligible = Core::or_(is_class, is_boolean);
+      if (Core::truthy(eligible)) {
+        candidate_count = Core::add(candidate_count, Value(1));
+        field_name = Core::get(field, Value("name"), Value(""));
+      }
+    }
+    Value one = Core::eq(candidate_count, Value(1));
+    if (Core::truthy(one)) {
+      // empty
+    }
+    if (!Core::truthy(one)) {
+      Value message = Core::string_format(Value("Cannot infer decision field for node \"{}\""), node);
+      Core::_flow_mermaid_fail(message, Value(1));
+    }
+  }
+  Value chosen = Core::none();
+  for (auto field : Core::iter(outputs)) {
+    Value name = Core::get(field, Value("name"), Value(""));
+    Value matches = Core::eq(name, field_name);
+    if (Core::truthy(matches)) {
+      chosen = field;
+    }
+  }
+  Value missing = Core::is_none(chosen);
+  if (Core::truthy(missing)) {
+    Value message = Core::string_format(Value("Decision field \"{}\" is not an output of node \"{}\""), field_name, node);
+    Core::_flow_mermaid_fail(message, Value(1));
+  }
+  Value type = Core::get(chosen, Value("type"), Value());
+  Value decision = Value::object();
+  Core::set(decision, Value("nodeName"), node);
+  Core::set(decision, Value("field"), field_name);
+  Value decision_type = Core::get(type, Value("name"), Value(""));
+  Core::set(decision, Value("type"), decision_type);
+  Value empty_options = Value::array();
+  Value decision_options = Core::get(type, Value("options"), empty_options);
+  Core::set(decision, Value("options"), decision_options);
+  return decision;
+}
+
+Value Core::_flow_mermaid_guards_compatible(Value nodes, Value guards) {
+  axir_coverage_mark("_flow_mermaid_guards_compatible");
+  Value count = Core::len(nodes);
+  Value enough = Core::gt(count, Value(1));
+  if (Core::truthy(enough)) {
+    // empty
+  }
+  if (!Core::truthy(enough)) {
+    return Value(false);
+  }
+  Value first_node = Core::list_get(nodes, Value(0), Value(""));
+  Value first = Core::get(guards, first_node, Value());
+  Value missing_first = Core::is_none(first);
+  if (Core::truthy(missing_first)) {
+    return Value(false);
+  }
+  Value owner = Core::get(first, Value("nodeName"), Value(""));
+  Value field = Core::get(first, Value("field"), Value(""));
+  Value values = Value::object();
+  for (auto node : Core::iter(nodes)) {
+    Value guard = Core::get(guards, node, Value());
+    Value missing = Core::is_none(guard);
+    if (Core::truthy(missing)) {
+      return Value(false);
+    }
+    Value guard_owner = Core::get(guard, Value("nodeName"), Value(""));
+    Value guard_field = Core::get(guard, Value("field"), Value(""));
+    Value same_owner = Core::eq(guard_owner, owner);
+    Value same_field = Core::eq(guard_field, field);
+    Value same = Core::and_(same_owner, same_field);
+    Value different = Core::not_(same);
+    if (Core::truthy(different)) {
+      return Value(false);
+    }
+    Value value = Core::get(guard, Value("value"), Value());
+    Value value_key = Core::string_str(value);
+    Value duplicate = Core::map_contains(values, value_key);
+    if (Core::truthy(duplicate)) {
+      return Value(false);
+    }
+    Core::set(values, value_key, Value(true));
+  }
+  return Value(true);
+}
+
+Value Core::_flow_mermaid_execute_step(Value info, Value guard) {
+  axir_coverage_mark("_flow_mermaid_execute_step");
+  Value name = Core::get(info, Value("id"), Value(""));
+  Value program = Core::get(info, Value("program"), Value());
+  Value kind = Core::get(info, Value("kind"), Value("execute"));
+  Value options = Value::object();
+  Value reads = Core::get(info, Value("reads"), Value());
+  Value resolved_reads = Value::array();
+  for (auto read : Core::iter(reads)) {
+    Core::append(resolved_reads, read);
+  }
+  Value writes = Value::array();
+  Value result_key = Core::string_format(Value("{}Result"), name);
+  Core::append(writes, result_key);
+  Core::set(options, Value("writes"), writes);
+  Value signature_text = Core::get(info, Value("signatureText"), Value(""));
+  Value has_signature = Core::truthy_value(signature_text);
+  if (Core::truthy(has_signature)) {
+    Core::set(options, Value("signatureText"), signature_text);
+  }
+  Value has_guard = Core::is_not_none(guard);
+  if (Core::truthy(has_guard)) {
+    Core::set(options, Value("guard"), guard);
+    Value guard_node = Core::get(guard, Value("nodeName"), Value(""));
+    Value guard_read = Core::string_format(Value("{}Result"), guard_node);
+    Value has_guard_read = Core::contains(resolved_reads, guard_read);
+    Value missing_guard_read = Core::not_(has_guard_read);
+    if (Core::truthy(missing_guard_read)) {
+      Core::append(resolved_reads, guard_read);
+    }
+  }
+  Core::set(options, Value("reads"), resolved_reads);
+  Value step = Core::_flow_step(kind, name, program, options);
+  Value meta = Value::object();
+  Core::set(meta, Value("kind"), kind);
+  Core::set(meta, Value("nodeName"), name);
+  Core::set(step, Value("meta"), meta);
+  return step;
+}
+
+Value Core::_flow_mermaid_parse_max(Value label, Value fallback) {
+  axir_coverage_mark("_flow_mermaid_parse_max");
+  Value parts = Core::string_split_trim_nonempty(label, Value(","));
+  Value max = fallback;
+  for (auto part : Core::iter(parts)) {
+    Value starts = Core::string_starts_with(part, Value("max "));
+    if (Core::truthy(starts)) {
+      Value raw = Core::string_slice(part, Value(4));
+      Value parsed = Core::json_parse(raw);
+      max = parsed;
+    }
+  }
+  return max;
+}
+
+Value Core::_flow_mermaid_compile(Value ast, Value bindings) {
+  axir_coverage_mark("_flow_mermaid_compile");
+  Value empty_map = Value::object();
+  Value empty_list = Value::array();
+  Value opts = Core::get(bindings, Value("options"), empty_map);
+  Value flow = Core::_flow_factory(opts);
+  Value order = Core::get(ast, Value("order"), Value());
+  Value order_index = Core::get(ast, Value("orderIndex"), Value());
+  Value edges = Core::get(ast, Value("edges"), Value());
+  Value directives = Core::get(ast, Value("directives"), Value());
+  Value node_bindings = Core::get(bindings, Value("nodes"), empty_map);
+  Value conditions = Core::get(bindings, Value("conditions"), empty_map);
+  Value forward_edges = Value::array();
+  Value back_edges = Value::array();
+  for (auto edge : Core::iter(edges)) {
+    Value from_node = Core::get(edge, Value("from"), Value());
+    Value to = Core::get(edge, Value("to"), Value());
+    Value from_index = Core::get(order_index, from_node, Value());
+    Value to_index = Core::get(order_index, to, Value());
+    Value points_backward = Core::gte(from_index, to_index);
+    Value closes_cycle = Core::_flow_mermaid_reachable(to, from_node, edges);
+    Value is_back = Core::and_(points_backward, closes_cycle);
+    if (Core::truthy(is_back)) {
+      Value label = Core::get(edge, Value("label"), Value());
+      Value missing_label = Core::is_none(label);
+      if (Core::truthy(missing_label)) {
+        Value message = Core::string_format(Value("Back-edges need a label: {} --> {}"), from_node, to);
+        Value edge_line_number = Core::get(edge, Value("line"), Value(1));
+        Core::_flow_mermaid_fail(message, edge_line_number);
+      }
+      Core::append(back_edges, edge);
+    }
+    if (!Core::truthy(is_back)) {
+      Core::append(forward_edges, edge);
+    }
+  }
+  Value compile_order = Core::_flow_mermaid_topological_order(order, forward_edges);
+  Value compile_order_index = Value::object();
+  Value compile_index = Value(0);
+  for (auto compile_id : Core::iter(compile_order)) {
+    Core::set(compile_order_index, compile_id, compile_index);
+    compile_index = Core::add(compile_index, Value(1));
+  }
+  Core::set(ast, Value("compileOrder"), compile_order);
+  Value infos = Value::object();
+  Value producers = Value::object();
+  Value missing_nodes = Value::array();
+  for (auto id : Core::iter(compile_order)) {
+    Value has_directive = Core::map_contains(directives, id);
+    Value has_binding = Core::map_contains(node_bindings, id);
+    Value resolved = Core::or_(has_directive, has_binding);
+    if (Core::truthy(resolved)) {
+      // empty
+    }
+    if (!Core::truthy(resolved)) {
+      Core::append(missing_nodes, id);
+    }
+    Value info = Value::object();
+    Value info_reads = Value::array();
+    Core::set(info, Value("id"), id);
+    Core::set(info, Value("kind"), Value("execute"));
+    Core::set(info, Value("reads"), info_reads);
+    Value signature_text = Core::get(directives, id, Value(""));
+    Core::set(info, Value("signatureText"), signature_text);
+    Value program = Core::get(node_bindings, id, signature_text);
+    Core::set(info, Value("program"), program);
+    Value missing_directive = Core::not_(has_directive);
+    Value binding_only = Core::and_(has_binding, missing_directive);
+    if (Core::truthy(binding_only)) {
+      Core::set(info, Value("kind"), Value("map"));
+    }
+    if (Core::truthy(has_directive)) {
+      Value signature = Core::parse_signature(signature_text);
+      Core::set(info, Value("signature"), signature);
+      Value inputs = Core::_signature_input_fields(signature);
+      Value outputs = Core::_signature_output_fields(signature);
+      Core::set(info, Value("inputs"), inputs);
+      Core::set(info, Value("outputs"), outputs);
+      for (auto field : Core::iter(outputs)) {
+        Value field_name = Core::get(field, Value("name"), Value(""));
+        Value field_producers = Core::get(producers, field_name, Value());
+        Value missing_field_producers = Core::is_none(field_producers);
+        if (Core::truthy(missing_field_producers)) {
+          field_producers = Value::array();
+          Core::set(producers, field_name, field_producers);
+        }
+        Core::append(field_producers, id);
+      }
+    }
+    Core::set(infos, id, info);
+  }
+  Value missing_count = Core::len(missing_nodes);
+  Value has_missing = Core::gt(missing_count, Value(0));
+  if (Core::truthy(has_missing)) {
+    Value joined = Core::string_join(Value(", "), missing_nodes);
+    Value message = Core::string_format(Value("No signature for node(s): {}"), joined);
+    Core::_flow_mermaid_fail(message, Value(1));
+  }
+  Value guards = Value::object();
+  for (auto edge : Core::iter(forward_edges)) {
+    Value label = Core::get(edge, Value("label"), Value());
+    Value has_label = Core::is_not_none(label);
+    if (Core::truthy(has_label)) {
+      Value starts_if = Core::string_starts_with(label, Value("if "));
+      Value starts_while = Core::string_starts_with(label, Value("while "));
+      Value reserved = Core::or_(starts_if, starts_while);
+      if (Core::truthy(reserved)) {
+        Value edge_line_number = Core::get(edge, Value("line"), Value(1));
+        Core::_flow_mermaid_fail(Value("if/while labels are only valid on back-edges"), edge_line_number);
+      }
+      Value from_node = Core::get(edge, Value("from"), Value());
+      Value decision = Core::_flow_mermaid_decision(from_node, ast, infos);
+      Value type = Core::get(decision, Value("type"), Value(""));
+      Value is_class = Core::eq(type, Value("class"));
+      if (Core::truthy(is_class)) {
+        Value options = Core::get(decision, Value("options"), empty_list);
+        Value valid_option = Core::contains(options, label);
+        Value invalid_option = Core::not_(valid_option);
+        if (Core::truthy(invalid_option)) {
+          Value field = Core::get(decision, Value("field"), Value(""));
+          Value message = Core::string_format(Value("\"{}\" is not an option of \"{}.{}\""), label, from_node, field);
+          Value edge_line_number = Core::get(edge, Value("line"), Value(1));
+          Core::_flow_mermaid_fail(message, edge_line_number);
+        }
+      }
+      Core::set(decision, Value("value"), label);
+      Value to = Core::get(edge, Value("to"), Value());
+      Core::set(guards, to, decision);
+    }
+  }
+  for (auto id : Core::iter(compile_order)) {
+    Value already_guarded = Core::map_contains(guards, id);
+    if (Core::truthy(already_guarded)) {
+      // empty
+    }
+    if (!Core::truthy(already_guarded)) {
+      Value incoming = Value::array();
+      for (auto edge : Core::iter(forward_edges)) {
+        Value to = Core::get(edge, Value("to"), Value(""));
+        Value matches = Core::eq(to, id);
+        if (Core::truthy(matches)) {
+          Value incoming_from = Core::get(edge, Value("from"), Value(""));
+          Core::append(incoming, incoming_from);
+        }
+      }
+      Value incoming_count = Core::len(incoming);
+      Value one_incoming = Core::eq(incoming_count, Value(1));
+      if (Core::truthy(one_incoming)) {
+        Value parent = Core::list_get(incoming, Value(0), Value(""));
+        Value parent_guard = Core::get(guards, parent, Value());
+        Value has_parent_guard = Core::is_not_none(parent_guard);
+        if (Core::truthy(has_parent_guard)) {
+          Core::set(guards, id, parent_guard);
+        }
+      }
+    }
+  }
+  Value natural_inputs = Value::object();
+  for (auto id : Core::iter(compile_order)) {
+    Value info = Core::get(infos, id, Value());
+    Value signature = Core::get(info, Value("signature"), Value());
+    Value has_signature = Core::is_not_none(signature);
+    if (Core::truthy(has_signature)) {
+      Value inputs = Core::get(info, Value("inputs"), empty_list);
+      Value reads = Value::array();
+      for (auto field : Core::iter(inputs)) {
+        Value field_name = Core::get(field, Value("name"), Value(""));
+        Value all_producers = Core::get(producers, field_name, empty_list);
+        Value upstream = Value::array();
+        for (auto producer : Core::iter(all_producers)) {
+          Value not_self = Core::ne(producer, id);
+          if (Core::truthy(not_self)) {
+            Value reachable = Core::_flow_mermaid_reachable(producer, id, forward_edges);
+            if (Core::truthy(reachable)) {
+              Core::append(upstream, producer);
+            }
+          }
+        }
+        Value upstream_count = Core::len(upstream);
+        Value ambiguous = Core::gt(upstream_count, Value(1));
+        if (Core::truthy(ambiguous)) {
+          Value compatible = Core::_flow_mermaid_guards_compatible(upstream, guards);
+          Value bad_ambiguity = Core::not_(compatible);
+          if (Core::truthy(bad_ambiguity)) {
+            Value a = Core::list_get(upstream, Value(0), Value(""));
+            Value b = Core::list_get(upstream, Value(1), Value(""));
+            Value pair = Core::string_format(Value("{} and {}"), a, b);
+            Value message = Core::string_format(Value("Input \"{}\" of node \"{}\" is produced by {} at the same distance"), field_name, id, pair);
+            Core::_flow_mermaid_fail(message, Value(1));
+          }
+        }
+        Value has_upstream = Core::gt(upstream_count, Value(0));
+        if (Core::truthy(has_upstream)) {
+          for (auto producer : Core::iter(upstream)) {
+            Value read = Core::string_format(Value("{}Result"), producer);
+            Core::append(reads, read);
+          }
+        }
+        if (!Core::truthy(has_upstream)) {
+          Value producer_count = Core::len(all_producers);
+          Value has_other_producer = Core::gt(producer_count, Value(0));
+          if (Core::truthy(has_other_producer)) {
+            Value producer = Core::list_get(all_producers, Value(0), Value(""));
+            Value same_only = Core::eq(producer, id);
+            if (Core::truthy(same_only)) {
+              Core::set(natural_inputs, field_name, field);
+            }
+            if (!Core::truthy(same_only)) {
+              Value message = Core::string_format(Value("\"{}\" of node \"{}\" is produced by \"{}\" which is not upstream"), field_name, id, producer);
+              Core::_flow_mermaid_fail(message, Value(1));
+            }
+          }
+          if (!Core::truthy(has_other_producer)) {
+            Core::set(natural_inputs, field_name, field);
+          }
+        }
+      }
+      Core::set(info, Value("reads"), reads);
+    }
+  }
+  Value self_while = Value::object();
+  for (auto edge : Core::iter(back_edges)) {
+    Value from_node = Core::get(edge, Value("from"), Value());
+    Value to = Core::get(edge, Value("to"), Value());
+    Value label = Core::get(edge, Value("label"), Value(""));
+    Value parts = Core::string_split_trim_nonempty(label, Value(","));
+    Value main = Core::list_get(parts, Value(0), Value(""));
+    Value is_while = Core::string_starts_with(main, Value("while "));
+    Value self = Core::eq(from_node, to);
+    Value self_loop = Core::and_(is_while, self);
+    if (Core::truthy(self_loop)) {
+      Core::set(self_while, from_node, edge);
+    }
+  }
+  Value steps = Core::get(flow, Value("steps"), Value());
+  Value loop_index = Value(0);
+  for (auto id : Core::iter(compile_order)) {
+    Value info = Core::get(infos, id, Value());
+    Value guard = Core::get(guards, id, Value());
+    Value has_self_while = Core::map_contains(self_while, id);
+    if (Core::truthy(has_self_while)) {
+      // empty
+    }
+    if (!Core::truthy(has_self_while)) {
+      Value step = Core::_flow_mermaid_execute_step(info, guard);
+      Core::append(steps, step);
+    }
+    for (auto edge : Core::iter(back_edges)) {
+      Value from_node = Core::get(edge, Value("from"), Value());
+      Value matches_source = Core::eq(from_node, id);
+      if (Core::truthy(matches_source)) {
+        loop_index = Core::add(loop_index, Value(1));
+        Value to = Core::get(edge, Value("to"), Value());
+        Value label = Core::get(edge, Value("label"), Value(""));
+        Value label_parts = Core::string_split_trim_nonempty(label, Value(","));
+        Value main = Core::list_get(label_parts, Value(0), Value(""));
+        Value is_while = Core::string_starts_with(main, Value("while "));
+        Value is_if = Core::string_starts_with(main, Value("if "));
+        Value loop_kind = Value("feedback");
+        Value fallback_max = Value(10);
+        if (Core::truthy(is_while)) {
+          loop_kind = Value("while");
+          fallback_max = Value(100);
+        }
+        Value max = Core::_flow_mermaid_parse_max(label, fallback_max);
+        Value body = Value::array();
+        Value to_index = Core::get(compile_order_index, to, Value());
+        Value from_index = Core::get(compile_order_index, from_node, Value());
+        for (auto body_id : Core::iter(compile_order)) {
+          Value body_index = Core::get(compile_order_index, body_id, Value());
+          Value after_start = Core::gte(body_index, to_index);
+          Value before_end = Core::lte(body_index, from_index);
+          Value in_body = Core::and_(after_start, before_end);
+          if (Core::truthy(in_body)) {
+            Value body_info = Core::get(infos, body_id, Value());
+            Value body_guard = Core::get(guards, body_id, Value());
+            Value body_step = Core::_flow_mermaid_execute_step(body_info, body_guard);
+            Core::append(body, body_step);
+          }
+        }
+        Value loop_options = Value::object();
+        Core::set(loop_options, Value("steps"), body);
+        Core::set(loop_options, Value("maxIterations"), max);
+        Core::set(loop_options, Value("label"), to);
+        Value meta = Value::object();
+        Core::set(meta, Value("kind"), loop_kind);
+        Core::set(meta, Value("maxIterations"), max);
+        Core::set(meta, Value("target"), to);
+        if (Core::truthy(is_while)) {
+          Value condition_name = Core::string_slice(main, Value(6));
+          condition_name = Core::string_trim(condition_name);
+          Value condition = Core::get(conditions, condition_name, Value());
+          Value missing_condition = Core::is_none(condition);
+          if (Core::truthy(missing_condition)) {
+            Value message = Core::string_format(Value("Missing condition binding \"{}\""), condition_name);
+            Value edge_line_number = Core::get(edge, Value("line"), Value(1));
+            Core::_flow_mermaid_fail(message, edge_line_number);
+          }
+          Core::set(loop_options, Value("condition"), condition);
+          Core::set(loop_options, Value("conditionName"), condition_name);
+          Core::set(meta, Value("conditionName"), condition_name);
+        }
+        if (!Core::truthy(is_while)) {
+          if (Core::truthy(is_if)) {
+            Value condition_name = Core::string_slice(main, Value(3));
+            condition_name = Core::string_trim(condition_name);
+            Value condition = Core::get(conditions, condition_name, Value());
+            Value missing_condition = Core::is_none(condition);
+            if (Core::truthy(missing_condition)) {
+              Value message = Core::string_format(Value("Missing condition binding \"{}\""), condition_name);
+              Value edge_line_number = Core::get(edge, Value("line"), Value(1));
+              Core::_flow_mermaid_fail(message, edge_line_number);
+            }
+            Core::set(loop_options, Value("condition"), condition);
+            Core::set(loop_options, Value("conditionName"), condition_name);
+            Core::set(meta, Value("conditionName"), condition_name);
+          }
+          if (!Core::truthy(is_if)) {
+            Value decision = Core::_flow_mermaid_decision(from_node, ast, infos);
+            Core::set(decision, Value("value"), main);
+            Core::set(loop_options, Value("condition"), decision);
+            Core::set(loop_options, Value("decision"), decision);
+            Core::set(meta, Value("decision"), decision);
+          }
+        }
+        Value loop_name = Core::string_format(Value("{}{}"), loop_kind, loop_index);
+        Value loop_step = Core::_flow_step(loop_kind, loop_name, Value(), loop_options);
+        Core::set(loop_step, Value("meta"), meta);
+        Core::append(steps, loop_step);
+      }
+    }
+  }
+  Value terminal_fields = Value::object();
+  Value returns = Value::object();
+  for (auto id : Core::iter(compile_order)) {
+    Value has_outgoing = Value(false);
+    for (auto edge : Core::iter(forward_edges)) {
+      Value from_node = Core::get(edge, Value("from"), Value(""));
+      Value matches = Core::eq(from_node, id);
+      if (Core::truthy(matches)) {
+        has_outgoing = Value(true);
+      }
+    }
+    if (Core::truthy(has_outgoing)) {
+      // empty
+    }
+    if (!Core::truthy(has_outgoing)) {
+      Value info = Core::get(infos, id, Value());
+      Value signature = Core::get(info, Value("signature"), Value());
+      Value has_signature = Core::is_not_none(signature);
+      if (Core::truthy(has_signature)) {
+        Value outputs = Core::get(info, Value("outputs"), empty_list);
+        for (auto field : Core::iter(outputs)) {
+          Value name = Core::get(field, Value("name"), Value(""));
+          Value duplicate = Core::map_contains(terminal_fields, name);
+          if (Core::truthy(duplicate)) {
+            Value message = Core::string_format(Value("Output field \"{}\" is produced by multiple terminal nodes"), name);
+            Core::_flow_mermaid_fail(message, Value(1));
+          }
+          Core::set(terminal_fields, name, field);
+          Value path = Core::string_format(Value("{}Result.{}"), id, name);
+          Core::set(returns, name, path);
+        }
+      }
+    }
+  }
+  Core::set(flow, Value("returns"), returns);
+  Core::set(flow, Value("mermaidAst"), ast);
+  Core::set(flow, Value("mermaidBindings"), bindings);
+  Core::set(flow, Value("mermaidInputFields"), natural_inputs);
+  Core::set(flow, Value("mermaidOutputFields"), terminal_fields);
+  return flow;
+}
+
+Value Core::_flow_mermaid_render_ast(Value ast, Value options) {
+  axir_coverage_mark("_flow_mermaid_render_ast");
+  Value empty_map = Value::object();
+  Value opts_missing = Core::is_none(options);
+  Value opts = options;
+  if (Core::truthy(opts_missing)) {
+    opts = empty_map;
+  }
+  Value direction = Core::get(opts, Value("direction"), Value("TD"));
+  Value lines = Value::array();
+  Value header = Core::string_format(Value("flowchart {}"), direction);
+  Core::append(lines, header);
+  Value directives = Core::get(ast, Value("directives"), Value());
+  Value directive_order = Core::get(ast, Value("directiveOrder"), Value());
+  Value percent = Core::get(ast, Value("percent"), Value(""));
+  for (auto id : Core::iter(directive_order)) {
+    Value signature_text = Core::get(directives, id, Value());
+    Value signature = Core::parse_signature(signature_text);
+    Value canonical = Core::signature_to_string(signature);
+    Value prefix = Core::string_format(Value("{}{}ax"), percent, percent);
+    Value directive = Core::string_format(Value("  {} {}: {}"), prefix, id, canonical);
+    Core::append(lines, directive);
+  }
+  Core::append(lines, Value(""));
+  Value nodes = Core::get(ast, Value("nodes"), Value());
+  Value order = Core::get(ast, Value("order"), Value());
+  Value compile_order = Core::get(ast, Value("compileOrder"), order);
+  Value order_index = Core::get(ast, Value("orderIndex"), Value());
+  Value edges = Core::get(ast, Value("edges"), Value());
+  for (auto id : Core::iter(compile_order)) {
+    Value node = Core::get(nodes, id, Value());
+    Value shape = Core::get(node, Value("shape"), Value("rect"));
+    Value label = Core::get(node, Value("label"), Value());
+    Value is_diamond = Core::eq(shape, Value("diamond"));
+    if (Core::truthy(is_diamond)) {
+      // empty
+    }
+    if (!Core::truthy(is_diamond)) {
+      Value spaced_title = Core::string_title_from_camel(id);
+      Value lower_title = Core::string_lower(spaced_title);
+      label = Core::string_title_from_camel(lower_title);
+    }
+    Value statement = Core::string_format(Value("  {}[{}]"), id, label);
+    if (Core::truthy(is_diamond)) {
+      Value open_brace = Core::get(node, Value("open"), Value(""));
+      Value close_brace = Core::get(node, Value("close"), Value(""));
+      Value wrapped = Core::string_format(Value("{}{}{}"), open_brace, label, close_brace);
+      statement = Core::string_format(Value("  {}{}"), id, wrapped);
+    }
+    Core::append(lines, statement);
+    for (auto edge : Core::iter(edges)) {
+      Value to = Core::get(edge, Value("to"), Value(""));
+      Value arrives = Core::eq(to, id);
+      if (Core::truthy(arrives)) {
+        Value from_node = Core::get(edge, Value("from"), Value(""));
+        Value from_index = Core::get(order_index, from_node, Value());
+        Value to_index = Core::get(order_index, to, Value());
+        Value points_backward = Core::gte(from_index, to_index);
+        Value closes_cycle = Core::_flow_mermaid_reachable(to, from_node, edges);
+        Value back = Core::and_(points_backward, closes_cycle);
+        Value forward = Core::not_(back);
+        if (Core::truthy(forward)) {
+          label = Core::get(edge, Value("label"), Value());
+          Value has_label = Core::is_not_none(label);
+          Value edge_line = Core::string_format(Value("  {} --> {}"), from_node, to);
+          if (Core::truthy(has_label)) {
+            edge_line = Core::string_format(Value("  {} -->|{}| {}"), from_node, label, to);
+          }
+          Core::append(lines, edge_line);
+        }
+      }
+    }
+  }
+  for (auto edge : Core::iter(edges)) {
+    Value from_node = Core::get(edge, Value("from"), Value(""));
+    Value to = Core::get(edge, Value("to"), Value(""));
+    Value from_index = Core::get(order_index, from_node, Value());
+    Value to_index = Core::get(order_index, to, Value());
+    Value points_backward = Core::gte(from_index, to_index);
+    Value closes_cycle = Core::_flow_mermaid_reachable(to, from_node, edges);
+    Value back = Core::and_(points_backward, closes_cycle);
+    if (Core::truthy(back)) {
+      Value label = Core::get(edge, Value("label"), Value());
+      Value has_label = Core::is_not_none(label);
+      Value edge_line = Core::string_format(Value("  {} --> {}"), from_node, to);
+      if (Core::truthy(has_label)) {
+        edge_line = Core::string_format(Value("  {} -->|{}| {}"), from_node, label, to);
+      }
+      Core::append(lines, edge_line);
+    }
+  }
+  Core::append(lines, Value(""));
+  Value rendered = Core::string_join(Value("\n"), lines);
+  return rendered;
+}
+
+Value Core::_flow_mermaid_render_flow(Value flow, Value options) {
+  axir_coverage_mark("_flow_mermaid_render_flow");
+  Value empty_map = Value::object();
+  Value opts_missing = Core::is_none(options);
+  Value opts = options;
+  if (Core::truthy(opts_missing)) {
+    opts = empty_map;
+  }
+  Value direction = Core::get(opts, Value("direction"), Value("TD"));
+  Value lines = Value::array();
+  Value header = Core::string_format(Value("flowchart {}"), direction);
+  Core::append(lines, header);
+  Value steps = Core::get(flow, Value("steps"), Value());
+  Value percent = Core::get(flow, Value("mermaidPercent"), Value(""));
+  for (auto step : Core::iter(steps)) {
+    Value kind = Core::get(step, Value("kind"), Value("execute"));
+    Value is_execute = Core::eq(kind, Value("execute"));
+    if (Core::truthy(is_execute)) {
+      Value step_options = Core::get(step, Value("options"), empty_map);
+      Value signature_text = Core::get(step_options, Value("signatureText"), Value(""));
+      Value has_signature = Core::truthy_value(signature_text);
+      if (Core::truthy(has_signature)) {
+        Value signature = Core::parse_signature(signature_text);
+        Value canonical = Core::signature_to_string(signature);
+        Value name = Core::get(step, Value("name"), Value(""));
+        Value prefix = Core::string_format(Value("{}{}ax"), percent, percent);
+        Value directive = Core::string_format(Value("  {} {}: {}"), prefix, name, canonical);
+        Core::append(lines, directive);
+      }
+    }
+  }
+  Core::append(lines, Value(""));
+  Value diamonds = Value::object();
+  for (auto step : Core::iter(steps)) {
+    Value meta = Core::get(step, Value("meta"), empty_map);
+    Value decision = Core::get(meta, Value("decision"), Value());
+    Value has_decision = Core::is_not_none(decision);
+    if (Core::truthy(has_decision)) {
+      Value node = Core::get(decision, Value("nodeName"), Value(""));
+      Value field = Core::get(decision, Value("field"), Value(""));
+      Core::set(diamonds, node, field);
+    }
+  }
+  Value seen = Value::object();
+  for (auto step : Core::iter(steps)) {
+    Value kind = Core::get(step, Value("kind"), Value("execute"));
+    Value is_execute = Core::eq(kind, Value("execute"));
+    Value is_map = Core::eq(kind, Value("map"));
+    Value material = Core::or_(is_execute, is_map);
+    if (Core::truthy(material)) {
+      Value name = Core::get(step, Value("name"), Value(""));
+      Value known = Core::map_contains(seen, name);
+      if (Core::truthy(known)) {
+        // empty
+      }
+      if (!Core::truthy(known)) {
+        Core::set(seen, name, Value(true));
+        Value spaced_title = Core::string_title_from_camel(name);
+        Value lower_title = Core::string_lower(spaced_title);
+        Value title = Core::string_title_from_camel(lower_title);
+        Value diamond = Core::get(diamonds, name, Value());
+        Value has_diamond = Core::is_not_none(diamond);
+        Value statement = Core::string_format(Value("  {}[{}]"), name, title);
+        if (Core::truthy(has_diamond)) {
+          Value open_brace = Core::get(flow, Value("mermaidOpenBrace"), Value(""));
+          Value close_brace = Core::get(flow, Value("mermaidCloseBrace"), Value(""));
+          Value wrapped = Core::string_format(Value("{}{}{}"), open_brace, diamond, close_brace);
+          statement = Core::string_format(Value("  {}{}"), name, wrapped);
+        }
+        Core::append(lines, statement);
+        Value step_options = Core::get(step, Value("options"), empty_map);
+        Value empty_reads = Value::array();
+        Value step_reads = Core::get(step, Value("reads"), empty_reads);
+        Value reads = Core::get(step_options, Value("reads"), step_reads);
+        for (auto read : Core::iter(reads)) {
+          Value is_result = Core::string_ends_with(read, Value("Result"));
+          if (Core::truthy(is_result)) {
+            Value read_len = Core::len(read);
+            Value producer_end = Core::add(read_len, Value(-6));
+            Value producer = Core::string_slice(read, Value(0), producer_end);
+            Value edge_line = Core::string_format(Value("  {} --> {}"), producer, name);
+            Core::append(lines, edge_line);
+          }
+        }
+      }
+    }
+  }
+  Core::append(lines, Value(""));
+  Value rendered = Core::string_join(Value("\n"), lines);
+  return rendered;
+}
+
+Value Core::_flow_from_mermaid(Value text, Value bindings) {
+  axir_coverage_mark("_flow_from_mermaid");
+  Value empty_map = Value::object();
+  Value missing = Core::is_none(bindings);
+  Value resolved = bindings;
+  if (Core::truthy(missing)) {
+    resolved = empty_map;
+  }
+  Value ast = Core::_flow_mermaid_parse(text);
+  Value flow = Core::_flow_mermaid_compile(ast, resolved);
+  return flow;
+}
+
+Value Core::_flow_to_mermaid(Value flow, Value options) {
+  axir_coverage_mark("_flow_to_mermaid");
+  Value ast = Core::get(flow, Value("mermaidAst"), Value());
+  Value has_ast = Core::is_not_none(ast);
+  if (Core::truthy(has_ast)) {
+    Value rendered = Core::_flow_mermaid_render_ast(ast, options);
+    return rendered;
+  }
+  Value rendered = Core::_flow_mermaid_render_flow(flow, options);
+  return rendered;
 }
 
 Value Core::ucp_negotiate_profile(Value profile, Value supportedVersions, Value requestedServices) {
@@ -22822,10 +24077,55 @@ Value AxGen::value() const { return state_; }
 
 AxFlow::AxFlow(Value options) {
   state_ = Core::_flow_factory(std::move(options));
+  Core::set(state_, "mermaidPercent", "%");
+  Core::set(state_, "mermaidOpenBrace", "{");
+  Core::set(state_, "mermaidCloseBrace", "}");
+}
+
+AxFlow::AxFlow(std::string mermaid, Value bindings) {
+  state_ = Core::_flow_from_mermaid(Value(std::move(mermaid)), bindings);
+  Core::set(state_, "mermaidPercent", "%");
+  Core::set(state_, "mermaidOpenBrace", "{");
+  Core::set(state_, "mermaidCloseBrace", "}");
+  Value steps = hydrate_mermaid_steps(Core::get(state_, "steps", Value::array()), bindings);
+  Core::set(state_, "steps", std::move(steps));
 }
 
 AxFlow& AxFlow::execute(std::string name, AxProgram& program, Value options) {
+  if (auto* gen = dynamic_cast<AxGen*>(&program)) {
+    Value signature = Core::get(gen->value(), "signature");
+    Core::set(options, "signatureText", Core::signature_to_string(signature));
+  }
   return add_step(Value("execute"), Value(std::move(name)), Core::agent_stage_ref(program), std::move(options));
+}
+
+Value AxFlow::hydrate_mermaid_steps(Value steps, Value bindings) {
+  Value out = Value::array();
+  Value nodes = Core::get(bindings, "nodes", Value::object());
+  for (const auto& raw : array_ref(steps)) {
+    Value step = raw;
+    std::string name = display(Core::get(step, "name", ""));
+    Value binding = Core::get(nodes, name);
+    Value program = binding.is_null() ? Core::get(step, "program") : binding;
+    if (program.is_object() && !Core::get(program, "__flow_mapper_id").is_null()) {
+      Core::set(step, "kind", "map");
+      Core::set(step, "program", program);
+    } else if (program.is_string()) {
+      auto gen = std::make_shared<AxGen>(Core::parse_signature(program), Core::get(step, "options", Value::object()));
+      Core::set(step, "program", Core::agent_stage_ref(*gen));
+      mermaid_programs_.push_back(std::move(gen));
+    } else if (!program.is_null()) {
+      Core::set(step, "program", program);
+    }
+    Value options = Core::get(step, "options", Value::object());
+    Value nested = Core::get(options, "steps", Value::array());
+    if (nested.is_array() && !array_ref(nested).empty()) {
+      Core::set(options, "steps", hydrate_mermaid_steps(nested, bindings));
+      Core::set(step, "options", options);
+    }
+    Core::append(out, step);
+  }
+  return out;
 }
 
 AxFlow& AxFlow::derive(std::string name, AxProgram& program, Value options) {
@@ -22891,13 +24191,13 @@ AxFlow& AxFlow::returns(Value spec) {
 
 AxFlow& AxFlow::set_demos(Value demos) {
   if (demos.is_array()) {
-    std::string owner = str(Core::get(state_, "program_id", Value("root.flow")));
+    std::string owner = ::axllm::str(Core::get(state_, "program_id", Value("root.flow")));
     std::set<std::string> known_ids;
     known_ids.insert(owner);
     known_ids.insert("root");
     Value steps = Core::get(state_, "steps", Value::array());
     for (const auto& raw_step : array_ref(steps)) {
-      std::string name = str(Core::get(raw_step, "name", Value("")));
+      std::string name = ::axllm::str(Core::get(raw_step, "name", Value("")));
       if (!name.empty()) {
         known_ids.insert(owner + "." + name);
         known_ids.insert("root." + name);
@@ -22906,7 +24206,7 @@ AxFlow& AxFlow::set_demos(Value demos) {
     std::set<std::string> unknown;
     for (const auto& raw_demo : array_ref(demos)) {
       Value id = Core::get(raw_demo, "programId", Value());
-      if (!id.is_null() && known_ids.find(str(id)) == known_ids.end()) unknown.insert(str(id));
+      if (!id.is_null() && known_ids.find(::axllm::str(id)) == known_ids.end()) unknown.insert(::axllm::str(id));
     }
     if (!unknown.empty()) throw AxError("runtime", "Unknown program ID(s) in demos: " + *unknown.begin());
     Core::set(state_, "demos", std::move(demos));
@@ -22917,7 +24217,7 @@ AxFlow& AxFlow::set_demos(Value demos) {
     if (kv.first == "__order") continue;
     bool found = false;
     for (const auto& raw_step : array_ref(steps)) {
-      if (str(Core::get(raw_step, "name", Value(""))) == kv.first) found = true;
+      if (::axllm::str(Core::get(raw_step, "name", Value(""))) == kv.first) found = true;
     }
     if (!found) throw AxError("runtime", "unknown flow node in demos: " + kv.first);
   }
@@ -22979,6 +24279,10 @@ Value AxFlow::optimize_with(OptimizerEngine& engine, AIClient& client, Value dat
   return artifact;
 }
 Value AxFlow::value() const { return state_; }
+
+std::string AxFlow::str(Value options) const {
+  return display(Core::_flow_to_mermaid(state_, std::move(options)));
+}
 
 AxFlow& AxFlow::add_raw_step(Value step) {
   state_ = Core::_flow_add_step(state_, std::move(step));
@@ -23563,6 +24867,7 @@ AxAgent agent(const std::string& source, Value options) { return AxAgent(Value(s
 AxAgent agent(const char* source, Value options) { return agent(std::string(source == nullptr ? "" : source), std::move(options)); }
 AxAgent agent(Value signature, Value options) { return AxAgent(std::move(signature), std::move(options)); }
 AxFlow flow(Value options) { return AxFlow(std::move(options)); }
+AxFlow flow(const std::string& mermaid, Value bindings) { return AxFlow(mermaid, std::move(bindings)); }
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   Value resolved = Core::provider_resolve_profile(provider.empty() ? "openai" : provider);
   if (!Core::truthy(Core::get(resolved, "known"))) {

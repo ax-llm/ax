@@ -27,8 +27,10 @@ This skill helps an agent write Java code with the generated Ax package `dev.axl
 ## Core Pattern
 
 ```java
-AxFlow wf = Ax.flow(java.util.Map.of());
-// See examples/AxFlowProgramGraphExample.java for node wiring.
+String mermaid = "flowchart TD\n  %%ax classify: request:string -> route:class \"support, sales\"\n  classify{route}";
+AxFlow wf = Ax.flow(mermaid);
+System.out.println(wf);
+// See examples/FlowMermaidExample.java.
 ```
 
 ## Relevant API Surface

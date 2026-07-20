@@ -50,6 +50,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `go run ./examples/provider_mapping_no_key`: provider mapping through a scripted transport
 - `go run ./examples/provider_stream_no_key`: provider streaming through a scripted SSE transport
 - `go run ./examples/axflow_program_graph`: AxFlow program graph
+- `go run ./examples/flow_mermaid`: portable Mermaid flow parsing and canonical round-trip
 - `go run ./examples/audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `go run ./examples/realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding
 - `go run ./examples/realtime_audio_turn`: drive a full realtime audio turn through `RealtimeChat` (offline, scripted transport)

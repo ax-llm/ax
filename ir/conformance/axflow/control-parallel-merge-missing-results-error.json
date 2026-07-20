@@ -9,6 +9,8 @@
       "src/ax/flow/steps.ts",
       "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
     "name": "control-parallel-merge-missing-results-error",
@@ -22,12 +24,8 @@
       "kind": "parallelMerge",
       "name": "combined",
       "options": {
-        "reads": [
-          "_parallelResults"
-        ],
-        "writes": [
-          "combined"
-        ],
+        "reads": ["_parallelResults"],
+        "writes": ["combined"],
         "isBarrier": true
       }
     }

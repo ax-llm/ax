@@ -30,10 +30,11 @@
     },
     "snippets": {
       "flow": [
-        "let step = ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\")?;",
-        "let program = flow(\"supportRouter\")",
-        "    .execute(\"classify\", step)",
-        "    .returns(json!({\"route\": \"classify\"}));"
+        "let mermaid = r#\"flowchart TD",
+        "  %%ax classify: request:string -> route:class \"support, sales\"",
+        "  classify{route}\"#;",
+        "let program = flow(mermaid);",
+        "println!(\"{}\", program);"
       ],
       "rlm": [
         "let investigator = agent_with_options(signature, json!({",
@@ -94,10 +95,11 @@
     ],
     "ax": ["let answer = ax(\"question:string -> answer:string\")?;"],
     "flow": [
-      "let step = ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\")?;",
-      "let program = flow(\"supportRouter\")",
-      "    .execute(\"classify\", step)",
-      "    .returns(json!({\"route\": \"classify\"}));"
+      "let mermaid = r#\"flowchart TD",
+      "  %%ax classify: request:string -> route:class \"support, sales\"",
+      "  classify{route}\"#;",
+      "let program = flow(mermaid);",
+      "println!(\"{}\", program);"
     ],
     "agent": ["let helper = agent(\"question:string -> answer:string\")?;"],
     "llm": [

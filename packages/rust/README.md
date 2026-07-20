@@ -61,6 +61,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport
 - `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool
 - `cargo run --example axflow_program_graph`: AxFlow program graph
+- `cargo run --example flow_mermaid`: portable Mermaid flow parsing and canonical round-trip
 - `cargo run --example audio_responses_mapping`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `cargo run --example realtime_audio_events`: Grok/Gemini realtime audio setup, input, and event folding
 - `cargo run --example realtime_audio_turn`: drive a full realtime audio turn through `realtime_chat` (offline, scripted transport)

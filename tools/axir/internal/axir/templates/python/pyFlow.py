@@ -9,9 +9,15 @@ from typing import Any, Callable
 from .ai import AIClient
 from .gen import (
     AxGen,
+    ax,
     _core_exception_message,
     _core_eq,
     _core_gte,
+    _core_json_parse,
+    _core_lt,
+    _core_lte,
+    _core_ne,
+    _core_regex_match,
     _core_get,
     _core_is_none,
     _core_json_stringify,
@@ -20,6 +26,9 @@ from .gen import (
     _core_or,
     _core_runtime_error,
     _core_string_format,
+    _core_string_ends_with,
+    _core_string_join,
+    _core_string_lower,
     _core_truthy,
     _filter_optimization_components,
     _adjust_optimization_score_for_actions,
@@ -37,6 +46,12 @@ from .gen import (
     _validate_optimization_component_map,
     _validate_optimized_artifact,
 )
+from .signature import (
+    _core_string_extract_leading_group,
+    _core_string_find_outside_quotes,
+    _core_string_split_once,
+    _core_string_split_top_level,
+)
 from .agent import (
     OptimizerEngine,
     OptimizerEvaluator,
@@ -53,6 +68,16 @@ from .mcp import resolve_execution_context
 
 
 _CORE_COVERAGE_SEEN: set[str] = set()
+
+
+def _core_string_words(value):
+    return str(value).split()
+
+
+def _core_string_title_from_camel(value):
+    import re
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(value).replace("_", " ")).lower()
+    return text[:1].upper() + text[1:]
 
 
 def _core_coverage_mark(name):
@@ -152,13 +177,29 @@ class AxProgram(ABC):
 
 
 class AxFlow(AxProgram):
-    def __init__(self, options: dict[str, Any] | None = None):
+    def __init__(self, options: dict[str, Any] | str | None = None, bindings: dict[str, Any] | None = None):
+        if isinstance(options, str):
+            normalized = _normalize_mermaid_bindings(bindings)
+            self.options = dict(normalized.get("options") or {})
+            self.execution_context = resolve_execution_context(self.options)
+            self.state = _flow_from_mermaid(options, normalized)
+            self.state["mermaidPercent"] = "%"
+            self.state["mermaidOpenBrace"] = "{"
+            self.state["mermaidCloseBrace"] = "}"
+            _hydrate_mermaid_steps(self.state.get("steps") or [], normalized)
+            return
         self.options = dict(options or {})
         self.execution_context = resolve_execution_context(self.options)
         self.state = _flow_factory(self.options)
+        self.state["mermaidPercent"] = "%"
+        self.state["mermaidOpenBrace"] = "{"
+        self.state["mermaidCloseBrace"] = "}"
 
     def execute(self, name: str, program, options: dict[str, Any] | None = None):
-        return self._add_step("execute", name, program, options)
+        opts = dict(options or {})
+        if isinstance(program, AxGen):
+            opts.setdefault("signatureText", str(program.signature))
+        return self._add_step("execute", name, program, opts)
 
     def derive(self, name: str, program, options: dict[str, Any] | None = None):
         return self._add_step("derive", name, program, options)
@@ -309,13 +350,49 @@ class AxFlow(AxProgram):
     def streaming_forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         yield {"version": 1, "index": 0, "delta": self.forward(client, values or {}, options or {})}
 
+    def to_string(self, options: dict[str, Any] | None = None) -> str:
+        return _flow_to_mermaid(self.state, options or {})
+
+    def __str__(self) -> str:
+        return self.to_string()
+
     def _add_step(self, kind, name, program, options):
         _flow_add_step(self.state, _flow_step(kind, name, program, options or {}))
         return self
 
 
-def flow(options: dict[str, Any] | None = None) -> AxFlow:
-    return AxFlow(options)
+def _normalize_mermaid_bindings(bindings):
+    resolved = dict(bindings or {})
+    nodes = {}
+    for name, value in dict(resolved.get("nodes") or {}).items():
+        nodes[name] = _FlowCallable(value) if callable(value) and not hasattr(value, "forward") else value
+    conditions = {}
+    for name, value in dict(resolved.get("conditions") or {}).items():
+        conditions[name] = _FlowCallable(value) if callable(value) and not hasattr(value, "call") else value
+    resolved["nodes"] = nodes
+    resolved["conditions"] = conditions
+    return resolved
+
+
+def _hydrate_mermaid_steps(steps, bindings):
+    nodes = dict((bindings or {}).get("nodes") or {})
+    for step in steps or []:
+        name = step.get("name")
+        binding = nodes.get(name)
+        if isinstance(binding, _FlowCallable):
+            step["kind"] = "map"
+            step["program"] = binding
+        elif binding is not None:
+            step["program"] = ax(binding) if isinstance(binding, str) else binding
+        elif step.get("kind") == "execute" and isinstance(step.get("program"), str):
+            step["program"] = ax(step["program"], step.get("options") or {})
+        nested = (step.get("options") or {}).get("steps")
+        if isinstance(nested, list):
+            _hydrate_mermaid_steps(nested, bindings)
+
+
+def flow(options: dict[str, Any] | str | None = None, bindings: dict[str, Any] | None = None) -> AxFlow:
+    return AxFlow(options, bindings)
 
 
 def _core_map_get(values, key):

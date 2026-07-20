@@ -453,15 +453,15 @@ func skillAgentSnippet(target string) string {
 func skillFlowSnippet(target string) string {
 	switch target {
 	case "python":
-		return readmeLines("from axllm import flow", "", "wf = flow()", "# See examples/axflow_program_graph.py for node wiring.")
+		return readmeLines("from axllm import flow", "", "mermaid = \"\"\"flowchart TD", "  %%ax classify: request:string -> route:class \"support, sales\"", "  classify{route}", "\"\"\"", "wf = flow(mermaid)", "print(wf)  # canonical portable Mermaid", "# See examples/flow_mermaid.py.")
 	case "java":
-		return readmeLines("AxFlow wf = Ax.flow(java.util.Map.of());", "// See examples/AxFlowProgramGraphExample.java for node wiring.")
+		return readmeLines("String mermaid = \"flowchart TD\\n  %%ax classify: request:string -> route:class \\\"support, sales\\\"\\n  classify{route}\";", "AxFlow wf = Ax.flow(mermaid);", "System.out.println(wf);", "// See examples/FlowMermaidExample.java.")
 	case "cpp":
-		return readmeLines("auto wf = axllm::flow();", "// See examples/axflow_program_graph.cpp for node wiring.")
+		return readmeLines("std::string mermaid = R\"(flowchart TD", "  %%ax classify: request:string -> route:class \"support, sales\"", "  classify{route})\";", "auto wf = axllm::flow(mermaid);", "std::cout << wf.str();", "// See examples/flow_mermaid.cpp.")
 	case "go":
-		return readmeLines("wf := ax.NewFlow(nil)", "// See examples/axflow_program_graph/main.go for node wiring.")
+		return readmeLines("mermaid := `flowchart TD", "  %%ax classify: request:string -> route:class \"support, sales\"", "  classify{route}`", "wf := ax.NewFlow(mermaid)", "fmt.Println(wf.String())", "// See examples/flow_mermaid/main.go.")
 	case "rust":
-		return readmeLines("let wf = axllm::flow(\"workflow\")?;", "// See examples/axflow_program_graph.rs for node wiring.")
+		return readmeLines("let mermaid = r#\"flowchart TD", "  %%ax classify: request:string -> route:class \"support, sales\"", "  classify{route}\"#;", "let wf = axllm::flow(mermaid);", "println!(\"{}\", wf);", "// See examples/flow_mermaid.rs.")
 	default:
 		return "Read flow examples in `examples/`."
 	}

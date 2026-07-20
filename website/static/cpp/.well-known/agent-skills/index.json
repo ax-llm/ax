@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-cpp-flow/SKILL.md",
-      "digest": "sha256:0d9a2a4d422c72cc7a1b29d11934a4e8c5ea61dbf994bdd9e6e8280a0d65a662"
+      "digest": "sha256:1d5190cf1a8cc56d80f1140527a701daff3c2e6b42e25c912353b6e32e9839b0"
     },
     {
       "name": "ax-cpp-agent",

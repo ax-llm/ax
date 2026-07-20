@@ -9,6 +9,8 @@
       "src/ax/flow/steps.ts",
       "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
     "name": "nested-flow-program-call",
@@ -16,9 +18,7 @@
       "output": {
         "answer": "Nested Paris"
       },
-      "chatLogNames": [
-        "nested.inner"
-      ]
+      "chatLogNames": ["nested.inner"]
     }
   },
   "input": {
@@ -30,12 +30,8 @@
       "name": "nested",
       "program": "flow",
       "options": {
-        "reads": [
-          "question"
-        ],
-        "writes": [
-          "nestedResult"
-        ],
+        "reads": ["question"],
+        "writes": ["nestedResult"],
         "isBarrier": false
       },
       "steps": [
@@ -44,12 +40,8 @@
           "name": "inner",
           "signature": "question:string -> answer:string",
           "options": {
-            "reads": [
-              "question"
-            ],
-            "writes": [
-              "innerResult"
-            ],
+            "reads": ["question"],
+            "writes": ["innerResult"],
             "isBarrier": false
           }
         }

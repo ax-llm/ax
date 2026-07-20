@@ -986,6 +986,52 @@ final class Core {
     return null;
   }
 
+  static Object _signature_input_fields(Object signature) {
+    axirCoverageMark("_signature_input_fields");
+    Object fields = Core.get(signature, "input_fields", null);
+    Object out = new java.util.ArrayList<Object>();
+    for (Object field : Core.iter(fields)) {
+      Object type = Core.get(field, "type", null);
+      Object type_out = new java.util.LinkedHashMap<String, Object>();
+      Object type_name = Core.get(type, "name", "");
+      Core.set(type_out, "name", type_name);
+      Object empty_options = new java.util.ArrayList<Object>();
+      Object type_options = Core.get(type, "options", empty_options);
+      Core.set(type_out, "options", type_options);
+      Object item = new java.util.LinkedHashMap<String, Object>();
+      Object field_name = Core.get(field, "name", "");
+      Object field_optional = Core.get(field, "is_optional", Boolean.FALSE);
+      Core.set(item, "name", field_name);
+      Core.set(item, "isOptional", field_optional);
+      Core.set(item, "type", type_out);
+      Core.append(out, item);
+    }
+    return out;
+  }
+
+  static Object _signature_output_fields(Object signature) {
+    axirCoverageMark("_signature_output_fields");
+    Object fields = Core.get(signature, "output_fields", null);
+    Object out = new java.util.ArrayList<Object>();
+    for (Object field : Core.iter(fields)) {
+      Object type = Core.get(field, "type", null);
+      Object type_out = new java.util.LinkedHashMap<String, Object>();
+      Object type_name = Core.get(type, "name", "");
+      Core.set(type_out, "name", type_name);
+      Object empty_options = new java.util.ArrayList<Object>();
+      Object type_options = Core.get(type, "options", empty_options);
+      Core.set(type_out, "options", type_options);
+      Object item = new java.util.LinkedHashMap<String, Object>();
+      Object field_name = Core.get(field, "name", "");
+      Object field_optional = Core.get(field, "is_optional", Boolean.FALSE);
+      Core.set(item, "name", field_name);
+      Core.set(item, "isOptional", field_optional);
+      Core.set(item, "type", type_out);
+      Core.append(out, item);
+    }
+    return out;
+  }
+
   static Object _signature_parse_impl(Object signature) {
     axirCoverageMark("_signature_parse_impl");
     Object text = Core.stringTrim(signature);
@@ -18082,6 +18128,16 @@ final class Core {
     }
     Object kind = Core.get(step, "kind", "execute");
     Object name = Core.get(step, "name", "");
+    Object step_options_for_guard = Core.get(step, "options", empty_map);
+    Object guard = Core.get(step_options_for_guard, "guard", null);
+    Object has_guard = Core.isNotNone(guard);
+    if (Core.truthy(has_guard)) {
+      Object guard_matches = Core._flow_evaluate_data_predicate(guard, state, Boolean.FALSE);
+      Object skip_guarded_step = Core.not(guard_matches);
+      if (Core.truthy(skip_guarded_step)) {
+        return state;
+      }
+    }
     Object location = Core.stringFormat("flow-step-{}", name);
     Core._flow_check_abort(options, location);
     Object traces = Core.get(flow, "traces", null);
@@ -18111,7 +18167,7 @@ final class Core {
       Object branch_value_default = Core.get(step_options, "value", Boolean.FALSE);
       Object branch_value = Core.get(step_options, "branchValue", branch_value_default);
       if (Core.truthy(has_predicate)) {
-        branch_value = Core.objectCallMethod(predicate, "call", state);
+        branch_value = Core._flow_evaluate_data_predicate(predicate, state, branch_value);
       }
       Object default_branches = new java.util.ArrayList<Object>();
       Object branches = Core.get(step_options, "branches", default_branches);
@@ -18142,7 +18198,7 @@ final class Core {
       while (Core.truthy(Boolean.TRUE)) {
         Object condition_result = Core.get(step_options, "conditionResult", Boolean.FALSE);
         if (Core.truthy(has_condition)) {
-          condition_result = Core.objectCallMethod(condition, "call", current);
+          condition_result = Core._flow_evaluate_data_predicate(condition, current, condition_result);
         }
         Object should_continue = Core.truthyValue(condition_result);
         Object done = Core.not(should_continue);
@@ -18182,7 +18238,7 @@ final class Core {
       while (Core.truthy(Boolean.TRUE)) {
         Object condition_result = Core.get(step_options, "conditionResult", Boolean.FALSE);
         if (Core.truthy(has_condition)) {
-          condition_result = Core.objectCallMethod(condition, "call", current);
+          condition_result = Core._flow_evaluate_data_predicate(condition, current, condition_result);
         }
         Object should_continue = Core.truthyValue(condition_result);
         Object done = Core.not(should_continue);
@@ -18586,6 +18642,1205 @@ final class Core {
     Object run = Core._prepare_optimizer_run("axflow", components, dataset, options, trace, evaluator_available);
     Object request = Core.get(run, "request", empty_map);
     return request;
+  }
+
+  static Object _flow_evaluate_data_predicate(Object predicate, Object state, Object fallback) {
+    axirCoverageMark("_flow_evaluate_data_predicate");
+    Object missing = Core.isNone(predicate);
+    if (Core.truthy(missing)) {
+      return fallback;
+    }
+    Object has_node = Core.mapContains(predicate, "nodeName");
+    Object has_field = Core.mapContains(predicate, "field");
+    Object is_data = Core.and(has_node, has_field);
+    if (Core.truthy(is_data)) {
+      Object node = Core.get(predicate, "nodeName", "");
+      Object field = Core.get(predicate, "field", "");
+      Object result_key = Core.stringFormat("{}Result", node);
+      Object empty = new java.util.LinkedHashMap<String, Object>();
+      Object result = Core.get(state, result_key, empty);
+      Object value = Core.get(result, field, null);
+      Object missing_nested = Core.isNone(value);
+      if (Core.truthy(missing_nested)) {
+        value = Core.get(state, field, null);
+      }
+      Object has_expected = Core.mapContains(predicate, "value");
+      if (Core.truthy(has_expected)) {
+        Object expected = Core.get(predicate, "value", null);
+        Object expected_text = Core.stringLower(expected);
+        Object is_true = Core.eq(expected_text, "true");
+        Object is_false = Core.eq(expected_text, "false");
+        if (Core.truthy(is_true)) {
+          Object actual = Core.truthyValue(value);
+          return actual;
+        }
+        if (Core.truthy(is_false)) {
+          Object actual = Core.truthyValue(value);
+          actual = Core.not(actual);
+          return actual;
+        }
+        Object matches = Core.eq(value, expected);
+        return matches;
+      }
+      Object truthy = Core.truthyValue(value);
+      return truthy;
+    }
+    Object called = Core.objectCallMethod(predicate, "call", state);
+    return called;
+  }
+
+  static Object _flow_mermaid_fail(Object message, Object line) {
+    axirCoverageMark("_flow_mermaid_fail");
+    Object with_line = Core.stringFormat("{} (line {})", message, line);
+    Object err = Core.runtimeError(with_line);
+    throw Core.asRuntime(err);
+  }
+
+  static Object _flow_mermaid_register_node(Object ast, Object id, Object shape, Object label, Object line) {
+    axirCoverageMark("_flow_mermaid_register_node");
+    Object valid = Core.regexMatch("^[A-Za-z_][A-Za-z0-9_]*$", id);
+    Object invalid = Core.not(valid);
+    if (Core.truthy(invalid)) {
+      Core._flow_mermaid_fail("Expected a node id", line);
+    }
+    Object nodes = Core.get(ast, "nodes", null);
+    Object known = Core.mapContains(nodes, id);
+    if (Core.truthy(known)) {
+      Object existing = Core.get(nodes, id, null);
+      Object existing_label = Core.get(existing, "label", null);
+      Object missing_existing_label = Core.isNone(existing_label);
+      Object has_label = Core.isNotNone(label);
+      Object replace = Core.and(missing_existing_label, has_label);
+      if (Core.truthy(replace)) {
+        Core.set(existing, "shape", shape);
+        Core.set(existing, "label", label);
+      }
+      return existing;
+    }
+    Object node = new java.util.LinkedHashMap<String, Object>();
+    Core.set(node, "id", id);
+    Core.set(node, "shape", shape);
+    Core.set(node, "label", label);
+    Core.set(node, "line", line);
+    Core.set(nodes, id, node);
+    Object order = Core.get(ast, "order", null);
+    Object index = Core.len(order);
+    Core.append(order, id);
+    Object order_index = Core.get(ast, "orderIndex", null);
+    Core.set(order_index, id, index);
+    return node;
+  }
+
+  static Object _flow_mermaid_parse_node_ref(Object ast, Object text, Object line) {
+    axirCoverageMark("_flow_mermaid_parse_node_ref");
+    Object source = Core.stringTrim(text);
+    Object source_len = Core.len(source);
+    Object empty = Core.eq(source_len, 0);
+    if (Core.truthy(empty)) {
+      Core._flow_mermaid_fail("Expected a node id", line);
+    }
+    Object split_at = source_len;
+    Object delimiters = new java.util.ArrayList<Object>();
+    Core.append(delimiters, "[");
+    Core.append(delimiters, "(");
+    Core.append(delimiters, "{");
+    for (Object delimiter : Core.iter(delimiters)) {
+      Object candidate = Core.stringFindOutsideQuotes(source, delimiter);
+      Object found = Core.gte(candidate, 0);
+      Object earlier = Core.lt(candidate, split_at);
+      Object use = Core.and(found, earlier);
+      if (Core.truthy(use)) {
+        split_at = candidate;
+      }
+    }
+    Object id_raw = Core.stringSlice(source, 0, split_at);
+    Object id = Core.stringTrim(id_raw);
+    Object tail = Core.stringSlice(source, split_at);
+    tail = Core.stringTrim(tail);
+    Object shape = "rect";
+    Object label = Core.none();
+    Object has_tail = Core.truthyValue(tail);
+    if (Core.truthy(has_tail)) {
+      Object starts_round_bracket = Core.stringStartsWith(tail, "([");
+      Object starts_double_round = Core.stringStartsWith(tail, "((");
+      Object starts_round = Core.stringStartsWith(tail, "(");
+      Object starts_rect = Core.stringStartsWith(tail, "[");
+      Object starts_diamond = Core.stringStartsWith(tail, "{");
+      Object group = new java.util.LinkedHashMap<String, Object>();
+      if (Core.truthy(starts_round)) {
+        group = Core.stringExtractLeadingGroup(tail, "(", ")");
+        shape = "round";
+      }
+      if (!Core.truthy(starts_round)) {
+        if (Core.truthy(starts_rect)) {
+          group = Core.stringExtractLeadingGroup(tail, "[", "]");
+          shape = "rect";
+        }
+        if (!Core.truthy(starts_rect)) {
+          if (Core.truthy(starts_diamond)) {
+            group = Core.stringExtractLeadingGroup(tail, "{", "}");
+            shape = "diamond";
+          }
+          if (!Core.truthy(starts_diamond)) {
+            Core._flow_mermaid_fail("Unexpected content after node id", line);
+          }
+        }
+      }
+      Object balanced = Core.get(group, "balanced", Boolean.FALSE);
+      Object rest = Core.get(group, "rest", "");
+      rest = Core.stringTrim(rest);
+      Object trailing = Core.truthyValue(rest);
+      Object bad = Core.not(balanced);
+      bad = Core.or(bad, trailing);
+      if (Core.truthy(bad)) {
+        Core._flow_mermaid_fail("Unexpected content after node shape", line);
+      }
+      Object label_text = Core.get(group, "group", "");
+      if (Core.truthy(starts_round_bracket)) {
+        shape = "round";
+        Object inner_len = Core.len(label_text);
+        Object inner_end = Core.add(inner_len, -1);
+        label_text = Core.stringSlice(label_text, 1, inner_end);
+      }
+      if (Core.truthy(starts_double_round)) {
+        shape = "rect";
+        Object inner_len = Core.len(label_text);
+        Object inner_end = Core.add(inner_len, -1);
+        label_text = Core.stringSlice(label_text, 1, inner_end);
+      }
+      label_text = Core.stringTrim(label_text);
+      Object quoted_double = Core.stringStartsWith(label_text, "\"");
+      Object quoted_single = Core.stringStartsWith(label_text, "'");
+      Object quoted = Core.or(quoted_double, quoted_single);
+      if (Core.truthy(quoted)) {
+        Object label_len = Core.len(label_text);
+        Object label_end = Core.add(label_len, -1);
+        label_text = Core.stringSlice(label_text, 1, label_end);
+      }
+      label = label_text;
+    }
+    Object node = Core._flow_mermaid_register_node(ast, id, shape, label, line);
+    Object is_diamond = Core.eq(shape, "diamond");
+    if (Core.truthy(is_diamond)) {
+      Object tail_len = Core.len(tail);
+      Object close_index = Core.add(tail_len, -1);
+      Object open_brace = Core.stringSlice(tail, 0, 1);
+      Object close_brace = Core.stringSlice(tail, close_index);
+      Core.set(node, "open", open_brace);
+      Core.set(node, "close", close_brace);
+    }
+    return id;
+  }
+
+  static Object _flow_mermaid_parse_group(Object ast, Object text, Object line) {
+    axirCoverageMark("_flow_mermaid_parse_group");
+    Object parts = Core.stringSplitTopLevel(text, "&");
+    Object ids = new java.util.ArrayList<Object>();
+    for (Object part : Core.iter(parts)) {
+      Object id = Core._flow_mermaid_parse_node_ref(ast, part, line);
+      Core.append(ids, id);
+    }
+    return ids;
+  }
+
+  static Object _flow_mermaid_parse(Object text) {
+    axirCoverageMark("_flow_mermaid_parse");
+    Object ast = new java.util.LinkedHashMap<String, Object>();
+    Object directives = new java.util.LinkedHashMap<String, Object>();
+    Object directive_order = new java.util.ArrayList<Object>();
+    Object nodes = new java.util.LinkedHashMap<String, Object>();
+    Object order = new java.util.ArrayList<Object>();
+    Object order_index = new java.util.LinkedHashMap<String, Object>();
+    Object edges = new java.util.ArrayList<Object>();
+    Core.set(ast, "direction", "TD");
+    Core.set(ast, "directives", directives);
+    Core.set(ast, "directiveOrder", directive_order);
+    Core.set(ast, "nodes", nodes);
+    Core.set(ast, "order", order);
+    Core.set(ast, "orderIndex", order_index);
+    Core.set(ast, "edges", edges);
+    Object saw_header = Boolean.FALSE;
+    Object lines = Core.stringSplit(text, "\n");
+    Object line_number = 0;
+    for (Object raw : Core.iter(lines)) {
+      line_number = Core.add(line_number, 1);
+      Object line = Core.stringTrim(raw);
+      Object is_empty = Core.eq(line, "");
+      if (Core.truthy(is_empty)) {
+        // empty
+      }
+      if (!Core.truthy(is_empty)) {
+        Object is_ax = Core.regexMatch("^%%ax\\s+", line);
+        Object is_comment = Core.regexMatch("^%%", line);
+        if (Core.truthy(is_ax)) {
+          Object percent = Core.stringSlice(line, 0, 1);
+          Core.set(ast, "percent", percent);
+          Object directive_body = Core.stringSlice(line, 5);
+          Object parts = Core.stringSplitOnce(directive_body, ":");
+          Object found_colon = Core.get(parts, "found", Boolean.FALSE);
+          if (Core.truthy(found_colon)) {
+            // empty
+          }
+          if (!Core.truthy(found_colon)) {
+            Core._flow_mermaid_fail("Invalid Ax directive", line_number);
+          }
+          Object id = Core.get(parts, "left", "");
+          id = Core.stringTrim(id);
+          Object sig = Core.get(parts, "right", "");
+          sig = Core.stringTrim(sig);
+          Object valid_id = Core.regexMatch("^[A-Za-z_][A-Za-z0-9_]*$", id);
+          Object invalid_id = Core.not(valid_id);
+          if (Core.truthy(invalid_id)) {
+            Core._flow_mermaid_fail("Invalid Ax directive node id", line_number);
+          }
+          Object duplicate = Core.mapContains(directives, id);
+          if (Core.truthy(duplicate)) {
+            Object message = Core.stringFormat("Duplicate Ax directive for node \"{}\"", id);
+            Core._flow_mermaid_fail(message, line_number);
+          }
+          Core.set(directives, id, sig);
+          Core.append(directive_order, id);
+        }
+        if (!Core.truthy(is_ax)) {
+          if (Core.truthy(is_comment)) {
+            // empty
+          }
+          if (!Core.truthy(is_comment)) {
+            Object is_flowchart = Core.stringStartsWith(line, "flowchart ");
+            Object is_graph = Core.stringStartsWith(line, "graph ");
+            Object is_header = Core.or(is_flowchart, is_graph);
+            if (Core.truthy(is_header)) {
+              if (Core.truthy(saw_header)) {
+                Core._flow_mermaid_fail("Multiple flowchart headers", line_number);
+              }
+              Object words = Core.stringWords(line);
+              Object direction = Core.listGet(words, 1, "");
+              Object is_td = Core.eq(direction, "TD");
+              Object is_lr = Core.eq(direction, "LR");
+              Object is_bt = Core.eq(direction, "BT");
+              Object is_rl = Core.eq(direction, "RL");
+              Object supported_a = Core.or(is_td, is_lr);
+              Object supported_b = Core.or(is_bt, is_rl);
+              Object supported = Core.or(supported_a, supported_b);
+              Object unsupported = Core.not(supported);
+              if (Core.truthy(unsupported)) {
+                Core._flow_mermaid_fail("Unsupported flowchart direction", line_number);
+              }
+              Core.set(ast, "direction", direction);
+              saw_header = Boolean.TRUE;
+            }
+            if (!Core.truthy(is_header)) {
+              if (Core.truthy(saw_header)) {
+                // empty
+              }
+              if (!Core.truthy(saw_header)) {
+                Core._flow_mermaid_fail("Missing flowchart header", line_number);
+              }
+              Object unsupported_construct = Core.regexMatch("^(subgraph\\b|end\\b|style\\b|classDef\\b|class\\b|linkStyle\\b|click\\b|direction\\b)", line);
+              if (Core.truthy(unsupported_construct)) {
+                Core._flow_mermaid_fail("Unsupported mermaid construct", line_number);
+              }
+              Object unsupported_arrow = Core.regexMatch("(-\\.+->|={2,}>|---|~~~)", line);
+              if (Core.truthy(unsupported_arrow)) {
+                Core._flow_mermaid_fail("Unsupported arrow syntax", line_number);
+              }
+              Object segments = Core.stringSplitTopLevel(line, "-->");
+              Object segment_count = Core.len(segments);
+              Object from_text = Core.listGet(segments, 0, "");
+              Object from_ids = Core._flow_mermaid_parse_group(ast, from_text, line_number);
+              Object segment_index = 1;
+              while (Core.truthy(Boolean.TRUE)) {
+                Object done = Core.gte(segment_index, segment_count);
+                if (Core.truthy(done)) {
+                  break;
+                }
+                Object segment = Core.listGet(segments, segment_index, "");
+                segment = Core.stringTrim(segment);
+                Object label = Core.none();
+                Object has_label = Core.stringStartsWith(segment, "|");
+                if (Core.truthy(has_label)) {
+                  Object after_bar = Core.stringSlice(segment, 1);
+                  Object label_parts = Core.stringSplitOnce(after_bar, "|");
+                  Object label_closed = Core.get(label_parts, "found", Boolean.FALSE);
+                  if (Core.truthy(label_closed)) {
+                    // empty
+                  }
+                  if (!Core.truthy(label_closed)) {
+                    Core._flow_mermaid_fail("Unterminated edge label", line_number);
+                  }
+                  label = Core.get(label_parts, "left", "");
+                  label = Core.stringTrim(label);
+                  segment = Core.get(label_parts, "right", "");
+                  segment = Core.stringTrim(segment);
+                }
+                Object to_ids = Core._flow_mermaid_parse_group(ast, segment, line_number);
+                for (Object from_node : Core.iter(from_ids)) {
+                  for (Object to : Core.iter(to_ids)) {
+                    Object edge = new java.util.LinkedHashMap<String, Object>();
+                    Core.set(edge, "from", from_node);
+                    Core.set(edge, "to", to);
+                    Core.set(edge, "label", label);
+                    Core.set(edge, "line", line_number);
+                    Core.append(edges, edge);
+                  }
+                }
+                from_ids = to_ids;
+                segment_index = Core.add(segment_index, 1);
+              }
+            }
+          }
+        }
+      }
+    }
+    if (Core.truthy(saw_header)) {
+      // empty
+    }
+    if (!Core.truthy(saw_header)) {
+      Core._flow_mermaid_fail("Missing flowchart header", 1);
+    }
+    Object node_count = Core.len(order);
+    Object no_nodes = Core.eq(node_count, 0);
+    if (Core.truthy(no_nodes)) {
+      Core._flow_mermaid_fail("No nodes found in the diagram", 1);
+    }
+    return ast;
+  }
+
+  static Object _flow_mermaid_reachable(Object start, Object target, Object edges) {
+    axirCoverageMark("_flow_mermaid_reachable");
+    Object queue = new java.util.ArrayList<Object>();
+    Core.append(queue, start);
+    Object seen = new java.util.LinkedHashMap<String, Object>();
+    Core.set(seen, start, Boolean.TRUE);
+    Object index = 0;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object count = Core.len(queue);
+      Object done = Core.gte(index, count);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object current = Core.listGet(queue, index, "");
+      index = Core.add(index, 1);
+      for (Object edge : Core.iter(edges)) {
+        Object from_node = Core.get(edge, "from", "");
+        Object matches = Core.eq(from_node, current);
+        if (Core.truthy(matches)) {
+          Object to = Core.get(edge, "to", "");
+          Object found = Core.eq(to, target);
+          if (Core.truthy(found)) {
+            return Boolean.TRUE;
+          }
+          Object known = Core.mapContains(seen, to);
+          Object is_new = Core.not(known);
+          if (Core.truthy(is_new)) {
+            Core.set(seen, to, Boolean.TRUE);
+            Core.append(queue, to);
+          }
+        }
+      }
+    }
+    return Boolean.FALSE;
+  }
+
+  static Object _flow_mermaid_topological_order(Object document_order, Object edges) {
+    axirCoverageMark("_flow_mermaid_topological_order");
+    Object result = new java.util.ArrayList<Object>();
+    Object processed = new java.util.LinkedHashMap<String, Object>();
+    Object total = Core.len(document_order);
+    while (Core.truthy(Boolean.TRUE)) {
+      Object count = Core.len(result);
+      Object done = Core.gte(count, total);
+      if (Core.truthy(done)) {
+        break;
+      }
+      Object progress = Boolean.FALSE;
+      for (Object id : Core.iter(document_order)) {
+        Object known = Core.mapContains(processed, id);
+        if (Core.truthy(known)) {
+          // empty
+        }
+        if (!Core.truthy(known)) {
+          Object ready = Boolean.TRUE;
+          for (Object edge : Core.iter(edges)) {
+            Object to = Core.get(edge, "to", "");
+            Object incoming = Core.eq(to, id);
+            if (Core.truthy(incoming)) {
+              Object parent = Core.get(edge, "from", "");
+              Object parent_done = Core.mapContains(processed, parent);
+              Object waiting = Core.not(parent_done);
+              if (Core.truthy(waiting)) {
+                ready = Boolean.FALSE;
+              }
+            }
+          }
+          if (Core.truthy(ready)) {
+            Core.set(processed, id, Boolean.TRUE);
+            Core.append(result, id);
+            progress = Boolean.TRUE;
+          }
+        }
+      }
+      if (Core.truthy(progress)) {
+        // empty
+      }
+      if (!Core.truthy(progress)) {
+        Core._flow_mermaid_fail("Cycle without a classified back-edge", 1);
+      }
+    }
+    return result;
+  }
+
+  static Object _flow_mermaid_decision(Object node, Object ast, Object infos) {
+    axirCoverageMark("_flow_mermaid_decision");
+    Object empty = new java.util.LinkedHashMap<String, Object>();
+    Object info = Core.get(infos, node, empty);
+    Object signature = Core.get(info, "signature", null);
+    Object missing_signature = Core.isNone(signature);
+    if (Core.truthy(missing_signature)) {
+      Object message = Core.stringFormat("Decision node \"{}\" needs an Ax signature directive", node);
+      Core._flow_mermaid_fail(message, 1);
+    }
+    Object outputs = Core.get(info, "outputs", null);
+    Object nodes = Core.get(ast, "nodes", null);
+    Object node_ast = Core.get(nodes, node, null);
+    Object shape = Core.get(node_ast, "shape", "rect");
+    Object is_diamond = Core.eq(shape, "diamond");
+    Object field_name = "";
+    if (Core.truthy(is_diamond)) {
+      field_name = Core.get(node_ast, "label", "");
+    }
+    if (!Core.truthy(is_diamond)) {
+      Object candidate_count = 0;
+      for (Object field : Core.iter(outputs)) {
+        Object type = Core.get(field, "type", null);
+        Object type_name = Core.get(type, "name", "");
+        Object is_class = Core.eq(type_name, "class");
+        Object is_boolean = Core.eq(type_name, "boolean");
+        Object eligible = Core.or(is_class, is_boolean);
+        if (Core.truthy(eligible)) {
+          candidate_count = Core.add(candidate_count, 1);
+          field_name = Core.get(field, "name", "");
+        }
+      }
+      Object one = Core.eq(candidate_count, 1);
+      if (Core.truthy(one)) {
+        // empty
+      }
+      if (!Core.truthy(one)) {
+        Object message = Core.stringFormat("Cannot infer decision field for node \"{}\"", node);
+        Core._flow_mermaid_fail(message, 1);
+      }
+    }
+    Object chosen = Core.none();
+    for (Object field : Core.iter(outputs)) {
+      Object name = Core.get(field, "name", "");
+      Object matches = Core.eq(name, field_name);
+      if (Core.truthy(matches)) {
+        chosen = field;
+      }
+    }
+    Object missing = Core.isNone(chosen);
+    if (Core.truthy(missing)) {
+      Object message = Core.stringFormat("Decision field \"{}\" is not an output of node \"{}\"", field_name, node);
+      Core._flow_mermaid_fail(message, 1);
+    }
+    Object type = Core.get(chosen, "type", null);
+    Object decision = new java.util.LinkedHashMap<String, Object>();
+    Core.set(decision, "nodeName", node);
+    Core.set(decision, "field", field_name);
+    Object decision_type = Core.get(type, "name", "");
+    Core.set(decision, "type", decision_type);
+    Object empty_options = new java.util.ArrayList<Object>();
+    Object decision_options = Core.get(type, "options", empty_options);
+    Core.set(decision, "options", decision_options);
+    return decision;
+  }
+
+  static Object _flow_mermaid_guards_compatible(Object nodes, Object guards) {
+    axirCoverageMark("_flow_mermaid_guards_compatible");
+    Object count = Core.len(nodes);
+    Object enough = Core.gt(count, 1);
+    if (Core.truthy(enough)) {
+      // empty
+    }
+    if (!Core.truthy(enough)) {
+      return Boolean.FALSE;
+    }
+    Object first_node = Core.listGet(nodes, 0, "");
+    Object first = Core.get(guards, first_node, null);
+    Object missing_first = Core.isNone(first);
+    if (Core.truthy(missing_first)) {
+      return Boolean.FALSE;
+    }
+    Object owner = Core.get(first, "nodeName", "");
+    Object field = Core.get(first, "field", "");
+    Object values = new java.util.LinkedHashMap<String, Object>();
+    for (Object node : Core.iter(nodes)) {
+      Object guard = Core.get(guards, node, null);
+      Object missing = Core.isNone(guard);
+      if (Core.truthy(missing)) {
+        return Boolean.FALSE;
+      }
+      Object guard_owner = Core.get(guard, "nodeName", "");
+      Object guard_field = Core.get(guard, "field", "");
+      Object same_owner = Core.eq(guard_owner, owner);
+      Object same_field = Core.eq(guard_field, field);
+      Object same = Core.and(same_owner, same_field);
+      Object different = Core.not(same);
+      if (Core.truthy(different)) {
+        return Boolean.FALSE;
+      }
+      Object value = Core.get(guard, "value", null);
+      Object value_key = Core.stringStr(value);
+      Object duplicate = Core.mapContains(values, value_key);
+      if (Core.truthy(duplicate)) {
+        return Boolean.FALSE;
+      }
+      Core.set(values, value_key, Boolean.TRUE);
+    }
+    return Boolean.TRUE;
+  }
+
+  static Object _flow_mermaid_execute_step(Object info, Object guard) {
+    axirCoverageMark("_flow_mermaid_execute_step");
+    Object name = Core.get(info, "id", "");
+    Object program = Core.get(info, "program", null);
+    Object kind = Core.get(info, "kind", "execute");
+    Object options = new java.util.LinkedHashMap<String, Object>();
+    Object reads = Core.get(info, "reads", null);
+    Object resolved_reads = new java.util.ArrayList<Object>();
+    for (Object read : Core.iter(reads)) {
+      Core.append(resolved_reads, read);
+    }
+    Object writes = new java.util.ArrayList<Object>();
+    Object result_key = Core.stringFormat("{}Result", name);
+    Core.append(writes, result_key);
+    Core.set(options, "writes", writes);
+    Object signature_text = Core.get(info, "signatureText", "");
+    Object has_signature = Core.truthyValue(signature_text);
+    if (Core.truthy(has_signature)) {
+      Core.set(options, "signatureText", signature_text);
+    }
+    Object has_guard = Core.isNotNone(guard);
+    if (Core.truthy(has_guard)) {
+      Core.set(options, "guard", guard);
+      Object guard_node = Core.get(guard, "nodeName", "");
+      Object guard_read = Core.stringFormat("{}Result", guard_node);
+      Object has_guard_read = Core.contains(resolved_reads, guard_read);
+      Object missing_guard_read = Core.not(has_guard_read);
+      if (Core.truthy(missing_guard_read)) {
+        Core.append(resolved_reads, guard_read);
+      }
+    }
+    Core.set(options, "reads", resolved_reads);
+    Object step = Core._flow_step(kind, name, program, options);
+    Object meta = new java.util.LinkedHashMap<String, Object>();
+    Core.set(meta, "kind", kind);
+    Core.set(meta, "nodeName", name);
+    Core.set(step, "meta", meta);
+    return step;
+  }
+
+  static Object _flow_mermaid_parse_max(Object label, Object fallback) {
+    axirCoverageMark("_flow_mermaid_parse_max");
+    Object parts = Core.stringSplitTrimNonEmpty(label, ",");
+    Object max = fallback;
+    for (Object part : Core.iter(parts)) {
+      Object starts = Core.stringStartsWith(part, "max ");
+      if (Core.truthy(starts)) {
+        Object raw = Core.stringSlice(part, 4);
+        Object parsed = Core.jsonParse(raw);
+        max = parsed;
+      }
+    }
+    return max;
+  }
+
+  static Object _flow_mermaid_compile(Object ast, Object bindings) {
+    axirCoverageMark("_flow_mermaid_compile");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object opts = Core.get(bindings, "options", empty_map);
+    Object flow = Core._flow_factory(opts);
+    Object order = Core.get(ast, "order", null);
+    Object order_index = Core.get(ast, "orderIndex", null);
+    Object edges = Core.get(ast, "edges", null);
+    Object directives = Core.get(ast, "directives", null);
+    Object node_bindings = Core.get(bindings, "nodes", empty_map);
+    Object conditions = Core.get(bindings, "conditions", empty_map);
+    Object forward_edges = new java.util.ArrayList<Object>();
+    Object back_edges = new java.util.ArrayList<Object>();
+    for (Object edge : Core.iter(edges)) {
+      Object from_node = Core.get(edge, "from", null);
+      Object to = Core.get(edge, "to", null);
+      Object from_index = Core.get(order_index, from_node, null);
+      Object to_index = Core.get(order_index, to, null);
+      Object points_backward = Core.gte(from_index, to_index);
+      Object closes_cycle = Core._flow_mermaid_reachable(to, from_node, edges);
+      Object is_back = Core.and(points_backward, closes_cycle);
+      if (Core.truthy(is_back)) {
+        Object label = Core.get(edge, "label", null);
+        Object missing_label = Core.isNone(label);
+        if (Core.truthy(missing_label)) {
+          Object message = Core.stringFormat("Back-edges need a label: {} --> {}", from_node, to);
+          Object edge_line_number = Core.get(edge, "line", 1);
+          Core._flow_mermaid_fail(message, edge_line_number);
+        }
+        Core.append(back_edges, edge);
+      }
+      if (!Core.truthy(is_back)) {
+        Core.append(forward_edges, edge);
+      }
+    }
+    Object compile_order = Core._flow_mermaid_topological_order(order, forward_edges);
+    Object compile_order_index = new java.util.LinkedHashMap<String, Object>();
+    Object compile_index = 0;
+    for (Object compile_id : Core.iter(compile_order)) {
+      Core.set(compile_order_index, compile_id, compile_index);
+      compile_index = Core.add(compile_index, 1);
+    }
+    Core.set(ast, "compileOrder", compile_order);
+    Object infos = new java.util.LinkedHashMap<String, Object>();
+    Object producers = new java.util.LinkedHashMap<String, Object>();
+    Object missing_nodes = new java.util.ArrayList<Object>();
+    for (Object id : Core.iter(compile_order)) {
+      Object has_directive = Core.mapContains(directives, id);
+      Object has_binding = Core.mapContains(node_bindings, id);
+      Object resolved = Core.or(has_directive, has_binding);
+      if (Core.truthy(resolved)) {
+        // empty
+      }
+      if (!Core.truthy(resolved)) {
+        Core.append(missing_nodes, id);
+      }
+      Object info = new java.util.LinkedHashMap<String, Object>();
+      Object info_reads = new java.util.ArrayList<Object>();
+      Core.set(info, "id", id);
+      Core.set(info, "kind", "execute");
+      Core.set(info, "reads", info_reads);
+      Object signature_text = Core.get(directives, id, "");
+      Core.set(info, "signatureText", signature_text);
+      Object program = Core.get(node_bindings, id, signature_text);
+      Core.set(info, "program", program);
+      Object missing_directive = Core.not(has_directive);
+      Object binding_only = Core.and(has_binding, missing_directive);
+      if (Core.truthy(binding_only)) {
+        Core.set(info, "kind", "map");
+      }
+      if (Core.truthy(has_directive)) {
+        Object signature = Core.parse_signature(signature_text);
+        Core.set(info, "signature", signature);
+        Object inputs = Core._signature_input_fields(signature);
+        Object outputs = Core._signature_output_fields(signature);
+        Core.set(info, "inputs", inputs);
+        Core.set(info, "outputs", outputs);
+        for (Object field : Core.iter(outputs)) {
+          Object field_name = Core.get(field, "name", "");
+          Object field_producers = Core.get(producers, field_name, null);
+          Object missing_field_producers = Core.isNone(field_producers);
+          if (Core.truthy(missing_field_producers)) {
+            field_producers = new java.util.ArrayList<Object>();
+            Core.set(producers, field_name, field_producers);
+          }
+          Core.append(field_producers, id);
+        }
+      }
+      Core.set(infos, id, info);
+    }
+    Object missing_count = Core.len(missing_nodes);
+    Object has_missing = Core.gt(missing_count, 0);
+    if (Core.truthy(has_missing)) {
+      Object joined = Core.stringJoin(", ", missing_nodes);
+      Object message = Core.stringFormat("No signature for node(s): {}", joined);
+      Core._flow_mermaid_fail(message, 1);
+    }
+    Object guards = new java.util.LinkedHashMap<String, Object>();
+    for (Object edge : Core.iter(forward_edges)) {
+      Object label = Core.get(edge, "label", null);
+      Object has_label = Core.isNotNone(label);
+      if (Core.truthy(has_label)) {
+        Object starts_if = Core.stringStartsWith(label, "if ");
+        Object starts_while = Core.stringStartsWith(label, "while ");
+        Object reserved = Core.or(starts_if, starts_while);
+        if (Core.truthy(reserved)) {
+          Object edge_line_number = Core.get(edge, "line", 1);
+          Core._flow_mermaid_fail("if/while labels are only valid on back-edges", edge_line_number);
+        }
+        Object from_node = Core.get(edge, "from", null);
+        Object decision = Core._flow_mermaid_decision(from_node, ast, infos);
+        Object type = Core.get(decision, "type", "");
+        Object is_class = Core.eq(type, "class");
+        if (Core.truthy(is_class)) {
+          Object options = Core.get(decision, "options", empty_list);
+          Object valid_option = Core.contains(options, label);
+          Object invalid_option = Core.not(valid_option);
+          if (Core.truthy(invalid_option)) {
+            Object field = Core.get(decision, "field", "");
+            Object message = Core.stringFormat("\"{}\" is not an option of \"{}.{}\"", label, from_node, field);
+            Object edge_line_number = Core.get(edge, "line", 1);
+            Core._flow_mermaid_fail(message, edge_line_number);
+          }
+        }
+        Core.set(decision, "value", label);
+        Object to = Core.get(edge, "to", null);
+        Core.set(guards, to, decision);
+      }
+    }
+    for (Object id : Core.iter(compile_order)) {
+      Object already_guarded = Core.mapContains(guards, id);
+      if (Core.truthy(already_guarded)) {
+        // empty
+      }
+      if (!Core.truthy(already_guarded)) {
+        Object incoming = new java.util.ArrayList<Object>();
+        for (Object edge : Core.iter(forward_edges)) {
+          Object to = Core.get(edge, "to", "");
+          Object matches = Core.eq(to, id);
+          if (Core.truthy(matches)) {
+            Object incoming_from = Core.get(edge, "from", "");
+            Core.append(incoming, incoming_from);
+          }
+        }
+        Object incoming_count = Core.len(incoming);
+        Object one_incoming = Core.eq(incoming_count, 1);
+        if (Core.truthy(one_incoming)) {
+          Object parent = Core.listGet(incoming, 0, "");
+          Object parent_guard = Core.get(guards, parent, null);
+          Object has_parent_guard = Core.isNotNone(parent_guard);
+          if (Core.truthy(has_parent_guard)) {
+            Core.set(guards, id, parent_guard);
+          }
+        }
+      }
+    }
+    Object natural_inputs = new java.util.LinkedHashMap<String, Object>();
+    for (Object id : Core.iter(compile_order)) {
+      Object info = Core.get(infos, id, null);
+      Object signature = Core.get(info, "signature", null);
+      Object has_signature = Core.isNotNone(signature);
+      if (Core.truthy(has_signature)) {
+        Object inputs = Core.get(info, "inputs", empty_list);
+        Object reads = new java.util.ArrayList<Object>();
+        for (Object field : Core.iter(inputs)) {
+          Object field_name = Core.get(field, "name", "");
+          Object all_producers = Core.get(producers, field_name, empty_list);
+          Object upstream = new java.util.ArrayList<Object>();
+          for (Object producer : Core.iter(all_producers)) {
+            Object not_self = Core.ne(producer, id);
+            if (Core.truthy(not_self)) {
+              Object reachable = Core._flow_mermaid_reachable(producer, id, forward_edges);
+              if (Core.truthy(reachable)) {
+                Core.append(upstream, producer);
+              }
+            }
+          }
+          Object upstream_count = Core.len(upstream);
+          Object ambiguous = Core.gt(upstream_count, 1);
+          if (Core.truthy(ambiguous)) {
+            Object compatible = Core._flow_mermaid_guards_compatible(upstream, guards);
+            Object bad_ambiguity = Core.not(compatible);
+            if (Core.truthy(bad_ambiguity)) {
+              Object a = Core.listGet(upstream, 0, "");
+              Object b = Core.listGet(upstream, 1, "");
+              Object pair = Core.stringFormat("{} and {}", a, b);
+              Object message = Core.stringFormat("Input \"{}\" of node \"{}\" is produced by {} at the same distance", field_name, id, pair);
+              Core._flow_mermaid_fail(message, 1);
+            }
+          }
+          Object has_upstream = Core.gt(upstream_count, 0);
+          if (Core.truthy(has_upstream)) {
+            for (Object producer : Core.iter(upstream)) {
+              Object read = Core.stringFormat("{}Result", producer);
+              Core.append(reads, read);
+            }
+          }
+          if (!Core.truthy(has_upstream)) {
+            Object producer_count = Core.len(all_producers);
+            Object has_other_producer = Core.gt(producer_count, 0);
+            if (Core.truthy(has_other_producer)) {
+              Object producer = Core.listGet(all_producers, 0, "");
+              Object same_only = Core.eq(producer, id);
+              if (Core.truthy(same_only)) {
+                Core.set(natural_inputs, field_name, field);
+              }
+              if (!Core.truthy(same_only)) {
+                Object message = Core.stringFormat("\"{}\" of node \"{}\" is produced by \"{}\" which is not upstream", field_name, id, producer);
+                Core._flow_mermaid_fail(message, 1);
+              }
+            }
+            if (!Core.truthy(has_other_producer)) {
+              Core.set(natural_inputs, field_name, field);
+            }
+          }
+        }
+        Core.set(info, "reads", reads);
+      }
+    }
+    Object self_while = new java.util.LinkedHashMap<String, Object>();
+    for (Object edge : Core.iter(back_edges)) {
+      Object from_node = Core.get(edge, "from", null);
+      Object to = Core.get(edge, "to", null);
+      Object label = Core.get(edge, "label", "");
+      Object parts = Core.stringSplitTrimNonEmpty(label, ",");
+      Object main = Core.listGet(parts, 0, "");
+      Object is_while = Core.stringStartsWith(main, "while ");
+      Object self = Core.eq(from_node, to);
+      Object self_loop = Core.and(is_while, self);
+      if (Core.truthy(self_loop)) {
+        Core.set(self_while, from_node, edge);
+      }
+    }
+    Object steps = Core.get(flow, "steps", null);
+    Object loop_index = 0;
+    for (Object id : Core.iter(compile_order)) {
+      Object info = Core.get(infos, id, null);
+      Object guard = Core.get(guards, id, null);
+      Object has_self_while = Core.mapContains(self_while, id);
+      if (Core.truthy(has_self_while)) {
+        // empty
+      }
+      if (!Core.truthy(has_self_while)) {
+        Object step = Core._flow_mermaid_execute_step(info, guard);
+        Core.append(steps, step);
+      }
+      for (Object edge : Core.iter(back_edges)) {
+        Object from_node = Core.get(edge, "from", null);
+        Object matches_source = Core.eq(from_node, id);
+        if (Core.truthy(matches_source)) {
+          loop_index = Core.add(loop_index, 1);
+          Object to = Core.get(edge, "to", null);
+          Object label = Core.get(edge, "label", "");
+          Object label_parts = Core.stringSplitTrimNonEmpty(label, ",");
+          Object main = Core.listGet(label_parts, 0, "");
+          Object is_while = Core.stringStartsWith(main, "while ");
+          Object is_if = Core.stringStartsWith(main, "if ");
+          Object loop_kind = "feedback";
+          Object fallback_max = 10;
+          if (Core.truthy(is_while)) {
+            loop_kind = "while";
+            fallback_max = 100;
+          }
+          Object max = Core._flow_mermaid_parse_max(label, fallback_max);
+          Object body = new java.util.ArrayList<Object>();
+          Object to_index = Core.get(compile_order_index, to, null);
+          Object from_index = Core.get(compile_order_index, from_node, null);
+          for (Object body_id : Core.iter(compile_order)) {
+            Object body_index = Core.get(compile_order_index, body_id, null);
+            Object after_start = Core.gte(body_index, to_index);
+            Object before_end = Core.lte(body_index, from_index);
+            Object in_body = Core.and(after_start, before_end);
+            if (Core.truthy(in_body)) {
+              Object body_info = Core.get(infos, body_id, null);
+              Object body_guard = Core.get(guards, body_id, null);
+              Object body_step = Core._flow_mermaid_execute_step(body_info, body_guard);
+              Core.append(body, body_step);
+            }
+          }
+          Object loop_options = new java.util.LinkedHashMap<String, Object>();
+          Core.set(loop_options, "steps", body);
+          Core.set(loop_options, "maxIterations", max);
+          Core.set(loop_options, "label", to);
+          Object meta = new java.util.LinkedHashMap<String, Object>();
+          Core.set(meta, "kind", loop_kind);
+          Core.set(meta, "maxIterations", max);
+          Core.set(meta, "target", to);
+          if (Core.truthy(is_while)) {
+            Object condition_name = Core.stringSlice(main, 6);
+            condition_name = Core.stringTrim(condition_name);
+            Object condition = Core.get(conditions, condition_name, null);
+            Object missing_condition = Core.isNone(condition);
+            if (Core.truthy(missing_condition)) {
+              Object message = Core.stringFormat("Missing condition binding \"{}\"", condition_name);
+              Object edge_line_number = Core.get(edge, "line", 1);
+              Core._flow_mermaid_fail(message, edge_line_number);
+            }
+            Core.set(loop_options, "condition", condition);
+            Core.set(loop_options, "conditionName", condition_name);
+            Core.set(meta, "conditionName", condition_name);
+          }
+          if (!Core.truthy(is_while)) {
+            if (Core.truthy(is_if)) {
+              Object condition_name = Core.stringSlice(main, 3);
+              condition_name = Core.stringTrim(condition_name);
+              Object condition = Core.get(conditions, condition_name, null);
+              Object missing_condition = Core.isNone(condition);
+              if (Core.truthy(missing_condition)) {
+                Object message = Core.stringFormat("Missing condition binding \"{}\"", condition_name);
+                Object edge_line_number = Core.get(edge, "line", 1);
+                Core._flow_mermaid_fail(message, edge_line_number);
+              }
+              Core.set(loop_options, "condition", condition);
+              Core.set(loop_options, "conditionName", condition_name);
+              Core.set(meta, "conditionName", condition_name);
+            }
+            if (!Core.truthy(is_if)) {
+              Object decision = Core._flow_mermaid_decision(from_node, ast, infos);
+              Core.set(decision, "value", main);
+              Core.set(loop_options, "condition", decision);
+              Core.set(loop_options, "decision", decision);
+              Core.set(meta, "decision", decision);
+            }
+          }
+          Object loop_name = Core.stringFormat("{}{}", loop_kind, loop_index);
+          Object loop_step = Core._flow_step(loop_kind, loop_name, null, loop_options);
+          Core.set(loop_step, "meta", meta);
+          Core.append(steps, loop_step);
+        }
+      }
+    }
+    Object terminal_fields = new java.util.LinkedHashMap<String, Object>();
+    Object returns = new java.util.LinkedHashMap<String, Object>();
+    for (Object id : Core.iter(compile_order)) {
+      Object has_outgoing = Boolean.FALSE;
+      for (Object edge : Core.iter(forward_edges)) {
+        Object from_node = Core.get(edge, "from", "");
+        Object matches = Core.eq(from_node, id);
+        if (Core.truthy(matches)) {
+          has_outgoing = Boolean.TRUE;
+        }
+      }
+      if (Core.truthy(has_outgoing)) {
+        // empty
+      }
+      if (!Core.truthy(has_outgoing)) {
+        Object info = Core.get(infos, id, null);
+        Object signature = Core.get(info, "signature", null);
+        Object has_signature = Core.isNotNone(signature);
+        if (Core.truthy(has_signature)) {
+          Object outputs = Core.get(info, "outputs", empty_list);
+          for (Object field : Core.iter(outputs)) {
+            Object name = Core.get(field, "name", "");
+            Object duplicate = Core.mapContains(terminal_fields, name);
+            if (Core.truthy(duplicate)) {
+              Object message = Core.stringFormat("Output field \"{}\" is produced by multiple terminal nodes", name);
+              Core._flow_mermaid_fail(message, 1);
+            }
+            Core.set(terminal_fields, name, field);
+            Object path = Core.stringFormat("{}Result.{}", id, name);
+            Core.set(returns, name, path);
+          }
+        }
+      }
+    }
+    Core.set(flow, "returns", returns);
+    Core.set(flow, "mermaidAst", ast);
+    Core.set(flow, "mermaidBindings", bindings);
+    Core.set(flow, "mermaidInputFields", natural_inputs);
+    Core.set(flow, "mermaidOutputFields", terminal_fields);
+    return flow;
+  }
+
+  static Object _flow_mermaid_render_ast(Object ast, Object options) {
+    axirCoverageMark("_flow_mermaid_render_ast");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object opts_missing = Core.isNone(options);
+    Object opts = options;
+    if (Core.truthy(opts_missing)) {
+      opts = empty_map;
+    }
+    Object direction = Core.get(opts, "direction", "TD");
+    Object lines = new java.util.ArrayList<Object>();
+    Object header = Core.stringFormat("flowchart {}", direction);
+    Core.append(lines, header);
+    Object directives = Core.get(ast, "directives", null);
+    Object directive_order = Core.get(ast, "directiveOrder", null);
+    Object percent = Core.get(ast, "percent", "");
+    for (Object id : Core.iter(directive_order)) {
+      Object signature_text = Core.get(directives, id, null);
+      Object signature = Core.parse_signature(signature_text);
+      Object canonical = Core.signature_to_string(signature);
+      Object prefix = Core.stringFormat("{}{}ax", percent, percent);
+      Object directive = Core.stringFormat("  {} {}: {}", prefix, id, canonical);
+      Core.append(lines, directive);
+    }
+    Core.append(lines, "");
+    Object nodes = Core.get(ast, "nodes", null);
+    Object order = Core.get(ast, "order", null);
+    Object compile_order = Core.get(ast, "compileOrder", order);
+    Object order_index = Core.get(ast, "orderIndex", null);
+    Object edges = Core.get(ast, "edges", null);
+    for (Object id : Core.iter(compile_order)) {
+      Object node = Core.get(nodes, id, null);
+      Object shape = Core.get(node, "shape", "rect");
+      Object label = Core.get(node, "label", null);
+      Object is_diamond = Core.eq(shape, "diamond");
+      if (Core.truthy(is_diamond)) {
+        // empty
+      }
+      if (!Core.truthy(is_diamond)) {
+        Object spaced_title = Core.stringTitleFromCamel(id);
+        Object lower_title = Core.stringLower(spaced_title);
+        label = Core.stringTitleFromCamel(lower_title);
+      }
+      Object statement = Core.stringFormat("  {}[{}]", id, label);
+      if (Core.truthy(is_diamond)) {
+        Object open_brace = Core.get(node, "open", "");
+        Object close_brace = Core.get(node, "close", "");
+        Object wrapped = Core.stringFormat("{}{}{}", open_brace, label, close_brace);
+        statement = Core.stringFormat("  {}{}", id, wrapped);
+      }
+      Core.append(lines, statement);
+      for (Object edge : Core.iter(edges)) {
+        Object to = Core.get(edge, "to", "");
+        Object arrives = Core.eq(to, id);
+        if (Core.truthy(arrives)) {
+          Object from_node = Core.get(edge, "from", "");
+          Object from_index = Core.get(order_index, from_node, null);
+          Object to_index = Core.get(order_index, to, null);
+          Object points_backward = Core.gte(from_index, to_index);
+          Object closes_cycle = Core._flow_mermaid_reachable(to, from_node, edges);
+          Object back = Core.and(points_backward, closes_cycle);
+          Object forward = Core.not(back);
+          if (Core.truthy(forward)) {
+            label = Core.get(edge, "label", null);
+            Object has_label = Core.isNotNone(label);
+            Object edge_line = Core.stringFormat("  {} --> {}", from_node, to);
+            if (Core.truthy(has_label)) {
+              edge_line = Core.stringFormat("  {} -->|{}| {}", from_node, label, to);
+            }
+            Core.append(lines, edge_line);
+          }
+        }
+      }
+    }
+    for (Object edge : Core.iter(edges)) {
+      Object from_node = Core.get(edge, "from", "");
+      Object to = Core.get(edge, "to", "");
+      Object from_index = Core.get(order_index, from_node, null);
+      Object to_index = Core.get(order_index, to, null);
+      Object points_backward = Core.gte(from_index, to_index);
+      Object closes_cycle = Core._flow_mermaid_reachable(to, from_node, edges);
+      Object back = Core.and(points_backward, closes_cycle);
+      if (Core.truthy(back)) {
+        Object label = Core.get(edge, "label", null);
+        Object has_label = Core.isNotNone(label);
+        Object edge_line = Core.stringFormat("  {} --> {}", from_node, to);
+        if (Core.truthy(has_label)) {
+          edge_line = Core.stringFormat("  {} -->|{}| {}", from_node, label, to);
+        }
+        Core.append(lines, edge_line);
+      }
+    }
+    Core.append(lines, "");
+    Object rendered = Core.stringJoin("\n", lines);
+    return rendered;
+  }
+
+  static Object _flow_mermaid_render_flow(Object flow, Object options) {
+    axirCoverageMark("_flow_mermaid_render_flow");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object opts_missing = Core.isNone(options);
+    Object opts = options;
+    if (Core.truthy(opts_missing)) {
+      opts = empty_map;
+    }
+    Object direction = Core.get(opts, "direction", "TD");
+    Object lines = new java.util.ArrayList<Object>();
+    Object header = Core.stringFormat("flowchart {}", direction);
+    Core.append(lines, header);
+    Object steps = Core.get(flow, "steps", null);
+    Object percent = Core.get(flow, "mermaidPercent", "");
+    for (Object step : Core.iter(steps)) {
+      Object kind = Core.get(step, "kind", "execute");
+      Object is_execute = Core.eq(kind, "execute");
+      if (Core.truthy(is_execute)) {
+        Object step_options = Core.get(step, "options", empty_map);
+        Object signature_text = Core.get(step_options, "signatureText", "");
+        Object has_signature = Core.truthyValue(signature_text);
+        if (Core.truthy(has_signature)) {
+          Object signature = Core.parse_signature(signature_text);
+          Object canonical = Core.signature_to_string(signature);
+          Object name = Core.get(step, "name", "");
+          Object prefix = Core.stringFormat("{}{}ax", percent, percent);
+          Object directive = Core.stringFormat("  {} {}: {}", prefix, name, canonical);
+          Core.append(lines, directive);
+        }
+      }
+    }
+    Core.append(lines, "");
+    Object diamonds = new java.util.LinkedHashMap<String, Object>();
+    for (Object step : Core.iter(steps)) {
+      Object meta = Core.get(step, "meta", empty_map);
+      Object decision = Core.get(meta, "decision", null);
+      Object has_decision = Core.isNotNone(decision);
+      if (Core.truthy(has_decision)) {
+        Object node = Core.get(decision, "nodeName", "");
+        Object field = Core.get(decision, "field", "");
+        Core.set(diamonds, node, field);
+      }
+    }
+    Object seen = new java.util.LinkedHashMap<String, Object>();
+    for (Object step : Core.iter(steps)) {
+      Object kind = Core.get(step, "kind", "execute");
+      Object is_execute = Core.eq(kind, "execute");
+      Object is_map = Core.eq(kind, "map");
+      Object material = Core.or(is_execute, is_map);
+      if (Core.truthy(material)) {
+        Object name = Core.get(step, "name", "");
+        Object known = Core.mapContains(seen, name);
+        if (Core.truthy(known)) {
+          // empty
+        }
+        if (!Core.truthy(known)) {
+          Core.set(seen, name, Boolean.TRUE);
+          Object spaced_title = Core.stringTitleFromCamel(name);
+          Object lower_title = Core.stringLower(spaced_title);
+          Object title = Core.stringTitleFromCamel(lower_title);
+          Object diamond = Core.get(diamonds, name, null);
+          Object has_diamond = Core.isNotNone(diamond);
+          Object statement = Core.stringFormat("  {}[{}]", name, title);
+          if (Core.truthy(has_diamond)) {
+            Object open_brace = Core.get(flow, "mermaidOpenBrace", "");
+            Object close_brace = Core.get(flow, "mermaidCloseBrace", "");
+            Object wrapped = Core.stringFormat("{}{}{}", open_brace, diamond, close_brace);
+            statement = Core.stringFormat("  {}{}", name, wrapped);
+          }
+          Core.append(lines, statement);
+          Object step_options = Core.get(step, "options", empty_map);
+          Object empty_reads = new java.util.ArrayList<Object>();
+          Object step_reads = Core.get(step, "reads", empty_reads);
+          Object reads = Core.get(step_options, "reads", step_reads);
+          for (Object read : Core.iter(reads)) {
+            Object is_result = Core.stringEndsWith(read, "Result");
+            if (Core.truthy(is_result)) {
+              Object read_len = Core.len(read);
+              Object producer_end = Core.add(read_len, -6);
+              Object producer = Core.stringSlice(read, 0, producer_end);
+              Object edge_line = Core.stringFormat("  {} --> {}", producer, name);
+              Core.append(lines, edge_line);
+            }
+          }
+        }
+      }
+    }
+    Core.append(lines, "");
+    Object rendered = Core.stringJoin("\n", lines);
+    return rendered;
+  }
+
+  static Object _flow_from_mermaid(Object text, Object bindings) {
+    axirCoverageMark("_flow_from_mermaid");
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object missing = Core.isNone(bindings);
+    Object resolved = bindings;
+    if (Core.truthy(missing)) {
+      resolved = empty_map;
+    }
+    Object ast = Core._flow_mermaid_parse(text);
+    Object flow = Core._flow_mermaid_compile(ast, resolved);
+    return flow;
+  }
+
+  static Object _flow_to_mermaid(Object flow, Object options) {
+    axirCoverageMark("_flow_to_mermaid");
+    Object ast = Core.get(flow, "mermaidAst", null);
+    Object has_ast = Core.isNotNone(ast);
+    if (Core.truthy(has_ast)) {
+      Object rendered = Core._flow_mermaid_render_ast(ast, options);
+      return rendered;
+    }
+    Object rendered = Core._flow_mermaid_render_flow(flow, options);
+    return rendered;
   }
 
   static Object ucp_negotiate_profile(Object profile, Object supportedVersions, Object requestedServices) {

@@ -30,12 +30,12 @@
     },
     "snippets": {
       "flow": [
-        "step = ax('request:string -> route:class \"support, sales, engineering\"')",
-        "program = (",
-        "    flow({\"id\": \"supportRouter\"})",
-        "    .execute(\"classify\", step)",
-        "    .returns({\"route\": \"classify\"})",
-        ")"
+        "mermaid = '''flowchart TD",
+        "  %%ax classify: request:string -> route:class \"support, sales\"",
+        "  classify{route}",
+        "'''",
+        "program = flow(mermaid)",
+        "print(program)  # canonical portable Mermaid"
       ],
       "rlm": [
         "investigator = agent(signature, {",
@@ -103,12 +103,12 @@
       "answer = ax('question:string -> answer:string')"
     ],
     "flow": [
-      "step = ax('request:string -> route:class \"support, sales, engineering\"')",
-      "program = (",
-      "    flow({\"id\": \"supportRouter\"})",
-      "    .execute(\"classify\", step)",
-      "    .returns({\"route\": \"classify\"})",
-      ")"
+      "mermaid = '''flowchart TD",
+      "  %%ax classify: request:string -> route:class \"support, sales\"",
+      "  classify{route}",
+      "'''",
+      "program = flow(mermaid)",
+      "print(program)  # canonical portable Mermaid"
     ],
     "agent": [
       "from axllm import agent",

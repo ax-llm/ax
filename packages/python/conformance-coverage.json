@@ -219,6 +219,26 @@
         "operation": "streaming",
         "runner": "python:axflow.streaming",
         "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow_mermaid",
+        "runner": "python:axflow",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow_mermaid",
+        "operation": "builder_render",
+        "runner": "python:axflow.builder_render",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow_mermaid",
+        "operation": "error",
+        "runner": "python:axflow.error",
+        "category": "validation-error"
       }
     ],
     "axgen": [

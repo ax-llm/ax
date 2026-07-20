@@ -1,0 +1,135 @@
+{
+  "kind": "flow_mermaid",
+  "name": "mermaid-fan-out-and-in",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "mermaid-fan-out-and-in",
+    "observed": {
+      "rendered": "flowchart TD\n  %%ax split: topicText:string -> questionText:string\n  %%ax alpha: questionText:string -> alphaAnswer:string\n  %%ax beta: questionText:string -> betaAnswer:string\n  %%ax joiner: alphaAnswer:string, betaAnswer:string -> combinedAnswer:string\n\n  split[Split]\n  alpha[Alpha]\n  split --> alpha\n  beta[Beta]\n  split --> beta\n  joiner[Joiner]\n  alpha --> joiner\n  beta --> joiner\n",
+      "rerendered": "flowchart TD\n  %%ax split: topicText:string -> questionText:string\n  %%ax alpha: questionText:string -> alphaAnswer:string\n  %%ax beta: questionText:string -> betaAnswer:string\n  %%ax joiner: alphaAnswer:string, betaAnswer:string -> combinedAnswer:string\n\n  split[Split]\n  alpha[Alpha]\n  split --> alpha\n  beta[Beta]\n  split --> beta\n  joiner[Joiner]\n  alpha --> joiner\n  beta --> joiner\n",
+      "plan": {
+        "totalSteps": 5,
+        "parallelGroups": 4,
+        "maxParallelism": 2,
+        "steps": [
+          {
+            "type": "execute",
+            "nodeName": "split",
+            "dependencies": ["topicText"],
+            "produces": ["splitResult"],
+            "stepIndex": 0,
+            "isBarrier": false
+          },
+          {
+            "type": "execute",
+            "nodeName": "alpha",
+            "dependencies": ["splitResult"],
+            "produces": ["alphaResult"],
+            "stepIndex": 1,
+            "isBarrier": false
+          },
+          {
+            "type": "execute",
+            "nodeName": "beta",
+            "dependencies": ["splitResult"],
+            "produces": ["betaResult"],
+            "stepIndex": 2,
+            "isBarrier": false
+          },
+          {
+            "type": "execute",
+            "nodeName": "joiner",
+            "dependencies": ["alphaResult", "betaResult"],
+            "produces": ["joinerResult"],
+            "stepIndex": 3,
+            "isBarrier": false
+          },
+          {
+            "type": "returns",
+            "dependencies": ["joinerResult"],
+            "produces": ["combinedAnswer"],
+            "stepIndex": 4,
+            "isBarrier": true
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "split",
+                "dependencies": ["topicText"],
+                "produces": ["splitResult"],
+                "stepIndex": 0,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "alpha",
+                "dependencies": ["splitResult"],
+                "produces": ["alphaResult"],
+                "stepIndex": 1,
+                "isBarrier": false
+              },
+              {
+                "type": "execute",
+                "nodeName": "beta",
+                "dependencies": ["splitResult"],
+                "produces": ["betaResult"],
+                "stepIndex": 2,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 2,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "joiner",
+                "dependencies": ["alphaResult", "betaResult"],
+                "produces": ["joinerResult"],
+                "stepIndex": 3,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 3,
+            "steps": [
+              {
+                "type": "returns",
+                "dependencies": ["joinerResult"],
+                "produces": ["combinedAnswer"],
+                "stepIndex": 4,
+                "isBarrier": true
+              }
+            ]
+          }
+        ],
+        "autoParallelEnabled": true
+      }
+    }
+  },
+  "document": "flowchart TD\n  %%ax split: topicText:string -> questionText:string\n  %%ax alpha: questionText:string -> alphaAnswer:string\n  %%ax beta: questionText:string -> betaAnswer:string\n  %%ax joiner: alphaAnswer:string, betaAnswer:string -> combinedAnswer:string\n  split --> alpha & beta\n  alpha & beta --> joiner",
+  "condition_names": [],
+  "expected_rendered": "flowchart TD\n  %%ax split: topicText:string -> questionText:string\n  %%ax alpha: questionText:string -> alphaAnswer:string\n  %%ax beta: questionText:string -> betaAnswer:string\n  %%ax joiner: alphaAnswer:string, betaAnswer:string -> combinedAnswer:string\n\n  split[Split]\n  alpha[Alpha]\n  split --> alpha\n  beta[Beta]\n  split --> beta\n  joiner[Joiner]\n  alpha --> joiner\n  beta --> joiner\n",
+  "expected_rerendered": "flowchart TD\n  %%ax split: topicText:string -> questionText:string\n  %%ax alpha: questionText:string -> alphaAnswer:string\n  %%ax beta: questionText:string -> betaAnswer:string\n  %%ax joiner: alphaAnswer:string, betaAnswer:string -> combinedAnswer:string\n\n  split[Split]\n  alpha[Alpha]\n  split --> alpha\n  beta[Beta]\n  split --> beta\n  joiner[Joiner]\n  alpha --> joiner\n  beta --> joiner\n",
+  "expected_direction": "TD"
+}

@@ -199,13 +199,13 @@ Compose AxGen, AxAgent, and nested flows into a portable program graph.
 
 ### `Ax.flow`
 
-Create an AxFlow program graph.
+Create an AxFlow program graph or compile the portable Mermaid shorthand.
 
 - Canonical Ax concept: `flow`
 - Kind: `function`
-- Form: `Ax.flow(options)`
+- Form: `Ax.flow(options) / Ax.flow(mermaid, bindings)`
 - Returns: `AxFlow`
-- Important options: nodes, execute mappers, conditions, cache, returns
+- Important options: nodes, execute mappers, conditions, cache, returns, Mermaid roundtrip
 
 ```java
 AxFlow wf = Ax.flow(Map.of());
@@ -217,7 +217,7 @@ Workflow graph with Core-owned planning, cache keys, state merge, child aggregat
 
 - Canonical Ax concept: `AxFlow`
 - Kind: `type`
-- Form: `new AxFlow(options)`
+- Form: `new AxFlow(optionsOrMermaid, bindings)`
 - Returns: `flow program`
 - Important options: steps, state, parallel groups, returns
 

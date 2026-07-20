@@ -10,6 +10,8 @@
       "src/ax/flow/steps.ts",
       "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
     "name": "unknown-state-read-barrier",
@@ -23,9 +25,7 @@
             "name": "unsafe",
             "kind": "execute",
             "reads": [],
-            "writes": [
-              "unsafeResult"
-            ],
+            "writes": ["unsafeResult"],
             "barrier": true,
             "stepIndex": 0
           }
@@ -38,9 +38,7 @@
                 "name": "unsafe",
                 "kind": "execute",
                 "reads": [],
-                "writes": [
-                  "unsafeResult"
-                ],
+                "writes": ["unsafeResult"],
                 "barrier": true,
                 "stepIndex": 0
               }
@@ -57,9 +55,7 @@
       "signature": "question:string -> answer:string",
       "options": {
         "reads": [],
-        "writes": [
-          "unsafeResult"
-        ],
+        "writes": ["unsafeResult"],
         "isBarrier": true
       }
     }
@@ -73,9 +69,7 @@
         "name": "unsafe",
         "kind": "execute",
         "reads": [],
-        "writes": [
-          "unsafeResult"
-        ],
+        "writes": ["unsafeResult"],
         "barrier": true,
         "stepIndex": 0
       }
@@ -88,9 +82,7 @@
             "name": "unsafe",
             "kind": "execute",
             "reads": [],
-            "writes": [
-              "unsafeResult"
-            ],
+            "writes": ["unsafeResult"],
             "barrier": true,
             "stepIndex": 0
           }

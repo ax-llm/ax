@@ -112,6 +112,23 @@ assert program.get_plan()["steps"][0]["name"] == "qa"
 print("python-axflow-ok")
 `
 
+const pyFlowMermaidExample = `from axllm import flow
+
+
+source = """flowchart TD
+  %%ax classify: requestText:string -> route:class \"support, sales\"
+  %%ax reply: requestText:string -> replyText:string(max 300)
+  classify{route} -->|support| reply
+"""
+
+program = flow(source)
+rendered = str(program)
+assert "%%ax reply: requestText:string -> replyText:string(max 300)" in rendered
+assert "classify -->|support| reply" in rendered
+assert str(flow(rendered)) == rendered
+print("python-flow-mermaid-ok")
+`
+
 const pyRuntimeAdapterExample = `from axllm import AxCodeRuntime, AxCodeSession, RuntimeCapabilities, RuntimeEnvelope, agent
 
 
@@ -505,6 +522,25 @@ public final class AxFlowProgramGraphExample {
 }
 `
 
+const javaFlowMermaidExample = `import dev.axllm.ax.*;
+
+public class FlowMermaidExample {
+  public static void main(String[] args) {
+    String source = String.join("\n",
+        "flowchart TD",
+        "  %%ax classify: requestText:string -> route:class \"support, sales\"",
+        "  %%ax reply: requestText:string -> replyText:string(max 300)",
+        "  classify{route} -->|support| reply");
+    AxFlow program = Ax.flow(source);
+    String rendered = program.toString();
+    if (!rendered.contains("%%ax reply: requestText:string -> replyText:string(max 300)")) throw new AssertionError(rendered);
+    if (!rendered.contains("classify -->|support| reply")) throw new AssertionError(rendered);
+    if (!Ax.flow(rendered).toString().equals(rendered)) throw new AssertionError("round-trip changed");
+    System.out.println("java-flow-mermaid-ok");
+  }
+}
+`
+
 const javaRuntimeAdapterExample = `import dev.axllm.ax.*;
 import java.util.*;
 
@@ -779,6 +815,23 @@ int main() {
   if (!axllm::equal(axllm::Core::get(out, "answer"), "Paris")) return 1;
   if (!axllm::equal(axllm::Core::get(axllm::Core::get(axllm::Core::get(program.get_plan(), "steps"), 0), "name"), "qa")) return 2;
   std::cout << "cpp-axflow-ok\n";
+}
+`
+
+const cppFlowMermaidExample = `#include "axllm/axllm.hpp"
+#include <iostream>
+
+int main() {
+  const std::string source = R"(flowchart TD
+  %%ax classify: requestText:string -> route:class "support, sales"
+  %%ax reply: requestText:string -> replyText:string(max 300)
+  classify{route} -->|support| reply)";
+  auto program = axllm::flow(source);
+  const std::string rendered = program.str();
+  if (rendered.find("%%ax reply: requestText:string -> replyText:string(max 300)") == std::string::npos) return 1;
+  if (rendered.find("classify -->|support| reply") == std::string::npos) return 2;
+  if (axllm::flow(rendered).str() != rendered) return 3;
+  std::cout << "cpp-flow-mermaid-ok\n";
 }
 `
 

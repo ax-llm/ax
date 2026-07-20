@@ -29,8 +29,13 @@ This skill helps an agent write Python code with the generated Ax package `axllm
 ```python
 from axllm import flow
 
-wf = flow()
-# See examples/axflow_program_graph.py for node wiring.
+mermaid = """flowchart TD
+  %%ax classify: request:string -> route:class "support, sales"
+  classify{route}
+"""
+wf = flow(mermaid)
+print(wf)  # canonical portable Mermaid
+# See examples/flow_mermaid.py.
 ```
 
 ## Relevant API Surface

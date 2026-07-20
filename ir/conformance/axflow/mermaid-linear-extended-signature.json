@@ -1,0 +1,98 @@
+{
+  "kind": "flow_mermaid",
+  "name": "mermaid-linear-extended-signature",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "mermaid-linear-extended-signature",
+    "observed": {
+      "rendered": "flowchart TD\n  %%ax summarize: documentText:string -> summaryText:string(max 500) \"concise summary\"\n  %%ax format: summaryText:string -> finalReport:string\n\n  summarize[Summarize]\n  format[Format]\n  summarize --> format\n",
+      "rerendered": "flowchart TD\n  %%ax summarize: documentText:string -> summaryText:string(max 500) \"concise summary\"\n  %%ax format: summaryText:string -> finalReport:string\n\n  summarize[Summarize]\n  format[Format]\n  summarize --> format\n",
+      "plan": {
+        "totalSteps": 3,
+        "parallelGroups": 3,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "type": "execute",
+            "nodeName": "summarize",
+            "dependencies": ["documentText"],
+            "produces": ["summarizeResult"],
+            "stepIndex": 0,
+            "isBarrier": false
+          },
+          {
+            "type": "execute",
+            "nodeName": "format",
+            "dependencies": ["summarizeResult"],
+            "produces": ["formatResult"],
+            "stepIndex": 1,
+            "isBarrier": false
+          },
+          {
+            "type": "returns",
+            "dependencies": ["formatResult"],
+            "produces": ["finalReport"],
+            "stepIndex": 2,
+            "isBarrier": true
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "summarize",
+                "dependencies": ["documentText"],
+                "produces": ["summarizeResult"],
+                "stepIndex": 0,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "format",
+                "dependencies": ["summarizeResult"],
+                "produces": ["formatResult"],
+                "stepIndex": 1,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 2,
+            "steps": [
+              {
+                "type": "returns",
+                "dependencies": ["formatResult"],
+                "produces": ["finalReport"],
+                "stepIndex": 2,
+                "isBarrier": true
+              }
+            ]
+          }
+        ],
+        "autoParallelEnabled": true
+      }
+    }
+  },
+  "document": "flowchart TD\n  %%ax summarize: documentText:string -> summaryText:string(max 500) \"concise summary\"\n  %%ax format: summaryText:string -> finalReport:string\n  summarize[Summarize document] --> format([Format report])",
+  "condition_names": [],
+  "expected_rendered": "flowchart TD\n  %%ax summarize: documentText:string -> summaryText:string(max 500) \"concise summary\"\n  %%ax format: summaryText:string -> finalReport:string\n\n  summarize[Summarize]\n  format[Format]\n  summarize --> format\n",
+  "expected_rerendered": "flowchart TD\n  %%ax summarize: documentText:string -> summaryText:string(max 500) \"concise summary\"\n  %%ax format: summaryText:string -> finalReport:string\n\n  summarize[Summarize]\n  format[Format]\n  summarize --> format\n",
+  "expected_direction": "TD"
+}

@@ -39,6 +39,9 @@ var goAxFlowOpenAIExample string
 //go:embed templates/go/goAxFlowProgramGraphExample.go.txt
 var goAxFlowProgramGraphExample string
 
+//go:embed templates/go/goFlowMermaidExample.go.txt
+var goFlowMermaidExample string
+
 //go:embed templates/go/goAxGenOpenAIExample.go.txt
 var goAxGenOpenAIExample string
 
@@ -236,20 +239,28 @@ var javaAxMCPClient string
 
 //go:embed templates/mcp/javaAxEventEnvelope.java
 var javaAxEventEnvelope string
+
 //go:embed templates/mcp/javaAxEventRoute.java
 var javaAxEventRoute string
+
 //go:embed templates/mcp/javaAxEventCommand.java
 var javaAxEventCommand string
+
 //go:embed templates/mcp/javaAxEventSource.java
 var javaAxEventSource string
+
 //go:embed templates/mcp/javaAxEventSink.java
 var javaAxEventSink string
+
 //go:embed templates/mcp/javaAxEventClock.java
 var javaAxEventClock string
+
 //go:embed templates/mcp/javaAxEventStore.java
 var javaAxEventStore string
+
 //go:embed templates/mcp/javaAxEventRuntime.java
 var javaAxEventRuntime string
+
 //go:embed templates/mcp/javaAxMCPEventSource.java
 var javaAxMCPEventSource string
 
@@ -471,6 +482,9 @@ var rustAxFlowOpenAIExample string
 
 //go:embed templates/rust/rustAxFlowProgramGraphExample.rs
 var rustAxFlowProgramGraphExample string
+
+//go:embed templates/rust/rustFlowMermaidExample.rs
+var rustFlowMermaidExample string
 
 //go:embed templates/rust/rustAxGenOpenAIExample.rs
 var rustAxGenOpenAIExample string

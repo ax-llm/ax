@@ -30,10 +30,11 @@
     },
     "snippets": {
       "flow": [
-        "step := axllm.NewAx(\"request:string -> route:class \\\"support, sales, engineering\\\"\", nil)",
-        "program := axllm.NewFlow(map[string]axllm.Value{\"id\": \"supportRouter\"}).",
-        "    Execute(\"classify\", step, nil).",
-        "    Returns(map[string]axllm.Value{\"route\": \"classify\"})"
+        "mermaid := `flowchart TD",
+        "  %%ax classify: request:string -> route:class \"support, sales\"",
+        "  classify{route}`",
+        "program := axllm.NewFlow(mermaid)",
+        "fmt.Println(program.String())"
       ],
       "rlm": [
         "investigator := axllm.NewAgent(signature, map[string]axllm.Value{",
@@ -93,10 +94,11 @@
     ],
     "ax": ["answer := axllm.NewAx(\"question:string -> answer:string\", nil)"],
     "flow": [
-      "step := axllm.NewAx(\"request:string -> route:class \\\"support, sales, engineering\\\"\", nil)",
-      "program := axllm.NewFlow(map[string]axllm.Value{\"id\": \"supportRouter\"}).",
-      "    Execute(\"classify\", step, nil).",
-      "    Returns(map[string]axllm.Value{\"route\": \"classify\"})"
+      "mermaid := `flowchart TD",
+      "  %%ax classify: request:string -> route:class \"support, sales\"",
+      "  classify{route}`",
+      "program := axllm.NewFlow(mermaid)",
+      "fmt.Println(program.String())"
     ],
     "agent": [
       "helper := axllm.NewAgent(\"question:string -> answer:string\", nil)"

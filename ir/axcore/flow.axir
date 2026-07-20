@@ -572,6 +572,16 @@ module @ax.flow version "0.1" {
       }
       %kind = core.get %step["kind"] default "execute"
       %name = core.get %step["name"] default ""
+      %step_options_for_guard = core.get %step["options"] default %empty_map
+      %guard = core.get %step_options_for_guard["guard"] default null
+      %has_guard = core.call intrinsic.is_not_none(%guard)
+      core.if %has_guard {
+        %guard_matches = core.call @flow_evaluate_data_predicate(%guard, %state, false)
+        %skip_guarded_step = core.call intrinsic.not(%guard_matches)
+        core.if %skip_guarded_step {
+          core.return %state
+        }
+      }
       %location = core.call intrinsic.string.format("flow-step-{}", %name)
       core.call @flow_check_abort(%options, %location)
       %traces = core.get %flow["traces"]
@@ -601,7 +611,7 @@ module @ax.flow version "0.1" {
         %branch_value_default = core.get %step_options["value"] default false
         %branch_value = core.get %step_options["branchValue"] default %branch_value_default
         core.if %has_predicate {
-          %branch_value = core.call intrinsic.object.call_method(%predicate, "call", %state)
+          %branch_value = core.call @flow_evaluate_data_predicate(%predicate, %state, %branch_value)
         }
         %default_branches = core.list
         %branches = core.get %step_options["branches"] default %default_branches
@@ -632,7 +642,7 @@ module @ax.flow version "0.1" {
         core.loop {
           %condition_result = core.get %step_options["conditionResult"] default false
           core.if %has_condition {
-            %condition_result = core.call intrinsic.object.call_method(%condition, "call", %current)
+            %condition_result = core.call @flow_evaluate_data_predicate(%condition, %current, %condition_result)
           }
           %should_continue = core.call intrinsic.truthy(%condition_result)
           %done = core.call intrinsic.not(%should_continue)
@@ -672,7 +682,7 @@ module @ax.flow version "0.1" {
         core.loop {
           %condition_result = core.get %step_options["conditionResult"] default false
           core.if %has_condition {
-            %condition_result = core.call intrinsic.object.call_method(%condition, "call", %current)
+            %condition_result = core.call @flow_evaluate_data_predicate(%condition, %current, %condition_result)
           }
           %should_continue = core.call intrinsic.truthy(%condition_result)
           %done = core.call intrinsic.not(%should_continue)
@@ -1122,6 +1132,1253 @@ module @ax.flow version "0.1" {
       %run = core.call @prepare_optimizer_run("axflow", %components, %dataset, %options, %trace, %evaluator_available)
       %request = core.get %run["request"] default %empty_map
       core.return %request
+    }
+  }
+
+  op ax.flow.semantic @flow_evaluate_data_predicate {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(predicate:json, state:json, fallback:json) -> json throws"
+    body @entry(%predicate: json, %state: json, %fallback: json) {
+      %missing = core.call intrinsic.is_none(%predicate)
+      core.if %missing {
+        core.return %fallback
+      }
+      %has_node = core.call intrinsic.map.contains(%predicate, "nodeName")
+      %has_field = core.call intrinsic.map.contains(%predicate, "field")
+      %is_data = core.call intrinsic.and(%has_node, %has_field)
+      core.if %is_data {
+        %node = core.get %predicate["nodeName"] default ""
+        %field = core.get %predicate["field"] default ""
+        %result_key = core.call intrinsic.string.format("{}Result", %node)
+        %empty = core.map
+        %result = core.get %state[%result_key] default %empty
+        %value = core.get %result[%field] default null
+        %missing_nested = core.call intrinsic.is_none(%value)
+        core.if %missing_nested {
+          %value = core.get %state[%field] default null
+        }
+        %has_expected = core.call intrinsic.map.contains(%predicate, "value")
+        core.if %has_expected {
+          %expected = core.get %predicate["value"]
+          %expected_text = core.call intrinsic.string.lower(%expected)
+          %is_true = core.call intrinsic.eq(%expected_text, "true")
+          %is_false = core.call intrinsic.eq(%expected_text, "false")
+          core.if %is_true {
+            %actual = core.call intrinsic.truthy(%value)
+            core.return %actual
+          }
+          core.if %is_false {
+            %actual = core.call intrinsic.truthy(%value)
+            %actual = core.call intrinsic.not(%actual)
+            core.return %actual
+          }
+          %matches = core.call intrinsic.eq(%value, %expected)
+          core.return %matches
+        }
+        %truthy = core.call intrinsic.truthy(%value)
+        core.return %truthy
+      }
+      %called = core.call intrinsic.object.call_method(%predicate, "call", %state)
+      core.return %called
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_fail {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(message:string, line:i64) -> void throws"
+    body @entry(%message: string, %line: i64) {
+      %with_line = core.call intrinsic.string.format("{} (line {})", %message, %line)
+      %err = core.call intrinsic.error.runtime(%with_line)
+      core.raise %err
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_register_node {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(ast:json, id:string, shape:string, label:json, line:i64) -> json throws"
+    body @entry(%ast: json, %id: string, %shape: string, %label: json, %line: i64) {
+      %valid = core.regex_match %id pattern "^[A-Za-z_][A-Za-z0-9_]*$"
+      %invalid = core.call intrinsic.not(%valid)
+      core.if %invalid {
+        core.call @flow_mermaid_fail("Expected a node id", %line)
+      }
+      %nodes = core.get %ast["nodes"]
+      %known = core.call intrinsic.map.contains(%nodes, %id)
+      core.if %known {
+        %existing = core.get %nodes[%id]
+        %existing_label = core.get %existing["label"] default null
+        %missing_existing_label = core.call intrinsic.is_none(%existing_label)
+        %has_label = core.call intrinsic.is_not_none(%label)
+        %replace = core.call intrinsic.and(%missing_existing_label, %has_label)
+        core.if %replace {
+          core.set %existing["shape"] = %shape
+          core.set %existing["label"] = %label
+        }
+        core.return %existing
+      }
+      %node = core.map
+      core.set %node["id"] = %id
+      core.set %node["shape"] = %shape
+      core.set %node["label"] = %label
+      core.set %node["line"] = %line
+      core.set %nodes[%id] = %node
+      %order = core.get %ast["order"]
+      %index = core.call intrinsic.len(%order)
+      core.append %order, %id
+      %order_index = core.get %ast["orderIndex"]
+      core.set %order_index[%id] = %index
+      core.return %node
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_parse_node_ref {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(ast:json, text:string, line:i64) -> string throws"
+    body @entry(%ast: json, %text: string, %line: i64) {
+      %source = core.string_trim %text
+      %source_len = core.call intrinsic.len(%source)
+      %empty = core.call intrinsic.eq(%source_len, 0)
+      core.if %empty {
+        core.call @flow_mermaid_fail("Expected a node id", %line)
+      }
+      %split_at = core.let %source_len
+      %delimiters = core.list
+      core.append %delimiters, "["
+      core.append %delimiters, "("
+      core.append %delimiters, "{"
+      core.for %delimiter in %delimiters {
+        %candidate = core.call intrinsic.string.find_outside_quotes(%source, %delimiter)
+        %found = core.call intrinsic.gte(%candidate, 0)
+        %earlier = core.call intrinsic.lt(%candidate, %split_at)
+        %use = core.call intrinsic.and(%found, %earlier)
+        core.if %use {
+          %split_at = core.let %candidate
+        }
+      }
+      %id_raw = core.call intrinsic.string.slice(%source, 0, %split_at)
+      %id = core.string_trim %id_raw
+      %tail = core.call intrinsic.string.slice(%source, %split_at)
+      %tail = core.string_trim %tail
+      %shape = core.let "rect"
+      %label = core.call intrinsic.none()
+      %has_tail = core.call intrinsic.truthy(%tail)
+      core.if %has_tail {
+        %starts_round_bracket = core.call intrinsic.string.starts_with(%tail, "([")
+        %starts_double_round = core.call intrinsic.string.starts_with(%tail, "((")
+        %starts_round = core.call intrinsic.string.starts_with(%tail, "(")
+        %starts_rect = core.call intrinsic.string.starts_with(%tail, "[")
+        %starts_diamond = core.call intrinsic.string.starts_with(%tail, "{")
+        %group = core.map
+        core.if %starts_round {
+          %group = core.call intrinsic.string.extract_leading_group(%tail, "(", ")")
+          %shape = core.let "round"
+        } else {
+          core.if %starts_rect {
+            %group = core.call intrinsic.string.extract_leading_group(%tail, "[", "]")
+            %shape = core.let "rect"
+          } else {
+            core.if %starts_diamond {
+              %group = core.call intrinsic.string.extract_leading_group(%tail, "{", "}")
+              %shape = core.let "diamond"
+            } else {
+              core.call @flow_mermaid_fail("Unexpected content after node id", %line)
+            }
+          }
+        }
+        %balanced = core.get %group["balanced"] default false
+        %rest = core.get %group["rest"] default ""
+        %rest = core.string_trim %rest
+        %trailing = core.call intrinsic.truthy(%rest)
+        %bad = core.call intrinsic.not(%balanced)
+        %bad = core.call intrinsic.or(%bad, %trailing)
+        core.if %bad {
+          core.call @flow_mermaid_fail("Unexpected content after node shape", %line)
+        }
+        %label_text = core.get %group["group"] default ""
+        core.if %starts_round_bracket {
+          %shape = core.let "round"
+          %inner_len = core.call intrinsic.len(%label_text)
+          %inner_end = core.call intrinsic.add(%inner_len, -1)
+          %label_text = core.call intrinsic.string.slice(%label_text, 1, %inner_end)
+        }
+        core.if %starts_double_round {
+          %shape = core.let "rect"
+          %inner_len = core.call intrinsic.len(%label_text)
+          %inner_end = core.call intrinsic.add(%inner_len, -1)
+          %label_text = core.call intrinsic.string.slice(%label_text, 1, %inner_end)
+        }
+        %label_text = core.string_trim %label_text
+        %quoted_double = core.call intrinsic.string.starts_with(%label_text, "\"")
+        %quoted_single = core.call intrinsic.string.starts_with(%label_text, "'")
+        %quoted = core.call intrinsic.or(%quoted_double, %quoted_single)
+        core.if %quoted {
+          %label_len = core.call intrinsic.len(%label_text)
+          %label_end = core.call intrinsic.add(%label_len, -1)
+          %label_text = core.call intrinsic.string.slice(%label_text, 1, %label_end)
+        }
+        %label = core.let %label_text
+      }
+      %node = core.call @flow_mermaid_register_node(%ast, %id, %shape, %label, %line)
+      %is_diamond = core.call intrinsic.eq(%shape, "diamond")
+      core.if %is_diamond {
+        %tail_len = core.call intrinsic.len(%tail)
+        %close_index = core.call intrinsic.add(%tail_len, -1)
+        %open_brace = core.call intrinsic.string.slice(%tail, 0, 1)
+        %close_brace = core.call intrinsic.string.slice(%tail, %close_index)
+        core.set %node["open"] = %open_brace
+        core.set %node["close"] = %close_brace
+      }
+      core.return %id
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_parse_group {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(ast:json, text:string, line:i64) -> list<string> throws"
+    body @entry(%ast: json, %text: string, %line: i64) {
+      %parts = core.call intrinsic.string.split_top_level(%text, "&")
+      %ids = core.list
+      core.for %part in %parts {
+        %id = core.call @flow_mermaid_parse_node_ref(%ast, %part, %line)
+        core.append %ids, %id
+      }
+      core.return %ids
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_parse {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(text:string) -> json throws"
+    body @entry(%text: string) {
+      %ast = core.map
+      %directives = core.map
+      %directive_order = core.list
+      %nodes = core.map
+      %order = core.list
+      %order_index = core.map
+      %edges = core.list
+      core.set %ast["direction"] = "TD"
+      core.set %ast["directives"] = %directives
+      core.set %ast["directiveOrder"] = %directive_order
+      core.set %ast["nodes"] = %nodes
+      core.set %ast["order"] = %order
+      core.set %ast["orderIndex"] = %order_index
+      core.set %ast["edges"] = %edges
+      %saw_header = core.let false
+      %lines = core.call intrinsic.string.split(%text, "\n")
+      %line_number = core.let 0
+      core.for %raw in %lines {
+        %line_number = core.call intrinsic.add(%line_number, 1)
+        %line = core.string_trim %raw
+        %is_empty = core.call intrinsic.eq(%line, "")
+        core.if %is_empty {
+        } else {
+          %is_ax = core.regex_match %line pattern "^%%ax\\s+"
+          %is_comment = core.regex_match %line pattern "^%%"
+          core.if %is_ax {
+            %percent = core.call intrinsic.string.slice(%line, 0, 1)
+            core.set %ast["percent"] = %percent
+            %directive_body = core.call intrinsic.string.slice(%line, 5)
+            %parts = core.call intrinsic.string.split_once(%directive_body, ":")
+            %found_colon = core.get %parts["found"] default false
+            core.if %found_colon {
+            } else {
+              core.call @flow_mermaid_fail("Invalid Ax directive", %line_number)
+            }
+            %id = core.get %parts["left"] default ""
+            %id = core.string_trim %id
+            %sig = core.get %parts["right"] default ""
+            %sig = core.string_trim %sig
+            %valid_id = core.regex_match %id pattern "^[A-Za-z_][A-Za-z0-9_]*$"
+            %invalid_id = core.call intrinsic.not(%valid_id)
+            core.if %invalid_id {
+              core.call @flow_mermaid_fail("Invalid Ax directive node id", %line_number)
+            }
+            %duplicate = core.call intrinsic.map.contains(%directives, %id)
+            core.if %duplicate {
+              %message = core.call intrinsic.string.format("Duplicate Ax directive for node \"{}\"", %id)
+              core.call @flow_mermaid_fail(%message, %line_number)
+            }
+            core.set %directives[%id] = %sig
+            core.append %directive_order, %id
+          } else {
+            core.if %is_comment {
+            } else {
+              %is_flowchart = core.call intrinsic.string.starts_with(%line, "flowchart ")
+              %is_graph = core.call intrinsic.string.starts_with(%line, "graph ")
+              %is_header = core.call intrinsic.or(%is_flowchart, %is_graph)
+              core.if %is_header {
+                core.if %saw_header {
+                  core.call @flow_mermaid_fail("Multiple flowchart headers", %line_number)
+                }
+                %words = core.call intrinsic.string.words(%line)
+                %direction = core.call intrinsic.list.get(%words, 1, "")
+                %is_td = core.call intrinsic.eq(%direction, "TD")
+                %is_lr = core.call intrinsic.eq(%direction, "LR")
+                %is_bt = core.call intrinsic.eq(%direction, "BT")
+                %is_rl = core.call intrinsic.eq(%direction, "RL")
+                %supported_a = core.call intrinsic.or(%is_td, %is_lr)
+                %supported_b = core.call intrinsic.or(%is_bt, %is_rl)
+                %supported = core.call intrinsic.or(%supported_a, %supported_b)
+                %unsupported = core.call intrinsic.not(%supported)
+                core.if %unsupported {
+                  core.call @flow_mermaid_fail("Unsupported flowchart direction", %line_number)
+                }
+                core.set %ast["direction"] = %direction
+                %saw_header = core.let true
+              } else {
+                core.if %saw_header {
+                } else {
+                  core.call @flow_mermaid_fail("Missing flowchart header", %line_number)
+                }
+                %unsupported_construct = core.regex_match %line pattern "^(subgraph\\b|end\\b|style\\b|classDef\\b|class\\b|linkStyle\\b|click\\b|direction\\b)"
+                core.if %unsupported_construct {
+                  core.call @flow_mermaid_fail("Unsupported mermaid construct", %line_number)
+                }
+                %unsupported_arrow = core.regex_match %line pattern "(-\\.+->|={2,}>|---|~~~)"
+                core.if %unsupported_arrow {
+                  core.call @flow_mermaid_fail("Unsupported arrow syntax", %line_number)
+                }
+                %segments = core.call intrinsic.string.split_top_level(%line, "-->")
+                %segment_count = core.call intrinsic.len(%segments)
+                %from_text = core.call intrinsic.list.get(%segments, 0, "")
+                %from_ids = core.call @flow_mermaid_parse_group(%ast, %from_text, %line_number)
+                %segment_index = core.let 1
+                core.loop {
+                  %done = core.call intrinsic.gte(%segment_index, %segment_count)
+                  core.if %done {
+                    core.break
+                  }
+                  %segment = core.call intrinsic.list.get(%segments, %segment_index, "")
+                  %segment = core.string_trim %segment
+                  %label = core.call intrinsic.none()
+                  %has_label = core.call intrinsic.string.starts_with(%segment, "|")
+                  core.if %has_label {
+                    %after_bar = core.call intrinsic.string.slice(%segment, 1)
+                    %label_parts = core.call intrinsic.string.split_once(%after_bar, "|")
+                    %label_closed = core.get %label_parts["found"] default false
+                    core.if %label_closed {
+                    } else {
+                      core.call @flow_mermaid_fail("Unterminated edge label", %line_number)
+                    }
+                    %label = core.get %label_parts["left"] default ""
+                    %label = core.string_trim %label
+                    %segment = core.get %label_parts["right"] default ""
+                    %segment = core.string_trim %segment
+                  }
+                  %to_ids = core.call @flow_mermaid_parse_group(%ast, %segment, %line_number)
+                  core.for %from_node in %from_ids {
+                    core.for %to in %to_ids {
+                      %edge = core.map
+                      core.set %edge["from"] = %from_node
+                      core.set %edge["to"] = %to
+                      core.set %edge["label"] = %label
+                      core.set %edge["line"] = %line_number
+                      core.append %edges, %edge
+                    }
+                  }
+                  %from_ids = core.let %to_ids
+                  %segment_index = core.call intrinsic.add(%segment_index, 1)
+                }
+              }
+            }
+          }
+        }
+      }
+      core.if %saw_header {
+      } else {
+        core.call @flow_mermaid_fail("Missing flowchart header", 1)
+      }
+      %node_count = core.call intrinsic.len(%order)
+      %no_nodes = core.call intrinsic.eq(%node_count, 0)
+      core.if %no_nodes {
+        core.call @flow_mermaid_fail("No nodes found in the diagram", 1)
+      }
+      core.return %ast
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_reachable {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(start:string, target:string, edges:list<json>) -> bool"
+    body @entry(%start: string, %target: string, %edges: json) {
+      %queue = core.list
+      core.append %queue, %start
+      %seen = core.map
+      core.set %seen[%start] = true
+      %index = core.let 0
+      core.loop {
+        %count = core.call intrinsic.len(%queue)
+        %done = core.call intrinsic.gte(%index, %count)
+        core.if %done {
+          core.break
+        }
+        %current = core.call intrinsic.list.get(%queue, %index, "")
+        %index = core.call intrinsic.add(%index, 1)
+        core.for %edge in %edges {
+          %from_node = core.get %edge["from"] default ""
+          %matches = core.call intrinsic.eq(%from_node, %current)
+          core.if %matches {
+            %to = core.get %edge["to"] default ""
+            %found = core.call intrinsic.eq(%to, %target)
+            core.if %found {
+              core.return true
+            }
+            %known = core.call intrinsic.map.contains(%seen, %to)
+            %is_new = core.call intrinsic.not(%known)
+            core.if %is_new {
+              core.set %seen[%to] = true
+              core.append %queue, %to
+            }
+          }
+        }
+      }
+      core.return false
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_topological_order {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(document_order:list<string>, edges:list<json>) -> list<string> throws"
+    body @entry(%document_order: json, %edges: json) {
+      %result = core.list
+      %processed = core.map
+      %total = core.call intrinsic.len(%document_order)
+      core.loop {
+        %count = core.call intrinsic.len(%result)
+        %done = core.call intrinsic.gte(%count, %total)
+        core.if %done {
+          core.break
+        }
+        %progress = core.let false
+        core.for %id in %document_order {
+          %known = core.call intrinsic.map.contains(%processed, %id)
+          core.if %known {
+          } else {
+            %ready = core.let true
+            core.for %edge in %edges {
+              %to = core.get %edge["to"] default ""
+              %incoming = core.call intrinsic.eq(%to, %id)
+              core.if %incoming {
+                %parent = core.get %edge["from"] default ""
+                %parent_done = core.call intrinsic.map.contains(%processed, %parent)
+                %waiting = core.call intrinsic.not(%parent_done)
+                core.if %waiting {
+                  %ready = core.let false
+                }
+              }
+            }
+            core.if %ready {
+              core.set %processed[%id] = true
+              core.append %result, %id
+              %progress = core.let true
+            }
+          }
+        }
+        core.if %progress {
+        } else {
+          core.call @flow_mermaid_fail("Cycle without a classified back-edge", 1)
+        }
+      }
+      core.return %result
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_decision {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(node:string, ast:json, infos:json) -> json throws"
+    body @entry(%node: string, %ast: json, %infos: json) {
+      %empty = core.map
+      %info = core.get %infos[%node] default %empty
+      %signature = core.get %info["signature"] default null
+      %missing_signature = core.call intrinsic.is_none(%signature)
+      core.if %missing_signature {
+        %message = core.call intrinsic.string.format("Decision node \"{}\" needs an Ax signature directive", %node)
+        core.call @flow_mermaid_fail(%message, 1)
+      }
+      %outputs = core.get %info["outputs"] default null
+      %nodes = core.get %ast["nodes"]
+      %node_ast = core.get %nodes[%node]
+      %shape = core.get %node_ast["shape"] default "rect"
+      %is_diamond = core.call intrinsic.eq(%shape, "diamond")
+      %field_name = core.let ""
+      core.if %is_diamond {
+        %field_name = core.get %node_ast["label"] default ""
+      } else {
+        %candidate_count = core.let 0
+        core.for %field in %outputs {
+          %type = core.get %field["type"]
+          %type_name = core.get %type["name"] default ""
+          %is_class = core.call intrinsic.eq(%type_name, "class")
+          %is_boolean = core.call intrinsic.eq(%type_name, "boolean")
+          %eligible = core.call intrinsic.or(%is_class, %is_boolean)
+          core.if %eligible {
+            %candidate_count = core.call intrinsic.add(%candidate_count, 1)
+            %field_name = core.get %field["name"] default ""
+          }
+        }
+        %one = core.call intrinsic.eq(%candidate_count, 1)
+        core.if %one {
+        } else {
+          %message = core.call intrinsic.string.format("Cannot infer decision field for node \"{}\"", %node)
+          core.call @flow_mermaid_fail(%message, 1)
+        }
+      }
+      %chosen = core.call intrinsic.none()
+      core.for %field in %outputs {
+        %name = core.get %field["name"] default ""
+        %matches = core.call intrinsic.eq(%name, %field_name)
+        core.if %matches {
+          %chosen = core.let %field
+        }
+      }
+      %missing = core.call intrinsic.is_none(%chosen)
+      core.if %missing {
+        %message = core.call intrinsic.string.format("Decision field \"{}\" is not an output of node \"{}\"", %field_name, %node)
+        core.call @flow_mermaid_fail(%message, 1)
+      }
+      %type = core.get %chosen["type"]
+      %decision = core.map
+      core.set %decision["nodeName"] = %node
+      core.set %decision["field"] = %field_name
+      %decision_type = core.get %type["name"] default ""
+      core.set %decision["type"] = %decision_type
+      %empty_options = core.list
+      %decision_options = core.get %type["options"] default %empty_options
+      core.set %decision["options"] = %decision_options
+      core.return %decision
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_guards_compatible {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(nodes:list<string>, guards:json) -> bool"
+    body @entry(%nodes: json, %guards: json) {
+      %count = core.call intrinsic.len(%nodes)
+      %enough = core.call intrinsic.gt(%count, 1)
+      core.if %enough {
+      } else {
+        core.return false
+      }
+      %first_node = core.call intrinsic.list.get(%nodes, 0, "")
+      %first = core.get %guards[%first_node] default null
+      %missing_first = core.call intrinsic.is_none(%first)
+      core.if %missing_first {
+        core.return false
+      }
+      %owner = core.get %first["nodeName"] default ""
+      %field = core.get %first["field"] default ""
+      %values = core.map
+      core.for %node in %nodes {
+        %guard = core.get %guards[%node] default null
+        %missing = core.call intrinsic.is_none(%guard)
+        core.if %missing {
+          core.return false
+        }
+        %guard_owner = core.get %guard["nodeName"] default ""
+        %guard_field = core.get %guard["field"] default ""
+        %same_owner = core.call intrinsic.eq(%guard_owner, %owner)
+        %same_field = core.call intrinsic.eq(%guard_field, %field)
+        %same = core.call intrinsic.and(%same_owner, %same_field)
+        %different = core.call intrinsic.not(%same)
+        core.if %different {
+          core.return false
+        }
+        %value = core.get %guard["value"] default null
+        %value_key = core.call intrinsic.string.str(%value)
+        %duplicate = core.call intrinsic.map.contains(%values, %value_key)
+        core.if %duplicate {
+          core.return false
+        }
+        core.set %values[%value_key] = true
+      }
+      core.return true
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_execute_step {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(info:json, guard:json) -> json throws"
+    body @entry(%info: json, %guard: json) {
+      %name = core.get %info["id"] default ""
+      %program = core.get %info["program"] default null
+      %kind = core.get %info["kind"] default "execute"
+      %options = core.map
+      %reads = core.get %info["reads"]
+      %resolved_reads = core.list
+      core.for %read in %reads {
+        core.append %resolved_reads, %read
+      }
+      %writes = core.list
+      %result_key = core.call intrinsic.string.format("{}Result", %name)
+      core.append %writes, %result_key
+      core.set %options["writes"] = %writes
+      %signature_text = core.get %info["signatureText"] default ""
+      %has_signature = core.call intrinsic.truthy(%signature_text)
+      core.if %has_signature {
+        core.set %options["signatureText"] = %signature_text
+      }
+      %has_guard = core.call intrinsic.is_not_none(%guard)
+      core.if %has_guard {
+        core.set %options["guard"] = %guard
+        %guard_node = core.get %guard["nodeName"] default ""
+        %guard_read = core.call intrinsic.string.format("{}Result", %guard_node)
+        %has_guard_read = core.call intrinsic.contains(%resolved_reads, %guard_read)
+        %missing_guard_read = core.call intrinsic.not(%has_guard_read)
+        core.if %missing_guard_read {
+          core.append %resolved_reads, %guard_read
+        }
+      }
+      core.set %options["reads"] = %resolved_reads
+      %step = core.call @flow_step(%kind, %name, %program, %options)
+      %meta = core.map
+      core.set %meta["kind"] = %kind
+      core.set %meta["nodeName"] = %name
+      core.set %step["meta"] = %meta
+      core.return %step
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_parse_max {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(label:string, fallback:i64) -> i64 throws"
+    body @entry(%label: string, %fallback: i64) {
+      %parts = core.call intrinsic.string.split_trim_nonempty(%label, ",")
+      %max = core.let %fallback
+      core.for %part in %parts {
+        %starts = core.call intrinsic.string.starts_with(%part, "max ")
+        core.if %starts {
+          %raw = core.call intrinsic.string.slice(%part, 4)
+          %parsed = core.call intrinsic.json.parse(%raw)
+          %max = core.let %parsed
+        }
+      }
+      core.return %max
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_compile {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(ast:json, bindings:json) -> json throws"
+    body @entry(%ast: json, %bindings: json) {
+      %empty_map = core.map
+      %empty_list = core.list
+      %opts = core.get %bindings["options"] default %empty_map
+      %flow = core.call @flow_factory(%opts)
+      %order = core.get %ast["order"]
+      %order_index = core.get %ast["orderIndex"]
+      %edges = core.get %ast["edges"]
+      %directives = core.get %ast["directives"]
+      %node_bindings = core.get %bindings["nodes"] default %empty_map
+      %conditions = core.get %bindings["conditions"] default %empty_map
+      %forward_edges = core.list
+      %back_edges = core.list
+      core.for %edge in %edges {
+        %from_node = core.get %edge["from"]
+        %to = core.get %edge["to"]
+        %from_index = core.get %order_index[%from_node]
+        %to_index = core.get %order_index[%to]
+        %points_backward = core.call intrinsic.gte(%from_index, %to_index)
+        %closes_cycle = core.call @flow_mermaid_reachable(%to, %from_node, %edges)
+        %is_back = core.call intrinsic.and(%points_backward, %closes_cycle)
+        core.if %is_back {
+          %label = core.get %edge["label"] default null
+          %missing_label = core.call intrinsic.is_none(%label)
+          core.if %missing_label {
+            %message = core.call intrinsic.string.format("Back-edges need a label: {} --> {}", %from_node, %to)
+            %edge_line_number = core.get %edge["line"] default 1
+            core.call @flow_mermaid_fail(%message, %edge_line_number)
+          }
+          core.append %back_edges, %edge
+        } else {
+          core.append %forward_edges, %edge
+        }
+      }
+      %compile_order = core.call @flow_mermaid_topological_order(%order, %forward_edges)
+      %compile_order_index = core.map
+      %compile_index = core.let 0
+      core.for %compile_id in %compile_order {
+        core.set %compile_order_index[%compile_id] = %compile_index
+        %compile_index = core.call intrinsic.add(%compile_index, 1)
+      }
+      core.set %ast["compileOrder"] = %compile_order
+      %infos = core.map
+      %producers = core.map
+      %missing_nodes = core.list
+      core.for %id in %compile_order {
+        %has_directive = core.call intrinsic.map.contains(%directives, %id)
+        %has_binding = core.call intrinsic.map.contains(%node_bindings, %id)
+        %resolved = core.call intrinsic.or(%has_directive, %has_binding)
+        core.if %resolved {
+        } else {
+          core.append %missing_nodes, %id
+        }
+        %info = core.map
+        %info_reads = core.list
+        core.set %info["id"] = %id
+        core.set %info["kind"] = "execute"
+        core.set %info["reads"] = %info_reads
+        %signature_text = core.get %directives[%id] default ""
+        core.set %info["signatureText"] = %signature_text
+        %program = core.get %node_bindings[%id] default %signature_text
+        core.set %info["program"] = %program
+        %missing_directive = core.call intrinsic.not(%has_directive)
+        %binding_only = core.call intrinsic.and(%has_binding, %missing_directive)
+        core.if %binding_only {
+          core.set %info["kind"] = "map"
+        }
+        core.if %has_directive {
+          %signature = core.call @parse_signature(%signature_text)
+          core.set %info["signature"] = %signature
+          %inputs = core.call @signature_input_fields(%signature)
+          %outputs = core.call @signature_output_fields(%signature)
+          core.set %info["inputs"] = %inputs
+          core.set %info["outputs"] = %outputs
+          core.for %field in %outputs {
+            %field_name = core.get %field["name"] default ""
+            %field_producers = core.get %producers[%field_name] default null
+            %missing_field_producers = core.call intrinsic.is_none(%field_producers)
+            core.if %missing_field_producers {
+              %field_producers = core.list
+              core.set %producers[%field_name] = %field_producers
+            }
+            core.append %field_producers, %id
+          }
+        }
+        core.set %infos[%id] = %info
+      }
+      %missing_count = core.call intrinsic.len(%missing_nodes)
+      %has_missing = core.call intrinsic.gt(%missing_count, 0)
+      core.if %has_missing {
+        %joined = core.call intrinsic.string.join(", ", %missing_nodes)
+        %message = core.call intrinsic.string.format("No signature for node(s): {}", %joined)
+        core.call @flow_mermaid_fail(%message, 1)
+      }
+
+      %guards = core.map
+      core.for %edge in %forward_edges {
+        %label = core.get %edge["label"] default null
+        %has_label = core.call intrinsic.is_not_none(%label)
+        core.if %has_label {
+          %starts_if = core.call intrinsic.string.starts_with(%label, "if ")
+          %starts_while = core.call intrinsic.string.starts_with(%label, "while ")
+          %reserved = core.call intrinsic.or(%starts_if, %starts_while)
+          core.if %reserved {
+            %edge_line_number = core.get %edge["line"] default 1
+            core.call @flow_mermaid_fail("if/while labels are only valid on back-edges", %edge_line_number)
+          }
+          %from_node = core.get %edge["from"]
+          %decision = core.call @flow_mermaid_decision(%from_node, %ast, %infos)
+          %type = core.get %decision["type"] default ""
+          %is_class = core.call intrinsic.eq(%type, "class")
+          core.if %is_class {
+            %options = core.get %decision["options"] default %empty_list
+            %valid_option = core.call intrinsic.contains(%options, %label)
+            %invalid_option = core.call intrinsic.not(%valid_option)
+            core.if %invalid_option {
+              %field = core.get %decision["field"] default ""
+              %message = core.call intrinsic.string.format("\"{}\" is not an option of \"{}.{}\"", %label, %from_node, %field)
+              %edge_line_number = core.get %edge["line"] default 1
+              core.call @flow_mermaid_fail(%message, %edge_line_number)
+            }
+          }
+          core.set %decision["value"] = %label
+          %to = core.get %edge["to"]
+          core.set %guards[%to] = %decision
+        }
+      }
+      core.for %id in %compile_order {
+        %already_guarded = core.call intrinsic.map.contains(%guards, %id)
+        core.if %already_guarded {
+        } else {
+          %incoming = core.list
+          core.for %edge in %forward_edges {
+            %to = core.get %edge["to"] default ""
+            %matches = core.call intrinsic.eq(%to, %id)
+            core.if %matches {
+              %incoming_from = core.get %edge["from"] default ""
+              core.append %incoming, %incoming_from
+            }
+          }
+          %incoming_count = core.call intrinsic.len(%incoming)
+          %one_incoming = core.call intrinsic.eq(%incoming_count, 1)
+          core.if %one_incoming {
+            %parent = core.call intrinsic.list.get(%incoming, 0, "")
+            %parent_guard = core.get %guards[%parent] default null
+            %has_parent_guard = core.call intrinsic.is_not_none(%parent_guard)
+            core.if %has_parent_guard {
+              core.set %guards[%id] = %parent_guard
+            }
+          }
+        }
+      }
+
+      %natural_inputs = core.map
+      core.for %id in %compile_order {
+        %info = core.get %infos[%id]
+        %signature = core.get %info["signature"] default null
+        %has_signature = core.call intrinsic.is_not_none(%signature)
+        core.if %has_signature {
+          %inputs = core.get %info["inputs"] default %empty_list
+          %reads = core.list
+          core.for %field in %inputs {
+            %field_name = core.get %field["name"] default ""
+            %all_producers = core.get %producers[%field_name] default %empty_list
+            %upstream = core.list
+            core.for %producer in %all_producers {
+              %not_self = core.call intrinsic.ne(%producer, %id)
+              core.if %not_self {
+                %reachable = core.call @flow_mermaid_reachable(%producer, %id, %forward_edges)
+                core.if %reachable {
+                  core.append %upstream, %producer
+                }
+              }
+            }
+            %upstream_count = core.call intrinsic.len(%upstream)
+            %ambiguous = core.call intrinsic.gt(%upstream_count, 1)
+            core.if %ambiguous {
+              %compatible = core.call @flow_mermaid_guards_compatible(%upstream, %guards)
+              %bad_ambiguity = core.call intrinsic.not(%compatible)
+              core.if %bad_ambiguity {
+                %a = core.call intrinsic.list.get(%upstream, 0, "")
+                %b = core.call intrinsic.list.get(%upstream, 1, "")
+                %pair = core.call intrinsic.string.format("{} and {}", %a, %b)
+                %message = core.call intrinsic.string.format("Input \"{}\" of node \"{}\" is produced by {} at the same distance", %field_name, %id, %pair)
+                core.call @flow_mermaid_fail(%message, 1)
+              }
+            }
+            %has_upstream = core.call intrinsic.gt(%upstream_count, 0)
+            core.if %has_upstream {
+              core.for %producer in %upstream {
+                %read = core.call intrinsic.string.format("{}Result", %producer)
+                core.append %reads, %read
+              }
+            } else {
+              %producer_count = core.call intrinsic.len(%all_producers)
+              %has_other_producer = core.call intrinsic.gt(%producer_count, 0)
+              core.if %has_other_producer {
+                %producer = core.call intrinsic.list.get(%all_producers, 0, "")
+                %same_only = core.call intrinsic.eq(%producer, %id)
+                core.if %same_only {
+                  core.set %natural_inputs[%field_name] = %field
+                } else {
+                  %message = core.call intrinsic.string.format("\"{}\" of node \"{}\" is produced by \"{}\" which is not upstream", %field_name, %id, %producer)
+                  core.call @flow_mermaid_fail(%message, 1)
+                }
+              } else {
+                core.set %natural_inputs[%field_name] = %field
+              }
+            }
+          }
+          core.set %info["reads"] = %reads
+        }
+      }
+
+      %self_while = core.map
+      core.for %edge in %back_edges {
+        %from_node = core.get %edge["from"]
+        %to = core.get %edge["to"]
+        %label = core.get %edge["label"] default ""
+        %parts = core.call intrinsic.string.split_trim_nonempty(%label, ",")
+        %main = core.call intrinsic.list.get(%parts, 0, "")
+        %is_while = core.call intrinsic.string.starts_with(%main, "while ")
+        %self = core.call intrinsic.eq(%from_node, %to)
+        %self_loop = core.call intrinsic.and(%is_while, %self)
+        core.if %self_loop {
+          core.set %self_while[%from_node] = %edge
+        }
+      }
+
+      %steps = core.get %flow["steps"]
+      %loop_index = core.let 0
+      core.for %id in %compile_order {
+        %info = core.get %infos[%id]
+        %guard = core.get %guards[%id] default null
+        %has_self_while = core.call intrinsic.map.contains(%self_while, %id)
+        core.if %has_self_while {
+        } else {
+          %step = core.call @flow_mermaid_execute_step(%info, %guard)
+          core.append %steps, %step
+        }
+        core.for %edge in %back_edges {
+          %from_node = core.get %edge["from"]
+          %matches_source = core.call intrinsic.eq(%from_node, %id)
+          core.if %matches_source {
+            %loop_index = core.call intrinsic.add(%loop_index, 1)
+            %to = core.get %edge["to"]
+            %label = core.get %edge["label"] default ""
+            %label_parts = core.call intrinsic.string.split_trim_nonempty(%label, ",")
+            %main = core.call intrinsic.list.get(%label_parts, 0, "")
+            %is_while = core.call intrinsic.string.starts_with(%main, "while ")
+            %is_if = core.call intrinsic.string.starts_with(%main, "if ")
+            %loop_kind = core.let "feedback"
+            %fallback_max = core.let 10
+            core.if %is_while {
+              %loop_kind = core.let "while"
+              %fallback_max = core.let 100
+            }
+            %max = core.call @flow_mermaid_parse_max(%label, %fallback_max)
+            %body = core.list
+            %to_index = core.get %compile_order_index[%to]
+            %from_index = core.get %compile_order_index[%from_node]
+            core.for %body_id in %compile_order {
+              %body_index = core.get %compile_order_index[%body_id]
+              %after_start = core.call intrinsic.gte(%body_index, %to_index)
+              %before_end = core.call intrinsic.lte(%body_index, %from_index)
+              %in_body = core.call intrinsic.and(%after_start, %before_end)
+              core.if %in_body {
+                %body_info = core.get %infos[%body_id]
+                %body_guard = core.get %guards[%body_id] default null
+                %body_step = core.call @flow_mermaid_execute_step(%body_info, %body_guard)
+                core.append %body, %body_step
+              }
+            }
+            %loop_options = core.map
+            core.set %loop_options["steps"] = %body
+            core.set %loop_options["maxIterations"] = %max
+            core.set %loop_options["label"] = %to
+            %meta = core.map
+            core.set %meta["kind"] = %loop_kind
+            core.set %meta["maxIterations"] = %max
+            core.set %meta["target"] = %to
+            core.if %is_while {
+              %condition_name = core.call intrinsic.string.slice(%main, 6)
+              %condition_name = core.string_trim %condition_name
+              %condition = core.get %conditions[%condition_name] default null
+              %missing_condition = core.call intrinsic.is_none(%condition)
+              core.if %missing_condition {
+                %message = core.call intrinsic.string.format("Missing condition binding \"{}\"", %condition_name)
+                %edge_line_number = core.get %edge["line"] default 1
+                core.call @flow_mermaid_fail(%message, %edge_line_number)
+              }
+              core.set %loop_options["condition"] = %condition
+              core.set %loop_options["conditionName"] = %condition_name
+              core.set %meta["conditionName"] = %condition_name
+            } else {
+              core.if %is_if {
+                %condition_name = core.call intrinsic.string.slice(%main, 3)
+                %condition_name = core.string_trim %condition_name
+                %condition = core.get %conditions[%condition_name] default null
+                %missing_condition = core.call intrinsic.is_none(%condition)
+                core.if %missing_condition {
+                  %message = core.call intrinsic.string.format("Missing condition binding \"{}\"", %condition_name)
+                  %edge_line_number = core.get %edge["line"] default 1
+                  core.call @flow_mermaid_fail(%message, %edge_line_number)
+                }
+                core.set %loop_options["condition"] = %condition
+                core.set %loop_options["conditionName"] = %condition_name
+                core.set %meta["conditionName"] = %condition_name
+              } else {
+                %decision = core.call @flow_mermaid_decision(%from_node, %ast, %infos)
+                core.set %decision["value"] = %main
+                core.set %loop_options["condition"] = %decision
+                core.set %loop_options["decision"] = %decision
+                core.set %meta["decision"] = %decision
+              }
+            }
+            %loop_name = core.call intrinsic.string.format("{}{}", %loop_kind, %loop_index)
+            %loop_step = core.call @flow_step(%loop_kind, %loop_name, null, %loop_options)
+            core.set %loop_step["meta"] = %meta
+            core.append %steps, %loop_step
+          }
+        }
+      }
+
+      %terminal_fields = core.map
+      %returns = core.map
+      core.for %id in %compile_order {
+        %has_outgoing = core.let false
+        core.for %edge in %forward_edges {
+          %from_node = core.get %edge["from"] default ""
+          %matches = core.call intrinsic.eq(%from_node, %id)
+          core.if %matches {
+            %has_outgoing = core.let true
+          }
+        }
+        core.if %has_outgoing {
+        } else {
+          %info = core.get %infos[%id]
+          %signature = core.get %info["signature"] default null
+          %has_signature = core.call intrinsic.is_not_none(%signature)
+          core.if %has_signature {
+            %outputs = core.get %info["outputs"] default %empty_list
+            core.for %field in %outputs {
+              %name = core.get %field["name"] default ""
+              %duplicate = core.call intrinsic.map.contains(%terminal_fields, %name)
+              core.if %duplicate {
+                %message = core.call intrinsic.string.format("Output field \"{}\" is produced by multiple terminal nodes", %name)
+                core.call @flow_mermaid_fail(%message, 1)
+              }
+              core.set %terminal_fields[%name] = %field
+              %path = core.call intrinsic.string.format("{}Result.{}", %id, %name)
+              core.set %returns[%name] = %path
+            }
+          }
+        }
+      }
+      core.set %flow["returns"] = %returns
+      core.set %flow["mermaidAst"] = %ast
+      core.set %flow["mermaidBindings"] = %bindings
+      core.set %flow["mermaidInputFields"] = %natural_inputs
+      core.set %flow["mermaidOutputFields"] = %terminal_fields
+      core.return %flow
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_render_ast {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(ast:json, options:json) -> string throws"
+    body @entry(%ast: json, %options: json) {
+      %empty_map = core.map
+      %opts_missing = core.call intrinsic.is_none(%options)
+      %opts = core.let %options
+      core.if %opts_missing {
+        %opts = core.let %empty_map
+      }
+      %direction = core.get %opts["direction"] default "TD"
+      %lines = core.list
+      %header = core.call intrinsic.string.format("flowchart {}", %direction)
+      core.append %lines, %header
+      %directives = core.get %ast["directives"]
+      %directive_order = core.get %ast["directiveOrder"]
+      %percent = core.get %ast["percent"] default ""
+      core.for %id in %directive_order {
+        %signature_text = core.get %directives[%id]
+        %signature = core.call @parse_signature(%signature_text)
+        %canonical = core.call @signature_to_string(%signature)
+        %prefix = core.call intrinsic.string.format("{}{}ax", %percent, %percent)
+        %directive = core.call intrinsic.string.format("  {} {}: {}", %prefix, %id, %canonical)
+        core.append %lines, %directive
+      }
+      core.append %lines, ""
+      %nodes = core.get %ast["nodes"]
+      %order = core.get %ast["order"]
+      %compile_order = core.get %ast["compileOrder"] default %order
+      %order_index = core.get %ast["orderIndex"]
+      %edges = core.get %ast["edges"]
+      core.for %id in %compile_order {
+        %node = core.get %nodes[%id]
+        %shape = core.get %node["shape"] default "rect"
+        %label = core.get %node["label"] default null
+        %is_diamond = core.call intrinsic.eq(%shape, "diamond")
+        core.if %is_diamond {
+        } else {
+          %spaced_title = core.call intrinsic.string.title_from_camel(%id)
+          %lower_title = core.call intrinsic.string.lower(%spaced_title)
+          %label = core.call intrinsic.string.title_from_camel(%lower_title)
+        }
+        %statement = core.call intrinsic.string.format("  {}[{}]", %id, %label)
+        core.if %is_diamond {
+          %open_brace = core.get %node["open"] default ""
+          %close_brace = core.get %node["close"] default ""
+          %wrapped = core.call intrinsic.string.format("{}{}{}", %open_brace, %label, %close_brace)
+          %statement = core.call intrinsic.string.format("  {}{}", %id, %wrapped)
+        }
+        core.append %lines, %statement
+        core.for %edge in %edges {
+          %to = core.get %edge["to"] default ""
+          %arrives = core.call intrinsic.eq(%to, %id)
+          core.if %arrives {
+            %from_node = core.get %edge["from"] default ""
+            %from_index = core.get %order_index[%from_node]
+            %to_index = core.get %order_index[%to]
+            %points_backward = core.call intrinsic.gte(%from_index, %to_index)
+            %closes_cycle = core.call @flow_mermaid_reachable(%to, %from_node, %edges)
+            %back = core.call intrinsic.and(%points_backward, %closes_cycle)
+            %forward = core.call intrinsic.not(%back)
+            core.if %forward {
+              %label = core.get %edge["label"] default null
+              %has_label = core.call intrinsic.is_not_none(%label)
+              %edge_line = core.call intrinsic.string.format("  {} --> {}", %from_node, %to)
+              core.if %has_label {
+                %edge_line = core.call intrinsic.string.format("  {} -->|{}| {}", %from_node, %label, %to)
+              }
+              core.append %lines, %edge_line
+            }
+          }
+        }
+      }
+      core.for %edge in %edges {
+        %from_node = core.get %edge["from"] default ""
+        %to = core.get %edge["to"] default ""
+        %from_index = core.get %order_index[%from_node]
+        %to_index = core.get %order_index[%to]
+        %points_backward = core.call intrinsic.gte(%from_index, %to_index)
+        %closes_cycle = core.call @flow_mermaid_reachable(%to, %from_node, %edges)
+        %back = core.call intrinsic.and(%points_backward, %closes_cycle)
+        core.if %back {
+          %label = core.get %edge["label"] default null
+          %has_label = core.call intrinsic.is_not_none(%label)
+          %edge_line = core.call intrinsic.string.format("  {} --> {}", %from_node, %to)
+          core.if %has_label {
+            %edge_line = core.call intrinsic.string.format("  {} -->|{}| {}", %from_node, %label, %to)
+          }
+          core.append %lines, %edge_line
+        }
+      }
+      core.append %lines, ""
+      %rendered = core.call intrinsic.string.join("\n", %lines)
+      core.return %rendered
+    }
+  }
+
+  op ax.flow.semantic @flow_mermaid_render_flow {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    type signature = "(flow:json, options:json) -> string throws"
+    body @entry(%flow: json, %options: json) {
+      %empty_map = core.map
+      %opts_missing = core.call intrinsic.is_none(%options)
+      %opts = core.let %options
+      core.if %opts_missing {
+        %opts = core.let %empty_map
+      }
+      %direction = core.get %opts["direction"] default "TD"
+      %lines = core.list
+      %header = core.call intrinsic.string.format("flowchart {}", %direction)
+      core.append %lines, %header
+      %steps = core.get %flow["steps"]
+      %percent = core.get %flow["mermaidPercent"] default ""
+      core.for %step in %steps {
+        %kind = core.get %step["kind"] default "execute"
+        %is_execute = core.call intrinsic.eq(%kind, "execute")
+        core.if %is_execute {
+          %step_options = core.get %step["options"] default %empty_map
+          %signature_text = core.get %step_options["signatureText"] default ""
+          %has_signature = core.call intrinsic.truthy(%signature_text)
+          core.if %has_signature {
+            %signature = core.call @parse_signature(%signature_text)
+            %canonical = core.call @signature_to_string(%signature)
+            %name = core.get %step["name"] default ""
+            %prefix = core.call intrinsic.string.format("{}{}ax", %percent, %percent)
+            %directive = core.call intrinsic.string.format("  {} {}: {}", %prefix, %name, %canonical)
+            core.append %lines, %directive
+          }
+        }
+      }
+      core.append %lines, ""
+      %diamonds = core.map
+      core.for %step in %steps {
+        %meta = core.get %step["meta"] default %empty_map
+        %decision = core.get %meta["decision"] default null
+        %has_decision = core.call intrinsic.is_not_none(%decision)
+        core.if %has_decision {
+          %node = core.get %decision["nodeName"] default ""
+          %field = core.get %decision["field"] default ""
+          core.set %diamonds[%node] = %field
+        }
+      }
+      %seen = core.map
+      core.for %step in %steps {
+        %kind = core.get %step["kind"] default "execute"
+        %is_execute = core.call intrinsic.eq(%kind, "execute")
+        %is_map = core.call intrinsic.eq(%kind, "map")
+        %material = core.call intrinsic.or(%is_execute, %is_map)
+        core.if %material {
+          %name = core.get %step["name"] default ""
+          %known = core.call intrinsic.map.contains(%seen, %name)
+          core.if %known {
+          } else {
+            core.set %seen[%name] = true
+            %spaced_title = core.call intrinsic.string.title_from_camel(%name)
+            %lower_title = core.call intrinsic.string.lower(%spaced_title)
+            %title = core.call intrinsic.string.title_from_camel(%lower_title)
+            %diamond = core.get %diamonds[%name] default null
+            %has_diamond = core.call intrinsic.is_not_none(%diamond)
+            %statement = core.call intrinsic.string.format("  {}[{}]", %name, %title)
+            core.if %has_diamond {
+              %open_brace = core.get %flow["mermaidOpenBrace"] default ""
+              %close_brace = core.get %flow["mermaidCloseBrace"] default ""
+              %wrapped = core.call intrinsic.string.format("{}{}{}", %open_brace, %diamond, %close_brace)
+              %statement = core.call intrinsic.string.format("  {}{}", %name, %wrapped)
+            }
+            core.append %lines, %statement
+            %step_options = core.get %step["options"] default %empty_map
+            %empty_reads = core.list
+            %step_reads = core.get %step["reads"] default %empty_reads
+            %reads = core.get %step_options["reads"] default %step_reads
+            core.for %read in %reads {
+              %is_result = core.call intrinsic.string.ends_with(%read, "Result")
+              core.if %is_result {
+                %read_len = core.call intrinsic.len(%read)
+                %producer_end = core.call intrinsic.add(%read_len, -6)
+                %producer = core.call intrinsic.string.slice(%read, 0, %producer_end)
+                %edge_line = core.call intrinsic.string.format("  {} --> {}", %producer, %name)
+                core.append %lines, %edge_line
+              }
+            }
+          }
+        }
+      }
+      core.append %lines, ""
+      %rendered = core.call intrinsic.string.join("\n", %lines)
+      core.return %rendered
+    }
+  }
+
+  op ax.flow.semantic @flow_from_mermaid {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    tag "src/ax/flow/mermaid.ts"
+    type signature = "(text:string, bindings?:json) -> json throws"
+    body @entry(%text: string, %bindings: json) {
+      %empty_map = core.map
+      %missing = core.call intrinsic.is_none(%bindings)
+      %resolved = core.let %bindings
+      core.if %missing {
+        %resolved = core.let %empty_map
+      }
+      %ast = core.call @flow_mermaid_parse(%text)
+      %flow = core.call @flow_mermaid_compile(%ast, %resolved)
+      core.return %flow
+    }
+  }
+
+  op ax.flow.semantic @flow_to_mermaid {
+    attr core_kind = "func"
+    attr emit_module = "flow"
+    attr private = true
+    tag "src/ax/flow/mermaid.ts"
+    type signature = "(flow:json, options?:json) -> string throws"
+    body @entry(%flow: json, %options: json) {
+      %ast = core.get %flow["mermaidAst"] default null
+      %has_ast = core.call intrinsic.is_not_none(%ast)
+      core.if %has_ast {
+        %rendered = core.call @flow_mermaid_render_ast(%ast, %options)
+        core.return %rendered
+      }
+      %rendered = core.call @flow_mermaid_render_flow(%flow, %options)
+      core.return %rendered
     }
   }
 }

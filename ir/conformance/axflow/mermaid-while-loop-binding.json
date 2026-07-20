@@ -1,0 +1,75 @@
+{
+  "kind": "flow_mermaid",
+  "name": "mermaid-while-loop-binding",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "mermaid-while-loop-binding",
+    "observed": {
+      "rendered": "flowchart TD\n  %%ax polish: draftText:string -> polishedText:string\n\n  polish[Polish]\n  polish -->|while keepPolishing, max 5| polish\n",
+      "rerendered": "flowchart TD\n  %%ax polish: draftText:string -> polishedText:string\n\n  polish[Polish]\n  polish -->|while keepPolishing, max 5| polish\n",
+      "plan": {
+        "totalSteps": 2,
+        "parallelGroups": 2,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "type": "while",
+            "dependencies": ["draftText"],
+            "produces": ["polishResult"],
+            "stepIndex": 0,
+            "isBarrier": true
+          },
+          {
+            "type": "returns",
+            "dependencies": ["polishResult"],
+            "produces": ["polishedText"],
+            "stepIndex": 1,
+            "isBarrier": true
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "type": "while",
+                "dependencies": ["draftText"],
+                "produces": ["polishResult"],
+                "stepIndex": 0,
+                "isBarrier": true
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "type": "returns",
+                "dependencies": ["polishResult"],
+                "produces": ["polishedText"],
+                "stepIndex": 1,
+                "isBarrier": true
+              }
+            ]
+          }
+        ],
+        "autoParallelEnabled": true
+      }
+    }
+  },
+  "document": "flowchart TD\n  %%ax polish: draftText:string -> polishedText:string\n  polish -->|while keepPolishing, max 5| polish",
+  "condition_names": ["keepPolishing"],
+  "expected_rendered": "flowchart TD\n  %%ax polish: draftText:string -> polishedText:string\n\n  polish[Polish]\n  polish -->|while keepPolishing, max 5| polish\n",
+  "expected_rerendered": "flowchart TD\n  %%ax polish: draftText:string -> polishedText:string\n\n  polish[Polish]\n  polish -->|while keepPolishing, max 5| polish\n",
+  "expected_direction": "TD"
+}

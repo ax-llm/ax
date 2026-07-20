@@ -607,6 +607,7 @@ class AxGen : public AxProgram {
 class AxFlow : public AxProgram {
  public:
   explicit AxFlow(Value options = Value::object());
+  explicit AxFlow(std::string mermaid, Value bindings = Value::object());
   AxFlow& execute(std::string name, AxProgram& program, Value options = Value::object());
   AxFlow& derive(std::string name, AxProgram& program, Value options = Value::object());
   AxFlow& map(std::string name, std::function<Value(Value)> mapper);
@@ -632,11 +633,14 @@ class AxFlow : public AxProgram {
   Value optimize_with(OptimizerEngine& engine, Value dataset, Value options = Value::object());
   Value optimize_with(OptimizerEngine& engine, AIClient& client, Value dataset, Value options = Value::object());
   Value value() const;
+  std::string str(Value options = Value::object()) const;
   AxFlow& add_raw_step(Value step);
 
  private:
   Value state_;
+  std::vector<std::shared_ptr<AxGen>> mermaid_programs_;
   AxFlow& add_step(Value kind, Value name, Value program, Value options);
+  Value hydrate_mermaid_steps(Value steps, Value bindings);
 };
 
 Value flow_callback(std::function<Value(Value)> mapper);
@@ -950,6 +954,7 @@ AxAgent agent(Value signature, Value options = Value::object());
 Value register_memories_search(std::function<Value(Value, Value)> fn);
 Value register_skills_search(std::function<Value(Value)> fn);
 AxFlow flow(Value options = Value::object());
+AxFlow flow(const std::string& mermaid, Value bindings = Value::object());
 Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxFlow& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxAgent& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);

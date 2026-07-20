@@ -3964,14 +3964,100 @@ pub struct AxFlow {
     execution_context: Option<AxExecutionContext>,
 }
 
-pub fn flow(id: &str) -> AxFlow {
+pub fn flow(source: &str) -> AxFlow {
+    if source.trim_start().starts_with("flowchart ") || source.trim_start().starts_with("graph ") {
+        return flow_with_bindings(source, Value::Object(serde_json::Map::new()));
+    }
     let options = CoreValue::new_map();
-    let _ = core_set(&options, CoreValue::from("id"), CoreValue::from(id));
+    let _ = core_set(&options, CoreValue::from("id"), CoreValue::from(source));
     let state = _flow_factory(&[options]).unwrap_or_else(|_| CoreValue::new_map());
+    let _ = core_set(
+        &state,
+        CoreValue::from("mermaidPercent"),
+        CoreValue::from("%"),
+    );
+    let _ = core_set(
+        &state,
+        CoreValue::from("mermaidOpenBrace"),
+        CoreValue::from("{"),
+    );
+    let _ = core_set(
+        &state,
+        CoreValue::from("mermaidCloseBrace"),
+        CoreValue::from("}"),
+    );
     AxFlow {
         state,
         execution_context: None,
     }
+}
+
+pub fn flow_with_bindings(source: &str, bindings: Value) -> AxFlow {
+    let binding_core = core_value_from_json(&bindings);
+    let state = _flow_from_mermaid(&[CoreValue::from(source), binding_core.clone()])
+        .unwrap_or_else(|error| panic!("{}", error.message));
+    let _ = core_set(
+        &state,
+        CoreValue::from("mermaidPercent"),
+        CoreValue::from("%"),
+    );
+    let _ = core_set(
+        &state,
+        CoreValue::from("mermaidOpenBrace"),
+        CoreValue::from("{"),
+    );
+    let _ = core_set(
+        &state,
+        CoreValue::from("mermaidCloseBrace"),
+        CoreValue::from("}"),
+    );
+    let steps = core_get(&state, &CoreValue::from("steps"), CoreValue::new_list());
+    let hydrated = hydrate_mermaid_steps(&steps, &binding_core)
+        .unwrap_or_else(|error| panic!("{}", error.message));
+    let _ = core_set(&state, CoreValue::from("steps"), hydrated);
+    AxFlow {
+        state,
+        execution_context: None,
+    }
+}
+
+fn hydrate_mermaid_steps(steps: &CoreValue, bindings: &CoreValue) -> AxResult<CoreValue> {
+    let out = CoreValue::new_list();
+    let nodes = core_get(bindings, &CoreValue::from("nodes"), CoreValue::new_map());
+    for step in core_iter(steps)? {
+        let name = core_get(&step, &CoreValue::from("name"), CoreValue::Null).text();
+        let binding = core_get(&nodes, &CoreValue::from(name.as_str()), CoreValue::Null);
+        let program = if binding.is_null() {
+            core_get(&step, &CoreValue::from("program"), CoreValue::Null)
+        } else {
+            binding
+        };
+        match program {
+            CoreValue::Str(signature) => {
+                core_set(
+                    &step,
+                    CoreValue::from("program"),
+                    GenHost::new(ax(signature.as_str())?),
+                )?;
+            }
+            CoreValue::Null => {}
+            other => {
+                core_set(&step, CoreValue::from("program"), other)?;
+            }
+        }
+        let options = core_get(&step, &CoreValue::from("options"), CoreValue::new_map());
+        let nested = core_get(&options, &CoreValue::from("steps"), CoreValue::new_list());
+        if !core_iter(&nested)?.is_empty() {
+            core_set(
+                &options,
+                CoreValue::from("steps"),
+                hydrate_mermaid_steps(&nested, bindings)?,
+            )?;
+            core_set(&step, CoreValue::from("options"), options)?;
+        }
+        core_append(&out, step)?;
+    }
+    Ok(out)
 }
 
 pub fn flow_with_execution_context(id: &str, context: AxExecutionContext) -> AxFlow {
@@ -3981,7 +4067,15 @@ pub fn flow_with_execution_context(id: &str, context: AxExecutionContext) -> AxF
 }
 
 impl AxFlow {
+    pub fn to_string_with_options(&self, options: &Value) -> AxResult<String> {
+        Ok(_flow_to_mermaid(&[self.state.clone(), core_value_from_json(options)])?.text())
+    }
+
     pub fn execute(self, name: &str, mut program: AxGen) -> Self {
+        self.execute_with_options(name, program, &Value::Null)
+    }
+
+    pub fn execute_with_options(self, name: &str, mut program: AxGen, options: &Value) -> Self {
         if program.execution_context.is_none() {
             if let Some(context) = &self.execution_context {
                 if let Ok(with_context) = program.clone().with_execution_context(context.clone()) {
@@ -3989,11 +4083,23 @@ impl AxFlow {
                 }
             }
         }
+        let options = core_value_from_json(options);
+        let options = if options.is_null() {
+            CoreValue::new_map()
+        } else {
+            options
+        };
+        let signature_text = program.signature.to_string();
+        let _ = core_set(
+            &options,
+            CoreValue::from("signatureText"),
+            CoreValue::from(signature_text.as_str()),
+        );
         let step = _flow_step(&[
             CoreValue::from("execute"),
             CoreValue::from(name),
             GenHost::new(program),
-            CoreValue::Null,
+            options,
         ]);
         if let Ok(step) = step {
             let _ = _flow_add_step(&[self.state.clone(), step]);
@@ -4082,6 +4188,14 @@ impl AxFlow {
             core_value_from_json(component_map),
         ])?;
         Ok(())
+    }
+}
+
+impl fmt::Display for AxFlow {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let rendered = _flow_to_mermaid(&[self.state.clone(), CoreValue::new_map()])
+            .map_err(|_| fmt::Error)?;
+        write!(formatter, "{}", rendered.text())
     }
 }
 
@@ -7125,6 +7239,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         | "agent_runtime_real"
         | "agent_runtime_session" => run_agent_fixture(kind, &fixture)?,
         "flow" => run_flow_fixture(&fixture)?,
+        "flow_mermaid" => run_flow_mermaid_fixture(&fixture)?,
         "optimize" => run_optimize_fixture(&fixture)?,
         "program_contract" => run_program_contract_fixture(&fixture)?,
         "mcp" => mcp::run_mcp_conformance_fixture(&fixture)?,
@@ -8533,6 +8648,92 @@ fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
         }
     }
     Ok(())
+}
+
+fn run_flow_mermaid_fixture(fixture: &Value) -> AxResult<()> {
+    let operation = fixture
+        .get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let mut conditions = serde_json::Map::new();
+    for name in fixture
+        .get("condition_names")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(name) = name.as_str() {
+            conditions.insert(name.to_string(), Value::Bool(false));
+        }
+    }
+    let bindings = json!({"conditions": conditions});
+    if operation == "error" {
+        let result = _flow_from_mermaid(&[
+            CoreValue::from(
+                fixture
+                    .get("document")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+            ),
+            core_value_from_json(&bindings),
+        ]);
+        return match result {
+            Err(error) => {
+                let expected = fixture
+                    .get("expected_error_contains")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if error.to_string().contains(expected) {
+                    Ok(())
+                } else {
+                    Err(error)
+                }
+            }
+            Ok(_) => Err(AxError::new(
+                "fixture",
+                "expected mermaid compilation to fail",
+            )),
+        };
+    }
+    if operation == "builder_render" {
+        let mut built = flow("root.flow");
+        for step in fixture
+            .get("builder_steps")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let name = step.get("name").and_then(Value::as_str).unwrap_or("");
+            let signature = step.get("signature").and_then(Value::as_str).unwrap_or("");
+            let options = json!({"reads": step.get("reads").cloned().unwrap_or_else(|| json!([]))});
+            built = built.execute_with_options(name, ax(signature)?, &options);
+        }
+        return expect_json_equal(
+            "flow mermaid builder render",
+            &Value::String(built.to_string()),
+            fixture.get("expected_rendered").unwrap_or(&Value::Null),
+        );
+    }
+    let document = fixture
+        .get("document")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let first = flow_with_bindings(document, bindings.clone());
+    let expected = fixture
+        .get("expected_rerendered")
+        .or_else(|| fixture.get("expected_rendered"))
+        .unwrap_or(&Value::Null);
+    expect_json_equal(
+        "flow mermaid render",
+        &Value::String(first.to_string()),
+        expected,
+    )?;
+    let second = flow_with_bindings(&first.to_string(), bindings);
+    expect_json_equal(
+        "flow mermaid canonical roundtrip",
+        &Value::String(second.to_string()),
+        expected,
+    )
 }
 
 fn run_optimize_fixture(fixture: &Value) -> AxResult<()> {
@@ -20061,6 +20262,132 @@ fn validate_signature(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_signature = core_arg(args, 0);
     _signature_validate_impl(&[v_signature.clone()])?;
     return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_input_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_input_fields");
+    let mut v_signature = core_arg(args, 0);
+    let mut v_empty_options = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_field_optional = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    let mut v_type_options = CoreValue::Null;
+    let mut v_type_out = CoreValue::Null;
+    v_fields = core_get(
+        &v_signature,
+        &CoreValue::from("input_fields"),
+        CoreValue::Null,
+    );
+    v_out = CoreValue::new_list();
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_type = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+        v_type_out = CoreValue::new_map();
+        v_type_name = core_get(&v_type, &CoreValue::from("name"), CoreValue::from(""));
+        core_set(&v_type_out, CoreValue::from("name"), v_type_name.clone())?;
+        v_empty_options = CoreValue::new_list();
+        v_type_options = core_get(
+            &v_type,
+            &CoreValue::from("options"),
+            v_empty_options.clone(),
+        );
+        core_set(
+            &v_type_out,
+            CoreValue::from("options"),
+            v_type_options.clone(),
+        )?;
+        v_item = CoreValue::new_map();
+        v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+        v_field_optional = core_get(
+            &v_field,
+            &CoreValue::from("is_optional"),
+            CoreValue::Bool(false),
+        );
+        core_set(&v_item, CoreValue::from("name"), v_field_name.clone())?;
+        core_set(
+            &v_item,
+            CoreValue::from("isOptional"),
+            v_field_optional.clone(),
+        )?;
+        core_set(&v_item, CoreValue::from("type"), v_type_out.clone())?;
+        core_append(&v_out, v_item.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _signature_output_fields(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_signature_output_fields");
+    let mut v_signature = core_arg(args, 0);
+    let mut v_empty_options = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_field_optional = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    let mut v_type_options = CoreValue::Null;
+    let mut v_type_out = CoreValue::Null;
+    v_fields = core_get(
+        &v_signature,
+        &CoreValue::from("output_fields"),
+        CoreValue::Null,
+    );
+    v_out = CoreValue::new_list();
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_type = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+        v_type_out = CoreValue::new_map();
+        v_type_name = core_get(&v_type, &CoreValue::from("name"), CoreValue::from(""));
+        core_set(&v_type_out, CoreValue::from("name"), v_type_name.clone())?;
+        v_empty_options = CoreValue::new_list();
+        v_type_options = core_get(
+            &v_type,
+            &CoreValue::from("options"),
+            v_empty_options.clone(),
+        );
+        core_set(
+            &v_type_out,
+            CoreValue::from("options"),
+            v_type_options.clone(),
+        )?;
+        v_item = CoreValue::new_map();
+        v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+        v_field_optional = core_get(
+            &v_field,
+            &CoreValue::from("is_optional"),
+            CoreValue::Bool(false),
+        );
+        core_set(&v_item, CoreValue::from("name"), v_field_name.clone())?;
+        core_set(
+            &v_item,
+            CoreValue::from("isOptional"),
+            v_field_optional.clone(),
+        )?;
+        core_set(&v_item, CoreValue::from("type"), v_type_out.clone())?;
+        core_append(&v_out, v_item.clone())?;
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -60437,7 +60764,10 @@ fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_err = CoreValue::Null;
     let mut v_event_payload = CoreValue::Null;
     let mut v_existing_iterations = CoreValue::Null;
+    let mut v_guard = CoreValue::Null;
+    let mut v_guard_matches = CoreValue::Null;
     let mut v_has_condition = CoreValue::Null;
+    let mut v_has_guard = CoreValue::Null;
     let mut v_has_predicate = CoreValue::Null;
     let mut v_input_field = CoreValue::Null;
     let mut v_input_is_list = CoreValue::Null;
@@ -60482,9 +60812,11 @@ fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_results = CoreValue::Null;
     let mut v_results_is_list = CoreValue::Null;
     let mut v_should_continue = CoreValue::Null;
+    let mut v_skip_guarded_step = CoreValue::Null;
     let mut v_step_event = CoreValue::Null;
     let mut v_step_index = CoreValue::Null;
     let mut v_step_options = CoreValue::Null;
+    let mut v_step_options_for_guard = CoreValue::Null;
     let mut v_too_many = CoreValue::Null;
     let mut v_traces = CoreValue::Null;
     let mut v_when = CoreValue::Null;
@@ -60500,6 +60832,24 @@ fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("execute"),
     );
     v_name = core_get(&v_step, &CoreValue::from("name"), CoreValue::from(""));
+    v_step_options_for_guard = core_get(&v_step, &CoreValue::from("options"), v_empty_map.clone());
+    v_guard = core_get(
+        &v_step_options_for_guard,
+        &CoreValue::from("guard"),
+        CoreValue::Null,
+    );
+    v_has_guard = core_is_not_none(&[v_guard.clone()])?;
+    if core_truthy(&v_has_guard) {
+        v_guard_matches = _flow_evaluate_data_predicate(&[
+            v_guard.clone(),
+            v_state.clone(),
+            CoreValue::Bool(false),
+        ])?;
+        v_skip_guarded_step = core_not(&[v_guard_matches.clone()])?;
+        if core_truthy(&v_skip_guarded_step) {
+            return Ok(v_state.clone());
+        }
+    }
     v_location = core_string_format(&[CoreValue::from("flow-step-{}"), v_name.clone()])?;
     _flow_check_abort(&[v_options.clone(), v_location.clone()])?;
     v_traces = core_get(&v_flow, &CoreValue::from("traces"), CoreValue::Null);
@@ -60561,10 +60911,10 @@ fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_branch_value_default.clone(),
         );
         if core_truthy(&v_has_predicate) {
-            v_branch_value = core_object_call_method(&[
+            v_branch_value = _flow_evaluate_data_predicate(&[
                 v_predicate.clone(),
-                CoreValue::from("call"),
                 v_state.clone(),
+                v_branch_value.clone(),
             ])?;
         }
         v_default_branches = CoreValue::new_list();
@@ -60631,10 +60981,10 @@ fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 CoreValue::Bool(false),
             );
             if core_truthy(&v_has_condition) {
-                v_condition_result = core_object_call_method(&[
+                v_condition_result = _flow_evaluate_data_predicate(&[
                     v_condition.clone(),
-                    CoreValue::from("call"),
                     v_current.clone(),
+                    v_condition_result.clone(),
                 ])?;
             }
             v_should_continue = core_truthy_value(&[v_condition_result.clone()])?;
@@ -60705,10 +61055,10 @@ fn _flow_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 CoreValue::Bool(false),
             );
             if core_truthy(&v_has_condition) {
-                v_condition_result = core_object_call_method(&[
+                v_condition_result = _flow_evaluate_data_predicate(&[
                     v_condition.clone(),
-                    CoreValue::from("call"),
                     v_current.clone(),
+                    v_condition_result.clone(),
                 ])?;
             }
             v_should_continue = core_truthy_value(&[v_condition_result.clone()])?;
@@ -61674,6 +62024,2304 @@ fn _flow_optimize_with(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     ])?;
     v_request = core_get(&v_run, &CoreValue::from("request"), v_empty_map.clone());
     return Ok(v_request.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_evaluate_data_predicate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_evaluate_data_predicate");
+    let mut v_predicate = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_fallback = core_arg(args, 2);
+    let mut v_actual = CoreValue::Null;
+    let mut v_called = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_expected = CoreValue::Null;
+    let mut v_expected_text = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_has_expected = CoreValue::Null;
+    let mut v_has_field = CoreValue::Null;
+    let mut v_has_node = CoreValue::Null;
+    let mut v_is_data = CoreValue::Null;
+    let mut v_is_false = CoreValue::Null;
+    let mut v_is_true = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_missing_nested = CoreValue::Null;
+    let mut v_node = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_result_key = CoreValue::Null;
+    let mut v_truthy = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_missing = core_is_none(&[v_predicate.clone()])?;
+    if core_truthy(&v_missing) {
+        return Ok(v_fallback.clone());
+    }
+    v_has_node = core_map_contains(&[v_predicate.clone(), CoreValue::from("nodeName")])?;
+    v_has_field = core_map_contains(&[v_predicate.clone(), CoreValue::from("field")])?;
+    v_is_data = core_and(&[v_has_node.clone(), v_has_field.clone()])?;
+    if core_truthy(&v_is_data) {
+        v_node = core_get(
+            &v_predicate,
+            &CoreValue::from("nodeName"),
+            CoreValue::from(""),
+        );
+        v_field = core_get(&v_predicate, &CoreValue::from("field"), CoreValue::from(""));
+        v_result_key = core_string_format(&[CoreValue::from("{}Result"), v_node.clone()])?;
+        v_empty = CoreValue::new_map();
+        v_result = core_get(&v_state, &v_result_key.clone(), v_empty.clone());
+        v_value = core_get(&v_result, &v_field.clone(), CoreValue::Null);
+        v_missing_nested = core_is_none(&[v_value.clone()])?;
+        if core_truthy(&v_missing_nested) {
+            v_value = core_get(&v_state, &v_field.clone(), CoreValue::Null);
+        }
+        v_has_expected = core_map_contains(&[v_predicate.clone(), CoreValue::from("value")])?;
+        if core_truthy(&v_has_expected) {
+            v_expected = core_get(&v_predicate, &CoreValue::from("value"), CoreValue::Null);
+            v_expected_text = core_string_lower(&[v_expected.clone()])?;
+            v_is_true = core_eq(&[v_expected_text.clone(), CoreValue::from("true")])?;
+            v_is_false = core_eq(&[v_expected_text.clone(), CoreValue::from("false")])?;
+            if core_truthy(&v_is_true) {
+                v_actual = core_truthy_value(&[v_value.clone()])?;
+                return Ok(v_actual.clone());
+            }
+            if core_truthy(&v_is_false) {
+                v_actual = core_truthy_value(&[v_value.clone()])?;
+                v_actual = core_not(&[v_actual.clone()])?;
+                return Ok(v_actual.clone());
+            }
+            v_matches = core_eq(&[v_value.clone(), v_expected.clone()])?;
+            return Ok(v_matches.clone());
+        }
+        v_truthy = core_truthy_value(&[v_value.clone()])?;
+        return Ok(v_truthy.clone());
+    }
+    v_called = core_object_call_method(&[
+        v_predicate.clone(),
+        CoreValue::from("call"),
+        v_state.clone(),
+    ])?;
+    return Ok(v_called.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_fail(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_fail");
+    let mut v_message = core_arg(args, 0);
+    let mut v_line = core_arg(args, 1);
+    let mut v_err = CoreValue::Null;
+    let mut v_with_line = CoreValue::Null;
+    v_with_line = core_string_format(&[
+        CoreValue::from("{} (line {})"),
+        v_message.clone(),
+        v_line.clone(),
+    ])?;
+    v_err = core_runtime_error(&[v_with_line.clone()])?;
+    return Err(core_as_error(&v_err));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_register_node(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_register_node");
+    let mut v_ast = core_arg(args, 0);
+    let mut v_id = core_arg(args, 1);
+    let mut v_shape = core_arg(args, 2);
+    let mut v_label = core_arg(args, 3);
+    let mut v_line = core_arg(args, 4);
+    let mut v_existing = CoreValue::Null;
+    let mut v_existing_label = CoreValue::Null;
+    let mut v_has_label = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_missing_existing_label = CoreValue::Null;
+    let mut v_node = CoreValue::Null;
+    let mut v_nodes = CoreValue::Null;
+    let mut v_order = CoreValue::Null;
+    let mut v_order_index = CoreValue::Null;
+    let mut v_replace = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_valid = core_regex_match(CoreValue::from("^[A-Za-z_][A-Za-z0-9_]*$"), &v_id)?;
+    v_invalid = core_not(&[v_valid.clone()])?;
+    if core_truthy(&v_invalid) {
+        _flow_mermaid_fail(&[CoreValue::from("Expected a node id"), v_line.clone()])?;
+    }
+    v_nodes = core_get(&v_ast, &CoreValue::from("nodes"), CoreValue::Null);
+    v_known = core_map_contains(&[v_nodes.clone(), v_id.clone()])?;
+    if core_truthy(&v_known) {
+        v_existing = core_get(&v_nodes, &v_id.clone(), CoreValue::Null);
+        v_existing_label = core_get(&v_existing, &CoreValue::from("label"), CoreValue::Null);
+        v_missing_existing_label = core_is_none(&[v_existing_label.clone()])?;
+        v_has_label = core_is_not_none(&[v_label.clone()])?;
+        v_replace = core_and(&[v_missing_existing_label.clone(), v_has_label.clone()])?;
+        if core_truthy(&v_replace) {
+            core_set(&v_existing, CoreValue::from("shape"), v_shape.clone())?;
+            core_set(&v_existing, CoreValue::from("label"), v_label.clone())?;
+        }
+        return Ok(v_existing.clone());
+    }
+    v_node = CoreValue::new_map();
+    core_set(&v_node, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_node, CoreValue::from("shape"), v_shape.clone())?;
+    core_set(&v_node, CoreValue::from("label"), v_label.clone())?;
+    core_set(&v_node, CoreValue::from("line"), v_line.clone())?;
+    core_set(&v_nodes, v_id.clone(), v_node.clone())?;
+    v_order = core_get(&v_ast, &CoreValue::from("order"), CoreValue::Null);
+    v_index = core_len(&[v_order.clone()])?;
+    core_append(&v_order, v_id.clone())?;
+    v_order_index = core_get(&v_ast, &CoreValue::from("orderIndex"), CoreValue::Null);
+    core_set(&v_order_index, v_id.clone(), v_index.clone())?;
+    return Ok(v_node.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_parse_node_ref(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_parse_node_ref");
+    let mut v_ast = core_arg(args, 0);
+    let mut v_text = core_arg(args, 1);
+    let mut v_line = core_arg(args, 2);
+    let mut v_bad = CoreValue::Null;
+    let mut v_balanced = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_close_brace = CoreValue::Null;
+    let mut v_close_index = CoreValue::Null;
+    let mut v_delimiter = CoreValue::Null;
+    let mut v_delimiters = CoreValue::Null;
+    let mut v_earlier = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_group = CoreValue::Null;
+    let mut v_has_tail = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_id_raw = CoreValue::Null;
+    let mut v_inner_end = CoreValue::Null;
+    let mut v_inner_len = CoreValue::Null;
+    let mut v_is_diamond = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_label_end = CoreValue::Null;
+    let mut v_label_len = CoreValue::Null;
+    let mut v_label_text = CoreValue::Null;
+    let mut v_node = CoreValue::Null;
+    let mut v_open_brace = CoreValue::Null;
+    let mut v_quoted = CoreValue::Null;
+    let mut v_quoted_double = CoreValue::Null;
+    let mut v_quoted_single = CoreValue::Null;
+    let mut v_rest = CoreValue::Null;
+    let mut v_shape = CoreValue::Null;
+    let mut v_source = CoreValue::Null;
+    let mut v_source_len = CoreValue::Null;
+    let mut v_split_at = CoreValue::Null;
+    let mut v_starts_diamond = CoreValue::Null;
+    let mut v_starts_double_round = CoreValue::Null;
+    let mut v_starts_rect = CoreValue::Null;
+    let mut v_starts_round = CoreValue::Null;
+    let mut v_starts_round_bracket = CoreValue::Null;
+    let mut v_tail = CoreValue::Null;
+    let mut v_tail_len = CoreValue::Null;
+    let mut v_trailing = CoreValue::Null;
+    let mut v_use = CoreValue::Null;
+    v_source = core_string_trim(&v_text);
+    v_source_len = core_len(&[v_source.clone()])?;
+    v_empty = core_eq(&[v_source_len.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_empty) {
+        _flow_mermaid_fail(&[CoreValue::from("Expected a node id"), v_line.clone()])?;
+    }
+    v_split_at = v_source_len.clone();
+    v_delimiters = CoreValue::new_list();
+    core_append(&v_delimiters, CoreValue::from("["))?;
+    core_append(&v_delimiters, CoreValue::from("("))?;
+    core_append(&v_delimiters, CoreValue::from("{"))?;
+    for v_delimiter in core_iter(&v_delimiters)? {
+        let mut v_delimiter = v_delimiter;
+        v_candidate = core_string_find_outside_quotes(&[v_source.clone(), v_delimiter.clone()])?;
+        v_found = core_gte(&[v_candidate.clone(), CoreValue::Num(0f64)])?;
+        v_earlier = core_lt(&[v_candidate.clone(), v_split_at.clone()])?;
+        v_use = core_and(&[v_found.clone(), v_earlier.clone()])?;
+        if core_truthy(&v_use) {
+            v_split_at = v_candidate.clone();
+        }
+    }
+    v_id_raw = core_string_slice(&[v_source.clone(), CoreValue::Num(0f64), v_split_at.clone()])?;
+    v_id = core_string_trim(&v_id_raw);
+    v_tail = core_string_slice(&[v_source.clone(), v_split_at.clone()])?;
+    v_tail = core_string_trim(&v_tail);
+    v_shape = CoreValue::from("rect");
+    v_label = core_none(&[])?;
+    v_has_tail = core_truthy_value(&[v_tail.clone()])?;
+    if core_truthy(&v_has_tail) {
+        v_starts_round_bracket = core_string_starts_with(&[v_tail.clone(), CoreValue::from("([")])?;
+        v_starts_double_round = core_string_starts_with(&[v_tail.clone(), CoreValue::from("((")])?;
+        v_starts_round = core_string_starts_with(&[v_tail.clone(), CoreValue::from("(")])?;
+        v_starts_rect = core_string_starts_with(&[v_tail.clone(), CoreValue::from("[")])?;
+        v_starts_diamond = core_string_starts_with(&[v_tail.clone(), CoreValue::from("{")])?;
+        v_group = CoreValue::new_map();
+        if core_truthy(&v_starts_round) {
+            v_group = core_string_extract_leading_group(&[
+                v_tail.clone(),
+                CoreValue::from("("),
+                CoreValue::from(")"),
+            ])?;
+            v_shape = CoreValue::from("round");
+        } else {
+            if core_truthy(&v_starts_rect) {
+                v_group = core_string_extract_leading_group(&[
+                    v_tail.clone(),
+                    CoreValue::from("["),
+                    CoreValue::from("]"),
+                ])?;
+                v_shape = CoreValue::from("rect");
+            } else {
+                if core_truthy(&v_starts_diamond) {
+                    v_group = core_string_extract_leading_group(&[
+                        v_tail.clone(),
+                        CoreValue::from("{"),
+                        CoreValue::from("}"),
+                    ])?;
+                    v_shape = CoreValue::from("diamond");
+                } else {
+                    _flow_mermaid_fail(&[
+                        CoreValue::from("Unexpected content after node id"),
+                        v_line.clone(),
+                    ])?;
+                }
+            }
+        }
+        v_balanced = core_get(
+            &v_group,
+            &CoreValue::from("balanced"),
+            CoreValue::Bool(false),
+        );
+        v_rest = core_get(&v_group, &CoreValue::from("rest"), CoreValue::from(""));
+        v_rest = core_string_trim(&v_rest);
+        v_trailing = core_truthy_value(&[v_rest.clone()])?;
+        v_bad = core_not(&[v_balanced.clone()])?;
+        v_bad = core_or(&[v_bad.clone(), v_trailing.clone()])?;
+        if core_truthy(&v_bad) {
+            _flow_mermaid_fail(&[
+                CoreValue::from("Unexpected content after node shape"),
+                v_line.clone(),
+            ])?;
+        }
+        v_label_text = core_get(&v_group, &CoreValue::from("group"), CoreValue::from(""));
+        if core_truthy(&v_starts_round_bracket) {
+            v_shape = CoreValue::from("round");
+            v_inner_len = core_len(&[v_label_text.clone()])?;
+            v_inner_end = core_add(&[v_inner_len.clone(), CoreValue::Num(-1f64)])?;
+            v_label_text = core_string_slice(&[
+                v_label_text.clone(),
+                CoreValue::Num(1f64),
+                v_inner_end.clone(),
+            ])?;
+        }
+        if core_truthy(&v_starts_double_round) {
+            v_shape = CoreValue::from("rect");
+            v_inner_len = core_len(&[v_label_text.clone()])?;
+            v_inner_end = core_add(&[v_inner_len.clone(), CoreValue::Num(-1f64)])?;
+            v_label_text = core_string_slice(&[
+                v_label_text.clone(),
+                CoreValue::Num(1f64),
+                v_inner_end.clone(),
+            ])?;
+        }
+        v_label_text = core_string_trim(&v_label_text);
+        v_quoted_double = core_string_starts_with(&[v_label_text.clone(), CoreValue::from("\"")])?;
+        v_quoted_single = core_string_starts_with(&[v_label_text.clone(), CoreValue::from("'")])?;
+        v_quoted = core_or(&[v_quoted_double.clone(), v_quoted_single.clone()])?;
+        if core_truthy(&v_quoted) {
+            v_label_len = core_len(&[v_label_text.clone()])?;
+            v_label_end = core_add(&[v_label_len.clone(), CoreValue::Num(-1f64)])?;
+            v_label_text = core_string_slice(&[
+                v_label_text.clone(),
+                CoreValue::Num(1f64),
+                v_label_end.clone(),
+            ])?;
+        }
+        v_label = v_label_text.clone();
+    }
+    v_node = _flow_mermaid_register_node(&[
+        v_ast.clone(),
+        v_id.clone(),
+        v_shape.clone(),
+        v_label.clone(),
+        v_line.clone(),
+    ])?;
+    v_is_diamond = core_eq(&[v_shape.clone(), CoreValue::from("diamond")])?;
+    if core_truthy(&v_is_diamond) {
+        v_tail_len = core_len(&[v_tail.clone()])?;
+        v_close_index = core_add(&[v_tail_len.clone(), CoreValue::Num(-1f64)])?;
+        v_open_brace =
+            core_string_slice(&[v_tail.clone(), CoreValue::Num(0f64), CoreValue::Num(1f64)])?;
+        v_close_brace = core_string_slice(&[v_tail.clone(), v_close_index.clone()])?;
+        core_set(&v_node, CoreValue::from("open"), v_open_brace.clone())?;
+        core_set(&v_node, CoreValue::from("close"), v_close_brace.clone())?;
+    }
+    return Ok(v_id.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_parse_group(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_parse_group");
+    let mut v_ast = core_arg(args, 0);
+    let mut v_text = core_arg(args, 1);
+    let mut v_line = core_arg(args, 2);
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    v_parts = core_string_split_top_level(&[v_text.clone(), CoreValue::from("&")])?;
+    v_ids = CoreValue::new_list();
+    for v_part in core_iter(&v_parts)? {
+        let mut v_part = v_part;
+        v_id = _flow_mermaid_parse_node_ref(&[v_ast.clone(), v_part.clone(), v_line.clone()])?;
+        core_append(&v_ids, v_id.clone())?;
+    }
+    return Ok(v_ids.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_parse(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_parse");
+    let mut v_text = core_arg(args, 0);
+    let mut v_after_bar = CoreValue::Null;
+    let mut v_ast = CoreValue::Null;
+    let mut v_direction = CoreValue::Null;
+    let mut v_directive_body = CoreValue::Null;
+    let mut v_directive_order = CoreValue::Null;
+    let mut v_directives = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_edge = CoreValue::Null;
+    let mut v_edges = CoreValue::Null;
+    let mut v_found_colon = CoreValue::Null;
+    let mut v_from_ids = CoreValue::Null;
+    let mut v_from_node = CoreValue::Null;
+    let mut v_from_text = CoreValue::Null;
+    let mut v_has_label = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_invalid_id = CoreValue::Null;
+    let mut v_is_ax = CoreValue::Null;
+    let mut v_is_bt = CoreValue::Null;
+    let mut v_is_comment = CoreValue::Null;
+    let mut v_is_empty = CoreValue::Null;
+    let mut v_is_flowchart = CoreValue::Null;
+    let mut v_is_graph = CoreValue::Null;
+    let mut v_is_header = CoreValue::Null;
+    let mut v_is_lr = CoreValue::Null;
+    let mut v_is_rl = CoreValue::Null;
+    let mut v_is_td = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_label_closed = CoreValue::Null;
+    let mut v_label_parts = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_line_number = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_no_nodes = CoreValue::Null;
+    let mut v_node_count = CoreValue::Null;
+    let mut v_nodes = CoreValue::Null;
+    let mut v_order = CoreValue::Null;
+    let mut v_order_index = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_percent = CoreValue::Null;
+    let mut v_raw = CoreValue::Null;
+    let mut v_saw_header = CoreValue::Null;
+    let mut v_segment = CoreValue::Null;
+    let mut v_segment_count = CoreValue::Null;
+    let mut v_segment_index = CoreValue::Null;
+    let mut v_segments = CoreValue::Null;
+    let mut v_sig = CoreValue::Null;
+    let mut v_supported = CoreValue::Null;
+    let mut v_supported_a = CoreValue::Null;
+    let mut v_supported_b = CoreValue::Null;
+    let mut v_to = CoreValue::Null;
+    let mut v_to_ids = CoreValue::Null;
+    let mut v_unsupported = CoreValue::Null;
+    let mut v_unsupported_arrow = CoreValue::Null;
+    let mut v_unsupported_construct = CoreValue::Null;
+    let mut v_valid_id = CoreValue::Null;
+    let mut v_words = CoreValue::Null;
+    v_ast = CoreValue::new_map();
+    v_directives = CoreValue::new_map();
+    v_directive_order = CoreValue::new_list();
+    v_nodes = CoreValue::new_map();
+    v_order = CoreValue::new_list();
+    v_order_index = CoreValue::new_map();
+    v_edges = CoreValue::new_list();
+    core_set(&v_ast, CoreValue::from("direction"), CoreValue::from("TD"))?;
+    core_set(&v_ast, CoreValue::from("directives"), v_directives.clone())?;
+    core_set(
+        &v_ast,
+        CoreValue::from("directiveOrder"),
+        v_directive_order.clone(),
+    )?;
+    core_set(&v_ast, CoreValue::from("nodes"), v_nodes.clone())?;
+    core_set(&v_ast, CoreValue::from("order"), v_order.clone())?;
+    core_set(&v_ast, CoreValue::from("orderIndex"), v_order_index.clone())?;
+    core_set(&v_ast, CoreValue::from("edges"), v_edges.clone())?;
+    v_saw_header = CoreValue::Bool(false);
+    v_lines = core_string_split(&[v_text.clone(), CoreValue::from("\n")])?;
+    v_line_number = CoreValue::Num(0f64);
+    for v_raw in core_iter(&v_lines)? {
+        let mut v_raw = v_raw;
+        v_line_number = core_add(&[v_line_number.clone(), CoreValue::Num(1f64)])?;
+        v_line = core_string_trim(&v_raw);
+        v_is_empty = core_eq(&[v_line.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_is_empty) {
+        } else {
+            v_is_ax = core_regex_match(CoreValue::from("^%%ax\\s+"), &v_line)?;
+            v_is_comment = core_regex_match(CoreValue::from("^%%"), &v_line)?;
+            if core_truthy(&v_is_ax) {
+                v_percent = core_string_slice(&[
+                    v_line.clone(),
+                    CoreValue::Num(0f64),
+                    CoreValue::Num(1f64),
+                ])?;
+                core_set(&v_ast, CoreValue::from("percent"), v_percent.clone())?;
+                v_directive_body = core_string_slice(&[v_line.clone(), CoreValue::Num(5f64)])?;
+                v_parts =
+                    core_string_split_once(&[v_directive_body.clone(), CoreValue::from(":")])?;
+                v_found_colon =
+                    core_get(&v_parts, &CoreValue::from("found"), CoreValue::Bool(false));
+                if core_truthy(&v_found_colon) {
+                } else {
+                    _flow_mermaid_fail(&[
+                        CoreValue::from("Invalid Ax directive"),
+                        v_line_number.clone(),
+                    ])?;
+                }
+                v_id = core_get(&v_parts, &CoreValue::from("left"), CoreValue::from(""));
+                v_id = core_string_trim(&v_id);
+                v_sig = core_get(&v_parts, &CoreValue::from("right"), CoreValue::from(""));
+                v_sig = core_string_trim(&v_sig);
+                v_valid_id = core_regex_match(CoreValue::from("^[A-Za-z_][A-Za-z0-9_]*$"), &v_id)?;
+                v_invalid_id = core_not(&[v_valid_id.clone()])?;
+                if core_truthy(&v_invalid_id) {
+                    _flow_mermaid_fail(&[
+                        CoreValue::from("Invalid Ax directive node id"),
+                        v_line_number.clone(),
+                    ])?;
+                }
+                v_duplicate = core_map_contains(&[v_directives.clone(), v_id.clone()])?;
+                if core_truthy(&v_duplicate) {
+                    v_message = core_string_format(&[
+                        CoreValue::from("Duplicate Ax directive for node \"{}\""),
+                        v_id.clone(),
+                    ])?;
+                    _flow_mermaid_fail(&[v_message.clone(), v_line_number.clone()])?;
+                }
+                core_set(&v_directives, v_id.clone(), v_sig.clone())?;
+                core_append(&v_directive_order, v_id.clone())?;
+            } else {
+                if core_truthy(&v_is_comment) {
+                } else {
+                    v_is_flowchart =
+                        core_string_starts_with(&[v_line.clone(), CoreValue::from("flowchart ")])?;
+                    v_is_graph =
+                        core_string_starts_with(&[v_line.clone(), CoreValue::from("graph ")])?;
+                    v_is_header = core_or(&[v_is_flowchart.clone(), v_is_graph.clone()])?;
+                    if core_truthy(&v_is_header) {
+                        if core_truthy(&v_saw_header) {
+                            _flow_mermaid_fail(&[
+                                CoreValue::from("Multiple flowchart headers"),
+                                v_line_number.clone(),
+                            ])?;
+                        }
+                        v_words = core_string_words(&[v_line.clone()])?;
+                        v_direction = core_list_get(&[
+                            v_words.clone(),
+                            CoreValue::Num(1f64),
+                            CoreValue::from(""),
+                        ])?;
+                        v_is_td = core_eq(&[v_direction.clone(), CoreValue::from("TD")])?;
+                        v_is_lr = core_eq(&[v_direction.clone(), CoreValue::from("LR")])?;
+                        v_is_bt = core_eq(&[v_direction.clone(), CoreValue::from("BT")])?;
+                        v_is_rl = core_eq(&[v_direction.clone(), CoreValue::from("RL")])?;
+                        v_supported_a = core_or(&[v_is_td.clone(), v_is_lr.clone()])?;
+                        v_supported_b = core_or(&[v_is_bt.clone(), v_is_rl.clone()])?;
+                        v_supported = core_or(&[v_supported_a.clone(), v_supported_b.clone()])?;
+                        v_unsupported = core_not(&[v_supported.clone()])?;
+                        if core_truthy(&v_unsupported) {
+                            _flow_mermaid_fail(&[
+                                CoreValue::from("Unsupported flowchart direction"),
+                                v_line_number.clone(),
+                            ])?;
+                        }
+                        core_set(&v_ast, CoreValue::from("direction"), v_direction.clone())?;
+                        v_saw_header = CoreValue::Bool(true);
+                    } else {
+                        if core_truthy(&v_saw_header) {
+                        } else {
+                            _flow_mermaid_fail(&[
+                                CoreValue::from("Missing flowchart header"),
+                                v_line_number.clone(),
+                            ])?;
+                        }
+                        v_unsupported_construct = core_regex_match(CoreValue::from("^(subgraph\\b|end\\b|style\\b|classDef\\b|class\\b|linkStyle\\b|click\\b|direction\\b)"), &v_line)?;
+                        if core_truthy(&v_unsupported_construct) {
+                            _flow_mermaid_fail(&[
+                                CoreValue::from("Unsupported mermaid construct"),
+                                v_line_number.clone(),
+                            ])?;
+                        }
+                        v_unsupported_arrow =
+                            core_regex_match(CoreValue::from("(-\\.+->|={2,}>|---|~~~)"), &v_line)?;
+                        if core_truthy(&v_unsupported_arrow) {
+                            _flow_mermaid_fail(&[
+                                CoreValue::from("Unsupported arrow syntax"),
+                                v_line_number.clone(),
+                            ])?;
+                        }
+                        v_segments =
+                            core_string_split_top_level(&[v_line.clone(), CoreValue::from("-->")])?;
+                        v_segment_count = core_len(&[v_segments.clone()])?;
+                        v_from_text = core_list_get(&[
+                            v_segments.clone(),
+                            CoreValue::Num(0f64),
+                            CoreValue::from(""),
+                        ])?;
+                        v_from_ids = _flow_mermaid_parse_group(&[
+                            v_ast.clone(),
+                            v_from_text.clone(),
+                            v_line_number.clone(),
+                        ])?;
+                        v_segment_index = CoreValue::Num(1f64);
+                        loop {
+                            v_done = core_gte(&[v_segment_index.clone(), v_segment_count.clone()])?;
+                            if core_truthy(&v_done) {
+                                break;
+                            }
+                            v_segment = core_list_get(&[
+                                v_segments.clone(),
+                                v_segment_index.clone(),
+                                CoreValue::from(""),
+                            ])?;
+                            v_segment = core_string_trim(&v_segment);
+                            v_label = core_none(&[])?;
+                            v_has_label = core_string_starts_with(&[
+                                v_segment.clone(),
+                                CoreValue::from("|"),
+                            ])?;
+                            if core_truthy(&v_has_label) {
+                                v_after_bar =
+                                    core_string_slice(&[v_segment.clone(), CoreValue::Num(1f64)])?;
+                                v_label_parts = core_string_split_once(&[
+                                    v_after_bar.clone(),
+                                    CoreValue::from("|"),
+                                ])?;
+                                v_label_closed = core_get(
+                                    &v_label_parts,
+                                    &CoreValue::from("found"),
+                                    CoreValue::Bool(false),
+                                );
+                                if core_truthy(&v_label_closed) {
+                                } else {
+                                    _flow_mermaid_fail(&[
+                                        CoreValue::from("Unterminated edge label"),
+                                        v_line_number.clone(),
+                                    ])?;
+                                }
+                                v_label = core_get(
+                                    &v_label_parts,
+                                    &CoreValue::from("left"),
+                                    CoreValue::from(""),
+                                );
+                                v_label = core_string_trim(&v_label);
+                                v_segment = core_get(
+                                    &v_label_parts,
+                                    &CoreValue::from("right"),
+                                    CoreValue::from(""),
+                                );
+                                v_segment = core_string_trim(&v_segment);
+                            }
+                            v_to_ids = _flow_mermaid_parse_group(&[
+                                v_ast.clone(),
+                                v_segment.clone(),
+                                v_line_number.clone(),
+                            ])?;
+                            for v_from_node in core_iter(&v_from_ids)? {
+                                let mut v_from_node = v_from_node;
+                                for v_to in core_iter(&v_to_ids)? {
+                                    let mut v_to = v_to;
+                                    v_edge = CoreValue::new_map();
+                                    core_set(
+                                        &v_edge,
+                                        CoreValue::from("from"),
+                                        v_from_node.clone(),
+                                    )?;
+                                    core_set(&v_edge, CoreValue::from("to"), v_to.clone())?;
+                                    core_set(&v_edge, CoreValue::from("label"), v_label.clone())?;
+                                    core_set(
+                                        &v_edge,
+                                        CoreValue::from("line"),
+                                        v_line_number.clone(),
+                                    )?;
+                                    core_append(&v_edges, v_edge.clone())?;
+                                }
+                            }
+                            v_from_ids = v_to_ids.clone();
+                            v_segment_index =
+                                core_add(&[v_segment_index.clone(), CoreValue::Num(1f64)])?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if core_truthy(&v_saw_header) {
+    } else {
+        _flow_mermaid_fail(&[
+            CoreValue::from("Missing flowchart header"),
+            CoreValue::Num(1f64),
+        ])?;
+    }
+    v_node_count = core_len(&[v_order.clone()])?;
+    v_no_nodes = core_eq(&[v_node_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_no_nodes) {
+        _flow_mermaid_fail(&[
+            CoreValue::from("No nodes found in the diagram"),
+            CoreValue::Num(1f64),
+        ])?;
+    }
+    return Ok(v_ast.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_reachable(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_reachable");
+    let mut v_start = core_arg(args, 0);
+    let mut v_target = core_arg(args, 1);
+    let mut v_edges = core_arg(args, 2);
+    let mut v_count = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_edge = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_from_node = CoreValue::Null;
+    let mut v_index = CoreValue::Null;
+    let mut v_is_new = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_queue = CoreValue::Null;
+    let mut v_seen = CoreValue::Null;
+    let mut v_to = CoreValue::Null;
+    v_queue = CoreValue::new_list();
+    core_append(&v_queue, v_start.clone())?;
+    v_seen = CoreValue::new_map();
+    core_set(&v_seen, v_start.clone(), CoreValue::Bool(true))?;
+    v_index = CoreValue::Num(0f64);
+    loop {
+        v_count = core_len(&[v_queue.clone()])?;
+        v_done = core_gte(&[v_index.clone(), v_count.clone()])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_current = core_list_get(&[v_queue.clone(), v_index.clone(), CoreValue::from("")])?;
+        v_index = core_add(&[v_index.clone(), CoreValue::Num(1f64)])?;
+        for v_edge in core_iter(&v_edges)? {
+            let mut v_edge = v_edge;
+            v_from_node = core_get(&v_edge, &CoreValue::from("from"), CoreValue::from(""));
+            v_matches = core_eq(&[v_from_node.clone(), v_current.clone()])?;
+            if core_truthy(&v_matches) {
+                v_to = core_get(&v_edge, &CoreValue::from("to"), CoreValue::from(""));
+                v_found = core_eq(&[v_to.clone(), v_target.clone()])?;
+                if core_truthy(&v_found) {
+                    return Ok(CoreValue::Bool(true));
+                }
+                v_known = core_map_contains(&[v_seen.clone(), v_to.clone()])?;
+                v_is_new = core_not(&[v_known.clone()])?;
+                if core_truthy(&v_is_new) {
+                    core_set(&v_seen, v_to.clone(), CoreValue::Bool(true))?;
+                    core_append(&v_queue, v_to.clone())?;
+                }
+            }
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_topological_order(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_topological_order");
+    let mut v_document_order = core_arg(args, 0);
+    let mut v_edges = core_arg(args, 1);
+    let mut v_count = CoreValue::Null;
+    let mut v_done = CoreValue::Null;
+    let mut v_edge = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_incoming = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_parent = CoreValue::Null;
+    let mut v_parent_done = CoreValue::Null;
+    let mut v_processed = CoreValue::Null;
+    let mut v_progress = CoreValue::Null;
+    let mut v_ready = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_to = CoreValue::Null;
+    let mut v_total = CoreValue::Null;
+    let mut v_waiting = CoreValue::Null;
+    v_result = CoreValue::new_list();
+    v_processed = CoreValue::new_map();
+    v_total = core_len(&[v_document_order.clone()])?;
+    loop {
+        v_count = core_len(&[v_result.clone()])?;
+        v_done = core_gte(&[v_count.clone(), v_total.clone()])?;
+        if core_truthy(&v_done) {
+            break;
+        }
+        v_progress = CoreValue::Bool(false);
+        for v_id in core_iter(&v_document_order)? {
+            let mut v_id = v_id;
+            v_known = core_map_contains(&[v_processed.clone(), v_id.clone()])?;
+            if core_truthy(&v_known) {
+            } else {
+                v_ready = CoreValue::Bool(true);
+                for v_edge in core_iter(&v_edges)? {
+                    let mut v_edge = v_edge;
+                    v_to = core_get(&v_edge, &CoreValue::from("to"), CoreValue::from(""));
+                    v_incoming = core_eq(&[v_to.clone(), v_id.clone()])?;
+                    if core_truthy(&v_incoming) {
+                        v_parent = core_get(&v_edge, &CoreValue::from("from"), CoreValue::from(""));
+                        v_parent_done =
+                            core_map_contains(&[v_processed.clone(), v_parent.clone()])?;
+                        v_waiting = core_not(&[v_parent_done.clone()])?;
+                        if core_truthy(&v_waiting) {
+                            v_ready = CoreValue::Bool(false);
+                        }
+                    }
+                }
+                if core_truthy(&v_ready) {
+                    core_set(&v_processed, v_id.clone(), CoreValue::Bool(true))?;
+                    core_append(&v_result, v_id.clone())?;
+                    v_progress = CoreValue::Bool(true);
+                }
+            }
+        }
+        if core_truthy(&v_progress) {
+        } else {
+            _flow_mermaid_fail(&[
+                CoreValue::from("Cycle without a classified back-edge"),
+                CoreValue::Num(1f64),
+            ])?;
+        }
+    }
+    return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_decision(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_decision");
+    let mut v_node = core_arg(args, 0);
+    let mut v_ast = core_arg(args, 1);
+    let mut v_infos = core_arg(args, 2);
+    let mut v_candidate_count = CoreValue::Null;
+    let mut v_chosen = CoreValue::Null;
+    let mut v_decision = CoreValue::Null;
+    let mut v_decision_options = CoreValue::Null;
+    let mut v_decision_type = CoreValue::Null;
+    let mut v_eligible = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_options = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_info = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_is_class = CoreValue::Null;
+    let mut v_is_diamond = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_missing_signature = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_node_ast = CoreValue::Null;
+    let mut v_nodes = CoreValue::Null;
+    let mut v_one = CoreValue::Null;
+    let mut v_outputs = CoreValue::Null;
+    let mut v_shape = CoreValue::Null;
+    let mut v_signature = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_type_name = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_info = core_get(&v_infos, &v_node.clone(), v_empty.clone());
+    v_signature = core_get(&v_info, &CoreValue::from("signature"), CoreValue::Null);
+    v_missing_signature = core_is_none(&[v_signature.clone()])?;
+    if core_truthy(&v_missing_signature) {
+        v_message = core_string_format(&[
+            CoreValue::from("Decision node \"{}\" needs an Ax signature directive"),
+            v_node.clone(),
+        ])?;
+        _flow_mermaid_fail(&[v_message.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_outputs = core_get(&v_info, &CoreValue::from("outputs"), CoreValue::Null);
+    v_nodes = core_get(&v_ast, &CoreValue::from("nodes"), CoreValue::Null);
+    v_node_ast = core_get(&v_nodes, &v_node.clone(), CoreValue::Null);
+    v_shape = core_get(
+        &v_node_ast,
+        &CoreValue::from("shape"),
+        CoreValue::from("rect"),
+    );
+    v_is_diamond = core_eq(&[v_shape.clone(), CoreValue::from("diamond")])?;
+    v_field_name = CoreValue::from("");
+    if core_truthy(&v_is_diamond) {
+        v_field_name = core_get(&v_node_ast, &CoreValue::from("label"), CoreValue::from(""));
+    } else {
+        v_candidate_count = CoreValue::Num(0f64);
+        for v_field in core_iter(&v_outputs)? {
+            let mut v_field = v_field;
+            v_type = core_get(&v_field, &CoreValue::from("type"), CoreValue::Null);
+            v_type_name = core_get(&v_type, &CoreValue::from("name"), CoreValue::from(""));
+            v_is_class = core_eq(&[v_type_name.clone(), CoreValue::from("class")])?;
+            v_is_boolean = core_eq(&[v_type_name.clone(), CoreValue::from("boolean")])?;
+            v_eligible = core_or(&[v_is_class.clone(), v_is_boolean.clone()])?;
+            if core_truthy(&v_eligible) {
+                v_candidate_count = core_add(&[v_candidate_count.clone(), CoreValue::Num(1f64)])?;
+                v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+            }
+        }
+        v_one = core_eq(&[v_candidate_count.clone(), CoreValue::Num(1f64)])?;
+        if core_truthy(&v_one) {
+        } else {
+            v_message = core_string_format(&[
+                CoreValue::from("Cannot infer decision field for node \"{}\""),
+                v_node.clone(),
+            ])?;
+            _flow_mermaid_fail(&[v_message.clone(), CoreValue::Num(1f64)])?;
+        }
+    }
+    v_chosen = core_none(&[])?;
+    for v_field in core_iter(&v_outputs)? {
+        let mut v_field = v_field;
+        v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+        v_matches = core_eq(&[v_name.clone(), v_field_name.clone()])?;
+        if core_truthy(&v_matches) {
+            v_chosen = v_field.clone();
+        }
+    }
+    v_missing = core_is_none(&[v_chosen.clone()])?;
+    if core_truthy(&v_missing) {
+        v_message = core_string_format(&[
+            CoreValue::from("Decision field \"{}\" is not an output of node \"{}\""),
+            v_field_name.clone(),
+            v_node.clone(),
+        ])?;
+        _flow_mermaid_fail(&[v_message.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_type = core_get(&v_chosen, &CoreValue::from("type"), CoreValue::Null);
+    v_decision = CoreValue::new_map();
+    core_set(&v_decision, CoreValue::from("nodeName"), v_node.clone())?;
+    core_set(&v_decision, CoreValue::from("field"), v_field_name.clone())?;
+    v_decision_type = core_get(&v_type, &CoreValue::from("name"), CoreValue::from(""));
+    core_set(
+        &v_decision,
+        CoreValue::from("type"),
+        v_decision_type.clone(),
+    )?;
+    v_empty_options = CoreValue::new_list();
+    v_decision_options = core_get(
+        &v_type,
+        &CoreValue::from("options"),
+        v_empty_options.clone(),
+    );
+    core_set(
+        &v_decision,
+        CoreValue::from("options"),
+        v_decision_options.clone(),
+    )?;
+    return Ok(v_decision.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_guards_compatible(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_guards_compatible");
+    let mut v_nodes = core_arg(args, 0);
+    let mut v_guards = core_arg(args, 1);
+    let mut v_count = CoreValue::Null;
+    let mut v_different = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_enough = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_first = CoreValue::Null;
+    let mut v_first_node = CoreValue::Null;
+    let mut v_guard = CoreValue::Null;
+    let mut v_guard_field = CoreValue::Null;
+    let mut v_guard_owner = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_missing_first = CoreValue::Null;
+    let mut v_node = CoreValue::Null;
+    let mut v_owner = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_same_field = CoreValue::Null;
+    let mut v_same_owner = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_value_key = CoreValue::Null;
+    let mut v_values = CoreValue::Null;
+    v_count = core_len(&[v_nodes.clone()])?;
+    v_enough = core_gt(&[v_count.clone(), CoreValue::Num(1f64)])?;
+    if core_truthy(&v_enough) {
+    } else {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_first_node = core_list_get(&[v_nodes.clone(), CoreValue::Num(0f64), CoreValue::from("")])?;
+    v_first = core_get(&v_guards, &v_first_node.clone(), CoreValue::Null);
+    v_missing_first = core_is_none(&[v_first.clone()])?;
+    if core_truthy(&v_missing_first) {
+        return Ok(CoreValue::Bool(false));
+    }
+    v_owner = core_get(&v_first, &CoreValue::from("nodeName"), CoreValue::from(""));
+    v_field = core_get(&v_first, &CoreValue::from("field"), CoreValue::from(""));
+    v_values = CoreValue::new_map();
+    for v_node in core_iter(&v_nodes)? {
+        let mut v_node = v_node;
+        v_guard = core_get(&v_guards, &v_node.clone(), CoreValue::Null);
+        v_missing = core_is_none(&[v_guard.clone()])?;
+        if core_truthy(&v_missing) {
+            return Ok(CoreValue::Bool(false));
+        }
+        v_guard_owner = core_get(&v_guard, &CoreValue::from("nodeName"), CoreValue::from(""));
+        v_guard_field = core_get(&v_guard, &CoreValue::from("field"), CoreValue::from(""));
+        v_same_owner = core_eq(&[v_guard_owner.clone(), v_owner.clone()])?;
+        v_same_field = core_eq(&[v_guard_field.clone(), v_field.clone()])?;
+        v_same = core_and(&[v_same_owner.clone(), v_same_field.clone()])?;
+        v_different = core_not(&[v_same.clone()])?;
+        if core_truthy(&v_different) {
+            return Ok(CoreValue::Bool(false));
+        }
+        v_value = core_get(&v_guard, &CoreValue::from("value"), CoreValue::Null);
+        v_value_key = core_string_str(&[v_value.clone()])?;
+        v_duplicate = core_map_contains(&[v_values.clone(), v_value_key.clone()])?;
+        if core_truthy(&v_duplicate) {
+            return Ok(CoreValue::Bool(false));
+        }
+        core_set(&v_values, v_value_key.clone(), CoreValue::Bool(true))?;
+    }
+    return Ok(CoreValue::Bool(true));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_execute_step");
+    let mut v_info = core_arg(args, 0);
+    let mut v_guard = core_arg(args, 1);
+    let mut v_guard_node = CoreValue::Null;
+    let mut v_guard_read = CoreValue::Null;
+    let mut v_has_guard = CoreValue::Null;
+    let mut v_has_guard_read = CoreValue::Null;
+    let mut v_has_signature = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_meta = CoreValue::Null;
+    let mut v_missing_guard_read = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_program = CoreValue::Null;
+    let mut v_read = CoreValue::Null;
+    let mut v_reads = CoreValue::Null;
+    let mut v_resolved_reads = CoreValue::Null;
+    let mut v_result_key = CoreValue::Null;
+    let mut v_signature_text = CoreValue::Null;
+    let mut v_step = CoreValue::Null;
+    let mut v_writes = CoreValue::Null;
+    v_name = core_get(&v_info, &CoreValue::from("id"), CoreValue::from(""));
+    v_program = core_get(&v_info, &CoreValue::from("program"), CoreValue::Null);
+    v_kind = core_get(
+        &v_info,
+        &CoreValue::from("kind"),
+        CoreValue::from("execute"),
+    );
+    v_options = CoreValue::new_map();
+    v_reads = core_get(&v_info, &CoreValue::from("reads"), CoreValue::Null);
+    v_resolved_reads = CoreValue::new_list();
+    for v_read in core_iter(&v_reads)? {
+        let mut v_read = v_read;
+        core_append(&v_resolved_reads, v_read.clone())?;
+    }
+    v_writes = CoreValue::new_list();
+    v_result_key = core_string_format(&[CoreValue::from("{}Result"), v_name.clone()])?;
+    core_append(&v_writes, v_result_key.clone())?;
+    core_set(&v_options, CoreValue::from("writes"), v_writes.clone())?;
+    v_signature_text = core_get(
+        &v_info,
+        &CoreValue::from("signatureText"),
+        CoreValue::from(""),
+    );
+    v_has_signature = core_truthy_value(&[v_signature_text.clone()])?;
+    if core_truthy(&v_has_signature) {
+        core_set(
+            &v_options,
+            CoreValue::from("signatureText"),
+            v_signature_text.clone(),
+        )?;
+    }
+    v_has_guard = core_is_not_none(&[v_guard.clone()])?;
+    if core_truthy(&v_has_guard) {
+        core_set(&v_options, CoreValue::from("guard"), v_guard.clone())?;
+        v_guard_node = core_get(&v_guard, &CoreValue::from("nodeName"), CoreValue::from(""));
+        v_guard_read = core_string_format(&[CoreValue::from("{}Result"), v_guard_node.clone()])?;
+        v_has_guard_read = core_contains(&[v_resolved_reads.clone(), v_guard_read.clone()])?;
+        v_missing_guard_read = core_not(&[v_has_guard_read.clone()])?;
+        if core_truthy(&v_missing_guard_read) {
+            core_append(&v_resolved_reads, v_guard_read.clone())?;
+        }
+    }
+    core_set(
+        &v_options,
+        CoreValue::from("reads"),
+        v_resolved_reads.clone(),
+    )?;
+    v_step = _flow_step(&[
+        v_kind.clone(),
+        v_name.clone(),
+        v_program.clone(),
+        v_options.clone(),
+    ])?;
+    v_meta = CoreValue::new_map();
+    core_set(&v_meta, CoreValue::from("kind"), v_kind.clone())?;
+    core_set(&v_meta, CoreValue::from("nodeName"), v_name.clone())?;
+    core_set(&v_step, CoreValue::from("meta"), v_meta.clone())?;
+    return Ok(v_step.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_parse_max(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_parse_max");
+    let mut v_label = core_arg(args, 0);
+    let mut v_fallback = core_arg(args, 1);
+    let mut v_max = CoreValue::Null;
+    let mut v_parsed = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_raw = CoreValue::Null;
+    let mut v_starts = CoreValue::Null;
+    v_parts = core_string_split_trim_nonempty(&[v_label.clone(), CoreValue::from(",")])?;
+    v_max = v_fallback.clone();
+    for v_part in core_iter(&v_parts)? {
+        let mut v_part = v_part;
+        v_starts = core_string_starts_with(&[v_part.clone(), CoreValue::from("max ")])?;
+        if core_truthy(&v_starts) {
+            v_raw = core_string_slice(&[v_part.clone(), CoreValue::Num(4f64)])?;
+            v_parsed = core_json_parse(&[v_raw.clone()])?;
+            v_max = v_parsed.clone();
+        }
+    }
+    return Ok(v_max.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_compile(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_compile");
+    let mut v_ast = core_arg(args, 0);
+    let mut v_bindings = core_arg(args, 1);
+    let mut v_a = CoreValue::Null;
+    let mut v_after_start = CoreValue::Null;
+    let mut v_all_producers = CoreValue::Null;
+    let mut v_already_guarded = CoreValue::Null;
+    let mut v_ambiguous = CoreValue::Null;
+    let mut v_b = CoreValue::Null;
+    let mut v_back_edges = CoreValue::Null;
+    let mut v_bad_ambiguity = CoreValue::Null;
+    let mut v_before_end = CoreValue::Null;
+    let mut v_binding_only = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
+    let mut v_body_guard = CoreValue::Null;
+    let mut v_body_id = CoreValue::Null;
+    let mut v_body_index = CoreValue::Null;
+    let mut v_body_info = CoreValue::Null;
+    let mut v_body_step = CoreValue::Null;
+    let mut v_closes_cycle = CoreValue::Null;
+    let mut v_compatible = CoreValue::Null;
+    let mut v_compile_id = CoreValue::Null;
+    let mut v_compile_index = CoreValue::Null;
+    let mut v_compile_order = CoreValue::Null;
+    let mut v_compile_order_index = CoreValue::Null;
+    let mut v_condition = CoreValue::Null;
+    let mut v_condition_name = CoreValue::Null;
+    let mut v_conditions = CoreValue::Null;
+    let mut v_decision = CoreValue::Null;
+    let mut v_directives = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_edge = CoreValue::Null;
+    let mut v_edge_line_number = CoreValue::Null;
+    let mut v_edges = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_fallback_max = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_field_name = CoreValue::Null;
+    let mut v_field_producers = CoreValue::Null;
+    let mut v_flow = CoreValue::Null;
+    let mut v_forward_edges = CoreValue::Null;
+    let mut v_from_index = CoreValue::Null;
+    let mut v_from_node = CoreValue::Null;
+    let mut v_guard = CoreValue::Null;
+    let mut v_guards = CoreValue::Null;
+    let mut v_has_binding = CoreValue::Null;
+    let mut v_has_directive = CoreValue::Null;
+    let mut v_has_label = CoreValue::Null;
+    let mut v_has_missing = CoreValue::Null;
+    let mut v_has_other_producer = CoreValue::Null;
+    let mut v_has_outgoing = CoreValue::Null;
+    let mut v_has_parent_guard = CoreValue::Null;
+    let mut v_has_self_while = CoreValue::Null;
+    let mut v_has_signature = CoreValue::Null;
+    let mut v_has_upstream = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_in_body = CoreValue::Null;
+    let mut v_incoming = CoreValue::Null;
+    let mut v_incoming_count = CoreValue::Null;
+    let mut v_incoming_from = CoreValue::Null;
+    let mut v_info = CoreValue::Null;
+    let mut v_info_reads = CoreValue::Null;
+    let mut v_infos = CoreValue::Null;
+    let mut v_inputs = CoreValue::Null;
+    let mut v_invalid_option = CoreValue::Null;
+    let mut v_is_back = CoreValue::Null;
+    let mut v_is_class = CoreValue::Null;
+    let mut v_is_if = CoreValue::Null;
+    let mut v_is_while = CoreValue::Null;
+    let mut v_joined = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_label_parts = CoreValue::Null;
+    let mut v_loop_index = CoreValue::Null;
+    let mut v_loop_kind = CoreValue::Null;
+    let mut v_loop_name = CoreValue::Null;
+    let mut v_loop_options = CoreValue::Null;
+    let mut v_loop_step = CoreValue::Null;
+    let mut v_main = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_matches_source = CoreValue::Null;
+    let mut v_max = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_meta = CoreValue::Null;
+    let mut v_missing_condition = CoreValue::Null;
+    let mut v_missing_count = CoreValue::Null;
+    let mut v_missing_directive = CoreValue::Null;
+    let mut v_missing_field_producers = CoreValue::Null;
+    let mut v_missing_label = CoreValue::Null;
+    let mut v_missing_nodes = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_natural_inputs = CoreValue::Null;
+    let mut v_node_bindings = CoreValue::Null;
+    let mut v_not_self = CoreValue::Null;
+    let mut v_one_incoming = CoreValue::Null;
+    let mut v_options = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_order = CoreValue::Null;
+    let mut v_order_index = CoreValue::Null;
+    let mut v_outputs = CoreValue::Null;
+    let mut v_pair = CoreValue::Null;
+    let mut v_parent = CoreValue::Null;
+    let mut v_parent_guard = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_path = CoreValue::Null;
+    let mut v_points_backward = CoreValue::Null;
+    let mut v_producer = CoreValue::Null;
+    let mut v_producer_count = CoreValue::Null;
+    let mut v_producers = CoreValue::Null;
+    let mut v_program = CoreValue::Null;
+    let mut v_reachable = CoreValue::Null;
+    let mut v_read = CoreValue::Null;
+    let mut v_reads = CoreValue::Null;
+    let mut v_reserved = CoreValue::Null;
+    let mut v_resolved = CoreValue::Null;
+    let mut v_returns = CoreValue::Null;
+    let mut v_same_only = CoreValue::Null;
+    let mut v_self = CoreValue::Null;
+    let mut v_self_loop = CoreValue::Null;
+    let mut v_self_while = CoreValue::Null;
+    let mut v_signature = CoreValue::Null;
+    let mut v_signature_text = CoreValue::Null;
+    let mut v_starts_if = CoreValue::Null;
+    let mut v_starts_while = CoreValue::Null;
+    let mut v_step = CoreValue::Null;
+    let mut v_steps = CoreValue::Null;
+    let mut v_terminal_fields = CoreValue::Null;
+    let mut v_to = CoreValue::Null;
+    let mut v_to_index = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_upstream = CoreValue::Null;
+    let mut v_upstream_count = CoreValue::Null;
+    let mut v_valid_option = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
+    v_opts = core_get(
+        &v_bindings,
+        &CoreValue::from("options"),
+        v_empty_map.clone(),
+    );
+    v_flow = _flow_factory(&[v_opts.clone()])?;
+    v_order = core_get(&v_ast, &CoreValue::from("order"), CoreValue::Null);
+    v_order_index = core_get(&v_ast, &CoreValue::from("orderIndex"), CoreValue::Null);
+    v_edges = core_get(&v_ast, &CoreValue::from("edges"), CoreValue::Null);
+    v_directives = core_get(&v_ast, &CoreValue::from("directives"), CoreValue::Null);
+    v_node_bindings = core_get(&v_bindings, &CoreValue::from("nodes"), v_empty_map.clone());
+    v_conditions = core_get(
+        &v_bindings,
+        &CoreValue::from("conditions"),
+        v_empty_map.clone(),
+    );
+    v_forward_edges = CoreValue::new_list();
+    v_back_edges = CoreValue::new_list();
+    for v_edge in core_iter(&v_edges)? {
+        let mut v_edge = v_edge;
+        v_from_node = core_get(&v_edge, &CoreValue::from("from"), CoreValue::Null);
+        v_to = core_get(&v_edge, &CoreValue::from("to"), CoreValue::Null);
+        v_from_index = core_get(&v_order_index, &v_from_node.clone(), CoreValue::Null);
+        v_to_index = core_get(&v_order_index, &v_to.clone(), CoreValue::Null);
+        v_points_backward = core_gte(&[v_from_index.clone(), v_to_index.clone()])?;
+        v_closes_cycle =
+            _flow_mermaid_reachable(&[v_to.clone(), v_from_node.clone(), v_edges.clone()])?;
+        v_is_back = core_and(&[v_points_backward.clone(), v_closes_cycle.clone()])?;
+        if core_truthy(&v_is_back) {
+            v_label = core_get(&v_edge, &CoreValue::from("label"), CoreValue::Null);
+            v_missing_label = core_is_none(&[v_label.clone()])?;
+            if core_truthy(&v_missing_label) {
+                v_message = core_string_format(&[
+                    CoreValue::from("Back-edges need a label: {} --> {}"),
+                    v_from_node.clone(),
+                    v_to.clone(),
+                ])?;
+                v_edge_line_number =
+                    core_get(&v_edge, &CoreValue::from("line"), CoreValue::Num(1f64));
+                _flow_mermaid_fail(&[v_message.clone(), v_edge_line_number.clone()])?;
+            }
+            core_append(&v_back_edges, v_edge.clone())?;
+        } else {
+            core_append(&v_forward_edges, v_edge.clone())?;
+        }
+    }
+    v_compile_order = _flow_mermaid_topological_order(&[v_order.clone(), v_forward_edges.clone()])?;
+    v_compile_order_index = CoreValue::new_map();
+    v_compile_index = CoreValue::Num(0f64);
+    for v_compile_id in core_iter(&v_compile_order)? {
+        let mut v_compile_id = v_compile_id;
+        core_set(
+            &v_compile_order_index,
+            v_compile_id.clone(),
+            v_compile_index.clone(),
+        )?;
+        v_compile_index = core_add(&[v_compile_index.clone(), CoreValue::Num(1f64)])?;
+    }
+    core_set(
+        &v_ast,
+        CoreValue::from("compileOrder"),
+        v_compile_order.clone(),
+    )?;
+    v_infos = CoreValue::new_map();
+    v_producers = CoreValue::new_map();
+    v_missing_nodes = CoreValue::new_list();
+    for v_id in core_iter(&v_compile_order)? {
+        let mut v_id = v_id;
+        v_has_directive = core_map_contains(&[v_directives.clone(), v_id.clone()])?;
+        v_has_binding = core_map_contains(&[v_node_bindings.clone(), v_id.clone()])?;
+        v_resolved = core_or(&[v_has_directive.clone(), v_has_binding.clone()])?;
+        if core_truthy(&v_resolved) {
+        } else {
+            core_append(&v_missing_nodes, v_id.clone())?;
+        }
+        v_info = CoreValue::new_map();
+        v_info_reads = CoreValue::new_list();
+        core_set(&v_info, CoreValue::from("id"), v_id.clone())?;
+        core_set(&v_info, CoreValue::from("kind"), CoreValue::from("execute"))?;
+        core_set(&v_info, CoreValue::from("reads"), v_info_reads.clone())?;
+        v_signature_text = core_get(&v_directives, &v_id.clone(), CoreValue::from(""));
+        core_set(
+            &v_info,
+            CoreValue::from("signatureText"),
+            v_signature_text.clone(),
+        )?;
+        v_program = core_get(&v_node_bindings, &v_id.clone(), v_signature_text.clone());
+        core_set(&v_info, CoreValue::from("program"), v_program.clone())?;
+        v_missing_directive = core_not(&[v_has_directive.clone()])?;
+        v_binding_only = core_and(&[v_has_binding.clone(), v_missing_directive.clone()])?;
+        if core_truthy(&v_binding_only) {
+            core_set(&v_info, CoreValue::from("kind"), CoreValue::from("map"))?;
+        }
+        if core_truthy(&v_has_directive) {
+            v_signature = parse_signature(&[v_signature_text.clone()])?;
+            core_set(&v_info, CoreValue::from("signature"), v_signature.clone())?;
+            v_inputs = _signature_input_fields(&[v_signature.clone()])?;
+            v_outputs = _signature_output_fields(&[v_signature.clone()])?;
+            core_set(&v_info, CoreValue::from("inputs"), v_inputs.clone())?;
+            core_set(&v_info, CoreValue::from("outputs"), v_outputs.clone())?;
+            for v_field in core_iter(&v_outputs)? {
+                let mut v_field = v_field;
+                v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+                v_field_producers = core_get(&v_producers, &v_field_name.clone(), CoreValue::Null);
+                v_missing_field_producers = core_is_none(&[v_field_producers.clone()])?;
+                if core_truthy(&v_missing_field_producers) {
+                    v_field_producers = CoreValue::new_list();
+                    core_set(
+                        &v_producers,
+                        v_field_name.clone(),
+                        v_field_producers.clone(),
+                    )?;
+                }
+                core_append(&v_field_producers, v_id.clone())?;
+            }
+        }
+        core_set(&v_infos, v_id.clone(), v_info.clone())?;
+    }
+    v_missing_count = core_len(&[v_missing_nodes.clone()])?;
+    v_has_missing = core_gt(&[v_missing_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_missing) {
+        v_joined = core_string_join_intrinsic(&[CoreValue::from(", "), v_missing_nodes.clone()])?;
+        v_message = core_string_format(&[
+            CoreValue::from("No signature for node(s): {}"),
+            v_joined.clone(),
+        ])?;
+        _flow_mermaid_fail(&[v_message.clone(), CoreValue::Num(1f64)])?;
+    }
+    v_guards = CoreValue::new_map();
+    for v_edge in core_iter(&v_forward_edges)? {
+        let mut v_edge = v_edge;
+        v_label = core_get(&v_edge, &CoreValue::from("label"), CoreValue::Null);
+        v_has_label = core_is_not_none(&[v_label.clone()])?;
+        if core_truthy(&v_has_label) {
+            v_starts_if = core_string_starts_with(&[v_label.clone(), CoreValue::from("if ")])?;
+            v_starts_while =
+                core_string_starts_with(&[v_label.clone(), CoreValue::from("while ")])?;
+            v_reserved = core_or(&[v_starts_if.clone(), v_starts_while.clone()])?;
+            if core_truthy(&v_reserved) {
+                v_edge_line_number =
+                    core_get(&v_edge, &CoreValue::from("line"), CoreValue::Num(1f64));
+                _flow_mermaid_fail(&[
+                    CoreValue::from("if/while labels are only valid on back-edges"),
+                    v_edge_line_number.clone(),
+                ])?;
+            }
+            v_from_node = core_get(&v_edge, &CoreValue::from("from"), CoreValue::Null);
+            v_decision =
+                _flow_mermaid_decision(&[v_from_node.clone(), v_ast.clone(), v_infos.clone()])?;
+            v_type = core_get(&v_decision, &CoreValue::from("type"), CoreValue::from(""));
+            v_is_class = core_eq(&[v_type.clone(), CoreValue::from("class")])?;
+            if core_truthy(&v_is_class) {
+                v_options = core_get(
+                    &v_decision,
+                    &CoreValue::from("options"),
+                    v_empty_list.clone(),
+                );
+                v_valid_option = core_contains(&[v_options.clone(), v_label.clone()])?;
+                v_invalid_option = core_not(&[v_valid_option.clone()])?;
+                if core_truthy(&v_invalid_option) {
+                    v_field = core_get(&v_decision, &CoreValue::from("field"), CoreValue::from(""));
+                    v_message = core_string_format(&[
+                        CoreValue::from("\"{}\" is not an option of \"{}.{}\""),
+                        v_label.clone(),
+                        v_from_node.clone(),
+                        v_field.clone(),
+                    ])?;
+                    v_edge_line_number =
+                        core_get(&v_edge, &CoreValue::from("line"), CoreValue::Num(1f64));
+                    _flow_mermaid_fail(&[v_message.clone(), v_edge_line_number.clone()])?;
+                }
+            }
+            core_set(&v_decision, CoreValue::from("value"), v_label.clone())?;
+            v_to = core_get(&v_edge, &CoreValue::from("to"), CoreValue::Null);
+            core_set(&v_guards, v_to.clone(), v_decision.clone())?;
+        }
+    }
+    for v_id in core_iter(&v_compile_order)? {
+        let mut v_id = v_id;
+        v_already_guarded = core_map_contains(&[v_guards.clone(), v_id.clone()])?;
+        if core_truthy(&v_already_guarded) {
+        } else {
+            v_incoming = CoreValue::new_list();
+            for v_edge in core_iter(&v_forward_edges)? {
+                let mut v_edge = v_edge;
+                v_to = core_get(&v_edge, &CoreValue::from("to"), CoreValue::from(""));
+                v_matches = core_eq(&[v_to.clone(), v_id.clone()])?;
+                if core_truthy(&v_matches) {
+                    v_incoming_from =
+                        core_get(&v_edge, &CoreValue::from("from"), CoreValue::from(""));
+                    core_append(&v_incoming, v_incoming_from.clone())?;
+                }
+            }
+            v_incoming_count = core_len(&[v_incoming.clone()])?;
+            v_one_incoming = core_eq(&[v_incoming_count.clone(), CoreValue::Num(1f64)])?;
+            if core_truthy(&v_one_incoming) {
+                v_parent = core_list_get(&[
+                    v_incoming.clone(),
+                    CoreValue::Num(0f64),
+                    CoreValue::from(""),
+                ])?;
+                v_parent_guard = core_get(&v_guards, &v_parent.clone(), CoreValue::Null);
+                v_has_parent_guard = core_is_not_none(&[v_parent_guard.clone()])?;
+                if core_truthy(&v_has_parent_guard) {
+                    core_set(&v_guards, v_id.clone(), v_parent_guard.clone())?;
+                }
+            }
+        }
+    }
+    v_natural_inputs = CoreValue::new_map();
+    for v_id in core_iter(&v_compile_order)? {
+        let mut v_id = v_id;
+        v_info = core_get(&v_infos, &v_id.clone(), CoreValue::Null);
+        v_signature = core_get(&v_info, &CoreValue::from("signature"), CoreValue::Null);
+        v_has_signature = core_is_not_none(&[v_signature.clone()])?;
+        if core_truthy(&v_has_signature) {
+            v_inputs = core_get(&v_info, &CoreValue::from("inputs"), v_empty_list.clone());
+            v_reads = CoreValue::new_list();
+            for v_field in core_iter(&v_inputs)? {
+                let mut v_field = v_field;
+                v_field_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+                v_all_producers =
+                    core_get(&v_producers, &v_field_name.clone(), v_empty_list.clone());
+                v_upstream = CoreValue::new_list();
+                for v_producer in core_iter(&v_all_producers)? {
+                    let mut v_producer = v_producer;
+                    v_not_self = core_ne(&[v_producer.clone(), v_id.clone()])?;
+                    if core_truthy(&v_not_self) {
+                        v_reachable = _flow_mermaid_reachable(&[
+                            v_producer.clone(),
+                            v_id.clone(),
+                            v_forward_edges.clone(),
+                        ])?;
+                        if core_truthy(&v_reachable) {
+                            core_append(&v_upstream, v_producer.clone())?;
+                        }
+                    }
+                }
+                v_upstream_count = core_len(&[v_upstream.clone()])?;
+                v_ambiguous = core_gt(&[v_upstream_count.clone(), CoreValue::Num(1f64)])?;
+                if core_truthy(&v_ambiguous) {
+                    v_compatible =
+                        _flow_mermaid_guards_compatible(&[v_upstream.clone(), v_guards.clone()])?;
+                    v_bad_ambiguity = core_not(&[v_compatible.clone()])?;
+                    if core_truthy(&v_bad_ambiguity) {
+                        v_a = core_list_get(&[
+                            v_upstream.clone(),
+                            CoreValue::Num(0f64),
+                            CoreValue::from(""),
+                        ])?;
+                        v_b = core_list_get(&[
+                            v_upstream.clone(),
+                            CoreValue::Num(1f64),
+                            CoreValue::from(""),
+                        ])?;
+                        v_pair = core_string_format(&[
+                            CoreValue::from("{} and {}"),
+                            v_a.clone(),
+                            v_b.clone(),
+                        ])?;
+                        v_message = core_string_format(&[CoreValue::from("Input \"{}\" of node \"{}\" is produced by {} at the same distance"), v_field_name.clone(), v_id.clone(), v_pair.clone()])?;
+                        _flow_mermaid_fail(&[v_message.clone(), CoreValue::Num(1f64)])?;
+                    }
+                }
+                v_has_upstream = core_gt(&[v_upstream_count.clone(), CoreValue::Num(0f64)])?;
+                if core_truthy(&v_has_upstream) {
+                    for v_producer in core_iter(&v_upstream)? {
+                        let mut v_producer = v_producer;
+                        v_read =
+                            core_string_format(&[CoreValue::from("{}Result"), v_producer.clone()])?;
+                        core_append(&v_reads, v_read.clone())?;
+                    }
+                } else {
+                    v_producer_count = core_len(&[v_all_producers.clone()])?;
+                    v_has_other_producer =
+                        core_gt(&[v_producer_count.clone(), CoreValue::Num(0f64)])?;
+                    if core_truthy(&v_has_other_producer) {
+                        v_producer = core_list_get(&[
+                            v_all_producers.clone(),
+                            CoreValue::Num(0f64),
+                            CoreValue::from(""),
+                        ])?;
+                        v_same_only = core_eq(&[v_producer.clone(), v_id.clone()])?;
+                        if core_truthy(&v_same_only) {
+                            core_set(&v_natural_inputs, v_field_name.clone(), v_field.clone())?;
+                        } else {
+                            v_message = core_string_format(&[CoreValue::from("\"{}\" of node \"{}\" is produced by \"{}\" which is not upstream"), v_field_name.clone(), v_id.clone(), v_producer.clone()])?;
+                            _flow_mermaid_fail(&[v_message.clone(), CoreValue::Num(1f64)])?;
+                        }
+                    } else {
+                        core_set(&v_natural_inputs, v_field_name.clone(), v_field.clone())?;
+                    }
+                }
+            }
+            core_set(&v_info, CoreValue::from("reads"), v_reads.clone())?;
+        }
+    }
+    v_self_while = CoreValue::new_map();
+    for v_edge in core_iter(&v_back_edges)? {
+        let mut v_edge = v_edge;
+        v_from_node = core_get(&v_edge, &CoreValue::from("from"), CoreValue::Null);
+        v_to = core_get(&v_edge, &CoreValue::from("to"), CoreValue::Null);
+        v_label = core_get(&v_edge, &CoreValue::from("label"), CoreValue::from(""));
+        v_parts = core_string_split_trim_nonempty(&[v_label.clone(), CoreValue::from(",")])?;
+        v_main = core_list_get(&[v_parts.clone(), CoreValue::Num(0f64), CoreValue::from("")])?;
+        v_is_while = core_string_starts_with(&[v_main.clone(), CoreValue::from("while ")])?;
+        v_self = core_eq(&[v_from_node.clone(), v_to.clone()])?;
+        v_self_loop = core_and(&[v_is_while.clone(), v_self.clone()])?;
+        if core_truthy(&v_self_loop) {
+            core_set(&v_self_while, v_from_node.clone(), v_edge.clone())?;
+        }
+    }
+    v_steps = core_get(&v_flow, &CoreValue::from("steps"), CoreValue::Null);
+    v_loop_index = CoreValue::Num(0f64);
+    for v_id in core_iter(&v_compile_order)? {
+        let mut v_id = v_id;
+        v_info = core_get(&v_infos, &v_id.clone(), CoreValue::Null);
+        v_guard = core_get(&v_guards, &v_id.clone(), CoreValue::Null);
+        v_has_self_while = core_map_contains(&[v_self_while.clone(), v_id.clone()])?;
+        if core_truthy(&v_has_self_while) {
+        } else {
+            v_step = _flow_mermaid_execute_step(&[v_info.clone(), v_guard.clone()])?;
+            core_append(&v_steps, v_step.clone())?;
+        }
+        for v_edge in core_iter(&v_back_edges)? {
+            let mut v_edge = v_edge;
+            v_from_node = core_get(&v_edge, &CoreValue::from("from"), CoreValue::Null);
+            v_matches_source = core_eq(&[v_from_node.clone(), v_id.clone()])?;
+            if core_truthy(&v_matches_source) {
+                v_loop_index = core_add(&[v_loop_index.clone(), CoreValue::Num(1f64)])?;
+                v_to = core_get(&v_edge, &CoreValue::from("to"), CoreValue::Null);
+                v_label = core_get(&v_edge, &CoreValue::from("label"), CoreValue::from(""));
+                v_label_parts =
+                    core_string_split_trim_nonempty(&[v_label.clone(), CoreValue::from(",")])?;
+                v_main = core_list_get(&[
+                    v_label_parts.clone(),
+                    CoreValue::Num(0f64),
+                    CoreValue::from(""),
+                ])?;
+                v_is_while = core_string_starts_with(&[v_main.clone(), CoreValue::from("while ")])?;
+                v_is_if = core_string_starts_with(&[v_main.clone(), CoreValue::from("if ")])?;
+                v_loop_kind = CoreValue::from("feedback");
+                v_fallback_max = CoreValue::Num(10f64);
+                if core_truthy(&v_is_while) {
+                    v_loop_kind = CoreValue::from("while");
+                    v_fallback_max = CoreValue::Num(100f64);
+                }
+                v_max = _flow_mermaid_parse_max(&[v_label.clone(), v_fallback_max.clone()])?;
+                v_body = CoreValue::new_list();
+                v_to_index = core_get(&v_compile_order_index, &v_to.clone(), CoreValue::Null);
+                v_from_index = core_get(
+                    &v_compile_order_index,
+                    &v_from_node.clone(),
+                    CoreValue::Null,
+                );
+                for v_body_id in core_iter(&v_compile_order)? {
+                    let mut v_body_id = v_body_id;
+                    v_body_index =
+                        core_get(&v_compile_order_index, &v_body_id.clone(), CoreValue::Null);
+                    v_after_start = core_gte(&[v_body_index.clone(), v_to_index.clone()])?;
+                    v_before_end = core_lte(&[v_body_index.clone(), v_from_index.clone()])?;
+                    v_in_body = core_and(&[v_after_start.clone(), v_before_end.clone()])?;
+                    if core_truthy(&v_in_body) {
+                        v_body_info = core_get(&v_infos, &v_body_id.clone(), CoreValue::Null);
+                        v_body_guard = core_get(&v_guards, &v_body_id.clone(), CoreValue::Null);
+                        v_body_step = _flow_mermaid_execute_step(&[
+                            v_body_info.clone(),
+                            v_body_guard.clone(),
+                        ])?;
+                        core_append(&v_body, v_body_step.clone())?;
+                    }
+                }
+                v_loop_options = CoreValue::new_map();
+                core_set(&v_loop_options, CoreValue::from("steps"), v_body.clone())?;
+                core_set(
+                    &v_loop_options,
+                    CoreValue::from("maxIterations"),
+                    v_max.clone(),
+                )?;
+                core_set(&v_loop_options, CoreValue::from("label"), v_to.clone())?;
+                v_meta = CoreValue::new_map();
+                core_set(&v_meta, CoreValue::from("kind"), v_loop_kind.clone())?;
+                core_set(&v_meta, CoreValue::from("maxIterations"), v_max.clone())?;
+                core_set(&v_meta, CoreValue::from("target"), v_to.clone())?;
+                if core_truthy(&v_is_while) {
+                    v_condition_name = core_string_slice(&[v_main.clone(), CoreValue::Num(6f64)])?;
+                    v_condition_name = core_string_trim(&v_condition_name);
+                    v_condition =
+                        core_get(&v_conditions, &v_condition_name.clone(), CoreValue::Null);
+                    v_missing_condition = core_is_none(&[v_condition.clone()])?;
+                    if core_truthy(&v_missing_condition) {
+                        v_message = core_string_format(&[
+                            CoreValue::from("Missing condition binding \"{}\""),
+                            v_condition_name.clone(),
+                        ])?;
+                        v_edge_line_number =
+                            core_get(&v_edge, &CoreValue::from("line"), CoreValue::Num(1f64));
+                        _flow_mermaid_fail(&[v_message.clone(), v_edge_line_number.clone()])?;
+                    }
+                    core_set(
+                        &v_loop_options,
+                        CoreValue::from("condition"),
+                        v_condition.clone(),
+                    )?;
+                    core_set(
+                        &v_loop_options,
+                        CoreValue::from("conditionName"),
+                        v_condition_name.clone(),
+                    )?;
+                    core_set(
+                        &v_meta,
+                        CoreValue::from("conditionName"),
+                        v_condition_name.clone(),
+                    )?;
+                } else {
+                    if core_truthy(&v_is_if) {
+                        v_condition_name =
+                            core_string_slice(&[v_main.clone(), CoreValue::Num(3f64)])?;
+                        v_condition_name = core_string_trim(&v_condition_name);
+                        v_condition =
+                            core_get(&v_conditions, &v_condition_name.clone(), CoreValue::Null);
+                        v_missing_condition = core_is_none(&[v_condition.clone()])?;
+                        if core_truthy(&v_missing_condition) {
+                            v_message = core_string_format(&[
+                                CoreValue::from("Missing condition binding \"{}\""),
+                                v_condition_name.clone(),
+                            ])?;
+                            v_edge_line_number =
+                                core_get(&v_edge, &CoreValue::from("line"), CoreValue::Num(1f64));
+                            _flow_mermaid_fail(&[v_message.clone(), v_edge_line_number.clone()])?;
+                        }
+                        core_set(
+                            &v_loop_options,
+                            CoreValue::from("condition"),
+                            v_condition.clone(),
+                        )?;
+                        core_set(
+                            &v_loop_options,
+                            CoreValue::from("conditionName"),
+                            v_condition_name.clone(),
+                        )?;
+                        core_set(
+                            &v_meta,
+                            CoreValue::from("conditionName"),
+                            v_condition_name.clone(),
+                        )?;
+                    } else {
+                        v_decision = _flow_mermaid_decision(&[
+                            v_from_node.clone(),
+                            v_ast.clone(),
+                            v_infos.clone(),
+                        ])?;
+                        core_set(&v_decision, CoreValue::from("value"), v_main.clone())?;
+                        core_set(
+                            &v_loop_options,
+                            CoreValue::from("condition"),
+                            v_decision.clone(),
+                        )?;
+                        core_set(
+                            &v_loop_options,
+                            CoreValue::from("decision"),
+                            v_decision.clone(),
+                        )?;
+                        core_set(&v_meta, CoreValue::from("decision"), v_decision.clone())?;
+                    }
+                }
+                v_loop_name = core_string_format(&[
+                    CoreValue::from("{}{}"),
+                    v_loop_kind.clone(),
+                    v_loop_index.clone(),
+                ])?;
+                v_loop_step = _flow_step(&[
+                    v_loop_kind.clone(),
+                    v_loop_name.clone(),
+                    CoreValue::Null,
+                    v_loop_options.clone(),
+                ])?;
+                core_set(&v_loop_step, CoreValue::from("meta"), v_meta.clone())?;
+                core_append(&v_steps, v_loop_step.clone())?;
+            }
+        }
+    }
+    v_terminal_fields = CoreValue::new_map();
+    v_returns = CoreValue::new_map();
+    for v_id in core_iter(&v_compile_order)? {
+        let mut v_id = v_id;
+        v_has_outgoing = CoreValue::Bool(false);
+        for v_edge in core_iter(&v_forward_edges)? {
+            let mut v_edge = v_edge;
+            v_from_node = core_get(&v_edge, &CoreValue::from("from"), CoreValue::from(""));
+            v_matches = core_eq(&[v_from_node.clone(), v_id.clone()])?;
+            if core_truthy(&v_matches) {
+                v_has_outgoing = CoreValue::Bool(true);
+            }
+        }
+        if core_truthy(&v_has_outgoing) {
+        } else {
+            v_info = core_get(&v_infos, &v_id.clone(), CoreValue::Null);
+            v_signature = core_get(&v_info, &CoreValue::from("signature"), CoreValue::Null);
+            v_has_signature = core_is_not_none(&[v_signature.clone()])?;
+            if core_truthy(&v_has_signature) {
+                v_outputs = core_get(&v_info, &CoreValue::from("outputs"), v_empty_list.clone());
+                for v_field in core_iter(&v_outputs)? {
+                    let mut v_field = v_field;
+                    v_name = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+                    v_duplicate = core_map_contains(&[v_terminal_fields.clone(), v_name.clone()])?;
+                    if core_truthy(&v_duplicate) {
+                        v_message = core_string_format(&[
+                            CoreValue::from(
+                                "Output field \"{}\" is produced by multiple terminal nodes",
+                            ),
+                            v_name.clone(),
+                        ])?;
+                        _flow_mermaid_fail(&[v_message.clone(), CoreValue::Num(1f64)])?;
+                    }
+                    core_set(&v_terminal_fields, v_name.clone(), v_field.clone())?;
+                    v_path = core_string_format(&[
+                        CoreValue::from("{}Result.{}"),
+                        v_id.clone(),
+                        v_name.clone(),
+                    ])?;
+                    core_set(&v_returns, v_name.clone(), v_path.clone())?;
+                }
+            }
+        }
+    }
+    core_set(&v_flow, CoreValue::from("returns"), v_returns.clone())?;
+    core_set(&v_flow, CoreValue::from("mermaidAst"), v_ast.clone())?;
+    core_set(
+        &v_flow,
+        CoreValue::from("mermaidBindings"),
+        v_bindings.clone(),
+    )?;
+    core_set(
+        &v_flow,
+        CoreValue::from("mermaidInputFields"),
+        v_natural_inputs.clone(),
+    )?;
+    core_set(
+        &v_flow,
+        CoreValue::from("mermaidOutputFields"),
+        v_terminal_fields.clone(),
+    )?;
+    return Ok(v_flow.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_render_ast(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_render_ast");
+    let mut v_ast = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_arrives = CoreValue::Null;
+    let mut v_back = CoreValue::Null;
+    let mut v_canonical = CoreValue::Null;
+    let mut v_close_brace = CoreValue::Null;
+    let mut v_closes_cycle = CoreValue::Null;
+    let mut v_compile_order = CoreValue::Null;
+    let mut v_direction = CoreValue::Null;
+    let mut v_directive = CoreValue::Null;
+    let mut v_directive_order = CoreValue::Null;
+    let mut v_directives = CoreValue::Null;
+    let mut v_edge = CoreValue::Null;
+    let mut v_edge_line = CoreValue::Null;
+    let mut v_edges = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_forward = CoreValue::Null;
+    let mut v_from_index = CoreValue::Null;
+    let mut v_from_node = CoreValue::Null;
+    let mut v_has_label = CoreValue::Null;
+    let mut v_header = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_is_diamond = CoreValue::Null;
+    let mut v_label = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_lower_title = CoreValue::Null;
+    let mut v_node = CoreValue::Null;
+    let mut v_nodes = CoreValue::Null;
+    let mut v_open_brace = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_opts_missing = CoreValue::Null;
+    let mut v_order = CoreValue::Null;
+    let mut v_order_index = CoreValue::Null;
+    let mut v_percent = CoreValue::Null;
+    let mut v_points_backward = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    let mut v_rendered = CoreValue::Null;
+    let mut v_shape = CoreValue::Null;
+    let mut v_signature = CoreValue::Null;
+    let mut v_signature_text = CoreValue::Null;
+    let mut v_spaced_title = CoreValue::Null;
+    let mut v_statement = CoreValue::Null;
+    let mut v_to = CoreValue::Null;
+    let mut v_to_index = CoreValue::Null;
+    let mut v_wrapped = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_opts_missing = core_is_none(&[v_options.clone()])?;
+    v_opts = v_options.clone();
+    if core_truthy(&v_opts_missing) {
+        v_opts = v_empty_map.clone();
+    }
+    v_direction = core_get(
+        &v_opts,
+        &CoreValue::from("direction"),
+        CoreValue::from("TD"),
+    );
+    v_lines = CoreValue::new_list();
+    v_header = core_string_format(&[CoreValue::from("flowchart {}"), v_direction.clone()])?;
+    core_append(&v_lines, v_header.clone())?;
+    v_directives = core_get(&v_ast, &CoreValue::from("directives"), CoreValue::Null);
+    v_directive_order = core_get(&v_ast, &CoreValue::from("directiveOrder"), CoreValue::Null);
+    v_percent = core_get(&v_ast, &CoreValue::from("percent"), CoreValue::from(""));
+    for v_id in core_iter(&v_directive_order)? {
+        let mut v_id = v_id;
+        v_signature_text = core_get(&v_directives, &v_id.clone(), CoreValue::Null);
+        v_signature = parse_signature(&[v_signature_text.clone()])?;
+        v_canonical = signature_to_string(&[v_signature.clone()])?;
+        v_prefix = core_string_format(&[
+            CoreValue::from("{}{}ax"),
+            v_percent.clone(),
+            v_percent.clone(),
+        ])?;
+        v_directive = core_string_format(&[
+            CoreValue::from("  {} {}: {}"),
+            v_prefix.clone(),
+            v_id.clone(),
+            v_canonical.clone(),
+        ])?;
+        core_append(&v_lines, v_directive.clone())?;
+    }
+    core_append(&v_lines, CoreValue::from(""))?;
+    v_nodes = core_get(&v_ast, &CoreValue::from("nodes"), CoreValue::Null);
+    v_order = core_get(&v_ast, &CoreValue::from("order"), CoreValue::Null);
+    v_compile_order = core_get(&v_ast, &CoreValue::from("compileOrder"), v_order.clone());
+    v_order_index = core_get(&v_ast, &CoreValue::from("orderIndex"), CoreValue::Null);
+    v_edges = core_get(&v_ast, &CoreValue::from("edges"), CoreValue::Null);
+    for v_id in core_iter(&v_compile_order)? {
+        let mut v_id = v_id;
+        v_node = core_get(&v_nodes, &v_id.clone(), CoreValue::Null);
+        v_shape = core_get(&v_node, &CoreValue::from("shape"), CoreValue::from("rect"));
+        v_label = core_get(&v_node, &CoreValue::from("label"), CoreValue::Null);
+        v_is_diamond = core_eq(&[v_shape.clone(), CoreValue::from("diamond")])?;
+        if core_truthy(&v_is_diamond) {
+        } else {
+            v_spaced_title = core_string_title_from_camel(&[v_id.clone()])?;
+            v_lower_title = core_string_lower(&[v_spaced_title.clone()])?;
+            v_label = core_string_title_from_camel(&[v_lower_title.clone()])?;
+        }
+        v_statement =
+            core_string_format(&[CoreValue::from("  {}[{}]"), v_id.clone(), v_label.clone()])?;
+        if core_truthy(&v_is_diamond) {
+            v_open_brace = core_get(&v_node, &CoreValue::from("open"), CoreValue::from(""));
+            v_close_brace = core_get(&v_node, &CoreValue::from("close"), CoreValue::from(""));
+            v_wrapped = core_string_format(&[
+                CoreValue::from("{}{}{}"),
+                v_open_brace.clone(),
+                v_label.clone(),
+                v_close_brace.clone(),
+            ])?;
+            v_statement =
+                core_string_format(&[CoreValue::from("  {}{}"), v_id.clone(), v_wrapped.clone()])?;
+        }
+        core_append(&v_lines, v_statement.clone())?;
+        for v_edge in core_iter(&v_edges)? {
+            let mut v_edge = v_edge;
+            v_to = core_get(&v_edge, &CoreValue::from("to"), CoreValue::from(""));
+            v_arrives = core_eq(&[v_to.clone(), v_id.clone()])?;
+            if core_truthy(&v_arrives) {
+                v_from_node = core_get(&v_edge, &CoreValue::from("from"), CoreValue::from(""));
+                v_from_index = core_get(&v_order_index, &v_from_node.clone(), CoreValue::Null);
+                v_to_index = core_get(&v_order_index, &v_to.clone(), CoreValue::Null);
+                v_points_backward = core_gte(&[v_from_index.clone(), v_to_index.clone()])?;
+                v_closes_cycle =
+                    _flow_mermaid_reachable(&[v_to.clone(), v_from_node.clone(), v_edges.clone()])?;
+                v_back = core_and(&[v_points_backward.clone(), v_closes_cycle.clone()])?;
+                v_forward = core_not(&[v_back.clone()])?;
+                if core_truthy(&v_forward) {
+                    v_label = core_get(&v_edge, &CoreValue::from("label"), CoreValue::Null);
+                    v_has_label = core_is_not_none(&[v_label.clone()])?;
+                    v_edge_line = core_string_format(&[
+                        CoreValue::from("  {} --> {}"),
+                        v_from_node.clone(),
+                        v_to.clone(),
+                    ])?;
+                    if core_truthy(&v_has_label) {
+                        v_edge_line = core_string_format(&[
+                            CoreValue::from("  {} -->|{}| {}"),
+                            v_from_node.clone(),
+                            v_label.clone(),
+                            v_to.clone(),
+                        ])?;
+                    }
+                    core_append(&v_lines, v_edge_line.clone())?;
+                }
+            }
+        }
+    }
+    for v_edge in core_iter(&v_edges)? {
+        let mut v_edge = v_edge;
+        v_from_node = core_get(&v_edge, &CoreValue::from("from"), CoreValue::from(""));
+        v_to = core_get(&v_edge, &CoreValue::from("to"), CoreValue::from(""));
+        v_from_index = core_get(&v_order_index, &v_from_node.clone(), CoreValue::Null);
+        v_to_index = core_get(&v_order_index, &v_to.clone(), CoreValue::Null);
+        v_points_backward = core_gte(&[v_from_index.clone(), v_to_index.clone()])?;
+        v_closes_cycle =
+            _flow_mermaid_reachable(&[v_to.clone(), v_from_node.clone(), v_edges.clone()])?;
+        v_back = core_and(&[v_points_backward.clone(), v_closes_cycle.clone()])?;
+        if core_truthy(&v_back) {
+            v_label = core_get(&v_edge, &CoreValue::from("label"), CoreValue::Null);
+            v_has_label = core_is_not_none(&[v_label.clone()])?;
+            v_edge_line = core_string_format(&[
+                CoreValue::from("  {} --> {}"),
+                v_from_node.clone(),
+                v_to.clone(),
+            ])?;
+            if core_truthy(&v_has_label) {
+                v_edge_line = core_string_format(&[
+                    CoreValue::from("  {} -->|{}| {}"),
+                    v_from_node.clone(),
+                    v_label.clone(),
+                    v_to.clone(),
+                ])?;
+            }
+            core_append(&v_lines, v_edge_line.clone())?;
+        }
+    }
+    core_append(&v_lines, CoreValue::from(""))?;
+    v_rendered = core_string_join_intrinsic(&[CoreValue::from("\n"), v_lines.clone()])?;
+    return Ok(v_rendered.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_mermaid_render_flow(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_mermaid_render_flow");
+    let mut v_flow = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_canonical = CoreValue::Null;
+    let mut v_close_brace = CoreValue::Null;
+    let mut v_decision = CoreValue::Null;
+    let mut v_diamond = CoreValue::Null;
+    let mut v_diamonds = CoreValue::Null;
+    let mut v_direction = CoreValue::Null;
+    let mut v_directive = CoreValue::Null;
+    let mut v_edge_line = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_empty_reads = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_has_decision = CoreValue::Null;
+    let mut v_has_diamond = CoreValue::Null;
+    let mut v_has_signature = CoreValue::Null;
+    let mut v_header = CoreValue::Null;
+    let mut v_is_execute = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_is_result = CoreValue::Null;
+    let mut v_kind = CoreValue::Null;
+    let mut v_known = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_lower_title = CoreValue::Null;
+    let mut v_material = CoreValue::Null;
+    let mut v_meta = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_node = CoreValue::Null;
+    let mut v_open_brace = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_opts_missing = CoreValue::Null;
+    let mut v_percent = CoreValue::Null;
+    let mut v_prefix = CoreValue::Null;
+    let mut v_producer = CoreValue::Null;
+    let mut v_producer_end = CoreValue::Null;
+    let mut v_read = CoreValue::Null;
+    let mut v_read_len = CoreValue::Null;
+    let mut v_reads = CoreValue::Null;
+    let mut v_rendered = CoreValue::Null;
+    let mut v_seen = CoreValue::Null;
+    let mut v_signature = CoreValue::Null;
+    let mut v_signature_text = CoreValue::Null;
+    let mut v_spaced_title = CoreValue::Null;
+    let mut v_statement = CoreValue::Null;
+    let mut v_step = CoreValue::Null;
+    let mut v_step_options = CoreValue::Null;
+    let mut v_step_reads = CoreValue::Null;
+    let mut v_steps = CoreValue::Null;
+    let mut v_title = CoreValue::Null;
+    let mut v_wrapped = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_opts_missing = core_is_none(&[v_options.clone()])?;
+    v_opts = v_options.clone();
+    if core_truthy(&v_opts_missing) {
+        v_opts = v_empty_map.clone();
+    }
+    v_direction = core_get(
+        &v_opts,
+        &CoreValue::from("direction"),
+        CoreValue::from("TD"),
+    );
+    v_lines = CoreValue::new_list();
+    v_header = core_string_format(&[CoreValue::from("flowchart {}"), v_direction.clone()])?;
+    core_append(&v_lines, v_header.clone())?;
+    v_steps = core_get(&v_flow, &CoreValue::from("steps"), CoreValue::Null);
+    v_percent = core_get(
+        &v_flow,
+        &CoreValue::from("mermaidPercent"),
+        CoreValue::from(""),
+    );
+    for v_step in core_iter(&v_steps)? {
+        let mut v_step = v_step;
+        v_kind = core_get(
+            &v_step,
+            &CoreValue::from("kind"),
+            CoreValue::from("execute"),
+        );
+        v_is_execute = core_eq(&[v_kind.clone(), CoreValue::from("execute")])?;
+        if core_truthy(&v_is_execute) {
+            v_step_options = core_get(&v_step, &CoreValue::from("options"), v_empty_map.clone());
+            v_signature_text = core_get(
+                &v_step_options,
+                &CoreValue::from("signatureText"),
+                CoreValue::from(""),
+            );
+            v_has_signature = core_truthy_value(&[v_signature_text.clone()])?;
+            if core_truthy(&v_has_signature) {
+                v_signature = parse_signature(&[v_signature_text.clone()])?;
+                v_canonical = signature_to_string(&[v_signature.clone()])?;
+                v_name = core_get(&v_step, &CoreValue::from("name"), CoreValue::from(""));
+                v_prefix = core_string_format(&[
+                    CoreValue::from("{}{}ax"),
+                    v_percent.clone(),
+                    v_percent.clone(),
+                ])?;
+                v_directive = core_string_format(&[
+                    CoreValue::from("  {} {}: {}"),
+                    v_prefix.clone(),
+                    v_name.clone(),
+                    v_canonical.clone(),
+                ])?;
+                core_append(&v_lines, v_directive.clone())?;
+            }
+        }
+    }
+    core_append(&v_lines, CoreValue::from(""))?;
+    v_diamonds = CoreValue::new_map();
+    for v_step in core_iter(&v_steps)? {
+        let mut v_step = v_step;
+        v_meta = core_get(&v_step, &CoreValue::from("meta"), v_empty_map.clone());
+        v_decision = core_get(&v_meta, &CoreValue::from("decision"), CoreValue::Null);
+        v_has_decision = core_is_not_none(&[v_decision.clone()])?;
+        if core_truthy(&v_has_decision) {
+            v_node = core_get(
+                &v_decision,
+                &CoreValue::from("nodeName"),
+                CoreValue::from(""),
+            );
+            v_field = core_get(&v_decision, &CoreValue::from("field"), CoreValue::from(""));
+            core_set(&v_diamonds, v_node.clone(), v_field.clone())?;
+        }
+    }
+    v_seen = CoreValue::new_map();
+    for v_step in core_iter(&v_steps)? {
+        let mut v_step = v_step;
+        v_kind = core_get(
+            &v_step,
+            &CoreValue::from("kind"),
+            CoreValue::from("execute"),
+        );
+        v_is_execute = core_eq(&[v_kind.clone(), CoreValue::from("execute")])?;
+        v_is_map = core_eq(&[v_kind.clone(), CoreValue::from("map")])?;
+        v_material = core_or(&[v_is_execute.clone(), v_is_map.clone()])?;
+        if core_truthy(&v_material) {
+            v_name = core_get(&v_step, &CoreValue::from("name"), CoreValue::from(""));
+            v_known = core_map_contains(&[v_seen.clone(), v_name.clone()])?;
+            if core_truthy(&v_known) {
+            } else {
+                core_set(&v_seen, v_name.clone(), CoreValue::Bool(true))?;
+                v_spaced_title = core_string_title_from_camel(&[v_name.clone()])?;
+                v_lower_title = core_string_lower(&[v_spaced_title.clone()])?;
+                v_title = core_string_title_from_camel(&[v_lower_title.clone()])?;
+                v_diamond = core_get(&v_diamonds, &v_name.clone(), CoreValue::Null);
+                v_has_diamond = core_is_not_none(&[v_diamond.clone()])?;
+                v_statement = core_string_format(&[
+                    CoreValue::from("  {}[{}]"),
+                    v_name.clone(),
+                    v_title.clone(),
+                ])?;
+                if core_truthy(&v_has_diamond) {
+                    v_open_brace = core_get(
+                        &v_flow,
+                        &CoreValue::from("mermaidOpenBrace"),
+                        CoreValue::from(""),
+                    );
+                    v_close_brace = core_get(
+                        &v_flow,
+                        &CoreValue::from("mermaidCloseBrace"),
+                        CoreValue::from(""),
+                    );
+                    v_wrapped = core_string_format(&[
+                        CoreValue::from("{}{}{}"),
+                        v_open_brace.clone(),
+                        v_diamond.clone(),
+                        v_close_brace.clone(),
+                    ])?;
+                    v_statement = core_string_format(&[
+                        CoreValue::from("  {}{}"),
+                        v_name.clone(),
+                        v_wrapped.clone(),
+                    ])?;
+                }
+                core_append(&v_lines, v_statement.clone())?;
+                v_step_options =
+                    core_get(&v_step, &CoreValue::from("options"), v_empty_map.clone());
+                v_empty_reads = CoreValue::new_list();
+                v_step_reads = core_get(&v_step, &CoreValue::from("reads"), v_empty_reads.clone());
+                v_reads = core_get(
+                    &v_step_options,
+                    &CoreValue::from("reads"),
+                    v_step_reads.clone(),
+                );
+                for v_read in core_iter(&v_reads)? {
+                    let mut v_read = v_read;
+                    v_is_result =
+                        core_string_ends_with(&[v_read.clone(), CoreValue::from("Result")])?;
+                    if core_truthy(&v_is_result) {
+                        v_read_len = core_len(&[v_read.clone()])?;
+                        v_producer_end = core_add(&[v_read_len.clone(), CoreValue::Num(-6f64)])?;
+                        v_producer = core_string_slice(&[
+                            v_read.clone(),
+                            CoreValue::Num(0f64),
+                            v_producer_end.clone(),
+                        ])?;
+                        v_edge_line = core_string_format(&[
+                            CoreValue::from("  {} --> {}"),
+                            v_producer.clone(),
+                            v_name.clone(),
+                        ])?;
+                        core_append(&v_lines, v_edge_line.clone())?;
+                    }
+                }
+            }
+        }
+    }
+    core_append(&v_lines, CoreValue::from(""))?;
+    v_rendered = core_string_join_intrinsic(&[CoreValue::from("\n"), v_lines.clone()])?;
+    return Ok(v_rendered.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_from_mermaid(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_from_mermaid");
+    let mut v_text = core_arg(args, 0);
+    let mut v_bindings = core_arg(args, 1);
+    let mut v_ast = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
+    let mut v_flow = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_resolved = CoreValue::Null;
+    v_empty_map = CoreValue::new_map();
+    v_missing = core_is_none(&[v_bindings.clone()])?;
+    v_resolved = v_bindings.clone();
+    if core_truthy(&v_missing) {
+        v_resolved = v_empty_map.clone();
+    }
+    v_ast = _flow_mermaid_parse(&[v_text.clone()])?;
+    v_flow = _flow_mermaid_compile(&[v_ast.clone(), v_resolved.clone()])?;
+    return Ok(v_flow.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _flow_to_mermaid(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_flow_to_mermaid");
+    let mut v_flow = core_arg(args, 0);
+    let mut v_options = core_arg(args, 1);
+    let mut v_ast = CoreValue::Null;
+    let mut v_has_ast = CoreValue::Null;
+    let mut v_rendered = CoreValue::Null;
+    v_ast = core_get(&v_flow, &CoreValue::from("mermaidAst"), CoreValue::Null);
+    v_has_ast = core_is_not_none(&[v_ast.clone()])?;
+    if core_truthy(&v_has_ast) {
+        v_rendered = _flow_mermaid_render_ast(&[v_ast.clone(), v_options.clone()])?;
+        return Ok(v_rendered.clone());
+    }
+    v_rendered = _flow_mermaid_render_flow(&[v_flow.clone(), v_options.clone()])?;
+    return Ok(v_rendered.clone());
 }
 
 #[allow(
@@ -63021,4 +65669,4 @@ fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (479 of 479 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (498 of 498 core functions)

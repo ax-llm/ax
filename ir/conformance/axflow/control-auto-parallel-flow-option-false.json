@@ -9,6 +9,8 @@
       "src/ax/flow/steps.ts",
       "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
     "name": "control-auto-parallel-flow-option-false",
@@ -28,12 +30,8 @@
       "name": "left",
       "signature": "question:string -> left:string",
       "options": {
-        "reads": [
-          "question"
-        ],
-        "writes": [
-          "leftResult"
-        ],
+        "reads": ["question"],
+        "writes": ["leftResult"],
         "isBarrier": false
       }
     },
@@ -42,12 +40,8 @@
       "name": "right",
       "signature": "question:string -> right:string",
       "options": {
-        "reads": [
-          "question"
-        ],
-        "writes": [
-          "rightResult"
-        ],
+        "reads": ["question"],
+        "writes": ["rightResult"],
         "isBarrier": false
       }
     }

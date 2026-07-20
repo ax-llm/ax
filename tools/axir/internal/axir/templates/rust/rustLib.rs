@@ -3478,11 +3478,60 @@ pub struct AxFlow {
     execution_context: Option<AxExecutionContext>,
 }
 
-pub fn flow(id: &str) -> AxFlow {
+pub fn flow(source: &str) -> AxFlow {
+    if source.trim_start().starts_with("flowchart ") || source.trim_start().starts_with("graph ") {
+        return flow_with_bindings(source, Value::Object(serde_json::Map::new()));
+    }
     let options = CoreValue::new_map();
-    let _ = core_set(&options, CoreValue::from("id"), CoreValue::from(id));
+    let _ = core_set(&options, CoreValue::from("id"), CoreValue::from(source));
     let state = _flow_factory(&[options]).unwrap_or_else(|_| CoreValue::new_map());
+    let _ = core_set(&state, CoreValue::from("mermaidPercent"), CoreValue::from("%"));
+    let _ = core_set(&state, CoreValue::from("mermaidOpenBrace"), CoreValue::from("{"));
+    let _ = core_set(&state, CoreValue::from("mermaidCloseBrace"), CoreValue::from("}"));
     AxFlow { state, execution_context: None }
+}
+
+pub fn flow_with_bindings(source: &str, bindings: Value) -> AxFlow {
+    let binding_core = core_value_from_json(&bindings);
+    let state = _flow_from_mermaid(&[CoreValue::from(source), binding_core.clone()])
+        .unwrap_or_else(|error| panic!("{}", error.message));
+    let _ = core_set(&state, CoreValue::from("mermaidPercent"), CoreValue::from("%"));
+    let _ = core_set(&state, CoreValue::from("mermaidOpenBrace"), CoreValue::from("{"));
+    let _ = core_set(&state, CoreValue::from("mermaidCloseBrace"), CoreValue::from("}"));
+    let steps = core_get(&state, &CoreValue::from("steps"), CoreValue::new_list());
+    let hydrated = hydrate_mermaid_steps(&steps, &binding_core)
+        .unwrap_or_else(|error| panic!("{}", error.message));
+    let _ = core_set(&state, CoreValue::from("steps"), hydrated);
+    AxFlow { state, execution_context: None }
+}
+
+fn hydrate_mermaid_steps(steps: &CoreValue, bindings: &CoreValue) -> AxResult<CoreValue> {
+    let out = CoreValue::new_list();
+    let nodes = core_get(bindings, &CoreValue::from("nodes"), CoreValue::new_map());
+    for step in core_iter(steps)? {
+        let name = core_get(&step, &CoreValue::from("name"), CoreValue::Null).text();
+        let binding = core_get(&nodes, &CoreValue::from(name.as_str()), CoreValue::Null);
+        let program = if binding.is_null() {
+            core_get(&step, &CoreValue::from("program"), CoreValue::Null)
+        } else {
+            binding
+        };
+        match program {
+            CoreValue::Str(signature) => {
+                core_set(&step, CoreValue::from("program"), GenHost::new(ax(signature.as_str())?))?;
+            }
+            CoreValue::Null => {}
+            other => { core_set(&step, CoreValue::from("program"), other)?; }
+        }
+        let options = core_get(&step, &CoreValue::from("options"), CoreValue::new_map());
+        let nested = core_get(&options, &CoreValue::from("steps"), CoreValue::new_list());
+        if !core_iter(&nested)?.is_empty() {
+            core_set(&options, CoreValue::from("steps"), hydrate_mermaid_steps(&nested, bindings)?)?;
+            core_set(&step, CoreValue::from("options"), options)?;
+        }
+        core_append(&out, step)?;
+    }
+    Ok(out)
 }
 
 pub fn flow_with_execution_context(id: &str, context: AxExecutionContext) -> AxFlow {
@@ -3492,15 +3541,27 @@ pub fn flow_with_execution_context(id: &str, context: AxExecutionContext) -> AxF
 }
 
 impl AxFlow {
+    pub fn to_string_with_options(&self, options: &Value) -> AxResult<String> {
+        Ok(_flow_to_mermaid(&[self.state.clone(), core_value_from_json(options)])?.text())
+    }
+
     pub fn execute(self, name: &str, mut program: AxGen) -> Self {
+        self.execute_with_options(name, program, &Value::Null)
+    }
+
+    pub fn execute_with_options(self, name: &str, mut program: AxGen, options: &Value) -> Self {
         if program.execution_context.is_none() {
             if let Some(context) = &self.execution_context { if let Ok(with_context) = program.clone().with_execution_context(context.clone()) { program = with_context; } }
         }
+        let options = core_value_from_json(options);
+        let options = if options.is_null() { CoreValue::new_map() } else { options };
+        let signature_text = program.signature.to_string();
+        let _ = core_set(&options, CoreValue::from("signatureText"), CoreValue::from(signature_text.as_str()));
         let step = _flow_step(&[
             CoreValue::from("execute"),
             CoreValue::from(name),
             GenHost::new(program),
-            CoreValue::Null,
+            options,
         ]);
         if let Ok(step) = step {
             let _ = _flow_add_step(&[self.state.clone(), step]);
@@ -3579,6 +3640,14 @@ impl AxFlow {
             core_value_from_json(component_map),
         ])?;
         Ok(())
+    }
+}
+
+impl fmt::Display for AxFlow {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let rendered = _flow_to_mermaid(&[self.state.clone(), CoreValue::new_map()])
+            .map_err(|_| fmt::Error)?;
+        write!(formatter, "{}", rendered.text())
     }
 }
 
@@ -5994,6 +6063,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         | "agent_runtime_real"
         | "agent_runtime_session" => run_agent_fixture(kind, &fixture)?,
         "flow" => run_flow_fixture(&fixture)?,
+        "flow_mermaid" => run_flow_mermaid_fixture(&fixture)?,
         "optimize" => run_optimize_fixture(&fixture)?,
         "program_contract" => run_program_contract_fixture(&fixture)?,
         "mcp" => mcp::run_mcp_conformance_fixture(&fixture)?,
@@ -6494,6 +6564,48 @@ fn run_flow_fixture(fixture: &Value) -> AxResult<()> {
         }
     }
     Ok(())
+}
+
+fn run_flow_mermaid_fixture(fixture: &Value) -> AxResult<()> {
+    let operation = fixture.get("operation").and_then(Value::as_str).unwrap_or("");
+    let mut conditions = serde_json::Map::new();
+    for name in fixture.get("condition_names").and_then(Value::as_array).into_iter().flatten() {
+        if let Some(name) = name.as_str() { conditions.insert(name.to_string(), Value::Bool(false)); }
+    }
+    let bindings = json!({"conditions": conditions});
+    if operation == "error" {
+        let result = _flow_from_mermaid(&[
+            CoreValue::from(fixture.get("document").and_then(Value::as_str).unwrap_or("")),
+            core_value_from_json(&bindings),
+        ]);
+        return match result {
+            Err(error) => {
+                let expected = fixture.get("expected_error_contains").and_then(Value::as_str).unwrap_or("");
+                if error.to_string().contains(expected) { Ok(()) } else { Err(error) }
+            }
+            Ok(_) => Err(AxError::new("fixture", "expected mermaid compilation to fail")),
+        };
+    }
+    if operation == "builder_render" {
+        let mut built = flow("root.flow");
+        for step in fixture.get("builder_steps").and_then(Value::as_array).into_iter().flatten() {
+            let name = step.get("name").and_then(Value::as_str).unwrap_or("");
+            let signature = step.get("signature").and_then(Value::as_str).unwrap_or("");
+            let options = json!({"reads": step.get("reads").cloned().unwrap_or_else(|| json!([]))});
+            built = built.execute_with_options(name, ax(signature)?, &options);
+        }
+        return expect_json_equal(
+            "flow mermaid builder render",
+            &Value::String(built.to_string()),
+            fixture.get("expected_rendered").unwrap_or(&Value::Null),
+        );
+    }
+    let document = fixture.get("document").and_then(Value::as_str).unwrap_or("");
+    let first = flow_with_bindings(document, bindings.clone());
+    let expected = fixture.get("expected_rerendered").or_else(|| fixture.get("expected_rendered")).unwrap_or(&Value::Null);
+    expect_json_equal("flow mermaid render", &Value::String(first.to_string()), expected)?;
+    let second = flow_with_bindings(&first.to_string(), bindings);
+    expect_json_equal("flow mermaid canonical roundtrip", &Value::String(second.to_string()), expected)
 }
 
 fn run_optimize_fixture(fixture: &Value) -> AxResult<()> {

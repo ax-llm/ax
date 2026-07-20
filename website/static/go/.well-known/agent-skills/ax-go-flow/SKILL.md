@@ -27,8 +27,12 @@ This skill helps an agent write Go code with the generated Ax package `github.co
 ## Core Pattern
 
 ```go
-wf := ax.NewFlow(nil)
-// See examples/axflow_program_graph/main.go for node wiring.
+mermaid := `flowchart TD
+  %%ax classify: request:string -> route:class "support, sales"
+  classify{route}`
+wf := ax.NewFlow(mermaid)
+fmt.Println(wf.String())
+// See examples/flow_mermaid/main.go.
 ```
 
 ## Relevant API Surface

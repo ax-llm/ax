@@ -219,6 +219,26 @@
         "operation": "streaming",
         "runner": "cpp:axflow.streaming",
         "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow_mermaid",
+        "runner": "cpp:axflow",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow_mermaid",
+        "operation": "builder_render",
+        "runner": "cpp:axflow.builder_render",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow_mermaid",
+        "operation": "error",
+        "runner": "cpp:axflow.error",
+        "category": "validation-error"
       }
     ],
     "axgen": [

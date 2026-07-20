@@ -1,0 +1,119 @@
+{
+  "kind": "flow_mermaid",
+  "name": "mermaid-chain-roundtrip",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "mermaid-chain-roundtrip",
+    "observed": {
+      "rendered": "flowchart TD\n  %%ax first: seedText:string -> firstText:string\n  %%ax second: firstText:string -> secondText:string\n  %%ax third: secondText:string -> finalText:string\n\n  first[First]\n  second[Second]\n  first --> second\n  third[Third]\n  second --> third\n",
+      "rerendered": "flowchart TD\n  %%ax first: seedText:string -> firstText:string\n  %%ax second: firstText:string -> secondText:string\n  %%ax third: secondText:string -> finalText:string\n\n  first[First]\n  second[Second]\n  first --> second\n  third[Third]\n  second --> third\n",
+      "plan": {
+        "totalSteps": 4,
+        "parallelGroups": 4,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "type": "execute",
+            "nodeName": "first",
+            "dependencies": ["seedText"],
+            "produces": ["firstResult"],
+            "stepIndex": 0,
+            "isBarrier": false
+          },
+          {
+            "type": "execute",
+            "nodeName": "second",
+            "dependencies": ["firstResult"],
+            "produces": ["secondResult"],
+            "stepIndex": 1,
+            "isBarrier": false
+          },
+          {
+            "type": "execute",
+            "nodeName": "third",
+            "dependencies": ["secondResult"],
+            "produces": ["thirdResult"],
+            "stepIndex": 2,
+            "isBarrier": false
+          },
+          {
+            "type": "returns",
+            "dependencies": ["thirdResult"],
+            "produces": ["finalText"],
+            "stepIndex": 3,
+            "isBarrier": true
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "first",
+                "dependencies": ["seedText"],
+                "produces": ["firstResult"],
+                "stepIndex": 0,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "second",
+                "dependencies": ["firstResult"],
+                "produces": ["secondResult"],
+                "stepIndex": 1,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 2,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "third",
+                "dependencies": ["secondResult"],
+                "produces": ["thirdResult"],
+                "stepIndex": 2,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 3,
+            "steps": [
+              {
+                "type": "returns",
+                "dependencies": ["thirdResult"],
+                "produces": ["finalText"],
+                "stepIndex": 3,
+                "isBarrier": true
+              }
+            ]
+          }
+        ],
+        "autoParallelEnabled": true
+      }
+    }
+  },
+  "document": "graph RL\n  %%ax first: seedText:string -> firstText:string\n  %%ax second: firstText:string -> secondText:string\n  %%ax third: secondText:string -> finalText:string\n  first --> second --> third",
+  "condition_names": [],
+  "expected_rendered": "flowchart TD\n  %%ax first: seedText:string -> firstText:string\n  %%ax second: firstText:string -> secondText:string\n  %%ax third: secondText:string -> finalText:string\n\n  first[First]\n  second[Second]\n  first --> second\n  third[Third]\n  second --> third\n",
+  "expected_rerendered": "flowchart TD\n  %%ax first: seedText:string -> firstText:string\n  %%ax second: firstText:string -> secondText:string\n  %%ax third: secondText:string -> finalText:string\n\n  first[First]\n  second[Second]\n  first --> second\n  third[Third]\n  second --> third\n",
+  "expected_direction": "RL"
+}

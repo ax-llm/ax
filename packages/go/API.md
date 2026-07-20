@@ -199,13 +199,13 @@ Compose AxGen, AxAgent, and nested flows into a portable program graph.
 
 ### `axllm.NewFlow`
 
-Create an AxFlow program graph.
+Create an AxFlow program graph or compile the portable Mermaid shorthand.
 
 - Canonical Ax concept: `flow`
 - Kind: `function`
-- Form: `axllm.NewFlow(options)`
+- Form: `axllm.NewFlow(optionsOrMermaid, bindings...)`
 - Returns: `*AxFlow`
-- Important options: nodes, execute mappers, conditions, cache, returns
+- Important options: nodes, execute mappers, conditions, cache, returns, Mermaid roundtrip
 
 ```go
 wf := axllm.NewFlow(nil)
@@ -217,7 +217,7 @@ Workflow graph with Core-owned planning, cache keys, state merge, child aggregat
 
 - Canonical Ax concept: `AxFlow`
 - Kind: `type`
-- Form: `axllm.NewFlow(options)`
+- Form: `axllm.NewFlow(optionsOrMermaid, bindings...)`
 - Returns: `flow program`
 - Important options: steps, state, parallel groups, returns
 

@@ -10,6 +10,8 @@
       "src/ax/flow/steps.ts",
       "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
     "name": "plan-barriers",
@@ -22,24 +24,16 @@
           {
             "name": "extract",
             "kind": "execute",
-            "reads": [
-              "question"
-            ],
-            "writes": [
-              "extractResult"
-            ],
+            "reads": ["question"],
+            "writes": ["extractResult"],
             "barrier": false,
             "stepIndex": 0
           },
           {
             "name": "draft",
             "kind": "derive",
-            "reads": [
-              "extractResult"
-            ],
-            "writes": [
-              "draft"
-            ],
+            "reads": ["extractResult"],
+            "writes": ["draft"],
             "barrier": false,
             "stepIndex": 1
           },
@@ -67,12 +61,8 @@
               {
                 "name": "extract",
                 "kind": "execute",
-                "reads": [
-                  "question"
-                ],
-                "writes": [
-                  "extractResult"
-                ],
+                "reads": ["question"],
+                "writes": ["extractResult"],
                 "barrier": false,
                 "stepIndex": 0
               }
@@ -84,12 +74,8 @@
               {
                 "name": "draft",
                 "kind": "derive",
-                "reads": [
-                  "extractResult"
-                ],
-                "writes": [
-                  "draft"
-                ],
+                "reads": ["extractResult"],
+                "writes": ["draft"],
                 "barrier": false,
                 "stepIndex": 1
               }
@@ -131,12 +117,8 @@
       "name": "extract",
       "signature": "question:string -> facts:string",
       "options": {
-        "reads": [
-          "question"
-        ],
-        "writes": [
-          "extractResult"
-        ],
+        "reads": ["question"],
+        "writes": ["extractResult"],
         "isBarrier": false
       }
     },
@@ -145,12 +127,8 @@
       "name": "draft",
       "signature": "facts:string -> draft:string",
       "options": {
-        "reads": [
-          "extractResult"
-        ],
-        "writes": [
-          "draft"
-        ],
+        "reads": ["extractResult"],
+        "writes": ["draft"],
         "isBarrier": false
       }
     },
@@ -173,24 +151,16 @@
       {
         "name": "extract",
         "kind": "execute",
-        "reads": [
-          "question"
-        ],
-        "writes": [
-          "extractResult"
-        ],
+        "reads": ["question"],
+        "writes": ["extractResult"],
         "barrier": false,
         "stepIndex": 0
       },
       {
         "name": "draft",
         "kind": "derive",
-        "reads": [
-          "extractResult"
-        ],
-        "writes": [
-          "draft"
-        ],
+        "reads": ["extractResult"],
+        "writes": ["draft"],
         "barrier": false,
         "stepIndex": 1
       },
@@ -218,12 +188,8 @@
           {
             "name": "extract",
             "kind": "execute",
-            "reads": [
-              "question"
-            ],
-            "writes": [
-              "extractResult"
-            ],
+            "reads": ["question"],
+            "writes": ["extractResult"],
             "barrier": false,
             "stepIndex": 0
           }
@@ -235,12 +201,8 @@
           {
             "name": "draft",
             "kind": "derive",
-            "reads": [
-              "extractResult"
-            ],
-            "writes": [
-              "draft"
-            ],
+            "reads": ["extractResult"],
+            "writes": ["draft"],
             "barrier": false,
             "stepIndex": 1
           }

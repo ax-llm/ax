@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AxAIService } from '../../../src/ax/ai/types.js';
-import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
 import { axGlobals } from '../../../src/ax/dsp/globals.js';
+import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
 import type {
   AxChatLogEntry,
   AxProgramUsage,
@@ -14,7 +14,7 @@ import { createFlowStep, toPlanStep } from '../../../src/ax/flow/steps.js';
 
 type Fixture = Record<string, unknown>;
 
-const root = process.cwd();
+const root = process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd();
 const flowDir = join(root, 'ir', 'conformance', 'axflow');
 const programDir = join(root, 'ir', 'conformance', 'axprogram');
 
@@ -31,6 +31,8 @@ const source = (name: string, observed: Record<string, unknown> = {}) => ({
     'src/ax/flow/steps.ts',
     'src/ax/flow/executor.ts',
     'src/ax/flow/executionPlanner.ts',
+    'src/ax/flow/mermaid.ts',
+    'src/ax/flow/dependencyAnalyzer.ts',
     'src/ax/dsp/program.ts',
   ],
   name,
@@ -759,7 +761,11 @@ const writeControlFlowRuntimeFixtures = async () => {
         condition: { op: 'lt', field: 'count', value: 3 },
         options: { maxIterations: 100 },
         steps: [
-          { kind: 'map', name: 'incrementCount', mapper: { op: 'increment', field: 'count' } },
+          {
+            kind: 'map',
+            name: 'incrementCount',
+            mapper: { op: 'increment', field: 'count' },
+          },
         ],
       },
     ],
@@ -792,8 +798,26 @@ const writeControlFlowRuntimeFixtures = async () => {
         name: 'strategyBranch',
         predicate: { op: 'field', field: 'needsComplex' },
         branches: [
-          { when: true, steps: [{ kind: 'map', name: 'complexPath', mapper: { op: 'set', values: { strategy: 'complex' } } }] },
-          { when: false, steps: [{ kind: 'map', name: 'simplePath', mapper: { op: 'set', values: { strategy: 'simple' } } }] },
+          {
+            when: true,
+            steps: [
+              {
+                kind: 'map',
+                name: 'complexPath',
+                mapper: { op: 'set', values: { strategy: 'complex' } },
+              },
+            ],
+          },
+          {
+            when: false,
+            steps: [
+              {
+                kind: 'map',
+                name: 'simplePath',
+                mapper: { op: 'set', values: { strategy: 'simple' } },
+              },
+            ],
+          },
         ],
       },
     ],
@@ -819,15 +843,27 @@ const writeControlFlowRuntimeFixtures = async () => {
     }),
     input: { value: 'x' },
     steps: [
-      { kind: 'map', name: 'initAttempts', mapper: { op: 'set', values: { attempts: 0 } } },
-      { kind: 'map', name: 'firstAttempt', mapper: { op: 'increment', field: 'attempts' } },
+      {
+        kind: 'map',
+        name: 'initAttempts',
+        mapper: { op: 'set', values: { attempts: 0 } },
+      },
+      {
+        kind: 'map',
+        name: 'firstAttempt',
+        mapper: { op: 'increment', field: 'attempts' },
+      },
       {
         kind: 'feedback',
         name: 'retry',
         condition: { op: 'lt', field: 'attempts', value: 3 },
         options: { maxIterations: 5, label: 'retry' },
         steps: [
-          { kind: 'map', name: 'retryAttempt', mapper: { op: 'increment', field: 'attempts' } },
+          {
+            kind: 'map',
+            name: 'retryAttempt',
+            mapper: { op: 'increment', field: 'attempts' },
+          },
         ],
       },
     ],
@@ -836,7 +872,10 @@ const writeControlFlowRuntimeFixtures = async () => {
     expected_request_count: 0,
   });
 
-  const nestedFlow = flow<{ count: number }, { count: number; strategy: string }>()
+  const nestedFlow = flow<
+    { count: number },
+    { count: number; strategy: string }
+  >()
     .while((state) => state.count < 2)
     .branch((state) => state.count === 0)
     .when(true)
@@ -846,7 +885,10 @@ const writeControlFlowRuntimeFixtures = async () => {
     .merge()
     .map((state) => ({ ...state, count: state.count + 1 }))
     .endWhile()
-    .returns((state) => ({ count: state.count, strategy: String((state as any).strategy) }));
+    .returns((state) => ({
+      count: state.count,
+      strategy: String((state as any).strategy),
+    }));
   const nestedOut = await nestedFlow.forward(ai, { count: 0 });
 
   writeFixture(flowDir, 'control-nested-branch-while.json', {
@@ -868,11 +910,33 @@ const writeControlFlowRuntimeFixtures = async () => {
             name: 'firstBranch',
             predicate: { op: 'eq', field: 'count', value: 0 },
             branches: [
-              { when: true, steps: [{ kind: 'map', name: 'firstStrategy', mapper: { op: 'set', values: { strategy: 'first' } } }] },
-              { when: false, steps: [{ kind: 'map', name: 'laterStrategy', mapper: { op: 'set', values: { strategy: 'later' } } }] },
+              {
+                when: true,
+                steps: [
+                  {
+                    kind: 'map',
+                    name: 'firstStrategy',
+                    mapper: { op: 'set', values: { strategy: 'first' } },
+                  },
+                ],
+              },
+              {
+                when: false,
+                steps: [
+                  {
+                    kind: 'map',
+                    name: 'laterStrategy',
+                    mapper: { op: 'set', values: { strategy: 'later' } },
+                  },
+                ],
+              },
             ],
           },
-          { kind: 'map', name: 'incrementNestedCount', mapper: { op: 'increment', field: 'count' } },
+          {
+            kind: 'map',
+            name: 'incrementNestedCount',
+            mapper: { op: 'increment', field: 'count' },
+          },
         ],
       },
     ],
@@ -892,7 +956,11 @@ const writeControlFlowRuntimeFixtures = async () => {
       {
         kind: 'parallelMerge',
         name: 'combined',
-        options: { reads: ['_parallelResults'], writes: ['combined'], isBarrier: true },
+        options: {
+          reads: ['_parallelResults'],
+          writes: ['combined'],
+          isBarrier: true,
+        },
       },
     ],
     expected_error_contains: 'No parallel results found for merge',
@@ -906,7 +974,11 @@ const writeControlFlowRuntimeFixtures = async () => {
     }),
     input: { question: 'stop during node?' },
     steps: [
-      { kind: 'execute', name: 'slow', signature: 'question:string -> answer:string' },
+      {
+        kind: 'execute',
+        name: 'slow',
+        signature: 'question:string -> answer:string',
+      },
     ],
     forward_options: { abort_during_step: true, abort_during_node: 'slow' },
     responses: [{ content: '{"answer":"never"}' }],
@@ -922,14 +994,42 @@ const writeControlFlowRuntimeFixtures = async () => {
     flow_options: { autoParallel: false },
     input: { question: 'parallel?' },
     steps: [
-      { kind: 'execute', name: 'left', signature: 'question:string -> left:string', options: { reads: ['question'], writes: ['leftResult'], isBarrier: false } },
-      { kind: 'execute', name: 'right', signature: 'question:string -> right:string', options: { reads: ['question'], writes: ['rightResult'], isBarrier: false } },
+      {
+        kind: 'execute',
+        name: 'left',
+        signature: 'question:string -> left:string',
+        options: {
+          reads: ['question'],
+          writes: ['leftResult'],
+          isBarrier: false,
+        },
+      },
+      {
+        kind: 'execute',
+        name: 'right',
+        signature: 'question:string -> right:string',
+        options: {
+          reads: ['question'],
+          writes: ['rightResult'],
+          isBarrier: false,
+        },
+      },
     ],
     returns: { left: 'leftResult.left', right: 'rightResult.right' },
     forward_options: { autoParallel: true, record_flow_groups: true },
     responses: [{ content: '{"left":"l"}' }, { content: '{"right":"r"}' }],
     expected_output: { left: 'l', right: 'r' },
-    expected_trace_kinds: ['flow_start', 'flow_group', 'flow_step', 'flow_child_trace', 'flow_group', 'flow_step', 'flow_child_trace', 'flow_group', 'flow_done'],
+    expected_trace_kinds: [
+      'flow_start',
+      'flow_group',
+      'flow_step',
+      'flow_child_trace',
+      'flow_group',
+      'flow_step',
+      'flow_child_trace',
+      'flow_group',
+      'flow_done',
+    ],
     expected_request_count: 2,
   });
 
@@ -941,14 +1041,42 @@ const writeControlFlowRuntimeFixtures = async () => {
     }),
     input: { question: 'override?' },
     steps: [
-      { kind: 'execute', name: 'left', signature: 'question:string -> left:string', options: { reads: ['question'], writes: ['leftResult'], isBarrier: false } },
-      { kind: 'execute', name: 'right', signature: 'question:string -> right:string', options: { reads: ['question'], writes: ['rightResult'], isBarrier: false } },
+      {
+        kind: 'execute',
+        name: 'left',
+        signature: 'question:string -> left:string',
+        options: {
+          reads: ['question'],
+          writes: ['leftResult'],
+          isBarrier: false,
+        },
+      },
+      {
+        kind: 'execute',
+        name: 'right',
+        signature: 'question:string -> right:string',
+        options: {
+          reads: ['question'],
+          writes: ['rightResult'],
+          isBarrier: false,
+        },
+      },
     ],
     returns: { left: 'leftResult.left', right: 'rightResult.right' },
     forward_options: { autoParallel: false, record_flow_groups: true },
     responses: [{ content: '{"left":"l"}' }, { content: '{"right":"r"}' }],
     expected_output: { left: 'l', right: 'r' },
-    expected_trace_kinds: ['flow_start', 'flow_group', 'flow_step', 'flow_child_trace', 'flow_group', 'flow_step', 'flow_child_trace', 'flow_group', 'flow_done'],
+    expected_trace_kinds: [
+      'flow_start',
+      'flow_group',
+      'flow_step',
+      'flow_child_trace',
+      'flow_group',
+      'flow_step',
+      'flow_child_trace',
+      'flow_group',
+      'flow_done',
+    ],
     expected_request_count: 2,
   });
 
@@ -969,21 +1097,33 @@ const writeControlFlowRuntimeFixtures = async () => {
       }),
       input: { userQuery: 'zzz' },
       steps: [
-        { kind: 'map', name: 'final', mapper: { op: 'set', values: { final: 'ZZZ' } } },
+        {
+          kind: 'map',
+          name: 'final',
+          mapper: { op: 'set', values: { final: 'ZZZ' } },
+        },
       ],
       returns: { final: 'final' },
       cache_seed_value: { final: 'cached-stream' },
       forward_options: { cache_store: {} },
-      expected_streaming_output: [{ version: 1, index: 0, delta: { final: 'cached-stream' } }],
+      expected_streaming_output: [
+        { version: 1, index: 0, delta: { final: 'cached-stream' } },
+      ],
       expected_request_count: 0,
     });
   } finally {
     axGlobals.cachingFunction = originalCaching;
   }
 
-  const extendedFlow = flow().nx('reasoner', 'userInput:string -> answer:string', {
-    prependOutputs: [{ name: 'reasoning', type: f.string('Reasoning').internal() }],
-  });
+  const extendedFlow = flow().nx(
+    'reasoner',
+    'userInput:string -> answer:string',
+    {
+      prependOutputs: [
+        { name: 'reasoning', type: f.string('Reasoning').internal() },
+      ],
+    }
+  );
   writeFixture(flowDir, 'control-node-extended-nx-signature.json', {
     kind: 'flow',
     name: 'control-node-extended-nx-signature',
@@ -995,7 +1135,8 @@ const writeControlFlowRuntimeFixtures = async () => {
       {
         kind: 'execute',
         name: 'reasoner',
-        extended_signature: 'userInput:string -> reasoning!:string, answer:string',
+        extended_signature:
+          'userInput:string -> reasoning!:string, answer:string',
       },
     ],
     returns: { answer: 'reasonerResult.answer' },
@@ -1065,6 +1206,208 @@ const writeDemoFixture = () => {
   });
 };
 
+const writeMermaidFixtures = () => {
+  const cases: Array<{
+    name: string;
+    document: string[];
+    conditions?: string[];
+  }> = [
+    {
+      name: 'mermaid-linear-extended-signature',
+      document: [
+        'flowchart TD',
+        '  %%ax summarize: documentText:string -> summaryText:string(max 500) "concise summary"',
+        '  %%ax format: summaryText:string -> finalReport:string',
+        '  summarize[Summarize document] --> format([Format report])',
+      ],
+    },
+    {
+      name: 'mermaid-class-branch-join',
+      document: [
+        'flowchart LR',
+        '  %%ax classify: requestText:string -> routeClass:class "support, sales"',
+        '  %%ax supportReply: requestText:string -> replyText:string(max 300)',
+        '  %%ax salesReply: requestText:string -> replyText:string(max 300)',
+        '  %%ax send: replyText:string -> deliveredReply:string',
+        '  classify{routeClass} -->|support| supportReply --> send',
+        '  classify -->|sales| salesReply --> send',
+      ],
+    },
+    {
+      name: 'mermaid-feedback-loop',
+      document: [
+        'flowchart TD',
+        '  %%ax draft: taskText:string -> draftText:string',
+        '  %%ax review: draftText:string -> verdict:class "approve, revise"',
+        '  draft --> review{verdict}',
+        '  review -->|revise, max 3| draft',
+      ],
+    },
+    {
+      name: 'mermaid-while-loop-binding',
+      conditions: ['keepPolishing'],
+      document: [
+        'flowchart TD',
+        '  %%ax polish: draftText:string -> polishedText:string',
+        '  polish -->|while keepPolishing, max 5| polish',
+      ],
+    },
+    {
+      name: 'mermaid-fan-out-and-in',
+      document: [
+        'flowchart TD',
+        '  %%ax split: topicText:string -> questionText:string',
+        '  %%ax alpha: questionText:string -> alphaAnswer:string',
+        '  %%ax beta: questionText:string -> betaAnswer:string',
+        '  %%ax joiner: alphaAnswer:string, betaAnswer:string -> combinedAnswer:string',
+        '  split --> alpha & beta',
+        '  alpha & beta --> joiner',
+      ],
+    },
+    {
+      name: 'mermaid-supported-shapes',
+      document: [
+        'flowchart BT',
+        '  %%ax alpha: inputText:string -> alphaText:string',
+        '  %%ax beta: alphaText:string -> betaText:string',
+        '  %%ax gamma: betaText:string -> gammaText:string',
+        '  alpha((Alpha)) --> beta(Beta) --> gamma([Gamma])',
+      ],
+    },
+    {
+      name: 'mermaid-chain-roundtrip',
+      document: [
+        'graph RL',
+        '  %%ax first: seedText:string -> firstText:string',
+        '  %%ax second: firstText:string -> secondText:string',
+        '  %%ax third: secondText:string -> finalText:string',
+        '  first --> second --> third',
+      ],
+    },
+  ];
+
+  for (const item of cases) {
+    const document = item.document.join('\n');
+    const conditions = Object.fromEntries(
+      (item.conditions ?? []).map((name) => [name, () => false])
+    );
+    const bindings = item.conditions ? { conditions } : undefined;
+    const first = flow(document, bindings);
+    const rendered = String(first);
+    const rerendered = String(flow(rendered, bindings));
+    writeFixture(flowDir, `${item.name}.json`, {
+      kind: 'flow_mermaid',
+      name: item.name,
+      source: source(item.name, {
+        rendered,
+        rerendered,
+        plan: first.getExecutionPlan(),
+      }),
+      document,
+      condition_names: item.conditions ?? [],
+      expected_rendered: rendered,
+      expected_rerendered: rerendered,
+      expected_direction: first.getExecutionPlan()
+        ? item.document[0]?.split(' ')[1]
+        : 'TD',
+    });
+  }
+
+  const built = flow<{ documentText: string }>()
+    .node('summarize', 'documentText:string -> summaryText:string')
+    .node('format', 'summaryText:string -> finalReport:string')
+    .execute('summarize', (state) => ({ documentText: state.documentText }))
+    .execute('format', (state) => ({
+      summaryText: state.summarizeResult.summaryText,
+    }));
+  writeFixture(flowDir, 'mermaid-render-from-builder.json', {
+    kind: 'flow_mermaid',
+    name: 'mermaid-render-from-builder',
+    operation: 'builder_render',
+    source: source('mermaid-render-from-builder', { rendered: String(built) }),
+    builder_steps: [
+      {
+        name: 'summarize',
+        signature: 'documentText:string -> summaryText:string',
+        reads: [],
+      },
+      {
+        name: 'format',
+        signature: 'summaryText:string -> finalReport:string',
+        reads: ['summarizeResult'],
+      },
+    ],
+    expected_rendered: String(built),
+  });
+
+  const errors: Array<{ name: string; document: string[]; expected: string }> =
+    [
+      {
+        name: 'mermaid-error-missing-header',
+        document: ['alpha --> beta'],
+        expected: 'Missing flowchart header',
+      },
+      {
+        name: 'mermaid-error-subgraph',
+        document: ['flowchart TD', 'subgraph one', 'a --> b', 'end'],
+        expected: 'Unsupported mermaid construct',
+      },
+      {
+        name: 'mermaid-error-unlabeled-back-edge',
+        document: [
+          'flowchart TD',
+          '%%ax alpha: aText:string -> bText:string',
+          '%%ax beta: bText:string -> cText:string',
+          'alpha --> beta',
+          'beta --> alpha',
+        ],
+        expected: 'Back-edges need a label',
+      },
+      {
+        name: 'mermaid-error-no-signature',
+        document: ['flowchart TD', 'mystery --> other'],
+        expected: 'No signature for node(s): mystery, other',
+      },
+      {
+        name: 'mermaid-error-ambiguous-producers',
+        document: [
+          'flowchart TD',
+          '%%ax alpha: topicText:string -> answerText:string',
+          '%%ax beta: topicText:string -> answerText:string',
+          '%%ax joiner: answerText:string -> finalText:string',
+          'alpha & beta --> joiner',
+        ],
+        expected: 'produced by alpha and beta at the same distance',
+      },
+      {
+        name: 'mermaid-error-missing-condition',
+        document: [
+          'flowchart TD',
+          '%%ax polish: draftText:string -> polishedText:string',
+          'polish -->|while missingCond| polish',
+        ],
+        expected: 'Missing condition binding "missingCond"',
+      },
+    ];
+  for (const item of errors) {
+    const document = item.document.join('\n');
+    let message = '';
+    try {
+      flow(document);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    writeFixture(flowDir, `${item.name}.json`, {
+      kind: 'flow_mermaid',
+      name: item.name,
+      operation: 'error',
+      source: source(item.name, { error: message }),
+      document,
+      expected_error_contains: item.expected,
+    });
+  }
+};
+
 writeProgramFixtures();
 writePlanFixtures();
 await runSimpleForward();
@@ -1072,5 +1415,6 @@ await writeExecutionRuntimeFixtures();
 await writeMapAndCacheFixtures();
 await writeControlFlowRuntimeFixtures();
 writeDemoFixture();
+writeMermaidFixtures();
 
 console.log('wrote TS-derived AxFlow AxIR conformance fixtures');

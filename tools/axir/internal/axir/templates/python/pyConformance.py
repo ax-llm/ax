@@ -531,6 +531,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_program_contract(fixture)
         elif kind == "flow":
             _run_flow(fixture)
+        elif kind == "flow_mermaid":
+            _run_flow_mermaid(fixture)
         elif kind == "optimize":
             _run_optimize(fixture)
         elif kind == "mcp":
@@ -1075,6 +1077,33 @@ def _run_flow(fixture):
         _assert_equal(cache_store.get(_flow_cache_key(fixture.get("input") or {})), fixture["expected_cache_value_for_input"], "flow cache value")
     if "expected_components_subset" in fixture:
         _assert_list_subset(fl.get_optimizable_components(), fixture["expected_components_subset"], "flow components")
+
+
+def _run_flow_mermaid(fixture):
+    operation = fixture.get("operation")
+    conditions = {name: (lambda _state: False) for name in fixture.get("condition_names") or []}
+    bindings = {"conditions": conditions}
+    if operation == "error":
+        try:
+            flow(fixture.get("document", ""), bindings)
+        except Exception as exc:
+            expected = fixture.get("expected_error_contains", "")
+            if expected not in str(exc):
+                raise FixtureError(f"expected mermaid error containing {expected!r}, got {exc!r}") from exc
+            return
+        raise FixtureError("expected mermaid compilation to fail")
+    if operation == "builder_render":
+        fl = flow()
+        for step in fixture.get("builder_steps") or []:
+            options = {"reads": step.get("reads") or []}
+            fl.execute(step["name"], ax(step["signature"]), options)
+        _assert_equal(str(fl), fixture["expected_rendered"], "flow mermaid builder render")
+        return
+    first = flow(fixture["document"], bindings)
+    expected = fixture.get("expected_rerendered") or fixture["expected_rendered"]
+    _assert_equal(str(first), expected, "flow mermaid render")
+    second = flow(str(first), bindings)
+    _assert_equal(str(second), expected, "flow mermaid canonical roundtrip")
 
 
 def _run_optimize(fixture):

@@ -1,0 +1,24 @@
+{
+  "kind": "flow_mermaid",
+  "name": "mermaid-error-no-signature",
+  "operation": "error",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "mermaid-error-no-signature",
+    "observed": {
+      "error": "No signature for node(s): mystery, other (line 2: \"mystery, other\") — Add a \"%%ax <id>: <signature>\" directive or supply bindings.nodes[<id>]"
+    }
+  },
+  "document": "flowchart TD\nmystery --> other",
+  "expected_error_contains": "No signature for node(s): mystery, other"
+}

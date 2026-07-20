@@ -9,6 +9,8 @@
       "src/ax/flow/steps.ts",
       "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
     "name": "dynamic-options-trace-label",
@@ -32,12 +34,8 @@
       "name": "qa",
       "signature": "question:string -> answer:string",
       "options": {
-        "reads": [
-          "question"
-        ],
-        "writes": [
-          "qaResult"
-        ],
+        "reads": ["question"],
+        "writes": ["qaResult"],
         "isBarrier": false
       }
     }
@@ -58,7 +56,5 @@
     "answer": "dynamic"
   },
   "expected_request_count": 1,
-  "expected_request_contains": [
-    "gpt-flow-fixture"
-  ]
+  "expected_request_contains": ["gpt-flow-fixture"]
 }

@@ -219,6 +219,26 @@
         "operation": "streaming",
         "runner": "rust:axflow.streaming",
         "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow_mermaid",
+        "runner": "rust:axflow",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow_mermaid",
+        "operation": "builder_render",
+        "runner": "rust:axflow.builder_render",
+        "category": "semantic"
+      },
+      {
+        "suite": "axflow",
+        "kind": "flow_mermaid",
+        "operation": "error",
+        "runner": "rust:axflow.error",
+        "category": "validation-error"
       }
     ],
     "axgen": [

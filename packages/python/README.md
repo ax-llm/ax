@@ -50,6 +50,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport
 - `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport
 - `python examples/axflow_program_graph.py`: AxFlow program graph
+- `python examples/flow_mermaid.py`: portable Mermaid flow parsing and canonical round-trip
 - `python examples/audio_responses_mapping.py`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `python examples/realtime_audio_events.py`: Grok/Gemini realtime audio setup, input, and event folding
 - `python examples/realtime_audio_turn.py`: drive a full realtime audio turn through the productized `realtime_chat()` driver (offline, scripted transport)

@@ -381,6 +381,30 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES. The shared fixtures assert accepted and rejected outcomes, metricCallsUsed, held-in values, byte-exact rollback with an exported-state subset, and metric_budget exhaustion before validation."
+    },
+    {
+      "capability": "flow.mermaid_portable_dialect",
+      "summary": "AxFlow compiles the portable Mermaid subset through the factory string shorthand and renders executable flows back to canonical diagrams with extended Ax signature directives.",
+      "ir_ops": [
+        "@flow_from_mermaid",
+        "@flow_to_mermaid",
+        "@flow_mermaid_parse",
+        "@flow_mermaid_compile",
+        "@flow_evaluate_data_predicate"
+      ],
+      "fixtures": [
+        "axflow/mermaid-linear-extended-signature.json",
+        "axflow/mermaid-class-branch-join.json",
+        "axflow/mermaid-feedback-loop.json",
+        "axflow/mermaid-while-loop-binding.json",
+        "axflow/mermaid-fan-out-and-in.json",
+        "axflow/mermaid-render-from-builder.json",
+        "axflow/mermaid-error-ambiguous-producers.json"
+      ],
+      "gate": "TS-derived canonical roundtrip + cross-target coverage",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Shared fixtures cover canonical parse-render-reparse behavior, builder rendering, branches, feedback, while bindings, fan-out and fan-in, supported shapes, and deterministic validation errors."
     }
   ]
 }

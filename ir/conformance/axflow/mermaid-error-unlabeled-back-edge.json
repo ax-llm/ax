@@ -1,0 +1,24 @@
+{
+  "kind": "flow_mermaid",
+  "name": "mermaid-error-unlabeled-back-edge",
+  "operation": "error",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "mermaid-error-unlabeled-back-edge",
+    "observed": {
+      "error": "Back-edges need a label (line 5: \"beta --> alpha\") — Label the loop edge with a class option value, \"if <condition>\", or \"while <condition>\", optionally adding \", max N\""
+    }
+  },
+  "document": "flowchart TD\n%%ax alpha: aText:string -> bText:string\n%%ax beta: bText:string -> cText:string\nalpha --> beta\nbeta --> alpha",
+  "expected_error_contains": "Back-edges need a label"
+}

@@ -22,6 +22,24 @@ public final class AxFlow implements AxProgram {
     this.options = new LinkedHashMap<>(options == null ? Map.of() : options);
     this.executionContext = AxExecutionContext.resolve(this.options, null);
     this.state = Core.asMap(Core._flow_factory(this.options));
+    this.state.put("mermaidPercent", "%");
+    this.state.put("mermaidOpenBrace", "{");
+    this.state.put("mermaidCloseBrace", "}");
+  }
+
+  public AxFlow(String mermaid) {
+    this(mermaid, Map.of());
+  }
+
+  public AxFlow(String mermaid, Map<String, Object> bindings) {
+    Map<String, Object> normalized = normalizeMermaidBindings(bindings);
+    this.options = new LinkedHashMap<>(Core.asMap(normalized.getOrDefault("options", Map.of())));
+    this.executionContext = AxExecutionContext.resolve(this.options, null);
+    this.state = Core.asMap(Core._flow_from_mermaid(mermaid, normalized));
+    this.state.put("mermaidPercent", "%");
+    this.state.put("mermaidOpenBrace", "{");
+    this.state.put("mermaidCloseBrace", "}");
+    hydrateMermaidSteps(Core.asList(this.state.getOrDefault("steps", List.of())), normalized);
   }
 
   public AxFlow execute(String name, AxProgram program) {
@@ -29,7 +47,9 @@ public final class AxFlow implements AxProgram {
   }
 
   public AxFlow execute(String name, AxProgram program, Map<String, Object> options) {
-    return addStep("execute", name, program, options);
+    Map<String, Object> opts = new LinkedHashMap<>(options == null ? Map.of() : options);
+    if (program instanceof AxGen gen) opts.putIfAbsent("signatureText", gen.signature.toString());
+    return addStep("execute", name, program, opts);
   }
 
   public AxFlow derive(String name, AxProgram program) {
@@ -220,6 +240,42 @@ public final class AxFlow implements AxProgram {
 
   public List<Map<String, Object>> streamingForward(AiClient client, Map<String, Object> values, Map<String, Object> options) {
     return List.of(Map.of("version", 1, "index", 0, "delta", forward(client, values, options)));
+  }
+
+  public String toString(Map<String, Object> options) {
+    return String.valueOf(Core._flow_to_mermaid(state, options == null ? Map.of() : options));
+  }
+
+  @Override public String toString() {
+    return toString(Map.of());
+  }
+
+  private static Map<String, Object> normalizeMermaidBindings(Map<String, Object> bindings) {
+    Map<String, Object> out = new LinkedHashMap<>(bindings == null ? Map.of() : bindings);
+    out.put("nodes", new LinkedHashMap<>(Core.asMap(out.getOrDefault("nodes", Map.of()))));
+    out.put("conditions", new LinkedHashMap<>(Core.asMap(out.getOrDefault("conditions", Map.of()))));
+    return out;
+  }
+
+  private static void hydrateMermaidSteps(List<Object> rawSteps, Map<String, Object> bindings) {
+    Map<String, Object> nodes = Core.asMap(bindings.getOrDefault("nodes", Map.of()));
+    for (Object raw : rawSteps) {
+      Map<String, Object> step = Core.asMap(raw);
+      String name = String.valueOf(step.getOrDefault("name", ""));
+      Object binding = nodes.get(name);
+      if (binding instanceof Mapper) {
+        step.put("kind", "map");
+        step.put("program", binding);
+      } else if (binding instanceof AxProgram) {
+        step.put("program", binding);
+      } else if (binding instanceof String signature) {
+        step.put("program", new AxGen(AxSignature.create(signature)));
+      } else if ("execute".equals(step.get("kind")) && step.get("program") instanceof String signature) {
+        step.put("program", new AxGen(AxSignature.create(signature), Core.asMap(step.getOrDefault("options", Map.of()))));
+      }
+      List<Object> nested = Core.asList(Core.asMap(step.getOrDefault("options", Map.of())).getOrDefault("steps", List.of()));
+      if (!nested.isEmpty()) hydrateMermaidSteps(nested, bindings);
+    }
   }
 
   private AxFlow addStep(String kind, String name, Object program, Map<String, Object> options) {

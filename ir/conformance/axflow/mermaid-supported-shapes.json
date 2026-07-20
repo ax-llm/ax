@@ -1,0 +1,119 @@
+{
+  "kind": "flow_mermaid",
+  "name": "mermaid-supported-shapes",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "mermaid-supported-shapes",
+    "observed": {
+      "rendered": "flowchart TD\n  %%ax alpha: inputText:string -> alphaText:string\n  %%ax beta: alphaText:string -> betaText:string\n  %%ax gamma: betaText:string -> gammaText:string\n\n  alpha[Alpha]\n  beta[Beta]\n  alpha --> beta\n  gamma[Gamma]\n  beta --> gamma\n",
+      "rerendered": "flowchart TD\n  %%ax alpha: inputText:string -> alphaText:string\n  %%ax beta: alphaText:string -> betaText:string\n  %%ax gamma: betaText:string -> gammaText:string\n\n  alpha[Alpha]\n  beta[Beta]\n  alpha --> beta\n  gamma[Gamma]\n  beta --> gamma\n",
+      "plan": {
+        "totalSteps": 4,
+        "parallelGroups": 4,
+        "maxParallelism": 1,
+        "steps": [
+          {
+            "type": "execute",
+            "nodeName": "alpha",
+            "dependencies": ["inputText"],
+            "produces": ["alphaResult"],
+            "stepIndex": 0,
+            "isBarrier": false
+          },
+          {
+            "type": "execute",
+            "nodeName": "beta",
+            "dependencies": ["alphaResult"],
+            "produces": ["betaResult"],
+            "stepIndex": 1,
+            "isBarrier": false
+          },
+          {
+            "type": "execute",
+            "nodeName": "gamma",
+            "dependencies": ["betaResult"],
+            "produces": ["gammaResult"],
+            "stepIndex": 2,
+            "isBarrier": false
+          },
+          {
+            "type": "returns",
+            "dependencies": ["gammaResult"],
+            "produces": ["gammaText"],
+            "stepIndex": 3,
+            "isBarrier": true
+          }
+        ],
+        "groups": [
+          {
+            "level": 0,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "alpha",
+                "dependencies": ["inputText"],
+                "produces": ["alphaResult"],
+                "stepIndex": 0,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "beta",
+                "dependencies": ["alphaResult"],
+                "produces": ["betaResult"],
+                "stepIndex": 1,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 2,
+            "steps": [
+              {
+                "type": "execute",
+                "nodeName": "gamma",
+                "dependencies": ["betaResult"],
+                "produces": ["gammaResult"],
+                "stepIndex": 2,
+                "isBarrier": false
+              }
+            ]
+          },
+          {
+            "level": 3,
+            "steps": [
+              {
+                "type": "returns",
+                "dependencies": ["gammaResult"],
+                "produces": ["gammaText"],
+                "stepIndex": 3,
+                "isBarrier": true
+              }
+            ]
+          }
+        ],
+        "autoParallelEnabled": true
+      }
+    }
+  },
+  "document": "flowchart BT\n  %%ax alpha: inputText:string -> alphaText:string\n  %%ax beta: alphaText:string -> betaText:string\n  %%ax gamma: betaText:string -> gammaText:string\n  alpha((Alpha)) --> beta(Beta) --> gamma([Gamma])",
+  "condition_names": [],
+  "expected_rendered": "flowchart TD\n  %%ax alpha: inputText:string -> alphaText:string\n  %%ax beta: alphaText:string -> betaText:string\n  %%ax gamma: betaText:string -> gammaText:string\n\n  alpha[Alpha]\n  beta[Beta]\n  alpha --> beta\n  gamma[Gamma]\n  beta --> gamma\n",
+  "expected_rerendered": "flowchart TD\n  %%ax alpha: inputText:string -> alphaText:string\n  %%ax beta: alphaText:string -> betaText:string\n  %%ax gamma: betaText:string -> gammaText:string\n\n  alpha[Alpha]\n  beta[Beta]\n  alpha --> beta\n  gamma[Gamma]\n  beta --> gamma\n",
+  "expected_direction": "BT"
+}

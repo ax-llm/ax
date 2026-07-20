@@ -4580,10 +4580,55 @@ Value AxGen::value() const { return state_; }
 
 AxFlow::AxFlow(Value options) {
   state_ = Core::_flow_factory(std::move(options));
+  Core::set(state_, "mermaidPercent", "%");
+  Core::set(state_, "mermaidOpenBrace", "{");
+  Core::set(state_, "mermaidCloseBrace", "}");
+}
+
+AxFlow::AxFlow(std::string mermaid, Value bindings) {
+  state_ = Core::_flow_from_mermaid(Value(std::move(mermaid)), bindings);
+  Core::set(state_, "mermaidPercent", "%");
+  Core::set(state_, "mermaidOpenBrace", "{");
+  Core::set(state_, "mermaidCloseBrace", "}");
+  Value steps = hydrate_mermaid_steps(Core::get(state_, "steps", Value::array()), bindings);
+  Core::set(state_, "steps", std::move(steps));
 }
 
 AxFlow& AxFlow::execute(std::string name, AxProgram& program, Value options) {
+  if (auto* gen = dynamic_cast<AxGen*>(&program)) {
+    Value signature = Core::get(gen->value(), "signature");
+    Core::set(options, "signatureText", Core::signature_to_string(signature));
+  }
   return add_step(Value("execute"), Value(std::move(name)), Core::agent_stage_ref(program), std::move(options));
+}
+
+Value AxFlow::hydrate_mermaid_steps(Value steps, Value bindings) {
+  Value out = Value::array();
+  Value nodes = Core::get(bindings, "nodes", Value::object());
+  for (const auto& raw : array_ref(steps)) {
+    Value step = raw;
+    std::string name = display(Core::get(step, "name", ""));
+    Value binding = Core::get(nodes, name);
+    Value program = binding.is_null() ? Core::get(step, "program") : binding;
+    if (program.is_object() && !Core::get(program, "__flow_mapper_id").is_null()) {
+      Core::set(step, "kind", "map");
+      Core::set(step, "program", program);
+    } else if (program.is_string()) {
+      auto gen = std::make_shared<AxGen>(Core::parse_signature(program), Core::get(step, "options", Value::object()));
+      Core::set(step, "program", Core::agent_stage_ref(*gen));
+      mermaid_programs_.push_back(std::move(gen));
+    } else if (!program.is_null()) {
+      Core::set(step, "program", program);
+    }
+    Value options = Core::get(step, "options", Value::object());
+    Value nested = Core::get(options, "steps", Value::array());
+    if (nested.is_array() && !array_ref(nested).empty()) {
+      Core::set(options, "steps", hydrate_mermaid_steps(nested, bindings));
+      Core::set(step, "options", options);
+    }
+    Core::append(out, step);
+  }
+  return out;
 }
 
 AxFlow& AxFlow::derive(std::string name, AxProgram& program, Value options) {
@@ -4649,13 +4694,13 @@ AxFlow& AxFlow::returns(Value spec) {
 
 AxFlow& AxFlow::set_demos(Value demos) {
   if (demos.is_array()) {
-    std::string owner = str(Core::get(state_, "program_id", Value("root.flow")));
+    std::string owner = ::axllm::str(Core::get(state_, "program_id", Value("root.flow")));
     std::set<std::string> known_ids;
     known_ids.insert(owner);
     known_ids.insert("root");
     Value steps = Core::get(state_, "steps", Value::array());
     for (const auto& raw_step : array_ref(steps)) {
-      std::string name = str(Core::get(raw_step, "name", Value("")));
+      std::string name = ::axllm::str(Core::get(raw_step, "name", Value("")));
       if (!name.empty()) {
         known_ids.insert(owner + "." + name);
         known_ids.insert("root." + name);
@@ -4664,7 +4709,7 @@ AxFlow& AxFlow::set_demos(Value demos) {
     std::set<std::string> unknown;
     for (const auto& raw_demo : array_ref(demos)) {
       Value id = Core::get(raw_demo, "programId", Value());
-      if (!id.is_null() && known_ids.find(str(id)) == known_ids.end()) unknown.insert(str(id));
+      if (!id.is_null() && known_ids.find(::axllm::str(id)) == known_ids.end()) unknown.insert(::axllm::str(id));
     }
     if (!unknown.empty()) throw AxError("runtime", "Unknown program ID(s) in demos: " + *unknown.begin());
     Core::set(state_, "demos", std::move(demos));
@@ -4675,7 +4720,7 @@ AxFlow& AxFlow::set_demos(Value demos) {
     if (kv.first == "__order") continue;
     bool found = false;
     for (const auto& raw_step : array_ref(steps)) {
-      if (str(Core::get(raw_step, "name", Value(""))) == kv.first) found = true;
+      if (::axllm::str(Core::get(raw_step, "name", Value(""))) == kv.first) found = true;
     }
     if (!found) throw AxError("runtime", "unknown flow node in demos: " + kv.first);
   }
@@ -4737,6 +4782,10 @@ Value AxFlow::optimize_with(OptimizerEngine& engine, AIClient& client, Value dat
   return artifact;
 }
 Value AxFlow::value() const { return state_; }
+
+std::string AxFlow::str(Value options) const {
+  return display(Core::_flow_to_mermaid(state_, std::move(options)));
+}
 
 AxFlow& AxFlow::add_raw_step(Value step) {
   state_ = Core::_flow_add_step(state_, std::move(step));
@@ -5321,6 +5370,7 @@ AxAgent agent(const std::string& source, Value options) { return AxAgent(Value(s
 AxAgent agent(const char* source, Value options) { return agent(std::string(source == nullptr ? "" : source), std::move(options)); }
 AxAgent agent(Value signature, Value options) { return AxAgent(std::move(signature), std::move(options)); }
 AxFlow flow(Value options) { return AxFlow(std::move(options)); }
+AxFlow flow(const std::string& mermaid, Value bindings) { return AxFlow(mermaid, std::move(bindings)); }
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   Value resolved = Core::provider_resolve_profile(provider.empty() ? "openai" : provider);
   if (!Core::truthy(Core::get(resolved, "known"))) {

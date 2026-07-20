@@ -60,6 +60,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport
 - `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport
 - `examples/AxFlowProgramGraphExample.java`: AxFlow program graph
+- `examples/FlowMermaidExample.java`: portable Mermaid flow parsing and canonical round-trip
 - `examples/AudioResponsesMappingExample.java`: OpenAI Responses speak/transcribe mapping through a scripted transport
 - `examples/RealtimeAudioEventsExample.java`: Grok/Gemini realtime audio setup, input, and event folding
 - `examples/RealtimeAudioTurnExample.java`: drive a full realtime audio turn through `realtimeChat` (offline, scripted transport)

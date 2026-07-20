@@ -43,6 +43,62 @@ module @ax.signature version "0.1" {
     }
   }
 
+  op ax.signature.semantic @signature_input_fields {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    type signature = "(AxSignature) -> list<json>"
+    body @entry(%signature: AxSignature) {
+      %fields = core.get %signature["input_fields"]
+      %out = core.list
+      core.for %field in %fields {
+        %type = core.get %field["type"]
+        %type_out = core.map
+        %type_name = core.get %type["name"] default ""
+        core.set %type_out["name"] = %type_name
+        %empty_options = core.list
+        %type_options = core.get %type["options"] default %empty_options
+        core.set %type_out["options"] = %type_options
+        %item = core.map
+        %field_name = core.get %field["name"] default ""
+        %field_optional = core.get %field["is_optional"] default false
+        core.set %item["name"] = %field_name
+        core.set %item["isOptional"] = %field_optional
+        core.set %item["type"] = %type_out
+        core.append %out, %item
+      }
+      core.return %out
+    }
+  }
+
+  op ax.signature.semantic @signature_output_fields {
+    attr core_kind = "func"
+    attr emit_module = "signature"
+    attr private = true
+    type signature = "(AxSignature) -> list<json>"
+    body @entry(%signature: AxSignature) {
+      %fields = core.get %signature["output_fields"]
+      %out = core.list
+      core.for %field in %fields {
+        %type = core.get %field["type"]
+        %type_out = core.map
+        %type_name = core.get %type["name"] default ""
+        core.set %type_out["name"] = %type_name
+        %empty_options = core.list
+        %type_options = core.get %type["options"] default %empty_options
+        core.set %type_out["options"] = %type_options
+        %item = core.map
+        %field_name = core.get %field["name"] default ""
+        %field_optional = core.get %field["is_optional"] default false
+        core.set %item["name"] = %field_name
+        core.set %item["isOptional"] = %field_optional
+        core.set %item["type"] = %type_out
+        core.append %out, %item
+      }
+      core.return %out
+    }
+  }
+
   op ax.signature.semantic @signature_parse_impl {
     attr core_kind = "func"
     attr effect = "throws"

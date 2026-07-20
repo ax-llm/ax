@@ -9,9 +9,15 @@ from typing import Any, Callable
 from .ai import AIClient
 from .gen import (
     AxGen,
+    ax,
     _core_exception_message,
     _core_eq,
     _core_gte,
+    _core_json_parse,
+    _core_lt,
+    _core_lte,
+    _core_ne,
+    _core_regex_match,
     _core_get,
     _core_is_none,
     _core_json_stringify,
@@ -20,6 +26,9 @@ from .gen import (
     _core_or,
     _core_runtime_error,
     _core_string_format,
+    _core_string_ends_with,
+    _core_string_join,
+    _core_string_lower,
     _core_truthy,
     _filter_optimization_components,
     _adjust_optimization_score_for_actions,
@@ -37,6 +46,12 @@ from .gen import (
     _validate_optimization_component_map,
     _validate_optimized_artifact,
 )
+from .signature import (
+    _core_string_extract_leading_group,
+    _core_string_find_outside_quotes,
+    _core_string_split_once,
+    _core_string_split_top_level,
+)
 from .agent import (
     OptimizerEngine,
     OptimizerEvaluator,
@@ -49,9 +64,25 @@ from .agent import (
     _optimization_component,
 )
 from .mcp import resolve_execution_context
+from .signature import (
+    _signature_input_fields,
+    _signature_output_fields,
+    parse_signature,
+    signature_to_string,
+)
 
 
 _CORE_COVERAGE_SEEN: set[str] = set()
+
+
+def _core_string_words(value):
+    return str(value).split()
+
+
+def _core_string_title_from_camel(value):
+    import re
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(value).replace("_", " ")).lower()
+    return text[:1].upper() + text[1:]
 
 
 def _core_coverage_mark(name):
@@ -151,13 +182,29 @@ class AxProgram(ABC):
 
 
 class AxFlow(AxProgram):
-    def __init__(self, options: dict[str, Any] | None = None):
+    def __init__(self, options: dict[str, Any] | str | None = None, bindings: dict[str, Any] | None = None):
+        if isinstance(options, str):
+            normalized = _normalize_mermaid_bindings(bindings)
+            self.options = dict(normalized.get("options") or {})
+            self.execution_context = resolve_execution_context(self.options)
+            self.state = _flow_from_mermaid(options, normalized)
+            self.state["mermaidPercent"] = "%"
+            self.state["mermaidOpenBrace"] = "{"
+            self.state["mermaidCloseBrace"] = "}"
+            _hydrate_mermaid_steps(self.state.get("steps") or [], normalized)
+            return
         self.options = dict(options or {})
         self.execution_context = resolve_execution_context(self.options)
         self.state = _flow_factory(self.options)
+        self.state["mermaidPercent"] = "%"
+        self.state["mermaidOpenBrace"] = "{"
+        self.state["mermaidCloseBrace"] = "}"
 
     def execute(self, name: str, program, options: dict[str, Any] | None = None):
-        return self._add_step("execute", name, program, options)
+        opts = dict(options or {})
+        if isinstance(program, AxGen):
+            opts.setdefault("signatureText", str(program.signature))
+        return self._add_step("execute", name, program, opts)
 
     def derive(self, name: str, program, options: dict[str, Any] | None = None):
         return self._add_step("derive", name, program, options)
@@ -308,13 +355,49 @@ class AxFlow(AxProgram):
     def streaming_forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         yield {"version": 1, "index": 0, "delta": self.forward(client, values or {}, options or {})}
 
+    def to_string(self, options: dict[str, Any] | None = None) -> str:
+        return _flow_to_mermaid(self.state, options or {})
+
+    def __str__(self) -> str:
+        return self.to_string()
+
     def _add_step(self, kind, name, program, options):
         _flow_add_step(self.state, _flow_step(kind, name, program, options or {}))
         return self
 
 
-def flow(options: dict[str, Any] | None = None) -> AxFlow:
-    return AxFlow(options)
+def _normalize_mermaid_bindings(bindings):
+    resolved = dict(bindings or {})
+    nodes = {}
+    for name, value in dict(resolved.get("nodes") or {}).items():
+        nodes[name] = _FlowCallable(value) if callable(value) and not hasattr(value, "forward") else value
+    conditions = {}
+    for name, value in dict(resolved.get("conditions") or {}).items():
+        conditions[name] = _FlowCallable(value) if callable(value) and not hasattr(value, "call") else value
+    resolved["nodes"] = nodes
+    resolved["conditions"] = conditions
+    return resolved
+
+
+def _hydrate_mermaid_steps(steps, bindings):
+    nodes = dict((bindings or {}).get("nodes") or {})
+    for step in steps or []:
+        name = step.get("name")
+        binding = nodes.get(name)
+        if isinstance(binding, _FlowCallable):
+            step["kind"] = "map"
+            step["program"] = binding
+        elif binding is not None:
+            step["program"] = ax(binding) if isinstance(binding, str) else binding
+        elif step.get("kind") == "execute" and isinstance(step.get("program"), str):
+            step["program"] = ax(step["program"], step.get("options") or {})
+        nested = (step.get("options") or {}).get("steps")
+        if isinstance(nested, list):
+            _hydrate_mermaid_steps(nested, bindings)
+
+
+def flow(options: dict[str, Any] | str | None = None, bindings: dict[str, Any] | None = None) -> AxFlow:
+    return AxFlow(options, bindings)
 
 
 def _core_map_get(values, key):
@@ -1006,6 +1089,18 @@ def _flow_execute_step(flow: Any, step: Any, plan_step: Any, client: Any, state:
         pass
     kind = _core_get(step, "kind", "execute")
     name = _core_get(step, "name", "")
+    step_options_for_guard = _core_get(step, "options", empty_map)
+    guard = _core_get(step_options_for_guard, "guard", None)
+    has_guard = _core_is_not_none(guard)
+    if has_guard:
+        guard_matches = _flow_evaluate_data_predicate(guard, state, False)
+        skip_guarded_step = _core_not(guard_matches)
+        if skip_guarded_step:
+            return state
+        else:
+            pass
+    else:
+        pass
     location = _core_string_format("flow-step-{}", name)
     _flow_check_abort(options, location)
     traces = _core_get(flow, "traces", None)
@@ -1036,7 +1131,7 @@ def _flow_execute_step(flow: Any, step: Any, plan_step: Any, client: Any, state:
         branch_value_default = _core_get(step_options, "value", False)
         branch_value = _core_get(step_options, "branchValue", branch_value_default)
         if has_predicate:
-            branch_value = _core_object_call_method(predicate, "call", state)
+            branch_value = _flow_evaluate_data_predicate(predicate, state, branch_value)
         else:
             pass
         default_branches = []
@@ -1069,7 +1164,7 @@ def _flow_execute_step(flow: Any, step: Any, plan_step: Any, client: Any, state:
         while True:
             condition_result = _core_get(step_options, "conditionResult", False)
             if has_condition:
-                condition_result = _core_object_call_method(condition, "call", current)
+                condition_result = _flow_evaluate_data_predicate(condition, current, condition_result)
             else:
                 pass
             should_continue = _core_truthy(condition_result)
@@ -1113,7 +1208,7 @@ def _flow_execute_step(flow: Any, step: Any, plan_step: Any, client: Any, state:
         while True:
             condition_result = _core_get(step_options, "conditionResult", False)
             if has_condition:
-                condition_result = _core_object_call_method(condition, "call", current)
+                condition_result = _flow_evaluate_data_predicate(condition, current, condition_result)
             else:
                 pass
             should_continue = _core_truthy(condition_result)
@@ -1519,5 +1614,1194 @@ def _flow_optimize_with(flow: Any, dataset: Any, options: Any, evaluator_availab
     run = _prepare_optimizer_run("axflow", components, dataset, options, trace, evaluator_available)
     request = _core_get(run, "request", empty_map)
     return request
+
+
+def _flow_evaluate_data_predicate(predicate: Any, state: Any, fallback: Any) -> Any:
+    _core_coverage_mark("_flow_evaluate_data_predicate")
+    missing = _core_is_none(predicate)
+    if missing:
+        return fallback
+    else:
+        pass
+    has_node = _core_map_contains(predicate, "nodeName")
+    has_field = _core_map_contains(predicate, "field")
+    is_data = _core_and(has_node, has_field)
+    if is_data:
+        node = _core_get(predicate, "nodeName", "")
+        field = _core_get(predicate, "field", "")
+        result_key = _core_string_format("{}Result", node)
+        empty = {}
+        result = _core_get(state, result_key, empty)
+        value = _core_get(result, field, None)
+        missing_nested = _core_is_none(value)
+        if missing_nested:
+            value = _core_get(state, field, None)
+        else:
+            pass
+        has_expected = _core_map_contains(predicate, "value")
+        if has_expected:
+            expected = _core_get(predicate, "value", None)
+            expected_text = _core_string_lower(expected)
+            is_true = _core_eq(expected_text, "true")
+            is_false = _core_eq(expected_text, "false")
+            if is_true:
+                actual = _core_truthy(value)
+                return actual
+            else:
+                pass
+            if is_false:
+                actual = _core_truthy(value)
+                actual = _core_not(actual)
+                return actual
+            else:
+                pass
+            matches = _core_eq(value, expected)
+            return matches
+        else:
+            pass
+        truthy = _core_truthy(value)
+        return truthy
+    else:
+        pass
+    called = _core_object_call_method(predicate, "call", state)
+    return called
+
+
+def _flow_mermaid_fail(message: str, line: int) -> None:
+    _core_coverage_mark("_flow_mermaid_fail")
+    with_line = _core_string_format("{} (line {})", message, line)
+    err = _core_runtime_error(with_line)
+    raise err
+
+
+def _flow_mermaid_register_node(ast: Any, id: str, shape: str, label: Any, line: int) -> Any:
+    _core_coverage_mark("_flow_mermaid_register_node")
+    valid = _core_regex_match("^[A-Za-z_][A-Za-z0-9_]*$", id)
+    invalid = _core_not(valid)
+    if invalid:
+        _flow_mermaid_fail("Expected a node id", line)
+    else:
+        pass
+    nodes = _core_get(ast, "nodes", None)
+    known = _core_map_contains(nodes, id)
+    if known:
+        existing = _core_get(nodes, id, None)
+        existing_label = _core_get(existing, "label", None)
+        missing_existing_label = _core_is_none(existing_label)
+        has_label = _core_is_not_none(label)
+        replace = _core_and(missing_existing_label, has_label)
+        if replace:
+            existing["shape"] = shape
+            existing["label"] = label
+        else:
+            pass
+        return existing
+    else:
+        pass
+    node = {}
+    node["id"] = id
+    node["shape"] = shape
+    node["label"] = label
+    node["line"] = line
+    nodes[id] = node
+    order = _core_get(ast, "order", None)
+    index = _core_len(order)
+    order.append(id)
+    order_index = _core_get(ast, "orderIndex", None)
+    order_index[id] = index
+    return node
+
+
+def _flow_mermaid_parse_node_ref(ast: Any, text: str, line: int) -> str:
+    _core_coverage_mark("_flow_mermaid_parse_node_ref")
+    source = str(text).strip()
+    source_len = _core_len(source)
+    empty = _core_eq(source_len, 0)
+    if empty:
+        _flow_mermaid_fail("Expected a node id", line)
+    else:
+        pass
+    split_at = source_len
+    delimiters = []
+    delimiters.append("[")
+    delimiters.append("(")
+    delimiters.append("{")
+    for delimiter in delimiters:
+        candidate = _core_string_find_outside_quotes(source, delimiter)
+        found = _core_gte(candidate, 0)
+        earlier = _core_lt(candidate, split_at)
+        use = _core_and(found, earlier)
+        if use:
+            split_at = candidate
+        else:
+            pass
+    id_raw = _core_string_slice(source, 0, split_at)
+    id = str(id_raw).strip()
+    tail = _core_string_slice(source, split_at)
+    tail = str(tail).strip()
+    shape = "rect"
+    label = _core_none()
+    has_tail = _core_truthy(tail)
+    if has_tail:
+        starts_round_bracket = _core_string_starts_with(tail, "([")
+        starts_double_round = _core_string_starts_with(tail, "((")
+        starts_round = _core_string_starts_with(tail, "(")
+        starts_rect = _core_string_starts_with(tail, "[")
+        starts_diamond = _core_string_starts_with(tail, "{")
+        group = {}
+        if starts_round:
+            group = _core_string_extract_leading_group(tail, "(", ")")
+            shape = "round"
+        else:
+            if starts_rect:
+                group = _core_string_extract_leading_group(tail, "[", "]")
+                shape = "rect"
+            else:
+                if starts_diamond:
+                    group = _core_string_extract_leading_group(tail, "{", "}")
+                    shape = "diamond"
+                else:
+                    _flow_mermaid_fail("Unexpected content after node id", line)
+        balanced = _core_get(group, "balanced", False)
+        rest = _core_get(group, "rest", "")
+        rest = str(rest).strip()
+        trailing = _core_truthy(rest)
+        bad = _core_not(balanced)
+        bad = _core_or(bad, trailing)
+        if bad:
+            _flow_mermaid_fail("Unexpected content after node shape", line)
+        else:
+            pass
+        label_text = _core_get(group, "group", "")
+        if starts_round_bracket:
+            shape = "round"
+            inner_len = _core_len(label_text)
+            inner_end = _core_add(inner_len, -1)
+            label_text = _core_string_slice(label_text, 1, inner_end)
+        else:
+            pass
+        if starts_double_round:
+            shape = "rect"
+            inner_len = _core_len(label_text)
+            inner_end = _core_add(inner_len, -1)
+            label_text = _core_string_slice(label_text, 1, inner_end)
+        else:
+            pass
+        label_text = str(label_text).strip()
+        quoted_double = _core_string_starts_with(label_text, "\"")
+        quoted_single = _core_string_starts_with(label_text, "'")
+        quoted = _core_or(quoted_double, quoted_single)
+        if quoted:
+            label_len = _core_len(label_text)
+            label_end = _core_add(label_len, -1)
+            label_text = _core_string_slice(label_text, 1, label_end)
+        else:
+            pass
+        label = label_text
+    else:
+        pass
+    node = _flow_mermaid_register_node(ast, id, shape, label, line)
+    is_diamond = _core_eq(shape, "diamond")
+    if is_diamond:
+        tail_len = _core_len(tail)
+        close_index = _core_add(tail_len, -1)
+        open_brace = _core_string_slice(tail, 0, 1)
+        close_brace = _core_string_slice(tail, close_index)
+        node["open"] = open_brace
+        node["close"] = close_brace
+    else:
+        pass
+    return id
+
+
+def _flow_mermaid_parse_group(ast: Any, text: str, line: int) -> list[Any]:
+    _core_coverage_mark("_flow_mermaid_parse_group")
+    parts = _core_string_split_top_level(text, "&")
+    ids = []
+    for part in parts:
+        id = _flow_mermaid_parse_node_ref(ast, part, line)
+        ids.append(id)
+    return ids
+
+
+def _flow_mermaid_parse(text: str) -> Any:
+    _core_coverage_mark("_flow_mermaid_parse")
+    ast = {}
+    directives = {}
+    directive_order = []
+    nodes = {}
+    order = []
+    order_index = {}
+    edges = []
+    ast["direction"] = "TD"
+    ast["directives"] = directives
+    ast["directiveOrder"] = directive_order
+    ast["nodes"] = nodes
+    ast["order"] = order
+    ast["orderIndex"] = order_index
+    ast["edges"] = edges
+    saw_header = False
+    lines = _core_string_split(text, "\n")
+    line_number = 0
+    for raw in lines:
+        line_number = _core_add(line_number, 1)
+        line = str(raw).strip()
+        is_empty = _core_eq(line, "")
+        if is_empty:
+            pass
+        else:
+            is_ax = _core_regex_match("^%%ax\\s+", line)
+            is_comment = _core_regex_match("^%%", line)
+            if is_ax:
+                percent = _core_string_slice(line, 0, 1)
+                ast["percent"] = percent
+                directive_body = _core_string_slice(line, 5)
+                parts = _core_string_split_once(directive_body, ":")
+                found_colon = _core_get(parts, "found", False)
+                if found_colon:
+                    pass
+                else:
+                    _flow_mermaid_fail("Invalid Ax directive", line_number)
+                id = _core_get(parts, "left", "")
+                id = str(id).strip()
+                sig = _core_get(parts, "right", "")
+                sig = str(sig).strip()
+                valid_id = _core_regex_match("^[A-Za-z_][A-Za-z0-9_]*$", id)
+                invalid_id = _core_not(valid_id)
+                if invalid_id:
+                    _flow_mermaid_fail("Invalid Ax directive node id", line_number)
+                else:
+                    pass
+                duplicate = _core_map_contains(directives, id)
+                if duplicate:
+                    message = _core_string_format("Duplicate Ax directive for node \"{}\"", id)
+                    _flow_mermaid_fail(message, line_number)
+                else:
+                    pass
+                directives[id] = sig
+                directive_order.append(id)
+            else:
+                if is_comment:
+                    pass
+                else:
+                    is_flowchart = _core_string_starts_with(line, "flowchart ")
+                    is_graph = _core_string_starts_with(line, "graph ")
+                    is_header = _core_or(is_flowchart, is_graph)
+                    if is_header:
+                        if saw_header:
+                            _flow_mermaid_fail("Multiple flowchart headers", line_number)
+                        else:
+                            pass
+                        words = _core_string_words(line)
+                        direction = _core_list_get(words, 1, "")
+                        is_td = _core_eq(direction, "TD")
+                        is_lr = _core_eq(direction, "LR")
+                        is_bt = _core_eq(direction, "BT")
+                        is_rl = _core_eq(direction, "RL")
+                        supported_a = _core_or(is_td, is_lr)
+                        supported_b = _core_or(is_bt, is_rl)
+                        supported = _core_or(supported_a, supported_b)
+                        unsupported = _core_not(supported)
+                        if unsupported:
+                            _flow_mermaid_fail("Unsupported flowchart direction", line_number)
+                        else:
+                            pass
+                        ast["direction"] = direction
+                        saw_header = True
+                    else:
+                        if saw_header:
+                            pass
+                        else:
+                            _flow_mermaid_fail("Missing flowchart header", line_number)
+                        unsupported_construct = _core_regex_match("^(subgraph\\b|end\\b|style\\b|classDef\\b|class\\b|linkStyle\\b|click\\b|direction\\b)", line)
+                        if unsupported_construct:
+                            _flow_mermaid_fail("Unsupported mermaid construct", line_number)
+                        else:
+                            pass
+                        unsupported_arrow = _core_regex_match("(-\\.+->|={2,}>|---|~~~)", line)
+                        if unsupported_arrow:
+                            _flow_mermaid_fail("Unsupported arrow syntax", line_number)
+                        else:
+                            pass
+                        segments = _core_string_split_top_level(line, "-->")
+                        segment_count = _core_len(segments)
+                        from_text = _core_list_get(segments, 0, "")
+                        from_ids = _flow_mermaid_parse_group(ast, from_text, line_number)
+                        segment_index = 1
+                        while True:
+                            done = _core_gte(segment_index, segment_count)
+                            if done:
+                                break
+                            else:
+                                pass
+                            segment = _core_list_get(segments, segment_index, "")
+                            segment = str(segment).strip()
+                            label = _core_none()
+                            has_label = _core_string_starts_with(segment, "|")
+                            if has_label:
+                                after_bar = _core_string_slice(segment, 1)
+                                label_parts = _core_string_split_once(after_bar, "|")
+                                label_closed = _core_get(label_parts, "found", False)
+                                if label_closed:
+                                    pass
+                                else:
+                                    _flow_mermaid_fail("Unterminated edge label", line_number)
+                                label = _core_get(label_parts, "left", "")
+                                label = str(label).strip()
+                                segment = _core_get(label_parts, "right", "")
+                                segment = str(segment).strip()
+                            else:
+                                pass
+                            to_ids = _flow_mermaid_parse_group(ast, segment, line_number)
+                            for from_node in from_ids:
+                                for to in to_ids:
+                                    edge = {}
+                                    edge["from"] = from_node
+                                    edge["to"] = to
+                                    edge["label"] = label
+                                    edge["line"] = line_number
+                                    edges.append(edge)
+                            from_ids = to_ids
+                            segment_index = _core_add(segment_index, 1)
+    if saw_header:
+        pass
+    else:
+        _flow_mermaid_fail("Missing flowchart header", 1)
+    node_count = _core_len(order)
+    no_nodes = _core_eq(node_count, 0)
+    if no_nodes:
+        _flow_mermaid_fail("No nodes found in the diagram", 1)
+    else:
+        pass
+    return ast
+
+
+def _flow_mermaid_reachable(start: str, target: str, edges: Any) -> bool:
+    _core_coverage_mark("_flow_mermaid_reachable")
+    queue = []
+    queue.append(start)
+    seen = {}
+    seen[start] = True
+    index = 0
+    while True:
+        count = _core_len(queue)
+        done = _core_gte(index, count)
+        if done:
+            break
+        else:
+            pass
+        current = _core_list_get(queue, index, "")
+        index = _core_add(index, 1)
+        for edge in edges:
+            from_node = _core_get(edge, "from", "")
+            matches = _core_eq(from_node, current)
+            if matches:
+                to = _core_get(edge, "to", "")
+                found = _core_eq(to, target)
+                if found:
+                    return True
+                else:
+                    pass
+                known = _core_map_contains(seen, to)
+                is_new = _core_not(known)
+                if is_new:
+                    seen[to] = True
+                    queue.append(to)
+                else:
+                    pass
+            else:
+                pass
+    return False
+
+
+def _flow_mermaid_topological_order(document_order: Any, edges: Any) -> list[Any]:
+    _core_coverage_mark("_flow_mermaid_topological_order")
+    result = []
+    processed = {}
+    total = _core_len(document_order)
+    while True:
+        count = _core_len(result)
+        done = _core_gte(count, total)
+        if done:
+            break
+        else:
+            pass
+        progress = False
+        for id in document_order:
+            known = _core_map_contains(processed, id)
+            if known:
+                pass
+            else:
+                ready = True
+                for edge in edges:
+                    to = _core_get(edge, "to", "")
+                    incoming = _core_eq(to, id)
+                    if incoming:
+                        parent = _core_get(edge, "from", "")
+                        parent_done = _core_map_contains(processed, parent)
+                        waiting = _core_not(parent_done)
+                        if waiting:
+                            ready = False
+                        else:
+                            pass
+                    else:
+                        pass
+                if ready:
+                    processed[id] = True
+                    result.append(id)
+                    progress = True
+                else:
+                    pass
+        if progress:
+            pass
+        else:
+            _flow_mermaid_fail("Cycle without a classified back-edge", 1)
+    return result
+
+
+def _flow_mermaid_decision(node: str, ast: Any, infos: Any) -> Any:
+    _core_coverage_mark("_flow_mermaid_decision")
+    empty = {}
+    info = _core_get(infos, node, empty)
+    signature = _core_get(info, "signature", None)
+    missing_signature = _core_is_none(signature)
+    if missing_signature:
+        message = _core_string_format("Decision node \"{}\" needs an Ax signature directive", node)
+        _flow_mermaid_fail(message, 1)
+    else:
+        pass
+    outputs = _core_get(info, "outputs", None)
+    nodes = _core_get(ast, "nodes", None)
+    node_ast = _core_get(nodes, node, None)
+    shape = _core_get(node_ast, "shape", "rect")
+    is_diamond = _core_eq(shape, "diamond")
+    field_name = ""
+    if is_diamond:
+        field_name = _core_get(node_ast, "label", "")
+    else:
+        candidate_count = 0
+        for field in outputs:
+            type = _core_get(field, "type", None)
+            type_name = _core_get(type, "name", "")
+            is_class = _core_eq(type_name, "class")
+            is_boolean = _core_eq(type_name, "boolean")
+            eligible = _core_or(is_class, is_boolean)
+            if eligible:
+                candidate_count = _core_add(candidate_count, 1)
+                field_name = _core_get(field, "name", "")
+            else:
+                pass
+        one = _core_eq(candidate_count, 1)
+        if one:
+            pass
+        else:
+            message = _core_string_format("Cannot infer decision field for node \"{}\"", node)
+            _flow_mermaid_fail(message, 1)
+    chosen = _core_none()
+    for field in outputs:
+        name = _core_get(field, "name", "")
+        matches = _core_eq(name, field_name)
+        if matches:
+            chosen = field
+        else:
+            pass
+    missing = _core_is_none(chosen)
+    if missing:
+        message = _core_string_format("Decision field \"{}\" is not an output of node \"{}\"", field_name, node)
+        _flow_mermaid_fail(message, 1)
+    else:
+        pass
+    type = _core_get(chosen, "type", None)
+    decision = {}
+    decision["nodeName"] = node
+    decision["field"] = field_name
+    decision_type = _core_get(type, "name", "")
+    decision["type"] = decision_type
+    empty_options = []
+    decision_options = _core_get(type, "options", empty_options)
+    decision["options"] = decision_options
+    return decision
+
+
+def _flow_mermaid_guards_compatible(nodes: Any, guards: Any) -> bool:
+    _core_coverage_mark("_flow_mermaid_guards_compatible")
+    count = _core_len(nodes)
+    enough = _core_gt(count, 1)
+    if enough:
+        pass
+    else:
+        return False
+    first_node = _core_list_get(nodes, 0, "")
+    first = _core_get(guards, first_node, None)
+    missing_first = _core_is_none(first)
+    if missing_first:
+        return False
+    else:
+        pass
+    owner = _core_get(first, "nodeName", "")
+    field = _core_get(first, "field", "")
+    values = {}
+    for node in nodes:
+        guard = _core_get(guards, node, None)
+        missing = _core_is_none(guard)
+        if missing:
+            return False
+        else:
+            pass
+        guard_owner = _core_get(guard, "nodeName", "")
+        guard_field = _core_get(guard, "field", "")
+        same_owner = _core_eq(guard_owner, owner)
+        same_field = _core_eq(guard_field, field)
+        same = _core_and(same_owner, same_field)
+        different = _core_not(same)
+        if different:
+            return False
+        else:
+            pass
+        value = _core_get(guard, "value", None)
+        value_key = _core_string_str(value)
+        duplicate = _core_map_contains(values, value_key)
+        if duplicate:
+            return False
+        else:
+            pass
+        values[value_key] = True
+    return True
+
+
+def _flow_mermaid_execute_step(info: Any, guard: Any) -> Any:
+    _core_coverage_mark("_flow_mermaid_execute_step")
+    name = _core_get(info, "id", "")
+    program = _core_get(info, "program", None)
+    kind = _core_get(info, "kind", "execute")
+    options = {}
+    reads = _core_get(info, "reads", None)
+    resolved_reads = []
+    for read in reads:
+        resolved_reads.append(read)
+    writes = []
+    result_key = _core_string_format("{}Result", name)
+    writes.append(result_key)
+    options["writes"] = writes
+    signature_text = _core_get(info, "signatureText", "")
+    has_signature = _core_truthy(signature_text)
+    if has_signature:
+        options["signatureText"] = signature_text
+    else:
+        pass
+    has_guard = _core_is_not_none(guard)
+    if has_guard:
+        options["guard"] = guard
+        guard_node = _core_get(guard, "nodeName", "")
+        guard_read = _core_string_format("{}Result", guard_node)
+        has_guard_read = _core_contains(resolved_reads, guard_read)
+        missing_guard_read = _core_not(has_guard_read)
+        if missing_guard_read:
+            resolved_reads.append(guard_read)
+        else:
+            pass
+    else:
+        pass
+    options["reads"] = resolved_reads
+    step = _flow_step(kind, name, program, options)
+    meta = {}
+    meta["kind"] = kind
+    meta["nodeName"] = name
+    step["meta"] = meta
+    return step
+
+
+def _flow_mermaid_parse_max(label: str, fallback: int) -> i64:
+    _core_coverage_mark("_flow_mermaid_parse_max")
+    parts = _core_string_split_trim_nonempty(label, ",")
+    max = fallback
+    for part in parts:
+        starts = _core_string_starts_with(part, "max ")
+        if starts:
+            raw = _core_string_slice(part, 4)
+            parsed = _core_json_parse(raw)
+            max = parsed
+        else:
+            pass
+    return max
+
+
+def _flow_mermaid_compile(ast: Any, bindings: Any) -> Any:
+    _core_coverage_mark("_flow_mermaid_compile")
+    empty_map = {}
+    empty_list = []
+    opts = _core_get(bindings, "options", empty_map)
+    flow = _flow_factory(opts)
+    order = _core_get(ast, "order", None)
+    order_index = _core_get(ast, "orderIndex", None)
+    edges = _core_get(ast, "edges", None)
+    directives = _core_get(ast, "directives", None)
+    node_bindings = _core_get(bindings, "nodes", empty_map)
+    conditions = _core_get(bindings, "conditions", empty_map)
+    forward_edges = []
+    back_edges = []
+    for edge in edges:
+        from_node = _core_get(edge, "from", None)
+        to = _core_get(edge, "to", None)
+        from_index = _core_get(order_index, from_node, None)
+        to_index = _core_get(order_index, to, None)
+        points_backward = _core_gte(from_index, to_index)
+        closes_cycle = _flow_mermaid_reachable(to, from_node, edges)
+        is_back = _core_and(points_backward, closes_cycle)
+        if is_back:
+            label = _core_get(edge, "label", None)
+            missing_label = _core_is_none(label)
+            if missing_label:
+                message = _core_string_format("Back-edges need a label: {} --> {}", from_node, to)
+                edge_line_number = _core_get(edge, "line", 1)
+                _flow_mermaid_fail(message, edge_line_number)
+            else:
+                pass
+            back_edges.append(edge)
+        else:
+            forward_edges.append(edge)
+    compile_order = _flow_mermaid_topological_order(order, forward_edges)
+    compile_order_index = {}
+    compile_index = 0
+    for compile_id in compile_order:
+        compile_order_index[compile_id] = compile_index
+        compile_index = _core_add(compile_index, 1)
+    ast["compileOrder"] = compile_order
+    infos = {}
+    producers = {}
+    missing_nodes = []
+    for id in compile_order:
+        has_directive = _core_map_contains(directives, id)
+        has_binding = _core_map_contains(node_bindings, id)
+        resolved = _core_or(has_directive, has_binding)
+        if resolved:
+            pass
+        else:
+            missing_nodes.append(id)
+        info = {}
+        info_reads = []
+        info["id"] = id
+        info["kind"] = "execute"
+        info["reads"] = info_reads
+        signature_text = _core_get(directives, id, "")
+        info["signatureText"] = signature_text
+        program = _core_get(node_bindings, id, signature_text)
+        info["program"] = program
+        missing_directive = _core_not(has_directive)
+        binding_only = _core_and(has_binding, missing_directive)
+        if binding_only:
+            info["kind"] = "map"
+        else:
+            pass
+        if has_directive:
+            signature = parse_signature(signature_text)
+            info["signature"] = signature
+            inputs = _signature_input_fields(signature)
+            outputs = _signature_output_fields(signature)
+            info["inputs"] = inputs
+            info["outputs"] = outputs
+            for field in outputs:
+                field_name = _core_get(field, "name", "")
+                field_producers = _core_get(producers, field_name, None)
+                missing_field_producers = _core_is_none(field_producers)
+                if missing_field_producers:
+                    field_producers = []
+                    producers[field_name] = field_producers
+                else:
+                    pass
+                field_producers.append(id)
+        else:
+            pass
+        infos[id] = info
+    missing_count = _core_len(missing_nodes)
+    has_missing = _core_gt(missing_count, 0)
+    if has_missing:
+        joined = _core_string_join(", ", missing_nodes)
+        message = _core_string_format("No signature for node(s): {}", joined)
+        _flow_mermaid_fail(message, 1)
+    else:
+        pass
+    guards = {}
+    for edge in forward_edges:
+        label = _core_get(edge, "label", None)
+        has_label = _core_is_not_none(label)
+        if has_label:
+            starts_if = _core_string_starts_with(label, "if ")
+            starts_while = _core_string_starts_with(label, "while ")
+            reserved = _core_or(starts_if, starts_while)
+            if reserved:
+                edge_line_number = _core_get(edge, "line", 1)
+                _flow_mermaid_fail("if/while labels are only valid on back-edges", edge_line_number)
+            else:
+                pass
+            from_node = _core_get(edge, "from", None)
+            decision = _flow_mermaid_decision(from_node, ast, infos)
+            type = _core_get(decision, "type", "")
+            is_class = _core_eq(type, "class")
+            if is_class:
+                options = _core_get(decision, "options", empty_list)
+                valid_option = _core_contains(options, label)
+                invalid_option = _core_not(valid_option)
+                if invalid_option:
+                    field = _core_get(decision, "field", "")
+                    message = _core_string_format("\"{}\" is not an option of \"{}.{}\"", label, from_node, field)
+                    edge_line_number = _core_get(edge, "line", 1)
+                    _flow_mermaid_fail(message, edge_line_number)
+                else:
+                    pass
+            else:
+                pass
+            decision["value"] = label
+            to = _core_get(edge, "to", None)
+            guards[to] = decision
+        else:
+            pass
+    for id in compile_order:
+        already_guarded = _core_map_contains(guards, id)
+        if already_guarded:
+            pass
+        else:
+            incoming = []
+            for edge in forward_edges:
+                to = _core_get(edge, "to", "")
+                matches = _core_eq(to, id)
+                if matches:
+                    incoming_from = _core_get(edge, "from", "")
+                    incoming.append(incoming_from)
+                else:
+                    pass
+            incoming_count = _core_len(incoming)
+            one_incoming = _core_eq(incoming_count, 1)
+            if one_incoming:
+                parent = _core_list_get(incoming, 0, "")
+                parent_guard = _core_get(guards, parent, None)
+                has_parent_guard = _core_is_not_none(parent_guard)
+                if has_parent_guard:
+                    guards[id] = parent_guard
+                else:
+                    pass
+            else:
+                pass
+    natural_inputs = {}
+    for id in compile_order:
+        info = _core_get(infos, id, None)
+        signature = _core_get(info, "signature", None)
+        has_signature = _core_is_not_none(signature)
+        if has_signature:
+            inputs = _core_get(info, "inputs", empty_list)
+            reads = []
+            for field in inputs:
+                field_name = _core_get(field, "name", "")
+                all_producers = _core_get(producers, field_name, empty_list)
+                upstream = []
+                for producer in all_producers:
+                    not_self = _core_ne(producer, id)
+                    if not_self:
+                        reachable = _flow_mermaid_reachable(producer, id, forward_edges)
+                        if reachable:
+                            upstream.append(producer)
+                        else:
+                            pass
+                    else:
+                        pass
+                upstream_count = _core_len(upstream)
+                ambiguous = _core_gt(upstream_count, 1)
+                if ambiguous:
+                    compatible = _flow_mermaid_guards_compatible(upstream, guards)
+                    bad_ambiguity = _core_not(compatible)
+                    if bad_ambiguity:
+                        a = _core_list_get(upstream, 0, "")
+                        b = _core_list_get(upstream, 1, "")
+                        pair = _core_string_format("{} and {}", a, b)
+                        message = _core_string_format("Input \"{}\" of node \"{}\" is produced by {} at the same distance", field_name, id, pair)
+                        _flow_mermaid_fail(message, 1)
+                    else:
+                        pass
+                else:
+                    pass
+                has_upstream = _core_gt(upstream_count, 0)
+                if has_upstream:
+                    for producer in upstream:
+                        read = _core_string_format("{}Result", producer)
+                        reads.append(read)
+                else:
+                    producer_count = _core_len(all_producers)
+                    has_other_producer = _core_gt(producer_count, 0)
+                    if has_other_producer:
+                        producer = _core_list_get(all_producers, 0, "")
+                        same_only = _core_eq(producer, id)
+                        if same_only:
+                            natural_inputs[field_name] = field
+                        else:
+                            message = _core_string_format("\"{}\" of node \"{}\" is produced by \"{}\" which is not upstream", field_name, id, producer)
+                            _flow_mermaid_fail(message, 1)
+                    else:
+                        natural_inputs[field_name] = field
+            info["reads"] = reads
+        else:
+            pass
+    self_while = {}
+    for edge in back_edges:
+        from_node = _core_get(edge, "from", None)
+        to = _core_get(edge, "to", None)
+        label = _core_get(edge, "label", "")
+        parts = _core_string_split_trim_nonempty(label, ",")
+        main = _core_list_get(parts, 0, "")
+        is_while = _core_string_starts_with(main, "while ")
+        self = _core_eq(from_node, to)
+        self_loop = _core_and(is_while, self)
+        if self_loop:
+            self_while[from_node] = edge
+        else:
+            pass
+    steps = _core_get(flow, "steps", None)
+    loop_index = 0
+    for id in compile_order:
+        info = _core_get(infos, id, None)
+        guard = _core_get(guards, id, None)
+        has_self_while = _core_map_contains(self_while, id)
+        if has_self_while:
+            pass
+        else:
+            step = _flow_mermaid_execute_step(info, guard)
+            steps.append(step)
+        for edge in back_edges:
+            from_node = _core_get(edge, "from", None)
+            matches_source = _core_eq(from_node, id)
+            if matches_source:
+                loop_index = _core_add(loop_index, 1)
+                to = _core_get(edge, "to", None)
+                label = _core_get(edge, "label", "")
+                label_parts = _core_string_split_trim_nonempty(label, ",")
+                main = _core_list_get(label_parts, 0, "")
+                is_while = _core_string_starts_with(main, "while ")
+                is_if = _core_string_starts_with(main, "if ")
+                loop_kind = "feedback"
+                fallback_max = 10
+                if is_while:
+                    loop_kind = "while"
+                    fallback_max = 100
+                else:
+                    pass
+                max = _flow_mermaid_parse_max(label, fallback_max)
+                body = []
+                to_index = _core_get(compile_order_index, to, None)
+                from_index = _core_get(compile_order_index, from_node, None)
+                for body_id in compile_order:
+                    body_index = _core_get(compile_order_index, body_id, None)
+                    after_start = _core_gte(body_index, to_index)
+                    before_end = _core_lte(body_index, from_index)
+                    in_body = _core_and(after_start, before_end)
+                    if in_body:
+                        body_info = _core_get(infos, body_id, None)
+                        body_guard = _core_get(guards, body_id, None)
+                        body_step = _flow_mermaid_execute_step(body_info, body_guard)
+                        body.append(body_step)
+                    else:
+                        pass
+                loop_options = {}
+                loop_options["steps"] = body
+                loop_options["maxIterations"] = max
+                loop_options["label"] = to
+                meta = {}
+                meta["kind"] = loop_kind
+                meta["maxIterations"] = max
+                meta["target"] = to
+                if is_while:
+                    condition_name = _core_string_slice(main, 6)
+                    condition_name = str(condition_name).strip()
+                    condition = _core_get(conditions, condition_name, None)
+                    missing_condition = _core_is_none(condition)
+                    if missing_condition:
+                        message = _core_string_format("Missing condition binding \"{}\"", condition_name)
+                        edge_line_number = _core_get(edge, "line", 1)
+                        _flow_mermaid_fail(message, edge_line_number)
+                    else:
+                        pass
+                    loop_options["condition"] = condition
+                    loop_options["conditionName"] = condition_name
+                    meta["conditionName"] = condition_name
+                else:
+                    if is_if:
+                        condition_name = _core_string_slice(main, 3)
+                        condition_name = str(condition_name).strip()
+                        condition = _core_get(conditions, condition_name, None)
+                        missing_condition = _core_is_none(condition)
+                        if missing_condition:
+                            message = _core_string_format("Missing condition binding \"{}\"", condition_name)
+                            edge_line_number = _core_get(edge, "line", 1)
+                            _flow_mermaid_fail(message, edge_line_number)
+                        else:
+                            pass
+                        loop_options["condition"] = condition
+                        loop_options["conditionName"] = condition_name
+                        meta["conditionName"] = condition_name
+                    else:
+                        decision = _flow_mermaid_decision(from_node, ast, infos)
+                        decision["value"] = main
+                        loop_options["condition"] = decision
+                        loop_options["decision"] = decision
+                        meta["decision"] = decision
+                loop_name = _core_string_format("{}{}", loop_kind, loop_index)
+                loop_step = _flow_step(loop_kind, loop_name, None, loop_options)
+                loop_step["meta"] = meta
+                steps.append(loop_step)
+            else:
+                pass
+    terminal_fields = {}
+    returns = {}
+    for id in compile_order:
+        has_outgoing = False
+        for edge in forward_edges:
+            from_node = _core_get(edge, "from", "")
+            matches = _core_eq(from_node, id)
+            if matches:
+                has_outgoing = True
+            else:
+                pass
+        if has_outgoing:
+            pass
+        else:
+            info = _core_get(infos, id, None)
+            signature = _core_get(info, "signature", None)
+            has_signature = _core_is_not_none(signature)
+            if has_signature:
+                outputs = _core_get(info, "outputs", empty_list)
+                for field in outputs:
+                    name = _core_get(field, "name", "")
+                    duplicate = _core_map_contains(terminal_fields, name)
+                    if duplicate:
+                        message = _core_string_format("Output field \"{}\" is produced by multiple terminal nodes", name)
+                        _flow_mermaid_fail(message, 1)
+                    else:
+                        pass
+                    terminal_fields[name] = field
+                    path = _core_string_format("{}Result.{}", id, name)
+                    returns[name] = path
+            else:
+                pass
+    flow["returns"] = returns
+    flow["mermaidAst"] = ast
+    flow["mermaidBindings"] = bindings
+    flow["mermaidInputFields"] = natural_inputs
+    flow["mermaidOutputFields"] = terminal_fields
+    return flow
+
+
+def _flow_mermaid_render_ast(ast: Any, options: Any) -> str:
+    _core_coverage_mark("_flow_mermaid_render_ast")
+    empty_map = {}
+    opts_missing = _core_is_none(options)
+    opts = options
+    if opts_missing:
+        opts = empty_map
+    else:
+        pass
+    direction = _core_get(opts, "direction", "TD")
+    lines = []
+    header = _core_string_format("flowchart {}", direction)
+    lines.append(header)
+    directives = _core_get(ast, "directives", None)
+    directive_order = _core_get(ast, "directiveOrder", None)
+    percent = _core_get(ast, "percent", "")
+    for id in directive_order:
+        signature_text = _core_get(directives, id, None)
+        signature = parse_signature(signature_text)
+        canonical = signature_to_string(signature)
+        prefix = _core_string_format("{}{}ax", percent, percent)
+        directive = _core_string_format("  {} {}: {}", prefix, id, canonical)
+        lines.append(directive)
+    lines.append("")
+    nodes = _core_get(ast, "nodes", None)
+    order = _core_get(ast, "order", None)
+    compile_order = _core_get(ast, "compileOrder", order)
+    order_index = _core_get(ast, "orderIndex", None)
+    edges = _core_get(ast, "edges", None)
+    for id in compile_order:
+        node = _core_get(nodes, id, None)
+        shape = _core_get(node, "shape", "rect")
+        label = _core_get(node, "label", None)
+        is_diamond = _core_eq(shape, "diamond")
+        if is_diamond:
+            pass
+        else:
+            spaced_title = _core_string_title_from_camel(id)
+            lower_title = _core_string_lower(spaced_title)
+            label = _core_string_title_from_camel(lower_title)
+        statement = _core_string_format("  {}[{}]", id, label)
+        if is_diamond:
+            open_brace = _core_get(node, "open", "")
+            close_brace = _core_get(node, "close", "")
+            wrapped = _core_string_format("{}{}{}", open_brace, label, close_brace)
+            statement = _core_string_format("  {}{}", id, wrapped)
+        else:
+            pass
+        lines.append(statement)
+        for edge in edges:
+            to = _core_get(edge, "to", "")
+            arrives = _core_eq(to, id)
+            if arrives:
+                from_node = _core_get(edge, "from", "")
+                from_index = _core_get(order_index, from_node, None)
+                to_index = _core_get(order_index, to, None)
+                points_backward = _core_gte(from_index, to_index)
+                closes_cycle = _flow_mermaid_reachable(to, from_node, edges)
+                back = _core_and(points_backward, closes_cycle)
+                forward = _core_not(back)
+                if forward:
+                    label = _core_get(edge, "label", None)
+                    has_label = _core_is_not_none(label)
+                    edge_line = _core_string_format("  {} --> {}", from_node, to)
+                    if has_label:
+                        edge_line = _core_string_format("  {} -->|{}| {}", from_node, label, to)
+                    else:
+                        pass
+                    lines.append(edge_line)
+                else:
+                    pass
+            else:
+                pass
+    for edge in edges:
+        from_node = _core_get(edge, "from", "")
+        to = _core_get(edge, "to", "")
+        from_index = _core_get(order_index, from_node, None)
+        to_index = _core_get(order_index, to, None)
+        points_backward = _core_gte(from_index, to_index)
+        closes_cycle = _flow_mermaid_reachable(to, from_node, edges)
+        back = _core_and(points_backward, closes_cycle)
+        if back:
+            label = _core_get(edge, "label", None)
+            has_label = _core_is_not_none(label)
+            edge_line = _core_string_format("  {} --> {}", from_node, to)
+            if has_label:
+                edge_line = _core_string_format("  {} -->|{}| {}", from_node, label, to)
+            else:
+                pass
+            lines.append(edge_line)
+        else:
+            pass
+    lines.append("")
+    rendered = _core_string_join("\n", lines)
+    return rendered
+
+
+def _flow_mermaid_render_flow(flow: Any, options: Any) -> str:
+    _core_coverage_mark("_flow_mermaid_render_flow")
+    empty_map = {}
+    opts_missing = _core_is_none(options)
+    opts = options
+    if opts_missing:
+        opts = empty_map
+    else:
+        pass
+    direction = _core_get(opts, "direction", "TD")
+    lines = []
+    header = _core_string_format("flowchart {}", direction)
+    lines.append(header)
+    steps = _core_get(flow, "steps", None)
+    percent = _core_get(flow, "mermaidPercent", "")
+    for step in steps:
+        kind = _core_get(step, "kind", "execute")
+        is_execute = _core_eq(kind, "execute")
+        if is_execute:
+            step_options = _core_get(step, "options", empty_map)
+            signature_text = _core_get(step_options, "signatureText", "")
+            has_signature = _core_truthy(signature_text)
+            if has_signature:
+                signature = parse_signature(signature_text)
+                canonical = signature_to_string(signature)
+                name = _core_get(step, "name", "")
+                prefix = _core_string_format("{}{}ax", percent, percent)
+                directive = _core_string_format("  {} {}: {}", prefix, name, canonical)
+                lines.append(directive)
+            else:
+                pass
+        else:
+            pass
+    lines.append("")
+    diamonds = {}
+    for step in steps:
+        meta = _core_get(step, "meta", empty_map)
+        decision = _core_get(meta, "decision", None)
+        has_decision = _core_is_not_none(decision)
+        if has_decision:
+            node = _core_get(decision, "nodeName", "")
+            field = _core_get(decision, "field", "")
+            diamonds[node] = field
+        else:
+            pass
+    seen = {}
+    for step in steps:
+        kind = _core_get(step, "kind", "execute")
+        is_execute = _core_eq(kind, "execute")
+        is_map = _core_eq(kind, "map")
+        material = _core_or(is_execute, is_map)
+        if material:
+            name = _core_get(step, "name", "")
+            known = _core_map_contains(seen, name)
+            if known:
+                pass
+            else:
+                seen[name] = True
+                spaced_title = _core_string_title_from_camel(name)
+                lower_title = _core_string_lower(spaced_title)
+                title = _core_string_title_from_camel(lower_title)
+                diamond = _core_get(diamonds, name, None)
+                has_diamond = _core_is_not_none(diamond)
+                statement = _core_string_format("  {}[{}]", name, title)
+                if has_diamond:
+                    open_brace = _core_get(flow, "mermaidOpenBrace", "")
+                    close_brace = _core_get(flow, "mermaidCloseBrace", "")
+                    wrapped = _core_string_format("{}{}{}", open_brace, diamond, close_brace)
+                    statement = _core_string_format("  {}{}", name, wrapped)
+                else:
+                    pass
+                lines.append(statement)
+                step_options = _core_get(step, "options", empty_map)
+                empty_reads = []
+                step_reads = _core_get(step, "reads", empty_reads)
+                reads = _core_get(step_options, "reads", step_reads)
+                for read in reads:
+                    is_result = _core_string_ends_with(read, "Result")
+                    if is_result:
+                        read_len = _core_len(read)
+                        producer_end = _core_add(read_len, -6)
+                        producer = _core_string_slice(read, 0, producer_end)
+                        edge_line = _core_string_format("  {} --> {}", producer, name)
+                        lines.append(edge_line)
+                    else:
+                        pass
+        else:
+            pass
+    lines.append("")
+    rendered = _core_string_join("\n", lines)
+    return rendered
+
+
+def _flow_from_mermaid(text: str, bindings: Any) -> Any:
+    _core_coverage_mark("_flow_from_mermaid")
+    empty_map = {}
+    missing = _core_is_none(bindings)
+    resolved = bindings
+    if missing:
+        resolved = empty_map
+    else:
+        pass
+    ast = _flow_mermaid_parse(text)
+    flow = _flow_mermaid_compile(ast, resolved)
+    return flow
+
+
+def _flow_to_mermaid(flow: Any, options: Any) -> str:
+    _core_coverage_mark("_flow_to_mermaid")
+    ast = _core_get(flow, "mermaidAst", None)
+    has_ast = _core_is_not_none(ast)
+    if has_ast:
+        rendered = _flow_mermaid_render_ast(ast, options)
+        return rendered
+    else:
+        pass
+    rendered = _flow_mermaid_render_flow(flow, options)
+    return rendered
 
 # END AXIR CORE EMITTED FUNCTIONS

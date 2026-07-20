@@ -1,0 +1,24 @@
+{
+  "kind": "flow_mermaid",
+  "name": "mermaid-error-missing-condition",
+  "operation": "error",
+  "source": {
+    "tsDerived": true,
+    "extractor": "tools/axir/extractors/flow-goldens.ts",
+    "reference": [
+      "src/ax/flow/flow.ts",
+      "src/ax/flow/steps.ts",
+      "src/ax/flow/executor.ts",
+      "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
+      "src/ax/dsp/program.ts"
+    ],
+    "name": "mermaid-error-missing-condition",
+    "observed": {
+      "error": "Missing condition binding \"missingCond\" (line 3: \"polish -->|while missingCond| polish\") — Pass bindings.conditions.missingCond"
+    }
+  },
+  "document": "flowchart TD\n%%ax polish: draftText:string -> polishedText:string\npolish -->|while missingCond| polish",
+  "expected_error_contains": "Missing condition binding \"missingCond\""
+}

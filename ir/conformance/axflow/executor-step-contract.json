@@ -10,6 +10,8 @@
       "src/ax/flow/steps.ts",
       "src/ax/flow/executor.ts",
       "src/ax/flow/executionPlanner.ts",
+      "src/ax/flow/mermaid.ts",
+      "src/ax/flow/dependencyAnalyzer.ts",
       "src/ax/dsp/program.ts"
     ],
     "name": "executor-step-contract",
@@ -22,13 +24,8 @@
           {
             "name": "fullName",
             "kind": "map",
-            "reads": [
-              "firstName",
-              "lastName"
-            ],
-            "writes": [
-              "fullName"
-            ],
+            "reads": ["firstName", "lastName"],
+            "writes": ["fullName"],
             "barrier": true,
             "stepIndex": 0
           }
@@ -40,13 +37,8 @@
               {
                 "name": "fullName",
                 "kind": "map",
-                "reads": [
-                  "firstName",
-                  "lastName"
-                ],
-                "writes": [
-                  "fullName"
-                ],
+                "reads": ["firstName", "lastName"],
+                "writes": ["fullName"],
                 "barrier": true,
                 "stepIndex": 0
               }
@@ -56,13 +48,8 @@
       },
       "firstPlanStep": {
         "type": "map",
-        "dependencies": [
-          "firstName",
-          "lastName"
-        ],
-        "produces": [
-          "fullName"
-        ],
+        "dependencies": ["firstName", "lastName"],
+        "produces": ["fullName"],
         "stepIndex": 0,
         "isBarrier": true
       },
@@ -81,13 +68,8 @@
         "fullName": "Ada Lovelace"
       },
       "options": {
-        "reads": [
-          "firstName",
-          "lastName"
-        ],
-        "writes": [
-          "fullName"
-        ],
+        "reads": ["firstName", "lastName"],
+        "writes": ["fullName"],
         "isBarrier": true
       }
     }
@@ -100,13 +82,8 @@
       {
         "name": "fullName",
         "kind": "map",
-        "reads": [
-          "firstName",
-          "lastName"
-        ],
-        "writes": [
-          "fullName"
-        ],
+        "reads": ["firstName", "lastName"],
+        "writes": ["fullName"],
         "barrier": true,
         "stepIndex": 0
       }
@@ -118,13 +95,8 @@
           {
             "name": "fullName",
             "kind": "map",
-            "reads": [
-              "firstName",
-              "lastName"
-            ],
-            "writes": [
-              "fullName"
-            ],
+            "reads": ["firstName", "lastName"],
+            "writes": ["fullName"],
             "barrier": true,
             "stepIndex": 0
           }

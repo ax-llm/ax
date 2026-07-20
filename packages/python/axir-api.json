@@ -276,14 +276,15 @@
           "canonical_name": "flow",
           "public_name": "flow",
           "kind": "function",
-          "description": "Create an AxFlow program graph.",
-          "form": "flow(options=None)",
+          "description": "Create an AxFlow program graph or compile the portable Mermaid shorthand.",
+          "form": "flow(options=None) / flow(mermaid, bindings=None)",
           "important_options": [
             "nodes",
             "execute mappers",
             "conditions",
             "cache",
-            "returns"
+            "returns",
+            "Mermaid roundtrip"
           ],
           "returns": "AxFlow",
           "example": "wf = flow().node(\"qa\", ax(\"question:string -\u003e answer:string\"))"
@@ -294,7 +295,7 @@
           "public_name": "AxFlow",
           "kind": "type",
           "description": "Workflow graph with Core-owned planning, cache keys, state merge, child aggregation, optimization, and returns projection.",
-          "form": "AxFlow(options=None)",
+          "form": "AxFlow(options=None, bindings=None)",
           "important_options": [
             "steps",
             "state",
