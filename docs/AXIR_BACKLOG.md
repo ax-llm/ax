@@ -14,12 +14,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-07-21-port-gemini-3-6-flash-and-3-5-flash-lite-model-support` [axai] Port Gemini 3.6 Flash and 3.5 Flash-Lite model support
-  - Status: open
-  - Source commit: `1acfd7dede33f7de6c9e2c56a6457bfcec9c95a0`
-  - TS paths: `src/ax/ai/google-gemini`
-  - Impact: TypeScript exposes the new Gemini 3.6 Flash and 3.5 Flash-Lite model IDs, catalog pricing and limits, explicit context caching, and server-managed sampling behavior. Generated Python, Java, C++, Go, and Rust providers do not yet expose equivalent model metadata or omit temperature, top_p, and top_k for these models.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -211,3 +206,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-20
   - Completed by: `08d64949a801a03ae531352a29e4406c7d053112`
   - Verification: `npm run test:axir; npm run axir:check-packages; npm run axir:gate:ledger`
+- `axir-2026-07-21-port-gemini-3-6-flash-and-3-5-flash-lite-model-support` [axai] Port Gemini 3.6 Flash and 3.5 Flash-Lite model support
+  - Status: done
+  - Source commit: `1acfd7dede33f7de6c9e2c56a6457bfcec9c95a0`
+  - TS paths: `src/ax/ai/google-gemini`
+  - Impact: TypeScript exposes the new Gemini 3.6 Flash and 3.5 Flash-Lite model IDs, catalog pricing and limits, explicit context caching, and server-managed sampling behavior. Generated Python, Java, C++, Go, and Rust providers do not yet expose equivalent model metadata or omit temperature, top_p, and top_k for these models.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-21
+  - Completed by: `d25acf280d7f7e8c8a44cc93bab813af9dacf766`
+  - Verification: `npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check`

@@ -499,7 +499,7 @@
     },
     {
       "id": "axir-2026-07-21-port-gemini-3-6-flash-and-3-5-flash-lite-model-support",
-      "status": "open",
+      "status": "done",
       "title": "Port Gemini 3.6 Flash and 3.5 Flash-Lite model support",
       "createdAt": "2026-07-21",
       "sourcePR": null,
@@ -512,9 +512,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-21",
+      "completedByCommit": "d25acf280d7f7e8c8a44cc93bab813af9dacf766",
+      "verification": "npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check"
     }
   ],
   "nonPortableExemptions": [
