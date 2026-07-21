@@ -104,8 +104,10 @@
     ],
     "flow": [
       "mermaid = '''flowchart TD",
-      "  %%ax classify: request:string -> route:class \"support, sales\"",
-      "  classify{route}",
+      "  %%ax research: topicText:string -> factList:string[]",
+      "  %%ax audience: topicText:string -> audienceAngle:string",
+      "  %%ax join: factList:string[], audienceAngle:string -> briefText:string",
+      "  research & audience --> join",
       "'''",
       "program = flow(mermaid)",
       "print(program)  # canonical portable Mermaid"
@@ -142,6 +144,99 @@
     ]
   },
   "snippetGroups": {
+    "signatures": {
+      "string": {
+        "sourcePath": "src/examples/python/generation/axgen-openai.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "program = ax(\"question:string -> answer:string\")",
+          "output = program.forward(client, {\"question\": \"What is Ax?\"})"
+        ]
+      },
+      "fluent": {
+        "sourcePath": "src/examples/python/generation/signature-constraints.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "signature = (",
+          "    f()",
+          "    .input(\"requestText\", f.string(\"Booking request\").min(10).max(500))",
+          "    .input(\"contactEmail\", f.string(\"Contact email\").email())",
+          "    .output(\"partySize\", f.number(\"Guests\").min(1).max(12))",
+          "    .build()",
+          ")"
+        ]
+      },
+      "validation": {
+        "sourcePath": "src/examples/python/generation/signature-constraints.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "signature = (",
+          "    f()",
+          "    .output(\"partySize\", f.number(\"Guests\").min(1).max(12))",
+          "    .output(\"bookingCode\", f.string().regex(r\"^[A-Z]{3}-\\d{4}$\"))",
+          "    .build()",
+          ")"
+        ]
+      },
+      "hybrid": {
+        "sourcePath": "src/examples/python/generation/signature-constraints.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "signature = f().input(\"requestText\", f.string().min(10)).output(\"partySize\", f.number().min(1)).build()",
+          "program = ax(signature)",
+          "output = program.forward(client, {\"requestText\": request, \"contactEmail\": email})"
+        ]
+      }
+    },
+    "flow": {
+      "branch": {
+        "sourcePath": "src/examples/python/flows/branch-flow.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "classifier = ax('request:string -> route:class \"support, sales, engineering\"')",
+          "responder = ax(\"request:string, route:string -> response:string\")",
+          "program = (",
+          "    flow({\"id\": \"examples.branchFlow\"})",
+          "    .execute(\"classifier\", classifier, {\"reads\": [\"request\"], \"writes\": [\"classifierResult\", \"route\"]})",
+          "    .execute(\"responder\", responder, {\"reads\": [\"request\", \"route\"], \"writes\": [\"responderResult\", \"response\"]})",
+          "    .returns({\"route\": \"route\", \"response\": \"response\"})",
+          ")"
+        ]
+      },
+      "parallel": {
+        "sourcePath": "src/examples/python/flows/parallel-flow.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "program = (",
+          "    flow({\"id\": \"examples.parallelFlow\"})",
+          "    .execute(\"research\", research, {\"reads\": [\"topicText\"], \"writes\": [\"researchResult\", \"factList\"]})",
+          "    .execute(\"audience\", audience, {\"reads\": [\"topicText\"], \"writes\": [\"audienceResult\", \"audienceAngle\"]})",
+          "    .execute(\"join\", join, {\"reads\": [\"factList\", \"audienceAngle\"], \"writes\": [\"joinResult\", \"briefText\"]})",
+          "    .returns({\"briefText\": \"briefText\"})",
+          ")"
+        ]
+      },
+      "refine": {
+        "sourcePath": "src/examples/python/flows/refine-flow.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "program = (",
+          "    flow({\"id\": \"examples.refineFlow\"})",
+          "    .execute(\"draft\", draft, {\"reads\": [\"topicText\"], \"writes\": [\"draftResult\", \"draftText\"]})",
+          "    .execute(\"critique\", critique, {\"reads\": [\"draftText\"], \"writes\": [\"critiqueResult\", \"critiqueText\"]})",
+          "    .execute(\"revise\", revise, {\"reads\": [\"draftText\", \"critiqueText\"], \"writes\": [\"reviseResult\", \"revisedText\"]})",
+          "    .returns({\"revisedText\": \"revisedText\"})",
+          ")"
+        ]
+      }
+    },
     "agents": {
       "playbookEvolve": {
         "sourcePath": "src/examples/python/optimization/agent-playbook-evolve.py",

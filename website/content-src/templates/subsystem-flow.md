@@ -51,6 +51,24 @@ draft: ticketText:string, ticketClass:string, severityScore:number -> replyText:
 audit: replyText:string -> approved:boolean, flaggedSpans:object{ spanText:string, reasonNote:string }[]
 ```
 
+### Branch on a typed decision
+
+Classify once, then feed the typed route into the responder. The checked-in example is provider-backed and runnable.
+
+{{flowBranchExample}}
+
+### Parallel fan-out and join
+
+Independent research and audience nodes share the same input, so the planner runs them together before the join consumes both results.
+
+{{flowParallelExample}}
+
+### Draft, critique, revise
+
+Each stage consumes named output from the previous stage, making the refinement order explicit and observable.
+
+{{flowRefineExample}}
+
 ## Mermaid Source
 
 A whole flow can be written as — or exported to — a mermaid flowchart. Node contracts travel in `%%ax` comment directives (any mermaid renderer ignores them), data auto-wires by field name to the nearest upstream producer, labeled edges out of a decision diamond become branches, and a back-edge is a capped loop.

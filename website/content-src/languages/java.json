@@ -98,7 +98,11 @@
     ],
     "ax": ["var answer = Ax.ax(\"question:string -> answer:string\");"],
     "flow": [
-      "String mermaid = \"flowchart TD\\n  %%ax classify: request:string -> route:class \\\"support, sales\\\"\\n  classify{route}\";",
+      "String mermaid = \"flowchart TD\\n\" +",
+      "    \"  %%ax research: topicText:string -> factList:string[]\\n\" +",
+      "    \"  %%ax audience: topicText:string -> audienceAngle:string\\n\" +",
+      "    \"  %%ax join: factList:string[], audienceAngle:string -> briefText:string\\n\" +",
+      "    \"  research & audience --> join\";",
       "AxFlow program = Ax.flow(mermaid);",
       "System.out.println(program);"
     ],
@@ -122,6 +126,91 @@
     ]
   },
   "snippetGroups": {
+    "signatures": {
+      "string": {
+        "sourcePath": "src/examples/java/generation/BasicGenerationExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "AxGen program = Ax.ax(\"question:string -> answer:string\");",
+          "Map<String, Object> output = program.forward(client, Map.of(\"question\", \"What is Ax?\"));"
+        ]
+      },
+      "fluent": {
+        "sourcePath": "src/examples/java/generation/SignatureConstraintsExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "AxSignature signature = Ax.f().call()",
+          "    .input(\"requestText\", Ax.f().string(\"Booking request\").min(10).max(500))",
+          "    .input(\"contactEmail\", Ax.f().string(\"Contact email\").email())",
+          "    .output(\"partySize\", Ax.f().number(\"Guests\").min(1).max(12))",
+          "    .build();"
+        ]
+      },
+      "validation": {
+        "sourcePath": "src/examples/java/generation/SignatureConstraintsExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "AxSignature signature = Ax.f().call()",
+          "    .output(\"partySize\", Ax.f().number(\"Guests\").min(1).max(12))",
+          "    .output(\"bookingCode\", Ax.f().string().regex(\"^[A-Z]{3}-\\\\d{4}$\", \"ABC-1234\"))",
+          "    .build();"
+        ]
+      },
+      "hybrid": {
+        "sourcePath": "src/examples/java/generation/SignatureConstraintsExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "AxSignature signature = Ax.f().call()",
+          "    .input(\"requestText\", Ax.f().string().min(10))",
+          "    .output(\"partySize\", Ax.f().number().min(1))",
+          "    .build();",
+          "AxGen program = Ax.ax(signature);"
+        ]
+      }
+    },
+    "flow": {
+      "branch": {
+        "sourcePath": "src/examples/java/flows/BranchFlowExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "AxGen classifier = Ax.ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\");",
+          "AxGen responder = Ax.ax(\"request:string, route:string -> response:string\");",
+          "AxFlow program = Ax.flow(Map.of(\"id\", \"examples.branchFlow\"))",
+          "    .execute(\"classifier\", classifier, Map.of(\"reads\", List.of(\"request\"), \"writes\", List.of(\"classifierResult\", \"route\")))",
+          "    .execute(\"responder\", responder, Map.of(\"reads\", List.of(\"request\", \"route\"), \"writes\", List.of(\"responderResult\", \"response\")))",
+          "    .returns(Map.of(\"route\", \"route\", \"response\", \"response\"));"
+        ]
+      },
+      "parallel": {
+        "sourcePath": "src/examples/java/flows/ParallelFlowExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "AxFlow program = Ax.flow(Map.of(\"id\", \"examples.parallelFlow\"))",
+          "    .execute(\"research\", research, Map.of(\"reads\", List.of(\"topicText\"), \"writes\", List.of(\"researchResult\", \"factList\")))",
+          "    .execute(\"audience\", audience, Map.of(\"reads\", List.of(\"topicText\"), \"writes\", List.of(\"audienceResult\", \"audienceAngle\")))",
+          "    .execute(\"join\", join, Map.of(\"reads\", List.of(\"factList\", \"audienceAngle\"), \"writes\", List.of(\"joinResult\", \"briefText\")))",
+          "    .returns(Map.of(\"briefText\", \"briefText\"));"
+        ]
+      },
+      "refine": {
+        "sourcePath": "src/examples/java/flows/RefineFlowExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "AxFlow program = Ax.flow(Map.of(\"id\", \"examples.refineFlow\"))",
+          "    .execute(\"draft\", draft, Map.of(\"reads\", List.of(\"topicText\"), \"writes\", List.of(\"draftResult\", \"draftText\")))",
+          "    .execute(\"critique\", critique, Map.of(\"reads\", List.of(\"draftText\"), \"writes\", List.of(\"critiqueResult\", \"critiqueText\")))",
+          "    .execute(\"revise\", revise, Map.of(\"reads\", List.of(\"draftText\", \"critiqueText\"), \"writes\", List.of(\"reviseResult\", \"revisedText\")))",
+          "    .returns(Map.of(\"revisedText\", \"revisedText\"));"
+        ]
+      }
+    },
     "agents": {
       "playbookEvolve": {
         "sourcePath": "src/examples/java/optimization/AgentPlaybookEvolveExample.java",

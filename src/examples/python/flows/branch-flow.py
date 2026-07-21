@@ -22,12 +22,27 @@ client = OpenAICompatibleClient(
     model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
     model_config={"temperature": 0},
 )
-step = ax('request:string -> route:class "support, sales, engineering"')
+classifier = ax('request:string -> route:class "support, sales, engineering"')
+responder = ax("request:string, route:string -> response:string")
 program = (
     flow({"id": "examples.branchFlow"})
-    .execute("step", step)
-    .map("note", lambda state: {"note": "Mapped flow state after the provider-backed step."})
-    .returns({"route": "step", "response": "note"})
+    .execute(
+        "classifier",
+        classifier,
+        {"reads": ["request"], "writes": ["classifierResult", "route"]},
+    )
+    .execute(
+        "responder",
+        responder,
+        {
+            "reads": ["request", "route"],
+            "writes": ["responderResult", "response"],
+        },
+    )
+    .returns({"route": "route", "response": "response"})
 )
-output = program.forward(client, {"request": "A customer says checkout is down for their enterprise account."})
+output = program.forward(
+    client,
+    {"request": "A customer says checkout is down for their enterprise account."},
+)
 print(json.dumps(output, indent=2, sort_keys=True))

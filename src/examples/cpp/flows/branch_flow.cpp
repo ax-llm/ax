@@ -27,11 +27,17 @@ int main() {
       {"model", model == nullptr || std::string(model).empty() ? "gpt-5.4-mini" : model},
       {"model_config", axllm::object({{"temperature", 0}})},
   }));
-  axllm::AxGen step = axllm::ax("request:string -> route:class "support, sales, engineering"");
+  axllm::AxGen classifier =
+      axllm::ax("request:string -> route:class \"support, sales, engineering\"");
+  axllm::AxGen responder = axllm::ax("request:string, route:string -> response:string");
   axllm::AxFlow program = axllm::flow(axllm::object({{"id", "examples.branchFlow"}}))
-      .execute("step", step)
-      .map("note", [](axllm::Value) { return axllm::object({{"note", "Mapped flow state after the provider-backed step."}}); })
-      .returns(axllm::object({{"step", "step"}, {"note", "note"}}));
+      .execute("classifier", classifier,
+               axllm::object({{"reads", axllm::array({"request"})},
+                              {"writes", axllm::array({"classifierResult", "route"})}}))
+      .execute("responder", responder,
+               axllm::object({{"reads", axllm::array({"request", "route"})},
+                              {"writes", axllm::array({"responderResult", "response"})}}))
+      .returns(axllm::object({{"route", "route"}, {"response", "response"}}));
   axllm::Value output = program.forward(client, axllm::object({{"request", "A customer says checkout is down for their enterprise account."}}));
   std::cout << axllm::stringify(output) << "\n";
 }

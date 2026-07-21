@@ -84,6 +84,12 @@ In TypeScript, `flow(diagram)` compiles that string into a runnable flow and `St
 
 {{signatureValidationExample}}
 
+### Hybrid composition
+
+Start with the concise string grammar, then attach native fields when the language surface makes that clearer.
+
+{{signatureHybridExample}}
+
 ## Production Notes
 
 Treat signatures as API contracts. Renaming fields changes examples, traces, optimizer artifacts, and caller code. Prefer descriptive field names and validation over long prompt instructions.

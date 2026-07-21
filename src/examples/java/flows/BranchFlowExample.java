@@ -27,12 +27,23 @@ public final class BranchFlowExample {
   }
 
   public static void main(String[] args) throws Exception {
-    AxGen step = Ax.ax("request:string -> route:class "support, sales, engineering"");
+    AxGen classifier = Ax.ax("request:string -> route:class \"support, sales, engineering\"");
+    AxGen responder = Ax.ax("request:string, route:string -> response:string");
     AxFlow program =
         Ax.flow(Map.of("id", "examples.branchFlow"))
-            .execute("step", step)
-            .map("note", state -> Map.of("note", "Mapped flow state after the provider-backed step."))
-            .returns(Map.of("step", "step", "note", "note"));
+            .execute(
+                "classifier",
+                classifier,
+                Map.of(
+                    "reads", List.of("request"),
+                    "writes", List.of("classifierResult", "route")))
+            .execute(
+                "responder",
+                responder,
+                Map.of(
+                    "reads", List.of("request", "route"),
+                    "writes", List.of("responderResult", "response")))
+            .returns(Map.of("route", "route", "response", "response"));
     Map<String, Object> output = program.forward(client(), Map.of("request", "A customer says checkout is down for their enterprise account."));
     System.out.println(Json.stringify(output));
   }

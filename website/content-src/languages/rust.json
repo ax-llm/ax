@@ -96,8 +96,10 @@
     "ax": ["let answer = ax(\"question:string -> answer:string\")?;"],
     "flow": [
       "let mermaid = r#\"flowchart TD",
-      "  %%ax classify: request:string -> route:class \"support, sales\"",
-      "  classify{route}\"#;",
+      "  %%ax research: topicText:string -> factList:string[]",
+      "  %%ax audience: topicText:string -> audienceAngle:string",
+      "  %%ax join: factList:string[], audienceAngle:string -> briefText:string",
+      "  research & audience --> join\"#;",
       "let program = flow(mermaid);",
       "println!(\"{}\", program);"
     ],
@@ -121,6 +123,91 @@
     ]
   },
   "snippetGroups": {
+    "signatures": {
+      "string": {
+        "sourcePath": "src/examples/rust/generation/basic_generation.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let mut program = ax(\"question:string -> answer:string\")?;",
+          "let output = program.forward(&mut client, json!({\"question\": \"What is Ax?\"}))?;"
+        ]
+      },
+      "fluent": {
+        "sourcePath": "src/examples/rust/generation/signature-constraints.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let signature = f()",
+          "    .input(\"requestText\", request_type)",
+          "    .input(\"contactEmail\", email_type)",
+          "    .output(\"partySize\", party_type)",
+          "    .output(\"bookingCode\", code_type)",
+          "    .build();"
+        ]
+      },
+      "validation": {
+        "sourcePath": "src/examples/rust/generation/signature-constraints.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let mut party_type = FieldType::number();",
+          "party_type.minimum = Some(1.0);",
+          "party_type.maximum = Some(12.0);",
+          "let mut code_type = FieldType::string();",
+          "code_type.pattern = Some(r\"^[A-Z]{3}-\\d{4}$\".to_string());"
+        ]
+      },
+      "hybrid": {
+        "sourcePath": "src/examples/rust/generation/signature-constraints.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let mut program = ax(\"requestText:string -> partySize:number, bookingCode:string\")?;",
+          "program.signature = signature;",
+          "let output = program.forward(&mut client, inputs)?;"
+        ]
+      }
+    },
+    "flow": {
+      "branch": {
+        "sourcePath": "src/examples/rust/flows/branch_flow.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let classifier = ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\")?;",
+          "let responder = ax(\"request:string, route:string -> response:string\")?;",
+          "let mut program = flow(\"examples.branchFlow\")",
+          "    .execute_with_options(\"classifier\", classifier, &json!({\"reads\": [\"request\"], \"writes\": [\"classifierResult\", \"route\"]}))",
+          "    .execute_with_options(\"responder\", responder, &json!({\"reads\": [\"request\", \"route\"], \"writes\": [\"responderResult\", \"response\"]}))",
+          "    .returns(json!({\"route\": \"route\", \"response\": \"response\"}));"
+        ]
+      },
+      "parallel": {
+        "sourcePath": "src/examples/rust/flows/parallel-flow.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let mut program = flow(\"examples.parallelFlow\")",
+          "    .execute_with_options(\"research\", research, &json!({\"reads\": [\"topicText\"], \"writes\": [\"researchResult\", \"factList\"]}))",
+          "    .execute_with_options(\"audience\", audience, &json!({\"reads\": [\"topicText\"], \"writes\": [\"audienceResult\", \"audienceAngle\"]}))",
+          "    .execute_with_options(\"join\", join, &json!({\"reads\": [\"factList\", \"audienceAngle\"], \"writes\": [\"joinResult\", \"briefText\"]}))",
+          "    .returns(json!({\"briefText\": \"briefText\"}));"
+        ]
+      },
+      "refine": {
+        "sourcePath": "src/examples/rust/flows/refine-flow.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let mut program = flow(\"examples.refineFlow\")",
+          "    .execute_with_options(\"draft\", draft, &json!({\"reads\": [\"topicText\"], \"writes\": [\"draftResult\", \"draftText\"]}))",
+          "    .execute_with_options(\"critique\", critique, &json!({\"reads\": [\"draftText\"], \"writes\": [\"critiqueResult\", \"critiqueText\"]}))",
+          "    .execute_with_options(\"revise\", revise, &json!({\"reads\": [\"draftText\", \"critiqueText\"], \"writes\": [\"reviseResult\", \"revisedText\"]}))",
+          "    .returns(json!({\"revisedText\": \"revisedText\"}));"
+        ]
+      }
+    },
     "agents": {
       "playbookEvolve": {
         "sourcePath": "src/examples/rust/optimization/agent_playbook_evolve.rs",

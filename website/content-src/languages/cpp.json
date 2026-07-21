@@ -100,8 +100,10 @@
     "ax": ["auto answer = axllm::ax(\"question:string -> answer:string\");"],
     "flow": [
       "std::string mermaid = R\"(flowchart TD",
-      "  %%ax classify: request:string -> route:class \"support, sales\"",
-      "  classify{route})\";",
+      "  %%ax research: topicText:string -> factList:string[]",
+      "  %%ax audience: topicText:string -> audienceAngle:string",
+      "  %%ax join: factList:string[], audienceAngle:string -> briefText:string",
+      "  research & audience --> join)\";",
       "auto program = axllm::flow(mermaid);",
       "std::cout << program.str();"
     ],
@@ -127,6 +129,92 @@
     ]
   },
   "snippetGroups": {
+    "signatures": {
+      "string": {
+        "sourcePath": "src/examples/cpp/generation/basic_generation.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "auto program = axllm::ax(\"question:string -> answer:string\");",
+          "auto output = program.forward(client, axllm::object({{\"question\", \"What is Ax?\"}}));"
+        ]
+      },
+      "fluent": {
+        "sourcePath": "src/examples/cpp/generation/signature-constraints.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "notes": [
+          "C++ exposes the generated native signature records directly."
+        ],
+        "code": [
+          "auto request_type = axllm::Core::record_new(\"FieldType\", axllm::object({",
+          "  {\"name\", \"string\"}, {\"minLength\", 10}, {\"maxLength\", 500},",
+          "}));",
+          "auto request_field = field(\"requestText\", \"Request Text\", request_type);"
+        ]
+      },
+      "validation": {
+        "sourcePath": "src/examples/cpp/generation/signature-constraints.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "auto code_type = axllm::Core::record_new(\"FieldType\", axllm::object({",
+          "  {\"name\", \"string\"},",
+          "  {\"pattern\", \"^[A-Z]{3}-\\\\d{4}$\"},",
+          "  {\"patternDescription\", \"Must look like ABC-1234\"},",
+          "}));"
+        ]
+      },
+      "hybrid": {
+        "sourcePath": "src/examples/cpp/generation/signature-constraints.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "axllm::Core::validate_signature(signature);",
+          "axllm::AxGen program = axllm::ax(signature);",
+          "axllm::Value output = program.forward(client, inputs);"
+        ]
+      }
+    },
+    "flow": {
+      "branch": {
+        "sourcePath": "src/examples/cpp/flows/branch_flow.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "axllm::AxGen classifier = axllm::ax(\"request:string -> route:class \\\"support, sales, engineering\\\"\");",
+          "axllm::AxGen responder = axllm::ax(\"request:string, route:string -> response:string\");",
+          "axllm::AxFlow program = axllm::flow(axllm::object({{\"id\", \"examples.branchFlow\"}}))",
+          "    .execute(\"classifier\", classifier, axllm::object({{\"reads\", axllm::array({\"request\"})}, {\"writes\", axllm::array({\"classifierResult\", \"route\"})}}))",
+          "    .execute(\"responder\", responder, axllm::object({{\"reads\", axllm::array({\"request\", \"route\"})}, {\"writes\", axllm::array({\"responderResult\", \"response\"})}}))",
+          "    .returns(axllm::object({{\"route\", \"route\"}, {\"response\", \"response\"}}));"
+        ]
+      },
+      "parallel": {
+        "sourcePath": "src/examples/cpp/flows/parallel-flow.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "axllm::AxFlow program = axllm::flow(axllm::object({{\"id\", \"examples.parallelFlow\"}}))",
+          "    .execute(\"research\", research, axllm::object({{\"reads\", axllm::array({\"topicText\"})}, {\"writes\", axllm::array({\"researchResult\", \"factList\"})}}))",
+          "    .execute(\"audience\", audience, axllm::object({{\"reads\", axllm::array({\"topicText\"})}, {\"writes\", axllm::array({\"audienceResult\", \"audienceAngle\"})}}))",
+          "    .execute(\"join\", join, axllm::object({{\"reads\", axllm::array({\"factList\", \"audienceAngle\"})}, {\"writes\", axllm::array({\"joinResult\", \"briefText\"})}}))",
+          "    .returns(axllm::object({{\"briefText\", \"briefText\"}}));"
+        ]
+      },
+      "refine": {
+        "sourcePath": "src/examples/cpp/flows/refine-flow.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "axllm::AxFlow program = axllm::flow(axllm::object({{\"id\", \"examples.refineFlow\"}}))",
+          "    .execute(\"draft\", draft, axllm::object({{\"reads\", axllm::array({\"topicText\"})}, {\"writes\", axllm::array({\"draftResult\", \"draftText\"})}}))",
+          "    .execute(\"critique\", critique, axllm::object({{\"reads\", axllm::array({\"draftText\"})}, {\"writes\", axllm::array({\"critiqueResult\", \"critiqueText\"})}}))",
+          "    .execute(\"revise\", revise, axllm::object({{\"reads\", axllm::array({\"draftText\", \"critiqueText\"})}, {\"writes\", axllm::array({\"reviseResult\", \"revisedText\"})}}))",
+          "    .returns(axllm::object({{\"revisedText\", \"revisedText\"}}));"
+        ]
+      }
+    },
     "agents": {
       "playbookEvolve": {
         "sourcePath": "src/examples/cpp/optimization/agent_playbook_evolve.cpp",

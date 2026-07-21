@@ -95,8 +95,10 @@
     "ax": ["answer := axllm.NewAx(\"question:string -> answer:string\", nil)"],
     "flow": [
       "mermaid := `flowchart TD",
-      "  %%ax classify: request:string -> route:class \"support, sales\"",
-      "  classify{route}`",
+      "  %%ax research: topicText:string -> factList:string[]",
+      "  %%ax audience: topicText:string -> audienceAngle:string",
+      "  %%ax join: factList:string[], audienceAngle:string -> briefText:string",
+      "  research & audience --> join`",
       "program := axllm.NewFlow(mermaid)",
       "fmt.Println(program.String())"
     ],
@@ -122,6 +124,94 @@
     ]
   },
   "snippetGroups": {
+    "signatures": {
+      "string": {
+        "sourcePath": "src/examples/go/generation/basic_generation.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "program := ax.NewAx(\"question:string -> answer:string\", nil)",
+          "output, err := program.Forward(ctx, client, map[string]ax.Value{\"question\": \"What is Ax?\"}, nil)"
+        ]
+      },
+      "fluent": {
+        "sourcePath": "src/examples/go/generation/signature-constraints.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "notes": [
+          "Go exposes the generated native signature records directly."
+        ],
+        "code": [
+          "signature := ax.AxSignature{",
+          "  Inputs: []ax.Field{{",
+          "    Name: \"requestText\",",
+          "    Type: ax.FieldType{Name: \"string\", MinLength: 10, MaxLength: 500},",
+          "  }},",
+          "}"
+        ]
+      },
+      "validation": {
+        "sourcePath": "src/examples/go/generation/signature-constraints.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "party := ax.FieldType{Name: \"number\", Minimum: 1, Maximum: 12}",
+          "code := ax.FieldType{",
+          "  Name: \"string\", Pattern: `^[A-Z]{3}-\\d{4}$`,",
+          "  PatternDescription: \"Must look like ABC-1234\",",
+          "}"
+        ]
+      },
+      "hybrid": {
+        "sourcePath": "src/examples/go/generation/signature-constraints.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "program := ax.NewAx(\"requestText:string -> partySize:number, bookingCode:string\", nil)",
+          "program.Signature = signature",
+          "output, err := program.Forward(ctx, client, inputs, nil)"
+        ]
+      }
+    },
+    "flow": {
+      "branch": {
+        "sourcePath": "src/examples/go/flows/branch_flow.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "classifier := ax.NewAx(\"request:string -> route:class \\\"support, sales, engineering\\\"\", nil)",
+          "responder := ax.NewAx(\"request:string, route:string -> response:string\", nil)",
+          "program := ax.NewFlow(map[string]ax.Value{\"id\": \"examples.branchFlow\"}).",
+          "  Execute(\"classifier\", classifier, map[string]ax.Value{\"reads\": ax.Array(\"request\"), \"writes\": ax.Array(\"classifierResult\", \"route\")}).",
+          "  Execute(\"responder\", responder, map[string]ax.Value{\"reads\": ax.Array(\"request\", \"route\"), \"writes\": ax.Array(\"responderResult\", \"response\")}).",
+          "  Returns(map[string]ax.Value{\"route\": \"route\", \"response\": \"response\"})"
+        ]
+      },
+      "parallel": {
+        "sourcePath": "src/examples/go/flows/parallel-flow.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "program := ax.NewFlow(map[string]ax.Value{\"id\": \"examples.parallelFlow\"}).",
+          "  Execute(\"research\", research, map[string]ax.Value{\"reads\": ax.Array(\"topicText\"), \"writes\": ax.Array(\"researchResult\", \"factList\")}).",
+          "  Execute(\"audience\", audience, map[string]ax.Value{\"reads\": ax.Array(\"topicText\"), \"writes\": ax.Array(\"audienceResult\", \"audienceAngle\")}).",
+          "  Execute(\"join\", join, map[string]ax.Value{\"reads\": ax.Array(\"factList\", \"audienceAngle\"), \"writes\": ax.Array(\"joinResult\", \"briefText\")}).",
+          "  Returns(map[string]ax.Value{\"briefText\": \"briefText\"})"
+        ]
+      },
+      "refine": {
+        "sourcePath": "src/examples/go/flows/refine-flow.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "program := ax.NewFlow(map[string]ax.Value{\"id\": \"examples.refineFlow\"}).",
+          "  Execute(\"draft\", draft, map[string]ax.Value{\"reads\": ax.Array(\"topicText\"), \"writes\": ax.Array(\"draftResult\", \"draftText\")}).",
+          "  Execute(\"critique\", critique, map[string]ax.Value{\"reads\": ax.Array(\"draftText\"), \"writes\": ax.Array(\"critiqueResult\", \"critiqueText\")}).",
+          "  Execute(\"revise\", revise, map[string]ax.Value{\"reads\": ax.Array(\"draftText\", \"critiqueText\"), \"writes\": ax.Array(\"reviseResult\", \"revisedText\")}).",
+          "  Returns(map[string]ax.Value{\"revisedText\": \"revisedText\"})"
+        ]
+      }
+    },
     "agents": {
       "playbookEvolve": {
         "sourcePath": "src/examples/go/optimization/agent_playbook_evolve.go",
