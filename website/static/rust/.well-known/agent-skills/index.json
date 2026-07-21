@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-rust-signature/SKILL.md",
-      "digest": "sha256:88b8a7a16d941cb2d056c81cbe6bc57e0effb83e0619597ee14900f186106b3a"
+      "digest": "sha256:b0792eec95b458d687415e99b6f6f90d370e40fedf3468257e662f3338d71d25"
     },
     {
       "name": "ax-rust-gen",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-rust-flow/SKILL.md",
-      "digest": "sha256:e06984e5aaef8528b88ffbc91a4444e21dc1ff5c943ff86439a6e7023b5ecf1d"
+      "digest": "sha256:49b3159777abdba808524f1445c8cd6db9fe4611313249d231d97c4f769b93df"
     },
     {
       "name": "ax-rust-agent",

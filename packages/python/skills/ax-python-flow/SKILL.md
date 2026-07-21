@@ -27,16 +27,77 @@ This skill helps an agent write Python code with the generated Ax package `axllm
 ## Core Pattern
 
 ```python
-from axllm import flow
+from axllm import ax, flow
 
-mermaid = """flowchart TD
-  %%ax classify: request:string -> route:class "support, sales"
-  classify{route}
-"""
-wf = flow(mermaid)
-print(wf)  # canonical portable Mermaid
-# See examples/flow_mermaid.py.
+draft = ax("topicText:string -> draftText:string")
+wf = (
+    flow({"id": "docs.coreFlow"})
+    .execute("draft", draft, {"reads": ["topicText"], "writes": ["draftResult", "draftText"]})
+    .returns({"draftText": "draftText"})
+)
 ```
+
+## More Patterns
+
+### Typed programs
+
+Build each flow node from its own input/output contract.
+
+```python
+classifier = ax('requestText:string -> route:class "support, sales, engineering"')
+responder = ax("requestText:string, route:string -> responseText:string")
+```
+
+### Class decision
+
+Declare reads and writes so the responder waits for the typed route.
+
+```python
+branch_flow = (
+    flow({"id": "docs.branchFlow"})
+    .execute("classifier", classifier, {"reads": ["requestText"], "writes": ["classifierResult", "route"]})
+    .execute("responder", responder, {"reads": ["requestText", "route"], "writes": ["responderResult", "responseText"]})
+    .returns({"route": "route", "responseText": "responseText"})
+)
+```
+
+### Parallel fan-out and join
+
+Independent reads let research and audience analysis share one planner group.
+
+```python
+parallel_flow = (
+    flow({"id": "docs.parallelFlow"})
+    .execute("research", research, {"reads": ["topicText"], "writes": ["researchResult", "factList"]})
+    .execute("audience", audience, {"reads": ["topicText"], "writes": ["audienceResult", "audienceAngle"]})
+    .execute("join", join, {"reads": ["factList", "audienceAngle"], "writes": ["joinResult", "briefText"]})
+    .returns({"briefText": "briefText"})
+)
+```
+
+### Draft, critique, revise
+
+A linear refinement pipeline makes each dependency explicit.
+
+```python
+refine_flow = (
+    flow({"id": "docs.refineFlow"})
+    .execute("draft", draft, {"reads": ["topicText"], "writes": ["draftResult", "draftText"]})
+    .execute("critique", critique, {"reads": ["draftText"], "writes": ["critiqueResult", "critiqueText"]})
+    .execute("revise", revise, {"reads": ["draftText", "critiqueText"], "writes": ["reviseResult", "revisedText"]})
+    .returns({"revisedText": "revisedText"})
+)
+```
+
+### Run a flow
+
+Forward accepts the provider client and the public flow inputs.
+
+```python
+output = parallel_flow.forward(client, {"topicText": "Typed LLM workflows"})
+```
+
+Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/python/subsystems/flow/.
 
 ## Relevant API Surface
 

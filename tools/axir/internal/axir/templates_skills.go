@@ -230,6 +230,10 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 	cfg := skillTargetConfig(target)
 	name := skillName(target, spec)
 	description := skillDescription(target, spec, cfg)
+	expandedExamples := skillExpandedExamples(target, spec.ID, cfg.Fence)
+	if expandedExamples != "" {
+		expandedExamples += "\n\n"
+	}
 	return readmeLines(
 		skillFrontmatter(name, description, generatedPackageVersion()),
 		"# "+spec.Title+" For "+cfg.Language,
@@ -259,7 +263,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		skillSnippet(target, spec.ID),
 		"```",
 		"",
-		"## Relevant API Surface",
+		expandedExamples+"## Relevant API Surface",
 		"",
 		skillAPISurface(apiRef, spec.Sections),
 		"",
@@ -273,6 +277,44 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.",
 		}),
 	)
+}
+
+type skillPattern struct {
+	Title string
+	Intro string
+	Code  string
+}
+
+func skillExpandedExamples(target, specID, fence string) string {
+	var patterns []skillPattern
+	var galleryPath string
+	switch specID {
+	case "signature":
+		patterns = skillSignaturePatterns(target)
+		galleryPath = "subsystems/s"
+	case "flow":
+		patterns = skillFlowPatterns(target)
+		galleryPath = "subsystems/flow"
+	default:
+		return ""
+	}
+	lines := []string{"## More Patterns", ""}
+	for _, pattern := range patterns {
+		lines = append(lines,
+			"### "+pattern.Title,
+			"",
+			pattern.Intro,
+			"",
+			"```"+fence,
+			pattern.Code,
+			"```",
+			"",
+		)
+	}
+	lines = append(lines,
+		"Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/"+target+"/"+galleryPath+"/.",
+	)
+	return strings.Join(lines, "\n")
 }
 
 func skillName(target string, spec packageSkillSpec) string {
@@ -453,17 +495,117 @@ func skillAgentSnippet(target string) string {
 func skillFlowSnippet(target string) string {
 	switch target {
 	case "python":
-		return readmeLines("from axllm import flow", "", "mermaid = \"\"\"flowchart TD", "  %%ax classify: request:string -> route:class \"support, sales\"", "  classify{route}", "\"\"\"", "wf = flow(mermaid)", "print(wf)  # canonical portable Mermaid", "# See examples/flow_mermaid.py.")
+		return readmeLines("from axllm import ax, flow", "", "draft = ax(\"topicText:string -> draftText:string\")", "wf = (", "    flow({\"id\": \"docs.coreFlow\"})", "    .execute(\"draft\", draft, {\"reads\": [\"topicText\"], \"writes\": [\"draftResult\", \"draftText\"]})", "    .returns({\"draftText\": \"draftText\"})", ")")
 	case "java":
-		return readmeLines("String mermaid = \"flowchart TD\\n  %%ax classify: request:string -> route:class \\\"support, sales\\\"\\n  classify{route}\";", "AxFlow wf = Ax.flow(mermaid);", "System.out.println(wf);", "// See examples/FlowMermaidExample.java.")
+		return readmeLines("AxGen draft = Ax.ax(\"topicText:string -> draftText:string\");", "AxFlow wf = Ax.flow(java.util.Map.of(\"id\", \"docs.coreFlow\"))", "    .execute(\"draft\", draft, java.util.Map.of(", "        \"reads\", java.util.List.of(\"topicText\"),", "        \"writes\", java.util.List.of(\"draftResult\", \"draftText\")))", "    .returns(java.util.Map.of(\"draftText\", \"draftText\"));")
 	case "cpp":
-		return readmeLines("std::string mermaid = R\"(flowchart TD", "  %%ax classify: request:string -> route:class \"support, sales\"", "  classify{route})\";", "auto wf = axllm::flow(mermaid);", "std::cout << wf.str();", "// See examples/flow_mermaid.cpp.")
+		return readmeLines("auto draft = axllm::ax(\"topicText:string -> draftText:string\");", "auto wf = axllm::flow(axllm::object({{\"id\", \"docs.coreFlow\"}}))", "    .execute(\"draft\", draft, axllm::object({", "      {\"reads\", axllm::array({\"topicText\"})},", "      {\"writes\", axllm::array({\"draftResult\", \"draftText\"})}", "    }))", "    .returns(axllm::object({{\"draftText\", \"draftText\"}}));")
 	case "go":
-		return readmeLines("mermaid := `flowchart TD", "  %%ax classify: request:string -> route:class \"support, sales\"", "  classify{route}`", "wf := ax.NewFlow(mermaid)", "fmt.Println(wf.String())", "// See examples/flow_mermaid/main.go.")
+		return readmeLines("draft := ax.NewAx(\"topicText:string -> draftText:string\", nil)", "wf := ax.NewFlow(map[string]ax.Value{\"id\": \"docs.coreFlow\"}).", "  Execute(\"draft\", draft, map[string]ax.Value{", "    \"reads\": ax.Array(\"topicText\"),", "    \"writes\": ax.Array(\"draftResult\", \"draftText\"),", "  }).", "  Returns(map[string]ax.Value{\"draftText\": \"draftText\"})")
 	case "rust":
-		return readmeLines("let mermaid = r#\"flowchart TD", "  %%ax classify: request:string -> route:class \"support, sales\"", "  classify{route}\"#;", "let wf = axllm::flow(mermaid);", "println!(\"{}\", wf);", "// See examples/flow_mermaid.rs.")
+		return readmeLines("let draft = axllm::ax(\"topicText:string -> draftText:string\")?;", "let wf = axllm::flow(\"docs.coreFlow\")", "    .execute_with_options(", "        \"draft\",", "        draft,", "        &json!({\"reads\": [\"topicText\"], \"writes\": [\"draftResult\", \"draftText\"]}),", "    )", "    .returns(json!({\"draftText\": \"draftText\"}));")
 	default:
 		return "Read flow examples in `examples/`."
+	}
+}
+
+func skillSignaturePatterns(target string) []skillPattern {
+	pattern := func(title, intro, code string) skillPattern {
+		return skillPattern{Title: title, Intro: intro, Code: code}
+	}
+	switch target {
+	case "python":
+		return []skillPattern{
+			pattern("Simple string contract", "Use the string form when field names and types are enough.", readmeLines("from axllm import ax", "", "program = ax(\"questionText:string -> answerText:string\")")),
+			pattern("Bounded class output", "A class field constrains the model to a known label set.", readmeLines("router = ax(", "    'messageText:string -> routeClass:class \"support, sales, engineering\"'", ")")),
+			pattern("Fluent constraints", "Python exposes the native fluent builder for validation constraints and objects.", readmeLines("from axllm import f", "", "signature = (", "    f()", "    .input(\"contactEmail\", f.string(\"Contact email\").email())", "    .output(\"partySize\", f.number(\"Guests\").min(1).max(12))", "    .output(\"bookingCode\", f.string().regex(r\"^[A-Z]{3}-\\d{4}$\"))", "    .build()", ")")),
+			pattern("JSON schema", "Render the output contract for tools, validators, or external consumers.", readmeLines("schema = signature.to_json_schema(\"outputs\")")),
+			pattern("Reuse the signature", "Pass one built signature into AxGen and call it like any other program.", readmeLines("program = ax(signature)", "output = program.forward(client, inputs)")),
+		}
+	case "java":
+		return []skillPattern{
+			pattern("Simple string contract", "Use the string form when field names and types are enough.", readmeLines("AxGen program = Ax.ax(\"questionText:string -> answerText:string\");")),
+			pattern("Bounded class output", "A class field constrains the model to a known label set.", readmeLines("AxGen router = Ax.ax(", "    \"messageText:string -> routeClass:class \\\"support, sales, engineering\\\"\");")),
+			pattern("Fluent constraints", "Java exposes the native fluent builder for validation constraints and objects.", readmeLines("AxSignature signature = Ax.f().call()", "    .input(\"contactEmail\", Ax.f().string(\"Contact email\").email())", "    .output(\"partySize\", Ax.f().number(\"Guests\").min(1).max(12))", "    .output(\"bookingCode\", Ax.f().string().regex(\"^[A-Z]{3}-\\\\d{4}$\", \"ABC-1234\"))", "    .build();")),
+			pattern("JSON schema", "Render the output contract for tools, validators, or external consumers.", readmeLines("var schema = signature.toJsonSchema(\"outputs\", java.util.Map.of());")),
+			pattern("Reuse the signature", "Pass one built signature into AxGen and call it like any other program.", readmeLines("AxGen program = Ax.ax(signature);", "var output = program.forward(client, inputs);")),
+		}
+	case "go":
+		return []skillPattern{
+			pattern("Simple string contract", "Use the string form when field names and types are enough.", readmeLines("program := ax.NewAx(\"questionText:string -> answerText:string\", nil)")),
+			pattern("Bounded class output", "A class field constrains the model to a known label set.", readmeLines("router := ax.NewAx(", "  \"messageText:string -> routeClass:class \\\"support, sales, engineering\\\"\",", "  nil,", ")")),
+			pattern("Native constraints", "Go exposes generated signature and field records directly.", readmeLines("signature := ax.AxSignature{", "  Inputs: []ax.Field{{", "    Name: \"contactEmail\",", "    Type: ax.FieldType{Name: \"string\", Format: \"email\"},", "  }},", "  Outputs: []ax.Field{{", "    Name: \"partySize\",", "    Type: ax.FieldType{Name: \"number\", Minimum: 1, Maximum: 12},", "  }},", "}")),
+			pattern("JSON schema", "Render the native signature for tools, validators, or external consumers.", readmeLines("schema := signature.ToJSONSchema(nil)")),
+			pattern("Reuse the signature", "Attach the native signature to AxGen before the forward call.", readmeLines("program := ax.NewAx(\"contactEmail:string -> partySize:number\", nil)", "program.Signature = signature", "output, err := program.Forward(ctx, client, inputs, nil)")),
+		}
+	case "rust":
+		return []skillPattern{
+			pattern("Simple string contract", "Use the string form when field names and types are enough.", readmeLines("let mut program = axllm::ax(\"questionText:string -> answerText:string\")?;")),
+			pattern("Bounded class output", "A class field constrains the model to a known label set.", readmeLines("let router = axllm::ax(", "    \"messageText:string -> routeClass:class \\\"support, sales, engineering\\\"\",", ")?;")),
+			pattern("Native constraints", "Rust combines FieldType constraints with the generated signature builder.", readmeLines("let mut party_type = FieldType::number();", "party_type.minimum = Some(1.0);", "party_type.maximum = Some(12.0);", "", "let mut code_type = FieldType::string();", "code_type.pattern = Some(r\"^[A-Z]{3}-\\d{4}$\".to_string());", "", "let signature = f()", "    .output(\"partySize\", party_type)", "    .output(\"bookingCode\", code_type)", "    .build();")),
+			pattern("JSON schema", "Render the output contract for tools, validators, or external consumers.", readmeLines("let schema = signature.to_json_schema(\"outputs\");")),
+			pattern("Reuse the signature", "Attach the native signature to AxGen before the forward call.", readmeLines("let mut program = axllm::ax(\"requestText:string -> partySize:number, bookingCode:string\")?;", "program.signature = signature;", "let output = program.forward(&mut client, inputs)?;")),
+		}
+	case "cpp":
+		return []skillPattern{
+			pattern("Simple string contract", "Use the string form when field names and types are enough.", readmeLines("auto program = axllm::ax(\"questionText:string -> answerText:string\");")),
+			pattern("Bounded class output", "A class field constrains the model to a known label set.", readmeLines("auto router = axllm::ax(", "    \"messageText:string -> routeClass:class \\\"support, sales, engineering\\\"\");")),
+			pattern("Native constraints", "C++ exposes the generated record surface for constrained fields.", readmeLines("auto party_type = axllm::Core::record_new(", "    \"FieldType\",", "    axllm::object({", "      {\"name\", \"number\"},", "      {\"minimum\", 1},", "      {\"maximum\", 12},", "    }));")),
+			pattern("Validate and render", "Validate the native record, then render its output fields as JSON schema.", readmeLines("axllm::Core::validate_signature(signature);", "auto schema = axllm::to_json_schema(", "    axllm::Core::get(signature, \"outputs\"),", "    \"outputs\");")),
+			pattern("Reuse the signature", "Pass the native signature record directly into AxGen.", readmeLines("axllm::AxGen program = axllm::ax(signature);", "auto output = program.forward(client, inputs);")),
+		}
+	default:
+		return nil
+	}
+}
+
+func skillFlowPatterns(target string) []skillPattern {
+	pattern := func(title, intro, code string) skillPattern {
+		return skillPattern{Title: title, Intro: intro, Code: code}
+	}
+	switch target {
+	case "python":
+		return []skillPattern{
+			pattern("Typed programs", "Build each flow node from its own input/output contract.", readmeLines("classifier = ax('requestText:string -> route:class \"support, sales, engineering\"')", "responder = ax(\"requestText:string, route:string -> responseText:string\")")),
+			pattern("Class decision", "Declare reads and writes so the responder waits for the typed route.", readmeLines("branch_flow = (", "    flow({\"id\": \"docs.branchFlow\"})", "    .execute(\"classifier\", classifier, {\"reads\": [\"requestText\"], \"writes\": [\"classifierResult\", \"route\"]})", "    .execute(\"responder\", responder, {\"reads\": [\"requestText\", \"route\"], \"writes\": [\"responderResult\", \"responseText\"]})", "    .returns({\"route\": \"route\", \"responseText\": \"responseText\"})", ")")),
+			pattern("Parallel fan-out and join", "Independent reads let research and audience analysis share one planner group.", readmeLines("parallel_flow = (", "    flow({\"id\": \"docs.parallelFlow\"})", "    .execute(\"research\", research, {\"reads\": [\"topicText\"], \"writes\": [\"researchResult\", \"factList\"]})", "    .execute(\"audience\", audience, {\"reads\": [\"topicText\"], \"writes\": [\"audienceResult\", \"audienceAngle\"]})", "    .execute(\"join\", join, {\"reads\": [\"factList\", \"audienceAngle\"], \"writes\": [\"joinResult\", \"briefText\"]})", "    .returns({\"briefText\": \"briefText\"})", ")")),
+			pattern("Draft, critique, revise", "A linear refinement pipeline makes each dependency explicit.", readmeLines("refine_flow = (", "    flow({\"id\": \"docs.refineFlow\"})", "    .execute(\"draft\", draft, {\"reads\": [\"topicText\"], \"writes\": [\"draftResult\", \"draftText\"]})", "    .execute(\"critique\", critique, {\"reads\": [\"draftText\"], \"writes\": [\"critiqueResult\", \"critiqueText\"]})", "    .execute(\"revise\", revise, {\"reads\": [\"draftText\", \"critiqueText\"], \"writes\": [\"reviseResult\", \"revisedText\"]})", "    .returns({\"revisedText\": \"revisedText\"})", ")")),
+			pattern("Run a flow", "Forward accepts the provider client and the public flow inputs.", readmeLines("output = parallel_flow.forward(client, {\"topicText\": \"Typed LLM workflows\"})")),
+		}
+	case "java":
+		return []skillPattern{
+			pattern("Typed programs", "Build each flow node from its own input/output contract.", readmeLines("AxGen classifier = Ax.ax(\"requestText:string -> route:class \\\"support, sales, engineering\\\"\");", "AxGen responder = Ax.ax(\"requestText:string, route:string -> responseText:string\");")),
+			pattern("Class decision", "Declare reads and writes so the responder waits for the typed route.", readmeLines("AxFlow branchFlow = Ax.flow(Map.of(\"id\", \"docs.branchFlow\"))", "    .execute(\"classifier\", classifier, Map.of(\"reads\", List.of(\"requestText\"), \"writes\", List.of(\"classifierResult\", \"route\")))", "    .execute(\"responder\", responder, Map.of(\"reads\", List.of(\"requestText\", \"route\"), \"writes\", List.of(\"responderResult\", \"responseText\")))", "    .returns(Map.of(\"route\", \"route\", \"responseText\", \"responseText\"));")),
+			pattern("Parallel fan-out and join", "Independent reads let research and audience analysis share one planner group.", readmeLines("AxFlow parallelFlow = Ax.flow(Map.of(\"id\", \"docs.parallelFlow\"))", "    .execute(\"research\", research, Map.of(\"reads\", List.of(\"topicText\"), \"writes\", List.of(\"researchResult\", \"factList\")))", "    .execute(\"audience\", audience, Map.of(\"reads\", List.of(\"topicText\"), \"writes\", List.of(\"audienceResult\", \"audienceAngle\")))", "    .execute(\"join\", join, Map.of(\"reads\", List.of(\"factList\", \"audienceAngle\"), \"writes\", List.of(\"joinResult\", \"briefText\")))", "    .returns(Map.of(\"briefText\", \"briefText\"));")),
+			pattern("Draft, critique, revise", "A linear refinement pipeline makes each dependency explicit.", readmeLines("AxFlow refineFlow = Ax.flow(Map.of(\"id\", \"docs.refineFlow\"))", "    .execute(\"draft\", draft, Map.of(\"reads\", List.of(\"topicText\"), \"writes\", List.of(\"draftResult\", \"draftText\")))", "    .execute(\"critique\", critique, Map.of(\"reads\", List.of(\"draftText\"), \"writes\", List.of(\"critiqueResult\", \"critiqueText\")))", "    .execute(\"revise\", revise, Map.of(\"reads\", List.of(\"draftText\", \"critiqueText\"), \"writes\", List.of(\"reviseResult\", \"revisedText\")))", "    .returns(Map.of(\"revisedText\", \"revisedText\"));")),
+			pattern("Run a flow", "Forward accepts the provider client and the public flow inputs.", readmeLines("var output = parallelFlow.forward(client, Map.of(\"topicText\", \"Typed LLM workflows\"));")),
+		}
+	case "go":
+		return []skillPattern{
+			pattern("Typed programs", "Build each flow node from its own input/output contract.", readmeLines("classifier := ax.NewAx(\"requestText:string -> route:class \\\"support, sales, engineering\\\"\", nil)", "responder := ax.NewAx(\"requestText:string, route:string -> responseText:string\", nil)")),
+			pattern("Class decision", "Declare reads and writes so the responder waits for the typed route.", readmeLines("branchFlow := ax.NewFlow(map[string]ax.Value{\"id\": \"docs.branchFlow\"}).", "  Execute(\"classifier\", classifier, map[string]ax.Value{\"reads\": ax.Array(\"requestText\"), \"writes\": ax.Array(\"classifierResult\", \"route\")}).", "  Execute(\"responder\", responder, map[string]ax.Value{\"reads\": ax.Array(\"requestText\", \"route\"), \"writes\": ax.Array(\"responderResult\", \"responseText\")}).", "  Returns(map[string]ax.Value{\"route\": \"route\", \"responseText\": \"responseText\"})")),
+			pattern("Parallel fan-out and join", "Independent reads let research and audience analysis share one planner group.", readmeLines("parallelFlow := ax.NewFlow(map[string]ax.Value{\"id\": \"docs.parallelFlow\"}).", "  Execute(\"research\", research, map[string]ax.Value{\"reads\": ax.Array(\"topicText\"), \"writes\": ax.Array(\"researchResult\", \"factList\")}).", "  Execute(\"audience\", audience, map[string]ax.Value{\"reads\": ax.Array(\"topicText\"), \"writes\": ax.Array(\"audienceResult\", \"audienceAngle\")}).", "  Execute(\"join\", join, map[string]ax.Value{\"reads\": ax.Array(\"factList\", \"audienceAngle\"), \"writes\": ax.Array(\"joinResult\", \"briefText\")}).", "  Returns(map[string]ax.Value{\"briefText\": \"briefText\"})")),
+			pattern("Draft, critique, revise", "A linear refinement pipeline makes each dependency explicit.", readmeLines("refineFlow := ax.NewFlow(map[string]ax.Value{\"id\": \"docs.refineFlow\"}).", "  Execute(\"draft\", draft, map[string]ax.Value{\"reads\": ax.Array(\"topicText\"), \"writes\": ax.Array(\"draftResult\", \"draftText\")}).", "  Execute(\"critique\", critique, map[string]ax.Value{\"reads\": ax.Array(\"draftText\"), \"writes\": ax.Array(\"critiqueResult\", \"critiqueText\")}).", "  Execute(\"revise\", revise, map[string]ax.Value{\"reads\": ax.Array(\"draftText\", \"critiqueText\"), \"writes\": ax.Array(\"reviseResult\", \"revisedText\")}).", "  Returns(map[string]ax.Value{\"revisedText\": \"revisedText\"})")),
+			pattern("Run a flow", "Forward accepts the context, provider client, public inputs, and options.", readmeLines("output, err := parallelFlow.Forward(", "  ctx, client,", "  map[string]ax.Value{\"topicText\": \"Typed LLM workflows\"},", "  nil,", ")")),
+		}
+	case "rust":
+		return []skillPattern{
+			pattern("Typed programs", "Build each flow node from its own input/output contract.", readmeLines("let classifier = axllm::ax(\"requestText:string -> route:class \\\"support, sales, engineering\\\"\")?;", "let responder = axllm::ax(\"requestText:string, route:string -> responseText:string\")?;")),
+			pattern("Class decision", "Declare reads and writes so the responder waits for the typed route.", readmeLines("let mut branch_flow = axllm::flow(\"docs.branchFlow\")", "    .execute_with_options(\"classifier\", classifier, &json!({\"reads\": [\"requestText\"], \"writes\": [\"classifierResult\", \"route\"]}))", "    .execute_with_options(\"responder\", responder, &json!({\"reads\": [\"requestText\", \"route\"], \"writes\": [\"responderResult\", \"responseText\"]}))", "    .returns(json!({\"route\": \"route\", \"responseText\": \"responseText\"}));")),
+			pattern("Parallel fan-out and join", "Independent reads let research and audience analysis share one planner group.", readmeLines("let mut parallel_flow = axllm::flow(\"docs.parallelFlow\")", "    .execute_with_options(\"research\", research, &json!({\"reads\": [\"topicText\"], \"writes\": [\"researchResult\", \"factList\"]}))", "    .execute_with_options(\"audience\", audience, &json!({\"reads\": [\"topicText\"], \"writes\": [\"audienceResult\", \"audienceAngle\"]}))", "    .execute_with_options(\"join\", join, &json!({\"reads\": [\"factList\", \"audienceAngle\"], \"writes\": [\"joinResult\", \"briefText\"]}))", "    .returns(json!({\"briefText\": \"briefText\"}));")),
+			pattern("Draft, critique, revise", "A linear refinement pipeline makes each dependency explicit.", readmeLines("let mut refine_flow = axllm::flow(\"docs.refineFlow\")", "    .execute_with_options(\"draft\", draft, &json!({\"reads\": [\"topicText\"], \"writes\": [\"draftResult\", \"draftText\"]}))", "    .execute_with_options(\"critique\", critique, &json!({\"reads\": [\"draftText\"], \"writes\": [\"critiqueResult\", \"critiqueText\"]}))", "    .execute_with_options(\"revise\", revise, &json!({\"reads\": [\"draftText\", \"critiqueText\"], \"writes\": [\"reviseResult\", \"revisedText\"]}))", "    .returns(json!({\"revisedText\": \"revisedText\"}));")),
+			pattern("Run a flow", "Forward accepts the mutable provider client and public inputs.", readmeLines("let output = parallel_flow.forward(", "    &mut client,", "    json!({\"topicText\": \"Typed LLM workflows\"}),", ")?;")),
+		}
+	case "cpp":
+		return []skillPattern{
+			pattern("Typed programs", "Build each flow node from its own input/output contract.", readmeLines("auto classifier = axllm::ax(\"requestText:string -> route:class \\\"support, sales, engineering\\\"\");", "auto responder = axllm::ax(\"requestText:string, route:string -> responseText:string\");")),
+			pattern("Class decision", "Declare reads and writes so the responder waits for the typed route.", readmeLines("auto branch_flow = axllm::flow(axllm::object({{\"id\", \"docs.branchFlow\"}}))", "    .execute(\"classifier\", classifier, axllm::object({{\"reads\", axllm::array({\"requestText\"})}, {\"writes\", axllm::array({\"classifierResult\", \"route\"})}}))", "    .execute(\"responder\", responder, axllm::object({{\"reads\", axllm::array({\"requestText\", \"route\"})}, {\"writes\", axllm::array({\"responderResult\", \"responseText\"})}}))", "    .returns(axllm::object({{\"route\", \"route\"}, {\"responseText\", \"responseText\"}}));")),
+			pattern("Parallel fan-out and join", "Independent reads let research and audience analysis share one planner group.", readmeLines("auto parallel_flow = axllm::flow(axllm::object({{\"id\", \"docs.parallelFlow\"}}))", "    .execute(\"research\", research, axllm::object({{\"reads\", axllm::array({\"topicText\"})}, {\"writes\", axllm::array({\"researchResult\", \"factList\"})}}))", "    .execute(\"audience\", audience, axllm::object({{\"reads\", axllm::array({\"topicText\"})}, {\"writes\", axllm::array({\"audienceResult\", \"audienceAngle\"})}}))", "    .execute(\"join\", join, axllm::object({{\"reads\", axllm::array({\"factList\", \"audienceAngle\"})}, {\"writes\", axllm::array({\"joinResult\", \"briefText\"})}}))", "    .returns(axllm::object({{\"briefText\", \"briefText\"}}));")),
+			pattern("Draft, critique, revise", "A linear refinement pipeline makes each dependency explicit.", readmeLines("auto refine_flow = axllm::flow(axllm::object({{\"id\", \"docs.refineFlow\"}}))", "    .execute(\"draft\", draft, axllm::object({{\"reads\", axllm::array({\"topicText\"})}, {\"writes\", axllm::array({\"draftResult\", \"draftText\"})}}))", "    .execute(\"critique\", critique, axllm::object({{\"reads\", axllm::array({\"draftText\"})}, {\"writes\", axllm::array({\"critiqueResult\", \"critiqueText\"})}}))", "    .execute(\"revise\", revise, axllm::object({{\"reads\", axllm::array({\"draftText\", \"critiqueText\"})}, {\"writes\", axllm::array({\"reviseResult\", \"revisedText\"})}}))", "    .returns(axllm::object({{\"revisedText\", \"revisedText\"}}));")),
+			pattern("Run a flow", "Forward accepts the provider client and public inputs.", readmeLines("auto output = parallel_flow.forward(", "    client,", "    axllm::object({{\"topicText\", \"Typed LLM workflows\"}}));")),
+		}
+	default:
+		return nil
 	}
 }
 

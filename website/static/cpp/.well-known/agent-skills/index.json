@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-cpp-signature/SKILL.md",
-      "digest": "sha256:6f1c310b7e32b55f81de1fdd5dc188e7c610e74e398b97232fcb5ba6e22bd90f"
+      "digest": "sha256:7b5e1dfb0dcf10d1c377a2b0b570f93ba9e16b8aff3321723e30a5c6d5e5496a"
     },
     {
       "name": "ax-cpp-gen",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-cpp-flow/SKILL.md",
-      "digest": "sha256:1d5190cf1a8cc56d80f1140527a701daff3c2e6b42e25c912353b6e32e9839b0"
+      "digest": "sha256:8c02caacd7e52c8ace53fd04737d29fef097122b00222215ada5add62a5f9e35"
     },
     {
       "name": "ax-cpp-agent",

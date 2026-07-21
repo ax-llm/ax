@@ -33,6 +33,61 @@ auto sig = axllm::s("question:string -> answer:string");
 auto schema = axllm::to_json_schema(axllm::Core::get(sig, "outputs"));
 ```
 
+## More Patterns
+
+### Simple string contract
+
+Use the string form when field names and types are enough.
+
+```cpp
+auto program = axllm::ax("questionText:string -> answerText:string");
+```
+
+### Bounded class output
+
+A class field constrains the model to a known label set.
+
+```cpp
+auto router = axllm::ax(
+    "messageText:string -> routeClass:class \"support, sales, engineering\"");
+```
+
+### Native constraints
+
+C++ exposes the generated record surface for constrained fields.
+
+```cpp
+auto party_type = axllm::Core::record_new(
+    "FieldType",
+    axllm::object({
+      {"name", "number"},
+      {"minimum", 1},
+      {"maximum", 12},
+    }));
+```
+
+### Validate and render
+
+Validate the native record, then render its output fields as JSON schema.
+
+```cpp
+axllm::Core::validate_signature(signature);
+auto schema = axllm::to_json_schema(
+    axllm::Core::get(signature, "outputs"),
+    "outputs");
+```
+
+### Reuse the signature
+
+Pass the native signature record directly into AxGen.
+
+```cpp
+axllm::AxGen program = axllm::ax(signature);
+auto output = program.forward(client, inputs);
+```
+
+Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/cpp/subsystems/s/.
+
 ## Relevant API Surface
 
 - Signatures: `axllm::s`, `axllm::FieldType`, `axllm::AxSignature`

@@ -33,6 +33,56 @@ AxSignature sig = Ax.s("question:string -> answer:string");
 var schema = sig.toJsonSchema("outputs", java.util.Map.of());
 ```
 
+## More Patterns
+
+### Simple string contract
+
+Use the string form when field names and types are enough.
+
+```java
+AxGen program = Ax.ax("questionText:string -> answerText:string");
+```
+
+### Bounded class output
+
+A class field constrains the model to a known label set.
+
+```java
+AxGen router = Ax.ax(
+    "messageText:string -> routeClass:class \"support, sales, engineering\"");
+```
+
+### Fluent constraints
+
+Java exposes the native fluent builder for validation constraints and objects.
+
+```java
+AxSignature signature = Ax.f().call()
+    .input("contactEmail", Ax.f().string("Contact email").email())
+    .output("partySize", Ax.f().number("Guests").min(1).max(12))
+    .output("bookingCode", Ax.f().string().regex("^[A-Z]{3}-\\d{4}$", "ABC-1234"))
+    .build();
+```
+
+### JSON schema
+
+Render the output contract for tools, validators, or external consumers.
+
+```java
+var schema = signature.toJsonSchema("outputs", java.util.Map.of());
+```
+
+### Reuse the signature
+
+Pass one built signature into AxGen and call it like any other program.
+
+```java
+AxGen program = Ax.ax(signature);
+var output = program.forward(client, inputs);
+```
+
+Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/java/subsystems/s/.
+
 ## Relevant API Surface
 
 - Signatures: `Ax.s`, `Ax.f`, `AxSignature`

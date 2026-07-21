@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-java-signature/SKILL.md",
-      "digest": "sha256:913119a7a7a7cb64f2394b87ce075c565d4081584ed871b052e7173f5a4d8183"
+      "digest": "sha256:a7e17895b88453f5a2d4e6ba5e2732b03a7be5d9e4c0268e36b9b031d3fd80a7"
     },
     {
       "name": "ax-java-gen",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-java-flow/SKILL.md",
-      "digest": "sha256:6abe0527d1b3274324688ad3665f4591bc07859eaaa0b0ffa6bb17bdd50cb5bc"
+      "digest": "sha256:29712b1783e2b06b1adddfa72f671cce324203d9c9d8edf72a2a52dbe3c0b1cf"
     },
     {
       "name": "ax-java-agent",

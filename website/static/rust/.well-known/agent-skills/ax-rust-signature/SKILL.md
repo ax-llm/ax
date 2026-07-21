@@ -33,6 +33,64 @@ let sig = s("question:string -> answer:string")?;
 let schema = sig.to_json_schema("outputs");
 ```
 
+## More Patterns
+
+### Simple string contract
+
+Use the string form when field names and types are enough.
+
+```rust
+let mut program = axllm::ax("questionText:string -> answerText:string")?;
+```
+
+### Bounded class output
+
+A class field constrains the model to a known label set.
+
+```rust
+let router = axllm::ax(
+    "messageText:string -> routeClass:class \"support, sales, engineering\"",
+)?;
+```
+
+### Native constraints
+
+Rust combines FieldType constraints with the generated signature builder.
+
+```rust
+let mut party_type = FieldType::number();
+party_type.minimum = Some(1.0);
+party_type.maximum = Some(12.0);
+
+let mut code_type = FieldType::string();
+code_type.pattern = Some(r"^[A-Z]{3}-\d{4}$".to_string());
+
+let signature = f()
+    .output("partySize", party_type)
+    .output("bookingCode", code_type)
+    .build();
+```
+
+### JSON schema
+
+Render the output contract for tools, validators, or external consumers.
+
+```rust
+let schema = signature.to_json_schema("outputs");
+```
+
+### Reuse the signature
+
+Attach the native signature to AxGen before the forward call.
+
+```rust
+let mut program = axllm::ax("requestText:string -> partySize:number, bookingCode:string")?;
+program.signature = signature;
+let output = program.forward(&mut client, inputs)?;
+```
+
+Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/rust/subsystems/s/.
+
 ## Relevant API Surface
 
 - Signatures: `s`, `f`, `AxSignature`

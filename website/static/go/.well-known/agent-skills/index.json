@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-go-signature/SKILL.md",
-      "digest": "sha256:f822ebdd1919dedd67fed7c597b15a577aceb22b70061462a581e1069164aafb"
+      "digest": "sha256:e110e9d4866feccf4b8bd52799ef948c21a3c01980d9d01e99bf313727d6711c"
     },
     {
       "name": "ax-go-gen",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-go-flow/SKILL.md",
-      "digest": "sha256:35d61e8a75bafd5c8119170529c224d6c8eaed0953475d9a3281410caab7b540"
+      "digest": "sha256:54533854a759daf0231ad7a1f900cadcdff094fd1bf184835f9d47c12389091e"
     },
     {
       "name": "ax-go-agent",

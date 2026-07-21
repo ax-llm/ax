@@ -1429,6 +1429,22 @@ func assertGeneratedSkillFrontmatter(t *testing.T, root, rel, target string) {
 			t.Fatalf("%s should not include maintainer skill %q:\n%s", rel, forbidden, text)
 		}
 	}
+	if strings.HasSuffix(wantName, "-flow") || strings.HasSuffix(wantName, "-signature") {
+		if blocks := strings.Count(text, "```") / 2; blocks < 6 {
+			t.Fatalf("%s should contain at least 6 code blocks, got %d", rel, blocks)
+		}
+		wants := []string{"Start from the complete programs under `examples/`", "https://axllm.dev/" + target + "/"}
+		if strings.HasSuffix(wantName, "-flow") {
+			wants = append(wants, "Class decision", "Parallel fan-out and join", "Draft, critique, revise")
+		} else {
+			wants = append(wants, "Simple string contract", "Bounded class output", "JSON schema", "Reuse the signature")
+		}
+		for _, want := range wants {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s missing expanded skill marker %q", rel, want)
+			}
+		}
+	}
 }
 
 func frontmatterStringValue(markdown, key string) string {

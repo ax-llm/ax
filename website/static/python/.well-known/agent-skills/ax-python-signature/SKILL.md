@@ -33,6 +33,63 @@ sig = s("question:string -> answer:string")
 schema = sig.to_json_schema("outputs")
 ```
 
+## More Patterns
+
+### Simple string contract
+
+Use the string form when field names and types are enough.
+
+```python
+from axllm import ax
+
+program = ax("questionText:string -> answerText:string")
+```
+
+### Bounded class output
+
+A class field constrains the model to a known label set.
+
+```python
+router = ax(
+    'messageText:string -> routeClass:class "support, sales, engineering"'
+)
+```
+
+### Fluent constraints
+
+Python exposes the native fluent builder for validation constraints and objects.
+
+```python
+from axllm import f
+
+signature = (
+    f()
+    .input("contactEmail", f.string("Contact email").email())
+    .output("partySize", f.number("Guests").min(1).max(12))
+    .output("bookingCode", f.string().regex(r"^[A-Z]{3}-\d{4}$"))
+    .build()
+)
+```
+
+### JSON schema
+
+Render the output contract for tools, validators, or external consumers.
+
+```python
+schema = signature.to_json_schema("outputs")
+```
+
+### Reuse the signature
+
+Pass one built signature into AxGen and call it like any other program.
+
+```python
+program = ax(signature)
+output = program.forward(client, inputs)
+```
+
+Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/python/subsystems/s/.
+
 ## Relevant API Surface
 
 - Signatures: `s`, `f`, `AxSignature`

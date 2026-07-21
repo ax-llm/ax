@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-python-signature/SKILL.md",
-      "digest": "sha256:a2029f4529908960badebec70c254850f6f387641ffe05f5d05fb5a5bfa3cb49"
+      "digest": "sha256:565f0e4d48247a7a82abf4fceead4dcd1c91f1a17c269f4ad809450186d25227"
     },
     {
       "name": "ax-python-gen",
@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-python-flow/SKILL.md",
-      "digest": "sha256:75df869b4b5c6c20bbf3d66c9708f508aa7256cc0182e134715102da1ea956c5"
+      "digest": "sha256:f6e8e38807bbfc62874b1570c565d84a2bbca3aca905ab8d0411fc64984083bc"
     },
     {
       "name": "ax-python-agent",

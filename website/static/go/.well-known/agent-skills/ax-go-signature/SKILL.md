@@ -33,6 +33,64 @@ sig := ax.NewSignature("question:string -> answer:string")
 schema := sig.ToJSONSchema(nil)
 ```
 
+## More Patterns
+
+### Simple string contract
+
+Use the string form when field names and types are enough.
+
+```go
+program := ax.NewAx("questionText:string -> answerText:string", nil)
+```
+
+### Bounded class output
+
+A class field constrains the model to a known label set.
+
+```go
+router := ax.NewAx(
+  "messageText:string -> routeClass:class \"support, sales, engineering\"",
+  nil,
+)
+```
+
+### Native constraints
+
+Go exposes generated signature and field records directly.
+
+```go
+signature := ax.AxSignature{
+  Inputs: []ax.Field{{
+    Name: "contactEmail",
+    Type: ax.FieldType{Name: "string", Format: "email"},
+  }},
+  Outputs: []ax.Field{{
+    Name: "partySize",
+    Type: ax.FieldType{Name: "number", Minimum: 1, Maximum: 12},
+  }},
+}
+```
+
+### JSON schema
+
+Render the native signature for tools, validators, or external consumers.
+
+```go
+schema := signature.ToJSONSchema(nil)
+```
+
+### Reuse the signature
+
+Attach the native signature to AxGen before the forward call.
+
+```go
+program := ax.NewAx("contactEmail:string -> partySize:number", nil)
+program.Signature = signature
+output, err := program.Forward(ctx, client, inputs, nil)
+```
+
+Start from the complete programs under `examples/`, then browse the larger gallery at https://axllm.dev/go/subsystems/s/.
+
 ## Relevant API Surface
 
 - Signatures: `axllm.S`, `axllm.FieldType`, `axllm.AxSignature`
