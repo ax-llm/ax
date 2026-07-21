@@ -500,6 +500,46 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     expect(capture.lastBody?.generationConfig?.candidateCount).toBe(3);
   });
 
+  it.each([
+    AxAIGoogleGeminiModel.Gemini36Flash,
+    AxAIGoogleGeminiModel.Gemini35FlashLite,
+  ])('omits deprecated sampling parameters for %s', async (model) => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model, temperature: 0.4, topP: 0.8, topK: 20 },
+      models: [],
+    });
+
+    const capture: { lastBody?: any } = {};
+    const fetch = createMockFetch(
+      {
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+      },
+      capture
+    );
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi' }],
+        modelConfig: { temperature: 0.2, topP: 0.7, topK: 10 },
+      },
+      { stream: false }
+    );
+
+    expect(capture.lastBody?.generationConfig).not.toHaveProperty(
+      'temperature'
+    );
+    expect(capture.lastBody?.generationConfig).not.toHaveProperty('topP');
+    expect(capture.lastBody?.generationConfig).not.toHaveProperty('topK');
+  });
+
   it('maps numeric thinkingTokenBudget in item config to per-model options and preserves explicit overrides', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
@@ -1339,6 +1379,47 @@ describe('AxAIGoogleGemini model key preset merging', () => {
         },
       };
     };
+
+    it.each([
+      AxAIGoogleGeminiModel.Gemini36Flash,
+      AxAIGoogleGeminiModel.Gemini35FlashLite,
+    ])(
+      'omits deprecated sampling parameters for cached %s requests',
+      async (model) => {
+        const ai = new AxAIGoogleGemini({
+          apiKey: 'key',
+          config: { model, temperature: 0.4, topP: 0.8, topK: 20 },
+          models: [],
+        });
+        const capture = { calls: [] as Array<{ url: string; body?: any }> };
+        const fetch = createSequencedMockFetch(
+          [cacheCreateResponse, generateResponse],
+          capture
+        );
+        const { registry } = createRegistry();
+
+        ai.setOptions({ fetch });
+
+        await ai.chat(
+          {
+            chatPrompt: [
+              { role: 'system', content: 'Cache this', cache: true },
+              { role: 'user', content: 'hi' },
+            ],
+            modelConfig: { temperature: 0.2, topP: 0.7, topK: 10 },
+          },
+          {
+            stream: false,
+            contextCache: { minTokens: 0, registry },
+          }
+        );
+
+        const generationConfig = capture.calls[1]?.body?.generationConfig;
+        expect(generationConfig).not.toHaveProperty('temperature');
+        expect(generationConfig).not.toHaveProperty('topP');
+        expect(generationConfig).not.toHaveProperty('topK');
+      }
+    );
 
     it('caches tools and toolConfig when breakpoint is after-examples', async () => {
       const ai = new AxAIGoogleGemini({

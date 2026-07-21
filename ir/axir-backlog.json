@@ -496,6 +496,25 @@
       "completedAt": "2026-07-20",
       "completedByCommit": "08d64949a801a03ae531352a29e4406c7d053112",
       "verification": "npm run test:axir; npm run axir:check-packages; npm run axir:gate:ledger"
+    },
+    {
+      "id": "axir-2026-07-21-port-gemini-3-6-flash-and-3-5-flash-lite-model-support",
+      "status": "open",
+      "title": "Port Gemini 3.6 Flash and 3.5 Flash-Lite model support",
+      "createdAt": "2026-07-21",
+      "sourcePR": null,
+      "sourceCommit": "1acfd7dede33f7de6c9e2c56a6457bfcec9c95a0",
+      "tsPaths": ["src/ax/ai/google-gemini"],
+      "portableSurface": "axai",
+      "impact": "TypeScript exposes the new Gemini 3.6 Flash and 3.5 Flash-Lite model IDs, catalog pricing and limits, explicit context caching, and server-managed sampling behavior. Generated Python, Java, C++, Go, and Rust providers do not yet expose equivalent model metadata or omit temperature, top_p, and top_k for these models.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

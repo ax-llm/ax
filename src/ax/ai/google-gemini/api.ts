@@ -21,6 +21,13 @@ const isGemini3Model = (model: string): boolean => model.includes('gemini-3');
 const isGemini3Pro = (model: string): boolean =>
   model.includes('gemini-3') && model.includes('pro');
 
+/**
+ * Gemini 3.6 Flash and 3.5 Flash-Lite use server-managed sampling and ignore
+ * temperature, topP, and topK.
+ */
+const usesServerManagedSampling = (model: string): boolean =>
+  model === 'gemini-3.6-flash' || model === 'gemini-3.5-flash-lite';
+
 import type {
   AxAIInputModelList,
   AxAIServiceImpl,
@@ -1119,13 +1126,21 @@ class AxAIGoogleGeminiImpl
       }
     }
 
+    const serverManagedSampling = usesServerManagedSampling(model as string);
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
-      ...(req.modelConfig?.topP !== undefined
+      ...(!serverManagedSampling
+        ? {
+            temperature:
+              req.modelConfig?.temperature ?? this.config.temperature,
+          }
+        : {}),
+      ...(!serverManagedSampling && req.modelConfig?.topP !== undefined
         ? { topP: req.modelConfig.topP }
         : {}),
-      topK: req.modelConfig?.topK ?? this.config.topK,
+      ...(!serverManagedSampling
+        ? { topK: req.modelConfig?.topK ?? this.config.topK }
+        : {}),
       frequencyPenalty:
         req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
       candidateCount: req.modelConfig?.n ?? this.config.n ?? 1,
@@ -1138,6 +1153,7 @@ class AxAIGoogleGeminiImpl
 
     // Gemini 3+ models require a minimum temperature of 1.0
     if (
+      !serverManagedSampling &&
       isGemini3Model(model as string) &&
       (generationConfig.temperature === undefined ||
         generationConfig.temperature < 1)
@@ -1783,13 +1799,21 @@ class AxAIGoogleGeminiImpl
     }
 
     // Build the generation config using existing logic
+    const serverManagedSampling = usesServerManagedSampling(model as string);
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
-      temperature: req.modelConfig?.temperature ?? this.config.temperature,
-      ...(req.modelConfig?.topP !== undefined
+      ...(!serverManagedSampling
+        ? {
+            temperature:
+              req.modelConfig?.temperature ?? this.config.temperature,
+          }
+        : {}),
+      ...(!serverManagedSampling && req.modelConfig?.topP !== undefined
         ? { topP: req.modelConfig.topP }
         : {}),
-      topK: req.modelConfig?.topK ?? this.config.topK,
+      ...(!serverManagedSampling
+        ? { topK: req.modelConfig?.topK ?? this.config.topK }
+        : {}),
       frequencyPenalty:
         req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty,
       candidateCount: req.modelConfig?.n ?? this.config.n ?? 1,
@@ -1800,6 +1824,7 @@ class AxAIGoogleGeminiImpl
 
     // Gemini 3+ models require a minimum temperature of 1.0
     if (
+      !serverManagedSampling &&
       isGemini3Model(model as string) &&
       (generationConfig.temperature === undefined ||
         generationConfig.temperature < 1)

@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AxAIGoogleGemini } from './api.js';
 import { axModelInfoGoogleGemini } from './info.js';
-import { AxAIGoogleGeminiModel } from './types.js';
+import {
+  AxAIGoogleGeminiModel,
+  GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS,
+} from './types.js';
 
 function createMockFetch(body: unknown) {
   return vi.fn().mockImplementation(async () => {
@@ -120,8 +123,24 @@ describe('Gemini deprecation flags', () => {
 });
 
 describe('Gemini new model catalog entries', () => {
+  it('exposes the new GA model IDs', () => {
+    expect(AxAIGoogleGeminiModel.Gemini36Flash).toBe('gemini-3.6-flash');
+    expect(AxAIGoogleGeminiModel.Gemini35FlashLite).toBe(
+      'gemini-3.5-flash-lite'
+    );
+  });
+
   it.each([
+    AxAIGoogleGeminiModel.Gemini36Flash,
+    AxAIGoogleGeminiModel.Gemini35FlashLite,
+  ])('supports explicit context caching for %s', (model) => {
+    expect(GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS).toContain(model);
+  });
+
+  it.each([
+    AxAIGoogleGeminiModel.Gemini36Flash,
     AxAIGoogleGeminiModel.Gemini35Flash,
+    AxAIGoogleGeminiModel.Gemini35FlashLite,
     AxAIGoogleGeminiModel.Gemini31FlashLite,
     AxAIGoogleGeminiModel.Gemini31FlashImage,
     AxAIGoogleGeminiModel.Gemini31FlashLive,
@@ -131,5 +150,35 @@ describe('Gemini new model catalog entries', () => {
   ])('has %s in info catalog', (model) => {
     const entry = axModelInfoGoogleGemini.find((m) => m.name === model);
     expect(entry).toBeDefined();
+  });
+
+  it.each([
+    {
+      model: AxAIGoogleGeminiModel.Gemini36Flash,
+      inputCost: 1.5,
+      outputCost: 7.5,
+    },
+    {
+      model: AxAIGoogleGeminiModel.Gemini35FlashLite,
+      inputCost: 0.3,
+      outputCost: 2.5,
+    },
+  ])('describes $model limits, pricing, and capabilities', (expected) => {
+    const entry = axModelInfoGoogleGemini.find(
+      (model) => model.name === expected.model
+    );
+
+    expect(entry).toMatchObject({
+      promptTokenCostPer1M: expected.inputCost,
+      completionTokenCostPer1M: expected.outputCost,
+      contextWindow: 1_048_576,
+      maxTokens: 65_536,
+      supported: {
+        thinkingBudget: true,
+        showThoughts: true,
+        structuredOutputs: true,
+      },
+      notSupported: { temperature: true, topP: true },
+    });
   });
 });

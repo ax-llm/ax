@@ -172,6 +172,12 @@ describe('axGetSupportedAIModels', () => {
     const gemini35Flash = gemini?.models.find(
       (model) => model.name === AxAIGoogleGeminiModel.Gemini35Flash
     );
+    const gemini36Flash = gemini?.models.find(
+      (model) => model.name === AxAIGoogleGeminiModel.Gemini36Flash
+    );
+    const gemini35FlashLite = gemini?.models.find(
+      (model) => model.name === AxAIGoogleGeminiModel.Gemini35FlashLite
+    );
     const gemini31Live = gemini?.models.find(
       (model) => model.name === AxAIGoogleGeminiModel.Gemini31FlashLive
     );
@@ -191,6 +197,32 @@ describe('axGetSupportedAIModels', () => {
         thinkingBudget: true,
         showThoughts: true,
         structuredOutputs: true,
+      },
+    });
+    expect(gemini36Flash).toMatchObject({
+      provider: 'google-gemini',
+      type: 'text',
+      promptTokenCostPer1M: 1.5,
+      completionTokenCostPer1M: 7.5,
+      capabilities: {
+        thinkingBudget: true,
+        showThoughts: true,
+        structuredOutputs: true,
+        temperature: false,
+        topP: false,
+      },
+    });
+    expect(gemini35FlashLite).toMatchObject({
+      provider: 'google-gemini',
+      type: 'text',
+      promptTokenCostPer1M: 0.3,
+      completionTokenCostPer1M: 2.5,
+      capabilities: {
+        thinkingBudget: true,
+        showThoughts: true,
+        structuredOutputs: true,
+        temperature: false,
+        topP: false,
       },
     });
     expect(gemini31Live).toMatchObject({

@@ -63,8 +63,8 @@ const gemini = ai({
   apiKey: process.env.GOOGLE_APIKEY!,
   config: { model: 'simple' },
   models: [
-    { key: 'tiny', model: AxAIGoogleGeminiModel.Gemini31FlashLite, description: 'Fast + cheap', config: { maxTokens: 1024, temperature: 0.3 } },
-    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini35Flash, description: 'Balanced', config: { temperature: 0.6 } },
+    { key: 'tiny', model: AxAIGoogleGeminiModel.Gemini35FlashLite, description: 'Fast + cheap', config: { maxTokens: 1024 } },
+    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini36Flash, description: 'Balanced' },
   ],
 });
 
