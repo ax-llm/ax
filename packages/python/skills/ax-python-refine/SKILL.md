@@ -1,7 +1,7 @@
 ---
 name: "ax-python-refine"
 description: "Use when writing Python code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns."
-version: "23.0.2"
+version: "23.0.3"
 ---
 # Ax Refinement Patterns For Python
 

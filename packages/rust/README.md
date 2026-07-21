@@ -11,7 +11,7 @@ cargo add axllm
 Or add to your `Cargo.toml`:
 
 ```toml
-axllm = "23.0.2"
+axllm = "23.0.3"
 ```
 
 Enable realtime audio over WebSocket with the `realtime` feature (pulls `tungstenite`):

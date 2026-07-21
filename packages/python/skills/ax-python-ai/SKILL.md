@@ -1,7 +1,7 @@
 ---
 name: "ax-python-ai"
 description: "Use when writing Python code with `axllm` for provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers."
-version: "23.0.2"
+version: "23.0.3"
 ---
 # AxAI Providers For Python
 
