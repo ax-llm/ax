@@ -149,6 +149,33 @@ taskBrief:string -> pythonScript:code(python), testCases:code(python), riskNotes
 
 # Lead scoring: signature-level description, bounded score, class next step
 "Score sales leads" leadNotes:string -> fitScore:number(min 0, max 100) "0-100 fit", nextStep:class "call, email, drop"
+
+# Contact enrichment: optional format-validated outputs
+bioText:string -> contactEmail?:string(format email), websiteUrl?:string(format uri), birthDate?:string(format date)
+
+# Chain of thought: internal reasoning stripped from the result
+problemText:string -> reasoning!:string, solutionText:string
+
+# Multimodal: top-level image input with an optional question
+productPhoto:image, question?:string -> productDescription:string, detectedObjects:string[]
+
+# Meeting audio: audio input, capped summary, per-item action list
+meetingAudio:audio -> meetingSummary:string(max 1000), actionItems:string(item "one action item")[]
+
+# Moderation: class verdict plus structured flagged spans
+postText:string -> moderationVerdict:class "allow, review, block", flaggedSpans:object{ spanText:string, reasonNote:string }[]
+
+# Text-to-SQL: cached schema plus SQL-tagged output
+schemaText:string(cache), questionText:string -> sqlQuery:code(sql), queryNotes?:string(max 200)
+
+# Calendar extraction: datetime fields and an optional end
+emailText:string -> eventTitle:string, startsAt:datetime, endsAt?:datetime, attendeeNames:string[]
+
+# Claims gate: cached policy, bounded confidence, and optional citation
+claimText:string, policyText:string(cache) -> isCovered:boolean, confidenceScore:number(min 0, max 1), citedClause?:string
+
+# Earnings extraction: structured period data plus a class outlook
+filingText:string(cache) -> revenueByPeriod:object{ periodLabel:string, amountUsd:number }[], guidanceTone:class "raise, hold, cut"
 ```
 
 ## Production Notes

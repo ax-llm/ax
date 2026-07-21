@@ -27,7 +27,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct DSPy signature code using @ax-llm/ax. Use when the user asks about signatures, s(), f(), field types, string syntax, fluent builder API, validation constraints, or type-safe inputs/outputs.",
       "url": "ax-signature/SKILL.md",
-      "digest": "sha256:b705741cd1504e1f41a42bdfc62537a1b4f3f60d9ee61e0abbeee0a2ca7fdb36"
+      "digest": "sha256:ac98e0ee26ca3f8f389700f1378bd91f65df865d2ce60c60d3d71c858c71fc70"
     },
     {
       "name": "ax-gen",
@@ -48,7 +48,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxFlow workflow code using @ax-llm/ax. Use when the user asks about flow(), AxFlow, workflow orchestration, parallel execution, DAG workflows, conditional routing, map/reduce patterns, or multi-node AI pipelines.",
       "url": "ax-flow/SKILL.md",
-      "digest": "sha256:1b1d2b7957c4d79d87574b2d0a3a79898eb87182377f0bb66b8597fd2e924ce8"
+      "digest": "sha256:58a9197ae474bf6af2a4c34a0537ad21e63c89c34567590c583b00cbc58e6d96"
     },
     {
       "name": "ax-agent",

@@ -98,6 +98,81 @@ flowchart TD
   review -->|revise, max 2| draft
 ```
 
+Three-way branch and re-join — triage routes to one of three handlers before delivery:
+
+```text
+flowchart TD
+  %%ax triage: ticketText:string -> ticketClass:class "bug, billing, question"
+  %%ax bugHandler: ticketText:string -> replyText:string(max 300)
+  %%ax billingHandler: ticketText:string -> replyText:string(max 300)
+  %%ax questionHandler: ticketText:string -> replyText:string(max 300)
+  %%ax send: replyText:string -> deliveredReply:string
+
+  triage{ticketClass}
+  triage -->|bug| bugHandler
+  triage -->|billing| billingHandler
+  triage -->|question| questionHandler
+  bugHandler --> send
+  billingHandler --> send
+  questionHandler --> send
+```
+
+Judge panel — three independent drafts fan out, then converge on one verdict:
+
+```text
+flowchart TD
+  %%ax outline: topicText:string -> outlineText:string
+  %%ax draftA: outlineText:string -> draftAText:string
+  %%ax draftB: outlineText:string -> draftBText:string
+  %%ax draftC: outlineText:string -> draftCText:string
+  %%ax judge: draftAText:string, draftBText:string, draftCText:string -> verdictText:string
+
+  outline --> draftA & draftB & draftC
+  draftA & draftB & draftC --> judge
+```
+
+Escalation ladder — a quality gate either sends the first answer or falls back to level two:
+
+```text
+flowchart TD
+  %%ax l1Answer: ticketText:string -> answerText:string
+  %%ax qualityGate: answerText:string -> verdict:class "pass, escalate"
+  %%ax l2Answer: ticketText:string -> answerText:string
+  %%ax send: answerText:string -> deliveredAnswer:string
+
+  l1Answer --> qualityGate{verdict}
+  qualityGate -->|pass| send
+  qualityGate -->|escalate| l2Answer --> send
+```
+
+Itinerary planner — rich contracts stay attached to a simple linear graph:
+
+```text
+flowchart TD
+  %%ax parse: requestText:string -> destinationName:string, stayWindow:dateRange, travelerCount:number(min 1, max 12), budgetUsd?:number(min 0)
+  %%ax plan: destinationName:string, stayWindow:dateRange, travelerCount:number, budgetUsd?:number -> itineraryItems:object{ dayNumber:number(min 1), activityText:string }[]
+  %%ax price: itineraryItems:object{ dayNumber:number, activityText:string }[], travelerCount:number -> estimatedTotalUsd:number(min 0), bookingNotes?:string(max 300)
+
+  parse --> plan --> price
+```
+
+Fan-out with capped revision — two sections join, then review can send the assembly back twice:
+
+```text
+flowchart TD
+  %%ax outline: briefText:string -> outlineText:string
+  %%ax sectionA: outlineText:string -> sectionAText:string
+  %%ax sectionB: outlineText:string -> sectionBText:string
+  %%ax assemble: sectionAText:string, sectionBText:string -> articleText:string
+  %%ax review: articleText:string -> verdict:class "approve, revise", reviewNote?:string
+  %%ax publish: articleText:string, reviewNote?:string -> publishedArticle:string
+
+  outline --> sectionA & sectionB
+  sectionA & sectionB --> assemble --> review{verdict}
+  review -->|approve| publish
+  review -->|revise, max 2| assemble
+```
+
 In TypeScript, passing the diagram to `flow()` compiles it into a runnable flow, and `String(wf)` renders any flow back to the same dialect — so `flow(String(wf))` round-trips (`wf.toString({ direction: 'LR' })` for render options). Because the signature grammar is text-complete, the diagram is the entire program — writable by hand, by an LLM, or exported from a design doc.
 
 ## Production Notes

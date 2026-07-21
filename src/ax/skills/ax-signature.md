@@ -110,6 +110,42 @@ postText:string -> moderationVerdict:class "allow, review, block", flaggedSpans:
 
 # Translation: optional locale input
 sourceText:string, targetLocale?:string -> translatedText:string, glossaryHits:string[]
+
+# Text-to-SQL: cached schema plus SQL-tagged output
+schemaText:string(cache), questionText:string -> sqlQuery:code(sql), queryNotes?:string(max 200)
+
+# Calendar extraction: datetime fields and an optional end
+emailText:string -> eventTitle:string, startsAt:datetime, endsAt?:datetime, attendeeNames:string[]
+
+# Booking window: date range, bounded party size, and flexibility flag
+requestText:string -> stayWindow:dateRange, partySize:number(min 1, max 12), flexibleDates:boolean
+
+# Contract dates: date fields plus bounded notice period
+contractText:string -> effectiveDate:date, expiryDate?:date, autoRenews:boolean, noticeDays?:number(min 0)
+
+# Link audit: URL arrays and an optional primary URL
+pageText:string -> referencedUrls:url[], primaryUrl?:url
+
+# Config generation: JSON output plus per-item warnings
+requirementsText:string -> serviceConfig:json, setupWarnings:string(item "one warning")[]
+
+# Claims gate: cached policy, bounded confidence, and optional citation
+claimText:string, policyText:string(cache) -> isCovered:boolean, confidenceScore:number(min 0, max 1), citedClause?:string
+
+# Earnings extraction: structured period data plus a class outlook
+filingText:string(cache) -> revenueByPeriod:object{ periodLabel:string, amountUsd:number }[], guidanceTone:class "raise, hold, cut"
+
+# Pull request review: diff code, cached guide, structured comments, and verdict
+diffText:code(diff), styleGuide?:string(cache) -> reviewComments:object{ filePath:string, lineNumber:number(min 1), commentText:string(max 300) }[], overallVerdict:class "approve, revise"
+
+# Incident triage: severity class, optional service, and per-item runbook steps
+alertLog:string -> incidentSeverity:class "sev1, sev2, sev3", suspectedService?:string, runbookSteps:string(item "one step")[]
+
+# Product listing: image and file inputs with constrained listing outputs
+productPhoto:image, priceSheet?:file -> listingTitle:string(max 80), bulletPoints:string(item "one selling point")[], priceUsd?:number(min 0)
+
+# Study cards: nested object array with an optional difficulty tag
+chapterText:string -> flashCards:object{ questionText:string, answerText:string, difficultyTag?:string }[]
 ```
 
 ## Four Ways to Create Signatures

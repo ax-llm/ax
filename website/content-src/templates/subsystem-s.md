@@ -52,6 +52,9 @@ More contracts in the same grammar — moderation, extraction, retrieval:
 postText:string -> moderationVerdict:class "allow, review, block", flaggedSpans:object{ spanText:string, reasonNote:string }[]
 invoiceText:string -> invoiceNumber:string(pattern "^INV-\\d+$" "INV- then digits"), totalAmount:number(min 0), lineItems:object{ description:string, quantity:number(min 1), unitPrice:number }[]
 corpusText:string(cache), userQuestion:string -> answerText:string, citedChunks:string(item "verbatim quote")[]
+schemaText:string(cache), questionText:string -> sqlQuery:code(sql), queryNotes?:string(max 200)
+emailText:string -> eventTitle:string, startsAt:datetime, endsAt?:datetime, attendeeNames:string[]
+claimText:string, policyText:string(cache) -> isCovered:boolean, confidenceScore:number(min 0, max 1), citedClause?:string
 ```
 
 The string API is strict: a modifier that does not apply to its type (say `min` on a boolean) is a parse error, where the fluent API would silently ignore it. `AxSignature.toString()` renders every construct back to this grammar losslessly, which is what lets flows serialize their node contracts into mermaid `%%ax` directives.
