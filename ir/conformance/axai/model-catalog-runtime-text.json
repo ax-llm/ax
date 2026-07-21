@@ -355,6 +355,38 @@
               "audioOutput": false,
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 2.5,
+            "contextWindow": 1048576,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.5-flash-lite",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 0.3,
+            "provider": "google-gemini",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.03,
+            "cacheWriteTokenCostPer1M": 0.3,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
               "topP": true
@@ -459,6 +491,38 @@
             "provider": "google-gemini",
             "supported": {
               "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.15,
+            "cacheWriteTokenCostPer1M": 1.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 7.5,
+            "contextWindow": 1048576,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.6-flash",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.5,
+            "provider": "google-gemini",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
             },
             "type": "text"
           },
@@ -4076,7 +4140,7 @@
         "name": "azure-openai"
       }
     ],
-    "modelCount": 168,
+    "modelCount": 170,
     "openaiFirstModel": "gpt-5-nano",
     "openaiModelTypes": ["code", "text"],
     "providerCount": 11,

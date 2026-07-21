@@ -1799,16 +1799,29 @@ struct ClientFixture {
   }
 };
 
+static bool json_path_exists(Value value, const std::string& path) {
+  std::size_t start = 0;
+  while (start <= path.size()) {
+    const std::size_t dot = path.find('.', start);
+    const std::string segment = path.substr(start, dot == std::string::npos ? std::string::npos : dot - start);
+    if (!Core::truthy(Core::map_contains(value, Value(segment)))) return false;
+    value = Core::get(value, segment);
+    if (dot == std::string::npos) return true;
+    start = dot + 1;
+  }
+  return true;
+}
+
 static void assert_transport(Value fixture, const ScriptedTransport& transport) {
   Value expected = Core::get(fixture, "expected_transport_request");
   Value expected_absent = Core::get(fixture, "expected_transport_json_absent");
   if (expected.is_null() && expected_absent.is_null()) return;
   if (transport.requests.empty()) throw AxError("fixture", "expected provider transport request but none were sent");
   if (!expected.is_null()) assert_subset(transport.requests[0], expected, "provider request");
-  Object request_json = as_object(Core::get(transport.requests[0], "json", Value::object()));
+  Value request_json = Core::get(transport.requests[0], "json", Value::object());
   for (const auto& raw_key : Core::iter(expected_absent)) {
     std::string key = display(raw_key);
-    if (request_json.find(key) != request_json.end()) throw AxError("fixture", "provider request json unexpectedly contained " + key);
+    if (json_path_exists(request_json, key)) throw AxError("fixture", "provider request json unexpectedly contained " + key);
   }
 }
 

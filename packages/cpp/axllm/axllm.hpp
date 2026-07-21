@@ -373,7 +373,7 @@ struct Core {
   static Value openai_responses_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
   static Value _gemini_live_bidi_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
   static Value _gemini_build_chat_request(Value request);
-  static Value _gemini_apply_model_config_impl(Value payload, Value model_config);
+  static Value _gemini_apply_model_config_impl(Value payload, Value model_config, Value server_managed_sampling);
   static Value _gemini_message_impl(Value message);
   static Value _gemini_content_parts_impl(Value content);
   static Value _gemini_content_part_impl(Value part);

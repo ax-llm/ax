@@ -3070,6 +3070,85 @@ writeFixture('gemini-simple-chat', {
   },
 });
 
+for (const [fixtureName, model] of [
+  ['gemini-36-flash-server-managed-sampling', 'gemini-3.6-flash'],
+  ['gemini-35-flash-lite-server-managed-sampling', 'gemini-3.5-flash-lite'],
+] as const) {
+  writeFixture(fixtureName, {
+    kind: 'ai_chat',
+    provider: 'google-gemini',
+    model,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'Answer briefly.' }],
+      model_config: {
+        stream: false,
+        maxTokens: 64,
+        temperature: 0.2,
+        topP: 0.8,
+        topK: 20,
+      },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          responseId: `${fixtureName}-response`,
+          modelVersion: model,
+          candidates: [
+            {
+              finishReason: 'STOP',
+              content: { parts: [{ text: 'Done.' }] },
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 2,
+            candidatesTokenCount: 1,
+            totalTokenCount: 3,
+          },
+        },
+      },
+    ],
+    expected_output: {
+      results: [
+        {
+          index: 0,
+          content: 'Done.',
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      remote_id: `${fixtureName}-response`,
+      model_usage: {
+        ai: 'GoogleGeminiAI',
+        model,
+        tokens: {
+          prompt_tokens: 2,
+          completion_tokens: 1,
+          total_tokens: 3,
+        },
+      },
+      provider_metadata: { google: { modelVersion: model } },
+    },
+    expected_transport_request: {
+      method: 'POST',
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=test-key`,
+      json: {
+        contents: [{ role: 'user', parts: [{ text: 'Answer briefly.' }] }],
+        generationConfig: {
+          candidateCount: 1,
+          maxOutputTokens: 64,
+          responseMimeType: 'text/plain',
+        },
+      },
+    },
+    expected_transport_json_absent: [
+      'generationConfig.temperature',
+      'generationConfig.topP',
+      'generationConfig.topK',
+    ],
+  });
+}
+
 writeFixture('gemini-tool-call', {
   kind: 'ai_chat',
   provider: 'gemini',

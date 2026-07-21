@@ -7321,6 +7321,18 @@ func runConformanceAIChat(fixture map[string]Value) {
 	}
 }
 
+func jsonPathExists(value Value, path string) bool {
+	current := value
+	for _, segment := range strings.Split(path, ".") {
+		next, ok := asMap(current)[segment]
+		if !ok {
+			return false
+		}
+		current = next
+	}
+	return true
+}
+
 func assertTransportRequest(fixture map[string]Value, transport *ScriptedTransport) {
 	expected := coreGet(fixture, "expected_transport_request", nil)
 	expectedAbsent := coreIter(coreGet(fixture, "expected_transport_json_absent", Array()))
@@ -7336,7 +7348,7 @@ func assertTransportRequest(fixture map[string]Value, transport *ScriptedTranspo
 	requestJSON := asMap(coreGet(asMap(transport.Requests[0]), "json", Object()))
 	for _, rawKey := range expectedAbsent {
 		key := display(rawKey)
-		if _, ok := requestJSON[key]; ok {
+		if jsonPathExists(requestJSON, key) {
 			panic(AxError{Category: "fixture", Message: "provider request json unexpectedly contained " + key})
 		}
 	}

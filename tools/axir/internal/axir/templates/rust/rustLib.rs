@@ -11358,6 +11358,17 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
     Ok((client, requests))
 }
 
+fn json_path_exists(value: &Value, path: &str) -> bool {
+    let mut current = value;
+    for segment in path.split('.') {
+        let Some(next) = current.get(segment) else {
+            return false;
+        };
+        current = next;
+    }
+    true
+}
+
 fn expect_transport_request_subset(
     fixture: &Value,
     requests: &Arc<Mutex<Vec<Value>>>,
@@ -11374,10 +11385,10 @@ fn expect_transport_request_subset(
     if let Some(expected) = expected {
         expect_json_subset("transport request", actual, expected)?;
     }
-    let request_json = actual.get("json").and_then(Value::as_object);
+    let request_json = actual.get("json");
     for raw_key in expected_absent.and_then(Value::as_array).into_iter().flatten() {
         let key = raw_key.as_str().unwrap_or_default();
-        if request_json.is_some_and(|value| value.contains_key(key)) {
+        if request_json.is_some_and(|value| json_path_exists(value, key)) {
             return Err(AxError::new(
                 "fixture",
                 format!("provider request json unexpectedly contained {key}"),

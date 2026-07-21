@@ -2488,6 +2488,15 @@ def _openai_fixture_client(fixture):
     return client, transport
 
 
+def _json_path_exists(value, path):
+    current = value
+    for segment in path.split("."):
+        if not isinstance(current, dict) or segment not in current:
+            return False
+        current = current[segment]
+    return True
+
+
 def _assert_transport_request(fixture, transport):
     if "expected_transport_request" not in fixture and "expected_transport_json_absent" not in fixture:
         return
@@ -2497,7 +2506,7 @@ def _assert_transport_request(fixture, transport):
         _assert_subset(transport.requests[0], fixture["expected_transport_request"], "provider request")
     request_json = transport.requests[0].get("json") or {}
     for key in fixture.get("expected_transport_json_absent") or []:
-        if key in request_json:
+        if _json_path_exists(request_json, key):
             raise FixtureError(f"provider request json unexpectedly contained {key!r}")
 
 

@@ -3796,12 +3796,16 @@ module @ax.provider version "0.1" {
         core.set %payload["systemInstruction"] = %system_instruction
       }
       core.set %payload["contents"] = %contents
+      %model = core.get %request["model"] default "gemini-2.5-flash"
+      %is_gemini36_flash = core.call intrinsic.eq(%model, "gemini-3.6-flash")
+      %is_gemini35_flash_lite = core.call intrinsic.eq(%model, "gemini-3.5-flash-lite")
+      %server_managed_sampling = core.call intrinsic.or(%is_gemini36_flash, %is_gemini35_flash_lite)
       %generation_config = core.map
       core.set %generation_config["candidateCount"] = 1
       core.set %generation_config["responseMimeType"] = "text/plain"
       %empty_model_config = core.map
       %model_config = core.get %request["model_config"] default %empty_model_config
-      core.call @gemini_apply_model_config_impl(%generation_config, %model_config)
+      core.call @gemini_apply_model_config_impl(%generation_config, %model_config, %server_managed_sampling)
       %response_format = core.get %request["response_format"]
       %has_response_format = core.call intrinsic.truthy(%response_format)
       core.if %has_response_format {
@@ -3814,9 +3818,10 @@ module @ax.provider version "0.1" {
           core.set %generation_config["responseJsonSchema"] = %schema
         }
       }
-      %model = core.get %request["model"] default "gemini-2.5-flash"
       %is_gemini3 = core.call intrinsic.string.starts_with(%model, "gemini-3")
-      core.if %is_gemini3 {
+      %client_managed_sampling = core.call intrinsic.not(%server_managed_sampling)
+      %clamp_gemini3_temperature = core.call intrinsic.and(%is_gemini3, %client_managed_sampling)
+      core.if %clamp_gemini3_temperature {
         %temperature = core.get %generation_config["temperature"]
         %missing_temperature = core.call intrinsic.is_none(%temperature)
         core.if %missing_temperature {
@@ -3855,15 +3860,18 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "gemini-model-config-core-helper"
-    type signature = "(json, json) -> void"
-    body @entry(%payload: json, %model_config: json) {
+    type signature = "(json, json, bool) -> void"
+    body @entry(%payload: json, %model_config: json, %server_managed_sampling: bool) {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "maxTokens", "maxOutputTokens")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "maxOutputTokens")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "temperature", "temperature")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "topP", "topP")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "top_p", "topP")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "topK", "topK")
-      core.call @openai_copy_config_key_impl(%payload, %model_config, "top_k", "topK")
+      %client_managed_sampling = core.call intrinsic.not(%server_managed_sampling)
+      core.if %client_managed_sampling {
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "temperature", "temperature")
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "topP", "topP")
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "top_p", "topP")
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "topK", "topK")
+        core.call @openai_copy_config_key_impl(%payload, %model_config, "top_k", "topK")
+      }
       core.call @openai_copy_config_key_impl(%payload, %model_config, "frequencyPenalty", "frequencyPenalty")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "frequency_penalty", "frequencyPenalty")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "n", "candidateCount")

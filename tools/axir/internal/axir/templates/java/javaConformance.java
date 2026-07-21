@@ -2235,6 +2235,15 @@ public final class Conformance {
     return new ClientFixture(client, transport);
   }
 
+  static boolean jsonPathExists(Object value, String path) {
+    Object current = value;
+    for (String segment : path.split("\\.")) {
+      if (!(current instanceof Map<?, ?> map) || !map.containsKey(segment)) return false;
+      current = map.get(segment);
+    }
+    return true;
+  }
+
   static void assertTransport(Map<String, Object> fixture, ScriptedTransport transport) {
     if (!fixture.containsKey("expected_transport_request") && !fixture.containsKey("expected_transport_json_absent")) return;
     if (transport.requests.isEmpty()) throw new FixtureError("expected provider transport request but none were sent");
@@ -2242,7 +2251,7 @@ public final class Conformance {
     Map<String, Object> requestJson = Core.asMap(Core.asMap(transport.requests.get(0)).get("json"));
     for (Object rawKey : Core.asList(fixture.getOrDefault("expected_transport_json_absent", List.of()))) {
       String key = String.valueOf(rawKey);
-      if (requestJson.containsKey(key)) throw new FixtureError("provider request json unexpectedly contained " + key);
+      if (jsonPathExists(requestJson, key)) throw new FixtureError("provider request json unexpectedly contained " + key);
     }
   }
   static List<String> stringList(Object value) { List<String> out = new ArrayList<>(); for (Object item : Core.asList(value)) out.add(String.valueOf(item)); return out; }
