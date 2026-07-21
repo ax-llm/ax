@@ -8063,6 +8063,114 @@ console.log('Keys:', Object.keys(globalThis));`;
     );
   });
 
+  it('should reject multiple fenced actor code blocks without executing either block', async () => {
+    let actorCallCount = 0;
+    let secondTurnUserPrompt = '';
+    const executedCode: string[] = [];
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
+
+        if (systemPrompt.includes('You (`executor`)')) {
+          actorCallCount++;
+          if (actorCallCount === 2) {
+            secondTurnUserPrompt = userPrompt;
+          }
+          return {
+            results: [
+              {
+                index: 0,
+                content:
+                  actorCallCount === 1
+                    ? [
+                        'Javascript Code: First attempt:',
+                        '```javascript',
+                        'console.log("partial");',
+                        '```',
+                        'Final attempt:',
+                        '```javascript',
+                        'await final("premature", { partial: true });',
+                        '```',
+                      ].join('\n')
+                    : 'Javascript Code: await final("done", { data: "done" });',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Answer Synthesis Agent')) {
+          return {
+            results: [
+              { index: 0, content: 'Answer: done', finishReason: 'stop' },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      ...runtimeWithConsoleMode,
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
+            executedCode.push(code);
+            if (globals?.final && code.includes('final(')) {
+              (globals.final as (...args: unknown[]) => void)('done', {
+                data: 'done',
+              });
+            }
+            return 'ok';
+          },
+          patchGlobals: async (patch: Record<string, unknown>) => {
+            const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+            Object.assign(globals ?? {}, rest);
+            if (globals && staged && typeof staged === 'object') {
+              globals.inputs = Object.assign(
+                (globals.inputs as Record<string, unknown>) ?? {},
+                staged
+              );
+            }
+          },
+          close: () => {},
+        };
+      },
+    };
+
+    const testAgent = agent('query:string -> answer:string', {
+      ai: testMockAI,
+      contextFields: [],
+      runtime,
+      maxTurns: 3,
+      contextPolicy: { preset: 'full' },
+    });
+
+    const result = await testAgent.forward(testMockAI, { query: 'test' });
+
+    expect(result.answer).toBe('done');
+    expect(actorCallCount).toBe(2);
+    expect(getActorAuthoredCodes(executedCode)).toEqual([
+      'await final("done", { data: "done" });',
+    ]);
+    expect(secondTurnUserPrompt).toContain(
+      '[POLICY] Javascript Code must contain at most one fenced code block.'
+    );
+    expect(secondTurnUserPrompt).toContain(
+      'contained multiple fenced code blocks, so none of them were executed'
+    );
+  });
+
   it('should strip outer javascript fences before policy validation and replay', async () => {
     let actorCallCount = 0;
     let secondTurnUserPrompt = '';
