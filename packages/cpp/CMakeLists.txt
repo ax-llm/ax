@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(axllm VERSION 23.0.1 LANGUAGES CXX)
+project(axllm VERSION 23.0.2 LANGUAGES CXX)
 
 option(AX_BUILD_EXAMPLES "Build generated Ax examples" ON)
 option(AX_BUILD_CONFORMANCE "Build generated Ax conformance runner" ON)

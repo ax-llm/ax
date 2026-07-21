@@ -1,7 +1,7 @@
 ---
 name: "ax-go-flow"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components."
-version: "23.0.1"
+version: "23.0.2"
 ---
 # AxFlow For Go
 

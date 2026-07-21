@@ -1,5 +1,73 @@
 # Changelog
 
+## [23.0.2](https://github.com/ax-llm/ax/compare/23.0.0...23.0.1) (2026-07-21)
+
+### ⚠ BREAKING CHANGES
+
+* remove flow.fromMermaid/toMermaid — flow(text) and toString() are the API
+
+### Features
+
+* accept mermaid text in flow() and render flows via toString() ([f83bbf7](https://github.com/ax-llm/ax/commit/f83bbf72e91b75faa45befcc6f1a3e619776c1fc))
+* add MCP catalog subscriptions and event runtime ([669d22f](https://github.com/ax-llm/ax/commit/669d22f50fd683c057a77584b7e2a361635fce2a))
+* add multilingual Ax Academy ([1535efa](https://github.com/ax-llm/ax/commit/1535efa4fd2b30e7d129cf1ab5126b95f2f7727b))
+* **axir:** port ACE shape guard, playbook attach, citations, stage instruction, verified evolve, anthropic adaptive fixes ([1e1e849](https://github.com/ax-llm/ax/commit/1e1e849eb2c09f36068f15f885e2f0e66fddf68d))
+* **axir:** port extended signature grammar ([08d6494](https://github.com/ax-llm/ax/commit/08d64949a801a03ae531352a29e4406c7d053112))
+* **axir:** port flow mermaid dialect ([3e88dbf](https://github.com/ax-llm/ax/commit/3e88dbf0fd850fe91bdff6d2fbf9df44fc249ef2))
+* compile mermaid flowcharts into runnable flows via flow.fromMermaid() ([7702484](https://github.com/ax-llm/ax/commit/7702484f106d7ace5392c43bf1a5ac396948afdc))
+* deepen Ax Academy mastery learning ([7cd788c](https://github.com/ax-llm/ax/commit/7cd788c0fb2e877d59b396960a7492a748e12462))
+* **event:** add conforming SQLite event store ([c285545](https://github.com/ax-llm/ax/commit/c2855458b00409187ff366f2486465db09129626))
+* **event:** add verified UCP webhook runtime ([a45be52](https://github.com/ax-llm/ax/commit/a45be52e82e2f8f9569929692544ea4579e17811))
+* **event:** add volatile AxEventRuntime core ([4785634](https://github.com/ax-llm/ax/commit/47856347b35aed15f2ec0f7884c235f0868c3f88))
+* **event:** bridge MCP notifications and tasks ([0a9a35d](https://github.com/ax-llm/ax/commit/0a9a35d3b5c5e09398c16f805c0fe25a0810ffb1))
+* **event:** port deterministic runtime through AxIR ([f4aad7a](https://github.com/ax-llm/ax/commit/f4aad7ac0a10cb7d8c7484b52c8d72be7243caa0))
+* extend signature string grammar with modifier bags and nested objects ([2f6b422](https://github.com/ax-llm/ax/commit/2f6b42236de482fda6e711d3f0e613ce285fcfff))
+* infer extended signature grammar at the type level ([e7a8e3a](https://github.com/ax-llm/ax/commit/e7a8e3a8445f1611807d2d8e2447c7fa95534f93))
+* make Ax Academy newbie-first ([e064894](https://github.com/ax-llm/ax/commit/e0648944a2d9074847a42e0a79cb0c14bceb6f89))
+* **mcp:** add native MCP and UCP execution ([9c05203](https://github.com/ax-llm/ax/commit/9c0520371669a553eed605351fdd5417a734da1f))
+* preserve isOptional and class-option unions in signature field-addition types ([766bd99](https://github.com/ax-llm/ax/commit/766bd99c020e78008cf9a32de3fa5a8dfa9a852e))
+* remove flow.fromMermaid/toMermaid — flow(text) and toString() are the API ([f066578](https://github.com/ax-llm/ax/commit/f0665780ed244d613c73bbb1ab2a607117bb7a50))
+* render AxFlow as mermaid via toMermaid() ([8ae55b4](https://github.com/ax-llm/ax/commit/8ae55b41746b488e682765e0edb9b1c8e93ede98))
+
+### Bug Fixes
+
+* accept any whitespace after the description in type-level signatures ([f283f2e](https://github.com/ax-llm/ax/commit/f283f2e0bf7cd0cbfd31d1b877744fb4c8164eda))
+* accept any whitespace around -> in the type-level signature splitter ([91c072f](https://github.com/ax-llm/ax/commit/91c072f7f5e5e3109cdc5403771b484396bdc15f))
+* bump the academy page lockstep count in the website link checker ([25ebc12](https://github.com/ax-llm/ax/commit/25ebc128a1279e29d8bb0554885ee421c2efcfab))
+* clarify Ax Academy headline ([790637c](https://github.com/ax-llm/ax/commit/790637c40898beeb44f395b4b390941b865bfbef))
+* **docs:** make the subsystem-s mermaid example's class field output-only ([6b68661](https://github.com/ax-llm/ax/commit/6b6866147922076f09776de4f32fd9132a126f35))
+* enforce Academy question API coverage ([fd7dcb0](https://github.com/ax-llm/ax/commit/fd7dcb0c1e11415b3340b7fe2ca7b925d69f79be))
+* **event:** complete runtime landing repair ([4771325](https://github.com/ax-llm/ax/commit/47713253fd742e849d6c13b05e12b83fb9b31509))
+* **flow:** see through branch/while steps in signature inference ([d4b5246](https://github.com/ax-llm/ax/commit/d4b524635e22b6ee00d91dfee491dcec23025fb3))
+* polish Academy lesson states ([31f293d](https://github.com/ax-llm/ax/commit/31f293d0ebe925f398e3310055e4d2b6ef3b1b2e))
+* repair event runtime CI build ([8ef7d05](https://github.com/ax-llm/ax/commit/8ef7d055642b98356f2ad7afd41446c9433e3bf4))
+* reword comment for spelling gate ([27e2273](https://github.com/ax-llm/ax/commit/27e2273992c4379b317ab9e575a8ca6f859b7094))
+* silence unused-variable lint warning in mermaid node resolution ([471f129](https://github.com/ax-llm/ax/commit/471f129ce1daf383f66fba2be2bd9f043eb5add2))
+* simplify Ax Academy hero layout ([478c21d](https://github.com/ax-llm/ax/commit/478c21da2040be7c3d50540bb84f28f608cfa7eb))
+* **test:** migrate concurrent inference-fix regression tests off removed fromMermaid ([be74a16](https://github.com/ax-llm/ax/commit/be74a16dd6f194390a6b44d421865786a6008db4))
+
+### Reverts
+
+* Revert "chore(axir): drop mermaid + extended-grammar ports-parity entries" ([9e73091](https://github.com/ax-llm/ax/commit/9e73091398c1ffb5b4f4acaf13eccb947211ecbe))
+
+## [23.0.1](https://github.com/ax-llm/ax/compare/23.0.0...23.0.1) (2026-07-14)
+
+### Features
+
+* **agent:** agent.improve() — failure-driven repair with regression-validated acceptance ([994aac0](https://github.com/ax-llm/ax/commit/994aac0e6a7932eb02d6855f5ba8dbaf651e2f3c))
+* **agent:** construction-time playbook with run-end failure learning ([87be227](https://github.com/ax-llm/ax/commit/87be2273faca24a14e3a4704e42b0477c8dac29c))
+* **agent:** opt-in chain-of-evidence citations on the responder ([12fe8d0](https://github.com/ax-llm/ax/commit/12fe8d0b81f256b482dbdc782dffa3879e5f971f))
+* **website:** keep docs side-nav position across pages; chain next page on scroll ([f4f16fc](https://github.com/ax-llm/ax/commit/f4f16fc1c854353b3adf0399ce2936f04d2e9f00))
+* **website:** rework homepage top of page around the real moat ([5ef34b7](https://github.com/ax-llm/ax/commit/5ef34b743dbd987aac053f20c8befedb0624181d))
+
+### Bug Fixes
+
+* **agent:** correctness fixes from adversarial review of P1-P3 ([f4d4ac8](https://github.com/ax-llm/ax/commit/f4d4ac8deb71c7e7c2be1dbaa84579892db08b98))
+* **agent:** revive the dead stage ::instruction knob; playbook dedupe re-learns pruned lessons; improve() runsPerTask ([052fe52](https://github.com/ax-llm/ax/commit/052fe52d05ab80f4c008f5ee166774fbc2246289))
+* **anthropic:** omit sampling params on all adaptive models, not just Opus 4.7+ ([#560](https://github.com/ax-llm/ax/issues/560)) ([10eecc9](https://github.com/ax-llm/ax/commit/10eecc9dccee135af7a7175c1f84162b64d9934c))
+* **anthropic:** request summarized thinking display on adaptive models ([#561](https://github.com/ax-llm/ax/issues/561)) ([61bea23](https://github.com/ax-llm/ax/commit/61bea23f346f61a5821f347a8972c18047af037c)), closes [#560](https://github.com/ax-llm/ax/issues/560)
+* **website:** stop hero example swaps from reflowing the page; calmer two-line h1 ([1758469](https://github.com/ax-llm/ax/commit/17584697655efa1b38748a89cf6651255a48d038))
+
 ## [23.0.1](https://github.com/ax-llm/ax/compare/22.0.9...23.0.0) (2026-07-14)
 
 ### Features

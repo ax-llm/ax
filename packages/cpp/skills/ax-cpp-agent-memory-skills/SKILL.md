@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-agent-memory-skills"
 description: "Use when writing C++ code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking."
-version: "23.0.1"
+version: "23.0.2"
 ---
 # AxAgent Memory And Skills For C++
 

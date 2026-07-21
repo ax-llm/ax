@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'dev.axllm'
-version = '23.0.1'
+version = '23.0.2'
 
 java {
   toolchain {
