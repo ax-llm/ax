@@ -58,6 +58,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/SignatureSchemaExample.java`: signature parsing and JSON schema generation
 - `examples/AxGenScriptedClientToolExample.java`: AxGen with a scripted client and tool
 - `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport
+- `examples/AdaptiveBalancerNoKeyExample.java`: adaptive balancer state, scoring, and stable route keys without a provider key
 - `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport
 - `examples/AxFlowProgramGraphExample.java`: AxFlow program graph
 - `examples/FlowMermaidExample.java`: portable Mermaid flow parsing and canonical round-trip

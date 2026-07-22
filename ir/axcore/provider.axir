@@ -1430,6 +1430,420 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @provider_balancer_adaptive_policy {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "provider-balancer-adaptive"
+    type signature = "(strategy:json) -> json throws"
+    body @entry(%strategy: json) {
+      %deadline = core.get %strategy["deadlineMs"] default null
+      %deadline_missing = core.call intrinsic.is_none(%deadline)
+      core.if %deadline_missing {
+        %deadline = core.get %strategy["deadline_ms"] default 0
+      }
+      %deadline_bad = core.call intrinsic.lte(%deadline, 0)
+      core.if %deadline_bad {
+        %error = core.call intrinsic.error.runtime("Adaptive deadlineMs must be finite and greater than zero.")
+        core.raise %error
+      }
+      %bad_outcome = core.get %strategy["badOutcomeCost"] default null
+      %bad_outcome_missing = core.call intrinsic.is_none(%bad_outcome)
+      core.if %bad_outcome_missing {
+        %bad_outcome = core.get %strategy["bad_outcome_cost"] default -1
+      }
+      %bad_outcome_bad = core.call intrinsic.lt(%bad_outcome, 0)
+      core.if %bad_outcome_bad {
+        %error = core.call intrinsic.error.runtime("Adaptive badOutcomeCost must be finite and non-negative.")
+        core.raise %error
+      }
+      %out = core.map
+      core.set %out["type"] = "adaptive"
+      core.set %out["deadlineMs"] = %deadline
+      core.set %out["badOutcomeCost"] = %bad_outcome
+      %namespace = core.get %strategy["namespace"] default "default"
+      core.set %out["namespace"] = %namespace
+      %tokens = core.get %strategy["expectedTokens"] default null
+      %tokens_missing = core.call intrinsic.is_none(%tokens)
+      core.if %tokens_missing {
+        %tokens = core.get %strategy["expected_tokens"] default null
+      }
+      core.set %out["expectedTokens"] = %tokens
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_balancer_route_stats {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-balancer-adaptive"
+    type signature = "() -> json"
+    body @entry() {
+      %out = core.map
+      core.set %out["version"] = 1
+      core.set %out["observations"] = 0
+      core.set %out["successes"] = 0
+      core.set %out["failureEwma"] = 0.05
+      core.set %out["logLatencyMean"] = 0
+      core.set %out["logLatencyM2"] = 0
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_balancer_observe_route {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-balancer-adaptive"
+    type signature = "(stats:json, observation:json) -> json"
+    body @entry(%stats: json, %observation: json) {
+      %missing = core.call intrinsic.is_none(%stats)
+      core.if %missing {
+        %stats = core.call @provider_balancer_route_stats()
+      }
+      %outcome = core.get %observation["outcome"] default "failure"
+      %failed = core.call intrinsic.eq(%outcome, "failure")
+      %failed_number = core.call intrinsic.add(0, 0)
+      core.if %failed {
+        %failed_number = core.call intrinsic.add(1, 0)
+      }
+      %failure_ewma = core.get %stats["failureEwma"] default 0.05
+      %old_weighted = core.call intrinsic.mul(0.8, %failure_ewma)
+      %new_weighted = core.call intrinsic.mul(0.2, %failed_number)
+      %next_failure = core.call intrinsic.add(%old_weighted, %new_weighted)
+      %observations = core.get %stats["observations"] default 0
+      %next_observations = core.call intrinsic.add(%observations, 1)
+      %successes = core.get %stats["successes"] default 0
+      %mean = core.get %stats["logLatencyMean"] default 0
+      %m2 = core.get %stats["logLatencyM2"] default 0
+      %out = core.map
+      core.set %out["version"] = 1
+      core.set %out["observations"] = %next_observations
+      core.set %out["successes"] = %successes
+      core.set %out["failureEwma"] = %next_failure
+      core.set %out["logLatencyMean"] = %mean
+      core.set %out["logLatencyM2"] = %m2
+      core.if %failed {
+        core.return %out
+      }
+      %latency = core.get %observation["latencyMs"] default null
+      %latency_missing = core.call intrinsic.is_none(%latency)
+      core.if %latency_missing {
+        %latency = core.get %observation["latency_ms"] default 1
+      }
+      %too_small = core.call intrinsic.lt(%latency, 1)
+      core.if %too_small {
+        %latency = core.call intrinsic.add(1, 0)
+      }
+      %log_latency = core.call intrinsic.math.log(%latency)
+      %next_successes = core.call intrinsic.add(%successes, 1)
+      %negative_mean = core.call intrinsic.mul(-1, %mean)
+      %delta = core.call intrinsic.add(%log_latency, %negative_mean)
+      %delta_share = core.call intrinsic.div(%delta, %next_successes)
+      %next_mean = core.call intrinsic.add(%mean, %delta_share)
+      %negative_next_mean = core.call intrinsic.mul(-1, %next_mean)
+      %delta_after = core.call intrinsic.add(%log_latency, %negative_next_mean)
+      %m2_increment = core.call intrinsic.mul(%delta, %delta_after)
+      %next_m2 = core.call intrinsic.add(%m2, %m2_increment)
+      core.set %out["successes"] = %next_successes
+      core.set %out["logLatencyMean"] = %next_mean
+      core.set %out["logLatencyM2"] = %next_m2
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_balancer_nonzero_random {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = "true"
+    tag "provider-balancer-adaptive"
+    type signature = "() -> number"
+    body @entry() {
+      %value = core.call intrinsic.math.random()
+      %low = core.call intrinsic.lt(%value, 0.0000000000000002220446049250313)
+      core.if %low {
+        core.return 0.0000000000000002220446049250313
+      }
+      %high = core.call intrinsic.gt(%value, 0.9999999999999997779553950749687)
+      core.if %high {
+        core.return 0.9999999999999997779553950749687
+      }
+      core.return %value
+    }
+  }
+
+  op ax.provider.semantic @provider_balancer_standard_normal {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = "true"
+    tag "provider-balancer-adaptive"
+    type signature = "() -> number"
+    body @entry() {
+      %u1 = core.call @provider_balancer_nonzero_random()
+      %u2 = core.call @provider_balancer_nonzero_random()
+      %log_u1 = core.call intrinsic.math.log(%u1)
+      %negative_two_log = core.call intrinsic.mul(-2, %log_u1)
+      %radius = core.call intrinsic.math.sqrt(%negative_two_log)
+      %angle = core.call intrinsic.mul(6.283185307179586, %u2)
+      %cosine = core.call intrinsic.math.cos(%angle)
+      %sample = core.call intrinsic.mul(%radius, %cosine)
+      core.return %sample
+    }
+  }
+
+  op ax.provider.semantic @provider_balancer_gamma_sample {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = "true"
+    tag "provider-balancer-adaptive"
+    type signature = "(shape:number, scale:number) -> number"
+    body @entry(%shape: number, %scale: number) {
+      %third = core.call intrinsic.div(1, 3)
+      %negative_third = core.call intrinsic.mul(-1, %third)
+      %d = core.call intrinsic.add(%shape, %negative_third)
+      %nine_d = core.call intrinsic.mul(9, %d)
+      %sqrt_nine_d = core.call intrinsic.math.sqrt(%nine_d)
+      %c = core.call intrinsic.div(1, %sqrt_nine_d)
+      %attempts = core.list
+      core.append %attempts, 0
+      core.append %attempts, 1
+      core.append %attempts, 2
+      core.append %attempts, 3
+      core.append %attempts, 4
+      core.append %attempts, 5
+      core.append %attempts, 6
+      core.append %attempts, 7
+      core.append %attempts, 8
+      core.append %attempts, 9
+      core.append %attempts, 10
+      core.append %attempts, 11
+      core.append %attempts, 12
+      core.append %attempts, 13
+      core.append %attempts, 14
+      core.append %attempts, 15
+      core.for %attempt in %attempts {
+        %x = core.call @provider_balancer_standard_normal()
+        %cx = core.call intrinsic.mul(%c, %x)
+        %base = core.call intrinsic.add(1, %cx)
+        %base_bad = core.call intrinsic.lte(%base, 0)
+        core.if %base_bad {
+          core.continue
+        }
+        %value = core.call intrinsic.math.pow(%base, 3)
+        %u = core.call @provider_balancer_nonzero_random()
+        %x2 = core.call intrinsic.math.pow(%x, 2)
+        %x4 = core.call intrinsic.math.pow(%x, 4)
+        %penalty = core.call intrinsic.mul(0.0331, %x4)
+        %negative_penalty = core.call intrinsic.mul(-1, %penalty)
+        %fast_threshold = core.call intrinsic.add(1, %negative_penalty)
+        %fast_accept = core.call intrinsic.lt(%u, %fast_threshold)
+        core.if %fast_accept {
+          %dv = core.call intrinsic.mul(%d, %value)
+          %sample = core.call intrinsic.mul(%dv, %scale)
+          core.return %sample
+        }
+        %log_u = core.call intrinsic.math.log(%u)
+        %half_x2 = core.call intrinsic.mul(0.5, %x2)
+        %negative_value = core.call intrinsic.mul(-1, %value)
+        %one_minus_value = core.call intrinsic.add(1, %negative_value)
+        %log_value = core.call intrinsic.math.log(%value)
+        %inside = core.call intrinsic.add(%one_minus_value, %log_value)
+        %d_inside = core.call intrinsic.mul(%d, %inside)
+        %rhs = core.call intrinsic.add(%half_x2, %d_inside)
+        %accept = core.call intrinsic.lt(%log_u, %rhs)
+        core.if %accept {
+          %dv = core.call intrinsic.mul(%d, %value)
+          %sample = core.call intrinsic.mul(%dv, %scale)
+          core.return %sample
+        }
+      }
+      %fallback = core.call intrinsic.mul(%shape, %scale)
+      core.return %fallback
+    }
+  }
+
+  op ax.provider.semantic @provider_balancer_normal_cdf {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = "true"
+    tag "provider-balancer-adaptive"
+    type signature = "(value:number) -> number"
+    body @entry(%value: number) {
+      %sign = core.call intrinsic.add(1, 0)
+      %negative = core.call intrinsic.lt(%value, 0)
+      core.if %negative {
+        %sign = core.call intrinsic.add(-1, 0)
+      }
+      %absolute = core.call intrinsic.math.abs(%value)
+      %sqrt_two = core.call intrinsic.math.sqrt(2)
+      %x = core.call intrinsic.div(%absolute, %sqrt_two)
+      %scaled_x = core.call intrinsic.mul(0.3275911, %x)
+      %denom = core.call intrinsic.add(1, %scaled_x)
+      %t = core.call intrinsic.div(1, %denom)
+      %p1 = core.call intrinsic.mul(1.061405429, %t)
+      %p1 = core.call intrinsic.add(%p1, -1.453152027)
+      %p2 = core.call intrinsic.mul(%p1, %t)
+      %p2 = core.call intrinsic.add(%p2, 1.421413741)
+      %p3 = core.call intrinsic.mul(%p2, %t)
+      %p3 = core.call intrinsic.add(%p3, -0.284496736)
+      %p4 = core.call intrinsic.mul(%p3, %t)
+      %p4 = core.call intrinsic.add(%p4, 0.254829592)
+      %polynomial = core.call intrinsic.mul(%p4, %t)
+      %negative_x = core.call intrinsic.mul(-1, %x)
+      %negative_x2 = core.call intrinsic.mul(%negative_x, %x)
+      %exponential = core.call intrinsic.math.exp(%negative_x2)
+      %poly_exp = core.call intrinsic.mul(%polynomial, %exponential)
+      %negative_poly_exp = core.call intrinsic.mul(-1, %poly_exp)
+      %one_minus = core.call intrinsic.add(1, %negative_poly_exp)
+      %erf = core.call intrinsic.mul(%sign, %one_minus)
+      %one_plus_erf = core.call intrinsic.add(1, %erf)
+      %cdf = core.call intrinsic.div(%one_plus_erf, 2)
+      core.return %cdf
+    }
+  }
+
+  op ax.provider.semantic @provider_balancer_sample_health {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-balancer-adaptive"
+    type signature = "(stats:json, deadline_ms:number) -> json"
+    body @entry(%stats: json, %deadline_ms: number) {
+      %missing = core.call intrinsic.is_none(%stats)
+      core.if %missing {
+        %stats = core.call @provider_balancer_route_stats()
+      }
+      %deadline_too_small = core.call intrinsic.lt(%deadline_ms, 1)
+      core.if %deadline_too_small {
+        %deadline_ms = core.call intrinsic.add(1, 0)
+      }
+      %half_deadline = core.call intrinsic.div(%deadline_ms, 2)
+      %prior_mean = core.call intrinsic.math.log(%half_deadline)
+      %count = core.get %stats["successes"] default 0
+      %posterior_strength = core.call intrinsic.add(1, %count)
+      %count_mean = core.get %stats["logLatencyMean"] default 0
+      %weighted_mean = core.call intrinsic.mul(%count, %count_mean)
+      %mean_sum = core.call intrinsic.add(%prior_mean, %weighted_mean)
+      %posterior_mean = core.call intrinsic.div(%mean_sum, %posterior_strength)
+      %half_count = core.call intrinsic.div(%count, 2)
+      %posterior_alpha = core.call intrinsic.add(2, %half_count)
+      %negative_prior = core.call intrinsic.mul(-1, %prior_mean)
+      %mean_delta = core.call intrinsic.add(%count_mean, %negative_prior)
+      %mean_delta2 = core.call intrinsic.math.pow(%mean_delta, 2)
+      %count_delta2 = core.call intrinsic.mul(%count, %mean_delta2)
+      %twice_strength = core.call intrinsic.mul(2, %posterior_strength)
+      %mean_adjustment = core.call intrinsic.div(%count_delta2, %twice_strength)
+      %m2 = core.get %stats["logLatencyM2"] default 0
+      %half_m2 = core.call intrinsic.div(%m2, 2)
+      %posterior_beta = core.call intrinsic.add(0.4804530139182014, %half_m2)
+      %posterior_beta = core.call intrinsic.add(%posterior_beta, %mean_adjustment)
+      %scale = core.call intrinsic.div(1, %posterior_beta)
+      %precision = core.call @provider_balancer_gamma_sample(%posterior_alpha, %scale)
+      %variance = core.call intrinsic.div(1, %precision)
+      %variance_over_strength = core.call intrinsic.div(%variance, %posterior_strength)
+      %mean_stddev = core.call intrinsic.math.sqrt(%variance_over_strength)
+      %normal = core.call @provider_balancer_standard_normal()
+      %mean_noise = core.call intrinsic.mul(%normal, %mean_stddev)
+      %sampled_mean = core.call intrinsic.add(%posterior_mean, %mean_noise)
+      %log_deadline = core.call intrinsic.math.log(%deadline_ms)
+      %negative_sampled_mean = core.call intrinsic.mul(-1, %sampled_mean)
+      %z_numerator = core.call intrinsic.add(%log_deadline, %negative_sampled_mean)
+      %variance_stddev = core.call intrinsic.math.sqrt(%variance)
+      %z = core.call intrinsic.div(%z_numerator, %variance_stddev)
+      %cdf = core.call @provider_balancer_normal_cdf(%z)
+      %negative_cdf = core.call intrinsic.mul(-1, %cdf)
+      %late = core.call intrinsic.add(1, %negative_cdf)
+      %failure = core.get %stats["failureEwma"] default 0.05
+      %out = core.map
+      core.set %out["failureProbability"] = %failure
+      core.set %out["deadlineMissProbability"] = %late
+      core.return %out
+    }
+  }
+
+  op ax.provider.semantic @provider_balancer_adaptive_score {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-balancer-adaptive"
+    type signature = "(estimated_cost:number, bad_outcome_cost:number, failure_probability:number, deadline_miss_probability:number) -> number"
+    body @entry(%estimated_cost: number, %bad_outcome_cost: number, %failure_probability: number, %deadline_miss_probability: number) {
+      %negative_failure = core.call intrinsic.mul(-1, %failure_probability)
+      %success_probability = core.call intrinsic.add(1, %negative_failure)
+      %successful_late = core.call intrinsic.mul(%success_probability, %deadline_miss_probability)
+      %bad_probability = core.call intrinsic.add(%failure_probability, %successful_late)
+      %bad_cost = core.call intrinsic.mul(%bad_outcome_cost, %bad_probability)
+      %score = core.call intrinsic.add(%estimated_cost, %bad_cost)
+      core.return %score
+    }
+  }
+
+  op ax.provider.semantic @provider_balancer_validate_route_key {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "provider-balancer-adaptive"
+    type signature = "(route_key:string, seen_keys:json) -> string throws"
+    body @entry(%route_key: string, %seen_keys: json) {
+      %key = core.string_trim %route_key
+      %empty = core.call intrinsic.eq(%key, "")
+      core.if %empty {
+        %error = core.call intrinsic.error.runtime("Adaptive route keys must be non-empty.")
+        core.raise %error
+      }
+      %duplicate = core.call intrinsic.contains(%seen_keys, %key)
+      core.if %duplicate {
+        %error = core.call intrinsic.error.runtime("Adaptive route keys must be unique.")
+        core.raise %error
+      }
+      core.return %key
+    }
+  }
+
+  op ax.provider.semantic @provider_balancer_rank_candidates {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-balancer-adaptive"
+    type signature = "(candidates:json) -> json"
+    body @entry(%candidates: json) {
+      %ranked = core.list
+      %used = core.map
+      core.for %slot in %candidates {
+        %best = core.map
+        %has_best = core.let false
+        %best_score = core.let 0
+        %best_order = core.let 0
+        core.for %candidate in %candidates {
+          %route_key = core.get %candidate["routeKey"] default ""
+          %already_used = core.call intrinsic.map.contains(%used, %route_key)
+          core.if %already_used {
+            core.continue
+          }
+          %score = core.get %candidate["score"] default 0
+          %order = core.get %candidate["order"] default 0
+          %lower_score = core.call intrinsic.lt(%score, %best_score)
+          %equal_score = core.call intrinsic.eq(%score, %best_score)
+          %lower_order = core.call intrinsic.lt(%order, %best_order)
+          %stable_tie = core.call intrinsic.and(%equal_score, %lower_order)
+          %score_or_tie = core.call intrinsic.or(%lower_score, %stable_tie)
+          %no_best = core.call intrinsic.not(%has_best)
+          %better = core.call intrinsic.or(%no_best, %score_or_tie)
+          core.if %better {
+            %best = core.let %candidate
+            %best_score = core.let %score
+            %best_order = core.let %order
+            %has_best = core.let true
+          }
+        }
+        %missing = core.call intrinsic.not(%has_best)
+        core.if %missing {
+          core.continue
+        }
+        %best_key = core.get %best["routeKey"] default ""
+        core.set %used[%best_key] = true
+        core.append %ranked, %best
+      }
+      core.return %ranked
+    }
+  }
+
   op ax.provider.semantic @provider_routing_stats {
     attr core_kind = "func"
     attr emit_module = "ai"

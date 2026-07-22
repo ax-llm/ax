@@ -521,6 +521,22 @@ Value Core::div(Value left, Value right) {
   double denom = num(right);
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
+Value Core::math_abs(Value value) { return Value(std::abs(num(value))); }
+Value Core::math_log(Value value) { return Value(std::log(num(value))); }
+Value Core::math_exp(Value value) { return Value(std::exp(num(value))); }
+Value Core::math_sqrt(Value value) { return Value(std::sqrt(num(value))); }
+Value Core::math_cos(Value value) { return Value(std::cos(num(value))); }
+Value Core::math_pow(Value left, Value right) { return Value(std::pow(num(left), num(right))); }
+static thread_local std::vector<double> axir_math_random_values;
+void Core::set_math_random_values(std::vector<double> values) { axir_math_random_values = std::move(values); }
+Value Core::math_random() {
+  if (!axir_math_random_values.empty()) {
+    double value = axir_math_random_values.front();
+    axir_math_random_values.erase(axir_math_random_values.begin());
+    return Value(value);
+  }
+  return Value(static_cast<double>(std::rand()) / (static_cast<double>(RAND_MAX) + 1.0));
+}
 
 double Core::number(Value value) { return num(value); }
 Value Core::contains(Value container, Value item) {
@@ -5421,6 +5437,359 @@ Value Core::provider_balancer_candidate_allowed(Value features, Value request) {
     }
   }
   return Value(true);
+}
+
+Value Core::provider_balancer_adaptive_policy(Value strategy) {
+  axir_coverage_mark("provider_balancer_adaptive_policy");
+  Value deadline = Core::get(strategy, Value("deadlineMs"), Value());
+  Value deadline_missing = Core::is_none(deadline);
+  if (Core::truthy(deadline_missing)) {
+    deadline = Core::get(strategy, Value("deadline_ms"), Value(0));
+  }
+  Value deadline_bad = Core::lte(deadline, Value(0));
+  if (Core::truthy(deadline_bad)) {
+    Value error = Core::runtime_error(Value("Adaptive deadlineMs must be finite and greater than zero."));
+    throw Core::as_error(error);
+  }
+  Value bad_outcome = Core::get(strategy, Value("badOutcomeCost"), Value());
+  Value bad_outcome_missing = Core::is_none(bad_outcome);
+  if (Core::truthy(bad_outcome_missing)) {
+    bad_outcome = Core::get(strategy, Value("bad_outcome_cost"), Value(-1));
+  }
+  Value bad_outcome_bad = Core::lt(bad_outcome, Value(0));
+  if (Core::truthy(bad_outcome_bad)) {
+    Value error = Core::runtime_error(Value("Adaptive badOutcomeCost must be finite and non-negative."));
+    throw Core::as_error(error);
+  }
+  Value out = Value::object();
+  Core::set(out, Value("type"), Value("adaptive"));
+  Core::set(out, Value("deadlineMs"), deadline);
+  Core::set(out, Value("badOutcomeCost"), bad_outcome);
+  Value namespace_ = Core::get(strategy, Value("namespace"), Value("default"));
+  Core::set(out, Value("namespace"), namespace_);
+  Value tokens = Core::get(strategy, Value("expectedTokens"), Value());
+  Value tokens_missing = Core::is_none(tokens);
+  if (Core::truthy(tokens_missing)) {
+    tokens = Core::get(strategy, Value("expected_tokens"), Value());
+  }
+  Core::set(out, Value("expectedTokens"), tokens);
+  return out;
+}
+
+Value Core::provider_balancer_route_stats() {
+  axir_coverage_mark("provider_balancer_route_stats");
+  Value out = Value::object();
+  Core::set(out, Value("version"), Value(1));
+  Core::set(out, Value("observations"), Value(0));
+  Core::set(out, Value("successes"), Value(0));
+  Core::set(out, Value("failureEwma"), Value(0.05));
+  Core::set(out, Value("logLatencyMean"), Value(0));
+  Core::set(out, Value("logLatencyM2"), Value(0));
+  return out;
+}
+
+Value Core::provider_balancer_observe_route(Value stats, Value observation) {
+  axir_coverage_mark("provider_balancer_observe_route");
+  Value missing = Core::is_none(stats);
+  if (Core::truthy(missing)) {
+    stats = Core::provider_balancer_route_stats();
+  }
+  Value outcome = Core::get(observation, Value("outcome"), Value("failure"));
+  Value failed = Core::eq(outcome, Value("failure"));
+  Value failed_number = Core::add(Value(0), Value(0));
+  if (Core::truthy(failed)) {
+    failed_number = Core::add(Value(1), Value(0));
+  }
+  Value failure_ewma = Core::get(stats, Value("failureEwma"), Value(0.05));
+  Value old_weighted = Core::mul(Value(0.8), failure_ewma);
+  Value new_weighted = Core::mul(Value(0.2), failed_number);
+  Value next_failure = Core::add(old_weighted, new_weighted);
+  Value observations = Core::get(stats, Value("observations"), Value(0));
+  Value next_observations = Core::add(observations, Value(1));
+  Value successes = Core::get(stats, Value("successes"), Value(0));
+  Value mean = Core::get(stats, Value("logLatencyMean"), Value(0));
+  Value m2 = Core::get(stats, Value("logLatencyM2"), Value(0));
+  Value out = Value::object();
+  Core::set(out, Value("version"), Value(1));
+  Core::set(out, Value("observations"), next_observations);
+  Core::set(out, Value("successes"), successes);
+  Core::set(out, Value("failureEwma"), next_failure);
+  Core::set(out, Value("logLatencyMean"), mean);
+  Core::set(out, Value("logLatencyM2"), m2);
+  if (Core::truthy(failed)) {
+    return out;
+  }
+  Value latency = Core::get(observation, Value("latencyMs"), Value());
+  Value latency_missing = Core::is_none(latency);
+  if (Core::truthy(latency_missing)) {
+    latency = Core::get(observation, Value("latency_ms"), Value(1));
+  }
+  Value too_small = Core::lt(latency, Value(1));
+  if (Core::truthy(too_small)) {
+    latency = Core::add(Value(1), Value(0));
+  }
+  Value log_latency = Core::math_log(latency);
+  Value next_successes = Core::add(successes, Value(1));
+  Value negative_mean = Core::mul(Value(-1), mean);
+  Value delta = Core::add(log_latency, negative_mean);
+  Value delta_share = Core::div(delta, next_successes);
+  Value next_mean = Core::add(mean, delta_share);
+  Value negative_next_mean = Core::mul(Value(-1), next_mean);
+  Value delta_after = Core::add(log_latency, negative_next_mean);
+  Value m2_increment = Core::mul(delta, delta_after);
+  Value next_m2 = Core::add(m2, m2_increment);
+  Core::set(out, Value("successes"), next_successes);
+  Core::set(out, Value("logLatencyMean"), next_mean);
+  Core::set(out, Value("logLatencyM2"), next_m2);
+  return out;
+}
+
+Value Core::_provider_balancer_nonzero_random() {
+  axir_coverage_mark("_provider_balancer_nonzero_random");
+  Value value = Core::math_random();
+  Value low = Core::lt(value, Value(0.0000000000000002220446049250313));
+  if (Core::truthy(low)) {
+    return Value(0.0000000000000002220446049250313);
+  }
+  Value high = Core::gt(value, Value(0.9999999999999998));
+  if (Core::truthy(high)) {
+    return Value(0.9999999999999998);
+  }
+  return value;
+}
+
+Value Core::_provider_balancer_standard_normal() {
+  axir_coverage_mark("_provider_balancer_standard_normal");
+  Value u1 = Core::_provider_balancer_nonzero_random();
+  Value u2 = Core::_provider_balancer_nonzero_random();
+  Value log_u1 = Core::math_log(u1);
+  Value negative_two_log = Core::mul(Value(-2), log_u1);
+  Value radius = Core::math_sqrt(negative_two_log);
+  Value angle = Core::mul(Value(6.283185307179586), u2);
+  Value cosine = Core::math_cos(angle);
+  Value sample = Core::mul(radius, cosine);
+  return sample;
+}
+
+Value Core::_provider_balancer_gamma_sample(Value shape, Value scale) {
+  axir_coverage_mark("_provider_balancer_gamma_sample");
+  Value third = Core::div(Value(1), Value(3));
+  Value negative_third = Core::mul(Value(-1), third);
+  Value d = Core::add(shape, negative_third);
+  Value nine_d = Core::mul(Value(9), d);
+  Value sqrt_nine_d = Core::math_sqrt(nine_d);
+  Value c = Core::div(Value(1), sqrt_nine_d);
+  Value attempts = Value::array();
+  Core::append(attempts, Value(0));
+  Core::append(attempts, Value(1));
+  Core::append(attempts, Value(2));
+  Core::append(attempts, Value(3));
+  Core::append(attempts, Value(4));
+  Core::append(attempts, Value(5));
+  Core::append(attempts, Value(6));
+  Core::append(attempts, Value(7));
+  Core::append(attempts, Value(8));
+  Core::append(attempts, Value(9));
+  Core::append(attempts, Value(10));
+  Core::append(attempts, Value(11));
+  Core::append(attempts, Value(12));
+  Core::append(attempts, Value(13));
+  Core::append(attempts, Value(14));
+  Core::append(attempts, Value(15));
+  for (auto attempt : Core::iter(attempts)) {
+    Value x = Core::_provider_balancer_standard_normal();
+    Value cx = Core::mul(c, x);
+    Value base = Core::add(Value(1), cx);
+    Value base_bad = Core::lte(base, Value(0));
+    if (Core::truthy(base_bad)) {
+      continue;
+    }
+    Value value = Core::math_pow(base, Value(3));
+    Value u = Core::_provider_balancer_nonzero_random();
+    Value x2 = Core::math_pow(x, Value(2));
+    Value x4 = Core::math_pow(x, Value(4));
+    Value penalty = Core::mul(Value(0.0331), x4);
+    Value negative_penalty = Core::mul(Value(-1), penalty);
+    Value fast_threshold = Core::add(Value(1), negative_penalty);
+    Value fast_accept = Core::lt(u, fast_threshold);
+    if (Core::truthy(fast_accept)) {
+      Value dv = Core::mul(d, value);
+      Value sample = Core::mul(dv, scale);
+      return sample;
+    }
+    Value log_u = Core::math_log(u);
+    Value half_x2 = Core::mul(Value(0.5), x2);
+    Value negative_value = Core::mul(Value(-1), value);
+    Value one_minus_value = Core::add(Value(1), negative_value);
+    Value log_value = Core::math_log(value);
+    Value inside = Core::add(one_minus_value, log_value);
+    Value d_inside = Core::mul(d, inside);
+    Value rhs = Core::add(half_x2, d_inside);
+    Value accept = Core::lt(log_u, rhs);
+    if (Core::truthy(accept)) {
+      Value dv = Core::mul(d, value);
+      Value sample = Core::mul(dv, scale);
+      return sample;
+    }
+  }
+  Value fallback = Core::mul(shape, scale);
+  return fallback;
+}
+
+Value Core::_provider_balancer_normal_cdf(Value value) {
+  axir_coverage_mark("_provider_balancer_normal_cdf");
+  Value sign = Core::add(Value(1), Value(0));
+  Value negative = Core::lt(value, Value(0));
+  if (Core::truthy(negative)) {
+    sign = Core::add(Value(-1), Value(0));
+  }
+  Value absolute = Core::math_abs(value);
+  Value sqrt_two = Core::math_sqrt(Value(2));
+  Value x = Core::div(absolute, sqrt_two);
+  Value scaled_x = Core::mul(Value(0.3275911), x);
+  Value denom = Core::add(Value(1), scaled_x);
+  Value t = Core::div(Value(1), denom);
+  Value p1 = Core::mul(Value(1.061405429), t);
+  p1 = Core::add(p1, Value(-1.453152027));
+  Value p2 = Core::mul(p1, t);
+  p2 = Core::add(p2, Value(1.421413741));
+  Value p3 = Core::mul(p2, t);
+  p3 = Core::add(p3, Value(-0.284496736));
+  Value p4 = Core::mul(p3, t);
+  p4 = Core::add(p4, Value(0.254829592));
+  Value polynomial = Core::mul(p4, t);
+  Value negative_x = Core::mul(Value(-1), x);
+  Value negative_x2 = Core::mul(negative_x, x);
+  Value exponential = Core::math_exp(negative_x2);
+  Value poly_exp = Core::mul(polynomial, exponential);
+  Value negative_poly_exp = Core::mul(Value(-1), poly_exp);
+  Value one_minus = Core::add(Value(1), negative_poly_exp);
+  Value erf = Core::mul(sign, one_minus);
+  Value one_plus_erf = Core::add(Value(1), erf);
+  Value cdf = Core::div(one_plus_erf, Value(2));
+  return cdf;
+}
+
+Value Core::provider_balancer_sample_health(Value stats, Value deadline_ms) {
+  axir_coverage_mark("provider_balancer_sample_health");
+  Value missing = Core::is_none(stats);
+  if (Core::truthy(missing)) {
+    stats = Core::provider_balancer_route_stats();
+  }
+  Value deadline_too_small = Core::lt(deadline_ms, Value(1));
+  if (Core::truthy(deadline_too_small)) {
+    deadline_ms = Core::add(Value(1), Value(0));
+  }
+  Value half_deadline = Core::div(deadline_ms, Value(2));
+  Value prior_mean = Core::math_log(half_deadline);
+  Value count = Core::get(stats, Value("successes"), Value(0));
+  Value posterior_strength = Core::add(Value(1), count);
+  Value count_mean = Core::get(stats, Value("logLatencyMean"), Value(0));
+  Value weighted_mean = Core::mul(count, count_mean);
+  Value mean_sum = Core::add(prior_mean, weighted_mean);
+  Value posterior_mean = Core::div(mean_sum, posterior_strength);
+  Value half_count = Core::div(count, Value(2));
+  Value posterior_alpha = Core::add(Value(2), half_count);
+  Value negative_prior = Core::mul(Value(-1), prior_mean);
+  Value mean_delta = Core::add(count_mean, negative_prior);
+  Value mean_delta2 = Core::math_pow(mean_delta, Value(2));
+  Value count_delta2 = Core::mul(count, mean_delta2);
+  Value twice_strength = Core::mul(Value(2), posterior_strength);
+  Value mean_adjustment = Core::div(count_delta2, twice_strength);
+  Value m2 = Core::get(stats, Value("logLatencyM2"), Value(0));
+  Value half_m2 = Core::div(m2, Value(2));
+  Value posterior_beta = Core::add(Value(0.4804530139182014), half_m2);
+  posterior_beta = Core::add(posterior_beta, mean_adjustment);
+  Value scale = Core::div(Value(1), posterior_beta);
+  Value precision = Core::_provider_balancer_gamma_sample(posterior_alpha, scale);
+  Value variance = Core::div(Value(1), precision);
+  Value variance_over_strength = Core::div(variance, posterior_strength);
+  Value mean_stddev = Core::math_sqrt(variance_over_strength);
+  Value normal = Core::_provider_balancer_standard_normal();
+  Value mean_noise = Core::mul(normal, mean_stddev);
+  Value sampled_mean = Core::add(posterior_mean, mean_noise);
+  Value log_deadline = Core::math_log(deadline_ms);
+  Value negative_sampled_mean = Core::mul(Value(-1), sampled_mean);
+  Value z_numerator = Core::add(log_deadline, negative_sampled_mean);
+  Value variance_stddev = Core::math_sqrt(variance);
+  Value z = Core::div(z_numerator, variance_stddev);
+  Value cdf = Core::_provider_balancer_normal_cdf(z);
+  Value negative_cdf = Core::mul(Value(-1), cdf);
+  Value late = Core::add(Value(1), negative_cdf);
+  Value failure = Core::get(stats, Value("failureEwma"), Value(0.05));
+  Value out = Value::object();
+  Core::set(out, Value("failureProbability"), failure);
+  Core::set(out, Value("deadlineMissProbability"), late);
+  return out;
+}
+
+Value Core::provider_balancer_adaptive_score(Value estimated_cost, Value bad_outcome_cost, Value failure_probability, Value deadline_miss_probability) {
+  axir_coverage_mark("provider_balancer_adaptive_score");
+  Value negative_failure = Core::mul(Value(-1), failure_probability);
+  Value success_probability = Core::add(Value(1), negative_failure);
+  Value successful_late = Core::mul(success_probability, deadline_miss_probability);
+  Value bad_probability = Core::add(failure_probability, successful_late);
+  Value bad_cost = Core::mul(bad_outcome_cost, bad_probability);
+  Value score = Core::add(estimated_cost, bad_cost);
+  return score;
+}
+
+Value Core::provider_balancer_validate_route_key(Value route_key, Value seen_keys) {
+  axir_coverage_mark("provider_balancer_validate_route_key");
+  Value key = Core::string_trim(route_key);
+  Value empty = Core::eq(key, Value(""));
+  if (Core::truthy(empty)) {
+    Value error = Core::runtime_error(Value("Adaptive route keys must be non-empty."));
+    throw Core::as_error(error);
+  }
+  Value duplicate = Core::contains(seen_keys, key);
+  if (Core::truthy(duplicate)) {
+    Value error = Core::runtime_error(Value("Adaptive route keys must be unique."));
+    throw Core::as_error(error);
+  }
+  return key;
+}
+
+Value Core::provider_balancer_rank_candidates(Value candidates) {
+  axir_coverage_mark("provider_balancer_rank_candidates");
+  Value ranked = Value::array();
+  Value used = Value::object();
+  for (auto slot : Core::iter(candidates)) {
+    Value best = Value::object();
+    Value has_best = Value(false);
+    Value best_score = Value(0);
+    Value best_order = Value(0);
+    for (auto candidate : Core::iter(candidates)) {
+      Value route_key = Core::get(candidate, Value("routeKey"), Value(""));
+      Value already_used = Core::map_contains(used, route_key);
+      if (Core::truthy(already_used)) {
+        continue;
+      }
+      Value score = Core::get(candidate, Value("score"), Value(0));
+      Value order = Core::get(candidate, Value("order"), Value(0));
+      Value lower_score = Core::lt(score, best_score);
+      Value equal_score = Core::eq(score, best_score);
+      Value lower_order = Core::lt(order, best_order);
+      Value stable_tie = Core::and_(equal_score, lower_order);
+      Value score_or_tie = Core::or_(lower_score, stable_tie);
+      Value no_best = Core::not_(has_best);
+      Value better = Core::or_(no_best, score_or_tie);
+      if (Core::truthy(better)) {
+        best = candidate;
+        best_score = score;
+        best_order = order;
+        has_best = Value(true);
+      }
+    }
+    Value missing = Core::not_(has_best);
+    if (Core::truthy(missing)) {
+      continue;
+    }
+    Value best_key = Core::get(best, Value("routeKey"), Value(""));
+    Core::set(used, best_key, Value(true));
+    Core::append(ranked, best);
+  }
+  return ranked;
 }
 
 Value Core::provider_routing_stats(Value providers) {
@@ -24972,12 +25341,61 @@ AxBalancer::AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, Value
   if (services_.empty()) throw AxError("runtime", "No AI services provided.");
   max_retries_ = static_cast<int>(num(Core::get(policy_, "maxRetries", 3)));
   validate_models();
+  Value raw_strategy = Core::get(policy_, "strategy", "metric");
+  if (raw_strategy.is_object() && str(Core::get(raw_strategy, "type", "")) == "adaptive") {
+    auto strategy = std::make_shared<AxBalancerAdaptiveStrategy>();
+    strategy->deadline_ms = num(Core::get(raw_strategy, "deadlineMs", Core::get(raw_strategy, "deadline_ms", 0)));
+    strategy->bad_outcome_cost = num(Core::get(raw_strategy, "badOutcomeCost", Core::get(raw_strategy, "bad_outcome_cost", -1)));
+    strategy->expected_tokens = Core::get(raw_strategy, "expectedTokens", Core::get(raw_strategy, "expected_tokens", Value()));
+    strategy->name_space = str(Core::get(raw_strategy, "namespace", "default"));
+    initialize_adaptive(services_, strategy);
+  }
   if (str(Core::get(policy_, "strategy", "metric")) != "input_order") {
     std::stable_sort(services_.begin(), services_.end(), [](const auto& a, const auto& b) {
       return num(Core::provider_balancer_metric_score(a->get_metrics())) < num(Core::provider_balancer_metric_score(b->get_metrics()));
     });
   }
   current_service_ = services_.front();
+}
+
+AxBalancer::AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, AxBalancerOptions options)
+    : services_(std::move(services)), policy_(object({{"strategy", "metric"}, {"debug", options.debug}, {"maxRetries", options.max_retries}})), max_retries_(options.max_retries) {
+  if (services_.empty()) throw AxError("runtime", "No AI services provided.");
+  validate_models();
+  if (options.strategy) initialize_adaptive(services_, options.strategy);
+  std::stable_sort(services_.begin(), services_.end(), [](const auto& a, const auto& b) {
+    return num(Core::provider_balancer_metric_score(a->get_metrics())) < num(Core::provider_balancer_metric_score(b->get_metrics()));
+  });
+  current_service_ = services_.front();
+}
+
+AxBalancerRouteStats create_balancer_route_stats() { return Core::provider_balancer_route_stats(); }
+AxBalancerRouteStats update_balancer_route_stats(AxBalancerRouteStats current, AxBalancerStatsObservation observation) { return Core::provider_balancer_observe_route(std::move(current), std::move(observation)); }
+Value sample_balancer_route_health(AxBalancerRouteStats stats, double deadline_ms) { return Core::provider_balancer_sample_health(std::move(stats), deadline_ms); }
+
+std::string AxInMemoryBalancerStatsStore::serialize(const AxBalancerStatsKey& key) const {
+  return str(Core::get(key, "namespace", "")) + "\x1f" + str(Core::get(key, "slice", "")) + "\x1f" + str(Core::get(key, "logicalModel", "")) + "\x1f" + str(Core::get(key, "routeKey", ""));
+}
+AxBalancerRouteStats AxInMemoryBalancerStatsStore::get(const AxBalancerStatsKey& key) {
+  std::lock_guard<std::mutex> lock(mutex_); auto found = stats_.find(serialize(key)); return found == stats_.end() ? Value() : found->second;
+}
+void AxInMemoryBalancerStatsStore::observe(const AxBalancerStatsKey& key, const AxBalancerStatsObservation& observation) {
+  std::lock_guard<std::mutex> lock(mutex_); std::string encoded = serialize(key); auto found = stats_.find(encoded); Value current = found == stats_.end() ? Value() : found->second; stats_[encoded] = update_balancer_route_stats(current, observation);
+}
+
+void AxBalancer::initialize_adaptive(const std::vector<std::shared_ptr<AxAIService>>& input, std::shared_ptr<AxBalancerAdaptiveStrategy> strategy) {
+  Core::provider_balancer_adaptive_policy(object({{"deadlineMs", strategy->deadline_ms}, {"badOutcomeCost", strategy->bad_outcome_cost}, {"namespace", strategy->name_space}}));
+  if (strategy->name_space.empty()) throw AxError("runtime", "Adaptive namespace must be non-empty.");
+  if (strategy->stats_store && !strategy->route_key) throw AxError("runtime", "Adaptive routeKey is required when statsStore is supplied.");
+  adaptive_ = std::move(strategy); adaptive_store_ = adaptive_->stats_store ? adaptive_->stats_store : std::make_shared<AxInMemoryBalancerStatsStore>();
+  std::set<std::string> seen;
+  for (size_t index = 0; index < input.size(); ++index) {
+    auto service = input[index]; std::string key = adaptive_->route_key ? adaptive_->route_key(service, index) : service->get_id();
+    Value seen_keys = Value::array(); for (const auto& value : seen) Core::append(seen_keys, value);
+    key = str(Core::provider_balancer_validate_route_key(key, seen_keys));
+    seen.insert(key);
+    adaptive_route_keys_[service.get()] = key; adaptive_indices_[service.get()] = index;
+  }
 }
 
 void AxBalancer::validate_models() {
@@ -25131,8 +25549,74 @@ Value AxBalancer::get_metrics() {
   });
 }
 
+void AxBalancer::emit_routing_event(Value event) const {
+  if (!adaptive_ || !adaptive_->on_routing_event) return;
+  try { adaptive_->on_routing_event(std::move(event)); } catch (...) {}
+}
+
+void AxBalancer::observe_adaptive(const AdaptiveCandidate& candidate, Value observation, bool streaming, std::string reason, int status) {
+  try { adaptive_store_->observe(candidate.stats_key, observation); }
+  catch (const std::exception& error) {
+    emit_routing_event(object({{"type", "store-error"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"operation", "observe"}, {"routeKey", candidate.route_key}, {"errorType", std::string(typeid(error).name())}}));
+  }
+  emit_routing_event(object({{"type", "observation"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"routeKey", candidate.route_key}, {"serviceName", candidate.service->get_name()}, {"outcome", Core::get(observation, "outcome", "failure")}, {"latencyMs", Core::get(observation, "latencyMs", Value())}, {"streaming", streaming}, {"reason", reason.empty() ? Value() : Value(reason)}, {"status", status == 0 ? Value() : Value(status)}}));
+}
+
+double AxBalancer::adaptive_cost(const std::shared_ptr<AxAIService>& service, const std::string& route_key, Value request) const {
+  std::string logical = str(Core::get(request, "model", "default")); std::string resolved = logical;
+  for (const auto& raw : Core::iter(service->get_model_list())) if (equal(Core::get(raw, "key", Value()), Core::get(request, "model", Value()))) { resolved = str(Core::get(raw, "model", logical)); break; }
+  Value context = object({{"serviceIndex", static_cast<double>(adaptive_indices_.at(service.get()))}, {"routeKey", route_key}, {"logicalModel", logical}, {"resolvedModel", resolved}, {"expectedTokens", adaptive_->expected_tokens}, {"serviceName", service->get_name()}});
+  double cost = 0;
+  if (adaptive_->estimate_cost) cost = adaptive_->estimate_cost(*service, context);
+  else if (adaptive_->expected_tokens.is_null()) cost = service->get_estimated_cost(Value());
+  else {
+    double prompt = num(Core::get(adaptive_->expected_tokens, "promptTokens", Core::get(adaptive_->expected_tokens, "prompt_tokens", 0)));
+    double completion = num(Core::get(adaptive_->expected_tokens, "completionTokens", Core::get(adaptive_->expected_tokens, "completion_tokens", 0)));
+    cost = service->get_estimated_cost(object({{"ai", service->get_name()}, {"model", resolved}, {"tokens", object({{"promptTokens", prompt}, {"completionTokens", completion}, {"totalTokens", prompt + completion}})}}));
+  }
+  if (!std::isfinite(cost) || cost < 0) throw AxError("runtime", "Adaptive estimated cost for route \"" + route_key + "\" must be finite and non-negative.");
+  return cost;
+}
+
+std::vector<AxBalancer::AdaptiveCandidate> AxBalancer::rank_adaptive(Value request, Value options) {
+  auto eligible = candidate_services(request); std::string logical = str(Core::get(request, "model", "default"));
+  std::string slice = adaptive_->slice ? adaptive_->slice(object({{"model", Core::get(request, "model", Value())}, {"options", options}})) : "default";
+  if (slice.empty()) throw AxError("runtime", "Adaptive slice must be non-empty.");
+  std::vector<AdaptiveCandidate> ranked;
+  for (size_t order = 0; order < eligible.size(); ++order) {
+    auto service = eligible[order]; std::string route_key = adaptive_route_keys_.at(service.get());
+    Value key = object({{"namespace", adaptive_->name_space}, {"slice", slice}, {"logicalModel", logical}, {"routeKey", route_key}}); Value stats;
+    try { stats = adaptive_store_->get(key); }
+    catch (const std::exception& error) {
+      emit_routing_event(object({{"type", "store-error"}, {"namespace", adaptive_->name_space}, {"slice", slice}, {"logicalModel", logical}, {"operation", "get"}, {"routeKey", route_key}, {"errorType", std::string(typeid(error).name())}}));
+    }
+    Value health = sample_balancer_route_health(stats, adaptive_->deadline_ms); double failure = num(Core::get(health, "failureProbability", 0.05)); double late = num(Core::get(health, "deadlineMissProbability", 0)); double estimated = adaptive_cost(service, route_key, request); double score = num(Core::provider_balancer_adaptive_score(estimated, adaptive_->bad_outcome_cost, failure, late));
+    ranked.push_back({service, order, route_key, key, score, estimated, failure, late});
+  }
+  Value rank_input = Value::array(); std::map<std::string, AdaptiveCandidate> ranked_by_key;
+  for (const auto& value : ranked) { Core::append(rank_input, object({{"routeKey", value.route_key}, {"score", value.score}, {"order", static_cast<double>(value.order)}})); ranked_by_key.emplace(value.route_key, value); }
+  std::vector<AdaptiveCandidate> core_ranked; for (const auto& raw : Core::iter(Core::provider_balancer_rank_candidates(rank_input))) core_ranked.push_back(ranked_by_key.at(str(Core::get(raw, "routeKey")))); ranked = std::move(core_ranked);
+  Value scores = Value::array(); for (const auto& value : ranked) Core::append(scores, object({{"routeKey", value.route_key}, {"serviceName", value.service->get_name()}, {"score", value.score}, {"estimatedCost", value.estimated_cost}, {"failureProbability", value.failure_probability}, {"deadlineMissProbability", value.deadline_miss_probability}}));
+  emit_routing_event(object({{"type", "ranked"}, {"namespace", adaptive_->name_space}, {"slice", slice}, {"logicalModel", logical}, {"candidates", scores}})); return ranked;
+}
+
 Value AxBalancer::chat(Value request) { return chat(std::move(request), Value::object()); }
 Value AxBalancer::chat(Value request, Value options) {
+  if (adaptive_) {
+    auto ranked = rank_adaptive(request, options); std::exception_ptr last;
+    for (size_t index = 0; index < ranked.size(); ++index) {
+      auto& candidate = ranked[index]; current_service_ = candidate.service;
+      emit_routing_event(object({{"type", "selected"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"routeKey", candidate.route_key}, {"serviceName", candidate.service->get_name()}, {"attempt", static_cast<double>(index + 1)}}));
+      auto started = std::chrono::steady_clock::now();
+      try {
+        Value response = candidate.service->chat(request, options); double latency = std::max(1.0, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count()); observe_adaptive(candidate, object({{"outcome", "success"}, {"latencyMs", latency}}), false); return response;
+      } catch (const AxError& error) {
+        if (!retryable(error)) throw; last = std::current_exception(); std::string reason = error.type == "AxAIServiceStatusError" ? "status" : error.type == "AxAIServiceNetworkError" ? "network" : error.type == "AxAIServiceStreamTerminatedError" ? "stream-terminated" : error.type == "AxAIServiceTimeoutError" ? "timeout" : "response"; observe_adaptive(candidate, object({{"outcome", "failure"}}), false, reason, error.status);
+        emit_routing_event(object({{"type", "fallback"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"fromRouteKey", candidate.route_key}, {"toRouteKey", index + 1 < ranked.size() ? Value(ranked[index + 1].route_key) : Value()}, {"reason", reason}, {"status", error.status == 0 ? Value() : Value(error.status)}}));
+      }
+    }
+    if (last) std::rethrow_exception(last); throw AxError("runtime", "All candidate services exhausted (tried " + std::to_string(ranked.size()) + " service(s))");
+  }
   auto candidates = candidate_services(request);
   size_t index = 0;
   auto service = candidates.at(index);
@@ -25160,6 +25644,23 @@ Value AxBalancer::chat(Value request, Value options) {
       }
     }
   }
+}
+
+std::vector<Value> AxBalancer::stream(Value request) {
+  if (!adaptive_) return AxAIService::stream(std::move(request));
+  auto ranked = rank_adaptive(request, Value::object()); std::exception_ptr last;
+  for (size_t index = 0; index < ranked.size(); ++index) {
+    auto& candidate = ranked[index]; current_service_ = candidate.service;
+    emit_routing_event(object({{"type", "selected"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"routeKey", candidate.route_key}, {"serviceName", candidate.service->get_name()}, {"attempt", static_cast<double>(index + 1)}}));
+    auto started = std::chrono::steady_clock::now();
+    try {
+      std::vector<Value> chunks = candidate.service->stream(request); double latency = std::max(1.0, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count()); observe_adaptive(candidate, object({{"outcome", "success"}, {"latencyMs", latency}}), true); return chunks;
+    } catch (const AxError& error) {
+      if (!retryable(error)) throw; last = std::current_exception(); std::string reason = error.type == "AxAIServiceStatusError" ? "status" : error.type == "AxAIServiceNetworkError" ? "network" : error.type == "AxAIServiceStreamTerminatedError" ? "stream-terminated" : error.type == "AxAIServiceTimeoutError" ? "timeout" : "response"; observe_adaptive(candidate, object({{"outcome", "failure"}}), true, reason, error.status);
+      emit_routing_event(object({{"type", "fallback"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"fromRouteKey", candidate.route_key}, {"toRouteKey", index + 1 < ranked.size() ? Value(ranked[index + 1].route_key) : Value()}, {"reason", reason}, {"status", error.status == 0 ? Value() : Value(error.status)}}));
+    }
+  }
+  if (last) std::rethrow_exception(last); throw AxError("runtime", "All candidate services exhausted (tried " + std::to_string(ranked.size()) + " service(s))");
 }
 
 Value AxBalancer::embed(Value request) { return embed(std::move(request), Value::object()); }

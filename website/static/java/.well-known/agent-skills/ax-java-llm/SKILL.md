@@ -1,7 +1,7 @@
 ---
 name: "ax-java-llm"
 description: "Use when writing Java code with `dev.axllm:ax` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "23.0.1"
+version: "23.0.3"
 ---
 # Ax LLM Quick Reference For Java
 
@@ -12,6 +12,7 @@ This skill helps an agent write Java code with the generated Ax package `dev.axl
 - Start a generated-language Ax program from package docs or examples.
 - Translate the Ax mental model into the target package without TypeScript-only imports.
 - Choose the native package entrypoints for signatures, providers, generators, agents, flows, and optimizers.
+- Find ordered or adaptive provider-balancing guidance in the language-specific AI skill.
 
 ## Package Facts
 
@@ -36,7 +37,7 @@ var llm = Ax.ai("openai", java.util.Map.of("apiKey", System.getenv("OPENAI_API_K
 
 - Signatures: `Ax.s`, `Ax.f`, `AxSignature`
 - AxGen: `Ax.ax`, `AxGen`
-- AxAI: `Ax.ai`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxBalancer`, `MultiServiceRouter`, `ProviderRouter`
+- AxAI: `Ax.ai`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `AxBalancerAdaptive.createRouteStats`, `AxBalancerAdaptive.updateRouteStats`, `AxBalancerAdaptive.sampleRouteHealth`, `MultiServiceRouter`, `ProviderRouter`
 - Agents And RLM: `Ax.agent`, `AxAgent`
 - Flow: `Ax.flow`, `AxFlow`
 - Optimizers: `Ax.optimize`, `Ax.playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`

@@ -10,6 +10,7 @@ This skill helps an agent write C++ code with the generated Ax package `axllm`. 
 ## When To Use
 
 - Create provider clients or normalize provider options.
+- Choose between model-list routing, ordered failover, and adaptive operational routing.
 - Use scripted transports for deterministic no-key examples.
 - Use provider-api examples only when explicit provider credentials are available.
 
@@ -32,9 +33,20 @@ This skill helps an agent write C++ code with the generated Ax package `axllm`. 
 auto llm = axllm::ai("openai", { {"apiKey", std::getenv("OPENAI_API_KEY")} });
 ```
 
+## Routing And Balancing
+
+- Use the multi-service router when a logical model key selects a configured service or concrete model. It combines model lists; it does not learn from outcomes.
+- Use the default `AxBalancer` for deterministic ordered/metric failover with its existing retry policy.
+- Opt into `AxBalancerAdaptiveStrategy` only for operational routing among application-approved equivalent aliases. It learns transient reliability and successful latency, combines them with estimated cost and a deadline, and explores with Thompson sampling.
+- Put centralized decision state in an `AxBalancerStatsStore`. The routing-event callback is best-effort analytics and observability, not a state replication mechanism.
+- Shared stores require non-empty, unique, stable route keys. Use slices to isolate workflows, tenants, or traffic classes without putting prompts, responses, raw errors, or sensitive identifiers in keys or events.
+- Adaptive balancing does not measure answer quality or semantically choose a model. Only group routes that the application already accepts as substitutes.
+- Generated streaming APIs are buffered: a provider error can fail over before the completed result is returned, and success latency is recorded after completion.
+- Start with `examples/adaptive_balancer_no_key` for store/reducer syntax, then use the cataloged provider-backed adaptive-balancer example for a complete two-route setup.
+
 ## Relevant API Surface
 
-- AxAI: `axllm::ai`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxBalancer`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
+- AxAI: `axllm::ai`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxBalancer`, `axllm::AxBalancerAdaptiveStrategy`, `axllm::AxBalancerStatsStore`, `axllm::AxInMemoryBalancerStatsStore`, `axllm::create_balancer_route_stats`, `axllm::update_balancer_route_stats`, `axllm::sample_balancer_route_health`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
 
 ## Guardrails
 

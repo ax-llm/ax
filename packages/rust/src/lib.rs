@@ -18,8 +18,9 @@ use std::error::Error;
 use std::fmt;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "runtime-quickjs")]
 pub mod runtime {
@@ -835,6 +836,41 @@ fn bool_key(value: &Value, keys: &[&str]) -> bool {
 
 pub trait AxAIClient {
     fn chat(&mut self, request: Value) -> AxResult<Value>;
+
+    fn embed(&mut self, _request: Value) -> AxResult<Value> {
+        Err(AxError::runtime(
+            "embedding is not supported by this AI client",
+        ))
+    }
+
+    fn speak(&mut self, _request: Value) -> AxResult<Value> {
+        Err(AxError::runtime(
+            "speech is not supported by this AI client",
+        ))
+    }
+
+    fn get_id(&self) -> String {
+        self.get_name()
+    }
+    fn get_name(&self) -> String {
+        "ai-service".to_string()
+    }
+    fn get_features(&self, _model: Option<&str>) -> Value {
+        router_default_features()
+    }
+    fn get_model_list(&self) -> Value {
+        Value::Null
+    }
+    fn get_metrics(&self) -> Value {
+        json!({"latency":{"chat":{"mean":0,"p95":0,"p99":0,"samples":[]},"embed":{"mean":0,"p95":0,"p99":0,"samples":[]}},"errors":{"chat":{"count":0,"rate":0,"total":0},"embed":{"count":0,"rate":0,"total":0}}})
+    }
+    fn get_estimated_cost(&self, _usage: &Value) -> f64 {
+        0.0
+    }
+    fn get_options(&self) -> Value {
+        json!({})
+    }
+    fn set_options(&mut self, _options: Value) {}
 
     fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         let _ = request;
@@ -1787,6 +1823,34 @@ impl WsRealtimeTransport {
 }
 
 impl AxAIClient for OpenAICompatibleClient {
+    fn get_id(&self) -> String {
+        format!("{}:{}", self.profile, self.model)
+    }
+    fn get_name(&self) -> String {
+        self.profile.clone()
+    }
+    fn get_model_list(&self) -> Value {
+        self.options
+            .get("modelList")
+            .or_else(|| self.options.get("model_list"))
+            .cloned()
+            .unwrap_or_else(|| json!([{"key": self.model, "model": self.model}]))
+    }
+    fn get_options(&self) -> Value {
+        self.options.clone()
+    }
+    fn set_options(&mut self, options: Value) {
+        self.options = options;
+    }
+    fn embed(&mut self, request: Value) -> AxResult<Value> {
+        OpenAICompatibleClient::embed(self, request)
+    }
+    fn transcribe(&mut self, request: Value) -> AxResult<Value> {
+        OpenAICompatibleClient::transcribe(self, request)
+    }
+    fn speak(&mut self, request: Value) -> AxResult<Value> {
+        OpenAICompatibleClient::speak(self, request)
+    }
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         let req = self.prepare_chat_request(&request)?;
         // python: AxBaseAI.chat validates the coerced request up front.
@@ -6616,9 +6680,264 @@ pub struct RuntimeCapabilities {
 
 pub type AxAgentClarificationError = AxError;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AxBalancerStatsKey {
+    pub namespace: String,
+    pub slice: String,
+    pub logical_model: String,
+    pub route_key: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AxBalancerRouteStats {
+    pub version: u8,
+    pub observations: u64,
+    pub successes: u64,
+    pub failure_ewma: f64,
+    pub log_latency_mean: f64,
+    pub log_latency_m2: f64,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AxBalancerStatsObservation {
+    pub outcome: String,
+    pub latency_ms: Option<f64>,
+}
+pub type AxBalancerRoutingEvent = Value;
+pub type AxBalancerFailureReason = String;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AxBalancerCandidateScore {
+    pub route_key: String,
+    pub service_name: String,
+    pub score: f64,
+    pub estimated_cost: f64,
+    pub failure_probability: f64,
+    pub deadline_miss_probability: f64,
+}
+
+fn balancer_stats_value(stats: Option<&AxBalancerRouteStats>) -> Value {
+    stats.map(|value| json!({"version":value.version,"observations":value.observations,"successes":value.successes,"failureEwma":value.failure_ewma,"logLatencyMean":value.log_latency_mean,"logLatencyM2":value.log_latency_m2})).unwrap_or(Value::Null)
+}
+fn balancer_stats_from(value: Value) -> AxBalancerRouteStats {
+    AxBalancerRouteStats {
+        version: value.get("version").and_then(Value::as_u64).unwrap_or(1) as u8,
+        observations: value
+            .get("observations")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        successes: value.get("successes").and_then(Value::as_u64).unwrap_or(0),
+        failure_ewma: value
+            .get("failureEwma")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.05),
+        log_latency_mean: value
+            .get("logLatencyMean")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0),
+        log_latency_m2: value
+            .get("logLatencyM2")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0),
+    }
+}
+pub fn create_balancer_route_stats() -> AxBalancerRouteStats {
+    balancer_stats_from(core_value_to_json(
+        &provider_balancer_route_stats(&[]).expect("Core adaptive stats"),
+    ))
+}
+pub fn update_balancer_route_stats(
+    current: Option<&AxBalancerRouteStats>,
+    observation: &AxBalancerStatsObservation,
+) -> AxBalancerRouteStats {
+    let raw = json!({"outcome":observation.outcome,"latencyMs":observation.latency_ms});
+    balancer_stats_from(core_value_to_json(
+        &provider_balancer_observe_route(&[
+            core_value_from_json(&balancer_stats_value(current)),
+            core_value_from_json(&raw),
+        ])
+        .expect("Core adaptive observation"),
+    ))
+}
+pub fn sample_balancer_route_health(
+    stats: Option<&AxBalancerRouteStats>,
+    deadline_ms: f64,
+) -> AxResult<Value> {
+    Ok(core_value_to_json(&provider_balancer_sample_health(&[
+        core_value_from_json(&balancer_stats_value(stats)),
+        CoreValue::Num(deadline_ms),
+    ])?))
+}
+
+pub trait AxBalancerStatsStore: Send + Sync {
+    fn get(&self, key: &AxBalancerStatsKey) -> AxResult<Option<AxBalancerRouteStats>>;
+    fn observe(
+        &self,
+        key: &AxBalancerStatsKey,
+        observation: &AxBalancerStatsObservation,
+    ) -> AxResult<()>;
+}
+#[derive(Default)]
+pub struct AxInMemoryBalancerStatsStore {
+    stats: Mutex<BTreeMap<String, AxBalancerRouteStats>>,
+}
+impl AxInMemoryBalancerStatsStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    fn key(key: &AxBalancerStatsKey) -> String {
+        format!(
+            "{}\u{1f}{}\u{1f}{}\u{1f}{}",
+            key.namespace, key.slice, key.logical_model, key.route_key
+        )
+    }
+}
+impl AxBalancerStatsStore for AxInMemoryBalancerStatsStore {
+    fn get(&self, key: &AxBalancerStatsKey) -> AxResult<Option<AxBalancerRouteStats>> {
+        Ok(self
+            .stats
+            .lock()
+            .map_err(|_| AxError::runtime("adaptive stats lock poisoned"))?
+            .get(&Self::key(key))
+            .cloned())
+    }
+    fn observe(
+        &self,
+        key: &AxBalancerStatsKey,
+        observation: &AxBalancerStatsObservation,
+    ) -> AxResult<()> {
+        let mut values = self
+            .stats
+            .lock()
+            .map_err(|_| AxError::runtime("adaptive stats lock poisoned"))?;
+        let encoded = Self::key(key);
+        let next = update_balancer_route_stats(values.get(&encoded), observation);
+        values.insert(encoded, next);
+        Ok(())
+    }
+}
+
+struct ConformanceThrowingBalancerStatsStore {
+    gets: AtomicU64,
+    observes: AtomicU64,
+}
+impl ConformanceThrowingBalancerStatsStore {
+    fn new() -> Self {
+        Self {
+            gets: AtomicU64::new(0),
+            observes: AtomicU64::new(0),
+        }
+    }
+}
+impl AxBalancerStatsStore for ConformanceThrowingBalancerStatsStore {
+    fn get(&self, _key: &AxBalancerStatsKey) -> AxResult<Option<AxBalancerRouteStats>> {
+        self.gets.fetch_add(1, Ordering::SeqCst);
+        Err(AxError::runtime("fixture store read failed"))
+    }
+    fn observe(
+        &self,
+        _key: &AxBalancerStatsKey,
+        _observation: &AxBalancerStatsObservation,
+    ) -> AxResult<()> {
+        self.observes.fetch_add(1, Ordering::SeqCst);
+        Err(AxError::runtime("fixture store write failed"))
+    }
+}
+
+pub type AxBalancerEstimateCost = Arc<dyn Fn(&dyn AxAIClient, &Value) -> f64 + Send + Sync>;
+pub type AxBalancerSlice = Arc<dyn Fn(&Value) -> String + Send + Sync>;
+pub type AxBalancerRouteKey = Arc<dyn Fn(&dyn AxAIClient, usize) -> String + Send + Sync>;
+pub type AxBalancerEventHook = Arc<dyn Fn(AxBalancerRoutingEvent) + Send + Sync>;
+pub struct AxBalancerAdaptiveStrategy {
+    pub deadline_ms: f64,
+    pub bad_outcome_cost: f64,
+    pub expected_tokens: Option<Value>,
+    pub estimate_cost: Option<AxBalancerEstimateCost>,
+    pub namespace: String,
+    pub slice: Option<AxBalancerSlice>,
+    pub route_key: Option<AxBalancerRouteKey>,
+    pub stats_store: Option<Arc<dyn AxBalancerStatsStore>>,
+    pub on_routing_event: Option<AxBalancerEventHook>,
+}
+impl AxBalancerAdaptiveStrategy {
+    pub fn new(deadline_ms: f64, bad_outcome_cost: f64) -> Self {
+        Self {
+            deadline_ms,
+            bad_outcome_cost,
+            expected_tokens: None,
+            estimate_cost: None,
+            namespace: "default".into(),
+            slice: None,
+            route_key: None,
+            stats_store: None,
+            on_routing_event: None,
+        }
+    }
+    pub fn with_expected_tokens(mut self, prompt: u64, completion: u64) -> Self {
+        self.expected_tokens = Some(json!({"promptTokens":prompt,"completionTokens":completion}));
+        self
+    }
+    pub fn with_namespace(mut self, value: impl Into<String>) -> Self {
+        self.namespace = value.into();
+        self
+    }
+    pub fn with_store(mut self, value: Arc<dyn AxBalancerStatsStore>) -> Self {
+        self.stats_store = Some(value);
+        self
+    }
+    pub fn with_route_key(mut self, value: AxBalancerRouteKey) -> Self {
+        self.route_key = Some(value);
+        self
+    }
+    pub fn with_slice(mut self, value: AxBalancerSlice) -> Self {
+        self.slice = Some(value);
+        self
+    }
+    pub fn with_estimate_cost(mut self, value: AxBalancerEstimateCost) -> Self {
+        self.estimate_cost = Some(value);
+        self
+    }
+    pub fn on_routing_event(mut self, value: AxBalancerEventHook) -> Self {
+        self.on_routing_event = Some(value);
+        self
+    }
+}
+pub struct AxBalancerOptions {
+    pub debug: bool,
+    pub initial_backoff_ms: u64,
+    pub max_backoff_ms: u64,
+    pub max_retries: usize,
+    pub input_order: bool,
+    pub strategy: Option<AxBalancerAdaptiveStrategy>,
+}
+impl Default for AxBalancerOptions {
+    fn default() -> Self {
+        Self {
+            debug: true,
+            initial_backoff_ms: 1_000,
+            max_backoff_ms: 32_000,
+            max_retries: 3,
+            input_order: false,
+            strategy: None,
+        }
+    }
+}
+struct AxAdaptiveCandidate {
+    index: usize,
+    order: usize,
+    route_key: String,
+    stats_key: AxBalancerStatsKey,
+    score: f64,
+    estimated_cost: f64,
+    failure_probability: f64,
+    deadline_miss_probability: f64,
+}
+
 pub struct AxBalancer {
-    services: Vec<OpenAICompatibleClient>,
+    services: Vec<Box<dyn AxAIClient>>,
     current: usize,
+    adaptive: Option<AxBalancerAdaptiveStrategy>,
+    adaptive_store: Option<Arc<dyn AxBalancerStatsStore>>,
+    route_keys: Vec<String>,
+    service_failures: BTreeMap<String, usize>,
+    max_retries: usize,
 }
 
 pub struct MultiServiceRouter {
@@ -6634,22 +6953,110 @@ impl AxBalancer {
         Self {
             services: Vec::new(),
             current: 0,
+            adaptive: None,
+            adaptive_store: None,
+            route_keys: Vec::new(),
+            service_failures: BTreeMap::new(),
+            max_retries: 3,
         }
     }
 
     pub fn from_services(services: Vec<OpenAICompatibleClient>) -> Self {
+        let mut services = services
+            .into_iter()
+            .map(|value| Box::new(value) as Box<dyn AxAIClient>)
+            .collect::<Vec<_>>();
+        services.sort_by(|left, right| {
+            let score = |metrics: Value| {
+                provider_balancer_metric_score(&[core_value_from_json(&metrics)])
+                    .map(|value| core_value_to_json(&value).as_f64().unwrap_or(0.0))
+                    .unwrap_or(0.0)
+            };
+            let left = score(left.get_metrics());
+            let right = score(right.get_metrics());
+            left.total_cmp(&right)
+        });
         Self {
             services,
             current: 0,
+            adaptive: None,
+            adaptive_store: None,
+            route_keys: Vec::new(),
+            service_failures: BTreeMap::new(),
+            max_retries: 3,
         }
     }
 
+    pub fn from_clients(
+        services: Vec<Box<dyn AxAIClient>>,
+        mut options: AxBalancerOptions,
+    ) -> AxResult<Self> {
+        let policy = core_value_to_json(&provider_balancer_retry_policy(&[core_value_from_json(
+            &json!({
+                "strategy":if options.input_order{"input_order"}else{"metric"},
+                "maxRetries":options.max_retries,
+                "initialBackoffMs":options.initial_backoff_ms,
+                "maxBackoffMs":options.max_backoff_ms,
+                "debug":options.debug,
+            }),
+        )])?);
+        let max_retries = policy
+            .get("maxRetries")
+            .and_then(Value::as_u64)
+            .unwrap_or(options.max_retries as u64) as usize;
+        let input_order = policy.get("strategy").and_then(Value::as_str) == Some("input_order");
+        let mut value = Self {
+            services,
+            current: 0,
+            adaptive: None,
+            adaptive_store: None,
+            route_keys: Vec::new(),
+            service_failures: BTreeMap::new(),
+            max_retries: max_retries.max(1),
+        };
+        if value.services.is_empty() {
+            return Err(AxError::validation(
+                "AxBalancer requires at least one service",
+            ));
+        }
+        value.validate_models()?;
+        if let Some(strategy) = options.strategy.take() {
+            value.initialize_adaptive(strategy)?;
+            if !input_order {
+                let mut paired = value
+                    .services
+                    .into_iter()
+                    .zip(value.route_keys.into_iter())
+                    .collect::<Vec<_>>();
+                paired.sort_by(|left, right| {
+                    let score = |metrics: Value| {
+                        provider_balancer_metric_score(&[core_value_from_json(&metrics)])
+                            .map(|value| core_value_to_json(&value).as_f64().unwrap_or(0.0))
+                            .unwrap_or(0.0)
+                    };
+                    score(left.0.get_metrics()).total_cmp(&score(right.0.get_metrics()))
+                });
+                (value.services, value.route_keys) = paired.into_iter().unzip();
+            }
+        } else if !input_order {
+            value.services.sort_by(|left, right| {
+                let score = |metrics: Value| {
+                    provider_balancer_metric_score(&[core_value_from_json(&metrics)])
+                        .map(|value| core_value_to_json(&value).as_f64().unwrap_or(0.0))
+                        .unwrap_or(0.0)
+                };
+                score(left.get_metrics()).total_cmp(&score(right.get_metrics()))
+            })
+        }
+        Ok(value)
+    }
+
     pub fn with_service(mut self, service: OpenAICompatibleClient) -> Self {
-        self.services.push(service);
+        self.services.push(Box::new(service));
         self
     }
 
-    fn current_service(&mut self) -> AxResult<&mut OpenAICompatibleClient> {
+    fn current_service(&mut self) -> AxResult<&mut Box<dyn AxAIClient>> {
         if self.services.is_empty() {
             return Err(AxError::validation(
                 "AxBalancer requires at least one service",
@@ -6661,12 +7068,458 @@ impl AxBalancer {
         Ok(&mut self.services[self.current])
     }
 
+    fn validate_models(&self) -> AxResult<()> {
+        let reference = self
+            .services
+            .iter()
+            .map(|value| value.get_model_list())
+            .find(|value| value.as_array().map(|v| !v.is_empty()).unwrap_or(false));
+        let Some(reference) = reference else {
+            return Ok(());
+        };
+        let keys = reference
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|entry| entry.get("key").and_then(Value::as_str))
+            .collect::<BTreeSet<_>>();
+        for (index, service) in self.services.iter().enumerate() {
+            let models = service.get_model_list();
+            let Some(values) = models.as_array() else {
+                return Err(AxError::runtime(format!(
+                    "Service at index {index} ({}) has no model list while another service does.",
+                    service.get_name()
+                )));
+            };
+            let current = values
+                .iter()
+                .filter_map(|entry| entry.get("key").and_then(Value::as_str))
+                .collect::<BTreeSet<_>>();
+            if current != keys {
+                return Err(AxError::runtime(format!(
+                    "Service at index {index} ({}) has incompatible model aliases.",
+                    service.get_name()
+                )));
+            }
+        }
+        Ok(())
+    }
+    fn initialize_adaptive(&mut self, strategy: AxBalancerAdaptiveStrategy) -> AxResult<()> {
+        provider_balancer_adaptive_policy(&[core_value_from_json(
+            &json!({"deadlineMs":strategy.deadline_ms,"badOutcomeCost":strategy.bad_outcome_cost,"namespace":strategy.namespace}),
+        )])?;
+        if strategy.namespace.trim().is_empty() {
+            return Err(AxError::runtime("Adaptive namespace must be non-empty."));
+        }
+        if strategy.stats_store.is_some() && strategy.route_key.is_none() {
+            return Err(AxError::runtime(
+                "Adaptive routeKey is required when statsStore is supplied.",
+            ));
+        }
+        let mut seen = BTreeSet::new();
+        self.route_keys.clear();
+        for (index, service) in self.services.iter().enumerate() {
+            let raw = strategy
+                .route_key
+                .as_ref()
+                .map(|callback| callback(service.as_ref(), index))
+                .unwrap_or_else(|| service.get_id());
+            let seen_values = Value::Array(seen.iter().cloned().map(Value::String).collect());
+            let key = core_value_to_json(&provider_balancer_validate_route_key(&[
+                CoreValue::Str(raw.into()),
+                core_value_from_json(&seen_values),
+            ])?)
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+            seen.insert(key.clone());
+            self.route_keys.push(key)
+        }
+        self.adaptive_store = Some(
+            strategy
+                .stats_store
+                .clone()
+                .unwrap_or_else(|| Arc::new(AxInMemoryBalancerStatsStore::new())),
+        );
+        self.adaptive = Some(strategy);
+        Ok(())
+    }
+    fn emit(&self, event: Value) {
+        if let Some(callback) = self
+            .adaptive
+            .as_ref()
+            .and_then(|value| value.on_routing_event.as_ref())
+        {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| callback(event)));
+        }
+    }
+    fn event_base(kind: &str, key: &AxBalancerStatsKey) -> Map<String, Value> {
+        let mut event = Map::new();
+        event.insert("type".into(), json!(kind));
+        event.insert("namespace".into(), json!(key.namespace));
+        event.insert("slice".into(), json!(key.slice));
+        event.insert("logicalModel".into(), json!(key.logical_model));
+        event
+    }
+    fn read_stats(&self, key: &AxBalancerStatsKey) -> Option<AxBalancerRouteStats> {
+        match self.adaptive_store.as_ref().unwrap().get(key) {
+            Ok(value) => value,
+            Err(error) => {
+                let mut event = Self::event_base("store-error", key);
+                event.insert("operation".into(), json!("get"));
+                event.insert("routeKey".into(), json!(key.route_key));
+                event.insert(
+                    "errorType".into(),
+                    json!(error.error_type.unwrap_or(error.category)),
+                );
+                self.emit(Value::Object(event));
+                None
+            }
+        }
+    }
+    fn observe(
+        &self,
+        candidate: &AxAdaptiveCandidate,
+        observation: AxBalancerStatsObservation,
+        streaming: bool,
+        reason: Option<&str>,
+        status: Option<u16>,
+    ) {
+        if let Err(error) = self
+            .adaptive_store
+            .as_ref()
+            .unwrap()
+            .observe(&candidate.stats_key, &observation)
+        {
+            let mut event = Self::event_base("store-error", &candidate.stats_key);
+            event.insert("operation".into(), json!("observe"));
+            event.insert("routeKey".into(), json!(candidate.route_key));
+            event.insert(
+                "errorType".into(),
+                json!(error.error_type.unwrap_or(error.category)),
+            );
+            self.emit(Value::Object(event))
+        }
+        let mut event = Self::event_base("observation", &candidate.stats_key);
+        event.insert("routeKey".into(), json!(candidate.route_key));
+        event.insert(
+            "serviceName".into(),
+            json!(self.services[candidate.index].get_name()),
+        );
+        event.insert("outcome".into(), json!(observation.outcome));
+        event.insert("latencyMs".into(), json!(observation.latency_ms));
+        event.insert("streaming".into(), json!(streaming));
+        event.insert("reason".into(), json!(reason));
+        event.insert("status".into(), json!(status));
+        self.emit(Value::Object(event))
+    }
+    fn candidate_indices(&self, request: &Value) -> AxResult<Vec<usize>> {
+        let mut values = Vec::new();
+        for (index, service) in self.services.iter().enumerate() {
+            let allowed = core_value_to_json(&provider_balancer_candidate_allowed(&[
+                core_value_from_json(
+                    &service.get_features(request.get("model").and_then(Value::as_str)),
+                ),
+                core_value_from_json(request),
+            ])?);
+            if allowed.as_bool().unwrap_or(false) {
+                values.push(index)
+            }
+        }
+        if values.is_empty() {
+            return Err(AxError::runtime(
+                "No services available that support required capabilities.",
+            ));
+        }
+        Ok(values)
+    }
+    fn adaptive_cost(&self, index: usize, route_key: &str, request: &Value) -> AxResult<f64> {
+        let strategy = self.adaptive.as_ref().unwrap();
+        let service = self.services[index].as_ref();
+        let logical = request
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("default");
+        let mut resolved = logical.to_string();
+        let model_list = service.get_model_list();
+        if let Some(models) = model_list.as_array() {
+            for entry in models {
+                if entry.get("key") == request.get("model") {
+                    resolved = entry
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .unwrap_or(logical)
+                        .to_string();
+                    break;
+                }
+            }
+        }
+        let context = json!({"serviceIndex":index,"routeKey":route_key,"logicalModel":logical,"resolvedModel":resolved,"expectedTokens":strategy.expected_tokens,"serviceName":service.get_name()});
+        let cost = if let Some(callback) = &strategy.estimate_cost {
+            callback(service, &context)
+        } else if let Some(tokens) = &strategy.expected_tokens {
+            let prompt = tokens
+                .get("promptTokens")
+                .or_else(|| tokens.get("prompt_tokens"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let completion = tokens
+                .get("completionTokens")
+                .or_else(|| tokens.get("completion_tokens"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            service.get_estimated_cost(&json!({"ai":service.get_name(),"model":resolved,"tokens":{"promptTokens":prompt,"completionTokens":completion,"totalTokens":prompt+completion}}))
+        } else {
+            service.get_estimated_cost(&Value::Null)
+        };
+        if !cost.is_finite() || cost < 0.0 {
+            return Err(AxError::runtime(format!(
+                "Adaptive estimated cost for route {route_key:?} must be finite and non-negative."
+            )));
+        }
+        Ok(cost)
+    }
+    fn rank(&self, request: &Value) -> AxResult<Vec<AxAdaptiveCandidate>> {
+        let strategy = self.adaptive.as_ref().unwrap();
+        let logical = request
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("default")
+            .to_string();
+        let context = json!({"model":request.get("model"),"options":{}});
+        let slice = strategy
+            .slice
+            .as_ref()
+            .map(|callback| callback(&context))
+            .unwrap_or_else(|| "default".into());
+        if slice.trim().is_empty() {
+            return Err(AxError::runtime("Adaptive slice must be non-empty."));
+        }
+        let mut ranked = Vec::new();
+        for (order, index) in self.candidate_indices(request)?.into_iter().enumerate() {
+            let key = AxBalancerStatsKey {
+                namespace: strategy.namespace.clone(),
+                slice: slice.clone(),
+                logical_model: logical.clone(),
+                route_key: self.route_keys[index].clone(),
+            };
+            let health =
+                sample_balancer_route_health(self.read_stats(&key).as_ref(), strategy.deadline_ms)?;
+            let failure = health
+                .get("failureProbability")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.05);
+            let late = health
+                .get("deadlineMissProbability")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let estimated = self.adaptive_cost(index, &key.route_key, request)?;
+            let score = core_value_to_json(&provider_balancer_adaptive_score(&[
+                CoreValue::Num(estimated),
+                CoreValue::Num(strategy.bad_outcome_cost),
+                CoreValue::Num(failure),
+                CoreValue::Num(late),
+            ])?)
+            .as_f64()
+            .unwrap_or(f64::INFINITY);
+            ranked.push(AxAdaptiveCandidate {
+                index,
+                order,
+                route_key: key.route_key.clone(),
+                stats_key: key,
+                score,
+                estimated_cost: estimated,
+                failure_probability: failure,
+                deadline_miss_probability: late,
+            })
+        }
+        let rank_input=Value::Array(ranked.iter().map(|value|json!({"routeKey":value.route_key,"score":value.score,"order":value.order})).collect());
+        let core_ranked = core_value_to_json(&provider_balancer_rank_candidates(&[
+            core_value_from_json(&rank_input),
+        ])?);
+        let mut ranked_by_key = ranked
+            .into_iter()
+            .map(|value| (value.route_key.clone(), value))
+            .collect::<BTreeMap<_, _>>();
+        let ranked = core_ranked
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|value| {
+                value
+                    .get("routeKey")
+                    .and_then(Value::as_str)
+                    .and_then(|key| ranked_by_key.remove(key))
+            })
+            .collect::<Vec<_>>();
+        let candidates=ranked.iter().map(|value|json!({"routeKey":value.route_key,"serviceName":self.services[value.index].get_name(),"score":value.score,"estimatedCost":value.estimated_cost,"failureProbability":value.failure_probability,"deadlineMissProbability":value.deadline_miss_probability})).collect::<Vec<_>>();
+        let mut event = Self::event_base("ranked", &ranked[0].stats_key);
+        event.insert("candidates".into(), json!(candidates));
+        self.emit(Value::Object(event));
+        Ok(ranked)
+    }
+
     pub fn chat(&mut self, request: Value) -> AxResult<Value> {
-        self.current_service()?.chat(request)
+        if self.adaptive.is_none() {
+            let candidates = self.candidate_indices(&request)?;
+            for index in candidates.iter().copied() {
+                self.current = index;
+                let id = self.services[index].get_id();
+                while self.service_failures.get(&id).copied().unwrap_or(0) < self.max_retries {
+                    match self.services[index].chat(request.clone()) {
+                        Ok(response) => {
+                            self.service_failures.remove(&id);
+                            return Ok(response);
+                        }
+                        Err(error) if is_retryable_ai_error(&error) => {
+                            *self.service_failures.entry(id.clone()).or_insert(0) += 1
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+            return Err(AxError::runtime(format!(
+                "All candidate services exhausted (tried {} service(s))",
+                candidates.len()
+            )));
+        }
+        let ranked = self.rank(&request)?;
+        let mut last = None;
+        for (attempt, candidate) in ranked.iter().enumerate() {
+            self.current = candidate.index;
+            let mut selected = Self::event_base("selected", &candidate.stats_key);
+            selected.insert("routeKey".into(), json!(candidate.route_key));
+            selected.insert(
+                "serviceName".into(),
+                json!(self.services[candidate.index].get_name()),
+            );
+            selected.insert("attempt".into(), json!(attempt + 1));
+            self.emit(Value::Object(selected));
+            let started = Instant::now();
+            match self.services[candidate.index].chat(request.clone()) {
+                Ok(response) => {
+                    self.observe(
+                        candidate,
+                        AxBalancerStatsObservation {
+                            outcome: "success".into(),
+                            latency_ms: Some(started.elapsed().as_secs_f64() * 1000.0),
+                        },
+                        false,
+                        None,
+                        None,
+                    );
+                    return Ok(response);
+                }
+                Err(error) if is_retryable_ai_error(&error) => {
+                    let reason = adaptive_failure_reason(&error);
+                    self.observe(
+                        candidate,
+                        AxBalancerStatsObservation {
+                            outcome: "failure".into(),
+                            latency_ms: None,
+                        },
+                        false,
+                        Some(reason),
+                        error.status,
+                    );
+                    let mut fallback = Self::event_base("fallback", &candidate.stats_key);
+                    fallback.insert("fromRouteKey".into(), json!(candidate.route_key));
+                    fallback.insert(
+                        "toRouteKey".into(),
+                        ranked
+                            .get(attempt + 1)
+                            .map(|value| json!(value.route_key))
+                            .unwrap_or(Value::Null),
+                    );
+                    fallback.insert("reason".into(), json!(reason));
+                    fallback.insert("status".into(), json!(error.status));
+                    self.emit(Value::Object(fallback));
+                    last = Some(error)
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(last.unwrap_or_else(|| {
+            AxError::runtime(format!(
+                "All candidate services exhausted (tried {} service(s))",
+                ranked.len()
+            ))
+        }))
     }
 
     pub fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
-        self.current_service()?.stream(request)
+        if self.adaptive.is_none() {
+            let response = self.chat(request)?;
+            if let Some(results) = response.get("results").and_then(Value::as_array) {
+                return Ok(results
+                    .iter()
+                    .map(|result| json!({"results":[result.clone()]}))
+                    .collect());
+            }
+            return Ok(vec![response]);
+        }
+        let ranked = self.rank(&request)?;
+        let mut last = None;
+        for (attempt, candidate) in ranked.iter().enumerate() {
+            self.current = candidate.index;
+            let mut selected = Self::event_base("selected", &candidate.stats_key);
+            selected.insert("routeKey".into(), json!(candidate.route_key));
+            selected.insert(
+                "serviceName".into(),
+                json!(self.services[candidate.index].get_name()),
+            );
+            selected.insert("attempt".into(), json!(attempt + 1));
+            self.emit(Value::Object(selected));
+            let started = Instant::now();
+            match self.services[candidate.index].stream(request.clone()) {
+                Ok(response) => {
+                    self.observe(
+                        candidate,
+                        AxBalancerStatsObservation {
+                            outcome: "success".into(),
+                            latency_ms: Some(started.elapsed().as_secs_f64() * 1000.0),
+                        },
+                        true,
+                        None,
+                        None,
+                    );
+                    return Ok(response);
+                }
+                Err(error) if is_retryable_ai_error(&error) => {
+                    let reason = adaptive_failure_reason(&error);
+                    self.observe(
+                        candidate,
+                        AxBalancerStatsObservation {
+                            outcome: "failure".into(),
+                            latency_ms: None,
+                        },
+                        true,
+                        Some(reason),
+                        error.status,
+                    );
+                    let mut fallback = Self::event_base("fallback", &candidate.stats_key);
+                    fallback.insert("fromRouteKey".into(), json!(candidate.route_key));
+                    fallback.insert(
+                        "toRouteKey".into(),
+                        ranked
+                            .get(attempt + 1)
+                            .map(|value| json!(value.route_key))
+                            .unwrap_or(Value::Null),
+                    );
+                    fallback.insert("reason".into(), json!(reason));
+                    fallback.insert("status".into(), json!(error.status));
+                    self.emit(Value::Object(fallback));
+                    last = Some(error)
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(last.unwrap_or_else(|| {
+            AxError::runtime(format!(
+                "All candidate services exhausted (tried {} service(s))",
+                ranked.len()
+            ))
+        }))
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
@@ -6679,6 +7532,22 @@ impl AxBalancer {
 
     pub fn speak(&mut self, request: Value) -> AxResult<Value> {
         self.current_service()?.speak(request)
+    }
+
+    pub fn set_options(&mut self, options: Value) {
+        for service in &mut self.services {
+            service.set_options(options.clone());
+        }
+    }
+}
+
+fn adaptive_failure_reason(error: &AxError) -> &'static str {
+    match error.error_type.as_deref() {
+        Some("AxAIServiceStatusError") => "status",
+        Some("AxAIServiceNetworkError") => "network",
+        Some("AxAIServiceStreamTerminatedError") => "stream-terminated",
+        Some("AxAIServiceTimeoutError") => "timeout",
+        _ => "response",
     }
 }
 
@@ -9005,6 +9874,7 @@ struct RouterFixtureService {
     last_chat: Value,
     last_embed: Value,
     last_config: Value,
+    estimated_cost: f64,
 }
 
 impl RouterFixtureService {
@@ -9055,6 +9925,11 @@ impl RouterFixtureService {
             last_chat: Value::Null,
             last_embed: Value::Null,
             last_config: Value::Null,
+            estimated_cost: spec
+                .get("estimatedCost")
+                .or_else(|| spec.get("estimated_cost"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
             name,
         }
     }
@@ -9122,6 +9997,113 @@ impl RouterFixtureService {
             out["calls"] = json!(self.requests.len());
         }
         out
+    }
+}
+
+#[derive(Clone)]
+struct SharedRouterFixtureService {
+    inner: Arc<Mutex<RouterFixtureService>>,
+    operation_options: Arc<Mutex<Value>>,
+}
+
+impl SharedRouterFixtureService {
+    fn options(&self) -> Value {
+        self.operation_options
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_else(|_| json!({}))
+    }
+}
+
+impl AxAIClient for SharedRouterFixtureService {
+    fn chat(&mut self, request: Value) -> AxResult<Value> {
+        self.inner
+            .lock()
+            .map_err(|_| AxError::runtime("fixture service lock poisoned"))?
+            .chat(&request, &self.options())
+    }
+
+    fn embed(&mut self, request: Value) -> AxResult<Value> {
+        self.inner
+            .lock()
+            .map_err(|_| AxError::runtime("fixture service lock poisoned"))?
+            .embed(&request, &self.options())
+    }
+
+    fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
+        self.inner
+            .lock()
+            .map_err(|_| AxError::runtime("fixture service lock poisoned"))?
+            .stream(&request, &self.options())
+    }
+
+    fn transcribe(&mut self, request: Value) -> AxResult<Value> {
+        self.inner
+            .lock()
+            .map_err(|_| AxError::runtime("fixture service lock poisoned"))?
+            .transcribe(&request, &self.options())
+    }
+
+    fn speak(&mut self, request: Value) -> AxResult<Value> {
+        self.inner
+            .lock()
+            .map_err(|_| AxError::runtime("fixture service lock poisoned"))?
+            .speak(&request, &self.options())
+    }
+
+    fn get_id(&self) -> String {
+        self.inner
+            .lock()
+            .map(|value| value.id.clone())
+            .unwrap_or_default()
+    }
+
+    fn get_name(&self) -> String {
+        self.inner
+            .lock()
+            .map(|value| value.name.clone())
+            .unwrap_or_default()
+    }
+
+    fn get_features(&self, _model: Option<&str>) -> Value {
+        self.inner
+            .lock()
+            .map(|value| value.features.clone())
+            .unwrap_or(Value::Null)
+    }
+
+    fn get_model_list(&self) -> Value {
+        self.inner
+            .lock()
+            .map(|value| value.model_list.clone())
+            .unwrap_or(Value::Null)
+    }
+
+    fn get_metrics(&self) -> Value {
+        self.inner
+            .lock()
+            .map(|value| value.metrics())
+            .unwrap_or(Value::Null)
+    }
+
+    fn get_estimated_cost(&self, _usage: &Value) -> f64 {
+        self.inner
+            .lock()
+            .map(|value| value.estimated_cost)
+            .unwrap_or(0.0)
+    }
+
+    fn get_options(&self) -> Value {
+        self.inner
+            .lock()
+            .map(|value| value.options.clone())
+            .unwrap_or_else(|_| json!({}))
+    }
+
+    fn set_options(&mut self, options: Value) {
+        if let Ok(mut value) = self.inner.lock() {
+            value.options = options;
+        }
     }
 }
 
@@ -9824,246 +10806,105 @@ fn is_retryable_ai_error(err: &AxError) -> bool {
         )
 }
 
-struct ConformanceBalancer {
-    services: Vec<RouterFixtureService>,
-    current: usize,
-    failures: BTreeMap<String, usize>,
-    max_retries: usize,
-}
-
-impl ConformanceBalancer {
-    fn new(mut services: Vec<RouterFixtureService>, options: &Value) -> AxResult<Self> {
-        if services.is_empty() {
-            return Err(AxError::runtime("No AI services provided."));
-        }
-        let policy = core_value_to_json(&provider_balancer_retry_policy(&[core_value_from_json(
-            options,
-        )])?);
-        let strategy = policy
-            .get("strategy")
-            .and_then(Value::as_str)
-            .unwrap_or("metric")
-            .to_string();
-        let max_retries = policy
-            .get("maxRetries")
-            .and_then(Value::as_u64)
-            .unwrap_or(3) as usize;
-        Self::validate_models(&services)?;
-        if strategy != "input_order" {
-            services.sort_by(|a, b| {
-                let a_score = provider_balancer_metric_score(&[core_value_from_json(&a.metrics())])
-                    .map(|value| core_value_to_json(&value).as_f64().unwrap_or(0.0))
-                    .unwrap_or(0.0);
-                let b_score = provider_balancer_metric_score(&[core_value_from_json(&b.metrics())])
-                    .map(|value| core_value_to_json(&value).as_f64().unwrap_or(0.0))
-                    .unwrap_or(0.0);
-                a_score
-                    .partial_cmp(&b_score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-        }
-        Ok(Self {
-            services,
-            current: 0,
-            failures: BTreeMap::new(),
-            max_retries,
-        })
-    }
-
-    fn validate_models(services: &[RouterFixtureService]) -> AxResult<()> {
-        let reference = services
-            .iter()
-            .find_map(|service| service.model_list.as_array().cloned());
-        let Some(reference) = reference.filter(|items| !items.is_empty()) else {
-            return Ok(());
-        };
-        let reference_keys = reference
-            .iter()
-            .filter_map(|item| {
-                item.get("key")
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string)
-            })
-            .collect::<BTreeSet<_>>();
-        for (index, service) in services.iter().enumerate() {
-            let list = service.model_list.as_array().cloned().unwrap_or_default();
-            if list.is_empty() {
-                return Err(AxError::runtime(format!(
-                    "Service at index {index} ({}) has no model list while another service does.",
-                    service.name
-                )));
-            }
-            let keys = list
-                .iter()
-                .filter_map(|item| {
-                    item.get("key")
-                        .and_then(Value::as_str)
-                        .map(ToString::to_string)
-                })
-                .collect::<BTreeSet<_>>();
-            for key in &reference_keys {
-                if !keys.contains(key) {
-                    return Err(AxError::runtime(format!(
-                        "Service at index {index} ({}) is missing model {key:?}",
-                        service.name
-                    )));
-                }
-            }
-            for key in &keys {
-                if !reference_keys.contains(key) {
-                    return Err(AxError::runtime(format!(
-                        "Service at index {index} ({}) has extra model {key:?}",
-                        service.name
-                    )));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn candidate_indices(&self, request: &Value) -> AxResult<Vec<usize>> {
-        let mut out = Vec::new();
-        for (index, service) in self.services.iter().enumerate() {
-            let allowed = core_value_to_json(&provider_balancer_candidate_allowed(&[
-                core_value_from_json(&service.features),
-                core_value_from_json(request),
-            ])?);
-            if allowed.as_bool().unwrap_or(false) {
-                out.push(index);
-            }
-        }
-        if !out.is_empty() {
-            return Ok(out);
-        }
-        let mut requirements = Vec::new();
-        if request
-            .get("responseFormat")
-            .or_else(|| request.get("response_format"))
-            .and_then(|format| format.get("type"))
-            .and_then(Value::as_str)
-            == Some("json_schema")
-        {
-            requirements.push("structured outputs");
-        }
-        let capabilities = request
-            .get("capabilities")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        if capabilities
-            .get("requiresImages")
-            .or_else(|| capabilities.get("requires_images"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            requirements.push("images");
-        }
-        if capabilities
-            .get("requiresAudio")
-            .or_else(|| capabilities.get("requires_audio"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            requirements.push("audio");
-        }
-        Err(AxError::runtime(format!(
-            "No services available that support required capabilities: {}.",
-            requirements.join(", ")
-        )))
-    }
-
-    // Streaming routes through the same failover loop as chat(): a transient error on the
-    // primary fails over to a healthy backup, and the backup's response is replayed as stream
-    // deltas (a single-result response collapses to [{ results: [result] }]). No lazy
-    // first-chunk peek is needed — the ports stream synchronously, so the error surfaces inside
-    // the failover loop rather than deferring past it the way TS's ReadableStream does.
-    fn stream(&mut self, request: &Value, options: &Value) -> AxResult<Vec<Value>> {
-        let response = self.chat(request, options)?;
-        if let Some(results) = response.get("results").and_then(Value::as_array) {
-            return Ok(results
-                .iter()
-                .map(|result| json!({ "results": [result.clone()] }))
-                .collect());
-        }
-        Ok(vec![response])
-    }
-
-    fn chat(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
-        let candidates = self.candidate_indices(request)?;
-        let mut candidate_pos = 0;
-        let mut current = candidates[candidate_pos];
-        self.current = current;
-        loop {
-            let id = self.services[current].id.clone();
-            if self.failures.get(&id).copied().unwrap_or(0) > 0 {
-                candidate_pos += 1;
-                if candidate_pos >= candidates.len() {
-                    return Err(AxError::runtime(format!(
-                        "All candidate services exhausted (tried {} service(s))",
-                        candidates.len()
-                    )));
-                }
-                current = candidates[candidate_pos];
-                self.current = current;
-                continue;
-            }
-            match self.services[current].chat(request, options) {
-                Ok(response) => {
-                    self.failures.remove(&id);
-                    self.current = current;
-                    return Ok(response);
-                }
-                Err(err) if is_retryable_ai_error(&err) => {
-                    *self.failures.entry(id).or_insert(0) += 1;
-                    if self
-                        .failures
-                        .get(&self.services[current].id)
-                        .copied()
-                        .unwrap_or(0)
-                        >= self.max_retries
-                    {
-                        candidate_pos += 1;
-                        if candidate_pos >= candidates.len() {
-                            return Err(AxError::runtime(format!(
-                                "All candidate services exhausted (tried {} service(s))",
-                                candidates.len()
-                            )));
-                        }
-                        current = candidates[candidate_pos];
-                        self.current = current;
-                    }
-                }
-                Err(err) => return Err(err),
-            }
-        }
-    }
-
-    fn embed(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
-        self.current = 0;
-        self.services[0].embed(request, options)
-    }
-
-    fn transcribe(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
-        self.services[self.current].transcribe(request, options)
-    }
-
-    fn speak(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
-        self.services[self.current].speak(request, options)
-    }
-
-    fn set_options(&mut self, options: Value) {
-        for service in &mut self.services {
-            service.options = options.clone();
-        }
-    }
-
-    fn current_service(&self) -> &RouterFixtureService {
-        &self.services[self.current]
-    }
-}
-
 fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
-    let options = fixture.get("options").cloned().unwrap_or_else(|| json!({}));
-    let mut balancer = ConformanceBalancer::new(build_router_services(fixture), &options)?;
+    let raw_options = fixture.get("options").cloned().unwrap_or_else(|| json!({}));
+    let fixtures = build_router_services(fixture);
+    let handles = fixtures
+        .into_iter()
+        .map(|service| Arc::new(Mutex::new(service)))
+        .collect::<Vec<_>>();
+    let operation_options = handles
+        .iter()
+        .map(|_| Arc::new(Mutex::new(json!({}))))
+        .collect::<Vec<_>>();
+    let clients = handles
+        .iter()
+        .zip(operation_options.iter())
+        .map(|(inner, options)| {
+            Box::new(SharedRouterFixtureService {
+                inner: inner.clone(),
+                operation_options: options.clone(),
+            }) as Box<dyn AxAIClient>
+        })
+        .collect::<Vec<_>>();
+    let raw_strategy = raw_options.get("strategy");
+    let mut options = AxBalancerOptions {
+        debug: raw_options
+            .get("debug")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+        max_retries: raw_options
+            .get("maxRetries")
+            .or_else(|| raw_options.get("max_retries"))
+            .and_then(Value::as_u64)
+            .unwrap_or(3) as usize,
+        input_order: raw_strategy.and_then(Value::as_str) == Some("input_order"),
+        ..AxBalancerOptions::default()
+    };
+    if raw_strategy
+        .and_then(|value| value.get("type"))
+        .and_then(Value::as_str)
+        == Some("adaptive")
+    {
+        let strategy_value = raw_strategy.unwrap();
+        let mut strategy = AxBalancerAdaptiveStrategy::new(
+            strategy_value
+                .get("deadlineMs")
+                .or_else(|| strategy_value.get("deadline_ms"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+            strategy_value
+                .get("badOutcomeCost")
+                .or_else(|| strategy_value.get("bad_outcome_cost"))
+                .and_then(Value::as_f64)
+                .unwrap_or(-1.0),
+        );
+        strategy.namespace = strategy_value
+            .get("namespace")
+            .and_then(Value::as_str)
+            .unwrap_or("default")
+            .to_string();
+        strategy.expected_tokens = strategy_value
+            .get("expectedTokens")
+            .or_else(|| strategy_value.get("expected_tokens"))
+            .cloned();
+        options.strategy = Some(strategy);
+    }
+    let best_effort_store = Arc::new(ConformanceThrowingBalancerStatsStore::new());
+    let best_effort_events = Arc::new(AtomicU64::new(0));
+    if fixture
+        .get("adaptive_best_effort")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        let strategy_value = raw_strategy.unwrap_or(&Value::Null);
+        let event_counter = best_effort_events.clone();
+        options.strategy = Some(
+            AxBalancerAdaptiveStrategy::new(
+                strategy_value
+                    .get("deadlineMs")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(1.0),
+                strategy_value
+                    .get("badOutcomeCost")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0),
+            )
+            .with_namespace(
+                strategy_value
+                    .get("namespace")
+                    .and_then(Value::as_str)
+                    .unwrap_or("default"),
+            )
+            .with_store(best_effort_store.clone())
+            .with_route_key(Arc::new(|_service, _index| "best-effort-route".to_string()))
+            .on_routing_event(Arc::new(move |_event| {
+                event_counter.fetch_add(1, Ordering::SeqCst);
+                panic!("fixture event hook failed");
+            })),
+        );
+    }
+    let mut balancer = AxBalancer::from_clients(clients, options)?;
     let mut outputs = Map::new();
     for op in fixture
         .get("operations")
@@ -10073,31 +10914,186 @@ fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
     {
         let name = op.get("name").and_then(Value::as_str).unwrap_or("");
         let request = op.get("request").cloned().unwrap_or_else(|| json!({}));
-        let options = op.get("options").cloned().unwrap_or_else(|| json!({}));
+        let call_options = op.get("options").cloned().unwrap_or_else(|| json!({}));
+        for value in &operation_options {
+            if let Ok(mut options) = value.lock() {
+                *options = call_options.clone();
+            }
+        }
         match name {
             "chat" => {
-                outputs.insert(name.to_string(), balancer.chat(&request, &options)?);
+                outputs.insert(name.to_string(), balancer.chat(request)?);
             }
             "stream" => {
-                outputs.insert(
-                    name.to_string(),
-                    Value::Array(balancer.stream(&request, &options)?),
-                );
+                outputs.insert(name.to_string(), Value::Array(balancer.stream(request)?));
             }
             "embed" => {
-                outputs.insert(name.to_string(), balancer.embed(&request, &options)?);
+                outputs.insert(name.to_string(), balancer.embed(request)?);
             }
             "transcribe" => {
-                outputs.insert(name.to_string(), balancer.transcribe(&request, &options)?);
+                outputs.insert(name.to_string(), balancer.transcribe(request)?);
             }
             "speak" => {
-                outputs.insert(name.to_string(), balancer.speak(&request, &options)?);
+                outputs.insert(name.to_string(), balancer.speak(request)?);
             }
-            "set_options" => balancer.set_options(options),
+            "adaptive_stats" => {
+                let mut stats = create_balancer_route_stats();
+                for observation in op
+                    .get("observations")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                {
+                    stats = update_balancer_route_stats(
+                        Some(&stats),
+                        &AxBalancerStatsObservation {
+                            outcome: observation
+                                .get("outcome")
+                                .and_then(Value::as_str)
+                                .unwrap_or("failure")
+                                .to_string(),
+                            latency_ms: observation.get("latencyMs").and_then(Value::as_f64),
+                        },
+                    );
+                }
+                set_core_math_random_values(
+                    op.get("random_values")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_f64)
+                        .collect(),
+                );
+                let health = sample_balancer_route_health(
+                    Some(&stats),
+                    op.get("deadline_ms").and_then(Value::as_f64).unwrap_or(1.0),
+                )?;
+                let score = core_value_to_json(&provider_balancer_adaptive_score(&[
+                    CoreValue::Num(
+                        op.get("estimated_cost")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                    ),
+                    CoreValue::Num(
+                        op.get("bad_outcome_cost")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                    ),
+                    CoreValue::Num(
+                        health
+                            .get("failureProbability")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                    ),
+                    CoreValue::Num(
+                        health
+                            .get("deadlineMissProbability")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                    ),
+                ])?)
+                .as_f64()
+                .unwrap_or(0.0);
+                let round9 = |value: f64| (value * 1_000_000_000.0).round() / 1_000_000_000.0;
+                outputs.insert(name.to_string(), json!({
+                    "stats": {"version": stats.version, "observations": stats.observations, "successes": stats.successes, "failureEwma": round9(stats.failure_ewma), "logLatencyMean": round9(stats.log_latency_mean), "logLatencyM2": round9(stats.log_latency_m2)},
+                    "health": {"failureProbability": round9(health.get("failureProbability").and_then(Value::as_f64).unwrap_or(0.0)), "deadlineMissProbability": round9(health.get("deadlineMissProbability").and_then(Value::as_f64).unwrap_or(0.0))},
+                    "score": round9(score),
+                }));
+            }
+            "adaptive_store" => {
+                let store = AxInMemoryBalancerStatsStore::new();
+                for write in op
+                    .get("writes")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                {
+                    let key = write.get("key").cloned().unwrap_or_else(|| json!({}));
+                    let observation = write
+                        .get("observation")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    store.observe(
+                        &AxBalancerStatsKey {
+                            namespace: key
+                                .get("namespace")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string(),
+                            slice: key
+                                .get("slice")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string(),
+                            logical_model: key
+                                .get("logicalModel")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string(),
+                            route_key: key
+                                .get("routeKey")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string(),
+                        },
+                        &AxBalancerStatsObservation {
+                            outcome: observation
+                                .get("outcome")
+                                .and_then(Value::as_str)
+                                .unwrap_or("failure")
+                                .to_string(),
+                            latency_ms: observation.get("latencyMs").and_then(Value::as_f64),
+                        },
+                    )?;
+                }
+                let mut states = Vec::new();
+                for key in op
+                    .get("reads")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                {
+                    let stats = store.get(&AxBalancerStatsKey {
+                        namespace: key
+                            .get("namespace")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        slice: key
+                            .get("slice")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        logical_model: key
+                            .get("logicalModel")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        route_key: key
+                            .get("routeKey")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                    })?;
+                    states.push(balancer_stats_value(stats.as_ref()));
+                }
+                outputs.insert(name.to_string(), json!({"states": states}));
+            }
+            "set_options" => balancer.set_options(call_options),
             _ => {}
         }
     }
-    let current = balancer.current_service().clone();
+    let current_id = balancer.services[balancer.current].get_id();
+    let snapshots = handles
+        .iter()
+        .filter_map(|value| value.lock().ok().map(|service| service.clone()))
+        .collect::<Vec<_>>();
+    let current = snapshots
+        .iter()
+        .find(|service| service.id == current_id)
+        .cloned()
+        .ok_or_else(|| AxError::runtime("selected fixture service not found"))?;
     let mut actual = json!({
         "id": current.id,
         "name": current.name,
@@ -10105,34 +11101,53 @@ fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
         "lastChat": current.last_chat,
         "lastEmbed": current.last_embed,
         "lastConfig": current.last_config,
-        "metrics": balancer_metrics(&balancer.services),
+        "metrics": balancer_metrics(&snapshots),
         "options": current.options,
-        "serviceCalls": service_calls(&balancer.services)
+        "serviceCalls": service_calls(&snapshots)
     });
     if fixture
         .get("expected_output")
         .and_then(|expected| expected.get("modelList"))
         .is_some()
     {
-        actual["modelList"] = balancer
-            .services
-            .iter()
-            .find(|service| {
-                service
-                    .model_list
-                    .as_array()
-                    .map(|items| !items.is_empty())
-                    .unwrap_or(false)
-            })
-            .map(|service| service.model_list.clone())
-            .unwrap_or(Value::Null);
+        actual["modelList"] = if current
+            .model_list
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false)
+        {
+            current.model_list.clone()
+        } else {
+            snapshots
+                .iter()
+                .find(|service| {
+                    service
+                        .model_list
+                        .as_array()
+                        .map(|items| !items.is_empty())
+                        .unwrap_or(false)
+                })
+                .map(|service| service.model_list.clone())
+                .unwrap_or(Value::Null)
+        };
     }
     if fixture
         .get("expected_output")
         .and_then(|expected| expected.get("features"))
         .is_some()
     {
-        actual["features"] = merged_balancer_features(&balancer.services);
+        actual["features"] = merged_balancer_features(&snapshots);
+    }
+    if fixture
+        .get("adaptive_best_effort")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        actual["bestEffort"] = json!({
+            "storeGets": best_effort_store.gets.load(Ordering::SeqCst),
+            "storeObserves": best_effort_store.observes.load(Ordering::SeqCst),
+            "eventCalls": best_effort_events.load(Ordering::SeqCst),
+        });
     }
     Ok(actual)
 }
@@ -14852,6 +15867,61 @@ fn core_add(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         (CoreValue::Str(a), CoreValue::Str(b)) => Ok(CoreValue::from_string(format!("{}{}", a, b))),
         _ => Err(AxError::runtime("unsupported operands for intrinsic.add")),
     }
+}
+
+fn core_number_arg(args: &[CoreValue], index: usize) -> Result<f64, AxError> {
+    match core_arg(args, index) {
+        CoreValue::Num(value) => Ok(value),
+        _ => Err(AxError::runtime("expected numeric operand")),
+    }
+}
+
+fn core_math_abs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_number_arg(args, 0)?.abs()))
+}
+fn core_math_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_number_arg(args, 0)?.ln()))
+}
+fn core_math_exp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_number_arg(args, 0)?.exp()))
+}
+fn core_math_sqrt(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_number_arg(args, 0)?.sqrt()))
+}
+fn core_math_cos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_number_arg(args, 0)?.cos()))
+}
+fn core_math_pow(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let (left, right) = core_number_pair(args)?;
+    Ok(CoreValue::Num(left.powf(right)))
+}
+
+static CORE_MATH_RANDOM_VALUES: OnceLock<Mutex<VecDeque<f64>>> = OnceLock::new();
+static CORE_MATH_RANDOM_STATE: AtomicU64 = AtomicU64::new(0);
+
+fn set_core_math_random_values(values: Vec<f64>) {
+    let queue = CORE_MATH_RANDOM_VALUES.get_or_init(|| Mutex::new(VecDeque::new()));
+    *queue.lock().expect("math random queue") = values.into();
+}
+
+fn core_math_random(_args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let queue = CORE_MATH_RANDOM_VALUES.get_or_init(|| Mutex::new(VecDeque::new()));
+    if let Some(value) = queue.lock().expect("math random queue").pop_front() {
+        return Ok(CoreValue::Num(value));
+    }
+    let mut state = CORE_MATH_RANDOM_STATE.load(Ordering::Relaxed);
+    if state == 0 {
+        state = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64
+            | 1;
+    }
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    CORE_MATH_RANDOM_STATE.store(state, Ordering::Relaxed);
+    Ok(CoreValue::Num((state as f64) / ((u64::MAX as f64) + 1.0)))
 }
 
 fn core_len(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -27618,6 +28688,763 @@ fn provider_balancer_candidate_allowed(args: &[CoreValue]) -> Result<CoreValue, 
         }
     }
     return Ok(CoreValue::Bool(true));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_balancer_adaptive_policy(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_balancer_adaptive_policy");
+    let mut v_strategy = core_arg(args, 0);
+    let mut v_bad_outcome = CoreValue::Null;
+    let mut v_bad_outcome_bad = CoreValue::Null;
+    let mut v_bad_outcome_missing = CoreValue::Null;
+    let mut v_deadline = CoreValue::Null;
+    let mut v_deadline_bad = CoreValue::Null;
+    let mut v_deadline_missing = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_namespace = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_tokens = CoreValue::Null;
+    let mut v_tokens_missing = CoreValue::Null;
+    v_deadline = core_get(&v_strategy, &CoreValue::from("deadlineMs"), CoreValue::Null);
+    v_deadline_missing = core_is_none(&[v_deadline.clone()])?;
+    if core_truthy(&v_deadline_missing) {
+        v_deadline = core_get(
+            &v_strategy,
+            &CoreValue::from("deadline_ms"),
+            CoreValue::Num(0f64),
+        );
+    }
+    v_deadline_bad = core_lte(&[v_deadline.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_deadline_bad) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "Adaptive deadlineMs must be finite and greater than zero.",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_bad_outcome = core_get(
+        &v_strategy,
+        &CoreValue::from("badOutcomeCost"),
+        CoreValue::Null,
+    );
+    v_bad_outcome_missing = core_is_none(&[v_bad_outcome.clone()])?;
+    if core_truthy(&v_bad_outcome_missing) {
+        v_bad_outcome = core_get(
+            &v_strategy,
+            &CoreValue::from("bad_outcome_cost"),
+            CoreValue::Num(-1f64),
+        );
+    }
+    v_bad_outcome_bad = core_lt(&[v_bad_outcome.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_bad_outcome_bad) {
+        v_error = core_runtime_error(&[CoreValue::from(
+            "Adaptive badOutcomeCost must be finite and non-negative.",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("type"), CoreValue::from("adaptive"))?;
+    core_set(&v_out, CoreValue::from("deadlineMs"), v_deadline.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("badOutcomeCost"),
+        v_bad_outcome.clone(),
+    )?;
+    v_namespace = core_get(
+        &v_strategy,
+        &CoreValue::from("namespace"),
+        CoreValue::from("default"),
+    );
+    core_set(&v_out, CoreValue::from("namespace"), v_namespace.clone())?;
+    v_tokens = core_get(
+        &v_strategy,
+        &CoreValue::from("expectedTokens"),
+        CoreValue::Null,
+    );
+    v_tokens_missing = core_is_none(&[v_tokens.clone()])?;
+    if core_truthy(&v_tokens_missing) {
+        v_tokens = core_get(
+            &v_strategy,
+            &CoreValue::from("expected_tokens"),
+            CoreValue::Null,
+        );
+    }
+    core_set(&v_out, CoreValue::from("expectedTokens"), v_tokens.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_balancer_route_stats(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_balancer_route_stats");
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("version"), CoreValue::Num(1f64))?;
+    core_set(
+        &v_out,
+        CoreValue::from("observations"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(&v_out, CoreValue::from("successes"), CoreValue::Num(0f64))?;
+    core_set(
+        &v_out,
+        CoreValue::from("failureEwma"),
+        CoreValue::Num(0.05f64),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("logLatencyMean"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("logLatencyM2"),
+        CoreValue::Num(0f64),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_balancer_observe_route(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_balancer_observe_route");
+    let mut v_stats = core_arg(args, 0);
+    let mut v_observation = core_arg(args, 1);
+    let mut v_delta = CoreValue::Null;
+    let mut v_delta_after = CoreValue::Null;
+    let mut v_delta_share = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_failed_number = CoreValue::Null;
+    let mut v_failure_ewma = CoreValue::Null;
+    let mut v_latency = CoreValue::Null;
+    let mut v_latency_missing = CoreValue::Null;
+    let mut v_log_latency = CoreValue::Null;
+    let mut v_m2 = CoreValue::Null;
+    let mut v_m2_increment = CoreValue::Null;
+    let mut v_mean = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_negative_mean = CoreValue::Null;
+    let mut v_negative_next_mean = CoreValue::Null;
+    let mut v_new_weighted = CoreValue::Null;
+    let mut v_next_failure = CoreValue::Null;
+    let mut v_next_m2 = CoreValue::Null;
+    let mut v_next_mean = CoreValue::Null;
+    let mut v_next_observations = CoreValue::Null;
+    let mut v_next_successes = CoreValue::Null;
+    let mut v_observations = CoreValue::Null;
+    let mut v_old_weighted = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_outcome = CoreValue::Null;
+    let mut v_successes = CoreValue::Null;
+    let mut v_too_small = CoreValue::Null;
+    v_missing = core_is_none(&[v_stats.clone()])?;
+    if core_truthy(&v_missing) {
+        v_stats = provider_balancer_route_stats(&[])?;
+    }
+    v_outcome = core_get(
+        &v_observation,
+        &CoreValue::from("outcome"),
+        CoreValue::from("failure"),
+    );
+    v_failed = core_eq(&[v_outcome.clone(), CoreValue::from("failure")])?;
+    v_failed_number = core_add(&[CoreValue::Num(0f64), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_failed) {
+        v_failed_number = core_add(&[CoreValue::Num(1f64), CoreValue::Num(0f64)])?;
+    }
+    v_failure_ewma = core_get(
+        &v_stats,
+        &CoreValue::from("failureEwma"),
+        CoreValue::Num(0.05f64),
+    );
+    v_old_weighted = core_mul(&[CoreValue::Num(0.8f64), v_failure_ewma.clone()])?;
+    v_new_weighted = core_mul(&[CoreValue::Num(0.2f64), v_failed_number.clone()])?;
+    v_next_failure = core_add(&[v_old_weighted.clone(), v_new_weighted.clone()])?;
+    v_observations = core_get(
+        &v_stats,
+        &CoreValue::from("observations"),
+        CoreValue::Num(0f64),
+    );
+    v_next_observations = core_add(&[v_observations.clone(), CoreValue::Num(1f64)])?;
+    v_successes = core_get(
+        &v_stats,
+        &CoreValue::from("successes"),
+        CoreValue::Num(0f64),
+    );
+    v_mean = core_get(
+        &v_stats,
+        &CoreValue::from("logLatencyMean"),
+        CoreValue::Num(0f64),
+    );
+    v_m2 = core_get(
+        &v_stats,
+        &CoreValue::from("logLatencyM2"),
+        CoreValue::Num(0f64),
+    );
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("version"), CoreValue::Num(1f64))?;
+    core_set(
+        &v_out,
+        CoreValue::from("observations"),
+        v_next_observations.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("successes"), v_successes.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("failureEwma"),
+        v_next_failure.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("logLatencyMean"), v_mean.clone())?;
+    core_set(&v_out, CoreValue::from("logLatencyM2"), v_m2.clone())?;
+    if core_truthy(&v_failed) {
+        return Ok(v_out.clone());
+    }
+    v_latency = core_get(
+        &v_observation,
+        &CoreValue::from("latencyMs"),
+        CoreValue::Null,
+    );
+    v_latency_missing = core_is_none(&[v_latency.clone()])?;
+    if core_truthy(&v_latency_missing) {
+        v_latency = core_get(
+            &v_observation,
+            &CoreValue::from("latency_ms"),
+            CoreValue::Num(1f64),
+        );
+    }
+    v_too_small = core_lt(&[v_latency.clone(), CoreValue::Num(1f64)])?;
+    if core_truthy(&v_too_small) {
+        v_latency = core_add(&[CoreValue::Num(1f64), CoreValue::Num(0f64)])?;
+    }
+    v_log_latency = core_math_log(&[v_latency.clone()])?;
+    v_next_successes = core_add(&[v_successes.clone(), CoreValue::Num(1f64)])?;
+    v_negative_mean = core_mul(&[CoreValue::Num(-1f64), v_mean.clone()])?;
+    v_delta = core_add(&[v_log_latency.clone(), v_negative_mean.clone()])?;
+    v_delta_share = core_div(&[v_delta.clone(), v_next_successes.clone()])?;
+    v_next_mean = core_add(&[v_mean.clone(), v_delta_share.clone()])?;
+    v_negative_next_mean = core_mul(&[CoreValue::Num(-1f64), v_next_mean.clone()])?;
+    v_delta_after = core_add(&[v_log_latency.clone(), v_negative_next_mean.clone()])?;
+    v_m2_increment = core_mul(&[v_delta.clone(), v_delta_after.clone()])?;
+    v_next_m2 = core_add(&[v_m2.clone(), v_m2_increment.clone()])?;
+    core_set(
+        &v_out,
+        CoreValue::from("successes"),
+        v_next_successes.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("logLatencyMean"),
+        v_next_mean.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("logLatencyM2"), v_next_m2.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _provider_balancer_nonzero_random(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_balancer_nonzero_random");
+    let mut v_high = CoreValue::Null;
+    let mut v_low = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_value = core_math_random(&[])?;
+    v_low = core_lt(&[v_value.clone(), CoreValue::Num(2.220446049250313e-16f64)])?;
+    if core_truthy(&v_low) {
+        return Ok(CoreValue::Num(2.220446049250313e-16f64));
+    }
+    v_high = core_gt(&[v_value.clone(), CoreValue::Num(0.9999999999999998f64)])?;
+    if core_truthy(&v_high) {
+        return Ok(CoreValue::Num(0.9999999999999998f64));
+    }
+    return Ok(v_value.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _provider_balancer_standard_normal(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_balancer_standard_normal");
+    let mut v_angle = CoreValue::Null;
+    let mut v_cosine = CoreValue::Null;
+    let mut v_log_u1 = CoreValue::Null;
+    let mut v_negative_two_log = CoreValue::Null;
+    let mut v_radius = CoreValue::Null;
+    let mut v_sample = CoreValue::Null;
+    let mut v_u1 = CoreValue::Null;
+    let mut v_u2 = CoreValue::Null;
+    v_u1 = _provider_balancer_nonzero_random(&[])?;
+    v_u2 = _provider_balancer_nonzero_random(&[])?;
+    v_log_u1 = core_math_log(&[v_u1.clone()])?;
+    v_negative_two_log = core_mul(&[CoreValue::Num(-2f64), v_log_u1.clone()])?;
+    v_radius = core_math_sqrt(&[v_negative_two_log.clone()])?;
+    v_angle = core_mul(&[CoreValue::Num(6.283185307179586f64), v_u2.clone()])?;
+    v_cosine = core_math_cos(&[v_angle.clone()])?;
+    v_sample = core_mul(&[v_radius.clone(), v_cosine.clone()])?;
+    return Ok(v_sample.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _provider_balancer_gamma_sample(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_balancer_gamma_sample");
+    let mut v_shape = core_arg(args, 0);
+    let mut v_scale = core_arg(args, 1);
+    let mut v_accept = CoreValue::Null;
+    let mut v_attempt = CoreValue::Null;
+    let mut v_attempts = CoreValue::Null;
+    let mut v_base = CoreValue::Null;
+    let mut v_base_bad = CoreValue::Null;
+    let mut v_c = CoreValue::Null;
+    let mut v_cx = CoreValue::Null;
+    let mut v_d = CoreValue::Null;
+    let mut v_d_inside = CoreValue::Null;
+    let mut v_dv = CoreValue::Null;
+    let mut v_fallback = CoreValue::Null;
+    let mut v_fast_accept = CoreValue::Null;
+    let mut v_fast_threshold = CoreValue::Null;
+    let mut v_half_x2 = CoreValue::Null;
+    let mut v_inside = CoreValue::Null;
+    let mut v_log_u = CoreValue::Null;
+    let mut v_log_value = CoreValue::Null;
+    let mut v_negative_penalty = CoreValue::Null;
+    let mut v_negative_third = CoreValue::Null;
+    let mut v_negative_value = CoreValue::Null;
+    let mut v_nine_d = CoreValue::Null;
+    let mut v_one_minus_value = CoreValue::Null;
+    let mut v_penalty = CoreValue::Null;
+    let mut v_rhs = CoreValue::Null;
+    let mut v_sample = CoreValue::Null;
+    let mut v_sqrt_nine_d = CoreValue::Null;
+    let mut v_third = CoreValue::Null;
+    let mut v_u = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    let mut v_x = CoreValue::Null;
+    let mut v_x2 = CoreValue::Null;
+    let mut v_x4 = CoreValue::Null;
+    v_third = core_div(&[CoreValue::Num(1f64), CoreValue::Num(3f64)])?;
+    v_negative_third = core_mul(&[CoreValue::Num(-1f64), v_third.clone()])?;
+    v_d = core_add(&[v_shape.clone(), v_negative_third.clone()])?;
+    v_nine_d = core_mul(&[CoreValue::Num(9f64), v_d.clone()])?;
+    v_sqrt_nine_d = core_math_sqrt(&[v_nine_d.clone()])?;
+    v_c = core_div(&[CoreValue::Num(1f64), v_sqrt_nine_d.clone()])?;
+    v_attempts = CoreValue::new_list();
+    core_append(&v_attempts, CoreValue::Num(0f64))?;
+    core_append(&v_attempts, CoreValue::Num(1f64))?;
+    core_append(&v_attempts, CoreValue::Num(2f64))?;
+    core_append(&v_attempts, CoreValue::Num(3f64))?;
+    core_append(&v_attempts, CoreValue::Num(4f64))?;
+    core_append(&v_attempts, CoreValue::Num(5f64))?;
+    core_append(&v_attempts, CoreValue::Num(6f64))?;
+    core_append(&v_attempts, CoreValue::Num(7f64))?;
+    core_append(&v_attempts, CoreValue::Num(8f64))?;
+    core_append(&v_attempts, CoreValue::Num(9f64))?;
+    core_append(&v_attempts, CoreValue::Num(10f64))?;
+    core_append(&v_attempts, CoreValue::Num(11f64))?;
+    core_append(&v_attempts, CoreValue::Num(12f64))?;
+    core_append(&v_attempts, CoreValue::Num(13f64))?;
+    core_append(&v_attempts, CoreValue::Num(14f64))?;
+    core_append(&v_attempts, CoreValue::Num(15f64))?;
+    for v_attempt in core_iter(&v_attempts)? {
+        let mut v_attempt = v_attempt;
+        v_x = _provider_balancer_standard_normal(&[])?;
+        v_cx = core_mul(&[v_c.clone(), v_x.clone()])?;
+        v_base = core_add(&[CoreValue::Num(1f64), v_cx.clone()])?;
+        v_base_bad = core_lte(&[v_base.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_base_bad) {
+            continue;
+        }
+        v_value = core_math_pow(&[v_base.clone(), CoreValue::Num(3f64)])?;
+        v_u = _provider_balancer_nonzero_random(&[])?;
+        v_x2 = core_math_pow(&[v_x.clone(), CoreValue::Num(2f64)])?;
+        v_x4 = core_math_pow(&[v_x.clone(), CoreValue::Num(4f64)])?;
+        v_penalty = core_mul(&[CoreValue::Num(0.0331f64), v_x4.clone()])?;
+        v_negative_penalty = core_mul(&[CoreValue::Num(-1f64), v_penalty.clone()])?;
+        v_fast_threshold = core_add(&[CoreValue::Num(1f64), v_negative_penalty.clone()])?;
+        v_fast_accept = core_lt(&[v_u.clone(), v_fast_threshold.clone()])?;
+        if core_truthy(&v_fast_accept) {
+            v_dv = core_mul(&[v_d.clone(), v_value.clone()])?;
+            v_sample = core_mul(&[v_dv.clone(), v_scale.clone()])?;
+            return Ok(v_sample.clone());
+        }
+        v_log_u = core_math_log(&[v_u.clone()])?;
+        v_half_x2 = core_mul(&[CoreValue::Num(0.5f64), v_x2.clone()])?;
+        v_negative_value = core_mul(&[CoreValue::Num(-1f64), v_value.clone()])?;
+        v_one_minus_value = core_add(&[CoreValue::Num(1f64), v_negative_value.clone()])?;
+        v_log_value = core_math_log(&[v_value.clone()])?;
+        v_inside = core_add(&[v_one_minus_value.clone(), v_log_value.clone()])?;
+        v_d_inside = core_mul(&[v_d.clone(), v_inside.clone()])?;
+        v_rhs = core_add(&[v_half_x2.clone(), v_d_inside.clone()])?;
+        v_accept = core_lt(&[v_log_u.clone(), v_rhs.clone()])?;
+        if core_truthy(&v_accept) {
+            v_dv = core_mul(&[v_d.clone(), v_value.clone()])?;
+            v_sample = core_mul(&[v_dv.clone(), v_scale.clone()])?;
+            return Ok(v_sample.clone());
+        }
+    }
+    v_fallback = core_mul(&[v_shape.clone(), v_scale.clone()])?;
+    return Ok(v_fallback.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _provider_balancer_normal_cdf(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_provider_balancer_normal_cdf");
+    let mut v_value = core_arg(args, 0);
+    let mut v_absolute = CoreValue::Null;
+    let mut v_cdf = CoreValue::Null;
+    let mut v_denom = CoreValue::Null;
+    let mut v_erf = CoreValue::Null;
+    let mut v_exponential = CoreValue::Null;
+    let mut v_negative = CoreValue::Null;
+    let mut v_negative_poly_exp = CoreValue::Null;
+    let mut v_negative_x = CoreValue::Null;
+    let mut v_negative_x2 = CoreValue::Null;
+    let mut v_one_minus = CoreValue::Null;
+    let mut v_one_plus_erf = CoreValue::Null;
+    let mut v_p1 = CoreValue::Null;
+    let mut v_p2 = CoreValue::Null;
+    let mut v_p3 = CoreValue::Null;
+    let mut v_p4 = CoreValue::Null;
+    let mut v_poly_exp = CoreValue::Null;
+    let mut v_polynomial = CoreValue::Null;
+    let mut v_scaled_x = CoreValue::Null;
+    let mut v_sign = CoreValue::Null;
+    let mut v_sqrt_two = CoreValue::Null;
+    let mut v_t = CoreValue::Null;
+    let mut v_x = CoreValue::Null;
+    v_sign = core_add(&[CoreValue::Num(1f64), CoreValue::Num(0f64)])?;
+    v_negative = core_lt(&[v_value.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_negative) {
+        v_sign = core_add(&[CoreValue::Num(-1f64), CoreValue::Num(0f64)])?;
+    }
+    v_absolute = core_math_abs(&[v_value.clone()])?;
+    v_sqrt_two = core_math_sqrt(&[CoreValue::Num(2f64)])?;
+    v_x = core_div(&[v_absolute.clone(), v_sqrt_two.clone()])?;
+    v_scaled_x = core_mul(&[CoreValue::Num(0.3275911f64), v_x.clone()])?;
+    v_denom = core_add(&[CoreValue::Num(1f64), v_scaled_x.clone()])?;
+    v_t = core_div(&[CoreValue::Num(1f64), v_denom.clone()])?;
+    v_p1 = core_mul(&[CoreValue::Num(1.061405429f64), v_t.clone()])?;
+    v_p1 = core_add(&[v_p1.clone(), CoreValue::Num(-1.453152027f64)])?;
+    v_p2 = core_mul(&[v_p1.clone(), v_t.clone()])?;
+    v_p2 = core_add(&[v_p2.clone(), CoreValue::Num(1.421413741f64)])?;
+    v_p3 = core_mul(&[v_p2.clone(), v_t.clone()])?;
+    v_p3 = core_add(&[v_p3.clone(), CoreValue::Num(-0.284496736f64)])?;
+    v_p4 = core_mul(&[v_p3.clone(), v_t.clone()])?;
+    v_p4 = core_add(&[v_p4.clone(), CoreValue::Num(0.254829592f64)])?;
+    v_polynomial = core_mul(&[v_p4.clone(), v_t.clone()])?;
+    v_negative_x = core_mul(&[CoreValue::Num(-1f64), v_x.clone()])?;
+    v_negative_x2 = core_mul(&[v_negative_x.clone(), v_x.clone()])?;
+    v_exponential = core_math_exp(&[v_negative_x2.clone()])?;
+    v_poly_exp = core_mul(&[v_polynomial.clone(), v_exponential.clone()])?;
+    v_negative_poly_exp = core_mul(&[CoreValue::Num(-1f64), v_poly_exp.clone()])?;
+    v_one_minus = core_add(&[CoreValue::Num(1f64), v_negative_poly_exp.clone()])?;
+    v_erf = core_mul(&[v_sign.clone(), v_one_minus.clone()])?;
+    v_one_plus_erf = core_add(&[CoreValue::Num(1f64), v_erf.clone()])?;
+    v_cdf = core_div(&[v_one_plus_erf.clone(), CoreValue::Num(2f64)])?;
+    return Ok(v_cdf.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_balancer_sample_health(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_balancer_sample_health");
+    let mut v_stats = core_arg(args, 0);
+    let mut v_deadline_ms = core_arg(args, 1);
+    let mut v_cdf = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_count_delta2 = CoreValue::Null;
+    let mut v_count_mean = CoreValue::Null;
+    let mut v_deadline_too_small = CoreValue::Null;
+    let mut v_failure = CoreValue::Null;
+    let mut v_half_count = CoreValue::Null;
+    let mut v_half_deadline = CoreValue::Null;
+    let mut v_half_m2 = CoreValue::Null;
+    let mut v_late = CoreValue::Null;
+    let mut v_log_deadline = CoreValue::Null;
+    let mut v_m2 = CoreValue::Null;
+    let mut v_mean_adjustment = CoreValue::Null;
+    let mut v_mean_delta = CoreValue::Null;
+    let mut v_mean_delta2 = CoreValue::Null;
+    let mut v_mean_noise = CoreValue::Null;
+    let mut v_mean_stddev = CoreValue::Null;
+    let mut v_mean_sum = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_negative_cdf = CoreValue::Null;
+    let mut v_negative_prior = CoreValue::Null;
+    let mut v_negative_sampled_mean = CoreValue::Null;
+    let mut v_normal = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_posterior_alpha = CoreValue::Null;
+    let mut v_posterior_beta = CoreValue::Null;
+    let mut v_posterior_mean = CoreValue::Null;
+    let mut v_posterior_strength = CoreValue::Null;
+    let mut v_precision = CoreValue::Null;
+    let mut v_prior_mean = CoreValue::Null;
+    let mut v_sampled_mean = CoreValue::Null;
+    let mut v_scale = CoreValue::Null;
+    let mut v_twice_strength = CoreValue::Null;
+    let mut v_variance = CoreValue::Null;
+    let mut v_variance_over_strength = CoreValue::Null;
+    let mut v_variance_stddev = CoreValue::Null;
+    let mut v_weighted_mean = CoreValue::Null;
+    let mut v_z = CoreValue::Null;
+    let mut v_z_numerator = CoreValue::Null;
+    v_missing = core_is_none(&[v_stats.clone()])?;
+    if core_truthy(&v_missing) {
+        v_stats = provider_balancer_route_stats(&[])?;
+    }
+    v_deadline_too_small = core_lt(&[v_deadline_ms.clone(), CoreValue::Num(1f64)])?;
+    if core_truthy(&v_deadline_too_small) {
+        v_deadline_ms = core_add(&[CoreValue::Num(1f64), CoreValue::Num(0f64)])?;
+    }
+    v_half_deadline = core_div(&[v_deadline_ms.clone(), CoreValue::Num(2f64)])?;
+    v_prior_mean = core_math_log(&[v_half_deadline.clone()])?;
+    v_count = core_get(
+        &v_stats,
+        &CoreValue::from("successes"),
+        CoreValue::Num(0f64),
+    );
+    v_posterior_strength = core_add(&[CoreValue::Num(1f64), v_count.clone()])?;
+    v_count_mean = core_get(
+        &v_stats,
+        &CoreValue::from("logLatencyMean"),
+        CoreValue::Num(0f64),
+    );
+    v_weighted_mean = core_mul(&[v_count.clone(), v_count_mean.clone()])?;
+    v_mean_sum = core_add(&[v_prior_mean.clone(), v_weighted_mean.clone()])?;
+    v_posterior_mean = core_div(&[v_mean_sum.clone(), v_posterior_strength.clone()])?;
+    v_half_count = core_div(&[v_count.clone(), CoreValue::Num(2f64)])?;
+    v_posterior_alpha = core_add(&[CoreValue::Num(2f64), v_half_count.clone()])?;
+    v_negative_prior = core_mul(&[CoreValue::Num(-1f64), v_prior_mean.clone()])?;
+    v_mean_delta = core_add(&[v_count_mean.clone(), v_negative_prior.clone()])?;
+    v_mean_delta2 = core_math_pow(&[v_mean_delta.clone(), CoreValue::Num(2f64)])?;
+    v_count_delta2 = core_mul(&[v_count.clone(), v_mean_delta2.clone()])?;
+    v_twice_strength = core_mul(&[CoreValue::Num(2f64), v_posterior_strength.clone()])?;
+    v_mean_adjustment = core_div(&[v_count_delta2.clone(), v_twice_strength.clone()])?;
+    v_m2 = core_get(
+        &v_stats,
+        &CoreValue::from("logLatencyM2"),
+        CoreValue::Num(0f64),
+    );
+    v_half_m2 = core_div(&[v_m2.clone(), CoreValue::Num(2f64)])?;
+    v_posterior_beta = core_add(&[CoreValue::Num(0.4804530139182014f64), v_half_m2.clone()])?;
+    v_posterior_beta = core_add(&[v_posterior_beta.clone(), v_mean_adjustment.clone()])?;
+    v_scale = core_div(&[CoreValue::Num(1f64), v_posterior_beta.clone()])?;
+    v_precision = _provider_balancer_gamma_sample(&[v_posterior_alpha.clone(), v_scale.clone()])?;
+    v_variance = core_div(&[CoreValue::Num(1f64), v_precision.clone()])?;
+    v_variance_over_strength = core_div(&[v_variance.clone(), v_posterior_strength.clone()])?;
+    v_mean_stddev = core_math_sqrt(&[v_variance_over_strength.clone()])?;
+    v_normal = _provider_balancer_standard_normal(&[])?;
+    v_mean_noise = core_mul(&[v_normal.clone(), v_mean_stddev.clone()])?;
+    v_sampled_mean = core_add(&[v_posterior_mean.clone(), v_mean_noise.clone()])?;
+    v_log_deadline = core_math_log(&[v_deadline_ms.clone()])?;
+    v_negative_sampled_mean = core_mul(&[CoreValue::Num(-1f64), v_sampled_mean.clone()])?;
+    v_z_numerator = core_add(&[v_log_deadline.clone(), v_negative_sampled_mean.clone()])?;
+    v_variance_stddev = core_math_sqrt(&[v_variance.clone()])?;
+    v_z = core_div(&[v_z_numerator.clone(), v_variance_stddev.clone()])?;
+    v_cdf = _provider_balancer_normal_cdf(&[v_z.clone()])?;
+    v_negative_cdf = core_mul(&[CoreValue::Num(-1f64), v_cdf.clone()])?;
+    v_late = core_add(&[CoreValue::Num(1f64), v_negative_cdf.clone()])?;
+    v_failure = core_get(
+        &v_stats,
+        &CoreValue::from("failureEwma"),
+        CoreValue::Num(0.05f64),
+    );
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("failureProbability"),
+        v_failure.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("deadlineMissProbability"),
+        v_late.clone(),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_balancer_adaptive_score(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_balancer_adaptive_score");
+    let mut v_estimated_cost = core_arg(args, 0);
+    let mut v_bad_outcome_cost = core_arg(args, 1);
+    let mut v_failure_probability = core_arg(args, 2);
+    let mut v_deadline_miss_probability = core_arg(args, 3);
+    let mut v_bad_cost = CoreValue::Null;
+    let mut v_bad_probability = CoreValue::Null;
+    let mut v_negative_failure = CoreValue::Null;
+    let mut v_score = CoreValue::Null;
+    let mut v_success_probability = CoreValue::Null;
+    let mut v_successful_late = CoreValue::Null;
+    v_negative_failure = core_mul(&[CoreValue::Num(-1f64), v_failure_probability.clone()])?;
+    v_success_probability = core_add(&[CoreValue::Num(1f64), v_negative_failure.clone()])?;
+    v_successful_late = core_mul(&[
+        v_success_probability.clone(),
+        v_deadline_miss_probability.clone(),
+    ])?;
+    v_bad_probability = core_add(&[v_failure_probability.clone(), v_successful_late.clone()])?;
+    v_bad_cost = core_mul(&[v_bad_outcome_cost.clone(), v_bad_probability.clone()])?;
+    v_score = core_add(&[v_estimated_cost.clone(), v_bad_cost.clone()])?;
+    return Ok(v_score.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_balancer_validate_route_key(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_balancer_validate_route_key");
+    let mut v_route_key = core_arg(args, 0);
+    let mut v_seen_keys = core_arg(args, 1);
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    v_key = core_string_trim(&v_route_key);
+    v_empty = core_eq(&[v_key.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_empty) {
+        v_error = core_runtime_error(&[CoreValue::from("Adaptive route keys must be non-empty.")])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_duplicate = core_contains(&[v_seen_keys.clone(), v_key.clone()])?;
+    if core_truthy(&v_duplicate) {
+        v_error = core_runtime_error(&[CoreValue::from("Adaptive route keys must be unique.")])?;
+        return Err(core_as_error(&v_error));
+    }
+    return Ok(v_key.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_balancer_rank_candidates(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_balancer_rank_candidates");
+    let mut v_candidates = core_arg(args, 0);
+    let mut v_already_used = CoreValue::Null;
+    let mut v_best = CoreValue::Null;
+    let mut v_best_key = CoreValue::Null;
+    let mut v_best_order = CoreValue::Null;
+    let mut v_best_score = CoreValue::Null;
+    let mut v_better = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_equal_score = CoreValue::Null;
+    let mut v_has_best = CoreValue::Null;
+    let mut v_lower_order = CoreValue::Null;
+    let mut v_lower_score = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_no_best = CoreValue::Null;
+    let mut v_order = CoreValue::Null;
+    let mut v_ranked = CoreValue::Null;
+    let mut v_route_key = CoreValue::Null;
+    let mut v_score = CoreValue::Null;
+    let mut v_score_or_tie = CoreValue::Null;
+    let mut v_slot = CoreValue::Null;
+    let mut v_stable_tie = CoreValue::Null;
+    let mut v_used = CoreValue::Null;
+    v_ranked = CoreValue::new_list();
+    v_used = CoreValue::new_map();
+    for v_slot in core_iter(&v_candidates)? {
+        let mut v_slot = v_slot;
+        v_best = CoreValue::new_map();
+        v_has_best = CoreValue::Bool(false);
+        v_best_score = CoreValue::Num(0f64);
+        v_best_order = CoreValue::Num(0f64);
+        for v_candidate in core_iter(&v_candidates)? {
+            let mut v_candidate = v_candidate;
+            v_route_key = core_get(
+                &v_candidate,
+                &CoreValue::from("routeKey"),
+                CoreValue::from(""),
+            );
+            v_already_used = core_map_contains(&[v_used.clone(), v_route_key.clone()])?;
+            if core_truthy(&v_already_used) {
+                continue;
+            }
+            v_score = core_get(
+                &v_candidate,
+                &CoreValue::from("score"),
+                CoreValue::Num(0f64),
+            );
+            v_order = core_get(
+                &v_candidate,
+                &CoreValue::from("order"),
+                CoreValue::Num(0f64),
+            );
+            v_lower_score = core_lt(&[v_score.clone(), v_best_score.clone()])?;
+            v_equal_score = core_eq(&[v_score.clone(), v_best_score.clone()])?;
+            v_lower_order = core_lt(&[v_order.clone(), v_best_order.clone()])?;
+            v_stable_tie = core_and(&[v_equal_score.clone(), v_lower_order.clone()])?;
+            v_score_or_tie = core_or(&[v_lower_score.clone(), v_stable_tie.clone()])?;
+            v_no_best = core_not(&[v_has_best.clone()])?;
+            v_better = core_or(&[v_no_best.clone(), v_score_or_tie.clone()])?;
+            if core_truthy(&v_better) {
+                v_best = v_candidate.clone();
+                v_best_score = v_score.clone();
+                v_best_order = v_order.clone();
+                v_has_best = CoreValue::Bool(true);
+            }
+        }
+        v_missing = core_not(&[v_has_best.clone()])?;
+        if core_truthy(&v_missing) {
+            continue;
+        }
+        v_best_key = core_get(&v_best, &CoreValue::from("routeKey"), CoreValue::from(""));
+        core_set(&v_used, v_best_key.clone(), CoreValue::Bool(true))?;
+        core_append(&v_ranked, v_best.clone())?;
+    }
+    return Ok(v_ranked.clone());
 }
 
 #[allow(
@@ -65704,4 +67531,4 @@ fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (498 of 498 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (509 of 509 core functions)

@@ -1,7 +1,7 @@
 ---
 name: "ax-python-llm"
 description: "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "23.0.1"
+version: "23.0.3"
 ---
 # Ax LLM Quick Reference For Python
 
@@ -12,6 +12,7 @@ This skill helps an agent write Python code with the generated Ax package `axllm
 - Start a generated-language Ax program from package docs or examples.
 - Translate the Ax mental model into the target package without TypeScript-only imports.
 - Choose the native package entrypoints for signatures, providers, generators, agents, flows, and optimizers.
+- Find ordered or adaptive provider-balancing guidance in the language-specific AI skill.
 
 ## Package Facts
 
@@ -37,7 +38,7 @@ llm = ai("openai", api_key=os.environ["OPENAI_API_KEY"])
 
 - Signatures: `s`, `f`, `AxSignature`
 - AxGen: `ax`, `AxGen`
-- AxAI: `ai`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxBalancer`, `MultiServiceRouter`, `ProviderRouter`
+- AxAI: `ai`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter`
 - Agents And RLM: `agent`, `AxAgent`
 - Flow: `flow`, `AxFlow`
 - Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`

@@ -1,7 +1,7 @@
 ---
 name: "ax-python-audio"
 description: "Use when writing Python code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples."
-version: "23.0.1"
+version: "23.0.3"
 ---
 # Ax Audio And Realtime For Python
 
@@ -35,7 +35,7 @@ llm = ai("openai", api_key=os.environ["OPENAI_API_KEY"])
 
 ## Relevant API Surface
 
-- AxAI: `ai`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxBalancer`, `MultiServiceRouter`, `ProviderRouter`
+- AxAI: `ai`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter`
 
 ## Guardrails
 

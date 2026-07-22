@@ -1,0 +1,163 @@
+{
+  "expected_output": {
+    "outputs": {
+      "adaptive_store": {
+        "states": [
+          {
+            "failureEwma": 0.232,
+            "logLatencyM2": 0,
+            "logLatencyMean": 4.605170185988092,
+            "observations": 2,
+            "successes": 1,
+            "version": 1
+          },
+          {
+            "failureEwma": 0.04000000000000001,
+            "logLatencyM2": 0,
+            "logLatencyMean": 5.703782474656201,
+            "observations": 1,
+            "successes": 1,
+            "version": 1
+          }
+        ]
+      }
+    }
+  },
+  "kind": "ai_balancer",
+  "name": "balancer-adaptive-shared-store-isolation",
+  "operations": [
+    {
+      "name": "adaptive_store",
+      "reads": [
+        {
+          "logicalModel": "adaptive-chat",
+          "namespace": "shared",
+          "routeKey": "shared-route",
+          "slice": "workflow-a"
+        },
+        {
+          "logicalModel": "adaptive-chat",
+          "namespace": "shared",
+          "routeKey": "shared-route",
+          "slice": "workflow-b"
+        }
+      ],
+      "writes": [
+        {
+          "key": {
+            "logicalModel": "adaptive-chat",
+            "namespace": "shared",
+            "routeKey": "shared-route",
+            "slice": "workflow-a"
+          },
+          "observation": {
+            "latencyMs": 100,
+            "outcome": "success"
+          }
+        },
+        {
+          "key": {
+            "logicalModel": "adaptive-chat",
+            "namespace": "shared",
+            "routeKey": "shared-route",
+            "slice": "workflow-a"
+          },
+          "observation": {
+            "outcome": "failure"
+          }
+        },
+        {
+          "key": {
+            "logicalModel": "adaptive-chat",
+            "namespace": "shared",
+            "routeKey": "shared-route",
+            "slice": "workflow-b"
+          },
+          "observation": {
+            "latencyMs": 300,
+            "outcome": "success"
+          }
+        }
+      ]
+    }
+  ],
+  "options": {
+    "strategy": "input_order"
+  },
+  "services": [
+    {
+      "estimatedCost": 0,
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "adaptive-best-effort",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 10,
+            "p95": 15,
+            "p99": 19,
+            "samples": [10]
+          },
+          "embed": {
+            "mean": 10,
+            "p95": 15,
+            "p99": 19,
+            "samples": [10]
+          }
+        }
+      },
+      "modelList": [
+        {
+          "description": "Equivalent adaptive route",
+          "key": "adaptive-chat",
+          "model": "provider-model"
+        }
+      ],
+      "name": "AdaptiveBestEffort"
+    }
+  ]
+}

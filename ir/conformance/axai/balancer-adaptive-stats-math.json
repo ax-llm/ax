@@ -1,0 +1,116 @@
+{
+  "expected_output": {
+    "outputs": {
+      "adaptive_stats": {
+        "health": {
+          "deadlineMissProbability": 0.018706799,
+          "failureProbability": 0.1536
+        },
+        "score": 0.018471672,
+        "stats": {
+          "failureEwma": 0.1536,
+          "logLatencyM2": 0.240226507,
+          "logLatencyMean": 5.644890957,
+          "observations": 3,
+          "successes": 2,
+          "version": 1
+        }
+      }
+    }
+  },
+  "kind": "ai_balancer",
+  "name": "balancer-adaptive-stats-math",
+  "operations": [
+    {
+      "bad_outcome_cost": 0.05,
+      "deadline_ms": 1000,
+      "estimated_cost": 0.01,
+      "name": "adaptive_stats",
+      "observations": [
+        {
+          "outcome": "failure"
+        },
+        {
+          "latencyMs": 200,
+          "outcome": "success"
+        },
+        {
+          "latencyMs": 400,
+          "outcome": "success"
+        }
+      ],
+      "random_values": [0.5, 0.25, 0.5, 0.5, 0.25]
+    }
+  ],
+  "options": {
+    "strategy": "input_order"
+  },
+  "services": [
+    {
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "adaptive-stats",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 10,
+            "p95": 15,
+            "p99": 19,
+            "samples": [10]
+          },
+          "embed": {
+            "mean": 10,
+            "p95": 15,
+            "p99": 19,
+            "samples": [10]
+          }
+        }
+      },
+      "name": "AdaptiveStats"
+    }
+  ]
+}

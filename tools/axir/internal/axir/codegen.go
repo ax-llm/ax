@@ -134,6 +134,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_scripted_client_tool.py":                pyAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api.py":                          pyAxGenOpenAIExample,
 		"examples/provider_mapping_no_key.py":                   pyProviderMappingNoKeyExample,
+		"examples/adaptive_balancer_no_key.py":                  pyAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key.py":                    pyProviderStreamNoKeyExample,
 		"examples/runtime_adapter.py":                           pyRuntimeAdapterExample,
 		"examples/runtime_protocol.py":                          pyRuntimeProtocolExample,
@@ -187,6 +188,17 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AxAIService.java":                               javaAxAIService,
 		"dev/axllm/ax/AxMultiServiceRouter.java":                      javaAxMultiServiceRouter,
 		"dev/axllm/ax/AxBalancer.java":                                javaAxBalancer,
+		"dev/axllm/ax/AxBalancerAdaptive.java":                        javaAxBalancerAdaptive,
+		"dev/axllm/ax/AxBalancerAdaptiveStrategy.java":                javaAxBalancerAdaptiveStrategy,
+		"dev/axllm/ax/AxBalancerCandidateScore.java":                  javaAxBalancerCandidateScore,
+		"dev/axllm/ax/AxBalancerFailureReason.java":                   javaAxBalancerFailureReason,
+		"dev/axllm/ax/AxBalancerOptions.java":                         javaAxBalancerOptions,
+		"dev/axllm/ax/AxBalancerRouteStats.java":                      javaAxBalancerRouteStats,
+		"dev/axllm/ax/AxBalancerRoutingEvent.java":                    javaAxBalancerRoutingEvent,
+		"dev/axllm/ax/AxBalancerStatsKey.java":                        javaAxBalancerStatsKey,
+		"dev/axllm/ax/AxBalancerStatsObservation.java":                javaAxBalancerStatsObservation,
+		"dev/axllm/ax/AxBalancerStatsStore.java":                      javaAxBalancerStatsStore,
+		"dev/axllm/ax/AxInMemoryBalancerStatsStore.java":              javaAxInMemoryBalancerStatsStore,
 		"dev/axllm/ax/AxProviderRouter.java":                          javaAxProviderRouter,
 		"dev/axllm/ax/AxBaseAI.java":                                  javaAxBaseAI,
 		"dev/axllm/ax/AxAIServiceError.java":                          javaAxAIServiceError,
@@ -250,6 +262,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/AxGenScriptedClientToolExample.java":                javaAxGenScriptedClientToolExample,
 		"examples/AxGenOpenAIExample.java":                            javaAxGenOpenAIExample,
 		"examples/ProviderMappingNoKeyExample.java":                   javaProviderMappingNoKeyExample,
+		"examples/AdaptiveBalancerNoKeyExample.java":                  javaAdaptiveBalancerNoKeyExample,
 		"examples/ProviderStreamNoKeyExample.java":                    javaProviderStreamNoKeyExample,
 		"examples/RuntimeAdapterExample.java":                         javaRuntimeAdapterExample,
 		"examples/RuntimeProtocolExample.java":                        javaRuntimeProtocolExample,
@@ -310,6 +323,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_scripted_client_tool.cpp":               cppAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api.cpp":                         cppAxGenOpenAIExample,
 		"examples/provider_mapping_no_key.cpp":                  cppProviderMappingNoKeyExample,
+		"examples/adaptive_balancer_no_key.cpp":                 cppAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key.cpp":                   cppProviderStreamNoKeyExample,
 		"examples/runtime_adapter.cpp":                          cppRuntimeAdapterExample,
 		"examples/runtime_protocol.cpp":                         cppRuntimeProtocolExample,
@@ -362,6 +376,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_scripted_client_tool/main.go":       goAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api/main.go":                 goAxGenOpenAIExample,
 		"examples/provider_mapping_no_key/main.go":          goProviderMappingNoKeyExample,
+		"examples/adaptive_balancer_no_key/main.go":         goAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key/main.go":           goProviderStreamNoKeyExample,
 		"examples/runtime_adapter/main.go":                  goRuntimeAdapterExample,
 		"examples/runtime_protocol/main.go":                 goRuntimeProtocolExample,
@@ -405,6 +420,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"conformance-coverage.json":                       mustConformanceCoverageManifest(model, "rust"),
 		"examples/signature_schema.rs":                    rustSignatureSchemaExample,
 		"examples/provider_mapping_no_key.rs":             rustProviderMappingNoKeyExample,
+		"examples/adaptive_balancer_no_key.rs":            rustAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key.rs":              rustProviderStreamNoKeyExample,
 		"examples/axgen_scripted_client_tool.rs":          rustAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api.rs":                    rustAxGenOpenAIExample,
@@ -694,6 +710,10 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axai-balancer-runtime",
 			"axai-balancer-retry-policy",
 			"axai-balancer-metrics",
+			"axai-balancer-adaptive-routing",
+			"axai-balancer-adaptive-stats-store",
+			"axai-balancer-adaptive-events",
+			"axai-balancer-adaptive-buffered-streaming",
 			"axai-host-processing-callbacks",
 			"openai-compatible-provider-mapping",
 			"provider-operation-descriptors",
@@ -980,7 +1000,13 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("OpenAIResponsesClient", "type", "OpenAI Responses provider mapping using the same Core-owned request and response contract.", []string{"api key", "model", "audio", "realtime"}, "provider client"),
 				sym("GoogleGeminiClient", "type", "Gemini provider mapping for chat, streaming, media, tools, embeddings, and usage normalization.", []string{"api key", "model", "embed model"}, "provider client"),
 				sym("AnthropicClient", "type", "Anthropic provider mapping for messages, thinking, cache control, streaming, and usage normalization.", []string{"api key", "model", "thinking", "cache control"}, "provider client"),
-				sym("AxBalancer", "type", "Retry and route requests across multiple provider services while preserving Ax request shape.", []string{"services", "retry policy", "capability requirements"}, "AI service"),
+				sym("AxBalancer", "type", "Retry and route requests across multiple provider services, with opt-in adaptive cost, reliability, and deadline routing.", []string{"services", "retry policy", "capability requirements", "adaptive strategy"}, "AI service"),
+				sym("AxBalancerAdaptiveStrategy", "type", "Configure adaptive provider routing without changing the ordered default.", []string{"deadline", "bad outcome cost", "expected tokens", "stable route keys", "slice", "stats store", "routing events"}, "adaptive strategy"),
+				sym("AxBalancerStatsStore", "interface", "Store shared adaptive decision state with atomic observations.", []string{"get", "observe"}, "stats store"),
+				sym("AxInMemoryBalancerStatsStore", "type", "Thread-safe in-memory adaptive stats store.", nil, "stats store"),
+				sym("create_balancer_route_stats", "function", "Create neutral adaptive route statistics.", nil, "route stats"),
+				sym("update_balancer_route_stats", "function", "Purely reduce one success or failure observation into route statistics.", []string{"current stats", "observation"}, "route stats"),
+				sym("sample_balancer_route_health", "function", "Sample failure and deadline-miss probability for adaptive exploration.", []string{"route stats", "deadline"}, "sampled health"),
 				sym("MultiServiceRouter", "type", "Choose a service by capability or model routing policy.", []string{"services", "routing"}, "AI service"),
 				sym("ProviderRouter", "type", "Route provider requests to registered provider clients.", []string{"providers", "routing", "processing"}, "AI service"),
 			},
@@ -1102,6 +1128,12 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "playbook", "Ax.playbook", "axllm::playbook", "axllm.Playbook", "playbook")
 	case "fn":
 		return mapTarget(target, "fn", "Ax.fn", "axllm::Tool", "axllm.Fn", "tool")
+	case "create_balancer_route_stats":
+		return mapTarget(target, "create_balancer_route_stats", "AxBalancerAdaptive.createRouteStats", "axllm::create_balancer_route_stats", "axllm.CreateBalancerRouteStats", "create_balancer_route_stats")
+	case "update_balancer_route_stats":
+		return mapTarget(target, "update_balancer_route_stats", "AxBalancerAdaptive.updateRouteStats", "axllm::update_balancer_route_stats", "axllm.UpdateBalancerRouteStats", "update_balancer_route_stats")
+	case "sample_balancer_route_health":
+		return mapTarget(target, "sample_balancer_route_health", "AxBalancerAdaptive.sampleRouteHealth", "axllm::sample_balancer_route_health", "axllm.SampleBalancerRouteHealth", "sample_balancer_route_health")
 	case "AxMCPStreamableHTTPTransport":
 		return apiReferenceQualifiedName(target, canonical)
 	case "AxMCPStdioTransport":
@@ -2045,6 +2077,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `python examples/signature_schema.py`: signature parsing and JSON schema generation",
 				"- `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client and tool",
 				"- `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport",
+				"- `python examples/adaptive_balancer_no_key.py`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport",
 				"- `python examples/axflow_program_graph.py`: AxFlow program graph",
 				"- `python examples/flow_mermaid.py`: portable Mermaid flow parsing and canonical round-trip",
@@ -2117,6 +2150,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/SignatureSchemaExample.java`: signature parsing and JSON schema generation",
 				"- `examples/AxGenScriptedClientToolExample.java`: AxGen with a scripted client and tool",
 				"- `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport",
+				"- `examples/AdaptiveBalancerNoKeyExample.java`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport",
 				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph",
 				"- `examples/FlowMermaidExample.java`: portable Mermaid flow parsing and canonical round-trip",
@@ -2184,6 +2218,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/signature_schema.cpp`: signature parsing and JSON schema generation",
 				"- `examples/axgen_scripted_client_tool.cpp`: AxGen with a scripted client and tool",
 				"- `examples/provider_mapping_no_key.cpp`: provider mapping through a scripted transport",
+				"- `examples/adaptive_balancer_no_key.cpp`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `examples/provider_stream_no_key.cpp`: provider streaming through a scripted SSE transport",
 				"- `examples/axflow_program_graph.cpp`: AxFlow program graph",
 				"- `examples/flow_mermaid.cpp`: portable Mermaid flow parsing and canonical round-trip",
@@ -2246,6 +2281,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `go run ./examples/signature_schema`: signature parsing and JSON schema generation",
 				"- `go run ./examples/axgen_scripted_client_tool`: AxGen with a scripted client and tool",
 				"- `go run ./examples/provider_mapping_no_key`: provider mapping through a scripted transport",
+				"- `go run ./examples/adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `go run ./examples/provider_stream_no_key`: provider streaming through a scripted SSE transport",
 				"- `go run ./examples/axflow_program_graph`: AxFlow program graph",
 				"- `go run ./examples/flow_mermaid`: portable Mermaid flow parsing and canonical round-trip",
@@ -2317,6 +2353,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			NoKeyExamples: readmeLines(
 				"- `cargo run --example signature_schema`: signature parsing and JSON schema generation",
 				"- `cargo run --example provider_mapping_no_key`: provider mapping through a scripted transport",
+				"- `cargo run --example adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport",
 				"- `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool",
 				"- `cargo run --example axflow_program_graph`: AxFlow program graph",

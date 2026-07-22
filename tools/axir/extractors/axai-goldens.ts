@@ -4,6 +4,12 @@ import { join } from 'node:path';
 import { axAIAnthropicDefaultConfig } from '../../../src/ax/ai/anthropic/api.js';
 import { axAIAzureOpenAIDefaultConfig } from '../../../src/ax/ai/azure-openai/api.js';
 import { AxBalancer } from '../../../src/ax/ai/balance.js';
+import {
+  AxInMemoryBalancerStatsStore,
+  axUpdateBalancerRouteStats,
+  createBalancerRouteStats,
+  sampleBalancerRouteHealth,
+} from '../../../src/ax/ai/balance_adaptive.js';
 import { axGetSupportedAIModels } from '../../../src/ax/ai/catalog.js';
 import { axAICohereDefaultConfig } from '../../../src/ax/ai/cohere/api.js';
 import { AxAICohereEmbedModel } from '../../../src/ax/ai/cohere/types.js';
@@ -178,6 +184,7 @@ class FixtureAIService {
   lastConfig?: unknown;
   responses: any[] = [];
   metricsValue: any;
+  estimatedCost: number;
 
   constructor(spec: {
     name: string;
@@ -186,6 +193,7 @@ class FixtureAIService {
     features?: any;
     responses?: any[];
     metrics?: any;
+    estimatedCost?: number;
   }) {
     this.name = spec.name;
     this.id = spec.id ?? `${spec.name}-id`;
@@ -193,6 +201,7 @@ class FixtureAIService {
     this.features = spec.features ?? routerFeatures();
     this.responses = [...(spec.responses ?? [])];
     this.metricsValue = spec.metrics ?? { service: this.name, calls: 0 };
+    this.estimatedCost = spec.estimatedCost ?? 0;
   }
 
   getId() {
@@ -259,7 +268,7 @@ class FixtureAIService {
     return { audio: 'pcm' };
   }
   getEstimatedCost() {
-    return 0;
+    return this.estimatedCost;
   }
 }
 
@@ -1079,6 +1088,591 @@ writeFixture('balancer-capability-filter', {
     outputs: { chat: balancerCapabilityChat as any },
     lastChat: balancerCapability.getLastUsedChatModel() as Json,
     serviceCalls: balancerCapabilityServices
+      .map((service) => normalizeFixtureServiceCalls(service.requests))
+      .filter((calls) => calls.length > 0),
+  },
+});
+
+const adaptiveModelList = [
+  {
+    key: 'adaptive-chat',
+    description: 'Equivalent adaptive route',
+    model: 'provider-model',
+  },
+];
+const adaptiveStatsObservations = [
+  { outcome: 'failure' as const },
+  { outcome: 'success' as const, latencyMs: 200 },
+  { outcome: 'success' as const, latencyMs: 400 },
+];
+const adaptiveStats = adaptiveStatsObservations.reduce(
+  (stats, observation) => axUpdateBalancerRouteStats(stats, observation),
+  createBalancerRouteStats()
+);
+const adaptiveRandomValues = [0.5, 0.25, 0.5, 0.5, 0.25];
+const originalRandom = Math.random;
+let adaptiveRandomIndex = 0;
+Math.random = () =>
+  adaptiveRandomValues[adaptiveRandomIndex++] ??
+  adaptiveRandomValues[adaptiveRandomValues.length - 1]!;
+const adaptiveHealth = sampleBalancerRouteHealth(adaptiveStats, 1_000);
+Math.random = originalRandom;
+const roundAdaptive = (value: number) => Math.round(value * 1e9) / 1e9;
+const adaptiveStatsExpected = {
+  stats: {
+    version: adaptiveStats.version,
+    observations: adaptiveStats.observations,
+    successes: adaptiveStats.successes,
+    failureEwma: roundAdaptive(adaptiveStats.failureEwma),
+    logLatencyMean: roundAdaptive(adaptiveStats.logLatencyMean),
+    logLatencyM2: roundAdaptive(adaptiveStats.logLatencyM2),
+  },
+  health: {
+    failureProbability: roundAdaptive(adaptiveHealth.failureProbability),
+    deadlineMissProbability: roundAdaptive(
+      adaptiveHealth.deadlineMissProbability
+    ),
+  },
+  score: roundAdaptive(
+    0.01 +
+      0.05 *
+        (adaptiveHealth.failureProbability +
+          (1 - adaptiveHealth.failureProbability) *
+            adaptiveHealth.deadlineMissProbability)
+  ),
+};
+writeFixture('balancer-adaptive-stats-math', {
+  kind: 'ai_balancer',
+  services: [
+    {
+      name: 'AdaptiveStats',
+      id: 'adaptive-stats',
+      features: routerFeatures(),
+      metrics: balancerMetrics(10),
+    },
+  ],
+  options: { strategy: 'input_order' },
+  operations: [
+    {
+      name: 'adaptive_stats',
+      observations: adaptiveStatsObservations,
+      random_values: adaptiveRandomValues,
+      deadline_ms: 1_000,
+      estimated_cost: 0.01,
+      bad_outcome_cost: 0.05,
+    },
+  ],
+  expected_output: { outputs: { adaptive_stats: adaptiveStatsExpected } },
+});
+
+const adaptiveCostHighSpec = {
+  name: 'AdaptiveCostHigh',
+  id: 'adaptive-cost-high',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(10),
+  estimatedCost: 0.03,
+};
+const adaptiveCostLowSpec = {
+  name: 'AdaptiveCostLow',
+  id: 'adaptive-cost-low',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(20),
+  estimatedCost: 0.01,
+};
+const adaptiveCostServices = [
+  new FixtureAIService(adaptiveCostHighSpec),
+  new FixtureAIService(adaptiveCostLowSpec),
+];
+const adaptiveCostOptions = {
+  strategy: {
+    type: 'adaptive' as const,
+    deadlineMs: 1_000,
+    badOutcomeCost: 0,
+    expectedTokens: { promptTokens: 100, completionTokens: 50 },
+  },
+};
+const adaptiveCostBalancer = new AxBalancer(
+  adaptiveCostServices as any,
+  adaptiveCostOptions
+);
+const adaptiveCostRequest = {
+  model: 'adaptive-chat',
+  chatPrompt: [{ role: 'user', content: 'pick the cheaper route' }],
+};
+const adaptiveCostChat = await adaptiveCostBalancer.chat(
+  adaptiveCostRequest as any,
+  {}
+);
+writeFixture('balancer-adaptive-cost-ranking', {
+  kind: 'ai_balancer',
+  services: [adaptiveCostHighSpec, adaptiveCostLowSpec],
+  options: adaptiveCostOptions,
+  operations: [{ name: 'chat', request: adaptiveCostRequest, options: {} }],
+  expected_output: {
+    outputs: { chat: adaptiveCostChat as any },
+    serviceCalls: adaptiveCostServices
+      .map((service) => normalizeFixtureServiceCalls(service.requests))
+      .filter((calls) => calls.length > 0),
+  },
+});
+
+const adaptiveFailurePrimarySpec = {
+  name: 'AdaptiveFailurePrimary',
+  id: 'adaptive-failure-primary',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(10),
+  estimatedCost: 0,
+  responses: [
+    { error: { type: 'network', message: 'adaptive transient miss' } },
+  ],
+};
+const adaptiveFailureBackupSpec = {
+  name: 'AdaptiveFailureBackup',
+  id: 'adaptive-failure-backup',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(20),
+  estimatedCost: 1,
+};
+const adaptiveFailureServices = [
+  new FixtureAIService(adaptiveFailurePrimarySpec),
+  new FixtureAIService(adaptiveFailureBackupSpec),
+];
+const adaptiveFailureOptions = {
+  strategy: {
+    type: 'adaptive' as const,
+    deadlineMs: 1_000,
+    badOutcomeCost: 0,
+  },
+  maxRetries: 9,
+};
+const adaptiveFailureBalancer = new AxBalancer(
+  adaptiveFailureServices as any,
+  adaptiveFailureOptions
+);
+const adaptiveFailureRequest = {
+  model: 'adaptive-chat',
+  chatPrompt: [{ role: 'user', content: 'fail over once' }],
+};
+const adaptiveFailureChat = await adaptiveFailureBalancer.chat(
+  adaptiveFailureRequest as any,
+  {}
+);
+writeFixture('balancer-adaptive-single-attempt-failover', {
+  kind: 'ai_balancer',
+  services: [adaptiveFailurePrimarySpec, adaptiveFailureBackupSpec],
+  options: adaptiveFailureOptions,
+  operations: [{ name: 'chat', request: adaptiveFailureRequest, options: {} }],
+  expected_output: {
+    outputs: { chat: adaptiveFailureChat as any },
+    serviceCalls: adaptiveFailureServices
+      .map((service) => normalizeFixtureServiceCalls(service.requests))
+      .filter((calls) => calls.length > 0),
+  },
+});
+
+const adaptiveCapabilityFilteredSpec = {
+  name: 'AdaptiveCapabilityFiltered',
+  id: 'adaptive-capability-filtered',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(5),
+  estimatedCost: 0,
+};
+const adaptiveCapabilityFirstSpec = {
+  name: 'AdaptiveCapabilityFirst',
+  id: 'adaptive-capability-first',
+  modelList: adaptiveModelList,
+  features: imageBalancerSpec.features,
+  metrics: balancerMetrics(20),
+  estimatedCost: 0.01,
+};
+const adaptiveCapabilitySecondSpec = {
+  name: 'AdaptiveCapabilitySecond',
+  id: 'adaptive-capability-second',
+  modelList: adaptiveModelList,
+  features: imageBalancerSpec.features,
+  metrics: balancerMetrics(10),
+  estimatedCost: 0.01,
+};
+const adaptiveCapabilityServices = [
+  new FixtureAIService(adaptiveCapabilityFilteredSpec),
+  new FixtureAIService(adaptiveCapabilityFirstSpec),
+  new FixtureAIService(adaptiveCapabilitySecondSpec),
+];
+const adaptiveCapabilityOptions = {
+  strategy: {
+    type: 'adaptive' as const,
+    deadlineMs: 1_000,
+    badOutcomeCost: 0,
+  },
+};
+const adaptiveCapabilityBalancer = new AxBalancer(
+  adaptiveCapabilityServices as any,
+  adaptiveCapabilityOptions
+);
+const adaptiveCapabilityRequest = {
+  model: 'adaptive-chat',
+  chatPrompt: [{ role: 'user', content: 'use a vision-capable route' }],
+  capabilities: { requiresImages: true },
+};
+const adaptiveCapabilityChat = await adaptiveCapabilityBalancer.chat(
+  adaptiveCapabilityRequest as any,
+  {}
+);
+writeFixture('balancer-adaptive-capability-stable-tie', {
+  kind: 'ai_balancer',
+  services: [
+    adaptiveCapabilityFilteredSpec,
+    adaptiveCapabilityFirstSpec,
+    adaptiveCapabilitySecondSpec,
+  ],
+  options: adaptiveCapabilityOptions,
+  operations: [
+    { name: 'chat', request: adaptiveCapabilityRequest, options: {} },
+  ],
+  expected_output: {
+    outputs: { chat: adaptiveCapabilityChat as any },
+    serviceCalls: adaptiveCapabilityServices
+      .map((service) => normalizeFixtureServiceCalls(service.requests))
+      .filter((calls) => calls.length > 0),
+  },
+});
+
+const adaptiveExhaustedPrimarySpec = {
+  name: 'AdaptiveExhaustedPrimary',
+  id: 'adaptive-exhausted-primary',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(10),
+  estimatedCost: 0,
+  responses: [{ error: { type: 'network', message: 'first adaptive miss' } }],
+};
+const adaptiveExhaustedBackupSpec = {
+  name: 'AdaptiveExhaustedBackup',
+  id: 'adaptive-exhausted-backup',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(20),
+  estimatedCost: 1,
+  responses: [{ error: { type: 'network', message: 'final adaptive miss' } }],
+};
+writeFixture('balancer-adaptive-exhaustion', {
+  kind: 'ai_balancer',
+  services: [adaptiveExhaustedPrimarySpec, adaptiveExhaustedBackupSpec],
+  options: {
+    strategy: {
+      type: 'adaptive',
+      deadlineMs: 1_000,
+      badOutcomeCost: 0,
+    },
+    maxRetries: 20,
+  },
+  operations: [
+    {
+      name: 'chat',
+      request: {
+        model: 'adaptive-chat',
+        chatPrompt: [{ role: 'user', content: 'exhaust every route once' }],
+      },
+      options: {},
+    },
+  ],
+  expected_error_contains: 'final adaptive miss',
+});
+
+const adaptiveStreamPrimarySpec = {
+  name: 'AdaptiveStreamPrimary',
+  id: 'adaptive-stream-primary',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(10),
+  estimatedCost: 0,
+  responses: [
+    { error: { type: 'status', status: 529, message: 'stream overloaded' } },
+  ],
+};
+const adaptiveStreamBackupSpec = {
+  name: 'AdaptiveStreamBackup',
+  id: 'adaptive-stream-backup',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(20),
+  estimatedCost: 1,
+};
+const adaptiveStreamServices = [
+  new FixtureAIService(adaptiveStreamPrimarySpec),
+  new FixtureAIService(adaptiveStreamBackupSpec),
+];
+const adaptiveStreamOptions = {
+  strategy: {
+    type: 'adaptive' as const,
+    deadlineMs: 1_000,
+    badOutcomeCost: 0,
+  },
+};
+const adaptiveStreamBalancer = new AxBalancer(
+  adaptiveStreamServices as any,
+  adaptiveStreamOptions
+);
+const adaptiveStreamRequest = {
+  model: 'adaptive-chat',
+  chatPrompt: [{ role: 'user', content: 'buffer the healthy route' }],
+};
+const adaptiveStreamChat = await adaptiveStreamBalancer.chat(
+  adaptiveStreamRequest as any,
+  {}
+);
+writeFixture('balancer-adaptive-buffered-stream-failover', {
+  kind: 'ai_balancer',
+  services: [adaptiveStreamPrimarySpec, adaptiveStreamBackupSpec],
+  options: adaptiveStreamOptions,
+  operations: [{ name: 'stream', request: adaptiveStreamRequest, options: {} }],
+  expected_output: {
+    outputs: { stream: [adaptiveStreamChat as any] },
+  },
+});
+
+const adaptiveBestEffortSpec = {
+  name: 'AdaptiveBestEffort',
+  id: 'adaptive-best-effort',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(10),
+  estimatedCost: 0,
+};
+const adaptiveBestEffortService = new FixtureAIService(adaptiveBestEffortSpec);
+let adaptiveBestEffortGets = 0;
+let adaptiveBestEffortObserves = 0;
+let adaptiveBestEffortEvents = 0;
+const adaptiveBestEffortStore = {
+  async get() {
+    adaptiveBestEffortGets++;
+    throw new Error('fixture store read failed');
+  },
+  async observe() {
+    adaptiveBestEffortObserves++;
+    throw new Error('fixture store write failed');
+  },
+};
+const adaptiveBestEffortOptions = {
+  strategy: {
+    type: 'adaptive' as const,
+    deadlineMs: 1_000,
+    badOutcomeCost: 0,
+    namespace: 'best-effort',
+    routeKey: () => 'best-effort-route',
+    statsStore: adaptiveBestEffortStore,
+    onRoutingEvent: () => {
+      adaptiveBestEffortEvents++;
+      throw new Error('fixture event hook failed');
+    },
+  },
+};
+const adaptiveBestEffortBalancer = new AxBalancer(
+  [adaptiveBestEffortService] as any,
+  adaptiveBestEffortOptions
+);
+const adaptiveBestEffortRequest = {
+  model: 'adaptive-chat',
+  chatPrompt: [{ role: 'user', content: 'ignore observer failures' }],
+};
+const adaptiveBestEffortChat = await adaptiveBestEffortBalancer.chat(
+  adaptiveBestEffortRequest as any,
+  {}
+);
+writeFixture('balancer-adaptive-store-event-failures', {
+  kind: 'ai_balancer',
+  adaptive_best_effort: true,
+  services: [adaptiveBestEffortSpec],
+  options: {
+    strategy: {
+      type: 'adaptive',
+      deadlineMs: 1_000,
+      badOutcomeCost: 0,
+      namespace: 'best-effort',
+    },
+  },
+  operations: [
+    { name: 'chat', request: adaptiveBestEffortRequest, options: {} },
+  ],
+  expected_output: {
+    outputs: { chat: adaptiveBestEffortChat as any },
+    bestEffort: {
+      storeGets: adaptiveBestEffortGets,
+      storeObserves: adaptiveBestEffortObserves,
+      eventCalls: adaptiveBestEffortEvents,
+    },
+    serviceCalls: [
+      normalizeFixtureServiceCalls(adaptiveBestEffortService.requests),
+    ],
+  },
+});
+
+const adaptiveSharedStore = new AxInMemoryBalancerStatsStore();
+const adaptiveSharedKey = {
+  namespace: 'shared',
+  slice: 'workflow-a',
+  logicalModel: 'adaptive-chat',
+  routeKey: 'shared-route',
+};
+const adaptiveIsolatedKey = {
+  ...adaptiveSharedKey,
+  slice: 'workflow-b',
+};
+await adaptiveSharedStore.observe(adaptiveSharedKey, {
+  outcome: 'success',
+  latencyMs: 100,
+});
+await adaptiveSharedStore.observe(adaptiveSharedKey, { outcome: 'failure' });
+await adaptiveSharedStore.observe(adaptiveIsolatedKey, {
+  outcome: 'success',
+  latencyMs: 300,
+});
+writeFixture('balancer-adaptive-shared-store-isolation', {
+  kind: 'ai_balancer',
+  services: [adaptiveBestEffortSpec],
+  options: { strategy: 'input_order' },
+  operations: [
+    {
+      name: 'adaptive_store',
+      writes: [
+        {
+          key: adaptiveSharedKey,
+          observation: { outcome: 'success', latencyMs: 100 },
+        },
+        { key: adaptiveSharedKey, observation: { outcome: 'failure' } },
+        {
+          key: adaptiveIsolatedKey,
+          observation: { outcome: 'success', latencyMs: 300 },
+        },
+      ],
+      reads: [adaptiveSharedKey, adaptiveIsolatedKey],
+    },
+  ],
+  expected_output: {
+    outputs: {
+      adaptive_store: {
+        states: [
+          (await adaptiveSharedStore.get(adaptiveSharedKey)) as any,
+          (await adaptiveSharedStore.get(adaptiveIsolatedKey)) as any,
+        ],
+      },
+    },
+  },
+});
+
+writeFixture('balancer-adaptive-invalid-namespace', {
+  kind: 'ai_balancer',
+  services: [adaptiveBestEffortSpec],
+  options: {
+    strategy: {
+      type: 'adaptive',
+      deadlineMs: 1_000,
+      badOutcomeCost: 0,
+      namespace: '',
+    },
+  },
+  operations: [],
+  expected_error_contains: 'namespace',
+});
+
+const adaptiveDuplicateRouteSpec = {
+  ...adaptiveBestEffortSpec,
+  name: 'AdaptiveDuplicateRoute',
+};
+writeFixture('balancer-adaptive-duplicate-route-key', {
+  kind: 'ai_balancer',
+  services: [adaptiveBestEffortSpec, adaptiveDuplicateRouteSpec],
+  options: {
+    strategy: {
+      type: 'adaptive',
+      deadlineMs: 1_000,
+      badOutcomeCost: 0,
+    },
+  },
+  operations: [],
+  expected_error_contains: 'unique',
+});
+
+const adaptiveUnavailablePricingSpec = {
+  name: 'AdaptiveUnavailablePricing',
+  id: 'adaptive-unavailable-pricing',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(20),
+};
+const adaptivePricedSpec = {
+  name: 'AdaptivePriced',
+  id: 'adaptive-priced',
+  modelList: adaptiveModelList,
+  features: routerFeatures(),
+  metrics: balancerMetrics(10),
+  estimatedCost: 0.01,
+};
+const adaptiveUnavailablePricingServices = [
+  new FixtureAIService(adaptiveUnavailablePricingSpec),
+  new FixtureAIService(adaptivePricedSpec),
+];
+const adaptiveUnavailablePricingBalancer = new AxBalancer(
+  adaptiveUnavailablePricingServices as any,
+  adaptiveCostOptions
+);
+const adaptiveUnavailablePricingRequest = {
+  model: 'adaptive-chat',
+  chatPrompt: [{ role: 'user', content: 'treat unavailable pricing as zero' }],
+};
+const adaptiveUnavailablePricingChat =
+  await adaptiveUnavailablePricingBalancer.chat(
+    adaptiveUnavailablePricingRequest as any,
+    {}
+  );
+writeFixture('balancer-adaptive-unavailable-pricing', {
+  kind: 'ai_balancer',
+  services: [adaptiveUnavailablePricingSpec, adaptivePricedSpec],
+  options: adaptiveCostOptions,
+  operations: [
+    {
+      name: 'chat',
+      request: adaptiveUnavailablePricingRequest,
+      options: {},
+    },
+  ],
+  expected_output: {
+    outputs: { chat: adaptiveUnavailablePricingChat as any },
+    serviceCalls: adaptiveUnavailablePricingServices
+      .map((service) => normalizeFixtureServiceCalls(service.requests))
+      .filter((calls) => calls.length > 0),
+  },
+});
+
+const adaptiveNonChatServices = [
+  new FixtureAIService(adaptiveCostHighSpec),
+  new FixtureAIService(adaptiveCostLowSpec),
+];
+const adaptiveNonChatBalancer = new AxBalancer(
+  adaptiveNonChatServices as any,
+  adaptiveCostOptions
+);
+const adaptiveEmbedRequest = {
+  embedModel: 'fixture-embed',
+  texts: ['ordered operation'],
+};
+const adaptiveEmbed = await adaptiveNonChatBalancer.embed(
+  adaptiveEmbedRequest as any,
+  {}
+);
+writeFixture('balancer-adaptive-non-chat-remains-ordered', {
+  kind: 'ai_balancer',
+  services: [adaptiveCostHighSpec, adaptiveCostLowSpec],
+  options: adaptiveCostOptions,
+  operations: [{ name: 'embed', request: adaptiveEmbedRequest, options: {} }],
+  expected_output: {
+    outputs: { embed: adaptiveEmbed as any },
+    serviceCalls: adaptiveNonChatServices
       .map((service) => normalizeFixtureServiceCalls(service.requests))
       .filter((calls) => calls.length > 0),
   },

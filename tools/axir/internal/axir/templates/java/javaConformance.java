@@ -103,6 +103,7 @@ public final class Conformance {
     final List<Object> responses;
     final Map<String, Object> features;
     final Map<String, Object> metrics;
+    final double estimatedCost;
 
     RouterFixtureService(Map<String, Object> spec) {
       super(String.valueOf(spec.getOrDefault("name", "fixture")), String.valueOf(spec.getOrDefault("model", "fixture-chat")), String.valueOf(spec.getOrDefault("embedModel", spec.getOrDefault("embed_model", "fixture-embed"))), Map.of(), Map.of());
@@ -111,12 +112,14 @@ public final class Conformance {
       responses = new ArrayList<>(Core.asList(spec.getOrDefault("responses", List.of())));
       features = new LinkedHashMap<>(Core.asMap(spec.getOrDefault("features", Core.defaultRouterFeatures())));
       metrics = new LinkedHashMap<>(Core.asMap(spec.getOrDefault("metrics", Map.of("service", name, "calls", 0))));
+      estimatedCost = Core.asDouble(spec.getOrDefault("estimatedCost", spec.getOrDefault("estimated_cost", 0)));
     }
 
     public String getId() { return fixtureId; }
     public Map<String, Object> getFeatures(String model) { return new LinkedHashMap<>(features); }
     public List<Map<String, Object>> getModelList() { return modelList == null ? null : new ArrayList<>(modelList); }
     public Map<String, Object> getMetrics() { Map<String, Object> out = new LinkedHashMap<>(metrics); if (out.containsKey("calls")) out.put("calls", requests.size()); return out; }
+    public double getEstimatedCost(Map<String, Object> modelUsage) { return estimatedCost; }
 
     protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) {
       requests.add(Map.of("method", "chat", "opt", new LinkedHashMap<>(options)));
@@ -1999,8 +2002,24 @@ public final class Conformance {
 
   static void runAIBalancer(Map<String, Object> fixture) {
     List<RouterFixtureService> services = routerServices(fixture);
+    int[] bestEffort = {0, 0, 0};
     try {
-      AxBalancer balancer = new AxBalancer(services, Core.asMap(fixture.getOrDefault("options", Map.of())));
+      AxBalancer balancer;
+      if (Core.truthy(fixture.getOrDefault("adaptive_best_effort", false))) {
+        AxBalancerStatsStore store = new AxBalancerStatsStore() {
+          public AxBalancerRouteStats get(AxBalancerStatsKey key) { bestEffort[0]++; throw new RuntimeException("fixture store read failed"); }
+          public void observe(AxBalancerStatsKey key, AxBalancerStatsObservation observation) { bestEffort[1]++; throw new RuntimeException("fixture store write failed"); }
+        };
+        Map<String, Object> raw = Core.asMap(Core.asMap(fixture.getOrDefault("options", Map.of())).getOrDefault("strategy", Map.of()));
+        AxBalancerAdaptiveStrategy strategy = new AxBalancerAdaptiveStrategy(Core.asDouble(raw.getOrDefault("deadlineMs", 1)), Core.asDouble(raw.getOrDefault("badOutcomeCost", 0)))
+            .namespace(String.valueOf(raw.getOrDefault("namespace", "default")))
+            .routeKey((service, index) -> "best-effort-route")
+            .statsStore(store)
+            .onRoutingEvent(event -> { bestEffort[2]++; throw new RuntimeException("fixture event hook failed"); });
+        balancer = new AxBalancer(services, new AxBalancerOptions().strategy(strategy));
+      } else {
+        balancer = new AxBalancer(services, Core.asMap(fixture.getOrDefault("options", Map.of())));
+      }
       Map<String, Object> outputs = new LinkedHashMap<>();
       for (Object raw : Core.asList(fixture.getOrDefault("operations", List.of()))) {
         Map<String, Object> op = Core.asMap(raw);
@@ -2015,6 +2034,39 @@ public final class Conformance {
         else if ("transcribe".equals(name)) outputs.put(name, balancer.transcribe(Core.asMap(op.getOrDefault("request", Map.of())), Core.asMap(op.getOrDefault("options", Map.of()))));
         else if ("speak".equals(name)) outputs.put(name, balancer.speak(Core.asMap(op.getOrDefault("request", Map.of())), Core.asMap(op.getOrDefault("options", Map.of()))));
         else if ("set_options".equals(name)) balancer.setOptions(Core.asMap(op.getOrDefault("options", Map.of())));
+        else if ("adaptive_stats".equals(name)) {
+          AxBalancerRouteStats stats = AxBalancerAdaptive.createRouteStats();
+          for (Object observation : Core.asList(op.getOrDefault("observations", List.of()))) {
+            Map<String, Object> value = Core.asMap(observation);
+            stats = AxBalancerAdaptive.updateRouteStats(stats, new AxBalancerStatsObservation(String.valueOf(value.get("outcome")), value.get("latencyMs") == null ? null : Core.asDouble(value.get("latencyMs"))));
+          }
+          Core.setMathRandomValues(Core.asList(op.getOrDefault("random_values", List.of())));
+          Map<String, Object> health = AxBalancerAdaptive.sampleRouteHealth(stats, Core.asDouble(op.getOrDefault("deadline_ms", 1)));
+          double score = Core.asDouble(Core.provider_balancer_adaptive_score(Core.asDouble(op.getOrDefault("estimated_cost", 0)), Core.asDouble(op.getOrDefault("bad_outcome_cost", 0)), Core.asDouble(health.get("failureProbability")), Core.asDouble(health.get("deadlineMissProbability"))));
+          java.util.function.DoubleUnaryOperator round = value -> Math.round(value * 1_000_000_000.0) / 1_000_000_000.0;
+          outputs.put(name, Map.of(
+              "stats", Map.of("version", stats.version(), "observations", stats.observations(), "successes", stats.successes(), "failureEwma", round.applyAsDouble(stats.failureEwma()), "logLatencyMean", round.applyAsDouble(stats.logLatencyMean()), "logLatencyM2", round.applyAsDouble(stats.logLatencyM2())),
+              "health", Map.of("failureProbability", round.applyAsDouble(Core.asDouble(health.get("failureProbability"))), "deadlineMissProbability", round.applyAsDouble(Core.asDouble(health.get("deadlineMissProbability")))),
+              "score", round.applyAsDouble(score)));
+        }
+        else if ("adaptive_store".equals(name)) {
+          AxInMemoryBalancerStatsStore store = new AxInMemoryBalancerStatsStore();
+          for (Object rawWrite : Core.asList(op.getOrDefault("writes", List.of()))) {
+            Map<String, Object> write = Core.asMap(rawWrite);
+            Map<String, Object> key = Core.asMap(write.get("key"));
+            Map<String, Object> observation = Core.asMap(write.get("observation"));
+            store.observe(
+                new AxBalancerStatsKey(String.valueOf(key.get("namespace")), String.valueOf(key.get("slice")), String.valueOf(key.get("logicalModel")), String.valueOf(key.get("routeKey"))),
+                new AxBalancerStatsObservation(String.valueOf(observation.get("outcome")), observation.get("latencyMs") == null ? null : Core.asDouble(observation.get("latencyMs"))));
+          }
+          List<Object> states = new ArrayList<>();
+          for (Object rawKey : Core.asList(op.getOrDefault("reads", List.of()))) {
+            Map<String, Object> key = Core.asMap(rawKey);
+            AxBalancerRouteStats stats = store.get(new AxBalancerStatsKey(String.valueOf(key.get("namespace")), String.valueOf(key.get("slice")), String.valueOf(key.get("logicalModel")), String.valueOf(key.get("routeKey"))));
+            states.add(Map.of("version", stats.version(), "observations", stats.observations(), "successes", stats.successes(), "failureEwma", stats.failureEwma(), "logLatencyMean", stats.logLatencyMean(), "logLatencyM2", stats.logLatencyM2()));
+          }
+          outputs.put(name, Map.of("states", states));
+        }
       }
       Map<String, Object> actual = new LinkedHashMap<>();
       actual.put("id", balancer.getId());
@@ -2032,6 +2084,7 @@ public final class Conformance {
       Map<String, Object> expectedOutput = Core.asMap(fixture.getOrDefault("expected_output", Map.of()));
       if (expectedOutput.containsKey("modelList")) actual.put("modelList", balancer.getModelList());
       if (expectedOutput.containsKey("features")) actual.put("features", balancer.getFeatures(null));
+      if (Core.truthy(fixture.getOrDefault("adaptive_best_effort", false))) actual.put("bestEffort", Map.of("storeGets", bestEffort[0], "storeObserves", bestEffort[1], "eventCalls", bestEffort[2]));
       if (fixture.containsKey("expected_output")) assertSubset(actual, expectedOutput, "balancer");
     } catch (Exception e) {
       if (!fixture.containsKey("expected_error_contains")) throw Core.asRuntime(e);

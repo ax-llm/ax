@@ -7,6 +7,9 @@ import _ "embed"
 
 // templates/cpp
 
+//go:embed templates/cpp/cppAdaptiveBalancerNoKey.cpp
+var cppAdaptiveBalancerNoKeyExample string
+
 //go:embed templates/cpp/cppConformance.cpp
 var cppConformance string
 
@@ -17,6 +20,9 @@ var cppHeader string
 var cppRuntime string
 
 // templates/go
+
+//go:embed templates/go/goAdaptiveBalancerNoKey.go.txt
+var goAdaptiveBalancerNoKeyExample string
 
 //go:embed templates/go/goACEPlaybookExample.go.txt
 var goACEPlaybookExample string
@@ -94,6 +100,9 @@ var goJavaScriptGojaProfileExample string
 
 // templates/java
 
+//go:embed templates/java/javaAdaptiveBalancerNoKey.java
+var javaAdaptiveBalancerNoKeyExample string
+
 //go:embed templates/java/javaAiClient.java
 var javaAiClient string
 
@@ -117,6 +126,39 @@ var javaAxAgentClarificationException string
 
 //go:embed templates/java/javaAxBalancer.java
 var javaAxBalancer string
+
+//go:embed templates/java/javaAxBalancerAdaptive.java
+var javaAxBalancerAdaptive string
+
+//go:embed templates/java/javaAxBalancerAdaptiveStrategy.java
+var javaAxBalancerAdaptiveStrategy string
+
+//go:embed templates/java/javaAxBalancerCandidateScore.java
+var javaAxBalancerCandidateScore string
+
+//go:embed templates/java/javaAxBalancerFailureReason.java
+var javaAxBalancerFailureReason string
+
+//go:embed templates/java/javaAxBalancerOptions.java
+var javaAxBalancerOptions string
+
+//go:embed templates/java/javaAxBalancerRouteStats.java
+var javaAxBalancerRouteStats string
+
+//go:embed templates/java/javaAxBalancerRoutingEvent.java
+var javaAxBalancerRoutingEvent string
+
+//go:embed templates/java/javaAxBalancerStatsKey.java
+var javaAxBalancerStatsKey string
+
+//go:embed templates/java/javaAxBalancerStatsObservation.java
+var javaAxBalancerStatsObservation string
+
+//go:embed templates/java/javaAxBalancerStatsStore.java
+var javaAxBalancerStatsStore string
+
+//go:embed templates/java/javaAxInMemoryBalancerStatsStore.java
+var javaAxInMemoryBalancerStatsStore string
 
 //go:embed templates/java/javaAxBaseAI.java
 var javaAxBaseAI string
@@ -363,6 +405,9 @@ var pyodideRuntimePolicyJSON string
 
 // templates/python
 
+//go:embed templates/python/pyAdaptiveBalancerNoKey.py
+var pyAdaptiveBalancerNoKeyExample string
+
 //go:embed templates/python/pyAI.py
 var pyAI string
 
@@ -467,6 +512,9 @@ var pyRuntime string
 var pyRuntimeQuickjs string
 
 // templates/rust
+
+//go:embed templates/rust/rustAdaptiveBalancerNoKey.rs
+var rustAdaptiveBalancerNoKeyExample string
 
 //go:embed templates/rust/rustAudioResponsesMappingExample.rs
 var rustAudioResponsesMappingExample string

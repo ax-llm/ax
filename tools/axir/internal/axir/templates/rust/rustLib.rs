@@ -8,8 +8,9 @@ use std::error::Error;
 use std::fmt;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "runtime-quickjs")]
 pub mod runtime {
@@ -759,6 +760,23 @@ fn bool_key(value: &Value, keys: &[&str]) -> bool {
 
 pub trait AxAIClient {
     fn chat(&mut self, request: Value) -> AxResult<Value>;
+
+    fn embed(&mut self, _request: Value) -> AxResult<Value> {
+        Err(AxError::runtime("embedding is not supported by this AI client"))
+    }
+
+    fn speak(&mut self, _request: Value) -> AxResult<Value> {
+        Err(AxError::runtime("speech is not supported by this AI client"))
+    }
+
+    fn get_id(&self) -> String { self.get_name() }
+    fn get_name(&self) -> String { "ai-service".to_string() }
+    fn get_features(&self, _model: Option<&str>) -> Value { router_default_features() }
+    fn get_model_list(&self) -> Value { Value::Null }
+    fn get_metrics(&self) -> Value { json!({"latency":{"chat":{"mean":0,"p95":0,"p99":0,"samples":[]},"embed":{"mean":0,"p95":0,"p99":0,"samples":[]}},"errors":{"chat":{"count":0,"rate":0,"total":0},"embed":{"count":0,"rate":0,"total":0}}}) }
+    fn get_estimated_cost(&self, _usage: &Value) -> f64 { 0.0 }
+    fn get_options(&self) -> Value { json!({}) }
+    fn set_options(&mut self, _options: Value) {}
 
     fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         let _ = request;
@@ -1627,6 +1645,16 @@ impl WsRealtimeTransport {
 }
 
 impl AxAIClient for OpenAICompatibleClient {
+    fn get_id(&self) -> String { format!("{}:{}", self.profile, self.model) }
+    fn get_name(&self) -> String { self.profile.clone() }
+    fn get_model_list(&self) -> Value {
+        self.options.get("modelList").or_else(|| self.options.get("model_list")).cloned().unwrap_or_else(|| json!([{"key": self.model, "model": self.model}]))
+    }
+    fn get_options(&self) -> Value { self.options.clone() }
+    fn set_options(&mut self, options: Value) { self.options = options; }
+    fn embed(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::embed(self, request) }
+    fn transcribe(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::transcribe(self, request) }
+    fn speak(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::speak(self, request) }
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         let req = self.prepare_chat_request(&request)?;
         // python: AxBaseAI.chat validates the coerced request up front.
@@ -5490,9 +5518,72 @@ pub struct RuntimeCapabilities {
 
 pub type AxAgentClarificationError = AxError;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AxBalancerStatsKey { pub namespace: String, pub slice: String, pub logical_model: String, pub route_key: String }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AxBalancerRouteStats { pub version: u8, pub observations: u64, pub successes: u64, pub failure_ewma: f64, pub log_latency_mean: f64, pub log_latency_m2: f64 }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AxBalancerStatsObservation { pub outcome: String, pub latency_ms: Option<f64> }
+pub type AxBalancerRoutingEvent = Value;
+pub type AxBalancerFailureReason = String;
+#[derive(Debug,Clone,Serialize,Deserialize,PartialEq)]
+pub struct AxBalancerCandidateScore { pub route_key:String,pub service_name:String,pub score:f64,pub estimated_cost:f64,pub failure_probability:f64,pub deadline_miss_probability:f64 }
+
+fn balancer_stats_value(stats: Option<&AxBalancerRouteStats>) -> Value { stats.map(|value| json!({"version":value.version,"observations":value.observations,"successes":value.successes,"failureEwma":value.failure_ewma,"logLatencyMean":value.log_latency_mean,"logLatencyM2":value.log_latency_m2})).unwrap_or(Value::Null) }
+fn balancer_stats_from(value: Value) -> AxBalancerRouteStats { AxBalancerRouteStats { version:value.get("version").and_then(Value::as_u64).unwrap_or(1) as u8, observations:value.get("observations").and_then(Value::as_u64).unwrap_or(0), successes:value.get("successes").and_then(Value::as_u64).unwrap_or(0), failure_ewma:value.get("failureEwma").and_then(Value::as_f64).unwrap_or(0.05), log_latency_mean:value.get("logLatencyMean").and_then(Value::as_f64).unwrap_or(0.0), log_latency_m2:value.get("logLatencyM2").and_then(Value::as_f64).unwrap_or(0.0) } }
+pub fn create_balancer_route_stats() -> AxBalancerRouteStats { balancer_stats_from(core_value_to_json(&provider_balancer_route_stats(&[]).expect("Core adaptive stats"))) }
+pub fn update_balancer_route_stats(current: Option<&AxBalancerRouteStats>, observation: &AxBalancerStatsObservation) -> AxBalancerRouteStats { let raw=json!({"outcome":observation.outcome,"latencyMs":observation.latency_ms}); balancer_stats_from(core_value_to_json(&provider_balancer_observe_route(&[core_value_from_json(&balancer_stats_value(current)),core_value_from_json(&raw)]).expect("Core adaptive observation"))) }
+pub fn sample_balancer_route_health(stats: Option<&AxBalancerRouteStats>, deadline_ms: f64) -> AxResult<Value> { Ok(core_value_to_json(&provider_balancer_sample_health(&[core_value_from_json(&balancer_stats_value(stats)),CoreValue::Num(deadline_ms)])?)) }
+
+pub trait AxBalancerStatsStore: Send + Sync { fn get(&self,key:&AxBalancerStatsKey)->AxResult<Option<AxBalancerRouteStats>>; fn observe(&self,key:&AxBalancerStatsKey,observation:&AxBalancerStatsObservation)->AxResult<()>; }
+#[derive(Default)]
+pub struct AxInMemoryBalancerStatsStore { stats: Mutex<BTreeMap<String,AxBalancerRouteStats>> }
+impl AxInMemoryBalancerStatsStore { pub fn new()->Self{Self::default()} fn key(key:&AxBalancerStatsKey)->String{format!("{}\u{1f}{}\u{1f}{}\u{1f}{}",key.namespace,key.slice,key.logical_model,key.route_key)} }
+impl AxBalancerStatsStore for AxInMemoryBalancerStatsStore { fn get(&self,key:&AxBalancerStatsKey)->AxResult<Option<AxBalancerRouteStats>>{Ok(self.stats.lock().map_err(|_|AxError::runtime("adaptive stats lock poisoned"))?.get(&Self::key(key)).cloned())} fn observe(&self,key:&AxBalancerStatsKey,observation:&AxBalancerStatsObservation)->AxResult<()>{let mut values=self.stats.lock().map_err(|_|AxError::runtime("adaptive stats lock poisoned"))?;let encoded=Self::key(key);let next=update_balancer_route_stats(values.get(&encoded),observation);values.insert(encoded,next);Ok(())} }
+
+struct ConformanceThrowingBalancerStatsStore { gets: AtomicU64, observes: AtomicU64 }
+impl ConformanceThrowingBalancerStatsStore { fn new()->Self{Self{gets:AtomicU64::new(0),observes:AtomicU64::new(0)}} }
+impl AxBalancerStatsStore for ConformanceThrowingBalancerStatsStore {
+    fn get(&self,_key:&AxBalancerStatsKey)->AxResult<Option<AxBalancerRouteStats>>{self.gets.fetch_add(1,Ordering::SeqCst);Err(AxError::runtime("fixture store read failed"))}
+    fn observe(&self,_key:&AxBalancerStatsKey,_observation:&AxBalancerStatsObservation)->AxResult<()>{self.observes.fetch_add(1,Ordering::SeqCst);Err(AxError::runtime("fixture store write failed"))}
+}
+
+pub type AxBalancerEstimateCost = Arc<dyn Fn(&dyn AxAIClient,&Value)->f64+Send+Sync>;
+pub type AxBalancerSlice = Arc<dyn Fn(&Value)->String+Send+Sync>;
+pub type AxBalancerRouteKey = Arc<dyn Fn(&dyn AxAIClient,usize)->String+Send+Sync>;
+pub type AxBalancerEventHook = Arc<dyn Fn(AxBalancerRoutingEvent)+Send+Sync>;
+pub struct AxBalancerAdaptiveStrategy { pub deadline_ms:f64,pub bad_outcome_cost:f64,pub expected_tokens:Option<Value>,pub estimate_cost:Option<AxBalancerEstimateCost>,pub namespace:String,pub slice:Option<AxBalancerSlice>,pub route_key:Option<AxBalancerRouteKey>,pub stats_store:Option<Arc<dyn AxBalancerStatsStore>>,pub on_routing_event:Option<AxBalancerEventHook> }
+impl AxBalancerAdaptiveStrategy { pub fn new(deadline_ms:f64,bad_outcome_cost:f64)->Self{Self{deadline_ms,bad_outcome_cost,expected_tokens:None,estimate_cost:None,namespace:"default".into(),slice:None,route_key:None,stats_store:None,on_routing_event:None}} pub fn with_expected_tokens(mut self,prompt:u64,completion:u64)->Self{self.expected_tokens=Some(json!({"promptTokens":prompt,"completionTokens":completion}));self} pub fn with_namespace(mut self,value:impl Into<String>)->Self{self.namespace=value.into();self} pub fn with_store(mut self,value:Arc<dyn AxBalancerStatsStore>)->Self{self.stats_store=Some(value);self} pub fn with_route_key(mut self,value:AxBalancerRouteKey)->Self{self.route_key=Some(value);self} pub fn with_slice(mut self,value:AxBalancerSlice)->Self{self.slice=Some(value);self} pub fn with_estimate_cost(mut self,value:AxBalancerEstimateCost)->Self{self.estimate_cost=Some(value);self} pub fn on_routing_event(mut self,value:AxBalancerEventHook)->Self{self.on_routing_event=Some(value);self} }
+pub struct AxBalancerOptions {
+    pub debug: bool,
+    pub initial_backoff_ms: u64,
+    pub max_backoff_ms: u64,
+    pub max_retries: usize,
+    pub input_order: bool,
+    pub strategy: Option<AxBalancerAdaptiveStrategy>,
+}
+impl Default for AxBalancerOptions {
+    fn default() -> Self {
+        Self {
+            debug: true,
+            initial_backoff_ms: 1_000,
+            max_backoff_ms: 32_000,
+            max_retries: 3,
+            input_order: false,
+            strategy: None,
+        }
+    }
+}
+struct AxAdaptiveCandidate { index:usize,order:usize,route_key:String,stats_key:AxBalancerStatsKey,score:f64,estimated_cost:f64,failure_probability:f64,deadline_miss_probability:f64 }
+
 pub struct AxBalancer {
-    services: Vec<OpenAICompatibleClient>,
+    services: Vec<Box<dyn AxAIClient>>,
     current: usize,
+    adaptive: Option<AxBalancerAdaptiveStrategy>,
+    adaptive_store: Option<Arc<dyn AxBalancerStatsStore>>,
+    route_keys: Vec<String>,
+    service_failures: BTreeMap<String, usize>,
+    max_retries: usize,
 }
 
 pub struct MultiServiceRouter {
@@ -5505,25 +5596,62 @@ pub struct ProviderRouter {
 
 impl AxBalancer {
     pub fn new() -> Self {
-        Self {
-            services: Vec::new(),
-            current: 0,
-        }
+        Self { services: Vec::new(), current: 0, adaptive:None, adaptive_store:None, route_keys:Vec::new(), service_failures:BTreeMap::new(), max_retries:3 }
     }
 
     pub fn from_services(services: Vec<OpenAICompatibleClient>) -> Self {
-        Self {
-            services,
-            current: 0,
+        let mut services = services.into_iter().map(|value|Box::new(value) as Box<dyn AxAIClient>).collect::<Vec<_>>();
+        services.sort_by(|left, right| {
+            let score = |metrics: Value| {
+                provider_balancer_metric_score(&[core_value_from_json(&metrics)])
+                    .map(|value| core_value_to_json(&value).as_f64().unwrap_or(0.0))
+                    .unwrap_or(0.0)
+            };
+            let left = score(left.get_metrics());
+            let right = score(right.get_metrics());
+            left.total_cmp(&right)
+        });
+        Self { services, current: 0, adaptive:None, adaptive_store:None, route_keys:Vec::new(), service_failures:BTreeMap::new(), max_retries:3 }
+    }
+
+    pub fn from_clients(services:Vec<Box<dyn AxAIClient>>,mut options:AxBalancerOptions)->AxResult<Self>{
+        let policy=core_value_to_json(&provider_balancer_retry_policy(&[core_value_from_json(&json!({
+            "strategy":if options.input_order{"input_order"}else{"metric"},
+            "maxRetries":options.max_retries,
+            "initialBackoffMs":options.initial_backoff_ms,
+            "maxBackoffMs":options.max_backoff_ms,
+            "debug":options.debug,
+        }))])?);
+        let max_retries=policy.get("maxRetries").and_then(Value::as_u64).unwrap_or(options.max_retries as u64) as usize;
+        let input_order=policy.get("strategy").and_then(Value::as_str)==Some("input_order");
+        let mut value=Self{services,current:0,adaptive:None,adaptive_store:None,route_keys:Vec::new(),service_failures:BTreeMap::new(),max_retries:max_retries.max(1)};
+        if value.services.is_empty(){return Err(AxError::validation("AxBalancer requires at least one service"))}
+        value.validate_models()?;
+        if let Some(strategy)=options.strategy.take(){
+            value.initialize_adaptive(strategy)?;
+            if !input_order {
+                let mut paired=value.services.into_iter().zip(value.route_keys.into_iter()).collect::<Vec<_>>();
+                paired.sort_by(|left,right|{
+                    let score=|metrics:Value|provider_balancer_metric_score(&[core_value_from_json(&metrics)]).map(|value|core_value_to_json(&value).as_f64().unwrap_or(0.0)).unwrap_or(0.0);
+                    score(left.0.get_metrics()).total_cmp(&score(right.0.get_metrics()))
+                });
+                (value.services,value.route_keys)=paired.into_iter().unzip();
+            }
+        }else if !input_order{
+            value.services.sort_by(|left,right|{
+                let score=|metrics:Value|provider_balancer_metric_score(&[core_value_from_json(&metrics)]).map(|value|core_value_to_json(&value).as_f64().unwrap_or(0.0)).unwrap_or(0.0);
+                score(left.get_metrics()).total_cmp(&score(right.get_metrics()))
+            })
         }
+        Ok(value)
     }
 
     pub fn with_service(mut self, service: OpenAICompatibleClient) -> Self {
-        self.services.push(service);
+        self.services.push(Box::new(service));
         self
     }
 
-    fn current_service(&mut self) -> AxResult<&mut OpenAICompatibleClient> {
+    fn current_service(&mut self) -> AxResult<&mut Box<dyn AxAIClient>> {
         if self.services.is_empty() {
             return Err(AxError::validation("AxBalancer requires at least one service"));
         }
@@ -5533,12 +5661,22 @@ impl AxBalancer {
         Ok(&mut self.services[self.current])
     }
 
+    fn validate_models(&self)->AxResult<()>{let reference=self.services.iter().map(|value|value.get_model_list()).find(|value|value.as_array().map(|v|!v.is_empty()).unwrap_or(false));let Some(reference)=reference else{return Ok(())};let keys=reference.as_array().unwrap().iter().filter_map(|entry|entry.get("key").and_then(Value::as_str)).collect::<BTreeSet<_>>();for(index,service)in self.services.iter().enumerate(){let models=service.get_model_list();let Some(values)=models.as_array()else{return Err(AxError::runtime(format!("Service at index {index} ({}) has no model list while another service does.",service.get_name())))};let current=values.iter().filter_map(|entry|entry.get("key").and_then(Value::as_str)).collect::<BTreeSet<_>>();if current!=keys{return Err(AxError::runtime(format!("Service at index {index} ({}) has incompatible model aliases.",service.get_name())))}}Ok(())}
+    fn initialize_adaptive(&mut self,strategy:AxBalancerAdaptiveStrategy)->AxResult<()>{provider_balancer_adaptive_policy(&[core_value_from_json(&json!({"deadlineMs":strategy.deadline_ms,"badOutcomeCost":strategy.bad_outcome_cost,"namespace":strategy.namespace}))])?;if strategy.namespace.trim().is_empty(){return Err(AxError::runtime("Adaptive namespace must be non-empty."))}if strategy.stats_store.is_some()&&strategy.route_key.is_none(){return Err(AxError::runtime("Adaptive routeKey is required when statsStore is supplied."))}let mut seen=BTreeSet::new();self.route_keys.clear();for(index,service)in self.services.iter().enumerate(){let raw=strategy.route_key.as_ref().map(|callback|callback(service.as_ref(),index)).unwrap_or_else(||service.get_id());let seen_values=Value::Array(seen.iter().cloned().map(Value::String).collect());let key=core_value_to_json(&provider_balancer_validate_route_key(&[CoreValue::Str(raw.into()),core_value_from_json(&seen_values)])?).as_str().unwrap_or_default().to_string();seen.insert(key.clone());self.route_keys.push(key)}self.adaptive_store=Some(strategy.stats_store.clone().unwrap_or_else(||Arc::new(AxInMemoryBalancerStatsStore::new())));self.adaptive=Some(strategy);Ok(())}
+    fn emit(&self,event:Value){if let Some(callback)=self.adaptive.as_ref().and_then(|value|value.on_routing_event.as_ref()){let _=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||callback(event)));}}
+    fn event_base(kind:&str,key:&AxBalancerStatsKey)->Map<String,Value>{let mut event=Map::new();event.insert("type".into(),json!(kind));event.insert("namespace".into(),json!(key.namespace));event.insert("slice".into(),json!(key.slice));event.insert("logicalModel".into(),json!(key.logical_model));event}
+    fn read_stats(&self,key:&AxBalancerStatsKey)->Option<AxBalancerRouteStats>{match self.adaptive_store.as_ref().unwrap().get(key){Ok(value)=>value,Err(error)=>{let mut event=Self::event_base("store-error",key);event.insert("operation".into(),json!("get"));event.insert("routeKey".into(),json!(key.route_key));event.insert("errorType".into(),json!(error.error_type.unwrap_or(error.category)));self.emit(Value::Object(event));None}}}
+    fn observe(&self,candidate:&AxAdaptiveCandidate,observation:AxBalancerStatsObservation,streaming:bool,reason:Option<&str>,status:Option<u16>){if let Err(error)=self.adaptive_store.as_ref().unwrap().observe(&candidate.stats_key,&observation){let mut event=Self::event_base("store-error",&candidate.stats_key);event.insert("operation".into(),json!("observe"));event.insert("routeKey".into(),json!(candidate.route_key));event.insert("errorType".into(),json!(error.error_type.unwrap_or(error.category)));self.emit(Value::Object(event))}let mut event=Self::event_base("observation",&candidate.stats_key);event.insert("routeKey".into(),json!(candidate.route_key));event.insert("serviceName".into(),json!(self.services[candidate.index].get_name()));event.insert("outcome".into(),json!(observation.outcome));event.insert("latencyMs".into(),json!(observation.latency_ms));event.insert("streaming".into(),json!(streaming));event.insert("reason".into(),json!(reason));event.insert("status".into(),json!(status));self.emit(Value::Object(event))}
+    fn candidate_indices(&self,request:&Value)->AxResult<Vec<usize>>{let mut values=Vec::new();for(index,service)in self.services.iter().enumerate(){let allowed=core_value_to_json(&provider_balancer_candidate_allowed(&[core_value_from_json(&service.get_features(request.get("model").and_then(Value::as_str))),core_value_from_json(request)])?);if allowed.as_bool().unwrap_or(false){values.push(index)}}if values.is_empty(){return Err(AxError::runtime("No services available that support required capabilities."))}Ok(values)}
+    fn adaptive_cost(&self,index:usize,route_key:&str,request:&Value)->AxResult<f64>{let strategy=self.adaptive.as_ref().unwrap();let service=self.services[index].as_ref();let logical=request.get("model").and_then(Value::as_str).unwrap_or("default");let mut resolved=logical.to_string();let model_list=service.get_model_list();if let Some(models)=model_list.as_array(){for entry in models{if entry.get("key")==request.get("model"){resolved=entry.get("model").and_then(Value::as_str).unwrap_or(logical).to_string();break}}}let context=json!({"serviceIndex":index,"routeKey":route_key,"logicalModel":logical,"resolvedModel":resolved,"expectedTokens":strategy.expected_tokens,"serviceName":service.get_name()});let cost=if let Some(callback)=&strategy.estimate_cost{callback(service,&context)}else if let Some(tokens)=&strategy.expected_tokens{let prompt=tokens.get("promptTokens").or_else(||tokens.get("prompt_tokens")).and_then(Value::as_f64).unwrap_or(0.0);let completion=tokens.get("completionTokens").or_else(||tokens.get("completion_tokens")).and_then(Value::as_f64).unwrap_or(0.0);service.get_estimated_cost(&json!({"ai":service.get_name(),"model":resolved,"tokens":{"promptTokens":prompt,"completionTokens":completion,"totalTokens":prompt+completion}}))}else{service.get_estimated_cost(&Value::Null)};if !cost.is_finite()||cost<0.0{return Err(AxError::runtime(format!("Adaptive estimated cost for route {route_key:?} must be finite and non-negative.")))}Ok(cost)}
+    fn rank(&self,request:&Value)->AxResult<Vec<AxAdaptiveCandidate>>{let strategy=self.adaptive.as_ref().unwrap();let logical=request.get("model").and_then(Value::as_str).unwrap_or("default").to_string();let context=json!({"model":request.get("model"),"options":{}});let slice=strategy.slice.as_ref().map(|callback|callback(&context)).unwrap_or_else(||"default".into());if slice.trim().is_empty(){return Err(AxError::runtime("Adaptive slice must be non-empty."))}let mut ranked=Vec::new();for(order,index)in self.candidate_indices(request)?.into_iter().enumerate(){let key=AxBalancerStatsKey{namespace:strategy.namespace.clone(),slice:slice.clone(),logical_model:logical.clone(),route_key:self.route_keys[index].clone()};let health=sample_balancer_route_health(self.read_stats(&key).as_ref(),strategy.deadline_ms)?;let failure=health.get("failureProbability").and_then(Value::as_f64).unwrap_or(0.05);let late=health.get("deadlineMissProbability").and_then(Value::as_f64).unwrap_or(0.0);let estimated=self.adaptive_cost(index,&key.route_key,request)?;let score=core_value_to_json(&provider_balancer_adaptive_score(&[CoreValue::Num(estimated),CoreValue::Num(strategy.bad_outcome_cost),CoreValue::Num(failure),CoreValue::Num(late)])?).as_f64().unwrap_or(f64::INFINITY);ranked.push(AxAdaptiveCandidate{index,order,route_key:key.route_key.clone(),stats_key:key,score,estimated_cost:estimated,failure_probability:failure,deadline_miss_probability:late})}let rank_input=Value::Array(ranked.iter().map(|value|json!({"routeKey":value.route_key,"score":value.score,"order":value.order})).collect());let core_ranked=core_value_to_json(&provider_balancer_rank_candidates(&[core_value_from_json(&rank_input)])?);let mut ranked_by_key=ranked.into_iter().map(|value|(value.route_key.clone(),value)).collect::<BTreeMap<_,_>>();let ranked=core_ranked.as_array().into_iter().flatten().filter_map(|value|value.get("routeKey").and_then(Value::as_str).and_then(|key|ranked_by_key.remove(key))).collect::<Vec<_>>();let candidates=ranked.iter().map(|value|json!({"routeKey":value.route_key,"serviceName":self.services[value.index].get_name(),"score":value.score,"estimatedCost":value.estimated_cost,"failureProbability":value.failure_probability,"deadlineMissProbability":value.deadline_miss_probability})).collect::<Vec<_>>();let mut event=Self::event_base("ranked",&ranked[0].stats_key);event.insert("candidates".into(),json!(candidates));self.emit(Value::Object(event));Ok(ranked)}
+
     pub fn chat(&mut self, request: Value) -> AxResult<Value> {
-        self.current_service()?.chat(request)
+        if self.adaptive.is_none(){let candidates=self.candidate_indices(&request)?;for index in candidates.iter().copied(){self.current=index;let id=self.services[index].get_id();while self.service_failures.get(&id).copied().unwrap_or(0)<self.max_retries{match self.services[index].chat(request.clone()){Ok(response)=>{self.service_failures.remove(&id);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{*self.service_failures.entry(id.clone()).or_insert(0)+=1},Err(error)=>return Err(error)}}}return Err(AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",candidates.len())))}let ranked=self.rank(&request)?;let mut last=None;for(attempt,candidate)in ranked.iter().enumerate(){self.current=candidate.index;let mut selected=Self::event_base("selected",&candidate.stats_key);selected.insert("routeKey".into(),json!(candidate.route_key));selected.insert("serviceName".into(),json!(self.services[candidate.index].get_name()));selected.insert("attempt".into(),json!(attempt+1));self.emit(Value::Object(selected));let started=Instant::now();match self.services[candidate.index].chat(request.clone()){Ok(response)=>{self.observe(candidate,AxBalancerStatsObservation{outcome:"success".into(),latency_ms:Some(started.elapsed().as_secs_f64()*1000.0)},false,None,None);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{let reason=adaptive_failure_reason(&error);self.observe(candidate,AxBalancerStatsObservation{outcome:"failure".into(),latency_ms:None},false,Some(reason),error.status);let mut fallback=Self::event_base("fallback",&candidate.stats_key);fallback.insert("fromRouteKey".into(),json!(candidate.route_key));fallback.insert("toRouteKey".into(),ranked.get(attempt+1).map(|value|json!(value.route_key)).unwrap_or(Value::Null));fallback.insert("reason".into(),json!(reason));fallback.insert("status".into(),json!(error.status));self.emit(Value::Object(fallback));last=Some(error)},Err(error)=>return Err(error)}}Err(last.unwrap_or_else(||AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",ranked.len()))))
     }
 
     pub fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
-        self.current_service()?.stream(request)
+        if self.adaptive.is_none(){let response=self.chat(request)?;if let Some(results)=response.get("results").and_then(Value::as_array){return Ok(results.iter().map(|result|json!({"results":[result.clone()]})).collect())}return Ok(vec![response])}let ranked=self.rank(&request)?;let mut last=None;for(attempt,candidate)in ranked.iter().enumerate(){self.current=candidate.index;let mut selected=Self::event_base("selected",&candidate.stats_key);selected.insert("routeKey".into(),json!(candidate.route_key));selected.insert("serviceName".into(),json!(self.services[candidate.index].get_name()));selected.insert("attempt".into(),json!(attempt+1));self.emit(Value::Object(selected));let started=Instant::now();match self.services[candidate.index].stream(request.clone()){Ok(response)=>{self.observe(candidate,AxBalancerStatsObservation{outcome:"success".into(),latency_ms:Some(started.elapsed().as_secs_f64()*1000.0)},true,None,None);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{let reason=adaptive_failure_reason(&error);self.observe(candidate,AxBalancerStatsObservation{outcome:"failure".into(),latency_ms:None},true,Some(reason),error.status);let mut fallback=Self::event_base("fallback",&candidate.stats_key);fallback.insert("fromRouteKey".into(),json!(candidate.route_key));fallback.insert("toRouteKey".into(),ranked.get(attempt+1).map(|value|json!(value.route_key)).unwrap_or(Value::Null));fallback.insert("reason".into(),json!(reason));fallback.insert("status".into(),json!(error.status));self.emit(Value::Object(fallback));last=Some(error)},Err(error)=>return Err(error)}}Err(last.unwrap_or_else(||AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",ranked.len()))))
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
@@ -5552,7 +5690,13 @@ impl AxBalancer {
     pub fn speak(&mut self, request: Value) -> AxResult<Value> {
         self.current_service()?.speak(request)
     }
+
+    pub fn set_options(&mut self, options: Value) {
+        for service in &mut self.services { service.set_options(options.clone()); }
+    }
 }
+
+fn adaptive_failure_reason(error:&AxError)->&'static str{match error.error_type.as_deref(){Some("AxAIServiceStatusError")=>"status",Some("AxAIServiceNetworkError")=>"network",Some("AxAIServiceStreamTerminatedError")=>"stream-terminated",Some("AxAIServiceTimeoutError")=>"timeout",_=>"response"}}
 
 impl Default for AxBalancer {
     fn default() -> Self {
@@ -6828,6 +6972,7 @@ struct RouterFixtureService {
     last_chat: Value,
     last_embed: Value,
     last_config: Value,
+    estimated_cost: f64,
 }
 
 impl RouterFixtureService {
@@ -6878,6 +7023,11 @@ impl RouterFixtureService {
             last_chat: Value::Null,
             last_embed: Value::Null,
             last_config: Value::Null,
+            estimated_cost: spec
+                .get("estimatedCost")
+                .or_else(|| spec.get("estimated_cost"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
             name,
         }
     }
@@ -6944,6 +7094,90 @@ impl RouterFixtureService {
             out["calls"] = json!(self.requests.len());
         }
         out
+    }
+}
+
+#[derive(Clone)]
+struct SharedRouterFixtureService {
+    inner: Arc<Mutex<RouterFixtureService>>,
+    operation_options: Arc<Mutex<Value>>,
+}
+
+impl SharedRouterFixtureService {
+    fn options(&self) -> Value {
+        self.operation_options
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_else(|_| json!({}))
+    }
+}
+
+impl AxAIClient for SharedRouterFixtureService {
+    fn chat(&mut self, request: Value) -> AxResult<Value> {
+        self.inner
+            .lock()
+            .map_err(|_| AxError::runtime("fixture service lock poisoned"))?
+            .chat(&request, &self.options())
+    }
+
+    fn embed(&mut self, request: Value) -> AxResult<Value> {
+        self.inner
+            .lock()
+            .map_err(|_| AxError::runtime("fixture service lock poisoned"))?
+            .embed(&request, &self.options())
+    }
+
+    fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
+        self.inner
+            .lock()
+            .map_err(|_| AxError::runtime("fixture service lock poisoned"))?
+            .stream(&request, &self.options())
+    }
+
+    fn transcribe(&mut self, request: Value) -> AxResult<Value> {
+        self.inner
+            .lock()
+            .map_err(|_| AxError::runtime("fixture service lock poisoned"))?
+            .transcribe(&request, &self.options())
+    }
+
+    fn speak(&mut self, request: Value) -> AxResult<Value> {
+        self.inner
+            .lock()
+            .map_err(|_| AxError::runtime("fixture service lock poisoned"))?
+            .speak(&request, &self.options())
+    }
+
+    fn get_id(&self) -> String {
+        self.inner.lock().map(|value| value.id.clone()).unwrap_or_default()
+    }
+
+    fn get_name(&self) -> String {
+        self.inner.lock().map(|value| value.name.clone()).unwrap_or_default()
+    }
+
+    fn get_features(&self, _model: Option<&str>) -> Value {
+        self.inner.lock().map(|value| value.features.clone()).unwrap_or(Value::Null)
+    }
+
+    fn get_model_list(&self) -> Value {
+        self.inner.lock().map(|value| value.model_list.clone()).unwrap_or(Value::Null)
+    }
+
+    fn get_metrics(&self) -> Value {
+        self.inner.lock().map(|value| value.metrics()).unwrap_or(Value::Null)
+    }
+
+    fn get_estimated_cost(&self, _usage: &Value) -> f64 {
+        self.inner.lock().map(|value| value.estimated_cost).unwrap_or(0.0)
+    }
+
+    fn get_options(&self) -> Value {
+        self.inner.lock().map(|value| value.options.clone()).unwrap_or_else(|_| json!({}))
+    }
+
+    fn set_options(&mut self, options: Value) {
+        if let Ok(mut value) = self.inner.lock() { value.options = options; }
     }
 }
 
@@ -7574,225 +7808,80 @@ fn is_retryable_ai_error(err: &AxError) -> bool {
         )
 }
 
-struct ConformanceBalancer {
-    services: Vec<RouterFixtureService>,
-    current: usize,
-    failures: BTreeMap<String, usize>,
-    max_retries: usize,
-}
-
-impl ConformanceBalancer {
-    fn new(mut services: Vec<RouterFixtureService>, options: &Value) -> AxResult<Self> {
-        if services.is_empty() {
-            return Err(AxError::runtime("No AI services provided."));
-        }
-        let policy = core_value_to_json(&provider_balancer_retry_policy(&[core_value_from_json(options)])?);
-        let strategy = policy
-            .get("strategy")
-            .and_then(Value::as_str)
-            .unwrap_or("metric")
-            .to_string();
-        let max_retries = policy
-            .get("maxRetries")
-            .and_then(Value::as_u64)
-            .unwrap_or(3) as usize;
-        Self::validate_models(&services)?;
-        if strategy != "input_order" {
-            services.sort_by(|a, b| {
-                let a_score = provider_balancer_metric_score(&[core_value_from_json(&a.metrics())])
-                    .map(|value| core_value_to_json(&value).as_f64().unwrap_or(0.0))
-                    .unwrap_or(0.0);
-                let b_score = provider_balancer_metric_score(&[core_value_from_json(&b.metrics())])
-                    .map(|value| core_value_to_json(&value).as_f64().unwrap_or(0.0))
-                    .unwrap_or(0.0);
-                a_score.partial_cmp(&b_score).unwrap_or(std::cmp::Ordering::Equal)
-            });
-        }
-        Ok(Self {
-            services,
-            current: 0,
-            failures: BTreeMap::new(),
-            max_retries,
-        })
-    }
-
-    fn validate_models(services: &[RouterFixtureService]) -> AxResult<()> {
-        let reference = services
-            .iter()
-            .find_map(|service| service.model_list.as_array().cloned());
-        let Some(reference) = reference.filter(|items| !items.is_empty()) else {
-            return Ok(());
-        };
-        let reference_keys = reference
-            .iter()
-            .filter_map(|item| item.get("key").and_then(Value::as_str).map(ToString::to_string))
-            .collect::<BTreeSet<_>>();
-        for (index, service) in services.iter().enumerate() {
-            let list = service.model_list.as_array().cloned().unwrap_or_default();
-            if list.is_empty() {
-                return Err(AxError::runtime(format!(
-                    "Service at index {index} ({}) has no model list while another service does.",
-                    service.name
-                )));
-            }
-            let keys = list
-                .iter()
-                .filter_map(|item| item.get("key").and_then(Value::as_str).map(ToString::to_string))
-                .collect::<BTreeSet<_>>();
-            for key in &reference_keys {
-                if !keys.contains(key) {
-                    return Err(AxError::runtime(format!(
-                        "Service at index {index} ({}) is missing model {key:?}",
-                        service.name
-                    )));
-                }
-            }
-            for key in &keys {
-                if !reference_keys.contains(key) {
-                    return Err(AxError::runtime(format!(
-                        "Service at index {index} ({}) has extra model {key:?}",
-                        service.name
-                    )));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn candidate_indices(&self, request: &Value) -> AxResult<Vec<usize>> {
-        let mut out = Vec::new();
-        for (index, service) in self.services.iter().enumerate() {
-            let allowed = core_value_to_json(&provider_balancer_candidate_allowed(&[
-                core_value_from_json(&service.features),
-                core_value_from_json(request),
-            ])?);
-            if allowed.as_bool().unwrap_or(false) {
-                out.push(index);
-            }
-        }
-        if !out.is_empty() {
-            return Ok(out);
-        }
-        let mut requirements = Vec::new();
-        if request
-            .get("responseFormat")
-            .or_else(|| request.get("response_format"))
-            .and_then(|format| format.get("type"))
-            .and_then(Value::as_str)
-            == Some("json_schema")
-        {
-            requirements.push("structured outputs");
-        }
-        let capabilities = request.get("capabilities").cloned().unwrap_or_else(|| json!({}));
-        if capabilities
-            .get("requiresImages")
-            .or_else(|| capabilities.get("requires_images"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            requirements.push("images");
-        }
-        if capabilities
-            .get("requiresAudio")
-            .or_else(|| capabilities.get("requires_audio"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            requirements.push("audio");
-        }
-        Err(AxError::runtime(format!(
-            "No services available that support required capabilities: {}.",
-            requirements.join(", ")
-        )))
-    }
-
-    // Streaming routes through the same failover loop as chat(): a transient error on the
-    // primary fails over to a healthy backup, and the backup's response is replayed as stream
-    // deltas (a single-result response collapses to [{ results: [result] }]). No lazy
-    // first-chunk peek is needed — the ports stream synchronously, so the error surfaces inside
-    // the failover loop rather than deferring past it the way TS's ReadableStream does.
-    fn stream(&mut self, request: &Value, options: &Value) -> AxResult<Vec<Value>> {
-        let response = self.chat(request, options)?;
-        if let Some(results) = response.get("results").and_then(Value::as_array) {
-            return Ok(results
-                .iter()
-                .map(|result| json!({ "results": [result.clone()] }))
-                .collect());
-        }
-        Ok(vec![response])
-    }
-
-    fn chat(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
-        let candidates = self.candidate_indices(request)?;
-        let mut candidate_pos = 0;
-        let mut current = candidates[candidate_pos];
-        self.current = current;
-        loop {
-            let id = self.services[current].id.clone();
-            if self.failures.get(&id).copied().unwrap_or(0) > 0 {
-                candidate_pos += 1;
-                if candidate_pos >= candidates.len() {
-                    return Err(AxError::runtime(format!(
-                        "All candidate services exhausted (tried {} service(s))",
-                        candidates.len()
-                    )));
-                }
-                current = candidates[candidate_pos];
-                self.current = current;
-                continue;
-            }
-            match self.services[current].chat(request, options) {
-                Ok(response) => {
-                    self.failures.remove(&id);
-                    self.current = current;
-                    return Ok(response);
-                }
-                Err(err) if is_retryable_ai_error(&err) => {
-                    *self.failures.entry(id).or_insert(0) += 1;
-                    if self.failures.get(&self.services[current].id).copied().unwrap_or(0) >= self.max_retries {
-                        candidate_pos += 1;
-                        if candidate_pos >= candidates.len() {
-                            return Err(AxError::runtime(format!(
-                                "All candidate services exhausted (tried {} service(s))",
-                                candidates.len()
-                            )));
-                        }
-                        current = candidates[candidate_pos];
-                        self.current = current;
-                    }
-                }
-                Err(err) => return Err(err),
-            }
-        }
-    }
-
-    fn embed(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
-        self.current = 0;
-        self.services[0].embed(request, options)
-    }
-
-    fn transcribe(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
-        self.services[self.current].transcribe(request, options)
-    }
-
-    fn speak(&mut self, request: &Value, options: &Value) -> AxResult<Value> {
-        self.services[self.current].speak(request, options)
-    }
-
-    fn set_options(&mut self, options: Value) {
-        for service in &mut self.services {
-            service.options = options.clone();
-        }
-    }
-
-    fn current_service(&self) -> &RouterFixtureService {
-        &self.services[self.current]
-    }
-}
-
 fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
-    let options = fixture.get("options").cloned().unwrap_or_else(|| json!({}));
-    let mut balancer = ConformanceBalancer::new(build_router_services(fixture), &options)?;
+    let raw_options = fixture.get("options").cloned().unwrap_or_else(|| json!({}));
+    let fixtures = build_router_services(fixture);
+    let handles = fixtures
+        .into_iter()
+        .map(|service| Arc::new(Mutex::new(service)))
+        .collect::<Vec<_>>();
+    let operation_options = handles
+        .iter()
+        .map(|_| Arc::new(Mutex::new(json!({}))))
+        .collect::<Vec<_>>();
+    let clients = handles
+        .iter()
+        .zip(operation_options.iter())
+        .map(|(inner, options)| {
+            Box::new(SharedRouterFixtureService {
+                inner: inner.clone(),
+                operation_options: options.clone(),
+            }) as Box<dyn AxAIClient>
+        })
+        .collect::<Vec<_>>();
+    let raw_strategy = raw_options.get("strategy");
+    let mut options = AxBalancerOptions {
+        debug: raw_options.get("debug").and_then(Value::as_bool).unwrap_or(true),
+        max_retries: raw_options
+            .get("maxRetries")
+            .or_else(|| raw_options.get("max_retries"))
+            .and_then(Value::as_u64)
+            .unwrap_or(3) as usize,
+        input_order: raw_strategy.and_then(Value::as_str) == Some("input_order"),
+        ..AxBalancerOptions::default()
+    };
+    if raw_strategy.and_then(|value| value.get("type")).and_then(Value::as_str) == Some("adaptive") {
+        let strategy_value = raw_strategy.unwrap();
+        let mut strategy = AxBalancerAdaptiveStrategy::new(
+            strategy_value
+                .get("deadlineMs")
+                .or_else(|| strategy_value.get("deadline_ms"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+            strategy_value
+                .get("badOutcomeCost")
+                .or_else(|| strategy_value.get("bad_outcome_cost"))
+                .and_then(Value::as_f64)
+                .unwrap_or(-1.0),
+        );
+        strategy.namespace = strategy_value
+            .get("namespace")
+            .and_then(Value::as_str)
+            .unwrap_or("default")
+            .to_string();
+        strategy.expected_tokens = strategy_value
+            .get("expectedTokens")
+            .or_else(|| strategy_value.get("expected_tokens"))
+            .cloned();
+        options.strategy = Some(strategy);
+    }
+    let best_effort_store = Arc::new(ConformanceThrowingBalancerStatsStore::new());
+    let best_effort_events = Arc::new(AtomicU64::new(0));
+    if fixture.get("adaptive_best_effort").and_then(Value::as_bool).unwrap_or(false) {
+        let strategy_value = raw_strategy.unwrap_or(&Value::Null);
+        let event_counter = best_effort_events.clone();
+        options.strategy = Some(
+            AxBalancerAdaptiveStrategy::new(
+                strategy_value.get("deadlineMs").and_then(Value::as_f64).unwrap_or(1.0),
+                strategy_value.get("badOutcomeCost").and_then(Value::as_f64).unwrap_or(0.0),
+            )
+            .with_namespace(strategy_value.get("namespace").and_then(Value::as_str).unwrap_or("default"))
+            .with_store(best_effort_store.clone())
+            .with_route_key(Arc::new(|_service, _index| "best-effort-route".to_string()))
+            .on_routing_event(Arc::new(move |_event| { event_counter.fetch_add(1, Ordering::SeqCst); panic!("fixture event hook failed"); })),
+        );
+    }
+    let mut balancer = AxBalancer::from_clients(clients, options)?;
     let mut outputs = Map::new();
     for op in fixture
         .get("operations")
@@ -7802,31 +7891,99 @@ fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
     {
         let name = op.get("name").and_then(Value::as_str).unwrap_or("");
         let request = op.get("request").cloned().unwrap_or_else(|| json!({}));
-        let options = op.get("options").cloned().unwrap_or_else(|| json!({}));
+        let call_options = op.get("options").cloned().unwrap_or_else(|| json!({}));
+        for value in &operation_options {
+            if let Ok(mut options) = value.lock() { *options = call_options.clone(); }
+        }
         match name {
             "chat" => {
-                outputs.insert(name.to_string(), balancer.chat(&request, &options)?);
+                outputs.insert(name.to_string(), balancer.chat(request)?);
             }
             "stream" => {
                 outputs.insert(
                     name.to_string(),
-                    Value::Array(balancer.stream(&request, &options)?),
+                    Value::Array(balancer.stream(request)?),
                 );
             }
             "embed" => {
-                outputs.insert(name.to_string(), balancer.embed(&request, &options)?);
+                outputs.insert(name.to_string(), balancer.embed(request)?);
             }
             "transcribe" => {
-                outputs.insert(name.to_string(), balancer.transcribe(&request, &options)?);
+                outputs.insert(name.to_string(), balancer.transcribe(request)?);
             }
             "speak" => {
-                outputs.insert(name.to_string(), balancer.speak(&request, &options)?);
+                outputs.insert(name.to_string(), balancer.speak(request)?);
             }
-            "set_options" => balancer.set_options(options),
+            "adaptive_stats" => {
+                let mut stats = create_balancer_route_stats();
+                for observation in op.get("observations").and_then(Value::as_array).cloned().unwrap_or_default() {
+                    stats = update_balancer_route_stats(
+                        Some(&stats),
+                        &AxBalancerStatsObservation {
+                            outcome: observation.get("outcome").and_then(Value::as_str).unwrap_or("failure").to_string(),
+                            latency_ms: observation.get("latencyMs").and_then(Value::as_f64),
+                        },
+                    );
+                }
+                set_core_math_random_values(op.get("random_values").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_f64).collect());
+                let health = sample_balancer_route_health(Some(&stats), op.get("deadline_ms").and_then(Value::as_f64).unwrap_or(1.0))?;
+                let score = core_value_to_json(&provider_balancer_adaptive_score(&[
+                    CoreValue::Num(op.get("estimated_cost").and_then(Value::as_f64).unwrap_or(0.0)),
+                    CoreValue::Num(op.get("bad_outcome_cost").and_then(Value::as_f64).unwrap_or(0.0)),
+                    CoreValue::Num(health.get("failureProbability").and_then(Value::as_f64).unwrap_or(0.0)),
+                    CoreValue::Num(health.get("deadlineMissProbability").and_then(Value::as_f64).unwrap_or(0.0)),
+                ])?).as_f64().unwrap_or(0.0);
+                let round9 = |value: f64| (value * 1_000_000_000.0).round() / 1_000_000_000.0;
+                outputs.insert(name.to_string(), json!({
+                    "stats": {"version": stats.version, "observations": stats.observations, "successes": stats.successes, "failureEwma": round9(stats.failure_ewma), "logLatencyMean": round9(stats.log_latency_mean), "logLatencyM2": round9(stats.log_latency_m2)},
+                    "health": {"failureProbability": round9(health.get("failureProbability").and_then(Value::as_f64).unwrap_or(0.0)), "deadlineMissProbability": round9(health.get("deadlineMissProbability").and_then(Value::as_f64).unwrap_or(0.0))},
+                    "score": round9(score),
+                }));
+            }
+            "adaptive_store" => {
+                let store = AxInMemoryBalancerStatsStore::new();
+                for write in op.get("writes").and_then(Value::as_array).cloned().unwrap_or_default() {
+                    let key = write.get("key").cloned().unwrap_or_else(|| json!({}));
+                    let observation = write.get("observation").cloned().unwrap_or_else(|| json!({}));
+                    store.observe(
+                        &AxBalancerStatsKey {
+                            namespace: key.get("namespace").and_then(Value::as_str).unwrap_or("").to_string(),
+                            slice: key.get("slice").and_then(Value::as_str).unwrap_or("").to_string(),
+                            logical_model: key.get("logicalModel").and_then(Value::as_str).unwrap_or("").to_string(),
+                            route_key: key.get("routeKey").and_then(Value::as_str).unwrap_or("").to_string(),
+                        },
+                        &AxBalancerStatsObservation {
+                            outcome: observation.get("outcome").and_then(Value::as_str).unwrap_or("failure").to_string(),
+                            latency_ms: observation.get("latencyMs").and_then(Value::as_f64),
+                        },
+                    )?;
+                }
+                let mut states = Vec::new();
+                for key in op.get("reads").and_then(Value::as_array).cloned().unwrap_or_default() {
+                    let stats = store.get(&AxBalancerStatsKey {
+                        namespace: key.get("namespace").and_then(Value::as_str).unwrap_or("").to_string(),
+                        slice: key.get("slice").and_then(Value::as_str).unwrap_or("").to_string(),
+                        logical_model: key.get("logicalModel").and_then(Value::as_str).unwrap_or("").to_string(),
+                        route_key: key.get("routeKey").and_then(Value::as_str).unwrap_or("").to_string(),
+                    })?;
+                    states.push(balancer_stats_value(stats.as_ref()));
+                }
+                outputs.insert(name.to_string(), json!({"states": states}));
+            }
+            "set_options" => balancer.set_options(call_options),
             _ => {}
         }
     }
-    let current = balancer.current_service().clone();
+    let current_id = balancer.services[balancer.current].get_id();
+    let snapshots = handles
+        .iter()
+        .filter_map(|value| value.lock().ok().map(|service| service.clone()))
+        .collect::<Vec<_>>();
+    let current = snapshots
+        .iter()
+        .find(|service| service.id == current_id)
+        .cloned()
+        .ok_or_else(|| AxError::runtime("selected fixture service not found"))?;
     let mut actual = json!({
         "id": current.id,
         "name": current.name,
@@ -7834,28 +7991,49 @@ fn conformance_balancer_result(fixture: &Value) -> AxResult<Value> {
         "lastChat": current.last_chat,
         "lastEmbed": current.last_embed,
         "lastConfig": current.last_config,
-        "metrics": balancer_metrics(&balancer.services),
+        "metrics": balancer_metrics(&snapshots),
         "options": current.options,
-        "serviceCalls": service_calls(&balancer.services)
+        "serviceCalls": service_calls(&snapshots)
     });
     if fixture
         .get("expected_output")
         .and_then(|expected| expected.get("modelList"))
         .is_some()
     {
-        actual["modelList"] = balancer
-            .services
-            .iter()
-            .find(|service| service.model_list.as_array().map(|items| !items.is_empty()).unwrap_or(false))
-            .map(|service| service.model_list.clone())
-            .unwrap_or(Value::Null);
+        actual["modelList"] = if current
+            .model_list
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false)
+        {
+            current.model_list.clone()
+        } else {
+            snapshots
+                .iter()
+                .find(|service| {
+                    service
+                        .model_list
+                        .as_array()
+                        .map(|items| !items.is_empty())
+                        .unwrap_or(false)
+                })
+                .map(|service| service.model_list.clone())
+                .unwrap_or(Value::Null)
+        };
     }
     if fixture
         .get("expected_output")
         .and_then(|expected| expected.get("features"))
         .is_some()
     {
-        actual["features"] = merged_balancer_features(&balancer.services);
+        actual["features"] = merged_balancer_features(&snapshots);
+    }
+    if fixture.get("adaptive_best_effort").and_then(Value::as_bool).unwrap_or(false) {
+        actual["bestEffort"] = json!({
+            "storeGets": best_effort_store.gets.load(Ordering::SeqCst),
+            "storeObserves": best_effort_store.observes.load(Ordering::SeqCst),
+            "eventCalls": best_effort_events.load(Ordering::SeqCst),
+        });
     }
     Ok(actual)
 }
@@ -11997,6 +12175,60 @@ fn core_add(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
         _ => Err(AxError::runtime("unsupported operands for intrinsic.add")),
     }
+}
+
+fn core_number_arg(args: &[CoreValue], index: usize) -> Result<f64, AxError> {
+    match core_arg(args, index) {
+        CoreValue::Num(value) => Ok(value),
+        _ => Err(AxError::runtime("expected numeric operand")),
+    }
+}
+
+fn core_math_abs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_number_arg(args, 0)?.abs()))
+}
+fn core_math_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_number_arg(args, 0)?.ln()))
+}
+fn core_math_exp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_number_arg(args, 0)?.exp()))
+}
+fn core_math_sqrt(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_number_arg(args, 0)?.sqrt()))
+}
+fn core_math_cos(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    Ok(CoreValue::Num(core_number_arg(args, 0)?.cos()))
+}
+fn core_math_pow(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let (left, right) = core_number_pair(args)?;
+    Ok(CoreValue::Num(left.powf(right)))
+}
+
+static CORE_MATH_RANDOM_VALUES: OnceLock<Mutex<VecDeque<f64>>> = OnceLock::new();
+static CORE_MATH_RANDOM_STATE: AtomicU64 = AtomicU64::new(0);
+
+fn set_core_math_random_values(values: Vec<f64>) {
+    let queue = CORE_MATH_RANDOM_VALUES.get_or_init(|| Mutex::new(VecDeque::new()));
+    *queue.lock().expect("math random queue") = values.into();
+}
+
+fn core_math_random(_args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let queue = CORE_MATH_RANDOM_VALUES.get_or_init(|| Mutex::new(VecDeque::new()));
+    if let Some(value) = queue.lock().expect("math random queue").pop_front() {
+        return Ok(CoreValue::Num(value));
+    }
+    let mut state = CORE_MATH_RANDOM_STATE.load(Ordering::Relaxed);
+    if state == 0 {
+        state = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64 | 1;
+    }
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    CORE_MATH_RANDOM_STATE.store(state, Ordering::Relaxed);
+    Ok(CoreValue::Num((state as f64) / ((u64::MAX as f64) + 1.0)))
 }
 
 fn core_len(args: &[CoreValue]) -> Result<CoreValue, AxError> {

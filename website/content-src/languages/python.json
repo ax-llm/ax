@@ -73,6 +73,21 @@
   },
   "snippets": {
     "ai": {
+      "balancer": {
+        "sourcePath": "src/examples/python/generation/adaptive-balancer.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "store = AxInMemoryBalancerStatsStore()",
+          "strategy = AxBalancerAdaptiveStrategy(",
+          "    deadline_ms=6_000, bad_outcome_cost=0.02, namespace=\"support-v1\",",
+          "    stats_store=store, route_key=lambda _service, index: route_keys[index],",
+          "    slice=lambda context: workflow_slice(context),",
+          "    on_routing_event=lambda event: analytics.record(event),",
+          ")",
+          "balancer = AxBalancer(services, AxBalancerOptions(strategy=strategy))"
+        ]
+      },
       "audio": [
         "# Realtime audio over WebSocket — pip install axllm[realtime]",
         "client = OpenAIResponsesClient(model=\"gpt-realtime-2\", api_key=os.environ[\"OPENAI_APIKEY\"])",

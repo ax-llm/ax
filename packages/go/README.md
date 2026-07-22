@@ -48,6 +48,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `go run ./examples/signature_schema`: signature parsing and JSON schema generation
 - `go run ./examples/axgen_scripted_client_tool`: AxGen with a scripted client and tool
 - `go run ./examples/provider_mapping_no_key`: provider mapping through a scripted transport
+- `go run ./examples/adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key
 - `go run ./examples/provider_stream_no_key`: provider streaming through a scripted SSE transport
 - `go run ./examples/axflow_program_graph`: AxFlow program graph
 - `go run ./examples/flow_mermaid`: portable Mermaid flow parsing and canonical round-trip

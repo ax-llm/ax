@@ -62,6 +62,23 @@ final class Core {
     double denom = asDouble(right);
     return asDouble(left) / (denom == 0.0 ? 1.0 : denom);
   }
+  static Object mathAbs(Object value) { return Math.abs(asDouble(value)); }
+  static Object mathLog(Object value) { return Math.log(asDouble(value)); }
+  static Object mathExp(Object value) { return Math.exp(asDouble(value)); }
+  static Object mathSqrt(Object value) { return Math.sqrt(asDouble(value)); }
+  static Object mathCos(Object value) { return Math.cos(asDouble(value)); }
+  static Object mathPow(Object left, Object right) { return Math.pow(asDouble(left), asDouble(right)); }
+  private static final ThreadLocal<java.util.ArrayDeque<Double>> MATH_RANDOM_VALUES =
+      ThreadLocal.withInitial(java.util.ArrayDeque::new);
+  static void setMathRandomValues(List<?> values) {
+    java.util.ArrayDeque<Double> queue = MATH_RANDOM_VALUES.get();
+    queue.clear();
+    for (Object value : values) queue.add(asDouble(value));
+  }
+  static Object mathRandom() {
+    java.util.ArrayDeque<Double> queue = MATH_RANDOM_VALUES.get();
+    return queue.isEmpty() ? java.util.concurrent.ThreadLocalRandom.current().nextDouble() : queue.removeFirst();
+  }
   static Object contains(Object container, Object item) {
     if (container == null) return false;
     if (container instanceof Map<?, ?> map) return map.containsKey(item);

@@ -5,6 +5,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 
@@ -99,11 +100,14 @@ static AxError fixture_ai_service_error_cpp(Value spec) {
   return AxError("ai", "Network Error: " + message, "AxAIServiceNetworkError", 0, "", true);
 }
 
+static double conf_number(Value value);
+
 struct RouterFixtureService : AxBaseAI {
   std::string fixture_id;
   Value model_list;
   Value features;
   Value metrics;
+  double estimated_cost;
   std::vector<Value> requests;
   Array responses;
 
@@ -115,6 +119,7 @@ struct RouterFixtureService : AxBaseAI {
         model_list(Core::get(spec, "modelList")),
         features(Core::get(spec, "features", router_fixture_default_features())),
         metrics(Core::get(spec, "metrics", object({{"service", display(Core::get(spec, "name", "fixture"))}, {"calls", 0}}))),
+        estimated_cost(conf_number(Core::get(spec, "estimatedCost", Core::get(spec, "estimated_cost", 0)))),
         responses(as_array(Core::get(spec, "responses", Value::array()))) {}
 
   std::string get_id() override { return fixture_id; }
@@ -125,6 +130,7 @@ struct RouterFixtureService : AxBaseAI {
     if (!Core::get(out, "calls").is_null()) Core::set(out, "calls", static_cast<double>(requests.size()));
     return out;
   }
+  double get_estimated_cost(Value) override { return estimated_cost; }
 
  protected:
   Value do_chat(Value request, Value options) override {
@@ -2025,12 +2031,40 @@ static void run_ai_provider_router(Value fixture) {
   if (!expected.is_null()) assert_subset(actual, expected, "provider router");
 }
 
+class ConformanceThrowingBalancerStatsStore final : public AxBalancerStatsStore {
+ public:
+  int gets = 0;
+  int observes = 0;
+  AxBalancerRouteStats get(const AxBalancerStatsKey&) override {
+    ++gets;
+    throw AxError("fixture", "fixture store read failed");
+  }
+  void observe(const AxBalancerStatsKey&, const AxBalancerStatsObservation&) override {
+    ++observes;
+    throw AxError("fixture", "fixture store write failed");
+  }
+};
+
 static void run_ai_balancer(Value fixture) {
   auto services = router_services(fixture);
   std::vector<std::shared_ptr<AxAIService>> base;
   for (const auto& service : services) base.push_back(service);
+  auto best_effort_store = std::make_shared<ConformanceThrowingBalancerStatsStore>();
+  int best_effort_events = 0;
   try {
-    AxBalancer balancer(base, Core::get(fixture, "options", Value::object()));
+    AxBalancer balancer = [&]() {
+      if (!Core::truthy(Core::get(fixture, "adaptive_best_effort", false))) return AxBalancer(base, Core::get(fixture, "options", Value::object()));
+      Value raw = Core::get(Core::get(fixture, "options", Value::object()), "strategy", Value::object());
+      auto strategy = std::make_shared<AxBalancerAdaptiveStrategy>();
+      strategy->deadline_ms = conf_number(Core::get(raw, "deadlineMs", 1));
+      strategy->bad_outcome_cost = conf_number(Core::get(raw, "badOutcomeCost", 0));
+      strategy->name_space = display(Core::get(raw, "namespace", "default"));
+      strategy->route_key = [](const std::shared_ptr<AxAIService>&, size_t) { return "best-effort-route"; };
+      strategy->stats_store = best_effort_store;
+      strategy->on_routing_event = [&](Value) { ++best_effort_events; throw std::runtime_error("fixture event hook failed"); };
+      AxBalancerOptions options; options.strategy = strategy;
+      return AxBalancer(base, options);
+    }();
     Value outputs = Value::object();
     for (const auto& raw : Core::iter(Core::get(fixture, "operations", Value::array()))) {
       std::string name = display(Core::get(raw, "name"));
@@ -2046,6 +2080,28 @@ static void run_ai_balancer(Value fixture) {
       else if (name == "transcribe") Core::set(outputs, name, balancer.transcribe(request, options));
       else if (name == "speak") Core::set(outputs, name, balancer.speak(request, options));
       else if (name == "set_options") balancer.set_options(options);
+      else if (name == "adaptive_stats") {
+        Value stats = create_balancer_route_stats();
+        for (const auto& observation : Core::iter(Core::get(raw, "observations", Value::array()))) stats = update_balancer_route_stats(stats, observation);
+        std::vector<double> random_values; for (const auto& value : Core::iter(Core::get(raw, "random_values", Value::array()))) random_values.push_back(conf_number(value)); Core::set_math_random_values(std::move(random_values));
+        Value health = sample_balancer_route_health(stats, conf_number(Core::get(raw, "deadline_ms", 1)));
+        double score = conf_number(Core::provider_balancer_adaptive_score(conf_number(Core::get(raw, "estimated_cost", 0)), conf_number(Core::get(raw, "bad_outcome_cost", 0)), conf_number(Core::get(health, "failureProbability")), conf_number(Core::get(health, "deadlineMissProbability"))));
+        auto round9 = [](double value) { return std::round(value * 1000000000.0) / 1000000000.0; };
+        Core::set(outputs, name, object({
+          {"stats", object({{"version", Core::get(stats, "version")}, {"observations", Core::get(stats, "observations")}, {"successes", Core::get(stats, "successes")}, {"failureEwma", round9(conf_number(Core::get(stats, "failureEwma")))}, {"logLatencyMean", round9(conf_number(Core::get(stats, "logLatencyMean")))}, {"logLatencyM2", round9(conf_number(Core::get(stats, "logLatencyM2")))}})},
+          {"health", object({{"failureProbability", round9(conf_number(Core::get(health, "failureProbability")))}, {"deadlineMissProbability", round9(conf_number(Core::get(health, "deadlineMissProbability")))}})},
+          {"score", round9(score)},
+        }));
+      }
+      else if (name == "adaptive_store") {
+        AxInMemoryBalancerStatsStore store;
+        for (const auto& write : Core::iter(Core::get(raw, "writes", Value::array()))) {
+          store.observe(Core::get(write, "key"), Core::get(write, "observation"));
+        }
+        Value states = Value::array();
+        for (const auto& key : Core::iter(Core::get(raw, "reads", Value::array()))) Core::append(states, store.get(key));
+        Core::set(outputs, name, object({{"states", states}}));
+      }
     }
     Value service_calls = Value::array();
     for (const auto& service : services) {
@@ -2068,6 +2124,7 @@ static void run_ai_balancer(Value fixture) {
     Value expected = Core::get(fixture, "expected_output");
     if (!Core::get(expected, "modelList").is_null()) Core::set(actual, "modelList", balancer.get_model_list());
     if (!Core::get(expected, "features").is_null()) Core::set(actual, "features", balancer.get_features());
+    if (Core::truthy(Core::get(fixture, "adaptive_best_effort", false))) Core::set(actual, "bestEffort", object({{"storeGets", best_effort_store->gets}, {"storeObserves", best_effort_store->observes}, {"eventCalls", best_effort_events}}));
     if (!expected.is_null()) assert_subset(actual, expected, "balancer");
   } catch (const AxError& error) {
     Value expected = Core::get(fixture, "expected_error_contains");

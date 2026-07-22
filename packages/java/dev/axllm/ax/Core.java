@@ -62,6 +62,23 @@ final class Core {
     double denom = asDouble(right);
     return asDouble(left) / (denom == 0.0 ? 1.0 : denom);
   }
+  static Object mathAbs(Object value) { return Math.abs(asDouble(value)); }
+  static Object mathLog(Object value) { return Math.log(asDouble(value)); }
+  static Object mathExp(Object value) { return Math.exp(asDouble(value)); }
+  static Object mathSqrt(Object value) { return Math.sqrt(asDouble(value)); }
+  static Object mathCos(Object value) { return Math.cos(asDouble(value)); }
+  static Object mathPow(Object left, Object right) { return Math.pow(asDouble(left), asDouble(right)); }
+  private static final ThreadLocal<java.util.ArrayDeque<Double>> MATH_RANDOM_VALUES =
+      ThreadLocal.withInitial(java.util.ArrayDeque::new);
+  static void setMathRandomValues(List<?> values) {
+    java.util.ArrayDeque<Double> queue = MATH_RANDOM_VALUES.get();
+    queue.clear();
+    for (Object value : values) queue.add(asDouble(value));
+  }
+  static Object mathRandom() {
+    java.util.ArrayDeque<Double> queue = MATH_RANDOM_VALUES.get();
+    return queue.isEmpty() ? java.util.concurrent.ThreadLocalRandom.current().nextDouble() : queue.removeFirst();
+  }
   static Object contains(Object container, Object item) {
     if (container == null) return false;
     if (container instanceof Map<?, ?> map) return map.containsKey(item);
@@ -4418,6 +4435,359 @@ final class Core {
       }
     }
     return Boolean.TRUE;
+  }
+
+  static Object provider_balancer_adaptive_policy(Object strategy) {
+    axirCoverageMark("provider_balancer_adaptive_policy");
+    Object deadline = Core.get(strategy, "deadlineMs", null);
+    Object deadline_missing = Core.isNone(deadline);
+    if (Core.truthy(deadline_missing)) {
+      deadline = Core.get(strategy, "deadline_ms", 0);
+    }
+    Object deadline_bad = Core.lte(deadline, 0);
+    if (Core.truthy(deadline_bad)) {
+      Object error = Core.runtimeError("Adaptive deadlineMs must be finite and greater than zero.");
+      throw Core.asRuntime(error);
+    }
+    Object bad_outcome = Core.get(strategy, "badOutcomeCost", null);
+    Object bad_outcome_missing = Core.isNone(bad_outcome);
+    if (Core.truthy(bad_outcome_missing)) {
+      bad_outcome = Core.get(strategy, "bad_outcome_cost", -1);
+    }
+    Object bad_outcome_bad = Core.lt(bad_outcome, 0);
+    if (Core.truthy(bad_outcome_bad)) {
+      Object error = Core.runtimeError("Adaptive badOutcomeCost must be finite and non-negative.");
+      throw Core.asRuntime(error);
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "type", "adaptive");
+    Core.set(out, "deadlineMs", deadline);
+    Core.set(out, "badOutcomeCost", bad_outcome);
+    Object namespace = Core.get(strategy, "namespace", "default");
+    Core.set(out, "namespace", namespace);
+    Object tokens = Core.get(strategy, "expectedTokens", null);
+    Object tokens_missing = Core.isNone(tokens);
+    if (Core.truthy(tokens_missing)) {
+      tokens = Core.get(strategy, "expected_tokens", null);
+    }
+    Core.set(out, "expectedTokens", tokens);
+    return out;
+  }
+
+  static Object provider_balancer_route_stats() {
+    axirCoverageMark("provider_balancer_route_stats");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "version", 1);
+    Core.set(out, "observations", 0);
+    Core.set(out, "successes", 0);
+    Core.set(out, "failureEwma", 0.05);
+    Core.set(out, "logLatencyMean", 0);
+    Core.set(out, "logLatencyM2", 0);
+    return out;
+  }
+
+  static Object provider_balancer_observe_route(Object stats, Object observation) {
+    axirCoverageMark("provider_balancer_observe_route");
+    Object missing = Core.isNone(stats);
+    if (Core.truthy(missing)) {
+      stats = Core.provider_balancer_route_stats();
+    }
+    Object outcome = Core.get(observation, "outcome", "failure");
+    Object failed = Core.eq(outcome, "failure");
+    Object failed_number = Core.add(0, 0);
+    if (Core.truthy(failed)) {
+      failed_number = Core.add(1, 0);
+    }
+    Object failure_ewma = Core.get(stats, "failureEwma", 0.05);
+    Object old_weighted = Core.mul(0.8, failure_ewma);
+    Object new_weighted = Core.mul(0.2, failed_number);
+    Object next_failure = Core.add(old_weighted, new_weighted);
+    Object observations = Core.get(stats, "observations", 0);
+    Object next_observations = Core.add(observations, 1);
+    Object successes = Core.get(stats, "successes", 0);
+    Object mean = Core.get(stats, "logLatencyMean", 0);
+    Object m2 = Core.get(stats, "logLatencyM2", 0);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "version", 1);
+    Core.set(out, "observations", next_observations);
+    Core.set(out, "successes", successes);
+    Core.set(out, "failureEwma", next_failure);
+    Core.set(out, "logLatencyMean", mean);
+    Core.set(out, "logLatencyM2", m2);
+    if (Core.truthy(failed)) {
+      return out;
+    }
+    Object latency = Core.get(observation, "latencyMs", null);
+    Object latency_missing = Core.isNone(latency);
+    if (Core.truthy(latency_missing)) {
+      latency = Core.get(observation, "latency_ms", 1);
+    }
+    Object too_small = Core.lt(latency, 1);
+    if (Core.truthy(too_small)) {
+      latency = Core.add(1, 0);
+    }
+    Object log_latency = Core.mathLog(latency);
+    Object next_successes = Core.add(successes, 1);
+    Object negative_mean = Core.mul(-1, mean);
+    Object delta = Core.add(log_latency, negative_mean);
+    Object delta_share = Core.div(delta, next_successes);
+    Object next_mean = Core.add(mean, delta_share);
+    Object negative_next_mean = Core.mul(-1, next_mean);
+    Object delta_after = Core.add(log_latency, negative_next_mean);
+    Object m2_increment = Core.mul(delta, delta_after);
+    Object next_m2 = Core.add(m2, m2_increment);
+    Core.set(out, "successes", next_successes);
+    Core.set(out, "logLatencyMean", next_mean);
+    Core.set(out, "logLatencyM2", next_m2);
+    return out;
+  }
+
+  static Object _provider_balancer_nonzero_random() {
+    axirCoverageMark("_provider_balancer_nonzero_random");
+    Object value = Core.mathRandom();
+    Object low = Core.lt(value, 0.0000000000000002220446049250313);
+    if (Core.truthy(low)) {
+      return 0.0000000000000002220446049250313;
+    }
+    Object high = Core.gt(value, 0.9999999999999998);
+    if (Core.truthy(high)) {
+      return 0.9999999999999998;
+    }
+    return value;
+  }
+
+  static Object _provider_balancer_standard_normal() {
+    axirCoverageMark("_provider_balancer_standard_normal");
+    Object u1 = Core._provider_balancer_nonzero_random();
+    Object u2 = Core._provider_balancer_nonzero_random();
+    Object log_u1 = Core.mathLog(u1);
+    Object negative_two_log = Core.mul(-2, log_u1);
+    Object radius = Core.mathSqrt(negative_two_log);
+    Object angle = Core.mul(6.283185307179586, u2);
+    Object cosine = Core.mathCos(angle);
+    Object sample = Core.mul(radius, cosine);
+    return sample;
+  }
+
+  static Object _provider_balancer_gamma_sample(Object shape, Object scale) {
+    axirCoverageMark("_provider_balancer_gamma_sample");
+    Object third = Core.div(1, 3);
+    Object negative_third = Core.mul(-1, third);
+    Object d = Core.add(shape, negative_third);
+    Object nine_d = Core.mul(9, d);
+    Object sqrt_nine_d = Core.mathSqrt(nine_d);
+    Object c = Core.div(1, sqrt_nine_d);
+    Object attempts = new java.util.ArrayList<Object>();
+    Core.append(attempts, 0);
+    Core.append(attempts, 1);
+    Core.append(attempts, 2);
+    Core.append(attempts, 3);
+    Core.append(attempts, 4);
+    Core.append(attempts, 5);
+    Core.append(attempts, 6);
+    Core.append(attempts, 7);
+    Core.append(attempts, 8);
+    Core.append(attempts, 9);
+    Core.append(attempts, 10);
+    Core.append(attempts, 11);
+    Core.append(attempts, 12);
+    Core.append(attempts, 13);
+    Core.append(attempts, 14);
+    Core.append(attempts, 15);
+    for (Object attempt : Core.iter(attempts)) {
+      Object x = Core._provider_balancer_standard_normal();
+      Object cx = Core.mul(c, x);
+      Object base = Core.add(1, cx);
+      Object base_bad = Core.lte(base, 0);
+      if (Core.truthy(base_bad)) {
+        continue;
+      }
+      Object value = Core.mathPow(base, 3);
+      Object u = Core._provider_balancer_nonzero_random();
+      Object x2 = Core.mathPow(x, 2);
+      Object x4 = Core.mathPow(x, 4);
+      Object penalty = Core.mul(0.0331, x4);
+      Object negative_penalty = Core.mul(-1, penalty);
+      Object fast_threshold = Core.add(1, negative_penalty);
+      Object fast_accept = Core.lt(u, fast_threshold);
+      if (Core.truthy(fast_accept)) {
+        Object dv = Core.mul(d, value);
+        Object sample = Core.mul(dv, scale);
+        return sample;
+      }
+      Object log_u = Core.mathLog(u);
+      Object half_x2 = Core.mul(0.5, x2);
+      Object negative_value = Core.mul(-1, value);
+      Object one_minus_value = Core.add(1, negative_value);
+      Object log_value = Core.mathLog(value);
+      Object inside = Core.add(one_minus_value, log_value);
+      Object d_inside = Core.mul(d, inside);
+      Object rhs = Core.add(half_x2, d_inside);
+      Object accept = Core.lt(log_u, rhs);
+      if (Core.truthy(accept)) {
+        Object dv = Core.mul(d, value);
+        Object sample = Core.mul(dv, scale);
+        return sample;
+      }
+    }
+    Object fallback = Core.mul(shape, scale);
+    return fallback;
+  }
+
+  static Object _provider_balancer_normal_cdf(Object value) {
+    axirCoverageMark("_provider_balancer_normal_cdf");
+    Object sign = Core.add(1, 0);
+    Object negative = Core.lt(value, 0);
+    if (Core.truthy(negative)) {
+      sign = Core.add(-1, 0);
+    }
+    Object absolute = Core.mathAbs(value);
+    Object sqrt_two = Core.mathSqrt(2);
+    Object x = Core.div(absolute, sqrt_two);
+    Object scaled_x = Core.mul(0.3275911, x);
+    Object denom = Core.add(1, scaled_x);
+    Object t = Core.div(1, denom);
+    Object p1 = Core.mul(1.061405429, t);
+    p1 = Core.add(p1, -1.453152027);
+    Object p2 = Core.mul(p1, t);
+    p2 = Core.add(p2, 1.421413741);
+    Object p3 = Core.mul(p2, t);
+    p3 = Core.add(p3, -0.284496736);
+    Object p4 = Core.mul(p3, t);
+    p4 = Core.add(p4, 0.254829592);
+    Object polynomial = Core.mul(p4, t);
+    Object negative_x = Core.mul(-1, x);
+    Object negative_x2 = Core.mul(negative_x, x);
+    Object exponential = Core.mathExp(negative_x2);
+    Object poly_exp = Core.mul(polynomial, exponential);
+    Object negative_poly_exp = Core.mul(-1, poly_exp);
+    Object one_minus = Core.add(1, negative_poly_exp);
+    Object erf = Core.mul(sign, one_minus);
+    Object one_plus_erf = Core.add(1, erf);
+    Object cdf = Core.div(one_plus_erf, 2);
+    return cdf;
+  }
+
+  static Object provider_balancer_sample_health(Object stats, Object deadline_ms) {
+    axirCoverageMark("provider_balancer_sample_health");
+    Object missing = Core.isNone(stats);
+    if (Core.truthy(missing)) {
+      stats = Core.provider_balancer_route_stats();
+    }
+    Object deadline_too_small = Core.lt(deadline_ms, 1);
+    if (Core.truthy(deadline_too_small)) {
+      deadline_ms = Core.add(1, 0);
+    }
+    Object half_deadline = Core.div(deadline_ms, 2);
+    Object prior_mean = Core.mathLog(half_deadline);
+    Object count = Core.get(stats, "successes", 0);
+    Object posterior_strength = Core.add(1, count);
+    Object count_mean = Core.get(stats, "logLatencyMean", 0);
+    Object weighted_mean = Core.mul(count, count_mean);
+    Object mean_sum = Core.add(prior_mean, weighted_mean);
+    Object posterior_mean = Core.div(mean_sum, posterior_strength);
+    Object half_count = Core.div(count, 2);
+    Object posterior_alpha = Core.add(2, half_count);
+    Object negative_prior = Core.mul(-1, prior_mean);
+    Object mean_delta = Core.add(count_mean, negative_prior);
+    Object mean_delta2 = Core.mathPow(mean_delta, 2);
+    Object count_delta2 = Core.mul(count, mean_delta2);
+    Object twice_strength = Core.mul(2, posterior_strength);
+    Object mean_adjustment = Core.div(count_delta2, twice_strength);
+    Object m2 = Core.get(stats, "logLatencyM2", 0);
+    Object half_m2 = Core.div(m2, 2);
+    Object posterior_beta = Core.add(0.4804530139182014, half_m2);
+    posterior_beta = Core.add(posterior_beta, mean_adjustment);
+    Object scale = Core.div(1, posterior_beta);
+    Object precision = Core._provider_balancer_gamma_sample(posterior_alpha, scale);
+    Object variance = Core.div(1, precision);
+    Object variance_over_strength = Core.div(variance, posterior_strength);
+    Object mean_stddev = Core.mathSqrt(variance_over_strength);
+    Object normal = Core._provider_balancer_standard_normal();
+    Object mean_noise = Core.mul(normal, mean_stddev);
+    Object sampled_mean = Core.add(posterior_mean, mean_noise);
+    Object log_deadline = Core.mathLog(deadline_ms);
+    Object negative_sampled_mean = Core.mul(-1, sampled_mean);
+    Object z_numerator = Core.add(log_deadline, negative_sampled_mean);
+    Object variance_stddev = Core.mathSqrt(variance);
+    Object z = Core.div(z_numerator, variance_stddev);
+    Object cdf = Core._provider_balancer_normal_cdf(z);
+    Object negative_cdf = Core.mul(-1, cdf);
+    Object late = Core.add(1, negative_cdf);
+    Object failure = Core.get(stats, "failureEwma", 0.05);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "failureProbability", failure);
+    Core.set(out, "deadlineMissProbability", late);
+    return out;
+  }
+
+  static Object provider_balancer_adaptive_score(Object estimated_cost, Object bad_outcome_cost, Object failure_probability, Object deadline_miss_probability) {
+    axirCoverageMark("provider_balancer_adaptive_score");
+    Object negative_failure = Core.mul(-1, failure_probability);
+    Object success_probability = Core.add(1, negative_failure);
+    Object successful_late = Core.mul(success_probability, deadline_miss_probability);
+    Object bad_probability = Core.add(failure_probability, successful_late);
+    Object bad_cost = Core.mul(bad_outcome_cost, bad_probability);
+    Object score = Core.add(estimated_cost, bad_cost);
+    return score;
+  }
+
+  static Object provider_balancer_validate_route_key(Object route_key, Object seen_keys) {
+    axirCoverageMark("provider_balancer_validate_route_key");
+    Object key = Core.stringTrim(route_key);
+    Object empty = Core.eq(key, "");
+    if (Core.truthy(empty)) {
+      Object error = Core.runtimeError("Adaptive route keys must be non-empty.");
+      throw Core.asRuntime(error);
+    }
+    Object duplicate = Core.contains(seen_keys, key);
+    if (Core.truthy(duplicate)) {
+      Object error = Core.runtimeError("Adaptive route keys must be unique.");
+      throw Core.asRuntime(error);
+    }
+    return key;
+  }
+
+  static Object provider_balancer_rank_candidates(Object candidates) {
+    axirCoverageMark("provider_balancer_rank_candidates");
+    Object ranked = new java.util.ArrayList<Object>();
+    Object used = new java.util.LinkedHashMap<String, Object>();
+    for (Object slot : Core.iter(candidates)) {
+      Object best = new java.util.LinkedHashMap<String, Object>();
+      Object has_best = Boolean.FALSE;
+      Object best_score = 0;
+      Object best_order = 0;
+      for (Object candidate : Core.iter(candidates)) {
+        Object route_key = Core.get(candidate, "routeKey", "");
+        Object already_used = Core.mapContains(used, route_key);
+        if (Core.truthy(already_used)) {
+          continue;
+        }
+        Object score = Core.get(candidate, "score", 0);
+        Object order = Core.get(candidate, "order", 0);
+        Object lower_score = Core.lt(score, best_score);
+        Object equal_score = Core.eq(score, best_score);
+        Object lower_order = Core.lt(order, best_order);
+        Object stable_tie = Core.and(equal_score, lower_order);
+        Object score_or_tie = Core.or(lower_score, stable_tie);
+        Object no_best = Core.not(has_best);
+        Object better = Core.or(no_best, score_or_tie);
+        if (Core.truthy(better)) {
+          best = candidate;
+          best_score = score;
+          best_order = order;
+          has_best = Boolean.TRUE;
+        }
+      }
+      Object missing = Core.not(has_best);
+      if (Core.truthy(missing)) {
+        continue;
+      }
+      Object best_key = Core.get(best, "routeKey", "");
+      Core.set(used, best_key, Boolean.TRUE);
+      Core.append(ranked, best);
+    }
+    return ranked;
   }
 
   static Object provider_routing_stats(Object providers) {

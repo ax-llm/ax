@@ -179,14 +179,90 @@
           "canonical_name": "AxBalancer",
           "public_name": "AxBalancer",
           "kind": "type",
-          "description": "Retry and route requests across multiple provider services while preserving Ax request shape.",
+          "description": "Retry and route requests across multiple provider services, with opt-in adaptive cost, reliability, and deadline routing.",
           "form": "new AxBalancer(services, options)",
           "important_options": [
             "services",
             "retry policy",
-            "capability requirements"
+            "capability requirements",
+            "adaptive strategy"
           ],
           "returns": "AI service"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxBalancerAdaptiveStrategy",
+          "public_name": "AxBalancerAdaptiveStrategy",
+          "kind": "type",
+          "description": "Configure adaptive provider routing without changing the ordered default.",
+          "form": "AxBalancerAdaptiveStrategy",
+          "important_options": [
+            "deadline",
+            "bad outcome cost",
+            "expected tokens",
+            "stable route keys",
+            "slice",
+            "stats store",
+            "routing events"
+          ],
+          "returns": "adaptive strategy"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxBalancerStatsStore",
+          "public_name": "AxBalancerStatsStore",
+          "kind": "interface",
+          "description": "Store shared adaptive decision state with atomic observations.",
+          "form": "AxBalancerStatsStore",
+          "important_options": [
+            "get",
+            "observe"
+          ],
+          "returns": "stats store"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxInMemoryBalancerStatsStore",
+          "public_name": "AxInMemoryBalancerStatsStore",
+          "kind": "type",
+          "description": "Thread-safe in-memory adaptive stats store.",
+          "form": "AxInMemoryBalancerStatsStore",
+          "returns": "stats store"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "create_balancer_route_stats",
+          "public_name": "AxBalancerAdaptive.createRouteStats",
+          "kind": "function",
+          "description": "Create neutral adaptive route statistics.",
+          "form": "AxBalancerAdaptive.createRouteStats",
+          "returns": "route stats"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "update_balancer_route_stats",
+          "public_name": "AxBalancerAdaptive.updateRouteStats",
+          "kind": "function",
+          "description": "Purely reduce one success or failure observation into route statistics.",
+          "form": "AxBalancerAdaptive.updateRouteStats",
+          "important_options": [
+            "current stats",
+            "observation"
+          ],
+          "returns": "route stats"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "sample_balancer_route_health",
+          "public_name": "AxBalancerAdaptive.sampleRouteHealth",
+          "kind": "function",
+          "description": "Sample failure and deadline-miss probability for adaptive exploration.",
+          "form": "AxBalancerAdaptive.sampleRouteHealth",
+          "important_options": [
+            "route stats",
+            "deadline"
+          ],
+          "returns": "sampled health"
         },
         {
           "target_name": "java",

@@ -1,7 +1,7 @@
 ---
 name: ax-ai
-description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
-version: "23.0.1"
+description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
+version: "23.0.3"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -63,8 +63,8 @@ const gemini = ai({
   apiKey: process.env.GOOGLE_APIKEY!,
   config: { model: 'simple' },
   models: [
-    { key: 'tiny', model: AxAIGoogleGeminiModel.Gemini31FlashLite, description: 'Fast + cheap', config: { maxTokens: 1024, temperature: 0.3 } },
-    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini35Flash, description: 'Balanced', config: { temperature: 0.6 } },
+    { key: 'tiny', model: AxAIGoogleGeminiModel.Gemini35FlashLite, description: 'Fast + cheap', config: { maxTokens: 1024 } },
+    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini36Flash, description: 'Balanced' },
   ],
 });
 
@@ -89,6 +89,59 @@ Use `axGetSupportedAIModels()` to build provider/model selectors before creating
 Filter with `{ type: 'all' | 'text' | 'embeddings' | 'code' | 'audio' }` or an array of those values. The `'text'` filter includes code-capable models; use `'code'` to show only code-first models.
 
 Dynamic providers such as Azure OpenAI deployments are marked with `isDynamic: true` and may have an empty or static-limited model list.
+
+## Routing And Balancing
+
+Choose the primitive by responsibility:
+
+- `AxMultiServiceRouter` combines model lists and dispatches the model key the caller already selected. It does not select a model.
+- `AxBalancer` without a strategy orders equivalent services once with a comparator, retries transient provider failures, and fails over in that order.
+- `AxBalancer` with `strategy.type: 'adaptive'` selects among services exposing the same logical model aliases using learned provider reliability, successful latency, and estimated cost.
+
+Adaptive balancing is operational routing, not semantic prompt-to-model routing. Every provider model behind an alias must be an acceptable substitute for that application. Keep quality evaluation and content-aware model selection outside the balancer.
+
+```typescript
+import { AxBalancer, AxInMemoryBalancerStatsStore } from '@ax-llm/ax';
+
+const statsStore = new AxInMemoryBalancerStatsStore();
+const routeKeys = new Map<string, string>([
+  [openai.getId(), 'openai-primary'],
+  [anthropic.getId(), 'anthropic-primary'],
+]);
+
+const llm = AxBalancer.create([openai, anthropic] as const, {
+  strategy: {
+    type: 'adaptive',
+    deadlineMs: 6_000,
+    badOutcomeCost: 0.02,
+    expectedTokens: { promptTokens: 1_200, completionTokens: 300 },
+    namespace: 'support-v1',
+    routeKey: (service) => {
+      const key = routeKeys.get(service.getId());
+      if (!key) throw new Error('Missing stable route key.');
+      return key;
+    },
+    slice: ({ options }) =>
+      options?.customLabels?.workflow ?? 'default-workflow',
+    statsStore,
+    onRoutingEvent: (event) => telemetry.emit('llm.route', event),
+  },
+});
+```
+
+The score is estimated request cost plus `badOutcomeCost` times the probability of provider failure or missing `deadlineMs`. `badOutcomeCost` and estimated cost must use the same currency or unit. By default, cost uses `expectedTokens`, the route's concrete model mapping, and `getEstimatedCost()`; missing catalog pricing contributes zero, while `estimateCost` can supply application pricing. Failures use an EWMA; successful latency is modeled in log space with a Normal-Inverse-Gamma posterior, and Thompson sampling supplies the deadline risk. Capability filtering still runs before ranking.
+
+Rules:
+
+- Reuse the in-memory store across balancers in one process. For multiple processes, implement `AxBalancerStatsStore` with Redis or an application database; its `observe()` operation must be atomic.
+- A custom store requires stable, unique `routeKey` values. Stats are partitioned by `namespace`, `slice`, logical model, and route.
+- `statsStore` is decision state. `onRoutingEvent` is best-effort telemetry and must not be used as the authoritative routing state.
+- Routing events contain scores, route metadata, and sanitized failure categories, never prompts, responses, or raw provider errors.
+- Adaptive mode attempts each candidate once. Provider-client retries remain controlled by `AxAIServiceOptions.retry`.
+- Streaming can fail over before the first emitted chunk. A mid-stream transient failure is learned but cannot be replayed after partial output; caller cancellation is not recorded.
+- Adaptive selection applies to chat. Embedding, transcription, and speech keep existing balancer behavior.
+
+See the [adaptive balancer example](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/generation/adaptive-balancer.ts) for complete provider setup.
 
 ## Chat
 

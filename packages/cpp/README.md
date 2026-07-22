@@ -53,6 +53,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/signature_schema.cpp`: signature parsing and JSON schema generation
 - `examples/axgen_scripted_client_tool.cpp`: AxGen with a scripted client and tool
 - `examples/provider_mapping_no_key.cpp`: provider mapping through a scripted transport
+- `examples/adaptive_balancer_no_key.cpp`: adaptive balancer state, scoring, and stable route keys without a provider key
 - `examples/provider_stream_no_key.cpp`: provider streaming through a scripted SSE transport
 - `examples/axflow_program_graph.cpp`: AxFlow program graph
 - `examples/flow_mermaid.cpp`: portable Mermaid flow parsing and canonical round-trip

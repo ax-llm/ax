@@ -48,6 +48,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `python examples/signature_schema.py`: signature parsing and JSON schema generation
 - `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client and tool
 - `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport
+- `python examples/adaptive_balancer_no_key.py`: adaptive balancer state, scoring, and stable route keys without a provider key
 - `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport
 - `python examples/axflow_program_graph.py`: AxFlow program graph
 - `python examples/flow_mermaid.py`: portable Mermaid flow parsing and canonical round-trip

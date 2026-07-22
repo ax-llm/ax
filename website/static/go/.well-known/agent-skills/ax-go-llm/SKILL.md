@@ -1,7 +1,7 @@
 ---
 name: "ax-go-llm"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "23.0.1"
+version: "23.0.3"
 ---
 # Ax LLM Quick Reference For Go
 
@@ -12,6 +12,7 @@ This skill helps an agent write Go code with the generated Ax package `github.co
 - Start a generated-language Ax program from package docs or examples.
 - Translate the Ax mental model into the target package without TypeScript-only imports.
 - Choose the native package entrypoints for signatures, providers, generators, agents, flows, and optimizers.
+- Find ordered or adaptive provider-balancing guidance in the language-specific AI skill.
 
 ## Package Facts
 
@@ -36,7 +37,7 @@ llm := ax.NewAI("openai", map[string]ax.Value{"apiKey": os.Getenv("OPENAI_API_KE
 
 - Signatures: `axllm.S`, `axllm.FieldType`, `axllm.AxSignature`
 - AxGen: `axllm.NewAx`, `axllm.AxGen`
-- AxAI: `axllm.NewAI`, `axllm.OpenAICompatibleClient`, `axllm.OpenAIResponsesClient`, `axllm.GoogleGeminiClient`, `axllm.AnthropicClient`, `axllm.AxBalancer`, `axllm.MultiServiceRouter`, `axllm.ProviderRouter`
+- AxAI: `axllm.NewAI`, `axllm.OpenAICompatibleClient`, `axllm.OpenAIResponsesClient`, `axllm.GoogleGeminiClient`, `axllm.AnthropicClient`, `axllm.AxBalancer`, `axllm.AxBalancerAdaptiveStrategy`, `axllm.AxBalancerStatsStore`, `axllm.AxInMemoryBalancerStatsStore`, `axllm.CreateBalancerRouteStats`, `axllm.UpdateBalancerRouteStats`, `axllm.SampleBalancerRouteHealth`, `axllm.MultiServiceRouter`, `axllm.ProviderRouter`
 - Agents And RLM: `axllm.NewAgent`, `axllm.AxAgent`
 - Flow: `axllm.NewFlow`, `axllm.AxFlow`
 - Optimizers: `axllm.Optimize`, `axllm.Playbook`, `axllm.AxPlaybook`, `axllm.AxBootstrapFewShot`, `axllm.AxGEPA`, `axllm.OptimizerEngine`, `axllm.OptimizerEvaluator`

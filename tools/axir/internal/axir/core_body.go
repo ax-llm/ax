@@ -50,6 +50,13 @@ const (
 	IntrinsicAdd                    CoreIntrinsic = "intrinsic.add"
 	IntrinsicMul                    CoreIntrinsic = "intrinsic.mul"
 	IntrinsicDiv                    CoreIntrinsic = "intrinsic.div"
+	IntrinsicMathAbs                CoreIntrinsic = "intrinsic.math.abs"
+	IntrinsicMathLog                CoreIntrinsic = "intrinsic.math.log"
+	IntrinsicMathExp                CoreIntrinsic = "intrinsic.math.exp"
+	IntrinsicMathSqrt               CoreIntrinsic = "intrinsic.math.sqrt"
+	IntrinsicMathCos                CoreIntrinsic = "intrinsic.math.cos"
+	IntrinsicMathPow                CoreIntrinsic = "intrinsic.math.pow"
+	IntrinsicMathRandom             CoreIntrinsic = "intrinsic.math.random"
 	IntrinsicContains               CoreIntrinsic = "intrinsic.contains"
 	IntrinsicLen                    CoreIntrinsic = "intrinsic.len"
 	IntrinsicTruthy                 CoreIntrinsic = "intrinsic.truthy"
@@ -170,6 +177,13 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAdd:                    "_core_add",
 	IntrinsicMul:                    "_core_mul",
 	IntrinsicDiv:                    "_core_div",
+	IntrinsicMathAbs:                "_core_math_abs",
+	IntrinsicMathLog:                "_core_math_log",
+	IntrinsicMathExp:                "_core_math_exp",
+	IntrinsicMathSqrt:               "_core_math_sqrt",
+	IntrinsicMathCos:                "_core_math_cos",
+	IntrinsicMathPow:                "_core_math_pow",
+	IntrinsicMathRandom:             "_core_math_random",
 	IntrinsicContains:               "_core_contains",
 	IntrinsicLen:                    "_core_len",
 	IntrinsicTruthy:                 "_core_truthy",
@@ -290,6 +304,13 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.add":                                   true,
 	"intrinsic.mul":                                   true,
 	"intrinsic.div":                                   true,
+	"intrinsic.math.abs":                              true,
+	"intrinsic.math.log":                              true,
+	"intrinsic.math.exp":                              true,
+	"intrinsic.math.sqrt":                             true,
+	"intrinsic.math.cos":                              true,
+	"intrinsic.math.pow":                              true,
+	"intrinsic.math.random":                           true,
 	"intrinsic.len":                                   true,
 	"intrinsic.contains":                              true,
 	"intrinsic.truthy":                                true,
@@ -347,8 +368,8 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.string.split_trim_nonempty":            true,
 	"intrinsic.string.find_outside_quotes":            true,
 	"intrinsic.string.split_outside_quotes":           true,
-	"intrinsic.string.split_top_level":                 true,
-	"intrinsic.string.extract_leading_group":           true,
+	"intrinsic.string.split_top_level":                true,
+	"intrinsic.string.extract_leading_group":          true,
 	"intrinsic.string.consume_optional_quoted_prefix": true,
 	"intrinsic.string.extract_quoted_suffix":          true,
 	"intrinsic.string.split":                          true,
@@ -636,6 +657,13 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.gte":                          intrinsicInfo("intrinsic.gte", 2, 2, false, "bool"),
 	"intrinsic.mul":                          intrinsicInfo("intrinsic.mul", 2, 2, false, "f64"),
 	"intrinsic.div":                          intrinsicInfo("intrinsic.div", 2, 2, false, "f64"),
+	"intrinsic.math.abs":                     intrinsicInfo("intrinsic.math.abs", 1, 1, false, "f64"),
+	"intrinsic.math.log":                     intrinsicInfo("intrinsic.math.log", 1, 1, false, "f64"),
+	"intrinsic.math.exp":                     intrinsicInfo("intrinsic.math.exp", 1, 1, false, "f64"),
+	"intrinsic.math.sqrt":                    intrinsicInfo("intrinsic.math.sqrt", 1, 1, false, "f64"),
+	"intrinsic.math.cos":                     intrinsicInfo("intrinsic.math.cos", 1, 1, false, "f64"),
+	"intrinsic.math.pow":                     intrinsicInfo("intrinsic.math.pow", 2, 2, false, "f64"),
+	"intrinsic.math.random":                  intrinsicInfo("intrinsic.math.random", 0, 0, true, "f64"),
 	"intrinsic.len":                          intrinsicInfo("intrinsic.len", 1, 1, false, "i64"),
 	"intrinsic.contains":                     intrinsicInfo("intrinsic.contains", 2, 2, false, "bool"),
 	"intrinsic.is_none":                      intrinsicInfo("intrinsic.is_none", 1, 1, false, "bool"),

@@ -12,6 +12,7 @@ This skill helps an agent write C++ code with the generated Ax package `axllm`. 
 - Start a generated-language Ax program from package docs or examples.
 - Translate the Ax mental model into the target package without TypeScript-only imports.
 - Choose the native package entrypoints for signatures, providers, generators, agents, flows, and optimizers.
+- Find ordered or adaptive provider-balancing guidance in the language-specific AI skill.
 
 ## Package Facts
 
@@ -36,7 +37,7 @@ auto llm = axllm::ai("openai", { {"apiKey", std::getenv("OPENAI_API_KEY")} });
 
 - Signatures: `axllm::s`, `axllm::FieldType`, `axllm::AxSignature`
 - AxGen: `axllm::ax`, `axllm::AxGen`
-- AxAI: `axllm::ai`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxBalancer`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
+- AxAI: `axllm::ai`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxBalancer`, `axllm::AxBalancerAdaptiveStrategy`, `axllm::AxBalancerStatsStore`, `axllm::AxInMemoryBalancerStatsStore`, `axllm::create_balancer_route_stats`, `axllm::update_balancer_route_stats`, `axllm::sample_balancer_route_health`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
 - Agents And RLM: `axllm::agent`, `axllm::AxAgent`
 - Flow: `axllm::flow`, `axllm::AxFlow`
 - Optimizers: `axllm::optimize`, `axllm::playbook`, `axllm::AxPlaybook`, `axllm::AxBootstrapFewShot`, `axllm::AxGEPA`, `axllm::OptimizerEngine`, `axllm::OptimizerEvaluator`

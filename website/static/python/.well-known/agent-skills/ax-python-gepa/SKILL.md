@@ -1,7 +1,7 @@
 ---
 name: "ax-python-gepa"
 description: "Use when writing Python code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts."
-version: "23.0.1"
+version: "23.0.3"
 ---
 # Ax GEPA For Python
 

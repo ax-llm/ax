@@ -649,6 +649,10 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axai_balancer_runtime",
 		"axai_balancer_retry_policy",
 		"axai_balancer_metrics",
+		"axai_balancer_adaptive_routing",
+		"axai_balancer_adaptive_stats_store",
+		"axai_balancer_adaptive_events",
+		"axai_balancer_adaptive_buffered_streaming",
 		"axai_host_processing_callbacks",
 		"axai_openai_compatible_catalog_clients",
 		"axai_provider_azure_openai_descriptor",
@@ -678,7 +682,7 @@ func TestBuildRuntimeModel(t *testing.T) {
 			t.Fatalf("runtime model missing symbol %s", want)
 		}
 	}
-	for _, want := range []string{"AxBalancer", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models"} {
+	for _, want := range []string{"AxBalancer", "AxBalancerAdaptiveStrategy", "AxBalancerOptions", "AxBalancerStatsStore", "AxInMemoryBalancerStatsStore", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models"} {
 		if !containsString(model.PublicSymbols, want) {
 			t.Fatalf("runtime model missing generated public symbol %s: %#v", want, model.PublicSymbols)
 		}
@@ -807,6 +811,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_scripted_client_tool.py",
 				"examples/axgen_openai_api.py",
 				"examples/provider_mapping_no_key.py",
+				"examples/adaptive_balancer_no_key.py",
 				"examples/provider_stream_no_key.py",
 				"examples/runtime_adapter.py",
 				"examples/runtime_protocol.py",
@@ -873,12 +878,16 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/axllm/ax/GrokClient.java",
 				"dev/axllm/ax/AxMultiServiceRouter.java",
 				"dev/axllm/ax/AxBalancer.java",
+				"dev/axllm/ax/AxBalancerAdaptiveStrategy.java",
+				"dev/axllm/ax/AxBalancerStatsStore.java",
+				"dev/axllm/ax/AxInMemoryBalancerStatsStore.java",
 				"dev/axllm/ax/AxProviderRouter.java",
 				"dev/axllm/ax/Conformance.java",
 				"examples/SignatureSchemaExample.java",
 				"examples/AxGenScriptedClientToolExample.java",
 				"examples/AxGenOpenAIExample.java",
 				"examples/ProviderMappingNoKeyExample.java",
+				"examples/AdaptiveBalancerNoKeyExample.java",
 				"examples/ProviderStreamNoKeyExample.java",
 				"examples/RuntimeAdapterExample.java",
 				"examples/RuntimeProtocolExample.java",
@@ -924,6 +933,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_scripted_client_tool.cpp",
 				"examples/axgen_openai_api.cpp",
 				"examples/provider_mapping_no_key.cpp",
+				"examples/adaptive_balancer_no_key.cpp",
 				"examples/provider_stream_no_key.cpp",
 				"examples/runtime_adapter.cpp",
 				"examples/runtime_protocol.cpp",
@@ -966,6 +976,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_scripted_client_tool/main.go",
 				"examples/axgen_openai_api/main.go",
 				"examples/provider_mapping_no_key/main.go",
+				"examples/adaptive_balancer_no_key/main.go",
 				"examples/provider_stream_no_key/main.go",
 				"examples/runtime_adapter/main.go",
 				"examples/runtime_protocol/main.go",
@@ -999,6 +1010,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"conformance-coverage.json",
 				"examples/signature_schema.rs",
 				"examples/provider_mapping_no_key.rs",
+				"examples/adaptive_balancer_no_key.rs",
 				"examples/provider_stream_no_key.rs",
 				"examples/axgen_scripted_client_tool.rs",
 				"examples/axgen_openai_api.rs",
@@ -1145,7 +1157,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("%s manifest has stale broad runtime profile feature %s: %#v", tc.target, stale, manifest.CoreOwnedFeatureGroups)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "AxBalancer", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "optimize", "playbook", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "AxBalancer", "AxBalancerAdaptiveStrategy", "AxBalancerOptions", "AxBalancerStatsStore", "AxInMemoryBalancerStatsStore", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "optimize", "playbook", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
 				}

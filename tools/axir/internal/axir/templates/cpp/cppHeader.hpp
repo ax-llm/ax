@@ -14,6 +14,7 @@
 #include <map>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -100,6 +101,14 @@ struct Core {
   static Value add(Value left, Value right);
   static Value mul(Value left, Value right);
   static Value div(Value left, Value right);
+  static Value math_abs(Value value);
+  static Value math_log(Value value);
+  static Value math_exp(Value value);
+  static Value math_sqrt(Value value);
+  static Value math_cos(Value value);
+  static Value math_pow(Value left, Value right);
+  static Value math_random();
+  static void set_math_random_values(std::vector<double> values);
   static double number(Value value);
   static Value contains(Value container, Value item);
   static Value len(Value value);
@@ -301,16 +310,66 @@ class AxBaseAI : public AxAIService {
 
 Value get_supported_ai_models(Value options = Value::object());
 
+using AxBalancerStatsKey = Value;
+using AxBalancerRouteStats = Value;
+using AxBalancerStatsObservation = Value;
+using AxBalancerRoutingEvent = Value;
+using AxBalancerCandidateScore = Value;
+using AxBalancerFailureReason = std::string;
+
+class AxBalancerStatsStore {
+ public:
+  virtual ~AxBalancerStatsStore() = default;
+  virtual AxBalancerRouteStats get(const AxBalancerStatsKey& key) = 0;
+  virtual void observe(const AxBalancerStatsKey& key, const AxBalancerStatsObservation& observation) = 0;
+};
+
+AxBalancerRouteStats create_balancer_route_stats();
+AxBalancerRouteStats update_balancer_route_stats(AxBalancerRouteStats current, AxBalancerStatsObservation observation);
+Value sample_balancer_route_health(AxBalancerRouteStats stats, double deadline_ms);
+
+class AxInMemoryBalancerStatsStore final : public AxBalancerStatsStore {
+ public:
+  AxBalancerRouteStats get(const AxBalancerStatsKey& key) override;
+  void observe(const AxBalancerStatsKey& key, const AxBalancerStatsObservation& observation) override;
+ private:
+  std::string serialize(const AxBalancerStatsKey& key) const;
+  std::map<std::string, AxBalancerRouteStats> stats_;
+  std::mutex mutex_;
+};
+
+struct AxBalancerAdaptiveStrategy {
+  double deadline_ms = 0;
+  double bad_outcome_cost = 0;
+  Value expected_tokens;
+  std::function<double(const AxAIService&, Value)> estimate_cost;
+  std::string name_space = "default";
+  std::function<std::string(Value)> slice;
+  std::function<std::string(const std::shared_ptr<AxAIService>&, size_t)> route_key;
+  std::shared_ptr<AxBalancerStatsStore> stats_store;
+  std::function<void(AxBalancerRoutingEvent)> on_routing_event;
+};
+
+struct AxBalancerOptions {
+  bool debug = true;
+  int initial_backoff_ms = 1000;
+  int max_backoff_ms = 32000;
+  int max_retries = 3;
+  std::shared_ptr<AxBalancerAdaptiveStrategy> strategy;
+};
+
 class AxBalancer : public AxAIService {
  public:
   AxBalancer();
   explicit AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, Value options = Value::object());
+  explicit AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, AxBalancerOptions options);
   std::string get_id() override;
   std::string get_name() override;
   Value get_model_list() override;
   Value get_features(Value model = Value()) override;
   Value chat(Value request) override;
   Value chat(Value request, Value options) override;
+  std::vector<Value> stream(Value request) override;
   Value embed(Value request) override;
   Value embed(Value request, Value options) override;
   Value transcribe(Value request) override;
@@ -334,7 +393,26 @@ class AxBalancer : public AxAIService {
   std::map<std::string, int> service_failures_;
   Value policy_ = Value::object();
   int max_retries_ = 3;
+  std::shared_ptr<AxBalancerAdaptiveStrategy> adaptive_;
+  std::shared_ptr<AxBalancerStatsStore> adaptive_store_;
+  std::map<const AxAIService*, std::string> adaptive_route_keys_;
+  std::map<const AxAIService*, size_t> adaptive_indices_;
+  struct AdaptiveCandidate {
+    std::shared_ptr<AxAIService> service;
+    size_t order = 0;
+    std::string route_key;
+    Value stats_key;
+    double score = 0;
+    double estimated_cost = 0;
+    double failure_probability = 0;
+    double deadline_miss_probability = 0;
+  };
   void validate_models();
+  void initialize_adaptive(const std::vector<std::shared_ptr<AxAIService>>& input, std::shared_ptr<AxBalancerAdaptiveStrategy> strategy);
+  std::vector<AdaptiveCandidate> rank_adaptive(Value request, Value options);
+  void emit_routing_event(Value event) const;
+  void observe_adaptive(const AdaptiveCandidate& candidate, Value observation, bool streaming, std::string reason = "", int status = 0);
+  double adaptive_cost(const std::shared_ptr<AxAIService>& service, const std::string& route_key, Value request) const;
   bool can_retry_service(const std::shared_ptr<AxAIService>& service) const;
   void handle_failure(const std::shared_ptr<AxAIService>& service);
   void handle_success(const std::shared_ptr<AxAIService>& service);

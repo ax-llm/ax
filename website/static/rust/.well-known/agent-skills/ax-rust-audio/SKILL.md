@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-audio"
 description: "Use when writing Rust code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples."
-version: "23.0.1"
+version: "23.0.3"
 ---
 # Ax Audio And Realtime For Rust
 
@@ -34,7 +34,7 @@ let llm = ai("openai", options)?;
 
 ## Relevant API Surface
 
-- AxAI: `ai`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxBalancer`, `MultiServiceRouter`, `ProviderRouter`
+- AxAI: `ai`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter`
 
 ## Guardrails
 

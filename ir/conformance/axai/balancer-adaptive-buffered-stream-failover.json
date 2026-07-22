@@ -1,0 +1,199 @@
+{
+  "expected_output": {
+    "outputs": {
+      "stream": [
+        {
+          "results": [
+            {
+              "content": "AdaptiveStreamBackup chat",
+              "index": 0
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "kind": "ai_balancer",
+  "name": "balancer-adaptive-buffered-stream-failover",
+  "operations": [
+    {
+      "name": "stream",
+      "options": {},
+      "request": {
+        "chatPrompt": [
+          {
+            "content": "buffer the healthy route",
+            "role": "user"
+          }
+        ],
+        "model": "adaptive-chat"
+      }
+    }
+  ],
+  "options": {
+    "strategy": {
+      "badOutcomeCost": 0,
+      "deadlineMs": 1000,
+      "type": "adaptive"
+    }
+  },
+  "services": [
+    {
+      "estimatedCost": 0,
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "adaptive-stream-primary",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 10,
+            "p95": 15,
+            "p99": 19,
+            "samples": [10]
+          },
+          "embed": {
+            "mean": 10,
+            "p95": 15,
+            "p99": 19,
+            "samples": [10]
+          }
+        }
+      },
+      "modelList": [
+        {
+          "description": "Equivalent adaptive route",
+          "key": "adaptive-chat",
+          "model": "provider-model"
+        }
+      ],
+      "name": "AdaptiveStreamPrimary",
+      "responses": [
+        {
+          "error": {
+            "message": "stream overloaded",
+            "status": 529,
+            "type": "status"
+          }
+        }
+      ]
+    },
+    {
+      "estimatedCost": 1,
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "adaptive-stream-backup",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 20,
+            "p95": 25,
+            "p99": 29,
+            "samples": [20]
+          },
+          "embed": {
+            "mean": 20,
+            "p95": 25,
+            "p99": 29,
+            "samples": [20]
+          }
+        }
+      },
+      "modelList": [
+        {
+          "description": "Equivalent adaptive route",
+          "key": "adaptive-chat",
+          "model": "provider-model"
+        }
+      ],
+      "name": "AdaptiveStreamBackup"
+    }
+  ]
+}

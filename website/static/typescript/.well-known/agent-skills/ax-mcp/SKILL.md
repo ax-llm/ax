@@ -1,7 +1,7 @@
 ---
 name: ax-mcp
 description: This skill helps an LLM build correct native Model Context Protocol integrations with @ax-llm/ax. Use when the user asks about AxMCPClient, MCP transports, tools, prompts, resources, subscriptions, tasks, sampling, elicitation, roots, authentication, OAuth, MCP Apps, recording/replay, or MCP integration with AxGen, AxAgent, AxFlow, chat, optimization, and AxEventRuntime.
-version: "23.0.1"
+version: "23.0.3"
 ---
 
 # Native MCP With Ax

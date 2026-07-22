@@ -72,6 +72,20 @@
   },
   "snippets": {
     "ai": {
+      "balancer": {
+        "sourcePath": "src/examples/go/generation/adaptive_balancer.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "store := ax.NewAxInMemoryBalancerStatsStore()",
+          "strategy := &ax.AxBalancerAdaptiveStrategy{",
+          "    DeadlineMs: 6000, BadOutcomeCost: 0.02, Namespace: \"support-v1\",",
+          "    StatsStore: store, RouteKey: stableRouteKey, Slice: workflowSlice,",
+          "    OnRoutingEvent: analyticsHook,",
+          "}",
+          "balancer, _ := ax.NewAxBalancerWithOptions(services, ax.AxBalancerOptions{Strategy: strategy})"
+        ]
+      },
       "audio": [
         "// Realtime audio over WebSocket — needs Go 1.23+",
         "client := ax.NewOpenAIResponsesClient(map[string]ax.Value{\"model\": \"gpt-realtime-2\", \"api_key\": os.Getenv(\"OPENAI_APIKEY\")})",

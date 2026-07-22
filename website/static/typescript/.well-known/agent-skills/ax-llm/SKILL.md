@@ -1,14 +1,14 @@
 ---
 name: ax-llm
 description: This skill helps with using the @ax-llm/ax TypeScript library for building LLM applications. Use when the user asks about ax(), ai(), f(), s(), agent(), flow(), AxGen, AxAgent, AxFlow, signatures, streaming, or mentions @ax-llm/ax.
-version: "23.0.1"
+version: "23.0.3"
 ---
 
 # Ax Library (@ax-llm/ax) Quick Reference
 
 Ax is a TypeScript library for building LLM-powered applications with type-safe signatures, streaming support, and multi-provider compatibility.
 
-> **Detailed skills available:** ax-ai (providers), ax-signature (signatures/types), ax-gen (generators), ax-agent (core agents/tools), ax-agent-rlm (agent runtime/RLM/delegation), ax-agent-observability (callbacks/logs/usage), ax-agent-memory-skills (recall and dynamic skill loading), ax-agent-optimize (agent tuning/eval), ax-flow (workflows), ax-gepa (top-level `optimize(...)`, BootstrapFewShot -> GEPA, Pareto optimization).
+> **Detailed skills available:** ax-ai (providers, routing, adaptive balancing), ax-signature (signatures/types), ax-gen (generators), ax-agent (core agents/tools), ax-agent-rlm (agent runtime/RLM/delegation), ax-agent-observability (callbacks/logs/usage), ax-agent-memory-skills (recall and dynamic skill loading), ax-agent-optimize (agent tuning/eval), ax-flow (workflows), ax-gepa (top-level `optimize(...)`, BootstrapFewShot -> GEPA, Pareto optimization).
 
 ## Imports & Factories
 

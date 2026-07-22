@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-agent-context"
 description: "Use when writing C++ code with `axllm` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents."
-version: "23.0.1"
+version: "23.0.3"
 ---
 # AxAgent Context Selection For C++
 

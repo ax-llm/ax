@@ -1,0 +1,129 @@
+{
+  "adaptive_best_effort": true,
+  "expected_output": {
+    "bestEffort": {
+      "eventCalls": 5,
+      "storeGets": 1,
+      "storeObserves": 1
+    },
+    "outputs": {
+      "chat": {
+        "results": [
+          {
+            "content": "AdaptiveBestEffort chat",
+            "index": 0
+          }
+        ]
+      }
+    },
+    "serviceCalls": [
+      [
+        {
+          "method": "chat",
+          "opt": {}
+        }
+      ]
+    ]
+  },
+  "kind": "ai_balancer",
+  "name": "balancer-adaptive-store-event-failures",
+  "operations": [
+    {
+      "name": "chat",
+      "options": {},
+      "request": {
+        "chatPrompt": [
+          {
+            "content": "ignore observer failures",
+            "role": "user"
+          }
+        ],
+        "model": "adaptive-chat"
+      }
+    }
+  ],
+  "options": {
+    "strategy": {
+      "badOutcomeCost": 0,
+      "deadlineMs": 1000,
+      "namespace": "best-effort",
+      "type": "adaptive"
+    }
+  },
+  "services": [
+    {
+      "estimatedCost": 0,
+      "features": {
+        "caching": {
+          "supported": false,
+          "types": []
+        },
+        "functions": false,
+        "media": {
+          "audio": {
+            "formats": [],
+            "output": {
+              "formats": [],
+              "supported": false
+            },
+            "supported": false
+          },
+          "files": {
+            "formats": [],
+            "supported": false,
+            "uploadMethod": "none"
+          },
+          "images": {
+            "formats": [],
+            "supported": false
+          },
+          "urls": {
+            "contextFetching": false,
+            "supported": false,
+            "webSearch": false
+          }
+        },
+        "multiTurn": true,
+        "streaming": false,
+        "thinking": false
+      },
+      "id": "adaptive-best-effort",
+      "metrics": {
+        "errors": {
+          "chat": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          },
+          "embed": {
+            "count": 0,
+            "rate": 0,
+            "total": 1
+          }
+        },
+        "latency": {
+          "chat": {
+            "mean": 10,
+            "p95": 15,
+            "p99": 19,
+            "samples": [10]
+          },
+          "embed": {
+            "mean": 10,
+            "p95": 15,
+            "p99": 19,
+            "samples": [10]
+          }
+        }
+      },
+      "modelList": [
+        {
+          "description": "Equivalent adaptive route",
+          "key": "adaptive-chat",
+          "model": "provider-model"
+        }
+      ],
+      "name": "AdaptiveBestEffort"
+    }
+  ]
+}

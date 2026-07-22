@@ -77,6 +77,20 @@
   },
   "snippets": {
     "ai": {
+      "balancer": {
+        "sourcePath": "src/examples/cpp/generation/adaptive_balancer.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "auto store = std::make_shared<axllm::AxInMemoryBalancerStatsStore>();",
+          "auto strategy = std::make_shared<axllm::AxBalancerAdaptiveStrategy>();",
+          "strategy->deadline_ms = 6000; strategy->bad_outcome_cost = 0.02;",
+          "strategy->stats_store = store; strategy->route_key = stable_route_key;",
+          "strategy->slice = workflow_slice; strategy->on_routing_event = analytics_hook;",
+          "axllm::AxBalancerOptions options; options.strategy = strategy;",
+          "axllm::AxBalancer balancer(services, options);"
+        ]
+      },
       "audio": [
         "// Realtime audio over WebSocket — build with -DAXLLM_ENABLE_REALTIME=ON",
         "axllm::OpenAIResponsesClient client(axllm::object({{\"model\", \"gpt-realtime-2\"}, {\"api_key\", std::getenv(\"OPENAI_APIKEY\")}}));",

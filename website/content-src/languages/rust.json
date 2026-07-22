@@ -72,6 +72,20 @@
   },
   "snippets": {
     "ai": {
+      "balancer": {
+        "sourcePath": "src/examples/rust/generation/adaptive_balancer.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let store = Arc::new(AxInMemoryBalancerStatsStore::new());",
+          "let strategy = AxBalancerAdaptiveStrategy::new(6000.0, 0.02)",
+          "    .with_namespace(\"support-v1\").with_store(store)",
+          "    .with_route_key(stable_route_key).with_slice(workflow_slice)",
+          "    .on_routing_event(analytics_hook);",
+          "let balancer = AxBalancer::from_clients(",
+          "    services, AxBalancerOptions { strategy: Some(strategy), ..Default::default() })?;"
+        ]
+      },
       "audio": [
         "// Realtime audio over WebSocket — cargo add axllm --features realtime",
         "let client = ai(\"openai-responses\", json!({\"model\": \"gpt-realtime-2\"}))?;",

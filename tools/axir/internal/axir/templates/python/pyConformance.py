@@ -10,6 +10,7 @@ from typing import Any
 
 from .ai import AnthropicClient, AzureOpenAIClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, RekaClient, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl
+from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     ax,
     fold_stream,
@@ -153,6 +154,7 @@ class RouterFixtureService(AxBaseAI):
         self.requests = []
         self.responses = list(spec.get("responses") or [])
         self.metrics_value = copy.deepcopy(spec.get("metrics") or {"service": self.name, "calls": 0})
+        self.estimated_cost = float(spec.get("estimatedCost", spec.get("estimated_cost", 0)))
 
     def get_id(self):
         return self.fixture_id
@@ -165,6 +167,9 @@ class RouterFixtureService(AxBaseAI):
         if isinstance(out, dict) and "calls" in out:
             out["calls"] = len(self.requests)
         return out
+
+    def get_estimated_cost(self, model_usage=None):
+        return self.estimated_cost
 
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
         self.requests.append({"method": "chat", "opt": copy.deepcopy(options or {})})
@@ -2263,8 +2268,34 @@ def _run_ai_provider_router(fixture):
 
 def _run_ai_balancer(fixture):
     services = _build_router_services(fixture)
+    best_effort = {"storeGets": 0, "storeObserves": 0, "eventCalls": 0}
     try:
-        balancer = AxBalancer(services, fixture.get("options") or {})
+        if fixture.get("adaptive_best_effort"):
+            class ThrowingStore:
+                def get(self, _key):
+                    best_effort["storeGets"] += 1
+                    raise RuntimeError("fixture store read failed")
+
+                def observe(self, _key, _observation):
+                    best_effort["storeObserves"] += 1
+                    raise RuntimeError("fixture store write failed")
+
+            def throwing_event(_event):
+                best_effort["eventCalls"] += 1
+                raise RuntimeError("fixture event hook failed")
+
+            raw = (fixture.get("options") or {}).get("strategy") or {}
+            strategy = AxBalancerAdaptiveStrategy(
+                deadline_ms=raw.get("deadlineMs", 1),
+                bad_outcome_cost=raw.get("badOutcomeCost", 0),
+                namespace=raw.get("namespace", "default"),
+                route_key=lambda _service, _index: "best-effort-route",
+                stats_store=ThrowingStore(),
+                on_routing_event=throwing_event,
+            )
+            balancer = AxBalancer(services, AxBalancerOptions(strategy=strategy))
+        else:
+            balancer = AxBalancer(services, fixture.get("options") or {})
         outputs = {}
         for op in fixture.get("operations", []):
             name = op.get("name")
@@ -2280,6 +2311,33 @@ def _run_ai_balancer(fixture):
                 outputs[name] = balancer.speak(op.get("request") or {}, op.get("options"))
             elif name == "set_options":
                 balancer.set_options(op.get("options") or {})
+            elif name == "adaptive_stats":
+                stats = create_balancer_route_stats()
+                for observation in op.get("observations", []):
+                    stats = update_balancer_route_stats(stats, observation)
+                _core_set_math_random_values(op.get("random_values", []))
+                health = sample_balancer_route_health(stats, op.get("deadline_ms", 1))
+                score = provider_balancer_adaptive_score(
+                    op.get("estimated_cost", 0),
+                    op.get("bad_outcome_cost", 0),
+                    health["failureProbability"],
+                    health["deadlineMissProbability"],
+                )
+                rounded_stats = dict(stats)
+                for key in ("failureEwma", "logLatencyMean", "logLatencyM2"):
+                    rounded_stats[key] = round(rounded_stats[key], 9)
+                outputs[name] = {
+                    "stats": rounded_stats,
+                    "health": {key: round(value, 9) for key, value in health.items()},
+                    "score": round(score, 9),
+                }
+            elif name == "adaptive_store":
+                store = AxInMemoryBalancerStatsStore()
+                for write in op.get("writes", []):
+                    store.observe(write["key"], write["observation"])
+                outputs[name] = {
+                    "states": [store.get(key) for key in op.get("reads", [])]
+                }
         actual = {
             "id": balancer.get_id(),
             "name": balancer.get_name(),
@@ -2296,6 +2354,8 @@ def _run_ai_balancer(fixture):
             actual["modelList"] = balancer.get_model_list()
         if "features" in expected_output:
             actual["features"] = balancer.get_features()
+        if fixture.get("adaptive_best_effort"):
+            actual["bestEffort"] = best_effort
         if fixture.get("expected_error_contains"):
             raise FixtureError("expected balancer to fail")
         if "expected_output" in fixture:

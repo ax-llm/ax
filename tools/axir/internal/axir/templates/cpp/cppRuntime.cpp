@@ -521,6 +521,22 @@ Value Core::div(Value left, Value right) {
   double denom = num(right);
   return Value(num(left) / (denom == 0.0 ? 1.0 : denom));
 }
+Value Core::math_abs(Value value) { return Value(std::abs(num(value))); }
+Value Core::math_log(Value value) { return Value(std::log(num(value))); }
+Value Core::math_exp(Value value) { return Value(std::exp(num(value))); }
+Value Core::math_sqrt(Value value) { return Value(std::sqrt(num(value))); }
+Value Core::math_cos(Value value) { return Value(std::cos(num(value))); }
+Value Core::math_pow(Value left, Value right) { return Value(std::pow(num(left), num(right))); }
+static thread_local std::vector<double> axir_math_random_values;
+void Core::set_math_random_values(std::vector<double> values) { axir_math_random_values = std::move(values); }
+Value Core::math_random() {
+  if (!axir_math_random_values.empty()) {
+    double value = axir_math_random_values.front();
+    axir_math_random_values.erase(axir_math_random_values.begin());
+    return Value(value);
+  }
+  return Value(static_cast<double>(std::rand()) / (static_cast<double>(RAND_MAX) + 1.0));
+}
 
 double Core::number(Value value) { return num(value); }
 Value Core::contains(Value container, Value item) {
@@ -5467,12 +5483,61 @@ AxBalancer::AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, Value
   if (services_.empty()) throw AxError("runtime", "No AI services provided.");
   max_retries_ = static_cast<int>(num(Core::get(policy_, "maxRetries", 3)));
   validate_models();
+  Value raw_strategy = Core::get(policy_, "strategy", "metric");
+  if (raw_strategy.is_object() && str(Core::get(raw_strategy, "type", "")) == "adaptive") {
+    auto strategy = std::make_shared<AxBalancerAdaptiveStrategy>();
+    strategy->deadline_ms = num(Core::get(raw_strategy, "deadlineMs", Core::get(raw_strategy, "deadline_ms", 0)));
+    strategy->bad_outcome_cost = num(Core::get(raw_strategy, "badOutcomeCost", Core::get(raw_strategy, "bad_outcome_cost", -1)));
+    strategy->expected_tokens = Core::get(raw_strategy, "expectedTokens", Core::get(raw_strategy, "expected_tokens", Value()));
+    strategy->name_space = str(Core::get(raw_strategy, "namespace", "default"));
+    initialize_adaptive(services_, strategy);
+  }
   if (str(Core::get(policy_, "strategy", "metric")) != "input_order") {
     std::stable_sort(services_.begin(), services_.end(), [](const auto& a, const auto& b) {
       return num(Core::provider_balancer_metric_score(a->get_metrics())) < num(Core::provider_balancer_metric_score(b->get_metrics()));
     });
   }
   current_service_ = services_.front();
+}
+
+AxBalancer::AxBalancer(std::vector<std::shared_ptr<AxAIService>> services, AxBalancerOptions options)
+    : services_(std::move(services)), policy_(object({{"strategy", "metric"}, {"debug", options.debug}, {"maxRetries", options.max_retries}})), max_retries_(options.max_retries) {
+  if (services_.empty()) throw AxError("runtime", "No AI services provided.");
+  validate_models();
+  if (options.strategy) initialize_adaptive(services_, options.strategy);
+  std::stable_sort(services_.begin(), services_.end(), [](const auto& a, const auto& b) {
+    return num(Core::provider_balancer_metric_score(a->get_metrics())) < num(Core::provider_balancer_metric_score(b->get_metrics()));
+  });
+  current_service_ = services_.front();
+}
+
+AxBalancerRouteStats create_balancer_route_stats() { return Core::provider_balancer_route_stats(); }
+AxBalancerRouteStats update_balancer_route_stats(AxBalancerRouteStats current, AxBalancerStatsObservation observation) { return Core::provider_balancer_observe_route(std::move(current), std::move(observation)); }
+Value sample_balancer_route_health(AxBalancerRouteStats stats, double deadline_ms) { return Core::provider_balancer_sample_health(std::move(stats), deadline_ms); }
+
+std::string AxInMemoryBalancerStatsStore::serialize(const AxBalancerStatsKey& key) const {
+  return str(Core::get(key, "namespace", "")) + "\x1f" + str(Core::get(key, "slice", "")) + "\x1f" + str(Core::get(key, "logicalModel", "")) + "\x1f" + str(Core::get(key, "routeKey", ""));
+}
+AxBalancerRouteStats AxInMemoryBalancerStatsStore::get(const AxBalancerStatsKey& key) {
+  std::lock_guard<std::mutex> lock(mutex_); auto found = stats_.find(serialize(key)); return found == stats_.end() ? Value() : found->second;
+}
+void AxInMemoryBalancerStatsStore::observe(const AxBalancerStatsKey& key, const AxBalancerStatsObservation& observation) {
+  std::lock_guard<std::mutex> lock(mutex_); std::string encoded = serialize(key); auto found = stats_.find(encoded); Value current = found == stats_.end() ? Value() : found->second; stats_[encoded] = update_balancer_route_stats(current, observation);
+}
+
+void AxBalancer::initialize_adaptive(const std::vector<std::shared_ptr<AxAIService>>& input, std::shared_ptr<AxBalancerAdaptiveStrategy> strategy) {
+  Core::provider_balancer_adaptive_policy(object({{"deadlineMs", strategy->deadline_ms}, {"badOutcomeCost", strategy->bad_outcome_cost}, {"namespace", strategy->name_space}}));
+  if (strategy->name_space.empty()) throw AxError("runtime", "Adaptive namespace must be non-empty.");
+  if (strategy->stats_store && !strategy->route_key) throw AxError("runtime", "Adaptive routeKey is required when statsStore is supplied.");
+  adaptive_ = std::move(strategy); adaptive_store_ = adaptive_->stats_store ? adaptive_->stats_store : std::make_shared<AxInMemoryBalancerStatsStore>();
+  std::set<std::string> seen;
+  for (size_t index = 0; index < input.size(); ++index) {
+    auto service = input[index]; std::string key = adaptive_->route_key ? adaptive_->route_key(service, index) : service->get_id();
+    Value seen_keys = Value::array(); for (const auto& value : seen) Core::append(seen_keys, value);
+    key = str(Core::provider_balancer_validate_route_key(key, seen_keys));
+    seen.insert(key);
+    adaptive_route_keys_[service.get()] = key; adaptive_indices_[service.get()] = index;
+  }
 }
 
 void AxBalancer::validate_models() {
@@ -5626,8 +5691,74 @@ Value AxBalancer::get_metrics() {
   });
 }
 
+void AxBalancer::emit_routing_event(Value event) const {
+  if (!adaptive_ || !adaptive_->on_routing_event) return;
+  try { adaptive_->on_routing_event(std::move(event)); } catch (...) {}
+}
+
+void AxBalancer::observe_adaptive(const AdaptiveCandidate& candidate, Value observation, bool streaming, std::string reason, int status) {
+  try { adaptive_store_->observe(candidate.stats_key, observation); }
+  catch (const std::exception& error) {
+    emit_routing_event(object({{"type", "store-error"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"operation", "observe"}, {"routeKey", candidate.route_key}, {"errorType", std::string(typeid(error).name())}}));
+  }
+  emit_routing_event(object({{"type", "observation"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"routeKey", candidate.route_key}, {"serviceName", candidate.service->get_name()}, {"outcome", Core::get(observation, "outcome", "failure")}, {"latencyMs", Core::get(observation, "latencyMs", Value())}, {"streaming", streaming}, {"reason", reason.empty() ? Value() : Value(reason)}, {"status", status == 0 ? Value() : Value(status)}}));
+}
+
+double AxBalancer::adaptive_cost(const std::shared_ptr<AxAIService>& service, const std::string& route_key, Value request) const {
+  std::string logical = str(Core::get(request, "model", "default")); std::string resolved = logical;
+  for (const auto& raw : Core::iter(service->get_model_list())) if (equal(Core::get(raw, "key", Value()), Core::get(request, "model", Value()))) { resolved = str(Core::get(raw, "model", logical)); break; }
+  Value context = object({{"serviceIndex", static_cast<double>(adaptive_indices_.at(service.get()))}, {"routeKey", route_key}, {"logicalModel", logical}, {"resolvedModel", resolved}, {"expectedTokens", adaptive_->expected_tokens}, {"serviceName", service->get_name()}});
+  double cost = 0;
+  if (adaptive_->estimate_cost) cost = adaptive_->estimate_cost(*service, context);
+  else if (adaptive_->expected_tokens.is_null()) cost = service->get_estimated_cost(Value());
+  else {
+    double prompt = num(Core::get(adaptive_->expected_tokens, "promptTokens", Core::get(adaptive_->expected_tokens, "prompt_tokens", 0)));
+    double completion = num(Core::get(adaptive_->expected_tokens, "completionTokens", Core::get(adaptive_->expected_tokens, "completion_tokens", 0)));
+    cost = service->get_estimated_cost(object({{"ai", service->get_name()}, {"model", resolved}, {"tokens", object({{"promptTokens", prompt}, {"completionTokens", completion}, {"totalTokens", prompt + completion}})}}));
+  }
+  if (!std::isfinite(cost) || cost < 0) throw AxError("runtime", "Adaptive estimated cost for route \"" + route_key + "\" must be finite and non-negative.");
+  return cost;
+}
+
+std::vector<AxBalancer::AdaptiveCandidate> AxBalancer::rank_adaptive(Value request, Value options) {
+  auto eligible = candidate_services(request); std::string logical = str(Core::get(request, "model", "default"));
+  std::string slice = adaptive_->slice ? adaptive_->slice(object({{"model", Core::get(request, "model", Value())}, {"options", options}})) : "default";
+  if (slice.empty()) throw AxError("runtime", "Adaptive slice must be non-empty.");
+  std::vector<AdaptiveCandidate> ranked;
+  for (size_t order = 0; order < eligible.size(); ++order) {
+    auto service = eligible[order]; std::string route_key = adaptive_route_keys_.at(service.get());
+    Value key = object({{"namespace", adaptive_->name_space}, {"slice", slice}, {"logicalModel", logical}, {"routeKey", route_key}}); Value stats;
+    try { stats = adaptive_store_->get(key); }
+    catch (const std::exception& error) {
+      emit_routing_event(object({{"type", "store-error"}, {"namespace", adaptive_->name_space}, {"slice", slice}, {"logicalModel", logical}, {"operation", "get"}, {"routeKey", route_key}, {"errorType", std::string(typeid(error).name())}}));
+    }
+    Value health = sample_balancer_route_health(stats, adaptive_->deadline_ms); double failure = num(Core::get(health, "failureProbability", 0.05)); double late = num(Core::get(health, "deadlineMissProbability", 0)); double estimated = adaptive_cost(service, route_key, request); double score = num(Core::provider_balancer_adaptive_score(estimated, adaptive_->bad_outcome_cost, failure, late));
+    ranked.push_back({service, order, route_key, key, score, estimated, failure, late});
+  }
+  Value rank_input = Value::array(); std::map<std::string, AdaptiveCandidate> ranked_by_key;
+  for (const auto& value : ranked) { Core::append(rank_input, object({{"routeKey", value.route_key}, {"score", value.score}, {"order", static_cast<double>(value.order)}})); ranked_by_key.emplace(value.route_key, value); }
+  std::vector<AdaptiveCandidate> core_ranked; for (const auto& raw : Core::iter(Core::provider_balancer_rank_candidates(rank_input))) core_ranked.push_back(ranked_by_key.at(str(Core::get(raw, "routeKey")))); ranked = std::move(core_ranked);
+  Value scores = Value::array(); for (const auto& value : ranked) Core::append(scores, object({{"routeKey", value.route_key}, {"serviceName", value.service->get_name()}, {"score", value.score}, {"estimatedCost", value.estimated_cost}, {"failureProbability", value.failure_probability}, {"deadlineMissProbability", value.deadline_miss_probability}}));
+  emit_routing_event(object({{"type", "ranked"}, {"namespace", adaptive_->name_space}, {"slice", slice}, {"logicalModel", logical}, {"candidates", scores}})); return ranked;
+}
+
 Value AxBalancer::chat(Value request) { return chat(std::move(request), Value::object()); }
 Value AxBalancer::chat(Value request, Value options) {
+  if (adaptive_) {
+    auto ranked = rank_adaptive(request, options); std::exception_ptr last;
+    for (size_t index = 0; index < ranked.size(); ++index) {
+      auto& candidate = ranked[index]; current_service_ = candidate.service;
+      emit_routing_event(object({{"type", "selected"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"routeKey", candidate.route_key}, {"serviceName", candidate.service->get_name()}, {"attempt", static_cast<double>(index + 1)}}));
+      auto started = std::chrono::steady_clock::now();
+      try {
+        Value response = candidate.service->chat(request, options); double latency = std::max(1.0, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count()); observe_adaptive(candidate, object({{"outcome", "success"}, {"latencyMs", latency}}), false); return response;
+      } catch (const AxError& error) {
+        if (!retryable(error)) throw; last = std::current_exception(); std::string reason = error.type == "AxAIServiceStatusError" ? "status" : error.type == "AxAIServiceNetworkError" ? "network" : error.type == "AxAIServiceStreamTerminatedError" ? "stream-terminated" : error.type == "AxAIServiceTimeoutError" ? "timeout" : "response"; observe_adaptive(candidate, object({{"outcome", "failure"}}), false, reason, error.status);
+        emit_routing_event(object({{"type", "fallback"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"fromRouteKey", candidate.route_key}, {"toRouteKey", index + 1 < ranked.size() ? Value(ranked[index + 1].route_key) : Value()}, {"reason", reason}, {"status", error.status == 0 ? Value() : Value(error.status)}}));
+      }
+    }
+    if (last) std::rethrow_exception(last); throw AxError("runtime", "All candidate services exhausted (tried " + std::to_string(ranked.size()) + " service(s))");
+  }
   auto candidates = candidate_services(request);
   size_t index = 0;
   auto service = candidates.at(index);
@@ -5655,6 +5786,23 @@ Value AxBalancer::chat(Value request, Value options) {
       }
     }
   }
+}
+
+std::vector<Value> AxBalancer::stream(Value request) {
+  if (!adaptive_) return AxAIService::stream(std::move(request));
+  auto ranked = rank_adaptive(request, Value::object()); std::exception_ptr last;
+  for (size_t index = 0; index < ranked.size(); ++index) {
+    auto& candidate = ranked[index]; current_service_ = candidate.service;
+    emit_routing_event(object({{"type", "selected"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"routeKey", candidate.route_key}, {"serviceName", candidate.service->get_name()}, {"attempt", static_cast<double>(index + 1)}}));
+    auto started = std::chrono::steady_clock::now();
+    try {
+      std::vector<Value> chunks = candidate.service->stream(request); double latency = std::max(1.0, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count()); observe_adaptive(candidate, object({{"outcome", "success"}, {"latencyMs", latency}}), true); return chunks;
+    } catch (const AxError& error) {
+      if (!retryable(error)) throw; last = std::current_exception(); std::string reason = error.type == "AxAIServiceStatusError" ? "status" : error.type == "AxAIServiceNetworkError" ? "network" : error.type == "AxAIServiceStreamTerminatedError" ? "stream-terminated" : error.type == "AxAIServiceTimeoutError" ? "timeout" : "response"; observe_adaptive(candidate, object({{"outcome", "failure"}}), true, reason, error.status);
+      emit_routing_event(object({{"type", "fallback"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"fromRouteKey", candidate.route_key}, {"toRouteKey", index + 1 < ranked.size() ? Value(ranked[index + 1].route_key) : Value()}, {"reason", reason}, {"status", error.status == 0 ? Value() : Value(error.status)}}));
+    }
+  }
+  if (last) std::rethrow_exception(last); throw AxError("runtime", "All candidate services exhausted (tried " + std::to_string(ranked.size()) + " service(s))");
 }
 
 Value AxBalancer::embed(Value request) { return embed(std::move(request), Value::object()); }

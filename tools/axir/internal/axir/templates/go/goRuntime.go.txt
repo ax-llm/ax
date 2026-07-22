@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -743,6 +744,34 @@ func _core_div(left Value, right Value) Value {
 	}
 	return num(left) / d
 }
+func _core_math_abs(value Value) Value             { return math.Abs(num(value)) }
+func _core_math_log(value Value) Value             { return math.Log(num(value)) }
+func _core_math_exp(value Value) Value             { return math.Exp(num(value)) }
+func _core_math_sqrt(value Value) Value            { return math.Sqrt(num(value)) }
+func _core_math_cos(value Value) Value             { return math.Cos(num(value)) }
+func _core_math_pow(left Value, right Value) Value { return math.Pow(num(left), num(right)) }
+
+var coreMathRandomMu sync.Mutex
+var coreMathRandomValues []float64
+
+func setCoreMathRandomValues(values []Value) {
+	coreMathRandomMu.Lock()
+	defer coreMathRandomMu.Unlock()
+	coreMathRandomValues = coreMathRandomValues[:0]
+	for _, value := range values {
+		coreMathRandomValues = append(coreMathRandomValues, num(value))
+	}
+}
+func _core_math_random() Value {
+	coreMathRandomMu.Lock()
+	defer coreMathRandomMu.Unlock()
+	if len(coreMathRandomValues) > 0 {
+		value := coreMathRandomValues[0]
+		coreMathRandomValues = coreMathRandomValues[1:]
+		return value
+	}
+	return rand.Float64()
+}
 func _core_contains(container Value, item Value) Value {
 	if m, ok := container.(map[string]Value); ok {
 		_, ok := m[display(item)]
@@ -1319,7 +1348,7 @@ func (s AxSignature) ToJSONSchema(options map[string]Value) Value {
 }
 func (s AxSignature) GetInputFields() []Field  { return append([]Field(nil), s.Inputs...) }
 func (s AxSignature) GetOutputFields() []Field { return append([]Field(nil), s.Outputs...) }
-func (s AxSignature) String() string { return display(mustCore(signature_to_string(s))) }
+func (s AxSignature) String() string           { return display(mustCore(signature_to_string(s))) }
 func (s AxSignature) toMap() map[string]Value {
 	inputs := Array()
 	for _, f := range s.Inputs {
@@ -2743,6 +2772,105 @@ func balancerBaseMetrics() map[string]Value {
 	return Object("latency", Object("chat", metricBucket(), "embed", metricBucket()), "errors", Object("chat", errorBucket(), "embed", errorBucket()))
 }
 
+type AxBalancerStatsKey struct{ Namespace, Slice, LogicalModel, RouteKey string }
+type AxBalancerRouteStats struct {
+	Version                                   int
+	Observations, Successes                   int64
+	FailureEWMA, LogLatencyMean, LogLatencyM2 float64
+}
+type AxBalancerStatsObservation struct {
+	Outcome   string
+	LatencyMs float64
+}
+type AxBalancerRoutingEvent = map[string]Value
+type AxBalancerCandidateScore = map[string]Value
+type AxBalancerFailureReason = string
+type AxBalancerStatsStore interface {
+	Get(AxBalancerStatsKey) (*AxBalancerRouteStats, error)
+	Observe(AxBalancerStatsKey, AxBalancerStatsObservation) error
+}
+type AxInMemoryBalancerStatsStore struct {
+	mu    sync.Mutex
+	stats map[AxBalancerStatsKey]AxBalancerRouteStats
+}
+
+func NewAxInMemoryBalancerStatsStore() *AxInMemoryBalancerStatsStore {
+	return &AxInMemoryBalancerStatsStore{stats: map[AxBalancerStatsKey]AxBalancerRouteStats{}}
+}
+func (s *AxInMemoryBalancerStatsStore) Get(key AxBalancerStatsKey) (*AxBalancerRouteStats, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value, ok := s.stats[key]
+	if !ok {
+		return nil, nil
+	}
+	copy := value
+	return &copy, nil
+}
+func (s *AxInMemoryBalancerStatsStore) Observe(key AxBalancerStatsKey, observation AxBalancerStatsObservation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var current *AxBalancerRouteStats
+	if value, ok := s.stats[key]; ok {
+		copy := value
+		current = &copy
+	}
+	s.stats[key] = UpdateBalancerRouteStats(current, observation)
+	return nil
+}
+func routeStatsMap(value *AxBalancerRouteStats) Value {
+	if value == nil {
+		return nil
+	}
+	return Object("version", value.Version, "observations", value.Observations, "successes", value.Successes, "failureEwma", value.FailureEWMA, "logLatencyMean", value.LogLatencyMean, "logLatencyM2", value.LogLatencyM2)
+}
+func routeStatsFrom(value Value) AxBalancerRouteStats {
+	raw := asMap(value)
+	return AxBalancerRouteStats{Version: int(num(coreGet(raw, "version", 1))), Observations: int64(num(coreGet(raw, "observations", 0))), Successes: int64(num(coreGet(raw, "successes", 0))), FailureEWMA: num(coreGet(raw, "failureEwma", 0.05)), LogLatencyMean: num(coreGet(raw, "logLatencyMean", 0)), LogLatencyM2: num(coreGet(raw, "logLatencyM2", 0))}
+}
+func CreateBalancerRouteStats() AxBalancerRouteStats {
+	return routeStatsFrom(mustCore(provider_balancer_route_stats()))
+}
+func UpdateBalancerRouteStats(current *AxBalancerRouteStats, observation AxBalancerStatsObservation) AxBalancerRouteStats {
+	raw := Object("outcome", observation.Outcome)
+	if observation.Outcome == "success" {
+		raw["latencyMs"] = observation.LatencyMs
+	}
+	return routeStatsFrom(mustCore(provider_balancer_observe_route(routeStatsMap(current), raw)))
+}
+func SampleBalancerRouteHealth(stats *AxBalancerRouteStats, deadlineMs float64) map[string]Value {
+	return asMap(mustCore(provider_balancer_sample_health(routeStatsMap(stats), deadlineMs)))
+}
+
+type AxBalancerAdaptiveStrategy struct {
+	DeadlineMs, BadOutcomeCost float64
+	ExpectedTokens             map[string]Value
+	EstimateCost               func(map[string]Value) float64
+	Namespace                  string
+	Slice                      func(map[string]Value) string
+	RouteKey                   func(AxAIService, int) string
+	StatsStore                 AxBalancerStatsStore
+	OnRoutingEvent             func(AxBalancerRoutingEvent)
+}
+type AxBalancerOptions struct {
+	Debug                                      bool
+	InitialBackoffMs, MaxBackoffMs, MaxRetries int
+	Strategy                                   *AxBalancerAdaptiveStrategy
+}
+type adaptiveBalancerState struct {
+	strategy  *AxBalancerAdaptiveStrategy
+	store     AxBalancerStatsStore
+	routeKeys map[AxAIService]string
+	indices   map[AxAIService]int
+}
+type adaptiveBalancerCandidate struct {
+	service                                                           AxAIService
+	order                                                             int
+	routeKey                                                          string
+	statsKey                                                          AxBalancerStatsKey
+	score, estimatedCost, failureProbability, deadlineMissProbability float64
+}
+
 type AxBalancer struct {
 	services            []AxAIService
 	currentService      AxAIService
@@ -2750,6 +2878,7 @@ type AxBalancer struct {
 	serviceFailures     map[string]int
 	policy              map[string]Value
 	maxRetries          int
+	adaptive            *adaptiveBalancerState
 }
 
 func NewAxBalancer(services []AxAIService, options map[string]Value) (*AxBalancer, error) {
@@ -2761,6 +2890,30 @@ func NewAxBalancer(services []AxAIService, options map[string]Value) (*AxBalance
 	if err := b.validateModels(); err != nil {
 		return nil, err
 	}
+	if strategyMap, ok := coreGet(options, "strategy", nil).(map[string]Value); ok && display(coreGet(strategyMap, "type", "")) == "adaptive" {
+		if namespace, present := strategyMap["namespace"]; present && strings.TrimSpace(display(namespace)) == "" {
+			return nil, AxError{Category: "runtime", Message: "Adaptive namespace must be non-empty."}
+		}
+		strategy := &AxBalancerAdaptiveStrategy{DeadlineMs: num(coreGet(strategyMap, "deadlineMs", coreGet(strategyMap, "deadline_ms", 0))), BadOutcomeCost: num(coreGet(strategyMap, "badOutcomeCost", coreGet(strategyMap, "bad_outcome_cost", -1))), ExpectedTokens: asMap(coreGet(strategyMap, "expectedTokens", coreGet(strategyMap, "expected_tokens", nil))), Namespace: display(coreGet(strategyMap, "namespace", "default"))}
+		if value, ok := coreGet(strategyMap, "estimateCost", nil).(func(map[string]Value) float64); ok {
+			strategy.EstimateCost = value
+		}
+		if value, ok := coreGet(strategyMap, "slice", nil).(func(map[string]Value) string); ok {
+			strategy.Slice = value
+		}
+		if value, ok := coreGet(strategyMap, "routeKey", nil).(func(AxAIService, int) string); ok {
+			strategy.RouteKey = value
+		}
+		if value, ok := coreGet(strategyMap, "statsStore", nil).(AxBalancerStatsStore); ok {
+			strategy.StatsStore = value
+		}
+		if value, ok := coreGet(strategyMap, "onRoutingEvent", nil).(func(AxBalancerRoutingEvent)); ok {
+			strategy.OnRoutingEvent = value
+		}
+		if err := b.initializeAdaptive(services, strategy); err != nil {
+			return nil, err
+		}
+	}
 	if display(coreGet(policy, "strategy", "metric")) != "input_order" {
 		sort.SliceStable(b.services, func(i, j int) bool {
 			return num(mustCore(provider_balancer_metric_score(b.services[i].GetMetrics()))) < num(mustCore(provider_balancer_metric_score(b.services[j].GetMetrics())))
@@ -2768,6 +2921,60 @@ func NewAxBalancer(services []AxAIService, options map[string]Value) (*AxBalance
 		b.currentService = b.services[0]
 	}
 	return b, nil
+}
+func NewAxBalancerWithOptions(services []AxAIService, options AxBalancerOptions) (*AxBalancer, error) {
+	maxRetries := options.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+	b, err := NewAxBalancer(services, Object("strategy", "metric", "debug", options.Debug, "maxRetries", maxRetries))
+	if err != nil {
+		return nil, err
+	}
+	if options.Strategy != nil {
+		if err := b.initializeAdaptive(services, options.Strategy); err != nil {
+			return nil, err
+		}
+	}
+	b.maxRetries = maxRetries
+	return b, nil
+}
+func (b *AxBalancer) initializeAdaptive(services []AxAIService, strategy *AxBalancerAdaptiveStrategy) error {
+	if strategy.Namespace == "" {
+		strategy.Namespace = "default"
+	}
+	if _, err := provider_balancer_adaptive_policy(Object("deadlineMs", strategy.DeadlineMs, "badOutcomeCost", strategy.BadOutcomeCost, "namespace", strategy.Namespace)); err != nil {
+		return err
+	}
+	if strategy.StatsStore != nil && strategy.RouteKey == nil {
+		return AxError{Category: "runtime", Message: "Adaptive routeKey is required when statsStore is supplied."}
+	}
+	store := strategy.StatsStore
+	if store == nil {
+		store = NewAxInMemoryBalancerStatsStore()
+	}
+	state := &adaptiveBalancerState{strategy: strategy, store: store, routeKeys: map[AxAIService]string{}, indices: map[AxAIService]int{}}
+	seen := map[string]bool{}
+	for index, service := range services {
+		key := service.GetID()
+		if strategy.RouteKey != nil {
+			key = strategy.RouteKey(service, index)
+		}
+		seenKeys := []Value{}
+		for value := range seen {
+			seenKeys = append(seenKeys, value)
+		}
+		validated, err := provider_balancer_validate_route_key(key, seenKeys)
+		if err != nil {
+			return err
+		}
+		key = display(validated)
+		seen[key] = true
+		state.routeKeys[service] = key
+		state.indices[service] = index
+	}
+	b.adaptive = state
+	return nil
 }
 func (b *AxBalancer) validateModels() error {
 	var reference []Value
@@ -2984,7 +3191,200 @@ func (b *AxBalancer) GetMetrics() map[string]Value {
 		),
 	)
 }
+func (b *AxBalancer) emitRoutingEvent(event AxBalancerRoutingEvent) {
+	if b.adaptive == nil || b.adaptive.strategy.OnRoutingEvent == nil {
+		return
+	}
+	func() { defer func() { _ = recover() }(); b.adaptive.strategy.OnRoutingEvent(event) }()
+}
+func adaptiveEventBase(kind string, key AxBalancerStatsKey) map[string]Value {
+	return Object("type", kind, "namespace", key.Namespace, "slice", key.Slice, "logicalModel", key.LogicalModel)
+}
+func (b *AxBalancer) adaptiveStats(key AxBalancerStatsKey) *AxBalancerRouteStats {
+	value, err := b.adaptive.store.Get(key)
+	if err == nil {
+		return value
+	}
+	event := adaptiveEventBase("store-error", key)
+	event["operation"] = "get"
+	event["routeKey"] = key.RouteKey
+	event["errorType"] = fmt.Sprintf("%T", err)
+	b.emitRoutingEvent(event)
+	return nil
+}
+func adaptiveErrorMeta(err error) (string, int) {
+	if value, ok := err.(AxError); ok {
+		reason := "response"
+		switch value.Type {
+		case "AxAIServiceStatusError":
+			reason = "status"
+		case "AxAIServiceNetworkError":
+			reason = "network"
+		case "AxAIServiceStreamTerminatedError":
+			reason = "stream-terminated"
+		case "AxAIServiceTimeoutError":
+			reason = "timeout"
+		}
+		return reason, value.Status
+	}
+	if value, ok := err.(*AxError); ok {
+		return adaptiveErrorMeta(*value)
+	}
+	return "response", 0
+}
+func (b *AxBalancer) observeAdaptive(candidate adaptiveBalancerCandidate, observation AxBalancerStatsObservation, streaming bool, reason string, status int) {
+	if err := b.adaptive.store.Observe(candidate.statsKey, observation); err != nil {
+		event := adaptiveEventBase("store-error", candidate.statsKey)
+		event["operation"] = "observe"
+		event["routeKey"] = candidate.routeKey
+		event["errorType"] = fmt.Sprintf("%T", err)
+		b.emitRoutingEvent(event)
+	}
+	event := adaptiveEventBase("observation", candidate.statsKey)
+	event["routeKey"] = candidate.routeKey
+	event["serviceName"] = candidate.service.GetName()
+	event["outcome"] = observation.Outcome
+	if observation.Outcome == "success" {
+		event["latencyMs"] = observation.LatencyMs
+	} else {
+		event["latencyMs"] = nil
+	}
+	event["streaming"] = streaming
+	if reason == "" {
+		event["reason"] = nil
+	} else {
+		event["reason"] = reason
+	}
+	if status == 0 {
+		event["status"] = nil
+	} else {
+		event["status"] = status
+	}
+	b.emitRoutingEvent(event)
+}
+func (b *AxBalancer) adaptiveCost(service AxAIService, routeKey string, request map[string]Value) (float64, error) {
+	logical := display(coreGet(request, "model", "default"))
+	resolved := logical
+	for _, raw := range asSlice(service.GetModelList()) {
+		entry := asMap(raw)
+		if equal(coreGet(entry, "key", nil), coreGet(request, "model", nil)) {
+			resolved = display(coreGet(entry, "model", logical))
+			break
+		}
+	}
+	context := Object("service", service, "serviceIndex", b.adaptive.indices[service], "routeKey", routeKey, "logicalModel", logical, "resolvedModel", resolved, "expectedTokens", b.adaptive.strategy.ExpectedTokens)
+	cost := 0.0
+	if b.adaptive.strategy.EstimateCost != nil {
+		cost = b.adaptive.strategy.EstimateCost(context)
+	} else if b.adaptive.strategy.ExpectedTokens == nil {
+		cost = service.GetEstimatedCost(nil)
+	} else {
+		prompt := num(coreGet(b.adaptive.strategy.ExpectedTokens, "promptTokens", coreGet(b.adaptive.strategy.ExpectedTokens, "prompt_tokens", 0)))
+		completion := num(coreGet(b.adaptive.strategy.ExpectedTokens, "completionTokens", coreGet(b.adaptive.strategy.ExpectedTokens, "completion_tokens", 0)))
+		cost = service.GetEstimatedCost(Object("ai", service.GetName(), "model", resolved, "tokens", Object("promptTokens", prompt, "completionTokens", completion, "totalTokens", prompt+completion)))
+	}
+	if math.IsNaN(cost) || math.IsInf(cost, 0) || cost < 0 {
+		return 0, AxError{Category: "runtime", Message: fmt.Sprintf("Adaptive estimated cost for route %q must be finite and non-negative.", routeKey)}
+	}
+	return cost, nil
+}
+func (b *AxBalancer) rankAdaptive(request map[string]Value, options map[string]Value) ([]adaptiveBalancerCandidate, error) {
+	eligible, err := b.candidateServices(request)
+	if err != nil {
+		return nil, err
+	}
+	logical := display(coreGet(request, "model", "default"))
+	slice := "default"
+	if b.adaptive.strategy.Slice != nil {
+		slice = b.adaptive.strategy.Slice(Object("model", coreGet(request, "model", nil), "options", options))
+	}
+	slice = strings.TrimSpace(slice)
+	if slice == "" {
+		return nil, AxError{Category: "runtime", Message: "Adaptive slice must be non-empty."}
+	}
+	ranked := make([]adaptiveBalancerCandidate, 0, len(eligible))
+	for order, service := range eligible {
+		routeKey := b.adaptive.routeKeys[service]
+		key := AxBalancerStatsKey{Namespace: b.adaptive.strategy.Namespace, Slice: slice, LogicalModel: logical, RouteKey: routeKey}
+		health := SampleBalancerRouteHealth(b.adaptiveStats(key), b.adaptive.strategy.DeadlineMs)
+		failure := num(coreGet(health, "failureProbability", 0.05))
+		late := num(coreGet(health, "deadlineMissProbability", 0))
+		estimated, err := b.adaptiveCost(service, routeKey, request)
+		if err != nil {
+			return nil, err
+		}
+		score := num(mustCore(provider_balancer_adaptive_score(estimated, b.adaptive.strategy.BadOutcomeCost, failure, late)))
+		ranked = append(ranked, adaptiveBalancerCandidate{service: service, order: order, routeKey: routeKey, statsKey: key, score: score, estimatedCost: estimated, failureProbability: failure, deadlineMissProbability: late})
+	}
+	rankInput := []Value{}
+	rankedByKey := map[string]adaptiveBalancerCandidate{}
+	for _, value := range ranked {
+		rankInput = append(rankInput, Object("routeKey", value.routeKey, "score", value.score, "order", value.order))
+		rankedByKey[value.routeKey] = value
+	}
+	coreRanked := []adaptiveBalancerCandidate{}
+	for _, raw := range asSlice(mustCore(provider_balancer_rank_candidates(rankInput))) {
+		coreRanked = append(coreRanked, rankedByKey[display(coreGet(raw, "routeKey", ""))])
+	}
+	ranked = coreRanked
+	scores := []Value{}
+	for _, value := range ranked {
+		scores = append(scores, Object("routeKey", value.routeKey, "serviceName", value.service.GetName(), "score", value.score, "estimatedCost", value.estimatedCost, "failureProbability", value.failureProbability, "deadlineMissProbability", value.deadlineMissProbability))
+	}
+	event := adaptiveEventBase("ranked", ranked[0].statsKey)
+	event["candidates"] = scores
+	b.emitRoutingEvent(event)
+	return ranked, nil
+}
 func (b *AxBalancer) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	if b.adaptive != nil {
+		ranked, err := b.rankAdaptive(request, options)
+		if err != nil {
+			return nil, err
+		}
+		var last error
+		for index, candidate := range ranked {
+			b.currentService = candidate.service
+			selected := adaptiveEventBase("selected", candidate.statsKey)
+			selected["routeKey"] = candidate.routeKey
+			selected["serviceName"] = candidate.service.GetName()
+			selected["attempt"] = index + 1
+			b.emitRoutingEvent(selected)
+			started := time.Now()
+			response, err := candidate.service.Chat(ctx, request, options)
+			if err == nil {
+				b.observeAdaptive(candidate, AxBalancerStatsObservation{Outcome: "success", LatencyMs: math.Max(1, float64(time.Since(started).Microseconds())/1000)}, false, "", 0)
+				return response, nil
+			}
+			if ctx.Err() != nil {
+				return nil, err
+			}
+			if !isRetryableAIError(err) {
+				return nil, err
+			}
+			last = err
+			reason, status := adaptiveErrorMeta(err)
+			b.observeAdaptive(candidate, AxBalancerStatsObservation{Outcome: "failure"}, false, reason, status)
+			fallback := adaptiveEventBase("fallback", candidate.statsKey)
+			fallback["fromRouteKey"] = candidate.routeKey
+			if index+1 < len(ranked) {
+				fallback["toRouteKey"] = ranked[index+1].routeKey
+			} else {
+				fallback["toRouteKey"] = nil
+			}
+			fallback["reason"] = reason
+			if status == 0 {
+				fallback["status"] = nil
+			} else {
+				fallback["status"] = status
+			}
+			b.emitRoutingEvent(fallback)
+		}
+		if last != nil {
+			return nil, last
+		}
+		return nil, AxError{Category: "runtime", Message: fmt.Sprintf("All candidate services exhausted (tried %d service(s))", len(ranked))}
+	}
 	candidates, err := b.candidateServices(request)
 	if err != nil {
 		return nil, err
@@ -3027,6 +3427,54 @@ func (b *AxBalancer) Embed(ctx context.Context, request map[string]Value, option
 	return b.currentService.Embed(ctx, request, options)
 }
 func (b *AxBalancer) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
+	if b.adaptive != nil {
+		ranked, err := b.rankAdaptive(request, options)
+		if err != nil {
+			return nil, err
+		}
+		var last error
+		for index, candidate := range ranked {
+			b.currentService = candidate.service
+			selected := adaptiveEventBase("selected", candidate.statsKey)
+			selected["routeKey"] = candidate.routeKey
+			selected["serviceName"] = candidate.service.GetName()
+			selected["attempt"] = index + 1
+			b.emitRoutingEvent(selected)
+			started := time.Now()
+			chunks, err := candidate.service.Stream(ctx, request, options)
+			if err == nil {
+				b.observeAdaptive(candidate, AxBalancerStatsObservation{Outcome: "success", LatencyMs: math.Max(1, float64(time.Since(started).Microseconds())/1000)}, true, "", 0)
+				return chunks, nil
+			}
+			if ctx.Err() != nil {
+				return nil, err
+			}
+			if !isRetryableAIError(err) {
+				return nil, err
+			}
+			last = err
+			reason, status := adaptiveErrorMeta(err)
+			b.observeAdaptive(candidate, AxBalancerStatsObservation{Outcome: "failure"}, true, reason, status)
+			fallback := adaptiveEventBase("fallback", candidate.statsKey)
+			fallback["fromRouteKey"] = candidate.routeKey
+			if index+1 < len(ranked) {
+				fallback["toRouteKey"] = ranked[index+1].routeKey
+			} else {
+				fallback["toRouteKey"] = nil
+			}
+			fallback["reason"] = reason
+			if status == 0 {
+				fallback["status"] = nil
+			} else {
+				fallback["status"] = status
+			}
+			b.emitRoutingEvent(fallback)
+		}
+		if last != nil {
+			return nil, last
+		}
+		return nil, AxError{Category: "runtime", Message: fmt.Sprintf("All candidate services exhausted (tried %d service(s))", len(ranked))}
+	}
 	value, err := b.Chat(ctx, request, options)
 	if err != nil {
 		return nil, err
@@ -3190,25 +3638,25 @@ type AxProgram interface {
 }
 
 type AxGen struct {
-	Signature           AxSignature
-	Options             map[string]Value
-	Functions           []Tool
-	BaseFunctions       []Tool
-	ExecutionContext    *AxExecutionContext
+	Signature             AxSignature
+	Options               map[string]Value
+	Functions             []Tool
+	BaseFunctions         []Tool
+	ExecutionContext      *AxExecutionContext
 	ExecutionContextError error
-	Examples            Value
-	Demos               Value
-	Assertions          Value
-	StreamingAssertions Value
-	FieldProcessors     Value
-	StopFunctions       Value
-	Memory              Value
-	ChatLog             Value
-	FunctionCallTraces  Value
-	Traces              Value
-	PromptTemplate      Value
-	ProgramID           string
-	Instruction         string
+	Examples              Value
+	Demos                 Value
+	Assertions            Value
+	StreamingAssertions   Value
+	FieldProcessors       Value
+	StopFunctions         Value
+	Memory                Value
+	ChatLog               Value
+	FunctionCallTraces    Value
+	Traces                Value
+	PromptTemplate        Value
+	ProgramID             string
+	Instruction           string
 }
 
 func NewAx(signature string, options map[string]Value) *AxGen {
@@ -3216,17 +3664,42 @@ func NewAx(signature string, options map[string]Value) *AxGen {
 		options = Object()
 	}
 	g := &AxGen{Signature: NewSignature(signature), Options: options, Examples: Array(), Demos: Array(), Assertions: coreGet(options, "assertions", Array()), StreamingAssertions: coreGet(options, "streaming_assertions", coreGet(options, "streamingAssertions", Array())), FieldProcessors: Object(), StopFunctions: Array(), Memory: Array(), ChatLog: Array(), FunctionCallTraces: Array(), Traces: Array(), ProgramID: display(coreGet(options, "id", coreGet(options, "program_id", coreGet(options, "programId", "root")))), Instruction: display(coreGet(options, "instruction", ""))}
-	for _, raw := range asSlice(coreGet(options, "functions", Array())) { if tool, ok := raw.(Tool); ok { g.BaseFunctions=append(g.BaseFunctions,tool) } }
-	g.Functions=append([]Tool(nil),g.BaseFunctions...)
-	g.ExecutionContext,g.ExecutionContextError=ResolveAxExecutionContext(options,nil)
-	if g.ExecutionContextError==nil && g.ExecutionContext!=nil { tools,err:=g.ExecutionContext.NativeTools();g.ExecutionContextError=err;g.Functions=append(g.Functions,tools...) }
+	for _, raw := range asSlice(coreGet(options, "functions", Array())) {
+		if tool, ok := raw.(Tool); ok {
+			g.BaseFunctions = append(g.BaseFunctions, tool)
+		}
+	}
+	g.Functions = append([]Tool(nil), g.BaseFunctions...)
+	g.ExecutionContext, g.ExecutionContextError = ResolveAxExecutionContext(options, nil)
+	if g.ExecutionContextError == nil && g.ExecutionContext != nil {
+		tools, err := g.ExecutionContext.NativeTools()
+		g.ExecutionContextError = err
+		g.Functions = append(g.Functions, tools...)
+	}
 	return g
 }
 func NewGen(signature string, options map[string]Value) *AxGen { return NewAx(signature, options) }
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
-	if g.ExecutionContextError!=nil{return nil,g.ExecutionContextError}
-	callContext,err:=ResolveAxExecutionContext(options,g.ExecutionContext);if err!=nil{return nil,err}
-	if callContext!=g.ExecutionContext { clone:=*g;clone.ExecutionContext=callContext;clone.Functions=append([]Tool(nil),g.BaseFunctions...);if callContext!=nil{tools,toolErr:=callContext.NativeTools();if toolErr!=nil{return nil,toolErr};clone.Functions=append(clone.Functions,tools...)};return clone.Forward(ctx,client,values,map[string]Value{"executionContext":callContext}) }
+	if g.ExecutionContextError != nil {
+		return nil, g.ExecutionContextError
+	}
+	callContext, err := ResolveAxExecutionContext(options, g.ExecutionContext)
+	if err != nil {
+		return nil, err
+	}
+	if callContext != g.ExecutionContext {
+		clone := *g
+		clone.ExecutionContext = callContext
+		clone.Functions = append([]Tool(nil), g.BaseFunctions...)
+		if callContext != nil {
+			tools, toolErr := callContext.NativeTools()
+			if toolErr != nil {
+				return nil, toolErr
+			}
+			clone.Functions = append(clone.Functions, tools...)
+		}
+		return clone.Forward(ctx, client, values, map[string]Value{"executionContext": callContext})
+	}
 	return safeValue(func() Value { return mustCore(_forward_impl(g, bindAIClientContext(ctx, client), values, options)) })
 }
 func (g *AxGen) AddAssert(assertion Value) *AxGen {
@@ -3325,17 +3798,17 @@ func (g *AxGen) ApplyOptimizedComponents(m map[string]Value) {
 }
 
 type AxAgent struct {
-	State     map[string]Value
-	Signature AxSignature
-	Options   map[string]Value
-	Executor  *AxGen
-	Responder *AxGen
-	Distiller *AxGen
-	LlmQuery  *AxGen
-	ExecutionContext *AxExecutionContext
+	State                 map[string]Value
+	Signature             AxSignature
+	Options               map[string]Value
+	Executor              *AxGen
+	Responder             *AxGen
+	Distiller             *AxGen
+	LlmQuery              *AxGen
+	ExecutionContext      *AxExecutionContext
 	ExecutionContextError error
-	PlaybookHandle *AxPlaybook
-	PlaybookConfig Value
+	PlaybookHandle        *AxPlaybook
+	PlaybookConfig        Value
 }
 
 // AxMemoriesSearchFn / AxSkillsSearchFn are native host callbacks the agent invokes (from the agent
@@ -3356,8 +3829,13 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	if options == nil {
 		options = Object()
 	}
-	executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
-	if executionContext!=nil { functions:=asSlice(coreGet(options,"functions",Array()));functions=append(functions,executionContext.RuntimeModules()...);options["functions"]=functions;options["executionContext"]=executionContext }
+	executionContext, contextErr := ResolveAxExecutionContext(options, nil)
+	if executionContext != nil {
+		functions := asSlice(coreGet(options, "functions", Array()))
+		functions = append(functions, executionContext.RuntimeModules()...)
+		options["functions"] = functions
+		options["executionContext"] = executionContext
+	}
 	state := asMap(mustCore(_agent_factory(signature, options)))
 	sig := NewSignature(signature)
 	distillerOptions := Object("validation_retries", 0, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
@@ -3367,9 +3845,14 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
 	responderSignature := display(coreGet(state, "responder_signature", signature))
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
-	if executionContext!=nil { distillerOptions["executionContext"]=executionContext;executorOptions["executionContext"]=executionContext;responderOptions["executionContext"]=executionContext;llmQueryOptions["executionContext"]=executionContext }
+	if executionContext != nil {
+		distillerOptions["executionContext"] = executionContext
+		executorOptions["executionContext"] = executionContext
+		responderOptions["executionContext"] = executionContext
+		llmQueryOptions["executionContext"] = executionContext
+	}
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
-	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions),ExecutionContext:executionContext,ExecutionContextError:contextErr,PlaybookConfig:coreGet(options,"playbook",nil)}
+	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions), ExecutionContext: executionContext, ExecutionContextError: contextErr, PlaybookConfig: coreGet(options, "playbook", nil)}
 }
 func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, a.Options)))
@@ -3408,7 +3891,23 @@ func (a *AxAgent) AddActorInstruction(addendum string) *AxAgent {
 }
 func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
 	a.ensureConfiguredPlaybook(client)
-	if a.ExecutionContextError!=nil{return nil,a.ExecutionContextError};callOptions:=map[string]Value{};for key,value:=range options{callOptions[key]=value};executionContext,err:=ResolveAxExecutionContext(callOptions,a.ExecutionContext);if err!=nil{return nil,err};if executionContext!=nil{callOptions["executionContext"]=executionContext;functions:=asSlice(coreGet(callOptions,"functions",Array()));functions=append(functions,executionContext.RuntimeModules()...);callOptions["functions"]=functions}
+	if a.ExecutionContextError != nil {
+		return nil, a.ExecutionContextError
+	}
+	callOptions := map[string]Value{}
+	for key, value := range options {
+		callOptions[key] = value
+	}
+	executionContext, err := ResolveAxExecutionContext(callOptions, a.ExecutionContext)
+	if err != nil {
+		return nil, err
+	}
+	if executionContext != nil {
+		callOptions["executionContext"] = executionContext
+		functions := asSlice(coreGet(callOptions, "functions", Array()))
+		functions = append(functions, executionContext.RuntimeModules()...)
+		callOptions["functions"] = functions
+	}
 	boundClient := bindAIClientContext(ctx, client)
 	// Wire the built-in llmQuery primitive: a focused sub-query the model can
 	// await inside the runtime. The logic lives in the AxIR-generated helper;
@@ -3422,8 +3921,19 @@ func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[strin
 	output, forwardErr := safeValue(func() Value {
 		return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, callOptions))
 	})
-	if forwardErr == nil { if config,ok:=coreGet(a.Options,"citations",nil).(map[string]Value);ok{if callback,ok:=coreGet(config,"onCitations",coreGet(config,"on_citations",nil)).(func([]Value));ok{func(){defer func(){_ = recover()}();callback(append([]Value{},asSlice(coreGet(a.State,"last_citations",Array()))...))}()}} }
-	if forwardErr == nil { a.learnPlaybookFailures(ctx, output) }
+	if forwardErr == nil {
+		if config, ok := coreGet(a.Options, "citations", nil).(map[string]Value); ok {
+			if callback, ok := coreGet(config, "onCitations", coreGet(config, "on_citations", nil)).(func([]Value)); ok {
+				func() {
+					defer func() { _ = recover() }()
+					callback(append([]Value{}, asSlice(coreGet(a.State, "last_citations", Array()))...))
+				}()
+			}
+		}
+	}
+	if forwardErr == nil {
+		a.learnPlaybookFailures(ctx, output)
+	}
 	return output, forwardErr
 }
 func (a *AxAgent) get(k string, fallback Value) Value {
@@ -3627,7 +4137,9 @@ func (a *AxAgent) Playbook(options map[string]Value) *AxPlaybook {
 		options = Object()
 	}
 	if a.PlaybookHandle != nil {
-		if len(options) > 0 { panic(AxError{Category: "optimize", Message: "AxAgent.Playbook(): this agent already has a playbook; call Playbook(nil) to use it."}) }
+		if len(options) > 0 {
+			panic(AxError{Category: "optimize", Message: "AxAgent.Playbook(): this agent already has a playbook; call Playbook(nil) to use it."})
+		}
 		return a.PlaybookHandle
 	}
 	target := display(coreGet(options, "target", "actor"))
@@ -3662,39 +4174,101 @@ func (a *AxAgent) Playbook(options map[string]Value) *AxPlaybook {
 func (a *AxAgent) GetPlaybook() *AxPlaybook { return a.PlaybookHandle }
 
 func (a *AxAgent) ensureConfiguredPlaybook(client AIClient) {
-	if a.PlaybookHandle != nil || a.PlaybookConfig == nil || a.PlaybookConfig == false { return }
+	if a.PlaybookHandle != nil || a.PlaybookConfig == nil || a.PlaybookConfig == false {
+		return
+	}
 	config := asMap(a.PlaybookConfig)
-	if config == nil { config = Object() }
-	seed := coreGet(config,"seed",nil)
-	if seed == nil && (coreGet(config,"playbook",nil) != nil || coreGet(config,"artifact",nil) != nil) { seed = config }
+	if config == nil {
+		config = Object()
+	}
+	seed := coreGet(config, "seed", nil)
+	if seed == nil && (coreGet(config, "playbook", nil) != nil || coreGet(config, "artifact", nil) != nil) {
+		seed = config
+	}
 	options := cloneMap(config)
-	if coreGet(options,"maxReflectorRounds",nil)==nil && coreGet(options,"max_reflector_rounds",nil)==nil { options["maxReflectorRounds"] = 1 }
-	if playbookOption(options,"studentAI","student_ai","student","client","ai") == nil { options["studentAI"] = client }
+	if coreGet(options, "maxReflectorRounds", nil) == nil && coreGet(options, "max_reflector_rounds", nil) == nil {
+		options["maxReflectorRounds"] = 1
+	}
+	if playbookOption(options, "studentAI", "student_ai", "student", "client", "ai") == nil {
+		options["studentAI"] = client
+	}
 	handle := a.Playbook(options)
 	if seedMap, ok := seed.(map[string]Value); ok {
-		if coreGet(seedMap,"playbook",nil) != nil { handle.Load(seedMap) } else { handle.Load(Object("playbook",seedMap)) }
+		if coreGet(seedMap, "playbook", nil) != nil {
+			handle.Load(seedMap)
+		} else {
+			handle.Load(Object("playbook", seedMap))
+		}
 	}
 }
 
 func (a *AxAgent) learnPlaybookFailures(ctx context.Context, output Value) {
-	if a.PlaybookHandle == nil || a.PlaybookConfig == nil { return }
-	config := asMap(a.PlaybookConfig); if config == nil { config = Object() }
-	learn := coreGet(config,"learn",true); if learn == false { return }
-	defer func(){ _ = recover() }()
-	signals := append([]Value{}, asSlice(coreGet(a.State,"failure_signals",Array()))...)
-	learnConfig:=asMap(learn);if learnConfig==nil{learnConfig=Object()}
-	minSignals:=int(num(coreGet(learnConfig,"minSignals",coreGet(learnConfig,"min_signals",1))));if len(signals)<minSignals{return}
-	covered:=map[string]bool{}
-	for _,signature:=range asSlice(mustCore(_agent_collect_covered_failure_signatures(a.PlaybookHandle.GetState()))){covered[display(signature)]=true}
-	if coreGet(learnConfig,"dedupe",true)!=false{fresh:=[]Value{};for _,signal:=range signals{if !covered[display(coreGet(signal,"signature",""))]{fresh=append(fresh,signal)}};signals=fresh}
-	if len(signals)==0{return}
-	if len(signals)>12 { signals=signals[:12] }
-	feedback:="Agent run failures to avoid:\n";signatures:=Array();for _,raw:=range signals{signal:=asMap(raw);signature:=coreGet(signal,"signature","");signatures=append(signatures,signature);feedback+=fmt.Sprintf("- [%s] %s: %s\n",display(coreGet(signal,"kind","error_turn")),display(signature),display(coreGet(signal,"detail","")))};feedback+="Curate ONE bounded avoidance rule into failures_to_avoid."
-	before:=stableStringify(coreGet(a.PlaybookHandle.GetState(),"playbook",Object()))
-	result,err := a.PlaybookHandle.Update(ctx,Object("example",Object("task",coreGet(a.Options,"instruction","agent run"),"failureSignatures",signatures),"prediction",output,"feedback",feedback));if err!=nil{return}
-	snapshot:=a.PlaybookHandle.GetState();status:="updated";if stableStringify(coreGet(snapshot,"playbook",Object()))==before{status="unchanged"}
-	update:=Object("status",status,"signals",Array(signals...),"feedback",feedback,"snapshot",snapshot,"result",result)
-	switch callback:=coreGet(config,"onUpdate",coreGet(config,"on_update",nil)).(type){case func(Value):callback(update);case func(map[string]Value):callback(update)}
+	if a.PlaybookHandle == nil || a.PlaybookConfig == nil {
+		return
+	}
+	config := asMap(a.PlaybookConfig)
+	if config == nil {
+		config = Object()
+	}
+	learn := coreGet(config, "learn", true)
+	if learn == false {
+		return
+	}
+	defer func() { _ = recover() }()
+	signals := append([]Value{}, asSlice(coreGet(a.State, "failure_signals", Array()))...)
+	learnConfig := asMap(learn)
+	if learnConfig == nil {
+		learnConfig = Object()
+	}
+	minSignals := int(num(coreGet(learnConfig, "minSignals", coreGet(learnConfig, "min_signals", 1))))
+	if len(signals) < minSignals {
+		return
+	}
+	covered := map[string]bool{}
+	for _, signature := range asSlice(mustCore(_agent_collect_covered_failure_signatures(a.PlaybookHandle.GetState()))) {
+		covered[display(signature)] = true
+	}
+	if coreGet(learnConfig, "dedupe", true) != false {
+		fresh := []Value{}
+		for _, signal := range signals {
+			if !covered[display(coreGet(signal, "signature", ""))] {
+				fresh = append(fresh, signal)
+			}
+		}
+		signals = fresh
+	}
+	if len(signals) == 0 {
+		return
+	}
+	if len(signals) > 12 {
+		signals = signals[:12]
+	}
+	feedback := "Agent run failures to avoid:\n"
+	signatures := Array()
+	for _, raw := range signals {
+		signal := asMap(raw)
+		signature := coreGet(signal, "signature", "")
+		signatures = append(signatures, signature)
+		feedback += fmt.Sprintf("- [%s] %s: %s\n", display(coreGet(signal, "kind", "error_turn")), display(signature), display(coreGet(signal, "detail", "")))
+	}
+	feedback += "Curate ONE bounded avoidance rule into failures_to_avoid."
+	before := stableStringify(coreGet(a.PlaybookHandle.GetState(), "playbook", Object()))
+	result, err := a.PlaybookHandle.Update(ctx, Object("example", Object("task", coreGet(a.Options, "instruction", "agent run"), "failureSignatures", signatures), "prediction", output, "feedback", feedback))
+	if err != nil {
+		return
+	}
+	snapshot := a.PlaybookHandle.GetState()
+	status := "updated"
+	if stableStringify(coreGet(snapshot, "playbook", Object())) == before {
+		status = "unchanged"
+	}
+	update := Object("status", status, "signals", Array(signals...), "feedback", feedback, "snapshot", snapshot, "result", result)
+	switch callback := coreGet(config, "onUpdate", coreGet(config, "on_update", nil)).(type) {
+	case func(Value):
+		callback(update)
+	case func(map[string]Value):
+		callback(update)
+	}
 }
 
 type axAgentOptimizerEvaluator struct {
@@ -3805,69 +4379,87 @@ func (g *AxGen) EvaluateOptimization(client AIClient, dataset Value, candidateMa
 }
 
 type AxFlow struct {
-	State   map[string]Value
-	Steps   Value
-	Options map[string]Value
-	ExecutionContext *AxExecutionContext
+	State                 map[string]Value
+	Steps                 Value
+	Options               map[string]Value
+	ExecutionContext      *AxExecutionContext
 	ExecutionContextError error
 }
 
 func NewFlow(source Value, bindings ...map[string]Value) *AxFlow {
-    if text, ok := source.(string); ok {
-        resolved := Object()
-        if len(bindings) > 0 && bindings[0] != nil { resolved = bindings[0] }
-        state := asMap(mustCore(_flow_from_mermaid(text, resolved)))
-        state["mermaidPercent"] = "%"
-        state["mermaidOpenBrace"] = "{"
-        state["mermaidCloseBrace"] = "}"
-        state["steps"] = hydrateMermaidSteps(coreGet(state, "steps", Array()), resolved)
-        options := asMap(coreGet(resolved, "options", Object()))
-        executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
-        return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options,ExecutionContext:executionContext,ExecutionContextError:contextErr}
-    }
-    options := asMap(source)
-    if options == nil { options = Object() }
-    state := asMap(mustCore(_flow_factory(options)))
-    state["mermaidPercent"] = "%"
-    state["mermaidOpenBrace"] = "{"
-    state["mermaidCloseBrace"] = "}"
-	executionContext,contextErr:=ResolveAxExecutionContext(options,nil)
-	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options,ExecutionContext:executionContext,ExecutionContextError:contextErr}
+	if text, ok := source.(string); ok {
+		resolved := Object()
+		if len(bindings) > 0 && bindings[0] != nil {
+			resolved = bindings[0]
+		}
+		state := asMap(mustCore(_flow_from_mermaid(text, resolved)))
+		state["mermaidPercent"] = "%"
+		state["mermaidOpenBrace"] = "{"
+		state["mermaidCloseBrace"] = "}"
+		state["steps"] = hydrateMermaidSteps(coreGet(state, "steps", Array()), resolved)
+		options := asMap(coreGet(resolved, "options", Object()))
+		executionContext, contextErr := ResolveAxExecutionContext(options, nil)
+		return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options, ExecutionContext: executionContext, ExecutionContextError: contextErr}
+	}
+	options := asMap(source)
+	if options == nil {
+		options = Object()
+	}
+	state := asMap(mustCore(_flow_factory(options)))
+	state["mermaidPercent"] = "%"
+	state["mermaidOpenBrace"] = "{"
+	state["mermaidCloseBrace"] = "}"
+	executionContext, contextErr := ResolveAxExecutionContext(options, nil)
+	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options, ExecutionContext: executionContext, ExecutionContextError: contextErr}
 }
 func (f *AxFlow) Execute(name string, program AxProgram, options map[string]Value) *AxFlow {
 	if options == nil {
 		options = Object()
 	}
-    if gen, ok := program.(*AxGen); ok { if _, found := options["signatureText"]; !found { options["signatureText"] = gen.Signature.String() } }
-    step := mustCore(_flow_step("execute", name, program, options))
+	if gen, ok := program.(*AxGen); ok {
+		if _, found := options["signatureText"]; !found {
+			options["signatureText"] = gen.Signature.String()
+		}
+	}
+	step := mustCore(_flow_step("execute", name, program, options))
 	mustCore(_flow_add_step(f.State, step))
 	f.Steps = coreGet(f.State, "steps", Array())
 	return f
 }
 func hydrateMermaidSteps(raw Value, bindings map[string]Value) Value {
-    out := MutableArray()
-    nodes := asMap(coreGet(bindings, "nodes", Object()))
-    for _, item := range asSlice(raw) {
-        step := asMap(item)
-        name := display(coreGet(step, "name", ""))
-        program := coreGet(step, "program", nil)
-        if binding, ok := nodes[name]; ok { program = binding }
-        if _, ok := program.(func(map[string]Value) Value); ok {
-            coreSet(step, "kind", "map")
-            coreSet(step, "program", program)
-        } else if signature, ok := program.(string); ok {
-            coreSet(step, "program", NewAx(signature, asMap(coreGet(step, "options", Object()))))
-        } else if program != nil { coreSet(step, "program", program) }
-        options := asMap(coreGet(step, "options", Object()))
-        nested := coreGet(options, "steps", Array())
-        if len(asSlice(nested)) > 0 { coreSet(options, "steps", hydrateMermaidSteps(nested, bindings)); coreSet(step, "options", options) }
-        out = coreAppend(out, step).(*AxArray)
-    }
-    return out
+	out := MutableArray()
+	nodes := asMap(coreGet(bindings, "nodes", Object()))
+	for _, item := range asSlice(raw) {
+		step := asMap(item)
+		name := display(coreGet(step, "name", ""))
+		program := coreGet(step, "program", nil)
+		if binding, ok := nodes[name]; ok {
+			program = binding
+		}
+		if _, ok := program.(func(map[string]Value) Value); ok {
+			coreSet(step, "kind", "map")
+			coreSet(step, "program", program)
+		} else if signature, ok := program.(string); ok {
+			coreSet(step, "program", NewAx(signature, asMap(coreGet(step, "options", Object()))))
+		} else if program != nil {
+			coreSet(step, "program", program)
+		}
+		options := asMap(coreGet(step, "options", Object()))
+		nested := coreGet(options, "steps", Array())
+		if len(asSlice(nested)) > 0 {
+			coreSet(options, "steps", hydrateMermaidSteps(nested, bindings))
+			coreSet(step, "options", options)
+		}
+		out = coreAppend(out, step).(*AxArray)
+	}
+	return out
 }
 func (f *AxFlow) ToString(options ...map[string]Value) string {
-    resolved := Object(); if len(options) > 0 && options[0] != nil { resolved = options[0] }
-    return display(mustCore(_flow_to_mermaid(f.State, resolved)))
+	resolved := Object()
+	if len(options) > 0 && options[0] != nil {
+		resolved = options[0]
+	}
+	return display(mustCore(_flow_to_mermaid(f.State, resolved)))
 }
 func (f *AxFlow) String() string { return f.ToString() }
 func (f *AxFlow) Returns(mapping map[string]Value) *AxFlow {
@@ -3876,7 +4468,22 @@ func (f *AxFlow) Returns(mapping map[string]Value) *AxFlow {
 }
 func (f *AxFlow) GetPlan() Value { return mustCore(_flow_plan(f.State)) }
 func (f *AxFlow) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
-	if f.ExecutionContextError!=nil{return nil,f.ExecutionContextError};callOptions:=map[string]Value{};for key,value:=range options{callOptions[key]=value};executionContext,err:=ResolveAxExecutionContext(callOptions,f.ExecutionContext);if err!=nil{return nil,err};if executionContext!=nil{callOptions["executionContext"]=executionContext;callOptions["mcp"]=executionContext.MCP;callOptions["ucp"]=executionContext.UCP}
+	if f.ExecutionContextError != nil {
+		return nil, f.ExecutionContextError
+	}
+	callOptions := map[string]Value{}
+	for key, value := range options {
+		callOptions[key] = value
+	}
+	executionContext, err := ResolveAxExecutionContext(callOptions, f.ExecutionContext)
+	if err != nil {
+		return nil, err
+	}
+	if executionContext != nil {
+		callOptions["executionContext"] = executionContext
+		callOptions["mcp"] = executionContext.MCP
+		callOptions["ucp"] = executionContext.UCP
+	}
 	return safeValue(func() Value {
 		return mustCore(_flow_forward(f.State, bindAIClientContext(ctx, client), values, callOptions))
 	})
@@ -4834,8 +5441,12 @@ func playbookCollapse(value string) string {
 }
 
 func playbookErrorSignature(value string) string {
-	if match := agentPlaybookErrorSignaturePattern.FindStringSubmatch(value); len(match) > 1 { return match[1] }
-	if len(value) > 80 { return value[:80] }
+	if match := agentPlaybookErrorSignaturePattern.FindStringSubmatch(value); len(match) > 1 {
+		return match[1]
+	}
+	if len(value) > 80 {
+		return value[:80]
+	}
 	return value
 }
 
@@ -4845,20 +5456,30 @@ func playbookRecordSignature(record Value) string {
 	order := []string{}
 	for _, signal := range asSlice(coreGet(prediction, "failureSignals", Array())) {
 		signature := display(coreGet(signal, "signature", "behavioral:no_error"))
-		if _, ok := counts[signature]; !ok { order = append(order, signature) }
+		if _, ok := counts[signature]; !ok {
+			order = append(order, signature)
+		}
 		counts[signature] += int(num(coreGet(signal, "occurrences", 1)))
 	}
 	bestSignature, bestCount := "", 0
 	for _, signature := range order {
-		if counts[signature] > bestCount { bestSignature, bestCount = signature, counts[signature] }
+		if counts[signature] > bestCount {
+			bestSignature, bestCount = signature, counts[signature]
+		}
 	}
-	if bestSignature != "" { return bestSignature }
+	if bestSignature != "" {
+		return bestSignature
+	}
 	if toolErrors := asSlice(coreGet(prediction, "toolErrors", Array())); len(toolErrors) > 0 {
 		signature := strings.SplitN(display(toolErrors[0]), "\n", 2)[0]
-		if len(signature) > 100 { signature = signature[:100] }
+		if len(signature) > 100 {
+			signature = signature[:100]
+		}
 		return signature
 	}
-	if value := coreGet(record, "error", nil); value != nil { return playbookErrorSignature(display(value)) }
+	if value := coreGet(record, "error", nil); value != nil {
+		return playbookErrorSignature(display(value))
+	}
 	if match := agentPlaybookActionErrorPattern.FindStringSubmatch(display(coreGet(prediction, "actionLog", ""))); len(match) > 1 {
 		return playbookErrorSignature(match[1])
 	}
@@ -4866,17 +5487,29 @@ func playbookRecordSignature(record Value) string {
 }
 
 func playbookFailureExcerpt(record Value, signature string) string {
-	if value := coreGet(record, "error", nil); value != nil { return "Run threw: " + display(value) }
+	if value := coreGet(record, "error", nil); value != nil {
+		return "Run threw: " + display(value)
+	}
 	actionLog := display(coreGet(coreGet(record, "prediction", Object()), "actionLog", ""))
-	if len(actionLog) <= 2000 { return actionLog }
+	if len(actionLog) <= 2000 {
+		return actionLog
+	}
 	needle := signature
-	if len(needle) > 40 { needle = needle[:40] }
+	if len(needle) > 40 {
+		needle = needle[:40]
+	}
 	hit := strings.Index(actionLog, needle)
-	if hit < 0 { return actionLog[len(actionLog)-2000:] }
+	if hit < 0 {
+		return actionLog[len(actionLog)-2000:]
+	}
 	start := hit - 1000
-	if start < 0 { start = 0 }
+	if start < 0 {
+		start = 0
+	}
 	end := start + 2000
-	if end > len(actionLog) { end = len(actionLog) }
+	if end > len(actionLog) {
+		end = len(actionLog)
+	}
 	return actionLog[start:end]
 }
 
@@ -5106,8 +5739,12 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 	if p.agent == nil {
 		return nil, AxError{Category: "optimize", Message: "AxAgent.Playbook().EvolveAgent() requires an agent-bound playbook"}
 	}
-	if ctx == nil { ctx = context.Background() }
-	if options == nil { options = Object() }
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if options == nil {
+		options = Object()
+	}
 	normalized := asMap(mustCore(_normalize_optimization_dataset(dataset)))
 	train := asSlice(coreGet(normalized, "train", Array()))
 	validation := asSlice(coreGet(normalized, "validation", Array()))
@@ -5118,31 +5755,50 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 	minGain := num(coreGet(options, "minHeldInGain", coreGet(options, "min_held_in_gain", 0.05)))
 	epsilon := num(coreGet(options, "epsilon", 0.01))
 	maxProposals := int(num(coreGet(options, "maxProposals", coreGet(options, "max_proposals", 4))))
-	if maxProposals < 1 { maxProposals = 1 }
+	if maxProposals < 1 {
+		maxProposals = 1
+	}
 	verify := coreGet(options, "verify", true) != false
 	runsPerTask := int(num(coreGet(options, "runsPerTask", coreGet(options, "runs_per_task", 1))))
-	if runsPerTask < 1 { runsPerTask = 1 }
+	if runsPerTask < 1 {
+		runsPerTask = 1
+	}
 	datasetSize := (len(train) + len(validation)) * runsPerTask
 	defaultBudget := (maxProposals + 1) * datasetSize
-	if defaultBudget < 100 { defaultBudget = 100 }
+	if defaultBudget < 100 {
+		defaultBudget = 100
+	}
 	maxMetricCalls := int(num(coreGet(options, "maxMetricCalls", coreGet(options, "max_metric_calls", defaultBudget))))
-	if maxMetricCalls < 1 { maxMetricCalls = 1 }
+	if maxMetricCalls < 1 {
+		maxMetricCalls = 1
+	}
 	remaining := maxMetricCalls
 	teacherAI := playbookClient(playbookOption(options, "teacherAI", "teacher_ai", "teacher"))
-	if teacherAI == nil { teacherAI = p.teacherAI }
-	type batch struct { records []Value; mean float64; exhausted bool }
+	if teacherAI == nil {
+		teacherAI = p.teacherAI
+	}
+	type batch struct {
+		records   []Value
+		mean      float64
+		exhausted bool
+	}
 	runBatch := func(tasks []Value) batch {
 		records := []Value{}
 		weightedSum, weightSum := 0.0, 0.0
 		exhausted := false
 		for taskIndex, raw := range tasks {
 			task, ok := raw.(map[string]Value)
-			if !ok { task = Object("input", raw) }
+			if !ok {
+				task = Object("input", raw)
+			}
 			var prediction Value
 			lastError := ""
 			scoreSum, completedRuns := 0.0, 0
 			for run := 0; run < runsPerTask; run++ {
-				if remaining <= 0 { exhausted = true; break }
+				if remaining <= 0 {
+					exhausted = true
+					break
+				}
 				remaining--
 				candidate, evalErr := safeValue(func() Value { return p.agent.EvaluateOptimizationTask(p.studentAI, task, options) })
 				var score float64
@@ -5161,11 +5817,15 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 						score = num(scalar)
 					}
 				}
-				if math.IsNaN(score) || math.IsInf(score, 0) { score = 0 }
+				if math.IsNaN(score) || math.IsInf(score, 0) {
+					score = 0
+				}
 				scoreSum += score
 				completedRuns++
 			}
-			if completedRuns == 0 { break }
+			if completedRuns == 0 {
+				break
+			}
 			score := scoreSum / float64(completedRuns)
 			weight := num(coreGet(task, "weight", 1))
 			weightedSum += weight * score
@@ -5176,19 +5836,31 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 				"score", score,
 				"passed", score >= threshold && display(coreGet(prediction, "completionType", "")) == "final",
 			)
-			if prediction != nil { coreSet(record, "prediction", prediction) } else if lastError != "" { coreSet(record, "error", lastError) }
+			if prediction != nil {
+				coreSet(record, "prediction", prediction)
+			} else if lastError != "" {
+				coreSet(record, "error", lastError)
+			}
 			records = append(records, record)
-			if completedRuns < runsPerTask { break }
+			if completedRuns < runsPerTask {
+				break
+			}
 		}
-		if len(records) < len(tasks) { exhausted = true }
+		if len(records) < len(tasks) {
+			exhausted = true
+		}
 		mean := 0.0
-		if weightSum > 0 { mean = weightedSum / weightSum }
+		if weightSum > 0 {
+			mean = weightedSum / weightSum
+		}
 		return batch{records: records, mean: mean, exhausted: exhausted}
 	}
 	baselineBatch := runBatch(train)
 	baselineIn, heldIn := baselineBatch.mean, baselineBatch.mean
 	heldOut := math.NaN()
-	if len(validation) > 0 { heldOut = runBatch(validation).mean }
+	if len(validation) > 0 {
+		heldOut = runBatch(validation).mean
+	}
 	baselineOut := heldOut
 	clusters := map[string][]Value{}
 	order := []string{}
@@ -5196,22 +5868,36 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 		prediction := coreGet(record, "prediction", Object())
 		score := num(coreGet(record, "score", 0))
 		completion := display(coreGet(prediction, "completionType", ""))
-		if coreGet(record, "error", nil) == nil && score >= threshold && completion == "final" { continue }
+		if coreGet(record, "error", nil) == nil && score >= threshold && completion == "final" {
+			continue
+		}
 		signature := playbookRecordSignature(record)
-		if _, ok := clusters[signature]; !ok { order = append(order, signature) }
+		if _, ok := clusters[signature]; !ok {
+			order = append(order, signature)
+		}
 		clusters[signature] = append(clusters[signature], record)
 	}
 	sort.SliceStable(order, func(i, j int) bool {
-		severity := func(records []Value) float64 { total := 0.0; for _, record := range records { total += 1 - num(coreGet(record, "score", 0)) }; return total }
+		severity := func(records []Value) float64 {
+			total := 0.0
+			for _, record := range records {
+				total += 1 - num(coreGet(record, "score", 0))
+			}
+			return total
+		}
 		return severity(clusters[order[i]]) > severity(clusters[order[j]])
 	})
-	if len(order) > maxProposals { order = order[:maxProposals] }
+	if len(order) > maxProposals {
+		order = order[:maxProposals]
+	}
 	initial := asMap(cloneValue(p.GetState()))
 	outcomes, weaknesses := Array(), Array()
 	for index, signature := range order {
 		records := clusters[signature]
 		selected := records
-		if len(selected) > 4 { selected = selected[:4] }
+		if len(selected) > 4 {
+			selected = selected[:4]
+		}
 		bodies := []string{}
 		excerptParts, taskParts := []string{}, []string{}
 		functionCalls, toolErrors := []string{}, []string{}
@@ -5222,38 +5908,79 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 			task := coreGet(record, "task", Object())
 			label := display(coreGet(task, "id", fmt.Sprintf("#%d", recordIndex+1)))
 			input := stableStringify(coreGet(task, "input", nil))
-			if len(input) > 240 { input = input[:240] }
+			if len(input) > 240 {
+				input = input[:240]
+			}
 			taskParts = append(taskParts, fmt.Sprintf("- %s (score %.2f): %s", label, num(coreGet(record, "score", 0)), input))
 			prediction := coreGet(record, "prediction", Object())
-			for _, call := range asSlice(coreGet(prediction, "functionCalls", Array())) { if len(functionCalls) < 20 { functionCalls = append(functionCalls, stableStringify(call)) } }
-			for _, toolError := range asSlice(coreGet(prediction, "toolErrors", Array())) { if len(toolErrors) < 10 { toolErrors = append(toolErrors, display(toolError)) } }
+			for _, call := range asSlice(coreGet(prediction, "functionCalls", Array())) {
+				if len(functionCalls) < 20 {
+					functionCalls = append(functionCalls, stableStringify(call))
+				}
+			}
+			for _, toolError := range asSlice(coreGet(prediction, "toolErrors", Array())) {
+				if len(toolErrors) < 10 {
+					toolErrors = append(toolErrors, display(toolError))
+				}
+			}
 		}
 		hasBody := false
-		for _, body := range bodies { if playbookCollapse(body) != "" { hasBody = true; break } }
-		if !hasBody { continue }
+		for _, body := range bodies {
+			if playbookCollapse(body) != "" {
+				hasBody = true
+				break
+			}
+		}
+		if !hasBody {
+			continue
+		}
 		excerpts := strings.Join(excerptParts, "\n\n")
 		request := Object("clusterSignature", signature, "taskSummaries", strings.Join(taskParts, "\n"), "actionLogExcerpts", excerpts)
-		if len(functionCalls) > 0 { coreSet(request, "functionCallSummary", strings.Join(functionCalls, "\n")) }
-		if len(toolErrors) > 0 { coreSet(request, "toolErrors", strings.Join(toolErrors, "\n")) }
-		if rendered := p.Render(); strings.TrimSpace(rendered) != "" { coreSet(request, "currentPlaybook", rendered) }
+		if len(functionCalls) > 0 {
+			coreSet(request, "functionCallSummary", strings.Join(functionCalls, "\n"))
+		}
+		if len(toolErrors) > 0 {
+			coreSet(request, "toolErrors", strings.Join(toolErrors, "\n"))
+		}
+		if rendered := p.Render(); strings.TrimSpace(rendered) != "" {
+			coreSet(request, "currentPlaybook", rendered)
+		}
 		miner := NewAx(agentPlaybookWeaknessMinerSignature, Object("id", "agent.playbook.weakness-miner", "instruction", "Identify one recurring weakness and one narrow durable avoidance rule. Every evidence quote must be copied verbatim from actionLogExcerpts."))
 		mined, minerErr := miner.Forward(ctx, teacherAI, request, nil)
-		if minerErr != nil { continue }
+		if minerErr != nil {
+			continue
+		}
 		rawQuotes := coreGet(mined, "evidenceQuotes", nil)
 		quoteCandidates := []Value{}
-		if values, ok := rawQuotes.([]Value); ok { quoteCandidates = values } else if rawQuotes != nil { quoteCandidates = append(quoteCandidates, rawQuotes) }
+		if values, ok := rawQuotes.([]Value); ok {
+			quoteCandidates = values
+		} else if rawQuotes != nil {
+			quoteCandidates = append(quoteCandidates, rawQuotes)
+		}
 		evidence := Array()
 		haystack := playbookCollapse(excerpts)
 		for _, quote := range quoteCandidates {
 			text, needle := display(quote), playbookCollapse(display(quote))
-			if needle != "" && strings.Contains(haystack, needle) { evidence = append(evidence, text) }
+			if needle != "" && strings.Contains(haystack, needle) {
+				evidence = append(evidence, text)
+			}
 		}
-		if len(evidence) == 0 { continue }
+		if len(evidence) == 0 {
+			continue
+		}
 		taskIDs := Array()
-		for recordIndex, record := range records { taskIDs = append(taskIDs, coreGet(coreGet(record, "task", Object()), "id", fmt.Sprintf("task-%d", int(num(coreGet(record, "index", recordIndex)))))) }
+		for recordIndex, record := range records {
+			taskIDs = append(taskIDs, coreGet(coreGet(record, "task", Object()), "id", fmt.Sprintf("task-%d", int(num(coreGet(record, "index", recordIndex))))))
+		}
 		rawRecommendations := coreGet(mined, "configRecommendations", nil)
 		recommendations := Array()
-		if values, ok := rawRecommendations.([]Value); ok { for _, value := range values { recommendations = append(recommendations, display(value)) } } else if rawRecommendations != nil { recommendations = append(recommendations, display(rawRecommendations)) }
+		if values, ok := rawRecommendations.([]Value); ok {
+			for _, value := range values {
+				recommendations = append(recommendations, display(value))
+			}
+		} else if rawRecommendations != nil {
+			recommendations = append(recommendations, display(rawRecommendations))
+		}
 		weakness := Object(
 			"id", fmt.Sprintf("weakness-%d", index+1),
 			"clusterSignature", signature,
@@ -5273,7 +6000,12 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 		}
 		before := asMap(cloneValue(p.GetState()))
 		quotes := []string{}
-		for quoteIndex, quote := range evidence { if quoteIndex >= 3 { break }; quotes = append(quotes, "- "+display(quote)) }
+		for quoteIndex, quote := range evidence {
+			if quoteIndex >= 3 {
+				break
+			}
+			quotes = append(quotes, "- "+display(quote))
+		}
 		feedback := fmt.Sprintf("A recurring agent weakness was diagnosed from real failed runs.\n\nWeakness: %s\nRoot cause: %s\nError signature: [%s]\nGrounding excerpts:\n%s\n\nCurate ONE durable rule into the playbook (suggested section: \"failures_to_avoid\"): %s\nUPDATE an existing bullet if one already covers this failure mode.", coreGet(weakness, "description", ""), coreGet(weakness, "rootCause", ""), signature, strings.Join(quotes, "\n"), coreGet(weakness, "proposedGuidance", ""))
 		coreSet(proposal, "feedback", feedback)
 		if _, err := p.Update(ctx, Object("example", Object("task", "playbook.evolve(): repair a diagnosed agent weakness", "failureSignatures", Array(signature)), "prediction", Object(), "feedback", feedback)); err != nil {
@@ -5286,30 +6018,69 @@ func (p *AxPlaybook) EvolveAgent(ctx context.Context, dataset Value, options map
 			trainBatch := runBatch(train)
 			nextIn = trainBatch.mean
 			complete = !trainBatch.exhausted
-			if len(validation) > 0 { validationBatch := runBatch(validation); nextOut = validationBatch.mean; complete = complete && !validationBatch.exhausted }
+			if len(validation) > 0 {
+				validationBatch := runBatch(validation)
+				nextOut = validationBatch.mean
+				complete = complete && !validationBatch.exhausted
+			}
 			accepted = complete && nextIn-heldIn >= minGain && (math.IsNaN(nextOut) || math.IsNaN(heldOut) || nextOut-heldOut >= -epsilon)
 		}
 		reason := "applied without verification (verify: false)"
 		if verify {
-			switch { case !complete: reason = "metric_budget exhausted during re-evaluation"; case accepted && math.IsNaN(heldOut): reason = "held-in improved (no held-out set provided — consider one)"; case accepted: reason = "held-in improved, held-out non-regressing"; case nextIn-heldIn < minGain: reason = fmt.Sprintf("held-in gain %.3f below %.3f", nextIn-heldIn, minGain); default: reason = fmt.Sprintf("held-out regressed %.3f", nextOut-heldOut) }
+			switch {
+			case !complete:
+				reason = "metric_budget exhausted during re-evaluation"
+			case accepted && math.IsNaN(heldOut):
+				reason = "held-in improved (no held-out set provided — consider one)"
+			case accepted:
+				reason = "held-in improved, held-out non-regressing"
+			case nextIn-heldIn < minGain:
+				reason = fmt.Sprintf("held-in gain %.3f below %.3f", nextIn-heldIn, minGain)
+			default:
+				reason = fmt.Sprintf("held-out regressed %.3f", nextOut-heldOut)
+			}
 		}
 		outcome := Object("proposal", proposal, "accepted", accepted, "reason", reason, "heldIn", Object("before", heldIn, "after", nextIn))
-		if !math.IsNaN(nextOut) && !math.IsNaN(heldOut) { coreSet(outcome, "heldOut", Object("before", heldOut, "after", nextOut)) }
+		if !math.IsNaN(nextOut) && !math.IsNaN(heldOut) {
+			coreSet(outcome, "heldOut", Object("before", heldOut, "after", nextOut))
+		}
 		outcomes = append(outcomes, outcome)
-		if accepted { heldIn, heldOut = nextIn, nextOut } else { p.Load(before) }
+		if accepted {
+			heldIn, heldOut = nextIn, nextOut
+		} else {
+			p.Load(before)
+		}
 	}
 	acceptedAny := false
-	for _, outcome := range outcomes { if coreTruthy(coreGet(outcome, "accepted", false)) { acceptedAny = true } }
+	for _, outcome := range outcomes {
+		if coreTruthy(coreGet(outcome, "accepted", false)) {
+			acceptedAny = true
+		}
+	}
 	var learned Value
-	if acceptedAny { learned = cloneValue(p.GetState()) }
-	if coreGet(options, "apply", true) == false && learned != nil { p.Load(initial) }
+	if acceptedAny {
+		learned = cloneValue(p.GetState())
+	}
+	if coreGet(options, "apply", true) == false && learned != nil {
+		p.Load(initial)
+	}
 	baselineResult, finalResult := Object("heldIn", baselineIn), Object("heldIn", heldIn)
-	if !math.IsNaN(baselineOut) { coreSet(baselineResult, "heldOut", baselineOut) }
-	if !math.IsNaN(heldOut) { coreSet(finalResult, "heldOut", heldOut) }
+	if !math.IsNaN(baselineOut) {
+		coreSet(baselineResult, "heldOut", baselineOut)
+	}
+	if !math.IsNaN(heldOut) {
+		coreSet(finalResult, "heldOut", heldOut)
+	}
 	allRecommendations := Array()
-	for _, weakness := range weaknesses { for _, recommendation := range asSlice(coreGet(weakness, "configRecommendations", Array())) { allRecommendations = append(allRecommendations, display(recommendation)) } }
+	for _, weakness := range weaknesses {
+		for _, recommendation := range asSlice(coreGet(weakness, "configRecommendations", Array())) {
+			allRecommendations = append(allRecommendations, display(recommendation))
+		}
+	}
 	result := Object("baseline", baselineResult, "final", finalResult, "weaknesses", weaknesses, "outcomes", outcomes, "recommendations", allRecommendations, "metricCallsUsed", maxMetricCalls-remaining, "records", baselineBatch.records)
-	if learned != nil { result["playbookSnapshot"] = learned }
+	if learned != nil {
+		result["playbookSnapshot"] = learned
+	}
 	return result, nil
 }
 
@@ -6555,46 +7326,243 @@ func runConformanceFixture(fixture map[string]Value) {
 	}
 }
 
-type conformanceEventSink struct { id string; calls int; failFirst bool }
-func (s *conformanceEventSink) Write(output Value, context map[string]Value) error {s.calls++;if s.failFirst&&s.calls==1{return fmt.Errorf("sink once")};run,_:=context["run"].(*AxEventRun);if run==nil{return fmt.Errorf("output was not persisted before sink")};assertEqual(run.Output,output,"output persisted before sink");return nil}
+type conformanceEventSink struct {
+	id        string
+	calls     int
+	failFirst bool
+}
+
+func (s *conformanceEventSink) Write(output Value, context map[string]Value) error {
+	s.calls++
+	if s.failFirst && s.calls == 1 {
+		return fmt.Errorf("sink once")
+	}
+	run, _ := context["run"].(*AxEventRun)
+	if run == nil {
+		return fmt.Errorf("output was not persisted before sink")
+	}
+	assertEqual(run.Output, output, "output persisted before sink")
+	return nil
+}
 
 func runConformanceEvent(fixture map[string]Value) {
-	operation:=display(coreGet(fixture,"operation",""))
+	operation := display(coreGet(fixture, "operation", ""))
 	switch operation {
 	case "routing":
-		actual:=mustCore(event_route_commands(coreGet(fixture,"event",Object()),coreGet(fixture,"routes",Array()),coreGet(fixture,"identity_scope",""),coreGet(fixture,"trust","untrusted")))
-		assertEqual(actual,coreGet(fixture,"expected",Array()),"event routing")
+		actual := mustCore(event_route_commands(coreGet(fixture, "event", Object()), coreGet(fixture, "routes", Array()), coreGet(fixture, "identity_scope", ""), coreGet(fixture, "trust", "untrusted")))
+		assertEqual(actual, coreGet(fixture, "expected", Array()), "event routing")
 	case "retry":
-		for _,item:=range asSlice(coreGet(fixture,"cases",Array())){c:=asMap(item);actual:=mustCore(event_retry_transition(coreGet(c,"invocation_started",false),coreGet(c,"retry_safety","unknown"),coreGet(c,"attempt",float64(0)),coreGet(c,"max_attempts",float64(1))));assertEqual(actual,coreGet(c,"expected",Object()),"event retry")}
+		for _, item := range asSlice(coreGet(fixture, "cases", Array())) {
+			c := asMap(item)
+			actual := mustCore(event_retry_transition(coreGet(c, "invocation_started", false), coreGet(c, "retry_safety", "unknown"), coreGet(c, "attempt", float64(0)), coreGet(c, "max_attempts", float64(1))))
+			assertEqual(actual, coreGet(c, "expected", Object()), "event retry")
+		}
 	case "continuation":
-		key:=asMap(coreGet(fixture,"correlation",Object()));actual:=mustCore(event_continuation_match(coreGet(fixture,"continuations",Array()),coreGet(fixture,"identity_scope",""),coreGet(key,"kind",""),coreGet(key,"value",""),coreGet(fixture,"now",float64(0))));assertEqual(coreGet(asMap(actual),"id",nil),coreGet(fixture,"expected_id",nil),"event continuation")
+		key := asMap(coreGet(fixture, "correlation", Object()))
+		actual := mustCore(event_continuation_match(coreGet(fixture, "continuations", Array()), coreGet(fixture, "identity_scope", ""), coreGet(key, "kind", ""), coreGet(key, "value", ""), coreGet(fixture, "now", float64(0))))
+		assertEqual(coreGet(asMap(actual), "id", nil), coreGet(fixture, "expected_id", nil), "event continuation")
 	case "mcp_normalization":
-		actual:=mustCore(event_normalize_mcp(coreGet(fixture,"namespace",""),coreGet(fixture,"method",""),coreGet(fixture,"params",Object())));assertEqual(actual,coreGet(fixture,"expected",Object()),"event MCP normalization")
+		actual := mustCore(event_normalize_mcp(coreGet(fixture, "namespace", ""), coreGet(fixture, "method", ""), coreGet(fixture, "params", Object())))
+		assertEqual(actual, coreGet(fixture, "expected", Object()), "event MCP normalization")
 	case "mapping":
-		actual:=mustCore(event_map_input(coreGet(fixture,"ingress",Object()),coreGet(fixture,"plan",Object()),coreGet(fixture,"signature_fields",Array()),nil));assertEqual(actual,coreGet(fixture,"expected",Object()),"event input mapping")
+		actual := mustCore(event_map_input(coreGet(fixture, "ingress", Object()), coreGet(fixture, "plan", Object()), coreGet(fixture, "signature_fields", Array()), nil))
+		assertEqual(actual, coreGet(fixture, "expected", Object()), "event input mapping")
 	case "lifecycle":
-		routeValue:=asMap(coreGet(fixture,"route",Object()));eventValue:=asMap(coreGet(fixture,"event",Object()));route:=AxEventRoute{ID:display(routeValue["id"]),Action:display(routeValue["action"]),Match:asMap(routeValue["match"]),TargetID:display(routeValue["targetId"]),Ordering:"strict"};runtime,err:=NewAxEventRuntime([]AxEventRoute{route},nil);if err!=nil{panic(err)};runtime.RegisterTarget(AxEventTarget{ID:route.TargetID,Invoke:func(input Value,_ map[string]Value)(Value,error){return map[string]Value{"handled":coreGet(input,"message",nil)},nil},RetrySafety:"idempotent"});source:=&AxPushEventSource{ID:"fixture"};runtime.AddSource(source);if err:=runtime.Start();err!=nil{panic(err)};event:=AxEventEnvelope{SpecVersion:"1.0",ID:display(eventValue["id"]),Source:display(eventValue["source"]),Type:display(eventValue["type"]),Subject:display(eventValue["subject"]),Data:eventValue["data"]};if err:=source.Publish(event);err!=nil{panic(err)};receiptEvent:=event;receiptEvent.ID+="-receipt";receipt,err:=runtime.Publish(receiptEvent,display(fixture["identity_scope"]),display(fixture["trust"]));if err!=nil{panic(err)};run:=runtime.GetRun("run:"+route.ID+":"+event.ID+":1");if !receipt.Accepted||run==nil{panic(AxError{Category:"fixture",Message:"event lifecycle did not dispatch"})};assertEqual(run.Output,fixture["expected_output"],"event automatic dispatch");_ = runtime.Close()
+		routeValue := asMap(coreGet(fixture, "route", Object()))
+		eventValue := asMap(coreGet(fixture, "event", Object()))
+		route := AxEventRoute{ID: display(routeValue["id"]), Action: display(routeValue["action"]), Match: asMap(routeValue["match"]), TargetID: display(routeValue["targetId"]), Ordering: "strict"}
+		runtime, err := NewAxEventRuntime([]AxEventRoute{route}, nil)
+		if err != nil {
+			panic(err)
+		}
+		runtime.RegisterTarget(AxEventTarget{ID: route.TargetID, Invoke: func(input Value, _ map[string]Value) (Value, error) {
+			return map[string]Value{"handled": coreGet(input, "message", nil)}, nil
+		}, RetrySafety: "idempotent"})
+		source := &AxPushEventSource{ID: "fixture"}
+		runtime.AddSource(source)
+		if err := runtime.Start(); err != nil {
+			panic(err)
+		}
+		event := AxEventEnvelope{SpecVersion: "1.0", ID: display(eventValue["id"]), Source: display(eventValue["source"]), Type: display(eventValue["type"]), Subject: display(eventValue["subject"]), Data: eventValue["data"]}
+		if err := source.Publish(event); err != nil {
+			panic(err)
+		}
+		receiptEvent := event
+		receiptEvent.ID += "-receipt"
+		receipt, err := runtime.Publish(receiptEvent, display(fixture["identity_scope"]), display(fixture["trust"]))
+		if err != nil {
+			panic(err)
+		}
+		run := runtime.GetRun("run:" + route.ID + ":" + event.ID + ":1")
+		if !receipt.Accepted || run == nil {
+			panic(AxError{Category: "fixture", Message: "event lifecycle did not dispatch"})
+		}
+		assertEqual(run.Output, fixture["expected_output"], "event automatic dispatch")
+		_ = runtime.Close()
 
-		makeEvent:=func(id,eventType string,data Value,correlation []map[string]string)AxEventEnvelope{return AxEventEnvelope{SpecVersion:"1.0",ID:id,Source:"test://axevent",Type:eventType,Data:data,Correlation:correlation}}
-		retryCalls:=0;retryClock:=NewAxManualEventClock(1_000);retryRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"retry-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.retry"}},TargetID:"retry-target",Ordering:"strict"}},map[string]Value{"clock":retryClock,"retryBackoffMs":int64(500)});retryRuntime.RegisterTarget(AxEventTarget{ID:"retry-target",RetrySafety:"idempotent",Invoke:func(_ Value,_ map[string]Value)(Value,error){retryCalls++;if retryCalls==1{return nil,fmt.Errorf("retry once")};return map[string]Value{"attempt":retryCalls},nil}});_ = retryRuntime.Start();_,_ = retryRuntime.Publish(makeEvent("retry-1","event.retry",map[string]Value{},nil),"anonymous","untrusted");retryRun:=retryRuntime.GetRun("run:retry-route:retry-1:1");assertEqual([]Value{retryRun.Attempt,retryRun.Status,*retryRuntime.NextDueAt()},[]Value{1,"queued",int64(1_500)},"event delayed retry");retryClock.Advance(500);retryRuntime.RunDue();assertEqual([]Value{retryRun.Attempt,retryRun.Status},[]Value{2,"succeeded"},"event retry dispatch")
-		strictCalls:=[]string{};strictClock:=NewAxManualEventClock(1_000);strictRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"strict-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.strict"}},TargetID:"strict-target",Ordering:"strict"}},map[string]Value{"clock":strictClock,"retryBackoffMs":int64(500)});strictRuntime.RegisterTarget(AxEventTarget{ID:"strict-target",RetrySafety:"idempotent",Invoke:func(value Value,_ map[string]Value)(Value,error){name:=display(coreGet(value,"name",""));strictCalls=append(strictCalls,name);if name=="first"&&len(strictCalls)==1{return nil,fmt.Errorf("retry first")};return value,nil}});_=strictRuntime.Start();_,_=strictRuntime.Publish(makeEvent("strict-1","event.strict",map[string]Value{"name":"first"},nil),"anonymous","untrusted");_,_=strictRuntime.Publish(makeEvent("strict-2","event.strict",map[string]Value{"name":"second"},nil),"anonymous","untrusted");assertEqual(strictCalls,[]string{"first"},"event strict ordering while retry waits");strictClock.Advance(500);strictRuntime.RunDue();assertEqual(strictCalls,[]string{"first","first","second"},"event strict retry release ordering")
-		debounceClock:=NewAxManualEventClock(2_000);debounceValues:=[]Value{};debounceRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"debounce-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.debounce"}},TargetID:"debounce-target",Ordering:"strict",DebounceMs:250}},map[string]Value{"clock":debounceClock});debounceRuntime.RegisterTarget(AxEventTarget{ID:"debounce-target",Invoke:func(value Value,_ map[string]Value)(Value,error){debounceValues=append(debounceValues,value);return value,nil}});_ = debounceRuntime.Start();_,_=debounceRuntime.Publish(makeEvent("debounce-1","event.debounce",map[string]Value{"revision":1},nil),"anonymous","untrusted");_,_=debounceRuntime.Publish(makeEvent("debounce-2","event.debounce",map[string]Value{"revision":2},nil),"anonymous","untrusted");assertEqual([]Value{debounceValues,*debounceRuntime.NextDueAt()},[]Value{[]Value{},int64(2_250)},"event debounce scheduling");debounceClock.Advance(250);debounceRuntime.RunDue();assertEqual(debounceValues,[]Value{map[string]Value{"revision":2}},"event latest-value coalescing")
-		capacityRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"capacity-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.capacity"}},TargetID:"debounce-target",Ordering:"strict"}},map[string]Value{"maxEnvelopeBytes":int64(16)});capacityRuntime.RegisterTarget(AxEventTarget{ID:"debounce-target",Invoke:func(value Value,_ map[string]Value)(Value,error){return value,nil}});_=capacityRuntime.Start();_,capacityErr:=capacityRuntime.Publish(makeEvent("capacity-1","event.capacity",map[string]Value{"payload":"too-large"},nil),"anonymous","untrusted");if capacityErr==nil{panic(AxError{Category:"fixture",Message:"event envelope backpressure was not enforced"})}
+		makeEvent := func(id, eventType string, data Value, correlation []map[string]string) AxEventEnvelope {
+			return AxEventEnvelope{SpecVersion: "1.0", ID: id, Source: "test://axevent", Type: eventType, Data: data, Correlation: correlation}
+		}
+		retryCalls := 0
+		retryClock := NewAxManualEventClock(1_000)
+		retryRuntime, _ := NewAxEventRuntime([]AxEventRoute{{ID: "retry-route", Action: "wake", Match: map[string]Value{"types": []Value{"event.retry"}}, TargetID: "retry-target", Ordering: "strict"}}, map[string]Value{"clock": retryClock, "retryBackoffMs": int64(500)})
+		retryRuntime.RegisterTarget(AxEventTarget{ID: "retry-target", RetrySafety: "idempotent", Invoke: func(_ Value, _ map[string]Value) (Value, error) {
+			retryCalls++
+			if retryCalls == 1 {
+				return nil, fmt.Errorf("retry once")
+			}
+			return map[string]Value{"attempt": retryCalls}, nil
+		}})
+		_ = retryRuntime.Start()
+		_, _ = retryRuntime.Publish(makeEvent("retry-1", "event.retry", map[string]Value{}, nil), "anonymous", "untrusted")
+		retryRun := retryRuntime.GetRun("run:retry-route:retry-1:1")
+		assertEqual([]Value{retryRun.Attempt, retryRun.Status, *retryRuntime.NextDueAt()}, []Value{1, "queued", int64(1_500)}, "event delayed retry")
+		retryClock.Advance(500)
+		retryRuntime.RunDue()
+		assertEqual([]Value{retryRun.Attempt, retryRun.Status}, []Value{2, "succeeded"}, "event retry dispatch")
+		strictCalls := []string{}
+		strictClock := NewAxManualEventClock(1_000)
+		strictRuntime, _ := NewAxEventRuntime([]AxEventRoute{{ID: "strict-route", Action: "wake", Match: map[string]Value{"types": []Value{"event.strict"}}, TargetID: "strict-target", Ordering: "strict"}}, map[string]Value{"clock": strictClock, "retryBackoffMs": int64(500)})
+		strictRuntime.RegisterTarget(AxEventTarget{ID: "strict-target", RetrySafety: "idempotent", Invoke: func(value Value, _ map[string]Value) (Value, error) {
+			name := display(coreGet(value, "name", ""))
+			strictCalls = append(strictCalls, name)
+			if name == "first" && len(strictCalls) == 1 {
+				return nil, fmt.Errorf("retry first")
+			}
+			return value, nil
+		}})
+		_ = strictRuntime.Start()
+		_, _ = strictRuntime.Publish(makeEvent("strict-1", "event.strict", map[string]Value{"name": "first"}, nil), "anonymous", "untrusted")
+		_, _ = strictRuntime.Publish(makeEvent("strict-2", "event.strict", map[string]Value{"name": "second"}, nil), "anonymous", "untrusted")
+		assertEqual(strictCalls, []string{"first"}, "event strict ordering while retry waits")
+		strictClock.Advance(500)
+		strictRuntime.RunDue()
+		assertEqual(strictCalls, []string{"first", "first", "second"}, "event strict retry release ordering")
+		debounceClock := NewAxManualEventClock(2_000)
+		debounceValues := []Value{}
+		debounceRuntime, _ := NewAxEventRuntime([]AxEventRoute{{ID: "debounce-route", Action: "wake", Match: map[string]Value{"types": []Value{"event.debounce"}}, TargetID: "debounce-target", Ordering: "strict", DebounceMs: 250}}, map[string]Value{"clock": debounceClock})
+		debounceRuntime.RegisterTarget(AxEventTarget{ID: "debounce-target", Invoke: func(value Value, _ map[string]Value) (Value, error) {
+			debounceValues = append(debounceValues, value)
+			return value, nil
+		}})
+		_ = debounceRuntime.Start()
+		_, _ = debounceRuntime.Publish(makeEvent("debounce-1", "event.debounce", map[string]Value{"revision": 1}, nil), "anonymous", "untrusted")
+		_, _ = debounceRuntime.Publish(makeEvent("debounce-2", "event.debounce", map[string]Value{"revision": 2}, nil), "anonymous", "untrusted")
+		assertEqual([]Value{debounceValues, *debounceRuntime.NextDueAt()}, []Value{[]Value{}, int64(2_250)}, "event debounce scheduling")
+		debounceClock.Advance(250)
+		debounceRuntime.RunDue()
+		assertEqual(debounceValues, []Value{map[string]Value{"revision": 2}}, "event latest-value coalescing")
+		capacityRuntime, _ := NewAxEventRuntime([]AxEventRoute{{ID: "capacity-route", Action: "wake", Match: map[string]Value{"types": []Value{"event.capacity"}}, TargetID: "debounce-target", Ordering: "strict"}}, map[string]Value{"maxEnvelopeBytes": int64(16)})
+		capacityRuntime.RegisterTarget(AxEventTarget{ID: "debounce-target", Invoke: func(value Value, _ map[string]Value) (Value, error) { return value, nil }})
+		_ = capacityRuntime.Start()
+		_, capacityErr := capacityRuntime.Publish(makeEvent("capacity-1", "event.capacity", map[string]Value{"payload": "too-large"}, nil), "anonymous", "untrusted")
+		if capacityErr == nil {
+			panic(AxError{Category: "fixture", Message: "event envelope backpressure was not enforced"})
+		}
 
-		state:=0;stateRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"state-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.state"}},TargetID:"state-target",Ordering:"strict"}},nil);stateRuntime.RegisterTarget(AxEventTarget{ID:"state-target",RetrySafety:"idempotent",Invoke:func(_ Value,_ map[string]Value)(Value,error){state++;return map[string]Value{"state":state},nil},CaptureState:func()(Value,error){return state,nil},RestoreState:func(value Value)error{state=int(num(value));return nil}});_ = stateRuntime.Start();_,_ = stateRuntime.Publish(makeEvent("state-1","event.state",map[string]Value{},nil),"anonymous","untrusted");state=0;_,_ = stateRuntime.Publish(makeEvent("state-2","event.state",map[string]Value{},nil),"anonymous","untrusted");assertEqual(stateRuntime.GetRun("run:state-route:state-2:2").Output,map[string]Value{"state":2},"event state restore")
+		state := 0
+		stateRuntime, _ := NewAxEventRuntime([]AxEventRoute{{ID: "state-route", Action: "wake", Match: map[string]Value{"types": []Value{"event.state"}}, TargetID: "state-target", Ordering: "strict"}}, nil)
+		stateRuntime.RegisterTarget(AxEventTarget{ID: "state-target", RetrySafety: "idempotent", Invoke: func(_ Value, _ map[string]Value) (Value, error) {
+			state++
+			return map[string]Value{"state": state}, nil
+		}, CaptureState: func() (Value, error) { return state, nil }, RestoreState: func(value Value) error { state = int(num(value)); return nil }})
+		_ = stateRuntime.Start()
+		_, _ = stateRuntime.Publish(makeEvent("state-1", "event.state", map[string]Value{}, nil), "anonymous", "untrusted")
+		state = 0
+		_, _ = stateRuntime.Publish(makeEvent("state-2", "event.state", map[string]Value{}, nil), "anonymous", "untrusted")
+		assertEqual(stateRuntime.GetRun("run:state-route:state-2:2").Output, map[string]Value{"state": 2}, "event state restore")
 
-		cancelRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"cancel-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.cancel"}},TargetID:"cancel-target",Ordering:"strict"}},nil);cancelRuntime.RegisterTarget(AxEventTarget{ID:"cancel-target",Invoke:func(_ Value,context map[string]Value)(Value,error){context["cancellation"].(*AxEventCancellationToken).Cancel("fixture");return map[string]Value{"should":"not persist"},nil}});_ = cancelRuntime.Start();_,_ = cancelRuntime.Publish(makeEvent("cancel-1","event.cancel",map[string]Value{},nil),"anonymous","untrusted");cancelRun:=cancelRuntime.GetRun("run:cancel-route:cancel-1:1");assertEqual([]Value{cancelRun.Status,cancelRun.Output},[]Value{"cancelled",nil},"event cooperative cancellation")
+		cancelRuntime, _ := NewAxEventRuntime([]AxEventRoute{{ID: "cancel-route", Action: "wake", Match: map[string]Value{"types": []Value{"event.cancel"}}, TargetID: "cancel-target", Ordering: "strict"}}, nil)
+		cancelRuntime.RegisterTarget(AxEventTarget{ID: "cancel-target", Invoke: func(_ Value, context map[string]Value) (Value, error) {
+			context["cancellation"].(*AxEventCancellationToken).Cancel("fixture")
+			return map[string]Value{"should": "not persist"}, nil
+		}})
+		_ = cancelRuntime.Start()
+		_, _ = cancelRuntime.Publish(makeEvent("cancel-1", "event.cancel", map[string]Value{}, nil), "anonymous", "untrusted")
+		cancelRun := cancelRuntime.GetRun("run:cancel-route:cancel-1:1")
+		assertEqual([]Value{cancelRun.Status, cancelRun.Output}, []Value{"cancelled", nil}, "event cooperative cancellation")
 
-		sink:=&conformanceEventSink{id:"fixture-sink",failFirst:true};modelCalls:=0;sinkRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"sink-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.sink"}},TargetID:"sink-target",Ordering:"strict"}},nil);sinkRuntime.RegisterTarget(AxEventTarget{ID:"sink-target",RetrySafety:"idempotent",Sinks:map[string]AxEventSink{"fixture-sink":sink},Invoke:func(value Value,_ map[string]Value)(Value,error){modelCalls++;return value,nil}});_ = sinkRuntime.Start();_,_ = sinkRuntime.Publish(makeEvent("sink-1","event.sink",map[string]Value{"ok":true},nil),"anonymous","untrusted");dead:=sinkRuntime.ListDeadLetters()[0];if err:=sinkRuntime.Redrive(dead.ID);err!=nil{panic(err)};assertEqual([]Value{modelCalls,sink.calls,len(sinkRuntime.ListDeadLetters())},[]Value{1,2,0},"event sink-only redrive")
+		sink := &conformanceEventSink{id: "fixture-sink", failFirst: true}
+		modelCalls := 0
+		sinkRuntime, _ := NewAxEventRuntime([]AxEventRoute{{ID: "sink-route", Action: "wake", Match: map[string]Value{"types": []Value{"event.sink"}}, TargetID: "sink-target", Ordering: "strict"}}, nil)
+		sinkRuntime.RegisterTarget(AxEventTarget{ID: "sink-target", RetrySafety: "idempotent", Sinks: map[string]AxEventSink{"fixture-sink": sink}, Invoke: func(value Value, _ map[string]Value) (Value, error) { modelCalls++; return value, nil }})
+		_ = sinkRuntime.Start()
+		_, _ = sinkRuntime.Publish(makeEvent("sink-1", "event.sink", map[string]Value{"ok": true}, nil), "anonymous", "untrusted")
+		dead := sinkRuntime.ListDeadLetters()[0]
+		if err := sinkRuntime.Redrive(dead.ID); err != nil {
+			panic(err)
+		}
+		assertEqual([]Value{modelCalls, sink.calls, len(sinkRuntime.ListDeadLetters())}, []Value{1, 2, 0}, "event sink-only redrive")
 
-		continuationCalls:=0;continuationRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"continuation-wake",Action:"wake",Match:map[string]Value{"types":[]Value{"event.continuation.start"}},TargetID:"continuation-target",Ordering:"strict"},{ID:"continuation-resume",Action:"resume",Match:map[string]Value{"types":[]Value{"event.continuation.done"}},Ordering:"strict"}},nil);continuationRuntime.RegisterTarget(AxEventTarget{ID:"continuation-target",WaitFor:[]map[string]Value{{"kind":"job","value":"job"}},Invoke:func(value Value,_ map[string]Value)(Value,error){continuationCalls++;return value,nil}});_ = continuationRuntime.Start();_,_ = continuationRuntime.Publish(makeEvent("continuation-1","event.continuation.start",map[string]Value{"job":"job-1"},nil),"tenant:test","authenticated");_,_ = continuationRuntime.Publish(makeEvent("continuation-2","event.continuation.done",map[string]Value{"job":"job-1"},[]map[string]string{{"kind":"job","value":"job-1"}}),"tenant:test","authenticated");assertEqual(continuationCalls,2,"event continuation resume")
+		continuationCalls := 0
+		continuationRuntime, _ := NewAxEventRuntime([]AxEventRoute{{ID: "continuation-wake", Action: "wake", Match: map[string]Value{"types": []Value{"event.continuation.start"}}, TargetID: "continuation-target", Ordering: "strict"}, {ID: "continuation-resume", Action: "resume", Match: map[string]Value{"types": []Value{"event.continuation.done"}}, Ordering: "strict"}}, nil)
+		continuationRuntime.RegisterTarget(AxEventTarget{ID: "continuation-target", WaitFor: []map[string]Value{{"kind": "job", "value": "job"}}, Invoke: func(value Value, _ map[string]Value) (Value, error) { continuationCalls++; return value, nil }})
+		_ = continuationRuntime.Start()
+		_, _ = continuationRuntime.Publish(makeEvent("continuation-1", "event.continuation.start", map[string]Value{"job": "job-1"}, nil), "tenant:test", "authenticated")
+		_, _ = continuationRuntime.Publish(makeEvent("continuation-2", "event.continuation.done", map[string]Value{"job": "job-1"}, []map[string]string{{"kind": "job", "value": "job-1"}}), "tenant:test", "authenticated")
+		assertEqual(continuationCalls, 2, "event continuation resume")
 
-		mcpTransport:=NewAxMCPScriptedTransport([]Value{map[string]Value{"method":"initialize","result":map[string]Value{"protocolVersion":"2025-11-25","capabilities":map[string]Value{"resources":map[string]Value{"subscribe":true}}}}});mcpClient:=NewAxMCPClient(mcpTransport,map[string]Value{"namespace":"inventory"});lifecycleCalls:=0;mcpClient.AddLifecycleListener(func(string){lifecycleCalls++});mcpCalls:=0;mcpSource:=NewAxMCPEventSource(mcpClient,"inventory","tenant:test","authenticated",[]string{"demo://inventory"});mcpRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"mcp-wake",Action:"wake",Match:map[string]Value{"types":[]Value{"mcp.resource.updated"}},TargetID:"mcp-target",RequireAuthenticated:true,Ordering:"strict"}},nil);mcpRuntime.RegisterTarget(AxEventTarget{ID:"mcp-target",Invoke:func(value Value,_ map[string]Value)(Value,error){mcpCalls++;return value,nil}});mcpRuntime.AddSource(mcpSource);_ = mcpRuntime.Start();mcpTransport.Emit(map[string]Value{"jsonrpc":"2.0","method":"notifications/resources/updated","params":map[string]Value{"uri":"demo://inventory"}});mcpClient.EmitLifecycle("reconnected");_ = mcpRuntime.Close();mcpTransport.Emit(map[string]Value{"jsonrpc":"2.0","method":"notifications/resources/updated","params":map[string]Value{"uri":"demo://inventory"}});subscribeCalls:=0;for _,request:=range mcpTransport.Requests{if request["method"]=="resources/subscribe"{subscribeCalls++}};assertEqual([]Value{mcpCalls,lifecycleCalls,subscribeCalls},[]Value{1,1,2},"MCP listener composition and resubscription")
-		ownership:=asMap(mustCore(mcp_resource_subscription_ownership([]string{},"source-a","acquire")));ownership=asMap(mustCore(mcp_resource_subscription_ownership(ownership["owners"],"source-b","acquire")));ownership=asMap(mustCore(mcp_resource_subscription_ownership(ownership["owners"],"source-a","release")));assertEqual(ownership,map[string]Value{"owners":[]Value{"source-b"},"wireAction":"none","changed":true},"MCP subscription ownership transition")
-		selectionResources:=[]Value{map[string]Value{"uri":"demo://b"},map[string]Value{"uri":"demo://a"},map[string]Value{"uri":"demo://b"},map[string]Value{"uri":""}};assertEqual([]Value{mustCore(mcp_resource_subscription_selection(selectionResources,"all",[]string{})),mustCore(mcp_resource_subscription_selection([]Value{},"explicit",[]string{"demo://x","demo://y","demo://x"})),mustCore(mcp_resource_subscription_selection([]Value{selectionResources[1]},"selector",[]string{}))},[]Value{[]Value{"demo://b","demo://a"},[]Value{"demo://x","demo://y"},[]Value{"demo://a"}},"MCP subscription selection modes")
-		mappedInputs:=[]Value{};mappedTarget,err:=EventTarget("mapped-target").Signature(NewSignature("url:string, revision:number -> ok:boolean")).Invoke(func(value Value,_ map[string]Value)(Value,error){mappedInputs=append(mappedInputs,value);return value,nil}).WakeInput(func(input *AxEventInputBuilder){input.Field("url",EventData("uri")).Field("revision",EventData("revision"))}).Build();if err!=nil{panic(err)};mappedRoute,err:=EventRoute("mapped-route").Types("event.mapped").InstanceKey(EventData("uri")).Wake(mappedTarget).Build();if err!=nil{panic(err)};mappedRuntime,_:=NewAxEventRuntime([]AxEventRoute{mappedRoute},nil);mappedRuntime.RegisterTarget(mappedTarget);_ = mappedRuntime.Start();_,_ = mappedRuntime.Publish(makeEvent("mapped-1","event.mapped",map[string]Value{"uri":"demo://one","revision":2},nil),"anonymous","untrusted");_,_ = mappedRuntime.Publish(makeEvent("mapped-2","event.mapped",map[string]Value{"uri":"demo://two","revision":"bad"},nil),"anonymous","untrusted");assertEqual([]Value{mappedInputs,len(mappedRuntime.ListDeadLetters())},[]Value{[]Value{map[string]Value{"url":"demo://one","revision":2}},1},"signature-aware event mapping")
-		callbackInputs:=[]Value{};callbackSignature:=NewSignature("url:string -> ok:boolean");callbackRuntime,_:=NewAxEventRuntime([]AxEventRoute{{ID:"callback-route",Action:"wake",Match:map[string]Value{"types":[]Value{"event.callback"}},TargetID:"callback-target",Ordering:"strict"}},nil);callbackRuntime.RegisterTarget(AxEventTarget{ID:"callback-target",Signature:&callbackSignature,MapInput:func(event AxEventEnvelope,_ *AxEventContinuation)(Value,error){return map[string]Value{"url":coreGet(event.Data,"uri",""),"secret":"drop-me"},nil},Invoke:func(value Value,_ map[string]Value)(Value,error){callbackInputs=append(callbackInputs,value);return value,nil}});_=callbackRuntime.Start();_,_=callbackRuntime.Publish(makeEvent("callback-1","event.callback",map[string]Value{"uri":"demo://callback"},nil),"anonymous","untrusted");assertEqual(callbackInputs,[]Value{map[string]Value{"url":"demo://callback"}},"event callback signature normalization")
-	default: panic(AxError{Category:"fixture",Message:"unsupported event operation "+operation})
+		mcpTransport := NewAxMCPScriptedTransport([]Value{map[string]Value{"method": "initialize", "result": map[string]Value{"protocolVersion": "2025-11-25", "capabilities": map[string]Value{"resources": map[string]Value{"subscribe": true}}}}})
+		mcpClient := NewAxMCPClient(mcpTransport, map[string]Value{"namespace": "inventory"})
+		lifecycleCalls := 0
+		mcpClient.AddLifecycleListener(func(string) { lifecycleCalls++ })
+		mcpCalls := 0
+		mcpSource := NewAxMCPEventSource(mcpClient, "inventory", "tenant:test", "authenticated", []string{"demo://inventory"})
+		mcpRuntime, _ := NewAxEventRuntime([]AxEventRoute{{ID: "mcp-wake", Action: "wake", Match: map[string]Value{"types": []Value{"mcp.resource.updated"}}, TargetID: "mcp-target", RequireAuthenticated: true, Ordering: "strict"}}, nil)
+		mcpRuntime.RegisterTarget(AxEventTarget{ID: "mcp-target", Invoke: func(value Value, _ map[string]Value) (Value, error) { mcpCalls++; return value, nil }})
+		mcpRuntime.AddSource(mcpSource)
+		_ = mcpRuntime.Start()
+		mcpTransport.Emit(map[string]Value{"jsonrpc": "2.0", "method": "notifications/resources/updated", "params": map[string]Value{"uri": "demo://inventory"}})
+		mcpClient.EmitLifecycle("reconnected")
+		_ = mcpRuntime.Close()
+		mcpTransport.Emit(map[string]Value{"jsonrpc": "2.0", "method": "notifications/resources/updated", "params": map[string]Value{"uri": "demo://inventory"}})
+		subscribeCalls := 0
+		for _, request := range mcpTransport.Requests {
+			if request["method"] == "resources/subscribe" {
+				subscribeCalls++
+			}
+		}
+		assertEqual([]Value{mcpCalls, lifecycleCalls, subscribeCalls}, []Value{1, 1, 2}, "MCP listener composition and resubscription")
+		ownership := asMap(mustCore(mcp_resource_subscription_ownership([]string{}, "source-a", "acquire")))
+		ownership = asMap(mustCore(mcp_resource_subscription_ownership(ownership["owners"], "source-b", "acquire")))
+		ownership = asMap(mustCore(mcp_resource_subscription_ownership(ownership["owners"], "source-a", "release")))
+		assertEqual(ownership, map[string]Value{"owners": []Value{"source-b"}, "wireAction": "none", "changed": true}, "MCP subscription ownership transition")
+		selectionResources := []Value{map[string]Value{"uri": "demo://b"}, map[string]Value{"uri": "demo://a"}, map[string]Value{"uri": "demo://b"}, map[string]Value{"uri": ""}}
+		assertEqual([]Value{mustCore(mcp_resource_subscription_selection(selectionResources, "all", []string{})), mustCore(mcp_resource_subscription_selection([]Value{}, "explicit", []string{"demo://x", "demo://y", "demo://x"})), mustCore(mcp_resource_subscription_selection([]Value{selectionResources[1]}, "selector", []string{}))}, []Value{[]Value{"demo://b", "demo://a"}, []Value{"demo://x", "demo://y"}, []Value{"demo://a"}}, "MCP subscription selection modes")
+		mappedInputs := []Value{}
+		mappedTarget, err := EventTarget("mapped-target").Signature(NewSignature("url:string, revision:number -> ok:boolean")).Invoke(func(value Value, _ map[string]Value) (Value, error) {
+			mappedInputs = append(mappedInputs, value)
+			return value, nil
+		}).WakeInput(func(input *AxEventInputBuilder) {
+			input.Field("url", EventData("uri")).Field("revision", EventData("revision"))
+		}).Build()
+		if err != nil {
+			panic(err)
+		}
+		mappedRoute, err := EventRoute("mapped-route").Types("event.mapped").InstanceKey(EventData("uri")).Wake(mappedTarget).Build()
+		if err != nil {
+			panic(err)
+		}
+		mappedRuntime, _ := NewAxEventRuntime([]AxEventRoute{mappedRoute}, nil)
+		mappedRuntime.RegisterTarget(mappedTarget)
+		_ = mappedRuntime.Start()
+		_, _ = mappedRuntime.Publish(makeEvent("mapped-1", "event.mapped", map[string]Value{"uri": "demo://one", "revision": 2}, nil), "anonymous", "untrusted")
+		_, _ = mappedRuntime.Publish(makeEvent("mapped-2", "event.mapped", map[string]Value{"uri": "demo://two", "revision": "bad"}, nil), "anonymous", "untrusted")
+		assertEqual([]Value{mappedInputs, len(mappedRuntime.ListDeadLetters())}, []Value{[]Value{map[string]Value{"url": "demo://one", "revision": 2}}, 1}, "signature-aware event mapping")
+		callbackInputs := []Value{}
+		callbackSignature := NewSignature("url:string -> ok:boolean")
+		callbackRuntime, _ := NewAxEventRuntime([]AxEventRoute{{ID: "callback-route", Action: "wake", Match: map[string]Value{"types": []Value{"event.callback"}}, TargetID: "callback-target", Ordering: "strict"}}, nil)
+		callbackRuntime.RegisterTarget(AxEventTarget{ID: "callback-target", Signature: &callbackSignature, MapInput: func(event AxEventEnvelope, _ *AxEventContinuation) (Value, error) {
+			return map[string]Value{"url": coreGet(event.Data, "uri", ""), "secret": "drop-me"}, nil
+		}, Invoke: func(value Value, _ map[string]Value) (Value, error) {
+			callbackInputs = append(callbackInputs, value)
+			return value, nil
+		}})
+		_ = callbackRuntime.Start()
+		_, _ = callbackRuntime.Publish(makeEvent("callback-1", "event.callback", map[string]Value{"uri": "demo://callback"}, nil), "anonymous", "untrusted")
+		assertEqual(callbackInputs, []Value{map[string]Value{"url": "demo://callback"}}, "event callback signature normalization")
+	default:
+		panic(AxError{Category: "fixture", Message: "unsupported event operation " + operation})
 	}
 }
 
@@ -6636,19 +7604,34 @@ func conformanceNormalizeFunctionCalls(calls Value) Value {
 }
 
 type routerFixtureService struct {
-	name         string
-	id           string
-	model        string
-	embedModel   string
-	features     map[string]Value
-	modelList    Value
-	requests     []Value
-	responses    []Value
-	metricsValue map[string]Value
-	options      map[string]Value
-	lastChat     Value
-	lastEmbed    Value
-	lastConfig   Value
+	name          string
+	id            string
+	model         string
+	embedModel    string
+	features      map[string]Value
+	modelList     Value
+	requests      []Value
+	responses     []Value
+	metricsValue  map[string]Value
+	estimatedCost float64
+	options       map[string]Value
+	lastChat      Value
+	lastEmbed     Value
+	lastConfig    Value
+}
+
+type throwingBalancerStatsStore struct {
+	gets, observes int
+}
+
+func (s *throwingBalancerStatsStore) Get(AxBalancerStatsKey) (*AxBalancerRouteStats, error) {
+	s.gets++
+	return nil, AxError{Category: "fixture", Message: "fixture store read failed"}
+}
+
+func (s *throwingBalancerStatsStore) Observe(AxBalancerStatsKey, AxBalancerStatsObservation) error {
+	s.observes++
+	return AxError{Category: "fixture", Message: "fixture store write failed"}
 }
 
 func newRouterFixtureService(spec map[string]Value) *routerFixtureService {
@@ -6656,15 +7639,16 @@ func newRouterFixtureService(spec map[string]Value) *routerFixtureService {
 	features := asMap(coreGet(spec, "features", routerDefaultFeatures()))
 	metrics := asMap(coreGet(spec, "metrics", Object("service", name, "calls", float64(0))))
 	return &routerFixtureService{
-		name:         name,
-		id:           display(coreGet(spec, "id", name+"-id")),
-		model:        display(coreGet(spec, "model", "fixture-chat")),
-		embedModel:   display(coreGet(spec, "embed_model", coreGet(spec, "embedModel", "fixture-embed"))),
-		features:     cloneMap(features),
-		modelList:    cloneValue(coreGet(spec, "modelList", coreGet(spec, "model_list", nil))),
-		responses:    asSlice(coreGet(spec, "responses", Array())),
-		metricsValue: cloneMap(metrics),
-		options:      Object(),
+		name:          name,
+		id:            display(coreGet(spec, "id", name+"-id")),
+		model:         display(coreGet(spec, "model", "fixture-chat")),
+		embedModel:    display(coreGet(spec, "embed_model", coreGet(spec, "embedModel", "fixture-embed"))),
+		features:      cloneMap(features),
+		modelList:     cloneValue(coreGet(spec, "modelList", coreGet(spec, "model_list", nil))),
+		responses:     asSlice(coreGet(spec, "responses", Array())),
+		metricsValue:  cloneMap(metrics),
+		estimatedCost: num(coreGet(spec, "estimatedCost", coreGet(spec, "estimated_cost", float64(0)))),
+		options:       Object(),
 	}
 }
 
@@ -6693,7 +7677,13 @@ func (s *routerFixtureService) Embed(ctx context.Context, request map[string]Val
 }
 func (s *routerFixtureService) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
 	value, err := s.Chat(ctx, request, options)
-	return asSlice(value), err
+	if err != nil {
+		return nil, err
+	}
+	if chunks := asSlice(value); len(chunks) > 0 {
+		return chunks, nil
+	}
+	return []Value{value}, nil
 }
 func (s *routerFixtureService) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	s.requests = append(s.requests, Object("method", "transcribe", "opt", cloneMap(options)))
@@ -6716,12 +7706,14 @@ func (s *routerFixtureService) GetMetrics() map[string]Value {
 	}
 	return out
 }
-func (s *routerFixtureService) SetOptions(options map[string]Value)             { s.options = cloneMap(options) }
-func (s *routerFixtureService) GetOptions() map[string]Value                    { return cloneMap(s.options) }
-func (s *routerFixtureService) GetLastUsedChatModel() Value                     { return s.lastChat }
-func (s *routerFixtureService) GetLastUsedEmbedModel() Value                    { return s.lastEmbed }
-func (s *routerFixtureService) GetLastUsedModelConfig() Value                   { return cloneValue(s.lastConfig) }
-func (s *routerFixtureService) GetEstimatedCost(usage map[string]Value) float64 { return 0 }
+func (s *routerFixtureService) SetOptions(options map[string]Value) { s.options = cloneMap(options) }
+func (s *routerFixtureService) GetOptions() map[string]Value        { return cloneMap(s.options) }
+func (s *routerFixtureService) GetLastUsedChatModel() Value         { return s.lastChat }
+func (s *routerFixtureService) GetLastUsedEmbedModel() Value        { return s.lastEmbed }
+func (s *routerFixtureService) GetLastUsedModelConfig() Value       { return cloneValue(s.lastConfig) }
+func (s *routerFixtureService) GetEstimatedCost(usage map[string]Value) float64 {
+	return s.estimatedCost
+}
 
 func fixtureAIServiceError(spec map[string]Value) error {
 	errorType := display(coreGet(spec, "type", "network"))
@@ -6921,7 +7913,22 @@ func runConformanceAIBalancer(fixture map[string]Value) {
 		for _, service := range fixtures {
 			services = append(services, service)
 		}
-		balancer, buildErr := NewAxBalancer(services, asMap(coreGet(fixture, "options", Object())))
+		bestEffortStore := &throwingBalancerStatsStore{}
+		bestEffortEvents := 0
+		var balancer *AxBalancer
+		var buildErr error
+		if coreTruthy(coreGet(fixture, "adaptive_best_effort", false)) {
+			raw := asMap(coreGet(coreGet(fixture, "options", Object()), "strategy", Object()))
+			strategy := &AxBalancerAdaptiveStrategy{
+				DeadlineMs: num(coreGet(raw, "deadlineMs", 1)), BadOutcomeCost: num(coreGet(raw, "badOutcomeCost", 0)),
+				Namespace: display(coreGet(raw, "namespace", "default")), StatsStore: bestEffortStore,
+				RouteKey: func(AxAIService, int) string { return "best-effort-route" },
+				OnRoutingEvent: func(AxBalancerRoutingEvent) { bestEffortEvents++; panic("fixture event hook failed") },
+			}
+			balancer, buildErr = NewAxBalancerWithOptions(services, AxBalancerOptions{Strategy: strategy})
+		} else {
+			balancer, buildErr = NewAxBalancer(services, asMap(coreGet(fixture, "options", Object())))
+		}
 		if buildErr != nil {
 			panic(buildErr)
 		}
@@ -6964,6 +7971,43 @@ func runConformanceAIBalancer(fixture map[string]Value) {
 				coreSet(outputs, name, value)
 			case "set_options":
 				balancer.SetOptions(options)
+			case "adaptive_stats":
+				stats := CreateBalancerRouteStats()
+				for _, rawObservation := range asSlice(coreGet(op, "observations", Array())) {
+					observation := asMap(rawObservation)
+					stats = UpdateBalancerRouteStats(&stats, AxBalancerStatsObservation{Outcome: display(coreGet(observation, "outcome", "failure")), LatencyMs: num(coreGet(observation, "latencyMs", 0))})
+				}
+				setCoreMathRandomValues(asSlice(coreGet(op, "random_values", Array())))
+				health := SampleBalancerRouteHealth(&stats, num(coreGet(op, "deadline_ms", 1)))
+				score := num(mustCore(provider_balancer_adaptive_score(num(coreGet(op, "estimated_cost", 0)), num(coreGet(op, "bad_outcome_cost", 0)), num(coreGet(health, "failureProbability", 0)), num(coreGet(health, "deadlineMissProbability", 0)))))
+				round9 := func(value float64) float64 { return math.Round(value*1_000_000_000) / 1_000_000_000 }
+				coreSet(outputs, name, Object(
+					"stats", Object("version", stats.Version, "observations", stats.Observations, "successes", stats.Successes, "failureEwma", round9(stats.FailureEWMA), "logLatencyMean", round9(stats.LogLatencyMean), "logLatencyM2", round9(stats.LogLatencyM2)),
+					"health", Object("failureProbability", round9(num(coreGet(health, "failureProbability", 0))), "deadlineMissProbability", round9(num(coreGet(health, "deadlineMissProbability", 0)))),
+					"score", round9(score),
+				))
+			case "adaptive_store":
+				store := NewAxInMemoryBalancerStatsStore()
+				for _, rawWrite := range asSlice(coreGet(op, "writes", Array())) {
+					write := asMap(rawWrite)
+					keyValue := asMap(coreGet(write, "key", Object()))
+					observation := asMap(coreGet(write, "observation", Object()))
+					key := AxBalancerStatsKey{Namespace: display(coreGet(keyValue, "namespace", "")), Slice: display(coreGet(keyValue, "slice", "")), LogicalModel: display(coreGet(keyValue, "logicalModel", "")), RouteKey: display(coreGet(keyValue, "routeKey", ""))}
+					if err := store.Observe(key, AxBalancerStatsObservation{Outcome: display(coreGet(observation, "outcome", "failure")), LatencyMs: num(coreGet(observation, "latencyMs", 0))}); err != nil {
+						panic(err)
+					}
+				}
+				states := Array()
+				for _, rawKey := range asSlice(coreGet(op, "reads", Array())) {
+					keyValue := asMap(rawKey)
+					key := AxBalancerStatsKey{Namespace: display(coreGet(keyValue, "namespace", "")), Slice: display(coreGet(keyValue, "slice", "")), LogicalModel: display(coreGet(keyValue, "logicalModel", "")), RouteKey: display(coreGet(keyValue, "routeKey", ""))}
+					stats, err := store.Get(key)
+					if err != nil {
+						panic(err)
+					}
+					states = append(states, routeStatsMap(stats))
+				}
+				coreSet(outputs, name, Object("states", states))
 			}
 		}
 		actual := Object("id", balancer.GetID(), "name", balancer.GetName(), "outputs", outputs, "lastChat", balancer.GetLastUsedChatModel(), "lastEmbed", balancer.GetLastUsedEmbedModel(), "lastConfig", balancer.GetLastUsedModelConfig(), "metrics", balancer.GetMetrics(), "options", balancer.GetOptions(), "serviceCalls", serviceCalls(fixtures))
@@ -6973,6 +8017,9 @@ func runConformanceAIBalancer(fixture map[string]Value) {
 		}
 		if coreGet(expected, "features", nil) != nil {
 			coreSet(actual, "features", balancer.GetFeatures(""))
+		}
+		if coreTruthy(coreGet(fixture, "adaptive_best_effort", false)) {
+			coreSet(actual, "bestEffort", Object("storeGets", bestEffortStore.gets, "storeObserves", bestEffortStore.observes, "eventCalls", bestEffortEvents))
 		}
 		assertSubset(actual, expected, "balancer")
 		return nil
@@ -8915,11 +9962,15 @@ func runConformanceAgentPlaybookCoverage(fixture map[string]Value) {
 func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 	sourceResponses := asSlice(coreGet(fixture, "responses", Array()))
 	response := Value(Object())
-	if len(sourceResponses) > 0 { response = sourceResponses[0] }
+	if len(sourceResponses) > 0 {
+		response = sourceResponses[0]
+	}
 	for _, rawCase := range asSlice(coreGet(fixture, "cases", Array())) {
 		testCase := asMap(rawCase)
 		responses := Array()
-		for i := 0; i < 32; i++ { responses = append(responses, cloneValue(response)) }
+		for i := 0; i < 32; i++ {
+			responses = append(responses, cloneValue(response))
+		}
 		client := &conformanceScriptedAI{Responses: responses}
 		runtime := newConformanceScriptedCodeRuntime(coreGet(fixture, "runtime_script", Array()), Object())
 		runtime.LanguageName = display(coreGet(fixture, "runtime_language", "Python"))
@@ -8927,24 +9978,40 @@ func runConformanceAgentPlaybookEvolve(fixture map[string]Value) {
 		coreSet(agentOptions, "runtime", runtime)
 		ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), agentOptions)
 		playbook := ag.Playbook(Object("target", "responder", "studentAI", client, "teacherAI", client, "maxEpochs", 1))
-		if seed := coreGet(fixture, "seed", nil); seed != nil { playbook.Load(asMap(seed)) }
+		if seed := coreGet(fixture, "seed", nil); seed != nil {
+			playbook.Load(asMap(seed))
+		}
 		before := stableStringify(playbook.ToJSON())
 		actual, err := playbook.EvolveAgent(context.Background(), coreGet(fixture, "dataset", Object()), asMap(coreGet(testCase, "options", Object())))
-		if err != nil { panic(err) }
+		if err != nil {
+			panic(err)
+		}
 		outcomes := asSlice(coreGet(actual, "outcomes", Array()))
 		label := "playbook evolve " + display(coreGet(testCase, "name", "case"))
-		if len(outcomes) == 0 { panic(AxError{Category: "fixture", Message: label + " produced no outcome: " + stableStringify(actual)}) }
+		if len(outcomes) == 0 {
+			panic(AxError{Category: "fixture", Message: label + " produced no outcome: " + stableStringify(actual)})
+		}
 		outcome := outcomes[0]
 		expected := asMap(coreGet(testCase, "expected", Object()))
-		if value := coreGet(expected, "accepted", nil); value != nil { assertEqual(coreGet(outcome, "accepted", nil), value, label+" accepted") }
-		if value := coreGet(expected, "metricCallsUsed", nil); value != nil { assertEqual(coreGet(actual, "metricCallsUsed", nil), value, label+" metric calls") }
-		if value := coreGet(expected, "heldIn", nil); value != nil { assertSubset(coreGet(outcome, "heldIn", Object()), value, label+" held-in") }
+		if value := coreGet(expected, "accepted", nil); value != nil {
+			assertEqual(coreGet(outcome, "accepted", nil), value, label+" accepted")
+		}
+		if value := coreGet(expected, "metricCallsUsed", nil); value != nil {
+			assertEqual(coreGet(actual, "metricCallsUsed", nil), value, label+" metric calls")
+		}
+		if value := coreGet(expected, "heldIn", nil); value != nil {
+			assertSubset(coreGet(outcome, "heldIn", Object()), value, label+" held-in")
+		}
 		if needle := display(coreGet(expected, "reason_contains", "")); needle != "" && !strings.Contains(display(coreGet(outcome, "reason", "")), needle) {
 			panic(AxError{Category: "fixture", Message: label + " reason missing " + needle + ": " + stableStringify(outcome)})
 		}
 		afterState := playbook.ToJSON()
-		if coreTruthy(coreGet(testCase, "expected_rollback", false)) { assertEqual(stableStringify(afterState), before, label+" byte-exact rollback") }
-		if expectedState := coreGet(testCase, "expected_exported_state_subset", nil); expectedState != nil { assertSubset(afterState, expectedState, label+" exported state") }
+		if coreTruthy(coreGet(testCase, "expected_rollback", false)) {
+			assertEqual(stableStringify(afterState), before, label+" byte-exact rollback")
+		}
+		if expectedState := coreGet(testCase, "expected_exported_state_subset", nil); expectedState != nil {
+			assertSubset(afterState, expectedState, label+" exported state")
+		}
 	}
 }
 
@@ -10063,26 +11130,58 @@ func splitTopLevel(s string, sep string) (Value, error) {
 	parenDepth, braceDepth := 0, 0
 	for i := 0; i < len(s); {
 		ch := s[i]
-		if escaped { cur.WriteByte(ch); escaped = false; i++; continue }
-		if ch == '\\' { cur.WriteByte(ch); escaped = true; i++; continue }
-		if quote != 0 { cur.WriteByte(ch); if ch == quote { quote = 0 }; i++; continue }
-		if ch == '\'' || ch == '"' { cur.WriteByte(ch); quote = ch; i++; continue }
+		if escaped {
+			cur.WriteByte(ch)
+			escaped = false
+			i++
+			continue
+		}
+		if ch == '\\' {
+			cur.WriteByte(ch)
+			escaped = true
+			i++
+			continue
+		}
+		if quote != 0 {
+			cur.WriteByte(ch)
+			if ch == quote {
+				quote = 0
+			}
+			i++
+			continue
+		}
+		if ch == '\'' || ch == '"' {
+			cur.WriteByte(ch)
+			quote = ch
+			i++
+			continue
+		}
 		switch ch {
 		case '(':
 			parenDepth++
 		case ')':
-			if parenDepth > 0 { parenDepth-- }
+			if parenDepth > 0 {
+				parenDepth--
+			}
 		case '{':
 			braceDepth++
 		case '}':
-			if braceDepth > 0 { braceDepth-- }
+			if braceDepth > 0 {
+				braceDepth--
+			}
 		}
 		if sep != "" && parenDepth == 0 && braceDepth == 0 && strings.HasPrefix(s[i:], sep) {
-			out = append(out, strings.TrimSpace(cur.String())); cur.Reset(); i += len(sep); continue
+			out = append(out, strings.TrimSpace(cur.String()))
+			cur.Reset()
+			i += len(sep)
+			continue
 		}
-		cur.WriteByte(ch); i++
+		cur.WriteByte(ch)
+		i++
 	}
-	if quote != 0 { return nil, AxError{Category: "signature", Message: "Unterminated string"} }
+	if quote != 0 {
+		return nil, AxError{Category: "signature", Message: "Unterminated string"}
+	}
 	out = append(out, strings.TrimSpace(cur.String()))
 	return out, nil
 }
@@ -10095,18 +11194,40 @@ func extractLeadingGroup(s string, open string, close string) (Value, error) {
 	depth := 0
 	for i := 0; i < len(s); i++ {
 		ch := s[i]
-		if escaped { escaped = false; continue }
-		if ch == '\\' { escaped = true; continue }
-		if quote != 0 { if ch == quote { quote = 0 }; continue }
-		if ch == '\'' || ch == '"' { quote = ch; continue }
-		if strings.HasPrefix(s[i:], open) { depth++; i += len(open) - 1; continue }
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if ch == '\'' || ch == '"' {
+			quote = ch
+			continue
+		}
+		if strings.HasPrefix(s[i:], open) {
+			depth++
+			i += len(open) - 1
+			continue
+		}
 		if strings.HasPrefix(s[i:], close) {
 			depth--
-			if depth == 0 { return Object("found", true, "balanced", true, "group", s[len(open):i], "rest", s[i+len(close):]), nil }
+			if depth == 0 {
+				return Object("found", true, "balanced", true, "group", s[len(open):i], "rest", s[i+len(close):]), nil
+			}
 			i += len(close) - 1
 		}
 	}
-	if quote != 0 { return nil, AxError{Category: "signature", Message: "Unterminated string"} }
+	if quote != 0 {
+		return nil, AxError{Category: "signature", Message: "Unterminated string"}
+	}
 	return Object("found", true, "balanced", false, "group", s[len(open):], "rest", ""), nil
 }
 func consumeOptionalQuotedPrefix(s string) (Value, error) {

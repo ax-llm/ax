@@ -3,8 +3,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import base64
 import copy
+from dataclasses import dataclass
 import json
+import math
 import os
+import random
+import threading
 import time
 import uuid
 import urllib.error
@@ -1128,6 +1132,117 @@ def _is_retryable_ai_error(exc: AxAIServiceError) -> bool:
     )
 
 
+AxBalancerStatsKey = dict[str, Any]
+AxBalancerRouteStats = dict[str, Any]
+AxBalancerStatsObservation = dict[str, Any]
+AxBalancerRoutingEvent = dict[str, Any]
+AxBalancerCandidateScore = dict[str, Any]
+AxBalancerFailureReason = str
+
+
+class AxBalancerStatsStore(ABC):
+    """Shared adaptive-routing state. ``observe`` must be atomic per key."""
+
+    @abstractmethod
+    def get(self, key: AxBalancerStatsKey) -> AxBalancerRouteStats | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def observe(self, key: AxBalancerStatsKey, observation: AxBalancerStatsObservation) -> None:
+        raise NotImplementedError
+
+
+def create_balancer_route_stats() -> AxBalancerRouteStats:
+    return copy.deepcopy(provider_balancer_route_stats())
+
+
+def update_balancer_route_stats(
+    current: AxBalancerRouteStats | None,
+    observation: AxBalancerStatsObservation,
+) -> AxBalancerRouteStats:
+    return copy.deepcopy(provider_balancer_observe_route(current, observation))
+
+
+def sample_balancer_route_health(
+    stats: AxBalancerRouteStats | None,
+    deadline_ms: float,
+) -> dict[str, float]:
+    return copy.deepcopy(provider_balancer_sample_health(stats, deadline_ms))
+
+
+class AxInMemoryBalancerStatsStore(AxBalancerStatsStore):
+    """Thread-safe in-memory adaptive-routing store."""
+
+    def __init__(self):
+        self._stats: dict[tuple[str, str, str, str], AxBalancerRouteStats] = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _key(key: AxBalancerStatsKey) -> tuple[str, str, str, str]:
+        return (
+            str(key["namespace"]),
+            str(key["slice"]),
+            str(key["logicalModel"]),
+            str(key["routeKey"]),
+        )
+
+    def get(self, key: AxBalancerStatsKey) -> AxBalancerRouteStats | None:
+        with self._lock:
+            value = self._stats.get(self._key(key))
+            return copy.deepcopy(value) if value is not None else None
+
+    def observe(self, key: AxBalancerStatsKey, observation: AxBalancerStatsObservation) -> None:
+        with self._lock:
+            encoded = self._key(key)
+            self._stats[encoded] = update_balancer_route_stats(self._stats.get(encoded), observation)
+
+
+@dataclass
+class AxBalancerAdaptiveStrategy:
+    deadline_ms: float
+    bad_outcome_cost: float
+    expected_tokens: dict[str, float] | None = None
+    estimate_cost: Callable[[dict[str, Any]], float] | None = None
+    namespace: str = "default"
+    slice: Callable[[dict[str, Any]], str] | None = None
+    route_key: Callable[[AxAIService, int], str] | None = None
+    stats_store: AxBalancerStatsStore | None = None
+    on_routing_event: Callable[[AxBalancerRoutingEvent], Any] | None = None
+
+    def as_options(self) -> dict[str, Any]:
+        return {
+            "type": "adaptive",
+            "deadlineMs": self.deadline_ms,
+            "badOutcomeCost": self.bad_outcome_cost,
+            "expectedTokens": self.expected_tokens,
+            "estimateCost": self.estimate_cost,
+            "namespace": self.namespace,
+            "slice": self.slice,
+            "routeKey": self.route_key,
+            "statsStore": self.stats_store,
+            "onRoutingEvent": self.on_routing_event,
+        }
+
+
+@dataclass
+class AxBalancerOptions:
+    strategy: AxBalancerAdaptiveStrategy | dict[str, Any] | str | None = None
+    debug: bool = True
+    initial_backoff_ms: int = 1000
+    max_backoff_ms: int = 32000
+    max_retries: int = 3
+
+    def as_options(self) -> dict[str, Any]:
+        strategy = self.strategy.as_options() if isinstance(self.strategy, AxBalancerAdaptiveStrategy) else self.strategy
+        return {
+            "strategy": strategy,
+            "debug": self.debug,
+            "initialBackoffMs": self.initial_backoff_ms,
+            "maxBackoffMs": self.max_backoff_ms,
+            "maxRetries": self.max_retries,
+        }
+
+
 class AxBalancer(AxAIService):
     input_order_comparator = "input_order"
 
@@ -1135,9 +1250,17 @@ class AxBalancer(AxAIService):
     def create(services, options: dict[str, Any] | None = None):
         return AxBalancer(services, options)
 
-    def __init__(self, services, options: dict[str, Any] | None = None):
+    def __init__(self, services, options: dict[str, Any] | AxBalancerOptions | None = None):
         if not services:
             raise ValueError("No AI services provided.")
+        if isinstance(options, AxBalancerOptions):
+            options = options.as_options()
+        options = dict(options or {})
+        raw_strategy = options.get("strategy")
+        if isinstance(raw_strategy, AxBalancerAdaptiveStrategy):
+            raw_strategy = raw_strategy.as_options()
+            options["strategy"] = raw_strategy
+        self.adaptive = self._create_adaptive_state(list(services), raw_strategy) if isinstance(raw_strategy, dict) and raw_strategy.get("type") == "adaptive" else None
         self.policy = provider_balancer_retry_policy(options or {})
         self.debug = bool(self.policy.get("debug", True))
         self.max_retries = int(self.policy.get("maxRetries", 3))
@@ -1150,6 +1273,31 @@ class AxBalancer(AxAIService):
             self.services.sort(key=_service_latency_score)
         self.current_service_index = 0
         self.current_service = self.services[0]
+
+    def _create_adaptive_state(self, services, strategy):
+        normalized = provider_balancer_adaptive_policy(strategy)
+        namespace = str(normalized.get("namespace") or "").strip()
+        if not namespace:
+            raise ValueError("Adaptive namespace must be non-empty.")
+        store = strategy.get("statsStore") or strategy.get("stats_store")
+        route_key = strategy.get("routeKey") or strategy.get("route_key")
+        if store is not None and route_key is None:
+            raise ValueError("Adaptive routeKey is required when statsStore is supplied.")
+        store = store or AxInMemoryBalancerStatsStore()
+        route_keys: dict[int, str] = {}
+        seen: set[str] = set()
+        for index, service in enumerate(services):
+            key = route_key(service, index) if route_key else service.get_id()
+            key = provider_balancer_validate_route_key(str(key or ""), list(seen))
+            seen.add(key)
+            route_keys[id(service)] = key
+        return {
+            "strategy": strategy,
+            "namespace": namespace,
+            "store": store,
+            "route_keys": route_keys,
+            "indices": {id(service): index for index, service in enumerate(services)},
+        }
 
     def _validate_models(self):
         reference = next((service.get_model_list() for service in self.services if service.get_model_list() is not None), None)
@@ -1199,6 +1347,147 @@ class AxBalancer(AxAIService):
         if caps.get("requiresAudio") or caps.get("requires_audio"):
             requirements.append("audio")
         raise ValueError(f"No services available that support required capabilities: {', '.join(requirements)}.")
+
+    def _emit_routing_event(self, event: AxBalancerRoutingEvent):
+        if self.adaptive is None:
+            return
+        callback = self.adaptive["strategy"].get("onRoutingEvent") or self.adaptive["strategy"].get("on_routing_event")
+        if callback is None:
+            return
+        try:
+            callback(copy.deepcopy(event))
+        except Exception:
+            pass
+
+    def _adaptive_stats(self, key: AxBalancerStatsKey):
+        try:
+            return self.adaptive["store"].get(key)
+        except Exception as error:
+            self._emit_routing_event({
+                "type": "store-error", **{name: key[name] for name in ("namespace", "slice", "logicalModel")},
+                "operation": "get", "routeKey": key["routeKey"], "errorType": type(error).__name__,
+            })
+            return None
+
+    def _adaptive_observe(self, candidate, observation, *, streaming=False, reason=None, status=None):
+        try:
+            self.adaptive["store"].observe(candidate["stats_key"], observation)
+        except Exception as error:
+            key = candidate["stats_key"]
+            self._emit_routing_event({
+                "type": "store-error", **{name: key[name] for name in ("namespace", "slice", "logicalModel")},
+                "operation": "observe", "routeKey": key["routeKey"], "errorType": type(error).__name__,
+            })
+        key = candidate["stats_key"]
+        self._emit_routing_event({
+            "type": "observation", **{name: key[name] for name in ("namespace", "slice", "logicalModel")},
+            "routeKey": candidate["route_key"], "serviceName": candidate["service"].get_name(),
+            "outcome": observation["outcome"], "latencyMs": observation.get("latencyMs"),
+            "streaming": streaming, "reason": reason, "status": status,
+        })
+
+    @staticmethod
+    def _failure_reason(error):
+        if isinstance(error, AxAIServiceStatusError): return "status"
+        if isinstance(error, AxAIServiceNetworkError): return "network"
+        if isinstance(error, AxAIServiceResponseError): return "response"
+        if isinstance(error, AxAIServiceStreamTerminatedError): return "stream-terminated"
+        if isinstance(error, AxAIServiceTimeoutError): return "timeout"
+        return None
+
+    def _adaptive_cost(self, service, route_key, request):
+        strategy = self.adaptive["strategy"]
+        logical_model = str(request.get("model") or "default")
+        resolved_model = logical_model
+        for entry in service.get_model_list() or []:
+            if entry.get("key") == request.get("model"):
+                resolved_model = str(entry.get("model") or logical_model)
+                break
+        expected = strategy.get("expectedTokens") or strategy.get("expected_tokens")
+        context = {
+            "service": service,
+            "serviceIndex": self.adaptive["indices"][id(service)],
+            "routeKey": route_key,
+            "logicalModel": logical_model,
+            "resolvedModel": resolved_model,
+            "expectedTokens": expected,
+        }
+        estimate = strategy.get("estimateCost") or strategy.get("estimate_cost")
+        if estimate:
+            cost = float(estimate(context))
+        else:
+            prompt = float((expected or {}).get("promptTokens", (expected or {}).get("prompt_tokens", 0)) or 0)
+            completion = float((expected or {}).get("completionTokens", (expected or {}).get("completion_tokens", 0)) or 0)
+            usage = None if expected is None else {
+                "ai": service.get_name(), "model": resolved_model,
+                "tokens": {"promptTokens": prompt, "completionTokens": completion, "totalTokens": prompt + completion},
+            }
+            cost = float(service.get_estimated_cost(usage) or 0)
+        if not math.isfinite(cost) or cost < 0:
+            raise ValueError(f"Adaptive estimated cost for route {route_key!r} must be finite and non-negative.")
+        return cost
+
+    def _rank_adaptive(self, request, options):
+        candidates = self._candidate_services(request)
+        strategy = self.adaptive["strategy"]
+        logical_model = str(request.get("model") or "default")
+        slice_callback = strategy.get("slice")
+        slice_value = slice_callback({"model": request.get("model"), "options": options}) if slice_callback else "default"
+        slice_value = str(slice_value or "").strip()
+        if not slice_value:
+            raise ValueError("Adaptive slice must be non-empty.")
+        ranked = []
+        for order, service in enumerate(candidates):
+            route_key = self.adaptive["route_keys"][id(service)]
+            stats_key = {"namespace": self.adaptive["namespace"], "slice": slice_value, "logicalModel": logical_model, "routeKey": route_key}
+            health = sample_balancer_route_health(self._adaptive_stats(stats_key), float(strategy.get("deadlineMs", strategy.get("deadline_ms"))))
+            estimated_cost = self._adaptive_cost(service, route_key, request)
+            failure = float(health["failureProbability"])
+            late = float(health["deadlineMissProbability"])
+            score = float(provider_balancer_adaptive_score(estimated_cost, float(strategy.get("badOutcomeCost", strategy.get("bad_outcome_cost"))), failure, late))
+            ranked.append({"service": service, "order": order, "route_key": route_key, "stats_key": stats_key, "score": score, "estimated_cost": estimated_cost, "failure": failure, "late": late})
+        ranked_by_key = {value["route_key"]: value for value in ranked}
+        ranked = [ranked_by_key[value["routeKey"]] for value in provider_balancer_rank_candidates([
+            {"routeKey": value["route_key"], "score": value["score"], "order": value["order"]}
+            for value in ranked
+        ])]
+        base = {"namespace": self.adaptive["namespace"], "slice": slice_value, "logicalModel": logical_model}
+        self._emit_routing_event({"type": "ranked", **base, "candidates": [
+            {"routeKey": item["route_key"], "serviceName": item["service"].get_name(), "score": item["score"],
+             "estimatedCost": item["estimated_cost"], "failureProbability": item["failure"], "deadlineMissProbability": item["late"]}
+            for item in ranked
+        ]})
+        return ranked
+
+    def _adaptive_invoke(self, method, request, options):
+        ranked = self._rank_adaptive(request, options)
+        last_error = None
+        for attempt, candidate in enumerate(ranked, 1):
+            service = candidate["service"]
+            self.current_service = service
+            key = candidate["stats_key"]
+            base = {name: key[name] for name in ("namespace", "slice", "logicalModel")}
+            self._emit_routing_event({"type": "selected", **base, "routeKey": candidate["route_key"], "serviceName": service.get_name(), "attempt": attempt})
+            started = time.monotonic()
+            try:
+                response = getattr(service, method)(request, options)
+                if method == "stream":
+                    response = list(response)
+                latency = max(1.0, (time.monotonic() - started) * 1000)
+                self._adaptive_observe(candidate, {"outcome": "success", "latencyMs": latency}, streaming=method == "stream")
+                return response
+            except AxAIServiceError as error:
+                if not _is_retryable_ai_error(error):
+                    raise
+                last_error = error
+                reason = self._failure_reason(error)
+                status = getattr(error, "status", None)
+                self._adaptive_observe(candidate, {"outcome": "failure"}, streaming=method == "stream", reason=reason, status=status)
+                next_route = ranked[attempt]["route_key"] if attempt < len(ranked) else None
+                self._emit_routing_event({"type": "fallback", **base, "fromRouteKey": candidate["route_key"], "toRouteKey": next_route, "reason": reason, "status": status})
+        if last_error is not None:
+            raise last_error
+        raise ValueError(f"All candidate services exhausted (tried {len(ranked)} service(s))")
 
     def get_id(self) -> str:
         return self.current_service.get_id()
@@ -1291,6 +1580,8 @@ class AxBalancer(AxAIService):
         return out
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        if self.adaptive is not None:
+            return self._adaptive_invoke("chat", request, options)
         candidates = self._candidate_services(request)
         index = 0
         current = candidates[index]
@@ -1318,6 +1609,11 @@ class AxBalancer(AxAIService):
                     self.current_service = current
             except Exception:
                 raise
+
+    def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        if self.adaptive is not None:
+            return self._adaptive_invoke("stream", request, options)
+        return super().stream(request, options)
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         self._reset()
@@ -1447,9 +1743,27 @@ def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
 def _core_add(left, right): return left + right
 def _core_mul(left, right): return left * right
+def _core_div(left, right): return float(left or 0) / float(right or 1)
+def _core_math_abs(value): return abs(float(value or 0))
+def _core_math_log(value): return math.log(float(value))
+def _core_math_exp(value): return math.exp(float(value))
+def _core_math_sqrt(value): return math.sqrt(float(value))
+def _core_math_cos(value): return math.cos(float(value))
+def _core_math_pow(left, right): return float(left) ** float(right)
+_core_math_random_lock = threading.Lock()
+_core_math_random_values: list[float] = []
+def _core_set_math_random_values(values):
+    with _core_math_random_lock:
+        _core_math_random_values[:] = [float(value) for value in values]
+def _core_math_random():
+    with _core_math_random_lock:
+        if _core_math_random_values:
+            return _core_math_random_values.pop(0)
+    return random.random()
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
 def _core_lt(left, right): return left < right
+def _core_lte(left, right): return left <= right
 def _core_gt(left, right): return left > right
 def _core_gte(left, right): return left >= right
 def _core_contains(container, item): return False if container is None else item in container
@@ -3027,6 +3341,379 @@ def provider_balancer_candidate_allowed(features: Any, request: Any) -> bool:
     else:
         pass
     return True
+
+
+def provider_balancer_adaptive_policy(strategy: Any) -> Any:
+    _core_coverage_mark("provider_balancer_adaptive_policy")
+    deadline = _core_get(strategy, "deadlineMs", None)
+    deadline_missing = _core_is_none(deadline)
+    if deadline_missing:
+        deadline = _core_get(strategy, "deadline_ms", 0)
+    else:
+        pass
+    deadline_bad = _core_lte(deadline, 0)
+    if deadline_bad:
+        error = _core_runtime_error("Adaptive deadlineMs must be finite and greater than zero.")
+        raise error
+    else:
+        pass
+    bad_outcome = _core_get(strategy, "badOutcomeCost", None)
+    bad_outcome_missing = _core_is_none(bad_outcome)
+    if bad_outcome_missing:
+        bad_outcome = _core_get(strategy, "bad_outcome_cost", -1)
+    else:
+        pass
+    bad_outcome_bad = _core_lt(bad_outcome, 0)
+    if bad_outcome_bad:
+        error = _core_runtime_error("Adaptive badOutcomeCost must be finite and non-negative.")
+        raise error
+    else:
+        pass
+    out = {}
+    out["type"] = "adaptive"
+    out["deadlineMs"] = deadline
+    out["badOutcomeCost"] = bad_outcome
+    namespace = _core_get(strategy, "namespace", "default")
+    out["namespace"] = namespace
+    tokens = _core_get(strategy, "expectedTokens", None)
+    tokens_missing = _core_is_none(tokens)
+    if tokens_missing:
+        tokens = _core_get(strategy, "expected_tokens", None)
+    else:
+        pass
+    out["expectedTokens"] = tokens
+    return out
+
+
+def provider_balancer_route_stats() -> Any:
+    _core_coverage_mark("provider_balancer_route_stats")
+    out = {}
+    out["version"] = 1
+    out["observations"] = 0
+    out["successes"] = 0
+    out["failureEwma"] = 0.05
+    out["logLatencyMean"] = 0
+    out["logLatencyM2"] = 0
+    return out
+
+
+def provider_balancer_observe_route(stats: Any, observation: Any) -> Any:
+    _core_coverage_mark("provider_balancer_observe_route")
+    missing = _core_is_none(stats)
+    if missing:
+        stats = provider_balancer_route_stats()
+    else:
+        pass
+    outcome = _core_get(observation, "outcome", "failure")
+    failed = _core_eq(outcome, "failure")
+    failed_number = _core_add(0, 0)
+    if failed:
+        failed_number = _core_add(1, 0)
+    else:
+        pass
+    failure_ewma = _core_get(stats, "failureEwma", 0.05)
+    old_weighted = _core_mul(0.8, failure_ewma)
+    new_weighted = _core_mul(0.2, failed_number)
+    next_failure = _core_add(old_weighted, new_weighted)
+    observations = _core_get(stats, "observations", 0)
+    next_observations = _core_add(observations, 1)
+    successes = _core_get(stats, "successes", 0)
+    mean = _core_get(stats, "logLatencyMean", 0)
+    m2 = _core_get(stats, "logLatencyM2", 0)
+    out = {}
+    out["version"] = 1
+    out["observations"] = next_observations
+    out["successes"] = successes
+    out["failureEwma"] = next_failure
+    out["logLatencyMean"] = mean
+    out["logLatencyM2"] = m2
+    if failed:
+        return out
+    else:
+        pass
+    latency = _core_get(observation, "latencyMs", None)
+    latency_missing = _core_is_none(latency)
+    if latency_missing:
+        latency = _core_get(observation, "latency_ms", 1)
+    else:
+        pass
+    too_small = _core_lt(latency, 1)
+    if too_small:
+        latency = _core_add(1, 0)
+    else:
+        pass
+    log_latency = _core_math_log(latency)
+    next_successes = _core_add(successes, 1)
+    negative_mean = _core_mul(-1, mean)
+    delta = _core_add(log_latency, negative_mean)
+    delta_share = _core_div(delta, next_successes)
+    next_mean = _core_add(mean, delta_share)
+    negative_next_mean = _core_mul(-1, next_mean)
+    delta_after = _core_add(log_latency, negative_next_mean)
+    m2_increment = _core_mul(delta, delta_after)
+    next_m2 = _core_add(m2, m2_increment)
+    out["successes"] = next_successes
+    out["logLatencyMean"] = next_mean
+    out["logLatencyM2"] = next_m2
+    return out
+
+
+def _provider_balancer_nonzero_random() -> number:
+    _core_coverage_mark("_provider_balancer_nonzero_random")
+    value = _core_math_random()
+    low = _core_lt(value, 0.0000000000000002220446049250313)
+    if low:
+        return 0.0000000000000002220446049250313
+    else:
+        pass
+    high = _core_gt(value, 0.9999999999999998)
+    if high:
+        return 0.9999999999999998
+    else:
+        pass
+    return value
+
+
+def _provider_balancer_standard_normal() -> number:
+    _core_coverage_mark("_provider_balancer_standard_normal")
+    u1 = _provider_balancer_nonzero_random()
+    u2 = _provider_balancer_nonzero_random()
+    log_u1 = _core_math_log(u1)
+    negative_two_log = _core_mul(-2, log_u1)
+    radius = _core_math_sqrt(negative_two_log)
+    angle = _core_mul(6.283185307179586, u2)
+    cosine = _core_math_cos(angle)
+    sample = _core_mul(radius, cosine)
+    return sample
+
+
+def _provider_balancer_gamma_sample(shape: number, scale: number) -> number:
+    _core_coverage_mark("_provider_balancer_gamma_sample")
+    third = _core_div(1, 3)
+    negative_third = _core_mul(-1, third)
+    d = _core_add(shape, negative_third)
+    nine_d = _core_mul(9, d)
+    sqrt_nine_d = _core_math_sqrt(nine_d)
+    c = _core_div(1, sqrt_nine_d)
+    attempts = []
+    attempts.append(0)
+    attempts.append(1)
+    attempts.append(2)
+    attempts.append(3)
+    attempts.append(4)
+    attempts.append(5)
+    attempts.append(6)
+    attempts.append(7)
+    attempts.append(8)
+    attempts.append(9)
+    attempts.append(10)
+    attempts.append(11)
+    attempts.append(12)
+    attempts.append(13)
+    attempts.append(14)
+    attempts.append(15)
+    for attempt in attempts:
+        x = _provider_balancer_standard_normal()
+        cx = _core_mul(c, x)
+        base = _core_add(1, cx)
+        base_bad = _core_lte(base, 0)
+        if base_bad:
+            continue
+        else:
+            pass
+        value = _core_math_pow(base, 3)
+        u = _provider_balancer_nonzero_random()
+        x2 = _core_math_pow(x, 2)
+        x4 = _core_math_pow(x, 4)
+        penalty = _core_mul(0.0331, x4)
+        negative_penalty = _core_mul(-1, penalty)
+        fast_threshold = _core_add(1, negative_penalty)
+        fast_accept = _core_lt(u, fast_threshold)
+        if fast_accept:
+            dv = _core_mul(d, value)
+            sample = _core_mul(dv, scale)
+            return sample
+        else:
+            pass
+        log_u = _core_math_log(u)
+        half_x2 = _core_mul(0.5, x2)
+        negative_value = _core_mul(-1, value)
+        one_minus_value = _core_add(1, negative_value)
+        log_value = _core_math_log(value)
+        inside = _core_add(one_minus_value, log_value)
+        d_inside = _core_mul(d, inside)
+        rhs = _core_add(half_x2, d_inside)
+        accept = _core_lt(log_u, rhs)
+        if accept:
+            dv = _core_mul(d, value)
+            sample = _core_mul(dv, scale)
+            return sample
+        else:
+            pass
+    fallback = _core_mul(shape, scale)
+    return fallback
+
+
+def _provider_balancer_normal_cdf(value: number) -> number:
+    _core_coverage_mark("_provider_balancer_normal_cdf")
+    sign = _core_add(1, 0)
+    negative = _core_lt(value, 0)
+    if negative:
+        sign = _core_add(-1, 0)
+    else:
+        pass
+    absolute = _core_math_abs(value)
+    sqrt_two = _core_math_sqrt(2)
+    x = _core_div(absolute, sqrt_two)
+    scaled_x = _core_mul(0.3275911, x)
+    denom = _core_add(1, scaled_x)
+    t = _core_div(1, denom)
+    p1 = _core_mul(1.061405429, t)
+    p1 = _core_add(p1, -1.453152027)
+    p2 = _core_mul(p1, t)
+    p2 = _core_add(p2, 1.421413741)
+    p3 = _core_mul(p2, t)
+    p3 = _core_add(p3, -0.284496736)
+    p4 = _core_mul(p3, t)
+    p4 = _core_add(p4, 0.254829592)
+    polynomial = _core_mul(p4, t)
+    negative_x = _core_mul(-1, x)
+    negative_x2 = _core_mul(negative_x, x)
+    exponential = _core_math_exp(negative_x2)
+    poly_exp = _core_mul(polynomial, exponential)
+    negative_poly_exp = _core_mul(-1, poly_exp)
+    one_minus = _core_add(1, negative_poly_exp)
+    erf = _core_mul(sign, one_minus)
+    one_plus_erf = _core_add(1, erf)
+    cdf = _core_div(one_plus_erf, 2)
+    return cdf
+
+
+def provider_balancer_sample_health(stats: Any, deadline_ms: number) -> Any:
+    _core_coverage_mark("provider_balancer_sample_health")
+    missing = _core_is_none(stats)
+    if missing:
+        stats = provider_balancer_route_stats()
+    else:
+        pass
+    deadline_too_small = _core_lt(deadline_ms, 1)
+    if deadline_too_small:
+        deadline_ms = _core_add(1, 0)
+    else:
+        pass
+    half_deadline = _core_div(deadline_ms, 2)
+    prior_mean = _core_math_log(half_deadline)
+    count = _core_get(stats, "successes", 0)
+    posterior_strength = _core_add(1, count)
+    count_mean = _core_get(stats, "logLatencyMean", 0)
+    weighted_mean = _core_mul(count, count_mean)
+    mean_sum = _core_add(prior_mean, weighted_mean)
+    posterior_mean = _core_div(mean_sum, posterior_strength)
+    half_count = _core_div(count, 2)
+    posterior_alpha = _core_add(2, half_count)
+    negative_prior = _core_mul(-1, prior_mean)
+    mean_delta = _core_add(count_mean, negative_prior)
+    mean_delta2 = _core_math_pow(mean_delta, 2)
+    count_delta2 = _core_mul(count, mean_delta2)
+    twice_strength = _core_mul(2, posterior_strength)
+    mean_adjustment = _core_div(count_delta2, twice_strength)
+    m2 = _core_get(stats, "logLatencyM2", 0)
+    half_m2 = _core_div(m2, 2)
+    posterior_beta = _core_add(0.4804530139182014, half_m2)
+    posterior_beta = _core_add(posterior_beta, mean_adjustment)
+    scale = _core_div(1, posterior_beta)
+    precision = _provider_balancer_gamma_sample(posterior_alpha, scale)
+    variance = _core_div(1, precision)
+    variance_over_strength = _core_div(variance, posterior_strength)
+    mean_stddev = _core_math_sqrt(variance_over_strength)
+    normal = _provider_balancer_standard_normal()
+    mean_noise = _core_mul(normal, mean_stddev)
+    sampled_mean = _core_add(posterior_mean, mean_noise)
+    log_deadline = _core_math_log(deadline_ms)
+    negative_sampled_mean = _core_mul(-1, sampled_mean)
+    z_numerator = _core_add(log_deadline, negative_sampled_mean)
+    variance_stddev = _core_math_sqrt(variance)
+    z = _core_div(z_numerator, variance_stddev)
+    cdf = _provider_balancer_normal_cdf(z)
+    negative_cdf = _core_mul(-1, cdf)
+    late = _core_add(1, negative_cdf)
+    failure = _core_get(stats, "failureEwma", 0.05)
+    out = {}
+    out["failureProbability"] = failure
+    out["deadlineMissProbability"] = late
+    return out
+
+
+def provider_balancer_adaptive_score(estimated_cost: number, bad_outcome_cost: number, failure_probability: number, deadline_miss_probability: number) -> number:
+    _core_coverage_mark("provider_balancer_adaptive_score")
+    negative_failure = _core_mul(-1, failure_probability)
+    success_probability = _core_add(1, negative_failure)
+    successful_late = _core_mul(success_probability, deadline_miss_probability)
+    bad_probability = _core_add(failure_probability, successful_late)
+    bad_cost = _core_mul(bad_outcome_cost, bad_probability)
+    score = _core_add(estimated_cost, bad_cost)
+    return score
+
+
+def provider_balancer_validate_route_key(route_key: str, seen_keys: Any) -> str:
+    _core_coverage_mark("provider_balancer_validate_route_key")
+    key = str(route_key).strip()
+    empty = _core_eq(key, "")
+    if empty:
+        error = _core_runtime_error("Adaptive route keys must be non-empty.")
+        raise error
+    else:
+        pass
+    duplicate = _core_contains(seen_keys, key)
+    if duplicate:
+        error = _core_runtime_error("Adaptive route keys must be unique.")
+        raise error
+    else:
+        pass
+    return key
+
+
+def provider_balancer_rank_candidates(candidates: Any) -> Any:
+    _core_coverage_mark("provider_balancer_rank_candidates")
+    ranked = []
+    used = {}
+    for slot in candidates:
+        best = {}
+        has_best = False
+        best_score = 0
+        best_order = 0
+        for candidate in candidates:
+            route_key = _core_get(candidate, "routeKey", "")
+            already_used = _core_map_contains(used, route_key)
+            if already_used:
+                continue
+            else:
+                pass
+            score = _core_get(candidate, "score", 0)
+            order = _core_get(candidate, "order", 0)
+            lower_score = _core_lt(score, best_score)
+            equal_score = _core_eq(score, best_score)
+            lower_order = _core_lt(order, best_order)
+            stable_tie = _core_and(equal_score, lower_order)
+            score_or_tie = _core_or(lower_score, stable_tie)
+            no_best = _core_not(has_best)
+            better = _core_or(no_best, score_or_tie)
+            if better:
+                best = candidate
+                best_score = score
+                best_order = order
+                has_best = True
+            else:
+                pass
+        missing = _core_not(has_best)
+        if missing:
+            continue
+        else:
+            pass
+        best_key = _core_get(best, "routeKey", "")
+        used[best_key] = True
+        ranked.append(best)
+    return ranked
 
 
 def provider_routing_stats(providers: Any) -> Any:

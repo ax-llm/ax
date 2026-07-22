@@ -3,8 +3,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import base64
 import copy
+from dataclasses import dataclass
 import json
+import math
 import os
+import random
+import threading
 import time
 import uuid
 import urllib.error
@@ -1129,6 +1133,117 @@ def _is_retryable_ai_error(exc: AxAIServiceError) -> bool:
     )
 
 
+AxBalancerStatsKey = dict[str, Any]
+AxBalancerRouteStats = dict[str, Any]
+AxBalancerStatsObservation = dict[str, Any]
+AxBalancerRoutingEvent = dict[str, Any]
+AxBalancerCandidateScore = dict[str, Any]
+AxBalancerFailureReason = str
+
+
+class AxBalancerStatsStore(ABC):
+    """Shared adaptive-routing state. ``observe`` must be atomic per key."""
+
+    @abstractmethod
+    def get(self, key: AxBalancerStatsKey) -> AxBalancerRouteStats | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def observe(self, key: AxBalancerStatsKey, observation: AxBalancerStatsObservation) -> None:
+        raise NotImplementedError
+
+
+def create_balancer_route_stats() -> AxBalancerRouteStats:
+    return copy.deepcopy(provider_balancer_route_stats())
+
+
+def update_balancer_route_stats(
+    current: AxBalancerRouteStats | None,
+    observation: AxBalancerStatsObservation,
+) -> AxBalancerRouteStats:
+    return copy.deepcopy(provider_balancer_observe_route(current, observation))
+
+
+def sample_balancer_route_health(
+    stats: AxBalancerRouteStats | None,
+    deadline_ms: float,
+) -> dict[str, float]:
+    return copy.deepcopy(provider_balancer_sample_health(stats, deadline_ms))
+
+
+class AxInMemoryBalancerStatsStore(AxBalancerStatsStore):
+    """Thread-safe in-memory adaptive-routing store."""
+
+    def __init__(self):
+        self._stats: dict[tuple[str, str, str, str], AxBalancerRouteStats] = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _key(key: AxBalancerStatsKey) -> tuple[str, str, str, str]:
+        return (
+            str(key["namespace"]),
+            str(key["slice"]),
+            str(key["logicalModel"]),
+            str(key["routeKey"]),
+        )
+
+    def get(self, key: AxBalancerStatsKey) -> AxBalancerRouteStats | None:
+        with self._lock:
+            value = self._stats.get(self._key(key))
+            return copy.deepcopy(value) if value is not None else None
+
+    def observe(self, key: AxBalancerStatsKey, observation: AxBalancerStatsObservation) -> None:
+        with self._lock:
+            encoded = self._key(key)
+            self._stats[encoded] = update_balancer_route_stats(self._stats.get(encoded), observation)
+
+
+@dataclass
+class AxBalancerAdaptiveStrategy:
+    deadline_ms: float
+    bad_outcome_cost: float
+    expected_tokens: dict[str, float] | None = None
+    estimate_cost: Callable[[dict[str, Any]], float] | None = None
+    namespace: str = "default"
+    slice: Callable[[dict[str, Any]], str] | None = None
+    route_key: Callable[[AxAIService, int], str] | None = None
+    stats_store: AxBalancerStatsStore | None = None
+    on_routing_event: Callable[[AxBalancerRoutingEvent], Any] | None = None
+
+    def as_options(self) -> dict[str, Any]:
+        return {
+            "type": "adaptive",
+            "deadlineMs": self.deadline_ms,
+            "badOutcomeCost": self.bad_outcome_cost,
+            "expectedTokens": self.expected_tokens,
+            "estimateCost": self.estimate_cost,
+            "namespace": self.namespace,
+            "slice": self.slice,
+            "routeKey": self.route_key,
+            "statsStore": self.stats_store,
+            "onRoutingEvent": self.on_routing_event,
+        }
+
+
+@dataclass
+class AxBalancerOptions:
+    strategy: AxBalancerAdaptiveStrategy | dict[str, Any] | str | None = None
+    debug: bool = True
+    initial_backoff_ms: int = 1000
+    max_backoff_ms: int = 32000
+    max_retries: int = 3
+
+    def as_options(self) -> dict[str, Any]:
+        strategy = self.strategy.as_options() if isinstance(self.strategy, AxBalancerAdaptiveStrategy) else self.strategy
+        return {
+            "strategy": strategy,
+            "debug": self.debug,
+            "initialBackoffMs": self.initial_backoff_ms,
+            "maxBackoffMs": self.max_backoff_ms,
+            "maxRetries": self.max_retries,
+        }
+
+
 class AxBalancer(AxAIService):
     input_order_comparator = "input_order"
 
@@ -1136,9 +1251,17 @@ class AxBalancer(AxAIService):
     def create(services, options: dict[str, Any] | None = None):
         return AxBalancer(services, options)
 
-    def __init__(self, services, options: dict[str, Any] | None = None):
+    def __init__(self, services, options: dict[str, Any] | AxBalancerOptions | None = None):
         if not services:
             raise ValueError("No AI services provided.")
+        if isinstance(options, AxBalancerOptions):
+            options = options.as_options()
+        options = dict(options or {})
+        raw_strategy = options.get("strategy")
+        if isinstance(raw_strategy, AxBalancerAdaptiveStrategy):
+            raw_strategy = raw_strategy.as_options()
+            options["strategy"] = raw_strategy
+        self.adaptive = self._create_adaptive_state(list(services), raw_strategy) if isinstance(raw_strategy, dict) and raw_strategy.get("type") == "adaptive" else None
         self.policy = provider_balancer_retry_policy(options or {})
         self.debug = bool(self.policy.get("debug", True))
         self.max_retries = int(self.policy.get("maxRetries", 3))
@@ -1151,6 +1274,31 @@ class AxBalancer(AxAIService):
             self.services.sort(key=_service_latency_score)
         self.current_service_index = 0
         self.current_service = self.services[0]
+
+    def _create_adaptive_state(self, services, strategy):
+        normalized = provider_balancer_adaptive_policy(strategy)
+        namespace = str(normalized.get("namespace") or "").strip()
+        if not namespace:
+            raise ValueError("Adaptive namespace must be non-empty.")
+        store = strategy.get("statsStore") or strategy.get("stats_store")
+        route_key = strategy.get("routeKey") or strategy.get("route_key")
+        if store is not None and route_key is None:
+            raise ValueError("Adaptive routeKey is required when statsStore is supplied.")
+        store = store or AxInMemoryBalancerStatsStore()
+        route_keys: dict[int, str] = {}
+        seen: set[str] = set()
+        for index, service in enumerate(services):
+            key = route_key(service, index) if route_key else service.get_id()
+            key = provider_balancer_validate_route_key(str(key or ""), list(seen))
+            seen.add(key)
+            route_keys[id(service)] = key
+        return {
+            "strategy": strategy,
+            "namespace": namespace,
+            "store": store,
+            "route_keys": route_keys,
+            "indices": {id(service): index for index, service in enumerate(services)},
+        }
 
     def _validate_models(self):
         reference = next((service.get_model_list() for service in self.services if service.get_model_list() is not None), None)
@@ -1200,6 +1348,147 @@ class AxBalancer(AxAIService):
         if caps.get("requiresAudio") or caps.get("requires_audio"):
             requirements.append("audio")
         raise ValueError(f"No services available that support required capabilities: {', '.join(requirements)}.")
+
+    def _emit_routing_event(self, event: AxBalancerRoutingEvent):
+        if self.adaptive is None:
+            return
+        callback = self.adaptive["strategy"].get("onRoutingEvent") or self.adaptive["strategy"].get("on_routing_event")
+        if callback is None:
+            return
+        try:
+            callback(copy.deepcopy(event))
+        except Exception:
+            pass
+
+    def _adaptive_stats(self, key: AxBalancerStatsKey):
+        try:
+            return self.adaptive["store"].get(key)
+        except Exception as error:
+            self._emit_routing_event({
+                "type": "store-error", **{name: key[name] for name in ("namespace", "slice", "logicalModel")},
+                "operation": "get", "routeKey": key["routeKey"], "errorType": type(error).__name__,
+            })
+            return None
+
+    def _adaptive_observe(self, candidate, observation, *, streaming=False, reason=None, status=None):
+        try:
+            self.adaptive["store"].observe(candidate["stats_key"], observation)
+        except Exception as error:
+            key = candidate["stats_key"]
+            self._emit_routing_event({
+                "type": "store-error", **{name: key[name] for name in ("namespace", "slice", "logicalModel")},
+                "operation": "observe", "routeKey": key["routeKey"], "errorType": type(error).__name__,
+            })
+        key = candidate["stats_key"]
+        self._emit_routing_event({
+            "type": "observation", **{name: key[name] for name in ("namespace", "slice", "logicalModel")},
+            "routeKey": candidate["route_key"], "serviceName": candidate["service"].get_name(),
+            "outcome": observation["outcome"], "latencyMs": observation.get("latencyMs"),
+            "streaming": streaming, "reason": reason, "status": status,
+        })
+
+    @staticmethod
+    def _failure_reason(error):
+        if isinstance(error, AxAIServiceStatusError): return "status"
+        if isinstance(error, AxAIServiceNetworkError): return "network"
+        if isinstance(error, AxAIServiceResponseError): return "response"
+        if isinstance(error, AxAIServiceStreamTerminatedError): return "stream-terminated"
+        if isinstance(error, AxAIServiceTimeoutError): return "timeout"
+        return None
+
+    def _adaptive_cost(self, service, route_key, request):
+        strategy = self.adaptive["strategy"]
+        logical_model = str(request.get("model") or "default")
+        resolved_model = logical_model
+        for entry in service.get_model_list() or []:
+            if entry.get("key") == request.get("model"):
+                resolved_model = str(entry.get("model") or logical_model)
+                break
+        expected = strategy.get("expectedTokens") or strategy.get("expected_tokens")
+        context = {
+            "service": service,
+            "serviceIndex": self.adaptive["indices"][id(service)],
+            "routeKey": route_key,
+            "logicalModel": logical_model,
+            "resolvedModel": resolved_model,
+            "expectedTokens": expected,
+        }
+        estimate = strategy.get("estimateCost") or strategy.get("estimate_cost")
+        if estimate:
+            cost = float(estimate(context))
+        else:
+            prompt = float((expected or {}).get("promptTokens", (expected or {}).get("prompt_tokens", 0)) or 0)
+            completion = float((expected or {}).get("completionTokens", (expected or {}).get("completion_tokens", 0)) or 0)
+            usage = None if expected is None else {
+                "ai": service.get_name(), "model": resolved_model,
+                "tokens": {"promptTokens": prompt, "completionTokens": completion, "totalTokens": prompt + completion},
+            }
+            cost = float(service.get_estimated_cost(usage) or 0)
+        if not math.isfinite(cost) or cost < 0:
+            raise ValueError(f"Adaptive estimated cost for route {route_key!r} must be finite and non-negative.")
+        return cost
+
+    def _rank_adaptive(self, request, options):
+        candidates = self._candidate_services(request)
+        strategy = self.adaptive["strategy"]
+        logical_model = str(request.get("model") or "default")
+        slice_callback = strategy.get("slice")
+        slice_value = slice_callback({"model": request.get("model"), "options": options}) if slice_callback else "default"
+        slice_value = str(slice_value or "").strip()
+        if not slice_value:
+            raise ValueError("Adaptive slice must be non-empty.")
+        ranked = []
+        for order, service in enumerate(candidates):
+            route_key = self.adaptive["route_keys"][id(service)]
+            stats_key = {"namespace": self.adaptive["namespace"], "slice": slice_value, "logicalModel": logical_model, "routeKey": route_key}
+            health = sample_balancer_route_health(self._adaptive_stats(stats_key), float(strategy.get("deadlineMs", strategy.get("deadline_ms"))))
+            estimated_cost = self._adaptive_cost(service, route_key, request)
+            failure = float(health["failureProbability"])
+            late = float(health["deadlineMissProbability"])
+            score = float(provider_balancer_adaptive_score(estimated_cost, float(strategy.get("badOutcomeCost", strategy.get("bad_outcome_cost"))), failure, late))
+            ranked.append({"service": service, "order": order, "route_key": route_key, "stats_key": stats_key, "score": score, "estimated_cost": estimated_cost, "failure": failure, "late": late})
+        ranked_by_key = {value["route_key"]: value for value in ranked}
+        ranked = [ranked_by_key[value["routeKey"]] for value in provider_balancer_rank_candidates([
+            {"routeKey": value["route_key"], "score": value["score"], "order": value["order"]}
+            for value in ranked
+        ])]
+        base = {"namespace": self.adaptive["namespace"], "slice": slice_value, "logicalModel": logical_model}
+        self._emit_routing_event({"type": "ranked", **base, "candidates": [
+            {"routeKey": item["route_key"], "serviceName": item["service"].get_name(), "score": item["score"],
+             "estimatedCost": item["estimated_cost"], "failureProbability": item["failure"], "deadlineMissProbability": item["late"]}
+            for item in ranked
+        ]})
+        return ranked
+
+    def _adaptive_invoke(self, method, request, options):
+        ranked = self._rank_adaptive(request, options)
+        last_error = None
+        for attempt, candidate in enumerate(ranked, 1):
+            service = candidate["service"]
+            self.current_service = service
+            key = candidate["stats_key"]
+            base = {name: key[name] for name in ("namespace", "slice", "logicalModel")}
+            self._emit_routing_event({"type": "selected", **base, "routeKey": candidate["route_key"], "serviceName": service.get_name(), "attempt": attempt})
+            started = time.monotonic()
+            try:
+                response = getattr(service, method)(request, options)
+                if method == "stream":
+                    response = list(response)
+                latency = max(1.0, (time.monotonic() - started) * 1000)
+                self._adaptive_observe(candidate, {"outcome": "success", "latencyMs": latency}, streaming=method == "stream")
+                return response
+            except AxAIServiceError as error:
+                if not _is_retryable_ai_error(error):
+                    raise
+                last_error = error
+                reason = self._failure_reason(error)
+                status = getattr(error, "status", None)
+                self._adaptive_observe(candidate, {"outcome": "failure"}, streaming=method == "stream", reason=reason, status=status)
+                next_route = ranked[attempt]["route_key"] if attempt < len(ranked) else None
+                self._emit_routing_event({"type": "fallback", **base, "fromRouteKey": candidate["route_key"], "toRouteKey": next_route, "reason": reason, "status": status})
+        if last_error is not None:
+            raise last_error
+        raise ValueError(f"All candidate services exhausted (tried {len(ranked)} service(s))")
 
     def get_id(self) -> str:
         return self.current_service.get_id()
@@ -1292,6 +1581,8 @@ class AxBalancer(AxAIService):
         return out
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        if self.adaptive is not None:
+            return self._adaptive_invoke("chat", request, options)
         candidates = self._candidate_services(request)
         index = 0
         current = candidates[index]
@@ -1319,6 +1610,11 @@ class AxBalancer(AxAIService):
                     self.current_service = current
             except Exception:
                 raise
+
+    def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        if self.adaptive is not None:
+            return self._adaptive_invoke("stream", request, options)
+        return super().stream(request, options)
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         self._reset()
@@ -1448,9 +1744,27 @@ def _core_and(left, right): return bool(left and right)
 def _core_or(left, right): return bool(left or right)
 def _core_add(left, right): return left + right
 def _core_mul(left, right): return left * right
+def _core_div(left, right): return float(left or 0) / float(right or 1)
+def _core_math_abs(value): return abs(float(value or 0))
+def _core_math_log(value): return math.log(float(value))
+def _core_math_exp(value): return math.exp(float(value))
+def _core_math_sqrt(value): return math.sqrt(float(value))
+def _core_math_cos(value): return math.cos(float(value))
+def _core_math_pow(left, right): return float(left) ** float(right)
+_core_math_random_lock = threading.Lock()
+_core_math_random_values: list[float] = []
+def _core_set_math_random_values(values):
+    with _core_math_random_lock:
+        _core_math_random_values[:] = [float(value) for value in values]
+def _core_math_random():
+    with _core_math_random_lock:
+        if _core_math_random_values:
+            return _core_math_random_values.pop(0)
+    return random.random()
 def _core_eq(left, right): return left == right
 def _core_ne(left, right): return left != right
 def _core_lt(left, right): return left < right
+def _core_lte(left, right): return left <= right
 def _core_gt(left, right): return left > right
 def _core_gte(left, right): return left >= right
 def _core_contains(container, item): return False if container is None else item in container

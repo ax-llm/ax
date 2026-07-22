@@ -58,6 +58,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 
 - `cargo run --example signature_schema`: signature parsing and JSON schema generation
 - `cargo run --example provider_mapping_no_key`: provider mapping through a scripted transport
+- `cargo run --example adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key
 - `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport
 - `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool
 - `cargo run --example axflow_program_graph`: AxFlow program graph

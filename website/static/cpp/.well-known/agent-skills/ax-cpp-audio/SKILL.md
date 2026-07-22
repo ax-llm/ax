@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-audio"
 description: "Use when writing C++ code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples."
-version: "23.0.1"
+version: "23.0.3"
 ---
 # Ax Audio And Realtime For C++
 
@@ -34,7 +34,7 @@ auto llm = axllm::ai("openai", { {"apiKey", std::getenv("OPENAI_API_KEY")} });
 
 ## Relevant API Surface
 
-- AxAI: `axllm::ai`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxBalancer`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
+- AxAI: `axllm::ai`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxBalancer`, `axllm::AxBalancerAdaptiveStrategy`, `axllm::AxBalancerStatsStore`, `axllm::AxInMemoryBalancerStatsStore`, `axllm::create_balancer_route_stats`, `axllm::update_balancer_route_stats`, `axllm::sample_balancer_route_health`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
 
 ## Guardrails
 

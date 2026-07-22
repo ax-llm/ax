@@ -135,13 +135,71 @@ Anthropic provider mapping for messages, thinking, cache control, streaming, and
 
 ### `axllm::AxBalancer`
 
-Retry and route requests across multiple provider services while preserving Ax request shape.
+Retry and route requests across multiple provider services, with opt-in adaptive cost, reliability, and deadline routing.
 
 - Canonical Ax concept: `AxBalancer`
 - Kind: `type`
 - Form: `axllm::AxBalancer(services, options)`
 - Returns: `AI service`
-- Important options: services, retry policy, capability requirements
+- Important options: services, retry policy, capability requirements, adaptive strategy
+
+### `axllm::AxBalancerAdaptiveStrategy`
+
+Configure adaptive provider routing without changing the ordered default.
+
+- Canonical Ax concept: `AxBalancerAdaptiveStrategy`
+- Kind: `type`
+- Form: `axllm::AxBalancerAdaptiveStrategy`
+- Returns: `adaptive strategy`
+- Important options: deadline, bad outcome cost, expected tokens, stable route keys, slice, stats store, routing events
+
+### `axllm::AxBalancerStatsStore`
+
+Store shared adaptive decision state with atomic observations.
+
+- Canonical Ax concept: `AxBalancerStatsStore`
+- Kind: `interface`
+- Form: `axllm::AxBalancerStatsStore`
+- Returns: `stats store`
+- Important options: get, observe
+
+### `axllm::AxInMemoryBalancerStatsStore`
+
+Thread-safe in-memory adaptive stats store.
+
+- Canonical Ax concept: `AxInMemoryBalancerStatsStore`
+- Kind: `type`
+- Form: `axllm::AxInMemoryBalancerStatsStore`
+- Returns: `stats store`
+
+### `axllm::create_balancer_route_stats`
+
+Create neutral adaptive route statistics.
+
+- Canonical Ax concept: `create_balancer_route_stats`
+- Kind: `function`
+- Form: `axllm::create_balancer_route_stats`
+- Returns: `route stats`
+
+### `axllm::update_balancer_route_stats`
+
+Purely reduce one success or failure observation into route statistics.
+
+- Canonical Ax concept: `update_balancer_route_stats`
+- Kind: `function`
+- Form: `axllm::update_balancer_route_stats`
+- Returns: `route stats`
+- Important options: current stats, observation
+
+### `axllm::sample_balancer_route_health`
+
+Sample failure and deadline-miss probability for adaptive exploration.
+
+- Canonical Ax concept: `sample_balancer_route_health`
+- Kind: `function`
+- Form: `axllm::sample_balancer_route_health`
+- Returns: `sampled health`
+- Important options: route stats, deadline
 
 ### `axllm::MultiServiceRouter`
 
