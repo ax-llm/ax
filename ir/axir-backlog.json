@@ -515,6 +515,25 @@
       "completedAt": "2026-07-21",
       "completedByCommit": "d25acf280d7f7e8c8a44cc93bab813af9dacf766",
       "verification": "npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check"
+    },
+    {
+      "id": "axir-2026-07-21-adaptive-axbalancer-provider-routing",
+      "status": "open",
+      "title": "Adaptive AxBalancer provider routing",
+      "createdAt": "2026-07-21",
+      "sourcePR": null,
+      "sourceCommit": "f1d93bbcc79a4223e21c4197cf875a23e889c37f",
+      "tsPaths": ["src/ax/ai/balance.ts", "src/ax/ai/balance_adaptive.ts"],
+      "portableSurface": "axai",
+      "impact": "Adds opt-in chat routing based on shared failure EWMA, log-latency Thompson sampling, deadline risk, and estimated provider cost.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

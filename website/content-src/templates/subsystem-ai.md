@@ -39,6 +39,16 @@ result = program.forward(client, inputs)
 - Use model catalog helpers before runtime when the UI needs provider/model selectors.
 - Use routers or balancers when provider fallback is part of the product.
 
+### TypeScript adaptive balancing
+
+`AxBalancer` keeps its existing ordered failover behavior by default. Set `strategy.type` to `adaptive` to rank equivalent providers per chat request using learned reliability, successful latency, a deadline, and estimated cost. Configure `badOutcomeCost` in the same currency or unit as the route cost estimate.
+
+{{aiBalancerExample}}
+
+In TypeScript, use `statsStore` for authoritative decision state. The built-in in-memory store can be shared by balancers in one process; multi-process applications can implement `AxBalancerStatsStore` with an atomic Redis or database update. `onRoutingEvent` is best-effort telemetry, not routing state. Stable route keys are required with a shared store, and `namespace` plus `slice` keep unrelated traffic from learning from each other.
+
+Adaptive balancing does not inspect prompt meaning or decide which model is best for a task. The application defines acceptable substitutes through shared logical aliases.
+
 ### Provider clients
 
 {{aiProviderExamples}}
@@ -53,7 +63,7 @@ result = program.forward(client, inputs)
 
 - Prefer provider factories over direct provider classes in new code.
 - Use model catalog and provider-scoring helpers when choosing between providers.
-- Use routers/balancers when a workflow can fall back or split traffic.
+- Use a multi-service router to dispatch caller-selected model keys; use a balancer for fallback or adaptive operational routing across equivalent services.
 - Keep public provider examples separate from internal conformance fixtures.
 - Trace provider requests, token usage, estimated cost, and routing decisions in production.
 

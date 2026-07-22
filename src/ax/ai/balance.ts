@@ -9,7 +9,17 @@ import {
   AxAIServiceStreamTerminatedError,
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
-
+import {
+  type AxBalancerAdaptiveStrategy,
+  type AxBalancerCandidateScore,
+  type AxBalancerFailureReason,
+  type AxBalancerRoutingEvent,
+  type AxBalancerStatsKey,
+  type AxBalancerStatsObservation,
+  type AxBalancerStatsStore,
+  AxInMemoryBalancerStatsStore,
+  sampleBalancerRouteHealth,
+} from './balance_adaptive.js';
 import type { AxAIFeatures } from './base.js';
 import type {
   AxAIModelList,
@@ -42,6 +52,33 @@ type ExtractAllModelKeys<T extends readonly any[]> = T extends readonly [
   ? ExtractServiceModelKeys<First> | ExtractAllModelKeys<Rest>
   : never;
 
+type AxAdaptiveBalancerState<TModelKey> = Readonly<{
+  strategy: AxBalancerAdaptiveStrategy<TModelKey>;
+  namespace: string;
+  statsStore: AxBalancerStatsStore;
+  routeKeys: ReadonlyMap<AxAIService<unknown, unknown, TModelKey>, string>;
+  serviceIndices: ReadonlyMap<AxAIService<unknown, unknown, TModelKey>, number>;
+}>;
+
+type AxAdaptiveCandidate<TModelKey> = AxBalancerCandidateScore &
+  Readonly<{
+    service: AxAIService<unknown, unknown, TModelKey>;
+    serviceIndex: number;
+    order: number;
+    statsKey: AxBalancerStatsKey;
+  }>;
+
+type AxBalancerStreamObservationHooks = Readonly<{
+  startedAt: number;
+  onSuccess: (firstChunkLatencyMs: number) => Promise<void>;
+  onFailure: (error: AxAIServiceError, elapsedMs: number) => Promise<void>;
+}>;
+
+type AxBalancerChatAttemptHooks = Readonly<{
+  onStreaming?: () => void;
+  observation?: AxBalancerStreamObservationHooks;
+}>;
+
 /**
  * Options for the balancer.
  */
@@ -54,10 +91,17 @@ export type AxBalancerOptions<TModelKey = string> = {
   initialBackoffMs?: number;
   maxBackoffMs?: number;
   maxRetries?: number;
+  /**
+   * Opt into request-time provider selection using learned failure rate,
+   * successful latency, and estimated cost. When omitted, the existing
+   * comparator-ordered behavior is unchanged.
+   */
+  strategy?: AxBalancerAdaptiveStrategy<TModelKey>;
 };
 
 /**
- * Balancer that rotates through services.
+ * Provider balancer with ordered failover by default and opt-in adaptive
+ * routing for chat requests.
  */
 export class AxBalancer<
   TServices extends readonly AxAIService<
@@ -75,6 +119,7 @@ export class AxBalancer<
   private initialBackoffMs: number;
   private maxBackoffMs: number;
   private maxRetries: number;
+  private readonly adaptive: AxAdaptiveBalancerState<TModelKey> | undefined;
   private serviceFailures: Map<
     string,
     { retries: number; lastFailureTime: number }
@@ -91,11 +136,18 @@ export class AxBalancer<
       throw new Error('No AI services provided.');
     }
 
-    validateModels(
-      services as readonly AxAIService<unknown, unknown, TModelKey>[]
-    );
+    const inputServices = services as readonly AxAIService<
+      unknown,
+      unknown,
+      TModelKey
+    >[];
+    validateModels(inputServices);
 
-    this.services = [...services].sort(
+    this.adaptive = options?.strategy
+      ? createAdaptiveState(inputServices, options.strategy)
+      : undefined;
+
+    this.services = [...inputServices].sort(
       options?.comparator ?? AxBalancer.metricComparator<TModelKey>
     ) as AxAIService<unknown, unknown, TModelKey>[];
 
@@ -420,6 +472,43 @@ export class AxBalancer<
     }
   }
 
+  private getCandidateServices(
+    req: Readonly<AxChatRequest<TModelKey>>
+  ): AxAIService<unknown, unknown, TModelKey>[] {
+    const requiresStructuredOutputs =
+      req.responseFormat?.type === 'json_schema';
+    const caps = req.capabilities;
+    const requiresImages = caps?.requiresImages;
+    const requiresAudio = caps?.requiresAudio;
+    const model = req.model as unknown as string;
+
+    if (!requiresStructuredOutputs && !requiresImages && !requiresAudio) {
+      return this.services;
+    }
+
+    const candidates = this.services.filter((service) => {
+      const features = service.getFeatures(model);
+      if (requiresStructuredOutputs && !features.structuredOutputs)
+        return false;
+      if (requiresImages && !features.media.images.supported) return false;
+      if (requiresAudio && !features.media.audio.supported) return false;
+      return true;
+    });
+
+    if (candidates.length === 0) {
+      const requirements = [];
+      if (requiresStructuredOutputs) requirements.push('structured outputs');
+      if (requiresImages) requirements.push('images');
+      if (requiresAudio) requirements.push('audio');
+
+      throw new Error(
+        `No services available that support required capabilities: ${requirements.join(', ')}.`
+      );
+    }
+
+    return candidates;
+  }
+
   /**
    * Wraps a streaming response to make it participate in failover. Two responsibilities:
    *
@@ -435,21 +524,40 @@ export class AxBalancer<
    */
   private async peekStreamForFailover(
     stream: ReadableStream<AxChatResponse>,
-    service: AxAIService<unknown, unknown, TModelKey>
+    service: AxAIService<unknown, unknown, TModelKey>,
+    observationHooks?: AxBalancerStreamObservationHooks
   ): Promise<ReadableStream<AxChatResponse>> {
     const reader = stream.getReader();
     // May reject (provider error event) — propagated to chat()'s catch for failover.
     const first = await reader.read();
+    const firstChunkLatencyMs = observationHooks
+      ? performance.now() - observationHooks.startedAt
+      : 0;
     let emittedFirst = false;
+    let observed = false;
+    const recordSuccess = async (): Promise<void> => {
+      if (observed || !observationHooks) return;
+      observed = true;
+      await observationHooks.onSuccess(firstChunkLatencyMs);
+    };
     // Arrow captures `this`/`service`; the ReadableStream source's `this` is not the balancer.
-    const recordMidStreamFailure = (err: unknown): void => {
-      if (this.isRetryableServiceError(err)) this.handleFailure(service, err);
+    const recordMidStreamFailure = async (err: unknown): Promise<void> => {
+      if (!this.isRetryableServiceError(err)) return;
+      this.handleFailure(service, err);
+      if (!observed && observationHooks) {
+        observed = true;
+        await observationHooks.onFailure(
+          err,
+          performance.now() - observationHooks.startedAt
+        );
+      }
     };
     return new ReadableStream<AxChatResponse>({
       async pull(controller) {
         if (!emittedFirst) {
           emittedFirst = true;
           if (first.done) {
+            await recordSuccess();
             controller.close();
             return;
           }
@@ -459,58 +567,372 @@ export class AxBalancer<
         try {
           const { done, value } = await reader.read();
           if (done) {
+            await recordSuccess();
             controller.close();
             return;
           }
           controller.enqueue(value);
         } catch (err) {
-          recordMidStreamFailure(err);
+          await recordMidStreamFailure(err);
           controller.error(err);
         }
       },
       cancel(reason) {
+        observed = true;
         return reader.cancel(reason);
       },
     });
+  }
+
+  private async executeChatAttempt(
+    service: AxAIService<unknown, unknown, TModelKey>,
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>,
+    hooks?: AxBalancerChatAttemptHooks
+  ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
+    const response = await service.chat(req, options);
+    if (!(response instanceof ReadableStream)) return response;
+
+    hooks?.onStreaming?.();
+    return await this.peekStreamForFailover(
+      response,
+      service,
+      hooks?.observation
+    );
+  }
+
+  private async chatAdaptive(
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options: Readonly<AxAIServiceOptions> | undefined,
+    candidateServices: AxAIService<unknown, unknown, TModelKey>[]
+  ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
+    const candidates = await this.rankAdaptiveCandidates(
+      req,
+      options,
+      candidateServices
+    );
+    let lastError: AxAIServiceError | undefined;
+
+    for (let index = 0; index < candidates.length; index++) {
+      const candidate = candidates[index];
+      if (!candidate) continue;
+      const { service, statsKey } = candidate;
+      this.currentService = service;
+      this.emitRoutingEvent({
+        type: 'selected',
+        namespace: statsKey.namespace,
+        slice: statsKey.slice,
+        logicalModel: statsKey.logicalModel,
+        routeKey: candidate.routeKey,
+        serviceName: candidate.serviceName,
+        attempt: index + 1,
+      });
+
+      const startedAt = performance.now();
+      let streaming = false;
+      try {
+        const response = await this.executeChatAttempt(service, req, options, {
+          onStreaming: () => {
+            streaming = true;
+          },
+          observation: {
+            startedAt,
+            onSuccess: async (firstChunkLatencyMs) => {
+              this.handleSuccess(service);
+              await this.recordAdaptiveObservation(
+                candidate,
+                { outcome: 'success', latencyMs: firstChunkLatencyMs },
+                true
+              );
+            },
+            onFailure: async (error, elapsedMs) => {
+              await this.recordAdaptiveObservation(
+                candidate,
+                { outcome: 'failure' },
+                true,
+                error,
+                elapsedMs
+              );
+            },
+          },
+        });
+        if (streaming) {
+          return response;
+        }
+
+        const latencyMs = performance.now() - startedAt;
+        this.handleSuccess(service);
+        await this.recordAdaptiveObservation(
+          candidate,
+          { outcome: 'success', latencyMs },
+          false
+        );
+        return response;
+      } catch (error) {
+        if (!this.isRetryableServiceError(error)) throw error;
+
+        lastError = error;
+        this.handleFailure(service, error);
+        await this.recordAdaptiveObservation(
+          candidate,
+          { outcome: 'failure' },
+          streaming,
+          error,
+          performance.now() - startedAt
+        );
+
+        const next = candidates[index + 1];
+        const details = getFailureDetails(error);
+        this.emitRoutingEvent({
+          type: 'fallback',
+          namespace: statsKey.namespace,
+          slice: statsKey.slice,
+          logicalModel: statsKey.logicalModel,
+          fromRouteKey: candidate.routeKey,
+          toRouteKey: next?.routeKey,
+          reason: details.reason,
+          status: details.status,
+        });
+
+        if (this.debug) {
+          console.warn(
+            `AxBalancer: Switching to service ${next?.serviceName ?? 'none'}`,
+            error
+          );
+        }
+      }
+    }
+
+    if (lastError) throw lastError;
+    throw new Error(
+      `All candidate services exhausted (tried ${candidateServices.length} service(s))`
+    );
+  }
+
+  private async rankAdaptiveCandidates(
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options: Readonly<AxAIServiceOptions> | undefined,
+    candidateServices: AxAIService<unknown, unknown, TModelKey>[]
+  ): Promise<AxAdaptiveCandidate<TModelKey>[]> {
+    const adaptive = this.adaptive;
+    if (!adaptive) return [];
+
+    const logicalModel = String(req.model ?? 'default');
+    const sliceValue =
+      adaptive.strategy.slice?.({ model: req.model, options }) ?? 'default';
+    const slice = normalizePartition('slice', sliceValue);
+    // Adaptive health is represented by the shared route statistics, so the
+    // legacy balancer backoff gate must not remove a route before ranking.
+    const availableServices = candidateServices;
+    if (availableServices.length === 0) {
+      throw new Error(
+        `All candidate services exhausted (tried ${candidateServices.length} service(s))`
+      );
+    }
+
+    const candidates = await Promise.all(
+      availableServices.map(async (service) => {
+        const routeKey = adaptive.routeKeys.get(service);
+        const serviceIndex = adaptive.serviceIndices.get(service);
+        if (routeKey === undefined || serviceIndex === undefined) {
+          throw new Error('Adaptive route metadata is missing for a service.');
+        }
+        const statsKey: AxBalancerStatsKey = {
+          namespace: adaptive.namespace,
+          slice,
+          logicalModel,
+          routeKey,
+        };
+        const stats = await this.getAdaptiveStats(statsKey);
+        const { failureProbability, deadlineMissProbability } =
+          sampleBalancerRouteHealth(stats, adaptive.strategy.deadlineMs);
+        const estimatedCost = this.estimateAdaptiveCost(
+          service,
+          serviceIndex,
+          routeKey,
+          req
+        );
+        const badOutcomeProbability =
+          failureProbability +
+          (1 - failureProbability) * deadlineMissProbability;
+
+        return {
+          service,
+          serviceIndex,
+          order: candidateServices.indexOf(service),
+          statsKey,
+          routeKey,
+          serviceName: service.getName(),
+          score:
+            estimatedCost +
+            adaptive.strategy.badOutcomeCost * badOutcomeProbability,
+          estimatedCost,
+          failureProbability,
+          deadlineMissProbability,
+        } satisfies AxAdaptiveCandidate<TModelKey>;
+      })
+    );
+
+    candidates.sort((a, b) => a.score - b.score || a.order - b.order);
+    const first = candidates[0];
+    if (first) {
+      this.emitRoutingEvent({
+        type: 'ranked',
+        namespace: first.statsKey.namespace,
+        slice: first.statsKey.slice,
+        logicalModel: first.statsKey.logicalModel,
+        candidates: candidates.map(
+          ({
+            routeKey,
+            serviceName,
+            score,
+            estimatedCost,
+            failureProbability,
+            deadlineMissProbability,
+          }) => ({
+            routeKey,
+            serviceName,
+            score,
+            estimatedCost,
+            failureProbability,
+            deadlineMissProbability,
+          })
+        ),
+      });
+    }
+    return candidates;
+  }
+
+  private estimateAdaptiveCost(
+    service: AxAIService<unknown, unknown, TModelKey>,
+    serviceIndex: number,
+    routeKey: string,
+    req: Readonly<AxChatRequest<TModelKey>>
+  ): number {
+    const adaptive = this.adaptive;
+    if (!adaptive) return 0;
+    const logicalModel = String(req.model ?? 'default');
+    const modelEntry = service
+      .getModelList()
+      ?.find((entry) => Object.is(entry.key, req.model));
+    const resolvedModel =
+      modelEntry && 'model' in modelEntry
+        ? modelEntry.model
+        : String(req.model ?? service.getLastUsedChatModel() ?? 'default');
+    const expectedTokens = adaptive.strategy.expectedTokens;
+    const promptTokens = expectedTokens?.promptTokens ?? 0;
+    const completionTokens = expectedTokens?.completionTokens ?? 0;
+    const estimatedCost = adaptive.strategy.estimateCost
+      ? adaptive.strategy.estimateCost({
+          service,
+          serviceIndex,
+          routeKey,
+          logicalModel,
+          resolvedModel,
+          expectedTokens,
+        })
+      : service.getEstimatedCost(
+          expectedTokens
+            ? {
+                ai: service.getName(),
+                model: resolvedModel,
+                tokens: {
+                  promptTokens,
+                  completionTokens,
+                  totalTokens: promptTokens + completionTokens,
+                },
+              }
+            : undefined
+        );
+
+    if (!Number.isFinite(estimatedCost) || estimatedCost < 0) {
+      throw new Error(
+        `Adaptive estimated cost for route "${routeKey}" must be finite and non-negative.`
+      );
+    }
+    return estimatedCost;
+  }
+
+  private async getAdaptiveStats(
+    key: AxBalancerStatsKey
+  ): Promise<Awaited<ReturnType<AxBalancerStatsStore['get']>>> {
+    const adaptive = this.adaptive;
+    if (!adaptive) return undefined;
+    try {
+      return await adaptive.statsStore.get(key);
+    } catch (error) {
+      this.emitRoutingEvent({
+        type: 'store-error',
+        namespace: key.namespace,
+        slice: key.slice,
+        logicalModel: key.logicalModel,
+        operation: 'get',
+        routeKey: key.routeKey,
+        errorType: getErrorType(error),
+      });
+      return undefined;
+    }
+  }
+
+  private async recordAdaptiveObservation(
+    candidate: AxAdaptiveCandidate<TModelKey>,
+    observation: AxBalancerStatsObservation,
+    streaming: boolean,
+    error?: AxAIServiceError,
+    failureLatencyMs?: number
+  ): Promise<void> {
+    const adaptive = this.adaptive;
+    if (!adaptive) return;
+    try {
+      await adaptive.statsStore.observe(candidate.statsKey, observation);
+    } catch (storeError) {
+      this.emitRoutingEvent({
+        type: 'store-error',
+        namespace: candidate.statsKey.namespace,
+        slice: candidate.statsKey.slice,
+        logicalModel: candidate.statsKey.logicalModel,
+        operation: 'observe',
+        routeKey: candidate.routeKey,
+        errorType: getErrorType(storeError),
+      });
+    }
+
+    const details = error ? getFailureDetails(error) : undefined;
+    this.emitRoutingEvent({
+      type: 'observation',
+      namespace: candidate.statsKey.namespace,
+      slice: candidate.statsKey.slice,
+      logicalModel: candidate.statsKey.logicalModel,
+      routeKey: candidate.routeKey,
+      serviceName: candidate.serviceName,
+      outcome: observation.outcome,
+      latencyMs:
+        observation.outcome === 'success'
+          ? observation.latencyMs
+          : failureLatencyMs,
+      streaming,
+      reason: details?.reason,
+      status: details?.status,
+    });
+  }
+
+  private emitRoutingEvent(event: AxBalancerRoutingEvent): void {
+    const callback = this.adaptive?.strategy.onRoutingEvent;
+    if (!callback) return;
+    try {
+      void Promise.resolve(callback(event)).catch(() => {});
+    } catch {
+      // Observability must never affect routing.
+    }
   }
 
   async chat(
     req: Readonly<AxChatRequest<TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    // Determine required features
-    const requiresStructuredOutputs =
-      req.responseFormat?.type === 'json_schema';
-
-    // Check for other capabilities
-    const caps = req.capabilities;
-    const requiresImages = caps?.requiresImages;
-    const requiresAudio = caps?.requiresAudio;
-    // We can add check for other capability flags here if needed
-
-    // Filter services based on capabilities
-    let candidateServices = this.services;
-    const model = req.model as unknown as string; // best effort casting
-
-    if (requiresStructuredOutputs || requiresImages || requiresAudio) {
-      candidateServices = this.services.filter((s) => {
-        const f = s.getFeatures(model);
-        if (requiresStructuredOutputs && !f.structuredOutputs) return false;
-        if (requiresImages && !f.media.images.supported) return false;
-        if (requiresAudio && !f.media.audio.supported) return false;
-        return true;
-      });
-
-      if (candidateServices.length === 0) {
-        const requirements = [];
-        if (requiresStructuredOutputs) requirements.push('structured outputs');
-        if (requiresImages) requirements.push('images');
-        if (requiresAudio) requirements.push('audio');
-
-        throw new Error(
-          `No services available that support required capabilities: ${requirements.join(', ')}.`
-        );
-      }
+    const candidateServices = this.getCandidateServices(req);
+    if (this.adaptive) {
+      return await this.chatAdaptive(req, options, candidateServices);
     }
 
     // Use a local index for this request flow
@@ -541,20 +963,11 @@ export class AxBalancer<
       }
 
       try {
-        const response = await currentService.chat(req, options);
-        // For streaming responses the provider resolves with the stream as soon as the
-        // HTTP headers arrive; an error event (e.g. Anthropic's HTTP-200 `overloaded_error`
-        // SSE) is only thrown when the stream is read — which happens in the caller, after
-        // this try/catch has returned. Peek the first chunk here so a pre-content error
-        // surfaces inside this try/catch and can drive failover.
-        if (response instanceof ReadableStream) {
-          const peeked = await this.peekStreamForFailover(
-            response,
-            currentService
-          );
-          this.handleSuccess(currentService);
-          return peeked;
-        }
+        const response = await this.executeChatAttempt(
+          currentService,
+          req,
+          options
+        );
         this.handleSuccess(currentService);
         return response;
       } catch (e) {
@@ -715,6 +1128,94 @@ export class AxBalancer<
   getLogger(): AxLoggerFunction {
     return this.currentService.getLogger();
   }
+}
+
+function createAdaptiveState<TModelKey>(
+  services: readonly AxAIService<unknown, unknown, TModelKey>[],
+  strategy: AxBalancerAdaptiveStrategy<TModelKey>
+): AxAdaptiveBalancerState<TModelKey> {
+  if (!Number.isFinite(strategy.deadlineMs) || strategy.deadlineMs <= 0) {
+    throw new Error(
+      'Adaptive deadlineMs must be finite and greater than zero.'
+    );
+  }
+  if (
+    !Number.isFinite(strategy.badOutcomeCost) ||
+    strategy.badOutcomeCost < 0
+  ) {
+    throw new Error('Adaptive badOutcomeCost must be finite and non-negative.');
+  }
+  if (strategy.expectedTokens) {
+    for (const [name, value] of Object.entries(strategy.expectedTokens)) {
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error(
+          `Adaptive expectedTokens.${name} must be finite and non-negative.`
+        );
+      }
+    }
+  }
+  if (strategy.statsStore && !strategy.routeKey) {
+    throw new Error(
+      'Adaptive routeKey is required when a custom statsStore is supplied.'
+    );
+  }
+
+  const routeKeys = new Map<AxAIService<unknown, unknown, TModelKey>, string>();
+  const serviceIndices = new Map<
+    AxAIService<unknown, unknown, TModelKey>,
+    number
+  >();
+  const seenRouteKeys = new Set<string>();
+  services.forEach((service, serviceIndex) => {
+    const rawRouteKey =
+      strategy.routeKey?.(service, serviceIndex) ?? service.getId();
+    const routeKey = normalizePartition('routeKey', rawRouteKey);
+    if (seenRouteKeys.has(routeKey)) {
+      throw new Error(`Adaptive routeKey "${routeKey}" must be unique.`);
+    }
+    seenRouteKeys.add(routeKey);
+    routeKeys.set(service, routeKey);
+    serviceIndices.set(service, serviceIndex);
+  });
+
+  return {
+    strategy,
+    namespace: normalizePartition('namespace', strategy.namespace ?? 'default'),
+    statsStore: strategy.statsStore ?? new AxInMemoryBalancerStatsStore(),
+    routeKeys,
+    serviceIndices,
+  };
+}
+
+function normalizePartition(name: string, value: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error(`Adaptive ${name} must be a non-empty string.`);
+  }
+  return normalized;
+}
+
+function getFailureDetails(error: AxAIServiceError): Readonly<{
+  reason: AxBalancerFailureReason;
+  status: number | undefined;
+}> {
+  if (error instanceof AxAIServiceStatusError) {
+    return { reason: 'status', status: error.status };
+  }
+  if (error instanceof AxAIServiceNetworkError) {
+    return { reason: 'network', status: undefined };
+  }
+  if (error instanceof AxAIServiceStreamTerminatedError) {
+    return { reason: 'stream-terminated', status: undefined };
+  }
+  if (error instanceof AxAIServiceTimeoutError) {
+    return { reason: 'timeout', status: undefined };
+  }
+  return { reason: 'response', status: undefined };
+}
+
+function getErrorType(error: unknown): string {
+  return error instanceof Error ? error.name : typeof error;
 }
 
 function validateModels<TModelKey = string>(

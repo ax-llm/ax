@@ -290,6 +290,21 @@ import {
 } from './ai/azure-openai/api.js';
 import { AxBalancer, type AxBalancerOptions } from './ai/balance.js';
 import {
+  type AxBalancerAdaptiveStrategy,
+  type AxBalancerCandidateScore,
+  type AxBalancerCostContext,
+  type AxBalancerExpectedTokens,
+  type AxBalancerFailureReason,
+  type AxBalancerRouteStats,
+  type AxBalancerRoutingContext,
+  type AxBalancerRoutingEvent,
+  type AxBalancerStatsKey,
+  type AxBalancerStatsObservation,
+  type AxBalancerStatsStore,
+  AxInMemoryBalancerStatsStore,
+  axUpdateBalancerRouteStats,
+} from './ai/balance_adaptive.js';
+import {
   type AxAIFeatures,
   AxBaseAI,
   type AxBaseAIArgs,
@@ -1359,6 +1374,7 @@ export { AxGEPA };
 export { AxGEPAComponentSelector };
 export { AxGen };
 export { AxGenerateError };
+export { AxInMemoryBalancerStatsStore };
 export { AxInMemoryEventStore };
 export { AxInMemoryProgramStateStore };
 export { AxJSRuntime };
@@ -1541,6 +1557,7 @@ export { axShouldUseOpenAIRealtime };
 export { axSignUCPRequest };
 export { axSpanAttributes };
 export { axSpanEvents };
+export { axUpdateBalancerRouteStats };
 export { axUpdateMetricsConfig };
 export { axUpdateOptimizerMetricsConfig };
 export { axValidateChatRequestMessage };
@@ -1892,7 +1909,18 @@ export type { AxAssertion };
 export type { AxAttempt };
 export type { AxAudioFormat };
 export type { AxAudioInput };
+export type { AxBalancerAdaptiveStrategy };
+export type { AxBalancerCandidateScore };
+export type { AxBalancerCostContext };
+export type { AxBalancerExpectedTokens };
+export type { AxBalancerFailureReason };
 export type { AxBalancerOptions };
+export type { AxBalancerRouteStats };
+export type { AxBalancerRoutingContext };
+export type { AxBalancerRoutingEvent };
+export type { AxBalancerStatsKey };
+export type { AxBalancerStatsObservation };
+export type { AxBalancerStatsStore };
 export type { AxBaseAIArgs };
 export type { AxBestOfNOptions };
 export type { AxBootstrapOptimizerOptions };

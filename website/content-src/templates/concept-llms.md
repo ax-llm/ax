@@ -33,7 +33,11 @@ flowchart LR
 
 ## Routing And Balancing
 
-Routers choose a provider by capability, model key, or app policy. Balancers retry across services while preserving the Ax request shape. Use them when latency, quota, cost, rate limits, or provider outages matter.
+In TypeScript, routing has two distinct jobs. `AxMultiServiceRouter` combines provider model lists and dispatches the model key the caller already chose; it does not select a model. `AxBalancer` handles equivalent services behind shared model aliases, preserving the Ax request shape while applying capability filters and provider failover.
+
+TypeScript can opt into adaptive `AxBalancer` routing. It learns transient provider failure rate and successful latency, then weighs the probability of a failure or deadline miss against estimated request cost. This is operational provider selection, not semantic prompt-to-model selection, so every model behind an alias must be an acceptable substitute.
+
+{{aiBalancerExample}}
 
 ## Embeddings
 

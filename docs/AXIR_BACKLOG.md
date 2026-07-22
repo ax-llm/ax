@@ -14,7 +14,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-07-21-adaptive-axbalancer-provider-routing` [axai] Adaptive AxBalancer provider routing
+  - Status: open
+  - Source commit: `f1d93bbcc79a4223e21c4197cf875a23e889c37f`
+  - TS paths: `src/ax/ai/balance.ts`, `src/ax/ai/balance_adaptive.ts`
+  - Impact: Adds opt-in chat routing based on shared failure EWMA, log-latency Thompson sampling, deadline risk, and estimated provider cost.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

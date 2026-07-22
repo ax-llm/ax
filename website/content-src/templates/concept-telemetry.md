@@ -38,6 +38,14 @@ Metrics should answer whether production is healthy: request counts, latency his
 
 Usage is not just a provider response field. It becomes a program-level signal when a workflow retries, streams, calls tools, uses agents, or optimizes across examples. Track usage at the Ax layer so application owners see the full workflow cost instead of isolated model calls.
 
+## Adaptive Routing Events
+
+TypeScript adaptive balancers can publish `ranked`, `selected`, `fallback`, `observation`, and `store-error` events through `onRoutingEvent`. These events expose route keys, sanitized failure categories, cost, and deadline-risk scores without prompts, responses, or raw provider errors.
+
+Treat the event hook as best-effort observability. Centralized routing decisions must use `AxBalancerStatsStore`; do not reconstruct authoritative state from telemetry delivery. Keep route namespaces and slices low-cardinality and avoid putting private user data in either value.
+
+The cataloged [TypeScript adaptive-balancer example](/typescript/examples/generation/#typescript-adaptive-provider-balancing) shows a shared stats store and routing-event hook together.
+
 ## Debugging Patterns
 
 Use debug logs for local development, traces for request-level investigation, and metrics for aggregate health. When an output is wrong, inspect the signature, examples, validation feedback, tool calls, and final parsed object before changing provider settings.
