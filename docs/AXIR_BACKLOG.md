@@ -14,12 +14,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-07-21-adaptive-axbalancer-provider-routing` [axai] Adaptive AxBalancer provider routing
-  - Status: open
-  - Source commit: `f1d93bbcc79a4223e21c4197cf875a23e889c37f`
-  - TS paths: `src/ax/ai/balance.ts`, `src/ax/ai/balance_adaptive.ts`
-  - Impact: Adds opt-in chat routing based on shared failure EWMA, log-latency Thompson sampling, deadline risk, and estimated provider cost.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -211,6 +206,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-20
   - Completed by: `08d64949a801a03ae531352a29e4406c7d053112`
   - Verification: `npm run test:axir; npm run axir:check-packages; npm run axir:gate:ledger`
+- `axir-2026-07-21-adaptive-axbalancer-provider-routing` [axai] Adaptive AxBalancer provider routing
+  - Status: done
+  - Source commit: `f1d93bbcc79a4223e21c4197cf875a23e889c37f`
+  - TS paths: `src/ax/ai/balance.ts`, `src/ax/ai/balance_adaptive.ts`
+  - Impact: Adds opt-in chat routing based on shared failure EWMA, log-latency Thompson sampling, deadline risk, and estimated provider cost.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-22
+  - Completed by: `1b74dc0c`
+  - Verification: `Focused AxBalancer tests; deterministic AxIR conformance and package checks; test:axir release verifier; coverage and anti-facade gates; package build; generated examples; TypeDoc; website prepare/check; formatting; backlog validation; git diff check`
 - `axir-2026-07-21-port-gemini-3-6-flash-and-3-5-flash-lite-model-support` [axai] Port Gemini 3.6 Flash and 3.5 Flash-Lite model support
   - Status: done
   - Source commit: `1acfd7dede33f7de6c9e2c56a6457bfcec9c95a0`
