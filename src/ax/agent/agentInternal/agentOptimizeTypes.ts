@@ -228,7 +228,6 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * durable avoidance rules into a `failures_to_avoid` section so later runs
    * stop repeating them. Seed it with a persisted snapshot and use `onUpdate`
    * to persist new snapshots; read the live handle via `getPlaybook()`.
-   * TS-first: the 5 non-TS ports do not ship the playbook option yet.
    */
   playbook?: AxAgentPlaybookConfig;
 
@@ -250,8 +249,7 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * evidence object at all skips validation. The guarantee is existence, not
    * entailment: the model cannot cite evidence it never collected, but
    * validation does not check that the answer's claims match the cited
-   * evidence's content. TS-first: the 5 non-TS ports do not ship citations
-   * yet.
+   * evidence's content.
    */
   citations?: AxAgentCitations;
 
@@ -286,8 +284,7 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    *   `contextFields` explicitly. Each promotion emits a
    *   `field_auto_promoted` context event for observability.
    *
-   * Pass an object to tune or disable each side independently. TS-first: the
-   * 5 non-TS ports do not ship auto-upgrade yet.
+   * Pass an object to tune or disable each side independently.
    */
   autoUpgrade?: AxAgentAutoUpgrade;
 
@@ -316,8 +313,7 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * Enabled by default since its A/B gate passed (substance-judged,
    * n=49/variant/model: small model discover-precision 24%->90% and answer
    * substance 14%->29%; frontier-model control substance 63%->88% with fewer
-   * turns). TS-first: the 5 non-TS ports do not ship the ranker yet, so
-   * cross-language behavior diverges here until they catch up.
+   * turns).
    *
    * When enabled, a cheap deterministic token-overlap ranker scores this
    * agent's discoverable capabilities against the task and injects a

@@ -1,0 +1,533 @@
+{
+  "exact_observable_projection": {
+    "alreadyLoaded": [
+      [
+        {
+          "content": "PRELOADED MEMORY",
+          "id": "mem-a"
+        },
+        {
+          "content": "",
+          "id": "z-memory"
+        }
+      ]
+    ],
+    "errors": [],
+    "loadedMemories": [
+      {
+        "content": "HOST MEMORY",
+        "id": "host-memory"
+      },
+      {
+        "content": "HOST MEMORY OVERRIDE",
+        "id": "mem-a"
+      },
+      {
+        "content": "",
+        "id": "z-memory"
+      }
+    ],
+    "loadedSkills": [
+      {
+        "content": "",
+        "id": "empty-skill",
+        "name": "empty-skill"
+      },
+      {
+        "content": "",
+        "id": "forward-only",
+        "name": "Forward only"
+      },
+      {
+        "content": "HOST SKILL",
+        "id": "host-release",
+        "name": "Host release"
+      },
+      {
+        "content": "FORWARD SKILL",
+        "id": "shared",
+        "name": "Forward shared"
+      }
+    ],
+    "observerTranscript": [
+      {
+        "callback": "loaded_skills",
+        "payload": [
+          {
+            "content": "HOST SKILL",
+            "id": "host-release",
+            "name": "Host release"
+          }
+        ]
+      },
+      {
+        "callback": "loaded_memories",
+        "payload": [
+          {
+            "content": "HOST MEMORY OVERRIDE",
+            "id": "mem-a"
+          },
+          {
+            "content": "HOST MEMORY",
+            "id": "host-memory"
+          }
+        ]
+      },
+      {
+        "callback": "forward.used_memories",
+        "payload": [
+          {
+            "id": "mem-a",
+            "reason": "preload then recall override used",
+            "stage": "executor"
+          }
+        ]
+      },
+      {
+        "callback": "forward.used_skills",
+        "payload": [
+          {
+            "id": "shared",
+            "name": "Forward shared",
+            "reason": "forward override used",
+            "stage": "executor"
+          }
+        ]
+      }
+    ],
+    "output": {
+      "answer": "oracle"
+    },
+    "stageRequests": [
+      {
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "loadedSkills": "",
+        "memories": "Memories: ### Memory\n\nID: `mem-a`\n\nPRELOADED MEMORY\n\n### Memory\n\nID: `z-memory`",
+        "relevanceHints": "",
+        "stage": "distiller"
+      },
+      {
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "loadedSkills": "Loaded Skills: ### empty-skill\n\nID: `empty-skill`\n\n\n\n### Forward only\n\nID: `forward-only`\n\n\n\n### Forward shared\n\nID: `shared`\n\nFORWARD SKILL",
+        "memories": "Memories: ### Memory\n\nID: `mem-a`\n\nPRELOADED MEMORY\n\n### Memory\n\nID: `z-memory`",
+        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` — Catalog release\nMemories:\n- `catalog-deploy` — CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "loadedSkills": "Loaded Skills: ### empty-skill\n\nID: `empty-skill`\n\n\n\n### Forward only\n\nID: `forward-only`\n\n\n\n### Host release\n\nID: `host-release`\n\nHOST SKILL\n\n### Forward shared\n\nID: `shared`\n\nFORWARD SKILL",
+        "memories": "Memories: ### Memory\n\nID: `mem-a`\n\nPRELOADED MEMORY\n\n### Memory\n\nID: `z-memory`",
+        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` — Catalog release\nMemories:\n- `catalog-deploy` — CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "loadedSkills": "Loaded Skills: ### empty-skill\n\nID: `empty-skill`\n\n\n\n### Forward only\n\nID: `forward-only`\n\n\n\n### Host release\n\nID: `host-release`\n\nHOST SKILL\n\n### Forward shared\n\nID: `shared`\n\nFORWARD SKILL",
+        "memories": "Memories: ### Memory\n\nID: `host-memory`\n\nHOST MEMORY\n\n### Memory\n\nID: `mem-a`\n\nHOST MEMORY OVERRIDE\n\n### Memory\n\nID: `z-memory`",
+        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` — Catalog release\nMemories:\n- `catalog-deploy` — CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "loadedSkills": "Loaded Skills: ### empty-skill\n\nID: `empty-skill`\n\n\n\n### Forward only\n\nID: `forward-only`\n\n\n\n### Host release\n\nID: `host-release`\n\nHOST SKILL\n\n### Forward shared\n\nID: `shared`\n\nFORWARD SKILL",
+        "memories": "Memories: ### Memory\n\nID: `host-memory`\n\nHOST MEMORY\n\n### Memory\n\nID: `mem-a`\n\nHOST MEMORY OVERRIDE\n\n### Memory\n\nID: `z-memory`",
+        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` — Catalog release\nMemories:\n- `catalog-deploy` — CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "### Available Skills\n\n- `catalog-incident` — Catalog incident — incident response\n- `catalog-release` — Catalog release — release checklist",
+        "loadedSkills": "Loaded Skills: ### empty-skill\n\nID: `empty-skill`\n\n\n\n### Forward only\n\nID: `forward-only`\n\n\n\n### Host release\n\nID: `host-release`\n\nHOST SKILL\n\n### Forward shared\n\nID: `shared`\n\nFORWARD SKILL",
+        "memories": "Memories: ### Memory\n\nID: `host-memory`\n\nHOST MEMORY\n\n### Memory\n\nID: `mem-a`\n\nHOST MEMORY OVERRIDE\n\n### Memory\n\nID: `z-memory`",
+        "relevanceHints": "Relevance Hints: Skills:\n- `catalog-release` — Catalog release\nMemories:\n- `catalog-deploy` — CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "responder"
+      }
+    ],
+    "usedMemories": [
+      {
+        "id": "mem-a",
+        "reason": "preload then recall override used",
+        "stage": "executor"
+      }
+    ],
+    "usedSkills": [
+      {
+        "id": "shared",
+        "name": "Forward shared",
+        "reason": "forward override used",
+        "stage": "executor"
+      }
+    ]
+  },
+  "expected_loaded_memories": [
+    {
+      "content": "HOST MEMORY",
+      "id": "host-memory"
+    },
+    {
+      "content": "HOST MEMORY OVERRIDE",
+      "id": "mem-a"
+    },
+    {
+      "content": "",
+      "id": "z-memory"
+    }
+  ],
+  "expected_loaded_skill_docs": [
+    {
+      "content": "",
+      "id": "empty-skill",
+      "name": "empty-skill"
+    },
+    {
+      "content": "",
+      "id": "forward-only",
+      "name": "Forward only"
+    },
+    {
+      "content": "HOST SKILL",
+      "id": "host-release",
+      "name": "Host release"
+    },
+    {
+      "content": "FORWARD SKILL",
+      "id": "shared",
+      "name": "Forward shared"
+    }
+  ],
+  "expected_loaded_skill_docs_subset": [
+    {
+      "content": "",
+      "id": "empty-skill",
+      "name": "empty-skill"
+    },
+    {
+      "content": "",
+      "id": "forward-only",
+      "name": "Forward only"
+    },
+    {
+      "content": "HOST SKILL",
+      "id": "host-release",
+      "name": "Host release"
+    },
+    {
+      "content": "FORWARD SKILL",
+      "id": "shared",
+      "name": "Forward shared"
+    }
+  ],
+  "expected_observer_transcript": [
+    {
+      "callback": "loaded_skills",
+      "payload": [
+        {
+          "content": "HOST SKILL",
+          "id": "host-release",
+          "name": "Host release"
+        }
+      ]
+    },
+    {
+      "callback": "loaded_memories",
+      "payload": [
+        {
+          "content": "HOST MEMORY OVERRIDE",
+          "id": "mem-a"
+        },
+        {
+          "content": "HOST MEMORY",
+          "id": "host-memory"
+        }
+      ]
+    },
+    {
+      "callback": "forward.used_memories",
+      "payload": [
+        {
+          "id": "mem-a",
+          "reason": "preload then recall override used",
+          "stage": "executor"
+        }
+      ]
+    },
+    {
+      "callback": "forward.used_skills",
+      "payload": [
+        {
+          "id": "shared",
+          "name": "Forward shared",
+          "reason": "forward override used",
+          "stage": "executor"
+        }
+      ]
+    }
+  ],
+  "expected_output": {
+    "answer": "oracle"
+  },
+  "expected_request_contains": [
+    "### Likely Relevant",
+    "### Available Skills",
+    "ID: `shared`",
+    "FORWARD SKILL",
+    "HOST SKILL",
+    "HOST MEMORY OVERRIDE",
+    "ID: `mem-a`"
+  ],
+  "expected_request_count": 7,
+  "expected_used_memories": [
+    {
+      "id": "mem-a",
+      "reason": "preload then recall override used",
+      "stage": "executor"
+    }
+  ],
+  "expected_used_skills": [
+    {
+      "id": "shared",
+      "name": "Forward shared",
+      "reason": "forward override used",
+      "stage": "executor"
+    }
+  ],
+  "forward_options": {
+    "max_actor_steps": 8,
+    "onUsedMemories": true,
+    "onUsedSkills": true,
+    "skills": [
+      {
+        "content": "FORWARD SKILL",
+        "id": "shared",
+        "name": "Forward shared"
+      },
+      {
+        "content": "",
+        "id": "forward-only",
+        "name": "Forward only"
+      }
+    ]
+  },
+  "input": {
+    "memories": [
+      {
+        "content": "PRELOADED MEMORY",
+        "id": " mem-a "
+      },
+      {
+        "content": "",
+        "id": "z-memory"
+      },
+      {
+        "content": "malformed",
+        "id": ""
+      }
+    ],
+    "query": "prepare the release deploy"
+  },
+  "kind": "agent_forward",
+  "name": "semantic-parity-lifecycle-oracle",
+  "option_effect": "Removing any enrolled option changes loaded prompt state, ranking/search precedence, callback transcript, used-state consolidation, or exported/restored skill state.",
+  "option_effects": {
+    "axagent.constructor.onLoadedMemories": "observerTranscript",
+    "axagent.constructor.onLoadedSkills": "observerTranscript",
+    "axagent.constructor.onMemoriesSearch": "loadedMemories",
+    "axagent.constructor.onSkillsSearch": "loadedSkills",
+    "axagent.constructor.onUsedMemories": "observerTranscript",
+    "axagent.constructor.onUsedSkills": "observerTranscript",
+    "axagent.constructor.skills": "loadedSkills",
+    "axagent.constructor.skillsCatalog": "stageRequests",
+    "axagent.forward.onUsedMemories": "observerTranscript",
+    "axagent.forward.onUsedSkills": "observerTranscript",
+    "axagent.forward.skills": "loadedSkills",
+    "axagent.method.forward": "output",
+    "axagent.method.getState": "loadedSkills",
+    "axagent.state.skillsPromptState": "loadedSkills"
+  },
+  "options": {
+    "directResponse": "off",
+    "maxTurns": 8,
+    "memoriesCatalog": [
+      {
+        "content": "CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE",
+        "id": "catalog-deploy"
+      },
+      {
+        "content": "catalog coffee body",
+        "id": "catalog-coffee"
+      }
+    ],
+    "memorySearchResults": {
+      "deploy": [
+        {
+          "content": "HOST MEMORY OVERRIDE",
+          "id": "mem-a"
+        },
+        {
+          "content": "HOST MEMORY",
+          "id": "host-memory"
+        }
+      ]
+    },
+    "onLoadedMemories": true,
+    "onLoadedSkills": true,
+    "onMemoriesSearch": true,
+    "onSkillsSearch": true,
+    "onUsedMemories": true,
+    "onUsedSkills": true,
+    "relevanceRanking": {
+      "minScore": 0,
+      "topK": 2
+    },
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "skills": [
+      {
+        "content": "old skill",
+        "id": " shared ",
+        "name": "Constructor shared"
+      },
+      {
+        "content": "",
+        "name": " empty-skill "
+      },
+      {
+        "content": "malformed",
+        "id": "",
+        "name": ""
+      }
+    ],
+    "skillsCatalog": [
+      {
+        "content": "CATALOG SKILL MUST NOT WIN HOST PRECEDENCE",
+        "description": "release checklist",
+        "id": "catalog-release",
+        "name": "Catalog release"
+      },
+      {
+        "content": "catalog incident body",
+        "description": "incident response",
+        "id": "catalog-incident",
+        "name": "Catalog incident"
+      }
+    ],
+    "skillSearchResults": {
+      "release": [
+        {
+          "content": "HOST SKILL",
+          "id": "host-release",
+          "name": "Host release"
+        }
+      ]
+    }
+  },
+  "parity_contract_ids": [
+    "axagent.constructor.skills",
+    "axagent.constructor.skillsCatalog",
+    "axagent.constructor.memoriesCatalog",
+    "axagent.constructor.relevanceRanking",
+    "axagent.constructor.onSkillsSearch",
+    "axagent.constructor.onMemoriesSearch",
+    "axagent.constructor.onLoadedSkills",
+    "axagent.constructor.onLoadedMemories",
+    "axagent.constructor.onUsedSkills",
+    "axagent.constructor.onUsedMemories",
+    "axagent.constructor.directResponse",
+    "axagent.forward.skills",
+    "axagent.forward.onUsedSkills",
+    "axagent.forward.onUsedMemories",
+    "axagent.method.forward",
+    "axagent.method.getState",
+    "axagent.method.setState",
+    "axagent.state.skillsPromptState"
+  ],
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"execute\\\", {\\\"context\\\":\\\"ready\\\"})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"discover({\\\"skills\\\":[\\\"release\\\"]})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"recall([\\\"deploy\\\"])\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"used(\\\"shared\\\", \\\"forward override used\\\")\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"used(\\\"mem-a\\\", \\\"preload then recall override used\\\")\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"done\\\", {\\\"answer\\\":\\\"oracle\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"oracle\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"execute\", {\"context\":\"ready\"})",
+      "result": {
+        "args": [
+          "execute",
+          {
+            "context": "ready"
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "discover({\"skills\":[\"release\"]})",
+      "result": {
+        "discover": {
+          "skills": ["release"]
+        }
+      }
+    },
+    {
+      "expected_code": "recall([\"deploy\"])",
+      "result": {
+        "recall": ["deploy"]
+      }
+    },
+    {
+      "expected_code": "used(\"shared\", \"forward override used\")",
+      "result": {
+        "used": {
+          "id": "shared",
+          "reason": "forward override used"
+        }
+      }
+    },
+    {
+      "expected_code": "used(\"mem-a\", \"preload then recall override used\")",
+      "result": {
+        "used": {
+          "id": "mem-a",
+          "reason": "preload then recall override used"
+        }
+      }
+    },
+    {
+      "expected_code": "final(\"done\", {\"answer\":\"oracle\"})",
+      "result": {
+        "args": [
+          "done",
+          {
+            "answer": "oracle"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "query:string -> answer:string"
+}

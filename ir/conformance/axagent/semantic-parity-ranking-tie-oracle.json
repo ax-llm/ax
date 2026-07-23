@@ -1,0 +1,101 @@
+{
+  "exact_observable_projection": {
+    "errors": [],
+    "output": {
+      "answer": "tie"
+    },
+    "ranking": {
+      "hasLikelyRelevant": true,
+      "matches": {
+        "tie_memory_a": false,
+        "tie_skill_a": false
+      }
+    }
+  },
+  "expected_output": {
+    "answer": "tie"
+  },
+  "expected_request_count": 3,
+  "input": {
+    "query": "zebra quokka"
+  },
+  "kind": "agent_forward",
+  "name": "semantic-parity-ranking-tie-oracle",
+  "option_effect": "Changing default tie suppression makes the tied skill or memory catalog appear in the exact relevance-hint projection.",
+  "option_effects": {
+    "axagent.constructor.relevanceRanking": "ranking"
+  },
+  "options": {
+    "directResponse": "off",
+    "memoriesCatalog": [
+      {
+        "content": "zebra quokka",
+        "id": "tie-memory-a"
+      },
+      {
+        "content": "zebra quokka",
+        "id": "tie-memory-b"
+      }
+    ],
+    "relevanceRanking": true,
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "skillsCatalog": [
+      {
+        "content": "zebra quokka",
+        "id": "tie-skill-a",
+        "name": "Tie A"
+      },
+      {
+        "content": "zebra quokka",
+        "id": "tie-skill-b",
+        "name": "Tie B"
+      }
+    ]
+  },
+  "parity_contract_ids": ["axagent.constructor.relevanceRanking"],
+  "ranking_probe": [
+    {
+      "label": "tie_skill_a",
+      "needle": "`tie-skill-a` —"
+    },
+    {
+      "label": "tie_memory_a",
+      "needle": "`tie-memory-a` —"
+    }
+  ],
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"execute-one\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"answer-one\\\", {\\\"answer\\\":\\\"tie\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"tie\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"execute-one\", {})",
+      "result": {
+        "args": ["execute-one", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"answer-one\", {\"answer\":\"tie\"})",
+      "result": {
+        "args": [
+          "answer-one",
+          {
+            "answer": "tie"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "query:string -> answer:string"
+}

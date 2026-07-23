@@ -122,6 +122,10 @@ int main() {
           // (their presence auto-enables the memory + skill subsystems).
           {"onMemoriesSearch", axllm::register_memories_search(memories_search)},
           {"onSkillsSearch", axllm::register_skills_search(skills_search)},
+          {"onLoadedMemories", axllm::register_agent_observer([](axllm::Value payload) { std::cout << "[memories loaded] " << axllm::stringify(payload) << "\n"; })},
+          {"onLoadedSkills", axllm::register_agent_observer([](axllm::Value payload) { std::cout << "[skills loaded] " << axllm::stringify(payload) << "\n"; })},
+          {"onUsedMemories", axllm::register_agent_observer([](axllm::Value payload) { std::cout << "[memories used] " << axllm::stringify(payload) << "\n"; })},
+          {"onUsedSkills", axllm::register_agent_observer([](axllm::Value payload) { std::cout << "[skills used] " << axllm::stringify(payload) << "\n"; })},
           {"executorOptions", axllm::object({
               {"description",
                std::string("You do NOT know our internal flag names, incident history, or runbook steps from your own training.\n") +

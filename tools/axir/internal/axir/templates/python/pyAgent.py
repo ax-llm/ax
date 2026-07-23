@@ -2066,6 +2066,14 @@ def _core_string_slice(value, start, end=None):
     return text[s:e]
 
 
+def _core_math_log(value):
+    return math.log(float(value))
+
+
+def _core_sorted_strings(values):
+    return sorted(str(value) for value in (values or []))
+
+
 def _core_regex_replace(pattern, repl, value):
     return re.sub(str(pattern), str(repl), str(value))
 
@@ -2266,6 +2274,30 @@ def _core_agent_skill_search(state, searches):
     if isinstance(scripted, list):
         return copy.deepcopy(scripted)
     return []
+
+
+def _core_agent_observer_notify(state, forward_options, kind, payload):
+    constructor_options = _core_get(state, "options", {}) or {}
+    forward_options = forward_options or {}
+    names = {
+        "loaded_memories": ("on_loaded_memories", "onLoadedMemories"),
+        "loaded_skills": ("on_loaded_skills", "onLoadedSkills"),
+        "used_memories": ("on_used_memories", "onUsedMemories"),
+        "used_skills": ("on_used_skills", "onUsedSkills"),
+    }
+    snake, camel = names.get(str(kind), ("", ""))
+    if not snake:
+        return None
+    callback = None
+    if str(kind).startswith("used_"):
+        callback = forward_options.get(snake) or forward_options.get(camel)
+    callback = callback or constructor_options.get(snake) or constructor_options.get(camel)
+    if callable(callback):
+        try:
+            callback(copy.deepcopy(payload or []))
+        except Exception:
+            pass
+    return None
 
 
 def _core_agent_callable_invoke(state, request, options):

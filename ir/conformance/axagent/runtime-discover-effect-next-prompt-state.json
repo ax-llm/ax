@@ -20,7 +20,7 @@
     ],
     "loaded_skill_docs": [
       {
-        "content": "Skill docs loaded for sql",
+        "content": "Use parameterized SQL.",
         "id": "sql",
         "name": "sql"
       }
@@ -31,7 +31,13 @@
   "operation": "test",
   "options": {
     "functionDiscovery": true,
-    "skillsMode": true,
+    "skillsCatalog": [
+      {
+        "content": "Use parameterized SQL.",
+        "id": "sql",
+        "name": "sql"
+      }
+    ],
     "functions": [
       {
         "functions": [
@@ -50,12 +56,8 @@
       "expected_code": "discover({ tools: [\"docs\"], skills: [\"sql\"] })",
       "result": {
         "discover": {
-          "skills": [
-            "sql"
-          ],
-          "tools": [
-            "docs"
-          ]
+          "skills": ["sql"],
+          "tools": ["docs"]
         },
         "kind": "discover"
       }

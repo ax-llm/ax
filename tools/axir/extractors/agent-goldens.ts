@@ -1,6 +1,11 @@
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+// cspell:ignore kwargs needleafterlimit replayable
+import {
+  AX_HOST_SNIPPET_MARKER,
+  AX_INPUTS_PATCH_GLOBAL,
+} from '../../../src/ax/agent/agentInternal/sharedSession.js';
 import {
   computeEffectiveChatBudget,
   resolveContextPolicy,
@@ -18,6 +23,8 @@ import {
   extractWorkingCodeState,
   manageContext,
 } from '../../../src/ax/agent/contextManager.js';
+import { agent } from '../../../src/ax/agent/index.js';
+import type { AxCodeRuntime } from '../../../src/ax/agent/rlm.js';
 import { getRuntimeLanguageInfo } from '../../../src/ax/agent/rlm.js';
 import { formatStructuredRuntimeState } from '../../../src/ax/agent/runtime.js';
 import { visibleRuntimePrimitives } from '../../../src/ax/agent/runtimePrimitives.js';
@@ -25,12 +32,15 @@ import {
   computeDynamicRuntimeChars,
   smartStringify,
 } from '../../../src/ax/agent/truncate.js';
+import { AxMockAIService } from '../../../src/ax/ai/mock/api.js';
 import { AxSignature } from '../../../src/ax/dsp/sig.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
 
-const outDir = join(process.cwd(), 'ir/conformance/axagent');
+const outRoot = process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd();
+const outDir = join(outRoot, 'ir/conformance/axagent');
+const parityContractsOnly = process.env.AXIR_AGENT_PARITY_ONLY === '1';
 
 function stable(value: unknown, parentKey = ''): unknown {
   if (Array.isArray(value)) return value.map((item) => stable(item, parentKey));
@@ -51,10 +61,1354 @@ function stable(value: unknown, parentKey = ''): unknown {
 }
 
 function writeFixture(name: string, fixture: Fixture): void {
+  if (
+    parityContractsOnly &&
+    typeof fixture.parity_contract_id !== 'string' &&
+    !Array.isArray(fixture.parity_contract_ids)
+  ) {
+    return;
+  }
   writeFileSync(
     join(outDir, `${name}.json`),
     `${JSON.stringify(stable({ name, ...fixture }), null, 2)}\n`
   );
+}
+
+function oracleModelUsage() {
+  return {
+    ai: 'oracle-ai',
+    model: 'oracle-model',
+    tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+  };
+}
+
+function oraclePromptText(content: unknown): string {
+  return typeof content === 'string' ? content : JSON.stringify(content ?? '');
+}
+
+const SEMANTIC_PROMPT_FIELD_LABELS = [
+  'Query',
+  'Executor Request',
+  'Distilled Context Summary',
+  'Context Metadata',
+  'Context Map',
+  'Discovered Tool Docs',
+  'Loaded Skills',
+  'Memories',
+  'Relevance Hints',
+  'Summarized Actor Log',
+  'Guidance Log',
+  'Action Log',
+  'Live Runtime State',
+  'Context Pressure',
+] as const;
+
+function normalizeSemanticPromptText(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .trim();
+}
+
+function semanticPromptField(user: string, label: string): string {
+  const normalized = normalizeSemanticPromptText(user);
+  const marker = `${label}: `;
+  const start = normalized.indexOf(marker);
+  if (start < 0) return '';
+  const bodyStart = start + marker.length;
+  let end = normalized.length;
+  for (const candidate of SEMANTIC_PROMPT_FIELD_LABELS) {
+    if (candidate === label) continue;
+    const next = normalized.indexOf(`\n\n${candidate}: `, bodyStart);
+    if (next >= 0 && next < end) end = next;
+  }
+  return normalizeSemanticPromptText(
+    `${label}: ${normalized.slice(bodyStart, end)}`
+  );
+}
+
+function semanticAvailableSkillsIndex(system: string): string {
+  const normalized = normalizeSemanticPromptText(system);
+  const heading = '### Available Skills';
+  const start = normalized.indexOf(heading);
+  if (start < 0) return '';
+  const lines = normalized.slice(start + heading.length).split('\n');
+  const entries: string[] = [];
+  for (const line of lines) {
+    if (line.trim() === '' && entries.length === 0) continue;
+    if (!line.startsWith('- `')) break;
+    entries.push(line);
+  }
+  if (entries.length === 0) return '';
+  return `${heading}\n\n${entries.join('\n')}`;
+}
+
+function semanticStageRequests(
+  requests: ReadonlyArray<{ stage: string; system: string; user: string }>
+): Json {
+  return requests.map(({ stage, system, user }) => ({
+    stage,
+    availableSkills: semanticAvailableSkillsIndex(system),
+    loadedSkills: semanticPromptField(user, 'Loaded Skills'),
+    memories: semanticPromptField(user, 'Memories'),
+    relevanceHints: semanticPromptField(user, 'Relevance Hints'),
+  })) as Json;
+}
+
+function semanticParityRuntime(projection: {
+  loadedMemories?: unknown;
+}): AxCodeRuntime {
+  return {
+    getUsageInstructions: () => '',
+    createSession(globals) {
+      return {
+        async execute(code: string) {
+          const inputs = globals?.inputs as Record<string, unknown> | undefined;
+          if (Array.isArray(inputs?.memories)) {
+            projection.loadedMemories = structuredClone(inputs.memories);
+          }
+          if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
+          if (code.includes('discover(')) {
+            await (globals?.discover as (request: unknown) => Promise<void>)({
+              skills: ['release'],
+            });
+            return 'discovered';
+          }
+          if (code.includes('recall(')) {
+            await (globals?.recall as (request: unknown) => Promise<void>)([
+              'deploy',
+            ]);
+            return 'recalled';
+          }
+          if (code.includes('used("shared"')) {
+            (globals?.used as (id: string, reason: string) => void)(
+              'shared',
+              'forward override used'
+            );
+            return 'used skill';
+          }
+          if (code.includes('used("mem-a"')) {
+            (globals?.used as (id: string, reason: string) => void)(
+              'mem-a',
+              'preload then recall override used'
+            );
+            return 'used memory';
+          }
+          if (globals?.final && code.includes('final(')) {
+            (globals.final as (...args: unknown[]) => void)('done', {
+              answer: 'oracle',
+            });
+            return 'done';
+          }
+          return 'ok';
+        },
+        async patchGlobals(patch: Record<string, unknown>) {
+          const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+          Object.assign(globals ?? {}, rest);
+          if (globals && staged && typeof staged === 'object') {
+            globals.inputs = Object.assign(
+              (globals.inputs as Record<string, unknown>) ?? {},
+              staged
+            );
+          }
+        },
+        inspectGlobals() {
+          return JSON.stringify({ entries: [] });
+        },
+        snapshotGlobals() {
+          return {
+            version: 1,
+            entries: [],
+            bindings: {},
+          };
+        },
+        close() {},
+      };
+    },
+  };
+}
+
+function semanticDirectResponseRuntime(): AxCodeRuntime {
+  return {
+    getUsageInstructions: () => '',
+    createSession(globals) {
+      return {
+        async execute(code: string) {
+          if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
+          if (globals?.respond && code.includes('respond(')) {
+            (globals.respond as (...args: unknown[]) => void)('direct', {
+              source: 'forward-skill',
+            });
+            return 'responded';
+          }
+          return 'ok';
+        },
+        async patchGlobals(patch: Record<string, unknown>) {
+          const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+          Object.assign(globals ?? {}, rest);
+          if (globals && staged && typeof staged === 'object') {
+            globals.inputs = Object.assign(
+              (globals.inputs as Record<string, unknown>) ?? {},
+              staged
+            );
+          }
+        },
+        inspectGlobals() {
+          return JSON.stringify({ entries: [] });
+        },
+        snapshotGlobals() {
+          return { version: 1, entries: [], bindings: {} };
+        },
+        close() {},
+      };
+    },
+  };
+}
+
+function semanticSequenceRuntime(): AxCodeRuntime {
+  return {
+    getUsageInstructions: () => '',
+    createSession(globals) {
+      return {
+        async execute(code: string) {
+          if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
+          if (!globals?.final || !code.includes('final(')) return 'ok';
+          const finish = globals.final as (...args: unknown[]) => void;
+          const execute = code.match(/execute-([a-z0-9-]+)/)?.[1];
+          const answer = code.match(/answer-([a-z0-9-]+)/)?.[1];
+          if (execute) finish(`execute-${execute}`, {});
+          else if (answer) finish(`answer-${answer}`, { answer });
+          return 'done';
+        },
+        async patchGlobals(patch: Record<string, unknown>) {
+          const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+          Object.assign(globals ?? {}, rest);
+          if (globals && staged && typeof staged === 'object') {
+            globals.inputs = Object.assign(
+              (globals.inputs as Record<string, unknown>) ?? {},
+              staged
+            );
+          }
+        },
+        inspectGlobals() {
+          return JSON.stringify({ entries: [] });
+        },
+        snapshotGlobals() {
+          return { version: 1, entries: [], bindings: {} };
+        },
+        close() {},
+      };
+    },
+  };
+}
+
+function semanticCatalogRuntime(): AxCodeRuntime {
+  return {
+    getUsageInstructions: () => '',
+    createSession(globals) {
+      return {
+        async execute(code: string) {
+          if (code.startsWith(AX_HOST_SNIPPET_MARKER)) return 'host-snippet';
+          if (code.includes('discover-invoice')) {
+            await (globals?.discover as (request: unknown) => Promise<void>)({
+              skills: ['invoice status'],
+            });
+            return 'discovered invoice';
+          }
+          if (code.includes('recall-deploy')) {
+            await (globals?.recall as (request: unknown) => Promise<void>)([
+              'deploy release',
+            ]);
+            return 'recalled deploy';
+          }
+          if (code.includes('discover-limit')) {
+            await (globals?.discover as (request: unknown) => Promise<void>)({
+              skills: ['needleafterlimit'],
+            });
+            return 'checked skill limit';
+          }
+          if (code.includes('recall-limit')) {
+            await (globals?.recall as (request: unknown) => Promise<void>)([
+              'needleafterlimit',
+            ]);
+            return 'checked memory limit';
+          }
+          if (globals?.final && code.includes('final(')) {
+            (globals.final as (...args: unknown[]) => void)('catalog done', {
+              answer: 'catalog',
+            });
+            return 'done';
+          }
+          return 'ok';
+        },
+        async patchGlobals(patch: Record<string, unknown>) {
+          const { [AX_INPUTS_PATCH_GLOBAL]: staged, ...rest } = patch;
+          Object.assign(globals ?? {}, rest);
+          if (globals && staged && typeof staged === 'object') {
+            globals.inputs = Object.assign(
+              (globals.inputs as Record<string, unknown>) ?? {},
+              staged
+            );
+          }
+        },
+        inspectGlobals() {
+          return JSON.stringify({ entries: [] });
+        },
+        snapshotGlobals() {
+          return { version: 1, entries: [], bindings: {} };
+        },
+        close() {},
+      };
+    },
+  };
+}
+
+async function writeSemanticParityLifecycleOracle(): Promise<void> {
+  const observerTranscript: Array<{ callback: string; payload: unknown }> = [];
+  const runtimeProjection: { loadedMemories?: unknown } = {};
+  const requestTranscript: Array<{
+    stage: string;
+    system: string;
+    user: string;
+  }> = [];
+  const alreadyLoadedTranscript: unknown[] = [];
+  let executorTurn = 0;
+  const executorCode = [
+    'discover({"skills":["release"]})',
+    'recall(["deploy"])',
+    'used("shared", "forward override used")',
+    'used("mem-a", "preload then recall override used")',
+    'final("done", {"answer":"oracle"})',
+  ];
+  const ai = new AxMockAIService({
+    features: { functions: false, streaming: false },
+    chatResponse: async (request) => {
+      const system = oraclePromptText(request.chatPrompt[0]?.content);
+      const user = oraclePromptText(request.chatPrompt[1]?.content);
+      if (system.includes('You (`distiller`)')) {
+        requestTranscript.push({ stage: 'distiller', system, user });
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Javascript Code: final("execute", {"context":"ready"})',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: oracleModelUsage(),
+        };
+      }
+      if (system.includes('You (`executor`)')) {
+        requestTranscript.push({ stage: 'executor', system, user });
+        const code = executorCode[executorTurn++] ?? executorCode.at(-1)!;
+        return {
+          results: [
+            {
+              index: 0,
+              content: `Javascript Code: ${code}`,
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: oracleModelUsage(),
+        };
+      }
+      requestTranscript.push({ stage: 'responder', system, user });
+      return {
+        results: [
+          {
+            index: 0,
+            content: 'Answer: oracle',
+            finishReason: 'stop' as const,
+          },
+        ],
+        modelUsage: oracleModelUsage(),
+      };
+    },
+  });
+
+  const constructorUsedMemories = (payload: unknown) =>
+    observerTranscript.push({ callback: 'constructor.used_memories', payload });
+  const constructorUsedSkills = (payload: unknown) =>
+    observerTranscript.push({ callback: 'constructor.used_skills', payload });
+  const forwardUsedMemories = (payload: unknown) =>
+    observerTranscript.push({ callback: 'forward.used_memories', payload });
+  const forwardUsedSkills = (payload: unknown) =>
+    observerTranscript.push({ callback: 'forward.used_skills', payload });
+
+  const oracle = agent('query:string -> answer:string', {
+    ai,
+    runtime: semanticParityRuntime(runtimeProjection),
+    directResponse: 'off',
+    maxTurns: 8,
+    relevanceRanking: { topK: 2, minScore: 0 },
+    skills: [
+      { id: ' shared ', name: 'Constructor shared', content: 'old skill' },
+      { name: ' empty-skill ', content: '' },
+      { id: '', name: '', content: 'malformed' },
+    ],
+    skillsCatalog: [
+      {
+        id: 'catalog-release',
+        name: 'Catalog release',
+        description: 'release checklist',
+        content: 'CATALOG SKILL MUST NOT WIN HOST PRECEDENCE',
+      },
+      {
+        id: 'catalog-incident',
+        name: 'Catalog incident',
+        description: 'incident response',
+        content: 'catalog incident body',
+      },
+    ],
+    memoriesCatalog: [
+      {
+        id: 'catalog-deploy',
+        content: 'CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE',
+      },
+      { id: 'catalog-coffee', content: 'catalog coffee body' },
+    ],
+    onSkillsSearch: async () => [
+      { id: 'host-release', name: 'Host release', content: 'HOST SKILL' },
+    ],
+    onMemoriesSearch: async (_searches, alreadyLoaded) => {
+      alreadyLoadedTranscript.push(alreadyLoaded);
+      return [
+        { id: 'mem-a', content: 'HOST MEMORY OVERRIDE' },
+        { id: 'host-memory', content: 'HOST MEMORY' },
+      ];
+    },
+    onLoadedSkills: (payload) => {
+      observerTranscript.push({ callback: 'loaded_skills', payload });
+      throw new Error('observer errors are ignored');
+    },
+    onLoadedMemories: async (payload) => {
+      observerTranscript.push({ callback: 'loaded_memories', payload });
+      throw new Error('observer errors are ignored');
+    },
+    onUsedMemories: constructorUsedMemories,
+    onUsedSkills: constructorUsedSkills,
+  });
+
+  const output = await oracle.forward(
+    ai,
+    {
+      query: 'prepare the release deploy',
+      memories: [
+        { id: ' mem-a ', content: 'PRELOADED MEMORY' },
+        { id: 'z-memory', content: '' },
+        { id: '', content: 'malformed' },
+      ],
+    } as never,
+    {
+      skills: [
+        { id: 'shared', name: 'Forward shared', content: 'FORWARD SKILL' },
+        { id: 'forward-only', name: 'Forward only', content: '' },
+      ],
+      onUsedMemories: forwardUsedMemories,
+      onUsedSkills: forwardUsedSkills,
+    }
+  );
+
+  const state = oracle.getState();
+  const loadedSkills = state?.skillsPromptState?.loaded ?? [];
+  const finalExecutorUser =
+    [...requestTranscript].reverse().find((entry) => entry.stage === 'executor')
+      ?.user ?? '';
+  const loadedMemories = [
+    ...finalExecutorUser.matchAll(
+      /### Memory\n\nID: `([^`]+)`\n\n([\s\S]*?)(?=\n\n### Memory|\n\n[A-Z][A-Za-z ]+:|$)/g
+    ),
+  ].map((match) => ({ id: match[1]!, content: match[2]!.trim() })) as Json;
+  const usedSkills = (observerTranscript.find(
+    (entry) => entry.callback === 'forward.used_skills'
+  )?.payload ?? []) as Json;
+  const usedMemories = (observerTranscript.find(
+    (entry) => entry.callback === 'forward.used_memories'
+  )?.payload ?? []) as Json;
+  const stageRequests = semanticStageRequests(requestTranscript);
+  const exactProjection = {
+    output,
+    stageRequests,
+    loadedSkills,
+    loadedMemories,
+    usedSkills,
+    usedMemories,
+    alreadyLoaded: alreadyLoadedTranscript,
+    observerTranscript,
+    errors: [],
+  };
+  const contractIDs = [
+    'axagent.constructor.skills',
+    'axagent.constructor.skillsCatalog',
+    'axagent.constructor.memoriesCatalog',
+    'axagent.constructor.relevanceRanking',
+    'axagent.constructor.onSkillsSearch',
+    'axagent.constructor.onMemoriesSearch',
+    'axagent.constructor.onLoadedSkills',
+    'axagent.constructor.onLoadedMemories',
+    'axagent.constructor.onUsedSkills',
+    'axagent.constructor.onUsedMemories',
+    'axagent.constructor.directResponse',
+    'axagent.forward.skills',
+    'axagent.forward.onUsedSkills',
+    'axagent.forward.onUsedMemories',
+    'axagent.method.forward',
+    'axagent.method.getState',
+    'axagent.method.setState',
+    'axagent.state.skillsPromptState',
+  ];
+  writeFixture('semantic-parity-lifecycle-oracle', {
+    parity_contract_ids: contractIDs,
+    exact_observable_projection: exactProjection as Json,
+    option_effect:
+      'Removing any enrolled option changes loaded prompt state, ranking/search precedence, callback transcript, used-state consolidation, or exported/restored skill state.',
+    option_effects: {
+      'axagent.constructor.skills': 'loadedSkills',
+      'axagent.constructor.skillsCatalog': 'stageRequests',
+      'axagent.constructor.onSkillsSearch': 'loadedSkills',
+      'axagent.constructor.onMemoriesSearch': 'loadedMemories',
+      'axagent.constructor.onLoadedSkills': 'observerTranscript',
+      'axagent.constructor.onLoadedMemories': 'observerTranscript',
+      'axagent.constructor.onUsedSkills': 'observerTranscript',
+      'axagent.constructor.onUsedMemories': 'observerTranscript',
+      'axagent.forward.skills': 'loadedSkills',
+      'axagent.forward.onUsedSkills': 'observerTranscript',
+      'axagent.forward.onUsedMemories': 'observerTranscript',
+      'axagent.method.forward': 'output',
+      'axagent.method.getState': 'loadedSkills',
+      'axagent.state.skillsPromptState': 'loadedSkills',
+    },
+    kind: 'agent_forward',
+    signature: 'query:string -> answer:string',
+    options: {
+      runtime: { language: 'JavaScript' },
+      directResponse: 'off',
+      maxTurns: 8,
+      relevanceRanking: { topK: 2, minScore: 0 },
+      skills: [
+        { id: ' shared ', name: 'Constructor shared', content: 'old skill' },
+        { name: ' empty-skill ', content: '' },
+        { id: '', name: '', content: 'malformed' },
+      ],
+      skillsCatalog: [
+        {
+          id: 'catalog-release',
+          name: 'Catalog release',
+          description: 'release checklist',
+          content: 'CATALOG SKILL MUST NOT WIN HOST PRECEDENCE',
+        },
+        {
+          id: 'catalog-incident',
+          name: 'Catalog incident',
+          description: 'incident response',
+          content: 'catalog incident body',
+        },
+      ],
+      memoriesCatalog: [
+        {
+          id: 'catalog-deploy',
+          content: 'CATALOG MEMORY MUST NOT WIN HOST PRECEDENCE',
+        },
+        { id: 'catalog-coffee', content: 'catalog coffee body' },
+      ],
+      onSkillsSearch: true,
+      onMemoriesSearch: true,
+      onLoadedSkills: true,
+      onLoadedMemories: true,
+      onUsedSkills: true,
+      onUsedMemories: true,
+      skillSearchResults: {
+        release: [
+          { id: 'host-release', name: 'Host release', content: 'HOST SKILL' },
+        ],
+      },
+      memorySearchResults: {
+        deploy: [
+          { id: 'mem-a', content: 'HOST MEMORY OVERRIDE' },
+          { id: 'host-memory', content: 'HOST MEMORY' },
+        ],
+      },
+    },
+    input: {
+      query: 'prepare the release deploy',
+      memories: [
+        { id: ' mem-a ', content: 'PRELOADED MEMORY' },
+        { id: 'z-memory', content: '' },
+        { id: '', content: 'malformed' },
+      ],
+    },
+    forward_options: {
+      // Generated runtimes expose their actor-loop safety budget as a native
+      // forward option. Keep it explicit here so the five-action oracle
+      // scenario exercises lifecycle semantics instead of the native default.
+      max_actor_steps: 8,
+      skills: [
+        { id: 'shared', name: 'Forward shared', content: 'FORWARD SKILL' },
+        { id: 'forward-only', name: 'Forward only', content: '' },
+      ],
+      onUsedSkills: true,
+      onUsedMemories: true,
+    },
+    responses: [
+      {
+        content:
+          '{"javascriptCode":"final(\\"execute\\", {\\"context\\":\\"ready\\"})"}',
+      },
+      {
+        content:
+          '{"javascriptCode":"discover({\\"skills\\":[\\"release\\"]})"}',
+      },
+      { content: '{"javascriptCode":"recall([\\"deploy\\"])"}' },
+      {
+        content:
+          '{"javascriptCode":"used(\\"shared\\", \\"forward override used\\")"}',
+      },
+      {
+        content:
+          '{"javascriptCode":"used(\\"mem-a\\", \\"preload then recall override used\\")"}',
+      },
+      {
+        content:
+          '{"javascriptCode":"final(\\"done\\", {\\"answer\\":\\"oracle\\"})"}',
+      },
+      { content: '{"answer":"oracle"}' },
+    ],
+    runtime_script: [
+      {
+        expected_code: 'final("execute", {"context":"ready"})',
+        result: { type: 'final', args: ['execute', { context: 'ready' }] },
+      },
+      {
+        expected_code: 'discover({"skills":["release"]})',
+        result: { discover: { skills: ['release'] } },
+      },
+      {
+        expected_code: 'recall(["deploy"])',
+        result: { recall: ['deploy'] },
+      },
+      {
+        expected_code: 'used("shared", "forward override used")',
+        result: {
+          used: { id: 'shared', reason: 'forward override used' },
+        },
+      },
+      {
+        expected_code: 'used("mem-a", "preload then recall override used")',
+        result: {
+          used: {
+            id: 'mem-a',
+            reason: 'preload then recall override used',
+          },
+        },
+      },
+      {
+        expected_code: 'final("done", {"answer":"oracle"})',
+        result: { type: 'final', args: ['done', { answer: 'oracle' }] },
+      },
+    ],
+    expected_output: output as Json,
+    expected_request_count: requestTranscript.length,
+    expected_request_contains: [
+      '### Likely Relevant',
+      '### Available Skills',
+      'ID: `shared`',
+      'FORWARD SKILL',
+      'HOST SKILL',
+      'HOST MEMORY OVERRIDE',
+      'ID: `mem-a`',
+    ],
+    expected_loaded_skill_docs_subset: loadedSkills as Json,
+    expected_loaded_skill_docs: loadedSkills as Json,
+    expected_loaded_memories: loadedMemories,
+    expected_used_skills: usedSkills,
+    expected_used_memories: usedMemories,
+    expected_observer_transcript: observerTranscript as Json,
+  });
+}
+
+async function writeSemanticParityStaticDirectSkillOracle(): Promise<void> {
+  const requestTranscript: Array<{
+    stage: string;
+    system: string;
+    user: string;
+  }> = [];
+  const ai = new AxMockAIService({
+    features: { functions: false, streaming: false },
+    chatResponse: async (request) => {
+      const system = oraclePromptText(request.chatPrompt[0]?.content);
+      const user = request.chatPrompt
+        .filter((message) => message.role === 'user')
+        .map((message) => oraclePromptText(message.content))
+        .join('\n');
+      const stage = system.includes('You (`distiller`)')
+        ? 'distiller'
+        : system.includes('You (`executor`)')
+          ? 'executor'
+          : 'responder';
+      requestTranscript.push({ stage, system, user });
+      const content =
+        stage === 'distiller'
+          ? 'Javascript Code: respond("direct", {"source":"forward-skill"})'
+          : 'Answer: direct';
+      return {
+        results: [{ index: 0, content, finishReason: 'stop' as const }],
+        modelUsage: oracleModelUsage(),
+      };
+    },
+  });
+  const oracle = agent('query:string -> answer:string', {
+    ai,
+    runtime: semanticDirectResponseRuntime(),
+    skills: [
+      {
+        id: 'constructor-direct',
+        name: 'Constructor direct',
+        content: 'CONSTRUCTOR DIRECT SKILL',
+      },
+    ],
+  });
+  const output = await oracle.forward(
+    ai,
+    { query: 'answer directly' },
+    {
+      skills: [
+        {
+          id: 'forward-direct',
+          name: 'Forward direct',
+          content: 'FORWARD SKILL',
+        },
+      ],
+    }
+  );
+  const stageRequests = semanticStageRequests(requestTranscript);
+  writeFixture('semantic-parity-static-direct-skill-oracle', {
+    parity_contract_ids: [
+      'axagent.constructor.directResponse',
+      'axagent.forward.skills',
+      'axagent.method.forward',
+    ],
+    exact_observable_projection: {
+      output,
+      stageRequests,
+      errors: [],
+    } as Json,
+    option_effect:
+      'Removing forward skills hides FORWARD SKILL from the static direct-response distiller; disabling direct response introduces an executor request.',
+    option_effects: {
+      'axagent.constructor.directResponse': 'stageRequests',
+      'axagent.forward.skills': 'stageRequests',
+      'axagent.method.forward': 'output',
+    },
+    kind: 'agent_forward',
+    signature: 'query:string -> answer:string',
+    options: {
+      runtime: { language: 'JavaScript' },
+      skills: [
+        {
+          id: 'constructor-direct',
+          name: 'Constructor direct',
+          content: 'CONSTRUCTOR DIRECT SKILL',
+        },
+      ],
+    },
+    input: { query: 'answer directly' },
+    forward_options: {
+      skills: [
+        {
+          id: 'forward-direct',
+          name: 'Forward direct',
+          content: 'FORWARD SKILL',
+        },
+      ],
+    },
+    responses: [
+      {
+        content:
+          '{"javascriptCode":"respond(\\"direct\\", {\\"source\\":\\"forward-skill\\"})"}',
+      },
+      { content: '{"answer":"direct"}' },
+    ],
+    runtime_script: [
+      {
+        expected_code: 'respond("direct", {"source":"forward-skill"})',
+        result: {
+          type: 'respond',
+          args: ['direct', { source: 'forward-skill' }],
+        },
+      },
+    ],
+    expected_output: output as Json,
+    expected_request_count: requestTranscript.length,
+    expected_request_contains: ['FORWARD SKILL', 'ID: `forward-direct`'],
+    expected_stage_request_not_contains: [
+      { index: 0, absent: ['You (`executor`)'] },
+    ],
+  });
+}
+
+async function writeSemanticParityForwardResetOracle(): Promise<void> {
+  const requestTranscript: Array<{
+    stage: string;
+    system: string;
+    user: string;
+  }> = [];
+  const runLabels = ['one', 'two', 'three', 'four'] as const;
+  let distillerTurn = 0;
+  let executorTurn = 0;
+  let responderTurn = 0;
+  const ai = new AxMockAIService({
+    features: { functions: false, streaming: false },
+    chatResponse: async (request) => {
+      const system = oraclePromptText(request.chatPrompt[0]?.content);
+      const user = request.chatPrompt
+        .filter((message) => message.role === 'user')
+        .map((message) => oraclePromptText(message.content))
+        .join('\n');
+      const stage = system.includes('You (`distiller`)')
+        ? 'distiller'
+        : system.includes('You (`executor`)')
+          ? 'executor'
+          : 'responder';
+      requestTranscript.push({ stage, system, user });
+      let content: string;
+      if (stage === 'distiller') {
+        distillerTurn++;
+        const label = runLabels[distillerTurn - 1] ?? `run-${distillerTurn}`;
+        content = `Javascript Code: final("execute-${label}", {})`;
+      } else if (stage === 'executor') {
+        executorTurn++;
+        const label = runLabels[executorTurn - 1] ?? `run-${executorTurn}`;
+        content = `Javascript Code: final("answer-${label}", {"answer":"${label}"})`;
+      } else {
+        responderTurn++;
+        const label = runLabels[responderTurn - 1] ?? `run-${responderTurn}`;
+        content = `Answer: ${label}`;
+      }
+      return {
+        results: [{ index: 0, content, finishReason: 'stop' as const }],
+        modelUsage: oracleModelUsage(),
+      };
+    },
+  });
+  const oracle = agent('query:string -> answer:string', {
+    ai,
+    runtime: semanticSequenceRuntime(),
+    directResponse: 'off',
+    relevanceRanking: false,
+    memoriesCatalog: [
+      { id: 'catalog-unused', content: 'UNUSED CATALOG MEMORY' },
+    ],
+    skills: [
+      {
+        id: 'constructor-preset',
+        name: 'Constructor preset',
+        content: 'CONSTRUCTOR PRESET SKILL',
+      },
+    ],
+  });
+  const outputs: Json[] = [];
+  const runStateProjections: Json[] = [];
+  const stateRoundtrip: Record<string, Json> = {};
+  let savedState: ReturnType<typeof oracle.getState>;
+  const projectState = (state: ReturnType<typeof oracle.getState>): Json => ({
+    loaded_skill_docs: state?.skillsPromptState?.loaded ?? [],
+  });
+  const runInputs: Array<{
+    values: Record<string, unknown>;
+    options: Record<string, unknown>;
+    stateAction?: 'reset' | 'restore_saved';
+    saveRuntimeState?: boolean;
+  }> = [
+    {
+      values: {
+        query: 'first run',
+        memories: [{ id: 'run-memory', content: 'HOST MEMORY FIRST RUN' }],
+      },
+      options: {
+        skills: [
+          {
+            id: 'forward-persist',
+            name: 'Forward persist',
+            content: 'FORWARD SKILL',
+          },
+        ],
+      },
+      saveRuntimeState: true,
+    },
+    { values: { query: 'second run' }, options: {} },
+    {
+      values: { query: 'third run after reset' },
+      options: {},
+      stateAction: 'reset',
+    },
+    {
+      values: { query: 'fourth run after restore' },
+      options: {},
+      stateAction: 'restore_saved',
+    },
+  ];
+  for (const run of runInputs) {
+    if (run.stateAction === 'reset') {
+      oracle.setState(undefined);
+    } else if (run.stateAction === 'restore_saved') {
+      oracle.setState(savedState);
+      stateRoundtrip.restored = projectState(oracle.getState());
+    }
+    const requestStart = requestTranscript.length;
+    outputs.push(
+      (await oracle.forward(ai, run.values as never, run.options)) as Json
+    );
+    const state = oracle.getState();
+    const executorUser =
+      requestTranscript
+        .slice(requestStart)
+        .findLast((entry) => entry.stage === 'executor')?.user ?? '';
+    const loadedMemories = [
+      ...executorUser.matchAll(
+        /### Memory\n\nID: `([^`]+)`\n\n([\s\S]*?)(?=\n\n### Memory|\n\n[A-Z][A-Za-z ]+:|$)/g
+      ),
+    ].map((match) => ({ id: match[1]!, content: match[2]!.trim() }));
+    runStateProjections.push({
+      loaded_skill_docs: state?.skillsPromptState?.loaded ?? [],
+      loaded_memories: loadedMemories,
+      used_skills: [],
+      used_memories: [],
+    });
+    if (run.saveRuntimeState) {
+      savedState = oracle.getState();
+      stateRoundtrip.saved = projectState(savedState);
+    }
+  }
+  const stageRequests = semanticStageRequests(requestTranscript);
+  writeFixture('semantic-parity-forward-reset-oracle', {
+    parity_contract_ids: [
+      'axagent.constructor.skills',
+      'axagent.forward.skills',
+      'axagent.method.forward',
+      'axagent.method.getState',
+      'axagent.method.setState',
+      'axagent.state.skillsPromptState',
+    ],
+    exact_observable_projection: {
+      output: outputs,
+      stageRequests,
+      runStateProjections,
+      stateRoundtrip,
+      errors: [],
+    } as Json,
+    option_effect:
+      'Removing constructor or forward skills changes run projections; retaining values.memories across forwards changes the second run; ignoring reset or restore changes the third, fourth, and state-roundtrip projections.',
+    option_effects: {
+      'axagent.constructor.skills': 'runStateProjections',
+      'axagent.forward.skills': 'runStateProjections',
+      'axagent.method.forward': 'output',
+      'axagent.method.getState': 'stateRoundtrip.saved',
+      'axagent.method.setState': 'stateRoundtrip.restored',
+      'axagent.state.skillsPromptState': 'runStateProjections',
+    },
+    kind: 'agent_forward',
+    signature: 'query:string -> answer:string',
+    options: {
+      runtime: { language: 'JavaScript' },
+      directResponse: 'off',
+      relevanceRanking: false,
+      memoriesCatalog: [
+        { id: 'catalog-unused', content: 'UNUSED CATALOG MEMORY' },
+      ],
+      skills: [
+        {
+          id: 'constructor-preset',
+          name: 'Constructor preset',
+          content: 'CONSTRUCTOR PRESET SKILL',
+        },
+      ],
+    },
+    forward_runs: [
+      {
+        input: {
+          query: 'first run',
+          memories: [{ id: 'run-memory', content: 'HOST MEMORY FIRST RUN' }],
+        },
+        forward_options: {
+          skills: [
+            {
+              id: 'forward-persist',
+              name: 'Forward persist',
+              content: 'FORWARD SKILL',
+            },
+          ],
+        },
+        save_runtime_state: true,
+      },
+      { input: { query: 'second run' }, forward_options: {} },
+      {
+        input: { query: 'third run after reset' },
+        forward_options: {},
+        state_action: 'reset',
+      },
+      {
+        input: { query: 'fourth run after restore' },
+        forward_options: {},
+        state_action: 'restore_saved',
+      },
+    ],
+    responses: runLabels.flatMap((label) => [
+      { content: `{"javascriptCode":"final(\\"execute-${label}\\", {})"}` },
+      {
+        content: `{"javascriptCode":"final(\\"answer-${label}\\", {\\"answer\\":\\"${label}\\"})"}`,
+      },
+      { content: `{"answer":"${label}"}` },
+    ]),
+    runtime_script: runLabels.flatMap((label) => [
+      {
+        expected_code: `final("execute-${label}", {})`,
+        result: { type: 'final', args: [`execute-${label}`, {}] },
+      },
+      {
+        expected_code: `final("answer-${label}", {"answer":"${label}"})`,
+        result: {
+          type: 'final',
+          args: [`answer-${label}`, { answer: label }],
+        },
+      },
+    ]),
+    expected_output: outputs,
+    expected_request_count: requestTranscript.length,
+    expected_request_contains: [
+      'CONSTRUCTOR PRESET SKILL',
+      'FORWARD SKILL',
+      'HOST MEMORY FIRST RUN',
+    ],
+    expected_stage_request_not_contains: [
+      { index: 4, absent: ['HOST MEMORY FIRST RUN'] },
+      { index: 7, absent: ['HOST MEMORY FIRST RUN', 'FORWARD SKILL'] },
+    ],
+    expected_run_state_projections: runStateProjections,
+    expected_state_roundtrip_projection: stateRoundtrip,
+  });
+}
+
+function rankingProbeProjection(
+  requestTranscript: Array<{ stage: string; system: string; user: string }>,
+  probes: ReadonlyArray<{ label: string; needle: string }>
+): Json {
+  const firstExecutor = requestTranscript.find(
+    (request) => request.stage === 'executor'
+  );
+  const system = firstExecutor?.system ?? '';
+  const user = firstExecutor?.user ?? '';
+  return {
+    hasLikelyRelevant: system.includes('Likely Relevant'),
+    matches: Object.fromEntries(
+      probes.map(({ label, needle }) => [label, user.includes(needle)])
+    ),
+  } as Json;
+}
+
+async function writeSemanticParityCatalogRankingOracles(): Promise<void> {
+  const longSkillContent = `${'x'.repeat(600)}needleafterlimit`;
+  const deployMemoryContent = `Deploy primary release runbook ${'x'.repeat(90)} AFTER_SNIPPET`;
+  const longMemoryContent = `${'x'.repeat(600)}needleafterlimit`;
+  const probes = [
+    { label: 'identifier_skill', needle: '`lookupInvoiceStatus` —' },
+    { label: 'ranked_memory', needle: '`deploy-primary` —' },
+    { label: 'loaded_memory_excluded', needle: '`loaded-deploy` —' },
+    {
+      label: 'memory_snippet_80',
+      needle: deployMemoryContent.replace(/\s+/g, ' ').trim().slice(0, 80),
+    },
+    { label: 'memory_after_snippet', needle: 'AFTER_SNIPPET' },
+    { label: 'skill_after_600', needle: 'skill-beyond-limit' },
+    { label: 'memory_after_600', needle: 'memory-beyond-limit' },
+  ] as const;
+  const requestTranscript: Array<{
+    stage: string;
+    system: string;
+    user: string;
+  }> = [];
+  const distillerCodes = ['final("catalog execute", {})'];
+  const executorCodes = [
+    'discover({"skills":["invoice status"]}) // discover-invoice',
+    'recall(["deploy release"]) // recall-deploy',
+    'discover({"skills":["needleafterlimit"]}) // discover-limit',
+    'recall(["needleafterlimit"]) // recall-limit',
+    'final("catalog done", {"answer":"catalog"})',
+  ];
+  let distillerIndex = 0;
+  let executorIndex = 0;
+  const ai = new AxMockAIService({
+    features: { functions: false, streaming: false },
+    chatResponse: async (request) => {
+      const system = oraclePromptText(request.chatPrompt[0]?.content);
+      const user = request.chatPrompt
+        .filter((message) => message.role === 'user')
+        .map((message) => oraclePromptText(message.content))
+        .join('\n');
+      const stage = system.includes('You (`distiller`)')
+        ? 'distiller'
+        : system.includes('You (`executor`)')
+          ? 'executor'
+          : 'responder';
+      requestTranscript.push({ stage, system, user });
+      const content =
+        stage === 'distiller'
+          ? `Javascript Code: ${distillerCodes[distillerIndex++]}`
+          : stage === 'executor'
+            ? `Javascript Code: ${executorCodes[executorIndex++]}`
+            : 'Answer: catalog';
+      return {
+        results: [{ index: 0, content, finishReason: 'stop' as const }],
+        modelUsage: oracleModelUsage(),
+      };
+    },
+  });
+  const catalogOptions = {
+    ai,
+    runtime: semanticCatalogRuntime(),
+    directResponse: 'off' as const,
+    relevanceRanking: { topK: 1, minScore: 0 },
+    skillsCatalog: [
+      {
+        id: 'lookupInvoiceStatus',
+        name: 'Invoice status lookup',
+        description: 'invoice status billing lookup',
+        content: 'IDENTIFIER SKILL BODY',
+      },
+      {
+        id: 'skill-beyond-limit',
+        name: 'Archive helper',
+        description: 'archive helper',
+        content: longSkillContent,
+      },
+      {
+        id: 'unrelated-skill',
+        name: 'Weather helper',
+        description: 'weather forecast',
+        content: 'forecast rain',
+      },
+    ],
+    memoriesCatalog: [
+      {
+        id: 'loaded-deploy',
+        content: 'deploy release strongest loaded memory',
+      },
+      { id: 'deploy-primary', content: deployMemoryContent },
+      { id: 'deploy-secondary', content: 'deploy secondary note' },
+      { id: 'memory-beyond-limit', content: longMemoryContent },
+    ],
+  };
+  const oracle = agent('query:string -> answer:string', catalogOptions);
+  const output = await oracle.forward(ai, {
+    query: 'invoice status deploy release needleafterlimit',
+    memories: [
+      {
+        id: 'loaded-deploy',
+        content: 'deploy release strongest loaded memory',
+      },
+    ],
+  } as never);
+  const state = oracle.getState();
+  const finalExecutorUser =
+    [...requestTranscript].reverse().find((entry) => entry.stage === 'executor')
+      ?.user ?? '';
+  const loadedMemories = [
+    ...finalExecutorUser.matchAll(
+      /### Memory\n\nID: `([^`]+)`\n\n([\s\S]*?)(?=\n\n### Memory|\n\n[A-Z][A-Za-z ]+:|$)/g
+    ),
+  ].map((match) => ({ id: match[1]!, content: match[2]!.trim() }));
+  const stageRequests = semanticStageRequests(requestTranscript);
+  const ranking = rankingProbeProjection(requestTranscript, probes);
+  const loadedSkills = state?.skillsPromptState?.loaded ?? [];
+  writeFixture('semantic-parity-catalog-ranking-oracle', {
+    parity_contract_ids: [
+      'axagent.constructor.skillsCatalog',
+      'axagent.constructor.memoriesCatalog',
+      'axagent.constructor.relevanceRanking',
+      'axagent.method.forward',
+    ],
+    exact_observable_projection: {
+      output,
+      stageRequests,
+      ranking,
+      loadedSkills,
+      loadedMemories,
+      errors: [],
+    } as Json,
+    option_effect:
+      'Removing either static catalog changes exact loaded state; ignoring ranking changes the topK hint, snippet, loaded exclusion, identifier, and 600-character probes.',
+    option_effects: {
+      'axagent.constructor.skillsCatalog': 'loadedSkills',
+      'axagent.constructor.memoriesCatalog': 'loadedMemories',
+      'axagent.constructor.relevanceRanking': 'ranking',
+      'axagent.method.forward': 'output',
+    },
+    kind: 'agent_forward',
+    signature: 'query:string -> answer:string',
+    options: {
+      runtime: { language: 'JavaScript' },
+      directResponse: 'off',
+      relevanceRanking: { topK: 1, minScore: 0 },
+      skillsCatalog: catalogOptions.skillsCatalog,
+      memoriesCatalog: catalogOptions.memoriesCatalog,
+    },
+    input: {
+      query: 'invoice status deploy release needleafterlimit',
+      memories: [
+        {
+          id: 'loaded-deploy',
+          content: 'deploy release strongest loaded memory',
+        },
+      ],
+    },
+    forward_options: { max_actor_steps: 8 },
+    responses: [...distillerCodes, ...executorCodes, 'catalog'].map(
+      (content, index, values) => ({
+        content:
+          index === values.length - 1
+            ? '{"answer":"catalog"}'
+            : `{"javascriptCode":${JSON.stringify(content)}}`,
+      })
+    ),
+    runtime_script: [
+      {
+        expected_code: distillerCodes[0],
+        result: { type: 'final', args: ['catalog execute', {}] },
+      },
+      {
+        expected_code: executorCodes[0],
+        result: { discover: { skills: ['invoice status'] } },
+      },
+      {
+        expected_code: executorCodes[1],
+        result: { recall: ['deploy release'] },
+      },
+      {
+        expected_code: executorCodes[2],
+        result: { discover: { skills: ['needleafterlimit'] } },
+      },
+      {
+        expected_code: executorCodes[3],
+        result: { recall: ['needleafterlimit'] },
+      },
+      {
+        expected_code: executorCodes[4],
+        result: {
+          type: 'final',
+          args: ['catalog done', { answer: 'catalog' }],
+        },
+      },
+    ],
+    ranking_probe: probes,
+    expected_output: output as Json,
+    expected_loaded_skill_docs: loadedSkills as Json,
+    expected_loaded_memories: loadedMemories as Json,
+    expected_request_count: requestTranscript.length,
+  });
+
+  const tieRequests: Array<{ stage: string; system: string; user: string }> =
+    [];
+  let tieDistiller = 0;
+  let tieExecutor = 0;
+  const tieAI = new AxMockAIService({
+    features: { functions: false, streaming: false },
+    chatResponse: async (request) => {
+      const system = oraclePromptText(request.chatPrompt[0]?.content);
+      const user = request.chatPrompt
+        .filter((message) => message.role === 'user')
+        .map((message) => oraclePromptText(message.content))
+        .join('\n');
+      const stage = system.includes('You (`distiller`)')
+        ? 'distiller'
+        : system.includes('You (`executor`)')
+          ? 'executor'
+          : 'responder';
+      tieRequests.push({ stage, system, user });
+      const content =
+        stage === 'distiller'
+          ? `Javascript Code: ${['final("execute-one", {})'][tieDistiller++]}`
+          : stage === 'executor'
+            ? `Javascript Code: ${['final("answer-one", {"answer":"tie"})'][tieExecutor++]}`
+            : 'Answer: tie';
+      return {
+        results: [{ index: 0, content, finishReason: 'stop' as const }],
+        modelUsage: oracleModelUsage(),
+      };
+    },
+  });
+  const tieOracle = agent('query:string -> answer:string', {
+    ai: tieAI,
+    runtime: semanticSequenceRuntime(),
+    directResponse: 'off',
+    relevanceRanking: true,
+    skillsCatalog: [
+      { id: 'tie-skill-a', name: 'Tie A', content: 'zebra quokka' },
+      { id: 'tie-skill-b', name: 'Tie B', content: 'zebra quokka' },
+    ],
+    memoriesCatalog: [
+      { id: 'tie-memory-a', content: 'zebra quokka' },
+      { id: 'tie-memory-b', content: 'zebra quokka' },
+    ],
+  });
+  const tieOutput = await tieOracle.forward(tieAI, {
+    query: 'zebra quokka',
+  } as never);
+  const tieProbes = [
+    { label: 'tie_skill_a', needle: '`tie-skill-a` —' },
+    { label: 'tie_memory_a', needle: '`tie-memory-a` —' },
+  ];
+  const tieRanking = rankingProbeProjection(tieRequests, tieProbes);
+  writeFixture('semantic-parity-ranking-tie-oracle', {
+    parity_contract_ids: ['axagent.constructor.relevanceRanking'],
+    exact_observable_projection: {
+      output: tieOutput,
+      ranking: tieRanking,
+      errors: [],
+    } as Json,
+    option_effect:
+      'Changing default tie suppression makes the tied skill or memory catalog appear in the exact relevance-hint projection.',
+    option_effects: {
+      'axagent.constructor.relevanceRanking': 'ranking',
+    },
+    kind: 'agent_forward',
+    signature: 'query:string -> answer:string',
+    options: {
+      runtime: { language: 'JavaScript' },
+      directResponse: 'off',
+      relevanceRanking: true,
+      skillsCatalog: [
+        { id: 'tie-skill-a', name: 'Tie A', content: 'zebra quokka' },
+        { id: 'tie-skill-b', name: 'Tie B', content: 'zebra quokka' },
+      ],
+      memoriesCatalog: [
+        { id: 'tie-memory-a', content: 'zebra quokka' },
+        { id: 'tie-memory-b', content: 'zebra quokka' },
+      ],
+    },
+    input: { query: 'zebra quokka' },
+    responses: [
+      { content: '{"javascriptCode":"final(\\"execute-one\\", {})"}' },
+      {
+        content:
+          '{"javascriptCode":"final(\\"answer-one\\", {\\"answer\\":\\"tie\\"})"}',
+      },
+      { content: '{"answer":"tie"}' },
+    ],
+    runtime_script: [
+      {
+        expected_code: 'final("execute-one", {})',
+        result: { type: 'final', args: ['execute-one', {}] },
+      },
+      {
+        expected_code: 'final("answer-one", {"answer":"tie"})',
+        result: { type: 'final', args: ['answer-one', { answer: 'tie' }] },
+      },
+    ],
+    ranking_probe: tieProbes,
+    expected_output: tieOutput as Json,
+    expected_request_count: tieRequests.length,
+  });
 }
 
 function touchReferenceBehavior(): void {
@@ -146,9 +1500,6 @@ const checkpointSummary =
   'Objective: answer\nCurrent state and artifacts: docs loaded\nExact callables and formats: tools.search\nEvidence: Turn 1 loaded docs\nUser constraints and preferences: none\nFailures to avoid: none\nNext step: answer from latest runtime state.';
 
 mkdirSync(outDir, { recursive: true });
-for (const file of readdirSync(outDir)) {
-  if (file.endsWith('.json')) rmSync(join(outDir, file));
-}
 touchReferenceBehavior();
 
 writeFixture('simple-pipeline', {
@@ -546,7 +1897,7 @@ writeFixture('actor-prompt-cache-policy-python', {
       stable_cached_fields: [
         'input',
         'executorRequest',
-        'distilledContext',
+        'distilledContextSummary',
         'contextMetadata',
         'contextMap',
         'memories',
@@ -557,6 +1908,7 @@ writeFixture('actor-prompt-cache-policy-python', {
       dynamic_uncached_fields: [
         'guidanceLog',
         'actionLog',
+        'relevanceHints',
         'liveRuntimeState',
         'contextPressure',
       ],
@@ -1784,16 +3136,66 @@ writeFixture('discover-skills-mutates-next-prompt-state', {
   kind: 'agent_runtime_policy',
   signature: 'question:string -> answer:string',
   options: {
-    skillsMode: true,
+    skillsCatalog: [
+      { id: 'sql', name: 'sql', content: 'Use parameterized SQL queries.' },
+    ],
   },
   discover: { skills: ['sql'] },
   expected_discover_result: null,
   expected_loaded_skill_docs_subset: [
-    { name: 'sql', content: 'Skill docs loaded for sql' },
+    { id: 'sql', name: 'sql', content: 'Use parameterized SQL queries.' },
   ],
   expected_policy_trace_subset: [
     { type: 'discover', tools: [], skills: ['sql'] },
   ],
+});
+
+writeFixture('constructor-preloaded-skills', {
+  kind: 'agent_runtime_policy',
+  signature: 'question:string -> answer:string',
+  options: {
+    skills: [
+      {
+        id: 'skill.release-checklist',
+        name: 'Release checklist',
+        content: 'Verify tests, package contents, and release notes.',
+      },
+      {
+        name: 'incident-response',
+        content: 'Stabilize the incident before investigating root cause.',
+      },
+    ],
+  },
+  expected_loaded_skill_docs_subset: [
+    {
+      id: 'incident-response',
+      name: 'incident-response',
+      content: 'Stabilize the incident before investigating root cause.',
+    },
+    {
+      id: 'skill.release-checklist',
+      name: 'Release checklist',
+      content: 'Verify tests, package contents, and release notes.',
+    },
+  ],
+});
+
+writeFixture('agent-prompt-preloaded-skills', {
+  kind: 'agent_prompt',
+  signature: 'question:string -> answer:string',
+  options: {
+    runtime: { language: 'JavaScript' },
+    skills: [
+      {
+        id: 'skill.release-checklist',
+        name: 'Release checklist',
+        content: 'Verify tests, package contents, and release notes.',
+      },
+    ],
+  },
+  expected_description_contains: {
+    executor_description: ['### Loaded Skills'],
+  },
 });
 
 writeFixture('discover-function-dedupes-and-summarizes', {
@@ -1853,7 +3255,7 @@ writeFixture('discover-skills-host-results-dedupe', {
   discover: { skills: ['sql'] },
   expected_discover_result: null,
   expected_loaded_skill_docs_subset: [
-    { id: 'skill.sql', name: 'sql', content: 'Use SELECT carefully.' },
+    { id: 'skill.sql', name: 'sql', content: 'Duplicate should dedupe.' },
   ],
   expected_policy_trace_subset: [
     { type: 'discover', tools: [], skills: ['sql'] },
@@ -2194,7 +3596,7 @@ writeFixture('runtime-state-export-restore', {
     discovered_tool_docs: [
       { namespace: 'docs', name: 'search', qualified_name: 'docs.search' },
     ],
-    loaded_skill_docs: [{ name: 'sql', content: 'Skill docs loaded for sql' }],
+    loaded_skill_docs: [{ name: 'sql', content: 'Use parameterized SQL.' }],
     policy_trace: [{ type: 'discover', tools: ['docs'], skills: ['sql'] }],
   },
   expected_exported_state_subset: {
@@ -2202,7 +3604,9 @@ writeFixture('runtime-state-export-restore', {
     discovered_tool_docs: [
       { namespace: 'docs', name: 'search', qualified_name: 'docs.search' },
     ],
-    loaded_skill_docs: [{ name: 'sql', content: 'Skill docs loaded for sql' }],
+    loaded_skill_docs: [
+      { id: 'sql', name: 'sql', content: 'Use parameterized SQL.' },
+    ],
     policy_trace: [{ type: 'discover', tools: ['docs'], skills: ['sql'] }],
   },
 });
@@ -2565,7 +3969,9 @@ writeFixture('runtime-discover-effect-next-prompt-state', {
   signature: 'question:string -> answer:string',
   options: {
     functionDiscovery: true,
-    skillsMode: true,
+    skillsCatalog: [
+      { id: 'sql', name: 'sql', content: 'Use parameterized SQL.' },
+    ],
     functions: [
       {
         name: 'docs',
@@ -2597,7 +4003,7 @@ writeFixture('runtime-discover-effect-next-prompt-state', {
       },
     ],
     loaded_skill_docs: [
-      { id: 'sql', name: 'sql', content: 'Skill docs loaded for sql' },
+      { id: 'sql', name: 'sql', content: 'Use parameterized SQL.' },
     ],
   },
 });
@@ -2655,6 +4061,8 @@ writeFixture('runtime-host-boundary-globals-options', {
           'inspectRuntime',
           'reportSuccess',
           'reportFailure',
+          'question',
+          'user',
         ],
       },
       result: { type: 'final', args: [{ answer: 'hello' }] },
@@ -2686,6 +4094,8 @@ writeFixture('runtime-host-boundary-globals-options', {
       'inspectRuntime',
       'reportSuccess',
       'reportFailure',
+      'question',
+      'user',
     ],
   },
   expected_execute_options_subset: {
@@ -2704,6 +4114,8 @@ writeFixture('runtime-host-boundary-globals-options', {
       'inspectRuntime',
       'reportSuccess',
       'reportFailure',
+      'question',
+      'user',
     ],
   },
 });
@@ -3174,3 +4586,8 @@ writeFixture('runtime-protocol-nonzero-stderr-error', {
   mode: 'nonzero',
   expected_error_contains: 'exit code 7',
 });
+
+await writeSemanticParityLifecycleOracle();
+await writeSemanticParityStaticDirectSkillOracle();
+await writeSemanticParityForwardResetOracle();
+await writeSemanticParityCatalogRankingOracles();

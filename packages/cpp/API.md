@@ -234,7 +234,7 @@ Create an AxAgent from a signature and agent/runtime options.
 - Kind: `function`
 - Form: `axllm::agent(signature, options)`
 - Returns: `AxAgent`
-- Important options: name, description, runtime, maxSteps, context fields, discovery, recall, functions, citations, playbook, instruction, instructionAddenda
+- Important options: name, description, runtime, maxSteps, context fields, discovery, recall, functions, skills, skillsCatalog, memoriesCatalog, relevanceRanking, load observers, used observers, citations, playbook, instruction, instructionAddenda
 
 ```cpp
 auto helper = axllm::agent("query:string -> answer:string");
@@ -242,13 +242,13 @@ auto helper = axllm::agent("query:string -> answer:string");
 
 ### `axllm::AxAgent`
 
-RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.
+RLM agent with Core-owned envelopes, complete runtime-state export/restore, traces, discovery, recall, loaded skills and memories, usage observers, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.
 
 - Canonical Ax concept: `AxAgent`
 - Kind: `type`
 - Form: `axllm::AxAgent(signature, options)`
 - Returns: `agent program`
-- Important options: executor model, runtime, policy, context, optimizer metadata, citations, playbook
+- Important options: executor model, runtime, policy, context, skills, memories, relevance ranking, observers, runtime state, optimizer metadata, citations, playbook
 
 
 ## Flow

@@ -80,6 +80,10 @@ static std::map<std::string, std::function<Value(Value)>>& skills_search_registr
   static std::map<std::string, std::function<Value(Value)>> registry;
   return registry;
 }
+static std::map<std::string, std::function<void(Value)>>& agent_observer_registry() {
+  static std::map<std::string, std::function<void(Value)>> registry;
+  return registry;
+}
 Value register_memories_search(std::function<Value(Value, Value)> fn) {
   static int counter = 0;
   std::string id = "__mem_search_" + std::to_string(++counter);
@@ -91,6 +95,12 @@ Value register_skills_search(std::function<Value(Value)> fn) {
   std::string id = "__skill_search_" + std::to_string(++counter);
   skills_search_registry()[id] = std::move(fn);
   return object({{"__skills_search_id", id}});
+}
+Value register_agent_observer(std::function<void(Value)> fn) {
+  static int counter = 0;
+  std::string id = "__agent_observer_" + std::to_string(++counter);
+  agent_observer_registry()[id] = std::move(fn);
+  return object({{"__agent_observer_id", id}});
 }
 
 static std::map<std::string, std::function<Value(Value)>>& tool_registry() {
@@ -1251,6 +1261,37 @@ Value Core::agent_skill_search(Value state, Value searches) {
   }
   if (scripted.is_array()) return scripted;
   return Value::array();
+}
+Value Core::agent_observer_notify(Value state, Value forward_options, Value kind, Value payload) {
+  Value constructor_options = get_key(state, "options", Value::object());
+  std::string kind_text = str(kind);
+  std::map<std::string, std::pair<std::string, std::string>> keys = {
+      {"loaded_memories", {"on_loaded_memories", "onLoadedMemories"}},
+      {"loaded_skills", {"on_loaded_skills", "onLoadedSkills"}},
+      {"used_memories", {"on_used_memories", "onUsedMemories"}},
+      {"used_skills", {"on_used_skills", "onUsedSkills"}},
+  };
+  auto key_it = keys.find(kind_text);
+  if (key_it == keys.end()) return Value();
+  const auto& pair = key_it->second;
+  Value callback;
+  if (kind_text.rfind("used_", 0) == 0) {
+    callback = get_key(forward_options, pair.first, get_key(forward_options, pair.second, Value()));
+  }
+  if (callback.is_null()) {
+    callback = get_key(constructor_options, pair.first, get_key(constructor_options, pair.second, Value()));
+  }
+  if (!callback.is_object()) return Value();
+  std::string id = str(get_key(callback, "__agent_observer_id", Value("")));
+  if (id.empty()) return Value();
+  auto it = agent_observer_registry().find(id);
+  if (it == agent_observer_registry().end() || !it->second) return Value();
+  try {
+    it->second(payload);
+  } catch (...) {
+    // Observer failures are deliberately ignored.
+  }
+  return Value();
 }
 Value Core::agent_callable_invoke(Value state, Value request, Value options_arg) {
   Value options = get_key(state, "options", Value::object());
@@ -11656,27 +11697,25 @@ Value Core::_agent_factory(Value signature, Value options) {
   Value policy = Core::_normalize_agent_policy(options);
   Value policy_flags = Core::_agent_policy_flags(options, callable_split, auto_upgrade);
   Value policy_registry = Core::_agent_policy_registry(policy, policy_flags);
+  Value relevance_ranking_camel = Core::get(options, Value("relevanceRanking"), Value());
+  Value relevance_ranking_raw = Core::get(options, Value("relevance_ranking"), relevance_ranking_camel);
+  Value relevance_ranking_options = Value::object();
+  Value relevance_ranking_is_map = Core::type_is(relevance_ranking_raw, Value("object"));
+  if (Core::truthy(relevance_ranking_is_map)) {
+    relevance_ranking_options = Core::map_merge(relevance_ranking_options, relevance_ranking_raw);
+  }
   Value discovery_catalog = Core::_render_agent_discovery_catalog(callable_split);
   Value skills_catalog_camel = Core::get(options, Value("skillsCatalog"), empty_list);
-  Value skills_catalog = Core::get(options, Value("skills_catalog"), skills_catalog_camel);
-  Value skills_catalog_is_list = Core::type_is(skills_catalog, Value("list"));
-  if (Core::truthy(skills_catalog_is_list)) {
-    // empty
-  }
-  if (!Core::truthy(skills_catalog_is_list)) {
-    skills_catalog = empty_list;
-  }
+  Value skills_catalog_raw = Core::get(options, Value("skills_catalog"), skills_catalog_camel);
+  Value skills_catalog = Core::_agent_normalize_skill_catalog(skills_catalog_raw);
   Value memories_catalog_camel = Core::get(options, Value("memoriesCatalog"), empty_list);
-  Value memories_catalog = Core::get(options, Value("memories_catalog"), memories_catalog_camel);
-  Value memories_catalog_is_list = Core::type_is(memories_catalog, Value("list"));
-  if (Core::truthy(memories_catalog_is_list)) {
-    // empty
-  }
-  if (!Core::truthy(memories_catalog_is_list)) {
-    memories_catalog = empty_list;
-  }
+  Value memories_catalog_raw = Core::get(options, Value("memories_catalog"), memories_catalog_camel);
+  Value memories_catalog = Core::_agent_merge_memory_results(empty_list, memories_catalog_raw);
   Value discovered_tool_docs = Value::array();
-  Value loaded_skill_docs = Value::array();
+  Value preset_skills_raw = Core::get(options, Value("skills"), empty_list);
+  Value preset_skill_docs = Core::_agent_merge_skill_results(empty_list, preset_skills_raw);
+  Value loaded_skill_docs = Core::_agent_merge_skill_results(empty_list, preset_skill_docs);
+  Value distiller_loaded_skill_docs = Value::array();
   Value loaded_memories = Value::array();
   Value used_memories = Value::array();
   Value used_skills = Value::array();
@@ -11727,6 +11766,7 @@ Value Core::_agent_factory(Value signature, Value options) {
   Core::set(state, Value("policy"), policy);
   Core::set(state, Value("policy_flags"), policy_flags);
   Core::set(state, Value("policy_registry"), policy_registry);
+  Core::set(state, Value("relevance_ranking_options"), relevance_ranking_options);
   Core::set(state, Value("context_policy"), context_policy);
   Core::set(state, Value("auto_upgrade"), auto_upgrade);
   Value context_map_config = Core::get(options, Value("contextMap"), Value());
@@ -11772,7 +11812,9 @@ Value Core::_agent_factory(Value signature, Value options) {
   Core::set(state, Value("skills_catalog"), skills_catalog);
   Core::set(state, Value("memories_catalog"), memories_catalog);
   Core::set(state, Value("discovered_tool_docs"), discovered_tool_docs);
+  Core::set(state, Value("preset_skill_docs"), preset_skill_docs);
   Core::set(state, Value("loaded_skill_docs"), loaded_skill_docs);
+  Core::set(state, Value("distiller_loaded_skill_docs"), distiller_loaded_skill_docs);
   Core::set(state, Value("loaded_memories"), loaded_memories);
   Core::set(state, Value("used_memories"), used_memories);
   Core::set(state, Value("used_skills"), used_skills);
@@ -11859,6 +11901,23 @@ Value Core::_agent_reserved_runtime_names() {
     names = Value::array();
   }
   return names;
+}
+
+Value Core::_agent_runtime_reserved_names_for_state(Value state) {
+  axir_coverage_mark("_agent_runtime_reserved_names_for_state");
+  Value empty_list = Value::array();
+  Value reserved = Core::_agent_reserved_runtime_names();
+  Value input_names = Core::get(state, Value("runtime_input_names"), empty_list);
+  for (auto name : Core::iter(input_names)) {
+    Value already = Core::contains(reserved, name);
+    if (Core::truthy(already)) {
+      // empty
+    }
+    if (!Core::truthy(already)) {
+      Core::append(reserved, name);
+    }
+  }
+  return reserved;
 }
 
 Value Core::_agent_runtime_language_tokens(Value language) {
@@ -12274,7 +12333,15 @@ Value Core::_agent_policy_flags(Value options, Value callable_split, Value auto_
   Value memories_callback_mode = Core::or_(memories_direct, has_any_memories_callback);
   Value memories_mode = Core::or_(memories_callback_mode, has_memories_catalog);
   Value usage_camel = Core::get(options, Value("usageTrackingMode"), Value(false));
-  Value usage_enabled = Core::get(options, Value("usage_tracking_mode"), usage_camel);
+  Value usage_direct = Core::get(options, Value("usage_tracking_mode"), usage_camel);
+  Value used_memories_observer = Core::get(options, Value("onUsedMemories"), Value());
+  Value used_memories_observer_snake = Core::get(options, Value("on_used_memories"), used_memories_observer);
+  Value used_skills_observer = Core::get(options, Value("onUsedSkills"), Value());
+  Value used_skills_observer_snake = Core::get(options, Value("on_used_skills"), used_skills_observer);
+  Value has_used_memories_observer = Core::is_not_none(used_memories_observer_snake);
+  Value has_used_skills_observer = Core::is_not_none(used_skills_observer_snake);
+  Value has_used_observer = Core::or_(has_used_memories_observer, has_used_skills_observer);
+  Value usage_enabled = Core::or_(usage_direct, has_used_observer);
   Value status_camel = Core::get(options, Value("hasAgentStatusCallback"), Value(false));
   Value status_direct = Core::get(options, Value("has_agent_status_callback"), status_camel);
   Value has_status_callback = Core::map_contains(options, Value("agentStatusCallback"));
@@ -12959,11 +13026,17 @@ Value Core::_render_actor_primitives_list(Value stage, Value flags) {
 Value Core::_build_rlm_flags(Value state) {
   axir_coverage_mark("_build_rlm_flags");
   Value empty_map = Value::object();
+  Value empty_list = Value::array();
   Value flags = Core::get(state, Value("policy_flags"), empty_map);
   Value disc = Core::get(flags, Value("discoveryMode"), Value(false));
   Value skills = Core::get(flags, Value("skillsMode"), Value(false));
+  Value loaded_skills = Core::get(state, Value("loaded_skill_docs"), empty_list);
+  Value loaded_skills_count = Core::len(loaded_skills);
+  Value has_loaded_skills = Core::gt(loaded_skills_count, Value(0));
+  Value has_skills = Core::or_(skills, has_loaded_skills);
   Value combined = Core::and_(disc, skills);
   Core::set(flags, Value("discoveryMode+skillsMode"), combined);
+  Core::set(flags, Value("hasSkills"), has_skills);
   return flags;
 }
 
@@ -13048,7 +13121,11 @@ Value Core::_render_agent_skills_catalog_list(Value skills_catalog) {
     Value id = Core::get(skill, Value("id"), Value(""));
     Value name = Core::get(skill, Value("name"), id);
     Value description = Core::get(skill, Value("description"), Value(""));
-    Value line = Core::string_format(Value("- `{}` — {}. {}"), id, name, description);
+    Value line = Core::string_format(Value("- `{}` — {}"), id, name);
+    Value has_description = Core::ne(description, Value(""));
+    if (Core::truthy(has_description)) {
+      line = Core::string_format(Value("{} — {}"), line, description);
+    }
     Core::append(lines, line);
   }
   Value out = Core::string_join(Value("\n"), lines);
@@ -13080,6 +13157,7 @@ Value Core::_render_rlm_executor_description(Value state, Value options) {
   Value usage_instructions = Core::get(contract, Value("usage_instructions"), Value(""));
   Value discovery_mode = Core::get(flags, Value("discoveryMode"), Value(false));
   Value skills_mode = Core::get(flags, Value("skillsMode"), Value(false));
+  Value has_skills = Core::get(flags, Value("hasSkills"), skills_mode);
   Value memories_mode = Core::get(flags, Value("memoriesMode"), Value(false));
   Value status_callback = Core::get(flags, Value("hasAgentStatusCallback"), Value(false));
   Value relevance_hints_mode = Core::get(flags, Value("relevanceHintsEnabled"), Value(false));
@@ -13114,7 +13192,7 @@ Value Core::_render_rlm_executor_description(Value state, Value options) {
   Core::set(vars, Value("hasModules"), has_modules);
   Core::set(vars, Value("hasDiscoveredDocs"), discovery_mode);
   Core::set(vars, Value("hasRelevanceHints"), relevance_hints_mode);
-  Core::set(vars, Value("hasSkills"), skills_mode);
+  Core::set(vars, Value("hasSkills"), has_skills);
   Core::set(vars, Value("hasSkillsCatalog"), has_skills_catalog);
   Core::set(vars, Value("skillsCatalogList"), skills_catalog_list);
   Core::set(vars, Value("skillUsageMode"), skill_usage_mode);
@@ -13159,6 +13237,7 @@ Value Core::_render_rlm_distiller_description(Value state, Value options) {
   Value memories_mode = Core::get(flags, Value("memoriesMode"), Value(false));
   Value discovery_mode = Core::get(flags, Value("discoveryMode"), Value(false));
   Value skills_mode = Core::get(flags, Value("skillsMode"), Value(false));
+  Value has_skills = Core::get(flags, Value("hasSkills"), skills_mode);
   Value memory_usage_camel = Core::get(options, Value("memoryUsageMode"), Value(false));
   Value memory_usage_mode = Core::get(options, Value("memory_usage_mode"), memory_usage_camel);
   Value skill_usage_camel = Core::get(options, Value("skillUsageMode"), Value(false));
@@ -13191,7 +13270,7 @@ Value Core::_render_rlm_distiller_description(Value state, Value options) {
   Core::set(vars, Value("discoveryMode"), discovery_mode);
   Core::set(vars, Value("hasModules"), has_modules);
   Core::set(vars, Value("hasDiscoveredDocs"), discovery_mode);
-  Core::set(vars, Value("hasSkills"), skills_mode);
+  Core::set(vars, Value("hasSkills"), has_skills);
   Core::set(vars, Value("hasSkillsCatalog"), has_skills_catalog);
   Core::set(vars, Value("skillsCatalogList"), skills_catalog_list);
   Core::set(vars, Value("isJavaScriptRuntime"), is_javascript);
@@ -15400,6 +15479,247 @@ Value Core::_agent_append_unique_by_field(Value items, Value item, Value field) 
   return items;
 }
 
+Value Core::_agent_normalize_skill_entry(Value entry) {
+  axir_coverage_mark("_agent_normalize_skill_entry");
+  Value is_map = Core::type_is(entry, Value("object"));
+  if (Core::truthy(is_map)) {
+    // empty
+  }
+  if (!Core::truthy(is_map)) {
+    Value none = Core::none();
+    return none;
+  }
+  Value name_raw = Core::get(entry, Value("name"), Value());
+  Value content = Core::get(entry, Value("content"), Value());
+  Value name_is_string = Core::type_is(name_raw, Value("string"));
+  Value content_is_string = Core::type_is(content, Value("string"));
+  Value valid_types = Core::and_(name_is_string, content_is_string);
+  if (Core::truthy(valid_types)) {
+    // empty
+  }
+  if (!Core::truthy(valid_types)) {
+    Value none = Core::none();
+    return none;
+  }
+  Value name = Core::string_trim(name_raw);
+  Value name_empty = Core::eq(name, Value(""));
+  if (Core::truthy(name_empty)) {
+    Value none = Core::none();
+    return none;
+  }
+  Value id_raw = Core::get(entry, Value("id"), name);
+  Value id = name;
+  Value id_is_string = Core::type_is(id_raw, Value("string"));
+  if (Core::truthy(id_is_string)) {
+    Value id_trimmed = Core::string_trim(id_raw);
+    Value id_has_value = Core::ne(id_trimmed, Value(""));
+    if (Core::truthy(id_has_value)) {
+      id = id_trimmed;
+    }
+  }
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("name"), name);
+  Core::set(out, Value("content"), content);
+  return out;
+}
+
+Value Core::_agent_merge_skill_results(Value existing, Value incoming) {
+  axir_coverage_mark("_agent_merge_skill_results");
+  Value by_id = Value::object();
+  Value existing_is_list = Core::type_is(existing, Value("list"));
+  if (Core::truthy(existing_is_list)) {
+    for (auto entry : Core::iter(existing)) {
+      Value normalized = Core::_agent_normalize_skill_entry(entry);
+      Value valid = Core::type_is(normalized, Value("object"));
+      if (Core::truthy(valid)) {
+        Value id = Core::get(normalized, Value("id"), Value());
+        Core::set(by_id, id, normalized);
+      }
+    }
+  }
+  Value incoming_is_list = Core::type_is(incoming, Value("list"));
+  if (Core::truthy(incoming_is_list)) {
+    for (auto entry2 : Core::iter(incoming)) {
+      Value normalized2 = Core::_agent_normalize_skill_entry(entry2);
+      Value valid2 = Core::type_is(normalized2, Value("object"));
+      if (Core::truthy(valid2)) {
+        Value id2 = Core::get(normalized2, Value("id"), Value());
+        Core::set(by_id, id2, normalized2);
+      }
+    }
+  }
+  Value ids = Core::map_keys(by_id);
+  Value sorted_ids = Core::sorted_strings(ids);
+  Value out = Value::array();
+  for (auto sorted_id : Core::iter(sorted_ids)) {
+    Value item = Core::get(by_id, sorted_id, Value());
+    Core::append(out, item);
+  }
+  return out;
+}
+
+Value Core::_agent_normalize_skill_catalog(Value catalog) {
+  axir_coverage_mark("_agent_normalize_skill_catalog");
+  Value empty = Value::array();
+  Value base = Core::_agent_merge_skill_results(empty, catalog);
+  Value catalog_by_id = Value::object();
+  Value catalog_is_list = Core::type_is(catalog, Value("list"));
+  if (Core::truthy(catalog_is_list)) {
+    for (auto raw : Core::iter(catalog)) {
+      Value normalized = Core::_agent_normalize_skill_entry(raw);
+      Value valid = Core::type_is(normalized, Value("object"));
+      if (Core::truthy(valid)) {
+        Value id = Core::get(normalized, Value("id"), Value());
+        Value description_raw = Core::get(raw, Value("description"), Value());
+        Value description_is_string = Core::type_is(description_raw, Value("string"));
+        if (Core::truthy(description_is_string)) {
+          Core::set(normalized, Value("description"), description_raw);
+        }
+        Core::set(catalog_by_id, id, normalized);
+      }
+    }
+  }
+  Value base_count = Core::len(base);
+  Value has_base = Core::gt(base_count, Value(0));
+  if (Core::truthy(has_base)) {
+    Value ids = Core::map_keys(catalog_by_id);
+    Value sorted_ids = Core::sorted_strings(ids);
+    Value out = Value::array();
+    for (auto sorted_id : Core::iter(sorted_ids)) {
+      Value item = Core::get(catalog_by_id, sorted_id, Value());
+      Core::append(out, item);
+    }
+    return out;
+  }
+  return empty;
+}
+
+Value Core::_agent_catalog_skill_search(Value catalog, Value searches) {
+  axir_coverage_mark("_agent_catalog_skill_search");
+  Value docs = Value::array();
+  for (auto skill : Core::iter(catalog)) {
+    Value id = Core::get(skill, Value("id"), Value(""));
+    Value name = Core::get(skill, Value("name"), id);
+    Value description = Core::get(skill, Value("description"), Value(""));
+    Value content = Core::get(skill, Value("content"), Value(""));
+    Value content_head = Core::string_slice(content, Value(0), Value(600));
+    Value fields = Value::array();
+    Value id_field = Value::object();
+    Core::set(id_field, Value("text"), id);
+    Core::set(id_field, Value("identifier"), Value(true));
+    Core::append(fields, id_field);
+    Value name_field = Value::object();
+    Core::set(name_field, Value("text"), name);
+    Core::set(name_field, Value("weight"), Value(2));
+    Core::append(fields, name_field);
+    Value has_description = Core::ne(description, Value(""));
+    if (Core::truthy(has_description)) {
+      Value description_field = Value::object();
+      Core::set(description_field, Value("text"), description);
+      Core::set(description_field, Value("weight"), Value(2));
+      Core::append(fields, description_field);
+    }
+    Value content_field = Value::object();
+    Core::set(content_field, Value("text"), content_head);
+    Core::append(fields, content_field);
+    Value doc = Value::object();
+    Core::set(doc, Value("id"), id);
+    Core::set(doc, Value("fields"), fields);
+    Core::append(docs, doc);
+  }
+  Value opts = Value::object();
+  Core::set(opts, Value("topK"), Value(2));
+  Core::set(opts, Value("minScore"), Value(0));
+  Core::set(opts, Value("marginRatio"), Value(0));
+  Core::set(opts, Value("minDocs"), Value(1));
+  Value matched_ids = Value::array();
+  for (auto search : Core::iter(searches)) {
+    Value ranked = Core::_agent_rank_documents(search, docs, opts);
+    for (auto ranked_entry : Core::iter(ranked)) {
+      Value ranked_id = Core::get(ranked_entry, Value("id"), Value(""));
+      Value already = Core::contains(matched_ids, ranked_id);
+      Value fresh = Core::not_(already);
+      if (Core::truthy(fresh)) {
+        Core::append(matched_ids, ranked_id);
+      }
+    }
+  }
+  Value out = Value::array();
+  for (auto matched_id : Core::iter(matched_ids)) {
+    for (auto catalog_skill : Core::iter(catalog)) {
+      Value catalog_id = Core::get(catalog_skill, Value("id"), Value(""));
+      Value matches = Core::eq(catalog_id, matched_id);
+      if (Core::truthy(matches)) {
+        Value result = Value::object();
+        Value result_name = Core::get(catalog_skill, Value("name"), catalog_id);
+        Value result_content = Core::get(catalog_skill, Value("content"), Value(""));
+        Core::set(result, Value("id"), catalog_id);
+        Core::set(result, Value("name"), result_name);
+        Core::set(result, Value("content"), result_content);
+        Core::append(out, result);
+      }
+    }
+  }
+  return out;
+}
+
+Value Core::_agent_catalog_memory_search(Value catalog, Value searches, Value already_loaded) {
+  axir_coverage_mark("_agent_catalog_memory_search");
+  Value candidates = Value::array();
+  Value docs = Value::array();
+  for (auto memory : Core::iter(catalog)) {
+    Value id = Core::get(memory, Value("id"), Value(""));
+    Value loaded = Core::_agent_relevance_has_id(already_loaded, Value("id"), id);
+    Value fresh = Core::not_(loaded);
+    if (Core::truthy(fresh)) {
+      Core::append(candidates, memory);
+      Value content = Core::get(memory, Value("content"), Value(""));
+      Value content_head = Core::string_slice(content, Value(0), Value(600));
+      Value fields = Value::array();
+      Value id_field = Value::object();
+      Core::set(id_field, Value("text"), id);
+      Core::set(id_field, Value("identifier"), Value(true));
+      Core::append(fields, id_field);
+      Value content_field = Value::object();
+      Core::set(content_field, Value("text"), content_head);
+      Core::append(fields, content_field);
+      Value doc = Value::object();
+      Core::set(doc, Value("id"), id);
+      Core::set(doc, Value("fields"), fields);
+      Core::append(docs, doc);
+    }
+  }
+  Value opts = Value::object();
+  Core::set(opts, Value("topK"), Value(3));
+  Core::set(opts, Value("minScore"), Value(0));
+  Core::set(opts, Value("marginRatio"), Value(0));
+  Core::set(opts, Value("minDocs"), Value(1));
+  Value matched_ids = Value::array();
+  for (auto search : Core::iter(searches)) {
+    Value ranked = Core::_agent_rank_documents(search, docs, opts);
+    for (auto ranked_entry : Core::iter(ranked)) {
+      Value ranked_id = Core::get(ranked_entry, Value("id"), Value(""));
+      Value already = Core::contains(matched_ids, ranked_id);
+      Value fresh2 = Core::not_(already);
+      if (Core::truthy(fresh2)) {
+        Core::append(matched_ids, ranked_id);
+      }
+    }
+  }
+  Value out = Value::array();
+  for (auto matched_id : Core::iter(matched_ids)) {
+    for (auto candidate : Core::iter(candidates)) {
+      Value candidate_id = Core::get(candidate, Value("id"), Value(""));
+      Value matches = Core::eq(candidate_id, matched_id);
+      if (Core::truthy(matches)) {
+        Core::append(out, candidate);
+      }
+    }
+  }
+  return out;
+}
+
 Value Core::_agent_render_discovered_tool_docs(Value docs) {
   axir_coverage_mark("_agent_render_discovered_tool_docs");
   Value lines = Value::array();
@@ -15425,21 +15745,27 @@ Value Core::_agent_render_loaded_skills(Value skills) {
   axir_coverage_mark("_agent_render_loaded_skills");
   Value lines = Value::array();
   for (auto skill : Core::iter(skills)) {
+    Value id = Core::get(skill, Value("id"), Value(""));
     Value name = Core::get(skill, Value("name"), Value(""));
     Value content = Core::get(skill, Value("content"), Value(""));
-    Value line = Core::string_format(Value("### {}\n{}"), name, content);
+    Value line = Core::string_format(Value("### {}\n\nID: `{}`\n\n{}"), name, id, content);
     Core::append(lines, line);
   }
   Value body = Core::string_join(Value("\n\n"), lines);
-  Value empty = Core::eq(body, Value(""));
-  Value out = body;
-  if (Core::truthy(empty)) {
-    out = Value("");
+  return body;
+}
+
+Value Core::_agent_render_loaded_memories(Value memories) {
+  axir_coverage_mark("_agent_render_loaded_memories");
+  Value lines = Value::array();
+  for (auto memory : Core::iter(memories)) {
+    Value id = Core::get(memory, Value("id"), Value(""));
+    Value content = Core::get(memory, Value("content"), Value(""));
+    Value line = Core::string_format(Value("### Memory\n\nID: `{}`\n\n{}"), id, content);
+    Core::append(lines, line);
   }
-  if (!Core::truthy(empty)) {
-    out = Core::string_format(Value("Loaded Skills\n{}"), body);
-  }
-  return out;
+  Value body = Core::string_join(Value("\n\n"), lines);
+  return body;
 }
 
 Value Core::_agent_discover(Value state, Value request) {
@@ -15448,7 +15774,12 @@ Value Core::_agent_discover(Value state, Value request) {
   Value normalized = Core::_normalize_agent_discover_request(state, request);
   Value inventory = Core::get(state, Value("callable_inventory"), empty_list);
   Value docs = Core::get(state, Value("discovered_tool_docs"), empty_list);
+  Value active_stage = Core::get(state, Value("active_stage"), Value("executor"));
+  Value is_distiller = Core::eq(active_stage, Value("distiller"));
   Value skill_docs = Core::get(state, Value("loaded_skill_docs"), empty_list);
+  if (Core::truthy(is_distiller)) {
+    skill_docs = Core::get(state, Value("distiller_loaded_skill_docs"), empty_list);
+  }
   Value trace = Core::get(state, Value("policy_trace"), empty_list);
   Value action_log = Core::get(state, Value("action_log"), empty_list);
   Value tools = Core::get(normalized, Value("tools"), empty_list);
@@ -15497,27 +15828,33 @@ Value Core::_agent_discover(Value state, Value request) {
   }
   Value skill_count = Core::len(skills);
   Value has_skills = Core::gt(skill_count, Value(0));
+  Value loaded_from_search = Value::array();
+  Value observer_loaded_from_search = Value::array();
   if (Core::truthy(has_skills)) {
-    Value host_skills = Core::agent_skill_search(state, skills);
-    Value host_count = Core::len(host_skills);
-    Value has_host = Core::gt(host_count, Value(0));
-    if (Core::truthy(has_host)) {
-      for (auto host_skill : Core::iter(host_skills)) {
-        Value skill_name = Core::get(host_skill, Value("name"), Value(""));
-        Value skill_id = Core::get(host_skill, Value("id"), skill_name);
-        Core::set(host_skill, Value("id"), skill_id);
-        skill_docs = Core::_agent_append_unique_by_field(skill_docs, host_skill, Value("id"));
-      }
+    Value state_options = Core::get(state, Value("options"), Value());
+    Value callback_camel = Core::get(state_options, Value("onSkillsSearch"), Value());
+    Value callback_value = Core::get(state_options, Value("on_skills_search"), callback_camel);
+    Value scripted_camel = Core::get(state_options, Value("skillSearchResults"), Value());
+    Value scripted_value = Core::get(state_options, Value("skill_search_results"), scripted_camel);
+    Value has_callback = Core::is_not_none(callback_value);
+    Value has_scripted = Core::is_not_none(scripted_value);
+    Value has_host_search = Core::or_(has_callback, has_scripted);
+    if (Core::truthy(has_host_search)) {
+      Value host_skills = Core::agent_skill_search(state, skills);
+      observer_loaded_from_search = host_skills;
+      loaded_from_search = Core::_agent_merge_skill_results(empty_list, host_skills);
     }
-    if (!Core::truthy(has_host)) {
-      for (auto skill : Core::iter(skills)) {
-        Value doc = Value::object();
-        Core::set(doc, Value("id"), skill);
-        Core::set(doc, Value("name"), skill);
-        Value content = Core::string_format(Value("Skill docs loaded for {}"), skill);
-        Core::set(doc, Value("content"), content);
-        skill_docs = Core::_agent_append_unique_by_field(skill_docs, doc, Value("id"));
-      }
+    if (!Core::truthy(has_host_search)) {
+      Value catalog = Core::get(state, Value("skills_catalog"), empty_list);
+      loaded_from_search = Core::_agent_catalog_skill_search(catalog, skills);
+      observer_loaded_from_search = loaded_from_search;
+    }
+    skill_docs = Core::_agent_merge_skill_results(skill_docs, loaded_from_search);
+    Value loaded_count = Core::len(loaded_from_search);
+    Value loaded_any = Core::gt(loaded_count, Value(0));
+    if (Core::truthy(loaded_any)) {
+      Value observer_options = Value::object();
+      Core::agent_observer_notify(state, observer_options, Value("loaded_skills"), observer_loaded_from_search);
     }
   }
   Value event = Value::object();
@@ -15532,7 +15869,12 @@ Value Core::_agent_discover(Value state, Value request) {
   Core::set(action_event, Value("skills"), skills);
   Core::append(action_log, action_event);
   Core::set(state, Value("discovered_tool_docs"), docs);
-  Core::set(state, Value("loaded_skill_docs"), skill_docs);
+  if (Core::truthy(is_distiller)) {
+    Core::set(state, Value("distiller_loaded_skill_docs"), skill_docs);
+  }
+  if (!Core::truthy(is_distiller)) {
+    Core::set(state, Value("loaded_skill_docs"), skill_docs);
+  }
   Core::set(state, Value("policy_trace"), trace);
   Core::set(state, Value("action_log"), action_log);
   Core::_agent_record_trace_event(state, Value("discover"), event);
@@ -15557,16 +15899,59 @@ Value Core::_normalize_agent_recall_request(Value state, Value request) {
 
 Value Core::_agent_merge_memory_results(Value existing, Value incoming) {
   axir_coverage_mark("_agent_merge_memory_results");
-  Value out = existing;
-  for (auto memory : Core::iter(incoming)) {
-    Value id = Core::get(memory, Value("id"), Value(""));
-    Value content = Core::get(memory, Value("content"), Value(""));
-    Value has_id = Core::ne(id, Value(""));
-    Value has_content = Core::ne(content, Value(""));
-    Value valid = Core::and_(has_id, has_content);
-    if (Core::truthy(valid)) {
-      out = Core::_agent_append_unique_by_field(out, memory, Value("id"));
+  Value by_id = Value::object();
+  Value existing_is_list = Core::type_is(existing, Value("list"));
+  if (Core::truthy(existing_is_list)) {
+    for (auto memory : Core::iter(existing)) {
+      Value memory_is_map = Core::type_is(memory, Value("object"));
+      if (Core::truthy(memory_is_map)) {
+        Value id_raw = Core::get(memory, Value("id"), Value());
+        Value content = Core::get(memory, Value("content"), Value());
+        Value id_is_string = Core::type_is(id_raw, Value("string"));
+        Value content_is_string = Core::type_is(content, Value("string"));
+        Value valid_types = Core::and_(id_is_string, content_is_string);
+        if (Core::truthy(valid_types)) {
+          Value id = Core::string_trim(id_raw);
+          Value has_id = Core::ne(id, Value(""));
+          if (Core::truthy(has_id)) {
+            Value normalized = Value::object();
+            Core::set(normalized, Value("id"), id);
+            Core::set(normalized, Value("content"), content);
+            Core::set(by_id, id, normalized);
+          }
+        }
+      }
     }
+  }
+  Value incoming_is_list = Core::type_is(incoming, Value("list"));
+  if (Core::truthy(incoming_is_list)) {
+    for (auto memory2 : Core::iter(incoming)) {
+      Value memory2_is_map = Core::type_is(memory2, Value("object"));
+      if (Core::truthy(memory2_is_map)) {
+        Value id2_raw = Core::get(memory2, Value("id"), Value());
+        Value content2 = Core::get(memory2, Value("content"), Value());
+        Value id2_is_string = Core::type_is(id2_raw, Value("string"));
+        Value content2_is_string = Core::type_is(content2, Value("string"));
+        Value valid2_types = Core::and_(id2_is_string, content2_is_string);
+        if (Core::truthy(valid2_types)) {
+          Value id2 = Core::string_trim(id2_raw);
+          Value has_id2 = Core::ne(id2, Value(""));
+          if (Core::truthy(has_id2)) {
+            Value normalized2 = Value::object();
+            Core::set(normalized2, Value("id"), id2);
+            Core::set(normalized2, Value("content"), content2);
+            Core::set(by_id, id2, normalized2);
+          }
+        }
+      }
+    }
+  }
+  Value ids = Core::map_keys(by_id);
+  Value sorted_ids = Core::sorted_strings(ids);
+  Value out = Value::array();
+  for (auto sorted_id : Core::iter(sorted_ids)) {
+    Value item = Core::get(by_id, sorted_id, Value());
+    Core::append(out, item);
   }
   return out;
 }
@@ -15577,9 +15962,34 @@ Value Core::_agent_recall(Value state, Value request) {
   Value normalized = Core::_normalize_agent_recall_request(state, request);
   Value searches = Core::get(normalized, Value("searches"), empty_list);
   Value loaded = Core::get(state, Value("loaded_memories"), empty_list);
-  Value incoming = Core::agent_memory_search(state, searches, loaded);
+  Value state_options = Core::get(state, Value("options"), Value());
+  Value callback_camel = Core::get(state_options, Value("onMemoriesSearch"), Value());
+  Value callback_value = Core::get(state_options, Value("on_memories_search"), callback_camel);
+  Value scripted_camel = Core::get(state_options, Value("memorySearchResults"), Value());
+  Value scripted_value = Core::get(state_options, Value("memory_search_results"), scripted_camel);
+  Value has_callback = Core::is_not_none(callback_value);
+  Value has_scripted = Core::is_not_none(scripted_value);
+  Value has_host_search = Core::or_(has_callback, has_scripted);
+  Value incoming = Value::array();
+  Value observer_incoming = Value::array();
+  if (Core::truthy(has_host_search)) {
+    Value host_incoming = Core::agent_memory_search(state, searches, loaded);
+    observer_incoming = host_incoming;
+    incoming = Core::_agent_merge_memory_results(empty_list, host_incoming);
+  }
+  if (!Core::truthy(has_host_search)) {
+    Value catalog = Core::get(state, Value("memories_catalog"), empty_list);
+    incoming = Core::_agent_catalog_memory_search(catalog, searches, loaded);
+    observer_incoming = incoming;
+  }
   Value merged = Core::_agent_merge_memory_results(loaded, incoming);
   Core::set(state, Value("loaded_memories"), merged);
+  Value incoming_count = Core::len(incoming);
+  Value has_incoming = Core::gt(incoming_count, Value(0));
+  if (Core::truthy(has_incoming)) {
+    Value observer_options = Value::object();
+    Core::agent_observer_notify(state, observer_options, Value("loaded_memories"), observer_incoming);
+  }
   Value trace = Core::get(state, Value("policy_trace"), empty_list);
   Value event = Value::object();
   Core::set(event, Value("type"), Value("recall"));
@@ -15599,6 +16009,32 @@ Value Core::_agent_recall(Value state, Value request) {
   return none;
 }
 
+Value Core::_agent_append_unique_used_entry(Value items, Value entry) {
+  axir_coverage_mark("_agent_append_unique_used_entry");
+  Value entry_id = Core::get(entry, Value("id"), Value(""));
+  Value entry_reason = Core::get(entry, Value("reason"), Value(""));
+  Value entry_stage = Core::get(entry, Value("stage"), Value(""));
+  Value exists = Value(false);
+  for (auto item : Core::iter(items)) {
+    Value item_id = Core::get(item, Value("id"), Value(""));
+    Value item_reason = Core::get(item, Value("reason"), Value(""));
+    Value item_stage = Core::get(item, Value("stage"), Value(""));
+    Value same_id = Core::eq(entry_id, item_id);
+    Value same_reason = Core::eq(entry_reason, item_reason);
+    Value same_stage = Core::eq(entry_stage, item_stage);
+    Value same_id_reason = Core::and_(same_id, same_reason);
+    Value same = Core::and_(same_id_reason, same_stage);
+    if (Core::truthy(same)) {
+      exists = Value(true);
+    }
+  }
+  Value missing = Core::not_(exists);
+  if (Core::truthy(missing)) {
+    Core::append(items, entry);
+  }
+  return items;
+}
+
 Value Core::_normalize_agent_used_request(Value request, Value default_stage) {
   axir_coverage_mark("_normalize_agent_used_request");
   Value is_map = Core::type_is(request, Value("object"));
@@ -15615,6 +16051,7 @@ Value Core::_normalize_agent_used_request(Value request, Value default_stage) {
   }
   id = Core::string_trim(id);
   reason = Core::string_trim(reason);
+  reason = Core::string_slice(reason, Value(0), Value(300));
   Value missing = Core::eq(id, Value(""));
   if (Core::truthy(missing)) {
     Value error = Core::runtime_error(Value("used(...) requires a non-empty loaded memory or skill id"));
@@ -15641,9 +16078,12 @@ Value Core::_agent_used(Value state, Value request, Value stage) {
   Value id = Core::get(normalized, Value("id"), Value());
   Value reason = Core::get(normalized, Value("reason"), Value(""));
   Value normalized_stage = Core::get(normalized, Value("stage"), stage);
-  Value dedupe_key = Core::string_format(Value("{}\n{}\n{}"), normalized_stage, id, reason);
   Value memories = Core::get(state, Value("loaded_memories"), empty_list);
   Value skills = Core::get(state, Value("loaded_skill_docs"), empty_list);
+  Value is_distiller = Core::eq(normalized_stage, Value("distiller"));
+  if (Core::truthy(is_distiller)) {
+    skills = Core::get(state, Value("distiller_loaded_skill_docs"), empty_list);
+  }
   Value used_memories = Core::get(state, Value("used_memories"), empty_list);
   Value used_skills = Core::get(state, Value("used_skills"), empty_list);
   Value matched = Value(false);
@@ -15655,8 +16095,7 @@ Value Core::_agent_used(Value state, Value request, Value stage) {
       Core::set(record, Value("id"), id);
       Core::set(record, Value("reason"), reason);
       Core::set(record, Value("stage"), normalized_stage);
-      Core::set(record, Value("dedupe_key"), dedupe_key);
-      used_memories = Core::_agent_append_unique_by_field(used_memories, record, Value("dedupe_key"));
+      used_memories = Core::_agent_append_unique_used_entry(used_memories, record);
       matched = Value(true);
     }
   }
@@ -15670,8 +16109,7 @@ Value Core::_agent_used(Value state, Value request, Value stage) {
       Core::set(record, Value("name"), skill_name);
       Core::set(record, Value("reason"), reason);
       Core::set(record, Value("stage"), normalized_stage);
-      Core::set(record, Value("dedupe_key"), dedupe_key);
-      used_skills = Core::_agent_append_unique_by_field(used_skills, record, Value("dedupe_key"));
+      used_skills = Core::_agent_append_unique_used_entry(used_skills, record);
       matched = Value(true);
     }
   }
@@ -16208,6 +16646,7 @@ Value Core::_agent_export_runtime_state(Value state) {
   Value runtime_state = Core::get(state, Value("runtime_state"), empty_map);
   Value discovered = Core::get(state, Value("discovered_tool_docs"), empty_list);
   Value skills = Core::get(state, Value("loaded_skill_docs"), empty_list);
+  Value distiller_skills = Core::get(state, Value("distiller_loaded_skill_docs"), empty_list);
   Value memories = Core::get(state, Value("loaded_memories"), empty_list);
   Value used_memories = Core::get(state, Value("used_memories"), empty_list);
   Value used_skills = Core::get(state, Value("used_skills"), empty_list);
@@ -16237,6 +16676,7 @@ Value Core::_agent_export_runtime_state(Value state) {
   Core::set(out, Value("runtime_state"), runtime_state);
   Core::set(out, Value("discovered_tool_docs"), discovered);
   Core::set(out, Value("loaded_skill_docs"), skills);
+  Core::set(out, Value("distiller_loaded_skill_docs"), distiller_skills);
   Core::set(out, Value("loaded_memories"), memories);
   Core::set(out, Value("used_memories"), used_memories);
   Core::set(out, Value("used_skills"), used_skills);
@@ -16271,8 +16711,14 @@ Value Core::_agent_restore_runtime_state(Value state, Value snapshot) {
   Value empty_list = Value::array();
   Value runtime_state = Core::get(snapshot, Value("runtime_state"), empty_map);
   Value discovered = Core::get(snapshot, Value("discovered_tool_docs"), empty_list);
-  Value skills = Core::get(snapshot, Value("loaded_skill_docs"), empty_list);
-  Value memories = Core::get(snapshot, Value("loaded_memories"), empty_list);
+  Value skills_raw = Core::get(snapshot, Value("loaded_skill_docs"), empty_list);
+  Value distiller_skills_raw = Core::get(snapshot, Value("distiller_loaded_skill_docs"), empty_list);
+  Value preset_skills = Core::get(state, Value("preset_skill_docs"), empty_list);
+  Value skills = Core::_agent_merge_skill_results(empty_list, skills_raw);
+  skills = Core::_agent_merge_skill_results(skills, preset_skills);
+  Value distiller_skills = Core::_agent_merge_skill_results(empty_list, distiller_skills_raw);
+  Value memories_raw = Core::get(snapshot, Value("loaded_memories"), empty_list);
+  Value memories = Core::_agent_merge_memory_results(empty_list, memories_raw);
   Value used_memories = Core::get(snapshot, Value("used_memories"), empty_list);
   Value used_skills = Core::get(snapshot, Value("used_skills"), empty_list);
   Value guidance_log = Core::get(snapshot, Value("guidance_log"), empty_list);
@@ -16295,6 +16741,7 @@ Value Core::_agent_restore_runtime_state(Value state, Value snapshot) {
   Core::set(state, Value("runtime_state"), runtime_state);
   Core::set(state, Value("discovered_tool_docs"), discovered);
   Core::set(state, Value("loaded_skill_docs"), skills);
+  Core::set(state, Value("distiller_loaded_skill_docs"), distiller_skills);
   Core::set(state, Value("loaded_memories"), memories);
   Core::set(state, Value("used_memories"), used_memories);
   Core::set(state, Value("used_skills"), used_skills);
@@ -16334,6 +16781,17 @@ Value Core::_agent_runtime_build_globals(Value state, Value values) {
   Value callable_inventory = Core::get(state, Value("callable_inventory"), empty_list);
   Value discovery_catalog = Core::get(state, Value("discovery_catalog"), empty_list);
   Value registry = Core::get(state, Value("policy_registry"), empty_map);
+  Value runtime_input_names = Core::get(state, Value("runtime_input_names"), empty_list);
+  for (auto input_name : Core::iter(values)) {
+    Value input_name_known = Core::contains(runtime_input_names, input_name);
+    if (Core::truthy(input_name_known)) {
+      // empty
+    }
+    if (!Core::truthy(input_name_known)) {
+      Core::append(runtime_input_names, input_name);
+    }
+  }
+  Core::set(state, Value("runtime_input_names"), runtime_input_names);
   Value selected_primitives = Core::_select_actor_primitives(registry, Value("executor"));
   Core::set(globals, Value("inputs"), values);
   Core::set(globals, Value("context"), values);
@@ -16366,9 +16824,9 @@ Value Core::_agent_runtime_build_globals(Value state, Value values) {
   return globals;
 }
 
-Value Core::_agent_runtime_sanitize_bindings(Value bindings) {
+Value Core::_agent_runtime_sanitize_bindings(Value state, Value bindings) {
   axir_coverage_mark("_agent_runtime_sanitize_bindings");
-  Value reserved = Core::_agent_reserved_runtime_names();
+  Value reserved = Core::_agent_runtime_reserved_names_for_state(state);
   Value out = Value::object();
   Value bindings_is_map = Core::type_is(bindings, Value("object"));
   if (Core::truthy(bindings_is_map)) {
@@ -16386,7 +16844,7 @@ Value Core::_agent_runtime_sanitize_bindings(Value bindings) {
   return out;
 }
 
-Value Core::_normalize_agent_runtime_snapshot(Value snapshot) {
+Value Core::_normalize_agent_runtime_snapshot(Value state, Value snapshot) {
   axir_coverage_mark("_normalize_agent_runtime_snapshot");
   Value empty_list = Value::array();
   Value snapshot_is_map = Core::type_is(snapshot, Value("object"));
@@ -16413,7 +16871,8 @@ Value Core::_normalize_agent_runtime_snapshot(Value snapshot) {
   if (Core::truthy(has_bindings)) {
     bindings = raw_bindings;
   }
-  Value clean_bindings = Core::_agent_runtime_sanitize_bindings(bindings);
+  Value reserved = Core::_agent_runtime_reserved_names_for_state(state);
+  Value clean_bindings = Core::_agent_runtime_sanitize_bindings(state, bindings);
   Value entries = Core::get(snapshot, Value("entries"), empty_list);
   Value entries_is_list = Core::type_is(entries, Value("list"));
   if (Core::truthy(entries_is_list)) {
@@ -16422,11 +16881,22 @@ Value Core::_normalize_agent_runtime_snapshot(Value snapshot) {
   if (!Core::truthy(entries_is_list)) {
     entries = empty_list;
   }
+  Value clean_entries = Value::array();
+  for (auto entry : Core::iter(entries)) {
+    Value entry_name = Core::get(entry, Value("name"), Value(""));
+    Value entry_reserved = Core::contains(reserved, entry_name);
+    if (Core::truthy(entry_reserved)) {
+      // empty
+    }
+    if (!Core::truthy(entry_reserved)) {
+      Core::append(clean_entries, entry);
+    }
+  }
   Value closed = Core::get(snapshot, Value("closed"), Value(false));
   Value version = Core::get(snapshot, Value("version"), Value(1));
   Value out = Value::object();
   Core::set(out, Value("version"), version);
-  Core::set(out, Value("entries"), entries);
+  Core::set(out, Value("entries"), clean_entries);
   Core::set(out, Value("bindings"), clean_bindings);
   Core::set(out, Value("globals"), clean_bindings);
   Core::set(out, Value("closed"), closed);
@@ -16590,7 +17060,7 @@ Value Core::_normalize_agent_runtime_step_result(Value raw, Value code) {
 Value Core::_agent_runtime_execution_options(Value state, Value options) {
   axir_coverage_mark("_agent_runtime_execution_options");
   Value empty_map = Value::object();
-  Value reserved_names = Core::_agent_reserved_runtime_names();
+  Value reserved_names = Core::_agent_runtime_reserved_names_for_state(state);
   Value runtime_options = Core::map_merge(empty_map, options);
   Core::map_delete(runtime_options, Value("runtime"));
   Core::set(runtime_options, Value("reservedNames"), reserved_names);
@@ -16682,11 +17152,25 @@ Value Core::_agent_runtime_execute_step(Value state, Value runtime, Value sessio
   Value has_recall = Core::is_not_none(recall_request);
   if (Core::truthy(has_recall)) {
     Core::_agent_recall(state, recall_request);
+    Value memory_globals = Core::get(state, Value("runtime_globals"), empty_map);
+    Value memory_inputs = Core::get(memory_globals, Value("inputs"), empty_map);
+    Value memory_context = Core::get(memory_globals, Value("context"), empty_map);
+    Value current_memories = Core::get(state, Value("loaded_memories"), Value());
+    Core::set(memory_inputs, Value("memories"), current_memories);
+    Core::set(memory_context, Value("memories"), current_memories);
+    Core::set(memory_globals, Value("inputs"), memory_inputs);
+    Core::set(memory_globals, Value("context"), memory_context);
+    Core::set(memory_globals, Value("memories"), current_memories);
+    Core::set(state, Value("runtime_globals"), memory_globals);
+    Value memory_patch = Value::object();
+    Core::set(memory_patch, Value("globals"), memory_globals);
+    Core::_agent_runtime_restore_session_state(state, session, memory_patch, runtime_options);
   }
   Value used_request = Core::get(normalized, Value("used_request"), Value());
   Value has_used = Core::is_not_none(used_request);
   if (Core::truthy(has_used)) {
-    Core::_agent_used(state, used_request, Value("executor"));
+    Value active_stage = Core::get(state, Value("active_stage"), Value("executor"));
+    Core::_agent_used(state, used_request, active_stage);
   }
   Value callable_request = Core::get(normalized, Value("callable_request"), Value());
   Value has_callable = Core::is_not_none(callable_request);
@@ -16742,7 +17226,7 @@ Value Core::_agent_runtime_inspect_state(Value state, Value session, Value optio
 Value Core::_agent_runtime_export_session_state(Value state, Value session, Value options) {
   axir_coverage_mark("_agent_runtime_export_session_state");
   Value raw_snapshot = Core::agent_runtime_export_state(session, options);
-  Value snapshot = Core::_normalize_agent_runtime_snapshot(raw_snapshot);
+  Value snapshot = Core::_normalize_agent_runtime_snapshot(state, raw_snapshot);
   Core::set(state, Value("runtime_session_state"), snapshot);
   Value log_entry = Value::object();
   Core::set(log_entry, Value("type"), Value("runtime_session"));
@@ -16765,7 +17249,7 @@ Value Core::_agent_runtime_refresh_state_summary(Value state, Value session, Val
   if (Core::truthy(enabled)) {
     Value runtime_options = Core::_agent_runtime_execution_options(state, options);
     Value raw_snapshot = Core::agent_runtime_export_state(session, runtime_options);
-    Value snapshot = Core::_normalize_agent_runtime_snapshot(raw_snapshot);
+    Value snapshot = Core::_normalize_agent_runtime_snapshot(state, raw_snapshot);
     Core::set(state, Value("runtime_session_state"), snapshot);
     return snapshot;
   }
@@ -16774,9 +17258,9 @@ Value Core::_agent_runtime_refresh_state_summary(Value state, Value session, Val
 
 Value Core::_agent_runtime_restore_session_state(Value state, Value session, Value snapshot, Value options) {
   axir_coverage_mark("_agent_runtime_restore_session_state");
-  Value normalized_snapshot = Core::_normalize_agent_runtime_snapshot(snapshot);
+  Value normalized_snapshot = Core::_normalize_agent_runtime_snapshot(state, snapshot);
   Value raw_restored = Core::agent_runtime_restore_state(session, normalized_snapshot, options);
-  Value restored = Core::_normalize_agent_runtime_snapshot(raw_restored);
+  Value restored = Core::_normalize_agent_runtime_snapshot(state, raw_restored);
   Core::set(state, Value("runtime_session_state"), restored);
   Value log_entry = Value::object();
   Core::set(log_entry, Value("type"), Value("runtime_session"));
@@ -16986,41 +17470,255 @@ Value Core::_agent_render_evidence_descriptor(Value descriptor) {
   return out;
 }
 
-Value Core::_agent_relevance_tokens(Value text) {
-  axir_coverage_mark("_agent_relevance_tokens");
-  Value stopwords = Core::json_parse(Value("[\n  \"a\",\n  \"an\",\n  \"and\",\n  \"are\",\n  \"as\",\n  \"at\",\n  \"be\",\n  \"by\",\n  \"for\",\n  \"from\",\n  \"has\",\n  \"have\",\n  \"how\",\n  \"i\",\n  \"in\",\n  \"into\",\n  \"is\",\n  \"it\",\n  \"of\",\n  \"on\",\n  \"or\",\n  \"our\",\n  \"please\",\n  \"show\",\n  \"that\",\n  \"the\",\n  \"their\",\n  \"this\",\n  \"to\",\n  \"use\",\n  \"with\",\n  \"you\"\n]\n"));
-  Value lower = Core::string_lower(text);
-  Value clean = Core::regex_replace(Value("[^a-z0-9]+"), Value(" "), lower);
-  Value parts = Core::string_split_trim_nonempty(clean, Value(" "));
+Value Core::_agent_identifier_tokens(Value text) {
+  axir_coverage_mark("_agent_identifier_tokens");
+  Value acronyms = Core::regex_replace(Value("([A-Z]+)([A-Z][a-z])"), Value("$1 $2"), text);
+  Value camel = Core::regex_replace(Value("([a-z0-9])([A-Z])"), Value("$1 $2"), acronyms);
+  Value spaced = Core::regex_replace(Value("[^A-Za-z0-9]+"), Value(" "), camel);
+  Value lower = Core::string_lower(spaced);
+  Value parts = Core::string_split_trim_nonempty(lower, Value(" "));
   Value out = Value::array();
   for (auto part : Core::iter(parts)) {
     Value len = Core::len(part);
     Value long_enough = Core::gt(len, Value(1));
-    Value is_stop = Core::contains(stopwords, part);
-    Value not_stop = Core::not_(is_stop);
-    Value ok = Core::and_(long_enough, not_stop);
-    if (Core::truthy(ok)) {
-      Value already = Core::contains(out, part);
-      Value fresh = Core::not_(already);
-      if (Core::truthy(fresh)) {
-        Core::append(out, part);
-      }
+    Value without_digits = Core::regex_replace(Value("^[0-9]+$"), Value(""), part);
+    Value not_numeric = Core::ne(without_digits, Value(""));
+    Value keep = Core::and_(long_enough, not_numeric);
+    if (Core::truthy(keep)) {
+      Core::append(out, part);
     }
   }
   return out;
 }
 
-Value Core::_agent_relevance_score(Value tokens, Value text) {
-  axir_coverage_mark("_agent_relevance_score");
-  Value doc = Core::string_lower(text);
-  Value score = Value(0);
-  for (auto token : Core::iter(tokens)) {
-    Value hit = Core::contains(doc, token);
-    if (Core::truthy(hit)) {
-      score = Core::add(score, Value(1));
+Value Core::_agent_relevance_tokens(Value text) {
+  axir_coverage_mark("_agent_relevance_tokens");
+  Value stopwords = Core::json_parse(Value("[\n  \"a\",\n  \"an\",\n  \"and\",\n  \"are\",\n  \"as\",\n  \"at\",\n  \"be\",\n  \"by\",\n  \"for\",\n  \"from\",\n  \"has\",\n  \"have\",\n  \"how\",\n  \"i\",\n  \"in\",\n  \"into\",\n  \"is\",\n  \"it\",\n  \"of\",\n  \"on\",\n  \"or\",\n  \"our\",\n  \"please\",\n  \"show\",\n  \"that\",\n  \"the\",\n  \"their\",\n  \"this\",\n  \"to\",\n  \"use\",\n  \"with\",\n  \"you\"\n]\n"));
+  Value lower = Core::string_lower(text);
+  Value clean = Core::regex_replace(Value("[-!\"#$%&'()*+,./:;<=>?@\\[\\]^_`{|}~]"), Value(" "), lower);
+  Value parts = Core::string_split_trim_nonempty(clean, Value(" "));
+  Value out = Value::array();
+  for (auto part : Core::iter(parts)) {
+    Value len = Core::len(part);
+    Value long_enough = Core::gt(len, Value(1));
+    Value without_digits = Core::regex_replace(Value("^[0-9]+$"), Value(""), part);
+    Value not_numeric = Core::ne(without_digits, Value(""));
+    Value is_stop = Core::contains(stopwords, part);
+    Value not_stop = Core::not_(is_stop);
+    Value base_ok = Core::and_(long_enough, not_numeric);
+    Value ok = Core::and_(base_ok, not_stop);
+    if (Core::truthy(ok)) {
+      Core::append(out, part);
     }
   }
-  return score;
+  return out;
+}
+
+Value Core::_agent_document_term_frequency(Value fields) {
+  axir_coverage_mark("_agent_document_term_frequency");
+  Value tf = Value::object();
+  for (auto field : Core::iter(fields)) {
+    Value text = Core::get(field, Value("text"), Value(""));
+    Value weight = Core::get(field, Value("weight"), Value(1));
+    Value identifier = Core::get(field, Value("identifier"), Value(false));
+    Value terms = Core::_agent_relevance_tokens(text);
+    if (Core::truthy(identifier)) {
+      terms = Core::_agent_identifier_tokens(text);
+    }
+    for (auto term : Core::iter(terms)) {
+      Value current = Core::get(tf, term, Value(0));
+      Value next = Core::add(current, weight);
+      Core::set(tf, term, next);
+    }
+  }
+  return tf;
+}
+
+Value Core::_agent_rank_documents(Value query, Value docs, Value options) {
+  axir_coverage_mark("_agent_rank_documents");
+  Value empty = Value::array();
+  Value top_k = Core::get(options, Value("topK"), Value(3));
+  Value min_score = Core::get(options, Value("minScore"), Value(0.08));
+  Value margin_ratio = Core::get(options, Value("marginRatio"), Value(0.15));
+  Value min_docs = Core::get(options, Value("minDocs"), Value(2));
+  Value doc_count = Core::len(docs);
+  Value too_few = Core::lt(doc_count, min_docs);
+  if (Core::truthy(too_few)) {
+    return empty;
+  }
+  Value indexed = Value::array();
+  Value df = Value::object();
+  for (auto doc : Core::iter(docs)) {
+    Value fields = Core::get(doc, Value("fields"), empty);
+    Value tf = Core::_agent_document_term_frequency(fields);
+    Value doc_id = Core::get(doc, Value("id"), Value(""));
+    Value indexed_doc = Value::object();
+    Core::set(indexed_doc, Value("id"), doc_id);
+    Core::set(indexed_doc, Value("tf"), tf);
+    Core::append(indexed, indexed_doc);
+    Value terms = Core::map_keys(tf);
+    for (auto term : Core::iter(terms)) {
+      Value count = Core::get(df, term, Value(0));
+      count = Core::add(count, Value(1));
+      Core::set(df, term, count);
+    }
+  }
+  Value query_terms = Core::_agent_relevance_tokens(query);
+  Value effective = Value::array();
+  for (auto query_term : Core::iter(query_terms)) {
+    Value appears = Core::map_contains(df, query_term);
+    Value already_effective = Core::contains(effective, query_term);
+    Value fresh_effective = Core::not_(already_effective);
+    Value include_effective = Core::and_(appears, fresh_effective);
+    if (Core::truthy(include_effective)) {
+      Core::append(effective, query_term);
+    }
+  }
+  Value effective_count = Core::len(effective);
+  Value no_effective = Core::eq(effective_count, Value(0));
+  if (Core::truthy(no_effective)) {
+    return empty;
+  }
+  Value idf = Value::object();
+  Value total_idf = Value(0);
+  for (auto term2 : Core::iter(effective)) {
+    Value frequency = Core::get(df, term2, Value(1));
+    Value ratio = Core::div(doc_count, frequency);
+    Value ratio_plus_one = Core::add(Value(1), ratio);
+    Value weight = Core::math_log(ratio_plus_one);
+    Core::set(idf, term2, weight);
+    total_idf = Core::add(total_idf, weight);
+  }
+  Value scored = Value::array();
+  for (auto indexed_doc2 : Core::iter(indexed)) {
+    Value id = Core::get(indexed_doc2, Value("id"), Value(""));
+    Value tf2 = Core::get(indexed_doc2, Value("tf"), Value());
+    Value raw = Value(0);
+    Value coverage_weight = Value(0);
+    Value matched = Value::array();
+    for (auto term3 : Core::iter(effective)) {
+      Value frequency2 = Core::get(tf2, term3, Value(0));
+      Value matched_frequency = Core::gt(frequency2, Value(0));
+      if (Core::truthy(matched_frequency)) {
+        Value idf_weight = Core::get(idf, term3, Value(0));
+        Value saturated_denominator = Core::add(frequency2, Value(1));
+        Value saturated = Core::div(frequency2, saturated_denominator);
+        Value weighted = Core::mul(idf_weight, saturated);
+        raw = Core::add(raw, weighted);
+        coverage_weight = Core::add(coverage_weight, idf_weight);
+        Core::append(matched, term3);
+      }
+    }
+    Value coverage = Core::div(coverage_weight, total_idf);
+    Value score_entry = Value::object();
+    Core::set(score_entry, Value("id"), id);
+    Core::set(score_entry, Value("raw"), raw);
+    Core::set(score_entry, Value("coverage"), coverage);
+    Core::set(score_entry, Value("matchedTerms"), matched);
+    Core::append(scored, score_entry);
+  }
+  Value scored_ids = Value::array();
+  for (auto scored_for_id : Core::iter(scored)) {
+    Value scored_id = Core::get(scored_for_id, Value("id"), Value(""));
+    Core::append(scored_ids, scored_id);
+  }
+  Value sorted_scored_ids = Core::sorted_strings(scored_ids);
+  Value scored_by_id = Value::array();
+  for (auto sorted_scored_id : Core::iter(sorted_scored_ids)) {
+    for (auto scored_for_sort : Core::iter(scored)) {
+      Value scored_for_sort_id = Core::get(scored_for_sort, Value("id"), Value(""));
+      Value same_scored_id = Core::eq(scored_for_sort_id, sorted_scored_id);
+      if (Core::truthy(same_scored_id)) {
+        Core::append(scored_by_id, scored_for_sort);
+      }
+    }
+  }
+  scored = scored_by_id;
+  Value sorted = Value::array();
+  while (true) {
+    Value sorted_count = Core::len(sorted);
+    Value all_sorted = Core::gte(sorted_count, doc_count);
+    if (Core::truthy(all_sorted)) {
+      break;
+    }
+    Value best = Core::none();
+    Value best_raw = Value(-1);
+    Value best_id = Value("");
+    Value found = Value(false);
+    for (auto candidate : Core::iter(scored)) {
+      Value candidate_id = Core::get(candidate, Value("id"), Value(""));
+      Value already = Core::_agent_relevance_has_id(sorted, Value("id"), candidate_id);
+      Value fresh = Core::not_(already);
+      if (Core::truthy(fresh)) {
+        Value candidate_raw = Core::get(candidate, Value("raw"), Value(0));
+        Value greater = Core::gt(candidate_raw, best_raw);
+        Value better = greater;
+        if (Core::truthy(better)) {
+          best = candidate;
+          best_raw = candidate_raw;
+          best_id = candidate_id;
+          found = Value(true);
+        }
+      }
+    }
+    if (Core::truthy(found)) {
+      Core::append(sorted, best);
+    }
+    if (!Core::truthy(found)) {
+      break;
+    }
+  }
+  Value top = Core::list_get(sorted, Value(0), Value());
+  Value top_raw = Core::get(top, Value("raw"), Value(0));
+  Value top_coverage = Core::get(top, Value("coverage"), Value(0));
+  Value no_match = Core::lte(top_raw, Value(0));
+  Value below_floor = Core::lt(top_coverage, min_score);
+  Value rejected = Core::or_(no_match, below_floor);
+  if (Core::truthy(rejected)) {
+    return empty;
+  }
+  Value use_margin = Core::gt(margin_ratio, Value(0));
+  if (Core::truthy(use_margin)) {
+    Value near_top = Value(0);
+    for (auto scored_entry : Core::iter(sorted)) {
+      Value entry_raw = Core::get(scored_entry, Value("raw"), Value(0));
+      Value positive = Core::gt(entry_raw, Value(0));
+      if (Core::truthy(positive)) {
+        Value negative_entry_raw = Core::mul(entry_raw, Value(-1));
+        Value difference = Core::add(top_raw, negative_entry_raw);
+        Value relative = Core::div(difference, top_raw);
+        Value near = Core::lt(relative, margin_ratio);
+        if (Core::truthy(near)) {
+          near_top = Core::add(near_top, Value(1));
+        }
+      }
+    }
+    Value multiple_docs = Core::gte(doc_count, Value(2));
+    Value all_near = Core::gte(near_top, doc_count);
+    Value suppress = Core::and_(multiple_docs, all_near);
+    if (Core::truthy(suppress)) {
+      return empty;
+    }
+  }
+  Value out = Value::array();
+  for (auto scored_entry2 : Core::iter(sorted)) {
+    Value out_count = Core::len(out);
+    Value under_limit = Core::lt(out_count, top_k);
+    Value entry_raw2 = Core::get(scored_entry2, Value("raw"), Value(0));
+    Value positive2 = Core::gt(entry_raw2, Value(0));
+    Value include = Core::and_(under_limit, positive2);
+    if (Core::truthy(include)) {
+      Value normalized_score = Core::div(entry_raw2, top_raw);
+      Value ranked_id = Core::get(scored_entry2, Value("id"), Value(""));
+      Value ranked_terms = Core::get(scored_entry2, Value("matchedTerms"), empty);
+      Value ranked = Value::object();
+      Core::set(ranked, Value("id"), ranked_id);
+      Core::set(ranked, Value("score"), normalized_score);
+      Core::set(ranked, Value("matchedTerms"), ranked_terms);
+      Core::append(out, ranked);
+    }
+  }
+  return out;
 }
 
 Value Core::_agent_relevance_has_id(Value items, Value field, Value id) {
@@ -17038,66 +17736,75 @@ Value Core::_agent_relevance_has_id(Value items, Value field, Value id) {
 Value Core::_agent_rank_relevance_modules(Value state, Value task) {
   axir_coverage_mark("_agent_rank_relevance_modules");
   Value empty_list = Value::array();
-  Value tokens = Core::_agent_relevance_tokens(task);
-  Value token_count = Core::len(tokens);
-  Value no_tokens = Core::eq(token_count, Value(0));
-  if (Core::truthy(no_tokens)) {
-    return empty_list;
-  }
   Value split = Core::get(state, Value("callable_split"), Value());
   Value discoverable = Core::get(split, Value("discoverable"), empty_list);
-  Value out = Value::array();
-  Value thresholds = Value::array();
-  Core::append(thresholds, Value(3));
-  Core::append(thresholds, Value(2));
-  Core::append(thresholds, Value(1));
-  for (auto threshold : Core::iter(thresholds)) {
-    for (auto group : Core::iter(discoverable)) {
-      Value out_count = Core::len(out);
-      Value under = Core::lt(out_count, Value(3));
-      if (Core::truthy(under)) {
-        Value namespace_ = Core::get(group, Value("namespace"), Value(""));
-        Value already = Core::_agent_relevance_has_id(out, Value("namespace"), namespace_);
-        Value fresh = Core::not_(already);
-        if (Core::truthy(fresh)) {
-          Value title = Core::get(group, Value("title"), Value(""));
-          Value description = Core::get(group, Value("description"), Value(""));
-          Value selection = Core::get(group, Value("selection_criteria"), Value(""));
-          Value callables = Core::get(group, Value("callables"), empty_list);
-          Value pieces = Value::array();
-          Core::append(pieces, namespace_);
-          Core::append(pieces, title);
-          Core::append(pieces, description);
-          Core::append(pieces, selection);
-          Core::append(pieces, selection);
-          for (auto callable : Core::iter(callables)) {
-            Value name = Core::get(callable, Value("name"), Value(""));
-            Value qualified = Core::get(callable, Value("qualified_name"), Value(""));
-            Value cdesc = Core::get(callable, Value("description"), Value(""));
-            Core::append(pieces, name);
-            Core::append(pieces, qualified);
-            Core::append(pieces, cdesc);
-            Value params = Core::get(callable, Value("parameters"), Value());
-            Value properties = Core::get(params, Value("properties"), Value());
-            Value props_is_object = Core::type_is(properties, Value("object"));
-            if (Core::truthy(props_is_object)) {
-              Value prop_keys = Core::map_keys(properties);
-              Value prop_text = Core::string_join(Value(" "), prop_keys);
-              Core::append(pieces, prop_text);
-            }
-          }
-          Value text = Core::string_join(Value(" "), pieces);
-          Value score = Core::_agent_relevance_score(tokens, text);
-          Value passes = Core::gte(score, threshold);
-          if (Core::truthy(passes)) {
-            Value entry = Value::object();
-            Core::set(entry, Value("namespace"), namespace_);
-            Core::set(entry, Value("score"), score);
-            Core::append(out, entry);
-          }
+  Value docs = Value::array();
+  for (auto group : Core::iter(discoverable)) {
+    Value namespace_ = Core::get(group, Value("namespace"), Value(""));
+    Value title = Core::get(group, Value("title"), Value(""));
+    Value description = Core::get(group, Value("description"), Value(""));
+    Value selection = Core::get(group, Value("selection_criteria"), Value(""));
+    Value fields = Value::array();
+    Value namespace_field = Value::object();
+    Core::set(namespace_field, Value("text"), namespace_);
+    Core::set(namespace_field, Value("identifier"), Value(true));
+    Core::append(fields, namespace_field);
+    Value has_title = Core::ne(title, Value(""));
+    if (Core::truthy(has_title)) {
+      Value title_field = Value::object();
+      Core::set(title_field, Value("text"), title);
+      Core::append(fields, title_field);
+    }
+    Value has_description = Core::ne(description, Value(""));
+    if (Core::truthy(has_description)) {
+      Value description_field = Value::object();
+      Core::set(description_field, Value("text"), description);
+      Core::append(fields, description_field);
+    }
+    Value has_selection = Core::ne(selection, Value(""));
+    if (Core::truthy(has_selection)) {
+      Value selection_field = Value::object();
+      Core::set(selection_field, Value("text"), selection);
+      Core::set(selection_field, Value("weight"), Value(2));
+      Core::append(fields, selection_field);
+    }
+    Value callables = Core::get(group, Value("callables"), empty_list);
+    for (auto callable : Core::iter(callables)) {
+      Value name = Core::get(callable, Value("name"), Value(""));
+      Value name_field = Value::object();
+      Core::set(name_field, Value("text"), name);
+      Core::set(name_field, Value("identifier"), Value(true));
+      Core::append(fields, name_field);
+      Value params = Core::get(callable, Value("parameters"), Value());
+      Value properties = Core::get(params, Value("properties"), Value());
+      Value props_is_object = Core::type_is(properties, Value("object"));
+      if (Core::truthy(props_is_object)) {
+        Value prop_keys = Core::map_keys(properties);
+        for (auto prop_key : Core::iter(prop_keys)) {
+          Value prop_field = Value::object();
+          Core::set(prop_field, Value("text"), prop_key);
+          Core::set(prop_field, Value("identifier"), Value(true));
+          Core::append(fields, prop_field);
         }
       }
     }
+    Value doc = Value::object();
+    Core::set(doc, Value("id"), namespace_);
+    Core::set(doc, Value("fields"), fields);
+    Core::append(docs, doc);
+  }
+  Value ranking_options = Core::get(state, Value("relevance_ranking_options"), Value());
+  Value ranked = Core::_agent_rank_documents(task, docs, ranking_options);
+  Value out = Value::array();
+  for (auto ranked_entry : Core::iter(ranked)) {
+    Value entry = Value::object();
+    Value namespace2 = Core::get(ranked_entry, Value("id"), Value(""));
+    Value score = Core::get(ranked_entry, Value("score"), Value(0));
+    Value matched = Core::get(ranked_entry, Value("matchedTerms"), empty_list);
+    Core::set(entry, Value("namespace"), namespace2);
+    Core::set(entry, Value("score"), score);
+    Core::set(entry, Value("matchedTerms"), matched);
+    Core::append(out, entry);
   }
   return out;
 }
@@ -17105,48 +17812,57 @@ Value Core::_agent_rank_relevance_modules(Value state, Value task) {
 Value Core::_agent_rank_relevance_skills(Value state, Value task) {
   axir_coverage_mark("_agent_rank_relevance_skills");
   Value empty_list = Value::array();
-  Value tokens = Core::_agent_relevance_tokens(task);
-  Value token_count = Core::len(tokens);
-  Value no_tokens = Core::eq(token_count, Value(0));
-  if (Core::truthy(no_tokens)) {
-    return empty_list;
-  }
   Value catalog = Core::get(state, Value("skills_catalog"), empty_list);
+  Value docs = Value::array();
+  for (auto skill : Core::iter(catalog)) {
+    Value id = Core::get(skill, Value("id"), Value(""));
+    Value name = Core::get(skill, Value("name"), id);
+    Value description = Core::get(skill, Value("description"), Value(""));
+    Value content = Core::get(skill, Value("content"), Value(""));
+    Value content_head = Core::string_slice(content, Value(0), Value(600));
+    Value fields = Value::array();
+    Value id_field = Value::object();
+    Core::set(id_field, Value("text"), id);
+    Core::set(id_field, Value("identifier"), Value(true));
+    Core::append(fields, id_field);
+    Value name_field = Value::object();
+    Core::set(name_field, Value("text"), name);
+    Core::set(name_field, Value("weight"), Value(2));
+    Core::append(fields, name_field);
+    Value has_description = Core::ne(description, Value(""));
+    if (Core::truthy(has_description)) {
+      Value description_field = Value::object();
+      Core::set(description_field, Value("text"), description);
+      Core::set(description_field, Value("weight"), Value(2));
+      Core::append(fields, description_field);
+    }
+    Value content_field = Value::object();
+    Core::set(content_field, Value("text"), content_head);
+    Core::append(fields, content_field);
+    Value doc = Value::object();
+    Core::set(doc, Value("id"), id);
+    Core::set(doc, Value("fields"), fields);
+    Core::append(docs, doc);
+  }
+  Value ranking_options = Core::get(state, Value("relevance_ranking_options"), Value());
+  Value ranked = Core::_agent_rank_documents(task, docs, ranking_options);
   Value out = Value::array();
-  Value thresholds = Value::array();
-  Core::append(thresholds, Value(3));
-  Core::append(thresholds, Value(2));
-  Core::append(thresholds, Value(1));
-  for (auto threshold : Core::iter(thresholds)) {
-    for (auto skill : Core::iter(catalog)) {
-      Value out_count = Core::len(out);
-      Value under = Core::lt(out_count, Value(3));
-      if (Core::truthy(under)) {
-        Value id = Core::get(skill, Value("id"), Value(""));
-        Value already = Core::_agent_relevance_has_id(out, Value("id"), id);
-        Value fresh = Core::not_(already);
-        if (Core::truthy(fresh)) {
-          Value name = Core::get(skill, Value("name"), id);
-          Value description = Core::get(skill, Value("description"), Value(""));
-          Value content = Core::get(skill, Value("content"), Value(""));
-          Value text_parts = Value::array();
-          Core::append(text_parts, id);
-          Core::append(text_parts, name);
-          Core::append(text_parts, description);
-          Core::append(text_parts, content);
-          Value text = Core::string_join(Value(" "), text_parts);
-          Value score = Core::_agent_relevance_score(tokens, text);
-          Value passes = Core::gte(score, threshold);
-          if (Core::truthy(passes)) {
-            Value entry = Value::object();
-            Core::set(entry, Value("id"), id);
-            Core::set(entry, Value("name"), name);
-            Core::set(entry, Value("score"), score);
-            Core::append(out, entry);
-          }
-        }
+  for (auto ranked_entry : Core::iter(ranked)) {
+    Value ranked_id = Core::get(ranked_entry, Value("id"), Value(""));
+    Value ranked_score = Core::get(ranked_entry, Value("score"), Value(0));
+    Value ranked_name = ranked_id;
+    for (auto catalog_skill : Core::iter(catalog)) {
+      Value catalog_id = Core::get(catalog_skill, Value("id"), Value(""));
+      Value id_match = Core::eq(catalog_id, ranked_id);
+      if (Core::truthy(id_match)) {
+        ranked_name = Core::get(catalog_skill, Value("name"), ranked_id);
       }
     }
+    Value entry = Value::object();
+    Core::set(entry, Value("id"), ranked_id);
+    Core::set(entry, Value("name"), ranked_name);
+    Core::set(entry, Value("score"), ranked_score);
+    Core::append(out, entry);
   }
   return out;
 }
@@ -17154,44 +17870,54 @@ Value Core::_agent_rank_relevance_skills(Value state, Value task) {
 Value Core::_agent_rank_relevance_memories(Value state, Value task) {
   axir_coverage_mark("_agent_rank_relevance_memories");
   Value empty_list = Value::array();
-  Value tokens = Core::_agent_relevance_tokens(task);
-  Value token_count = Core::len(tokens);
-  Value no_tokens = Core::eq(token_count, Value(0));
-  if (Core::truthy(no_tokens)) {
-    return empty_list;
-  }
   Value catalog = Core::get(state, Value("memories_catalog"), empty_list);
   Value loaded = Core::get(state, Value("loaded_memories"), empty_list);
+  Value candidates = Value::array();
+  Value docs = Value::array();
+  for (auto memory : Core::iter(catalog)) {
+    Value id = Core::get(memory, Value("id"), Value(""));
+    Value already_loaded = Core::_agent_relevance_has_id(loaded, Value("id"), id);
+    Value fresh = Core::not_(already_loaded);
+    if (Core::truthy(fresh)) {
+      Core::append(candidates, memory);
+      Value content = Core::get(memory, Value("content"), Value(""));
+      Value content_head = Core::string_slice(content, Value(0), Value(600));
+      Value fields = Value::array();
+      Value id_field = Value::object();
+      Core::set(id_field, Value("text"), id);
+      Core::set(id_field, Value("identifier"), Value(true));
+      Core::append(fields, id_field);
+      Value content_field = Value::object();
+      Core::set(content_field, Value("text"), content_head);
+      Core::append(fields, content_field);
+      Value doc = Value::object();
+      Core::set(doc, Value("id"), id);
+      Core::set(doc, Value("fields"), fields);
+      Core::append(docs, doc);
+    }
+  }
+  Value ranking_options = Core::get(state, Value("relevance_ranking_options"), Value());
+  Value ranked = Core::_agent_rank_documents(task, docs, ranking_options);
   Value out = Value::array();
-  Value thresholds = Value::array();
-  Core::append(thresholds, Value(3));
-  Core::append(thresholds, Value(2));
-  Core::append(thresholds, Value(1));
-  for (auto threshold : Core::iter(thresholds)) {
-    for (auto memory : Core::iter(catalog)) {
-      Value out_count = Core::len(out);
-      Value under = Core::lt(out_count, Value(3));
-      if (Core::truthy(under)) {
-        Value id = Core::get(memory, Value("id"), Value(""));
-        Value already_out = Core::_agent_relevance_has_id(out, Value("id"), id);
-        Value already_loaded = Core::_agent_relevance_has_id(loaded, Value("id"), id);
-        Value already_any = Core::or_(already_out, already_loaded);
-        Value fresh = Core::not_(already_any);
-        if (Core::truthy(fresh)) {
-          Value content = Core::get(memory, Value("content"), Value(""));
-          Value score = Core::_agent_relevance_score(tokens, content);
-          Value passes = Core::gte(score, threshold);
-          if (Core::truthy(passes)) {
-            Value snippet = Core::string_slice(content, Value(0), Value(120));
-            Value entry = Value::object();
-            Core::set(entry, Value("id"), id);
-            Core::set(entry, Value("snippet"), snippet);
-            Core::set(entry, Value("score"), score);
-            Core::append(out, entry);
-          }
-        }
+  for (auto ranked_entry : Core::iter(ranked)) {
+    Value ranked_id = Core::get(ranked_entry, Value("id"), Value(""));
+    Value ranked_score = Core::get(ranked_entry, Value("score"), Value(0));
+    Value snippet = Value("");
+    for (auto candidate : Core::iter(candidates)) {
+      Value candidate_id = Core::get(candidate, Value("id"), Value(""));
+      Value id_match = Core::eq(candidate_id, ranked_id);
+      if (Core::truthy(id_match)) {
+        Value candidate_content = Core::get(candidate, Value("content"), Value(""));
+        Value single_line = Core::regex_replace(Value("\\s+"), Value(" "), candidate_content);
+        Value trimmed = Core::string_trim(single_line);
+        snippet = Core::string_slice(trimmed, Value(0), Value(80));
       }
     }
+    Value entry = Value::object();
+    Core::set(entry, Value("id"), ranked_id);
+    Core::set(entry, Value("snippet"), snippet);
+    Core::set(entry, Value("score"), ranked_score);
+    Core::append(out, entry);
   }
   return out;
 }
@@ -17439,12 +18165,18 @@ Value Core::_build_distiller_inputs(Value state, Value values) {
   Value cm_text = Core::get(cm_state, Value("text"), Value(""));
   Value cm_has = Core::ne(cm_text, Value(""));
   Value ctx_out = Value::object();
+  Value distiller_runtime_enabled = Core::get(state, Value("runtime_enabled"), Value(false));
   for (auto ck : Core::iter(context)) {
     Value cv = Core::get(context, ck, Value());
-    Value cv_str = Core::string_format(Value("{}"), cv);
-    Value cv_len = Core::len(cv_str);
-    Value meta_note = Core::string_format(Value("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents"), ck, cv_len);
-    Core::set(ctx_out, ck, meta_note);
+    if (Core::truthy(distiller_runtime_enabled)) {
+      Value cv_str = Core::string_format(Value("{}"), cv);
+      Value cv_len = Core::len(cv_str);
+      Value meta_note = Core::string_format(Value("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents"), ck, cv_len);
+      Core::set(ctx_out, ck, meta_note);
+    }
+    if (!Core::truthy(distiller_runtime_enabled)) {
+      Core::set(ctx_out, ck, cv);
+    }
   }
   if (Core::truthy(cm_has)) {
     Core::set(ctx_out, Value("contextMap"), cm_text);
@@ -17459,13 +18191,14 @@ Value Core::_build_distiller_inputs(Value state, Value values) {
   Value runtime_text = Core::get(actor_context, Value("liveRuntimeState"), Value(""));
   Value pressure_text = Core::get(actor_context, Value("contextPressure"), Value(""));
   Value discovered_docs = Core::get(state, Value("discovered_tool_docs"), empty_list);
-  Value loaded_skills = Core::get(state, Value("loaded_skill_docs"), empty_list);
+  Value loaded_skills = Core::get(state, Value("distiller_loaded_skill_docs"), empty_list);
   Value loaded_memories = Core::get(state, Value("loaded_memories"), empty_list);
   Value discovered_text = Core::_agent_render_discovered_tool_docs(discovered_docs);
   Value skills_text = Core::_agent_render_loaded_skills(loaded_skills);
+  Value memories_text = Core::_agent_render_loaded_memories(loaded_memories);
   Core::set(out, Value("discoveredToolDocs"), discovered_text);
   Core::set(out, Value("loadedSkills"), skills_text);
-  Core::set(out, Value("memories"), loaded_memories);
+  Core::set(out, Value("memories"), memories_text);
   Core::set(out, Value("summarizedActorLog"), summary_text);
   Core::set(out, Value("guidanceLog"), guidance_text);
   Core::set(out, Value("actionLog"), action_text);
@@ -17510,7 +18243,15 @@ Value Core::_build_executor_inputs(Value state, Value values, Value distiller_pa
   if (Core::truthy(has_context_metadata)) {
     Core::set(out, Value("contextMetadata"), context_metadata);
   }
-  Value hints = Core::_agent_build_relevance_hints(state, non_ctx, executor_request);
+  Value hints = Core::get(state, Value("relevance_hints_for_turn"), Value());
+  Value hints_is_object = Core::type_is(hints, Value("object"));
+  if (Core::truthy(hints_is_object)) {
+    // empty
+  }
+  if (!Core::truthy(hints_is_object)) {
+    hints = Core::_agent_build_relevance_hints(state, non_ctx, executor_request);
+    Core::set(state, Value("relevance_hints_for_turn"), hints);
+  }
   Value hints_text = Core::_agent_render_relevance_hints(hints);
   Value has_hints = Core::ne(hints_text, Value(""));
   if (Core::truthy(has_hints)) {
@@ -17521,6 +18262,7 @@ Value Core::_build_executor_inputs(Value state, Value values, Value distiller_pa
   Value loaded_memories = Core::get(state, Value("loaded_memories"), empty_list);
   Value discovered_text = Core::_agent_render_discovered_tool_docs(discovered_docs);
   Value skills_text = Core::_agent_render_loaded_skills(loaded_skills);
+  Value memories_text = Core::_agent_render_loaded_memories(loaded_memories);
   Value actor_context = Core::_agent_prepare_actor_context(state);
   Value guidance_text = Core::get(actor_context, Value("guidanceLog"), Value("[]"));
   Value action_text = Core::get(actor_context, Value("actionLog"), Value("(no actions yet)"));
@@ -17529,7 +18271,7 @@ Value Core::_build_executor_inputs(Value state, Value values, Value distiller_pa
   Value pressure_text = Core::get(actor_context, Value("contextPressure"), Value(""));
   Core::set(out, Value("discoveredToolDocs"), discovered_text);
   Core::set(out, Value("loadedSkills"), skills_text);
-  Core::set(out, Value("memories"), loaded_memories);
+  Core::set(out, Value("memories"), memories_text);
   Core::set(out, Value("summarizedActorLog"), summary_text);
   Core::set(out, Value("guidanceLog"), guidance_text);
   Core::set(out, Value("actionLog"), action_text);
@@ -18674,8 +19416,62 @@ Value Core::_agent_run_llm_query(Value sub_gen, Value client, Value params) {
 
 Value Core::_agent_forward(Value state, Value distiller, Value executor, Value responder, Value client, Value values, Value options) {
   axir_coverage_mark("_agent_forward");
+  Value empty_list = Value::array();
+  Value empty_map = Value::object();
+  Value loaded_memories = Value::array();
+  Value used_memories = Value::array();
+  Value used_skills = Value::array();
+  Value relevance_hints_for_turn = Core::none();
+  Core::set(state, Value("loaded_memories"), loaded_memories);
+  Core::set(state, Value("used_memories"), used_memories);
+  Core::set(state, Value("used_skills"), used_skills);
+  Core::set(state, Value("relevance_hints_for_turn"), relevance_hints_for_turn);
+  Value preset_memories = Core::get(values, Value("memories"), empty_list);
+  loaded_memories = Core::_agent_merge_memory_results(loaded_memories, preset_memories);
+  Core::set(state, Value("loaded_memories"), loaded_memories);
+  Value loaded_skills = Core::get(state, Value("loaded_skill_docs"), empty_list);
+  Value forward_skills = Core::get(options, Value("skills"), empty_list);
+  loaded_skills = Core::_agent_merge_skill_results(loaded_skills, forward_skills);
+  Core::set(state, Value("loaded_skill_docs"), loaded_skills);
+  Value flags = Core::get(state, Value("policy_flags"), empty_map);
+  Value forward_used_memories = Core::get(options, Value("onUsedMemories"), Value());
+  Value forward_used_memories_snake = Core::get(options, Value("on_used_memories"), forward_used_memories);
+  Value forward_used_skills = Core::get(options, Value("onUsedSkills"), Value());
+  Value forward_used_skills_snake = Core::get(options, Value("on_used_skills"), forward_used_skills);
+  Value has_forward_used_memories = Core::is_not_none(forward_used_memories_snake);
+  Value has_forward_used_skills = Core::is_not_none(forward_used_skills_snake);
+  Value has_forward_used_observer = Core::or_(has_forward_used_memories, has_forward_used_skills);
+  if (Core::truthy(has_forward_used_observer)) {
+    Core::set(flags, Value("usageTrackingMode"), Value(true));
+    Core::set(state, Value("policy_flags"), flags);
+  }
+  Value direct_respond_only = Core::get(flags, Value("directRespondOnly"), Value(false));
+  if (Core::truthy(direct_respond_only)) {
+    Value distiller_skills = Core::get(state, Value("distiller_loaded_skill_docs"), empty_list);
+    distiller_skills = Core::_agent_merge_skill_results(distiller_skills, forward_skills);
+    Core::set(state, Value("distiller_loaded_skill_docs"), distiller_skills);
+  }
+  Core::set(state, Value("active_stage"), Value("distiller"));
   Value transcribed_values = Core::_agent_transcribe_audio_inputs(state, client, values, options);
   values = transcribed_values;
+  Value runtime_input_names = Value::array();
+  for (auto runtime_input_name : Core::iter(values)) {
+    Core::append(runtime_input_names, runtime_input_name);
+  }
+  Core::set(state, Value("runtime_input_names"), runtime_input_names);
+  Value previous_runtime_session_state = Core::get(state, Value("runtime_session_state"), Value());
+  Value previous_runtime_session_state_is_map = Core::type_is(previous_runtime_session_state, Value("object"));
+  if (Core::truthy(previous_runtime_session_state_is_map)) {
+    Value previous_runtime_globals = Core::get(previous_runtime_session_state, Value("globals"), Value());
+    Value previous_runtime_bindings = Core::get(previous_runtime_session_state, Value("bindings"), Value());
+    Value previous_runtime_globals_is_map = Core::type_is(previous_runtime_globals, Value("object"));
+    Value previous_runtime_bindings_is_map = Core::type_is(previous_runtime_bindings, Value("object"));
+    Value previous_runtime_state_has_bindings = Core::or_(previous_runtime_globals_is_map, previous_runtime_bindings_is_map);
+    if (Core::truthy(previous_runtime_state_has_bindings)) {
+      Value clean_previous_runtime_state = Core::_normalize_agent_runtime_snapshot(state, previous_runtime_session_state);
+      Core::set(state, Value("runtime_session_state"), clean_previous_runtime_state);
+    }
+  }
   Core::_agent_begin_trace(state, values);
   Core::_agent_apply_llm_checkpoint_summary(state, client, options);
   Value state_options = Core::get(state, Value("options"), Value());
@@ -18762,6 +19558,11 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
     distiller_payload = Core::_normalize_agent_completion_payload(distiller_output);
   }
   Core::_throw_agent_clarification(distiller_payload, state);
+  Value distiller_skills_after = Core::get(state, Value("distiller_loaded_skill_docs"), empty_list);
+  Value executor_skills_after = Core::get(state, Value("loaded_skill_docs"), empty_list);
+  executor_skills_after = Core::_agent_merge_skill_results(executor_skills_after, distiller_skills_after);
+  Core::set(state, Value("loaded_skill_docs"), executor_skills_after);
+  Core::set(state, Value("active_stage"), Value("executor"));
   Value executor_payload = Core::none();
   Value distiller_payload_type = Core::get(distiller_payload, Value("type"), Value(""));
   Value distiller_is_respond = Core::eq(distiller_payload_type, Value("respond"));
@@ -18936,6 +19737,10 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   Core::set(state, Value("last_output"), responder_output);
   Core::set(state, Value("chat_log"), logs);
   Core::set(state, Value("usage"), usage);
+  forward_used_memories = Core::get(state, Value("used_memories"), empty_list);
+  forward_used_skills = Core::get(state, Value("used_skills"), empty_list);
+  Core::agent_observer_notify(state, options, Value("used_memories"), forward_used_memories);
+  Core::agent_observer_notify(state, options, Value("used_skills"), forward_used_skills);
   Core::_agent_build_failure_signals(state);
   Core::_agent_finalize_trace(state, Value("completed"), responder_output);
   return responder_output;

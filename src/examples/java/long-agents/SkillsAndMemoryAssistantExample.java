@@ -94,6 +94,10 @@ public final class SkillsAndMemoryAssistantExample {
             // Native host search callbacks -- the actor's recall()/discover() reach these.
             "onMemoriesSearch", memoriesSearch,
             "onSkillsSearch", skillsSearch,
+            "onLoadedMemories", (java.util.function.Consumer<Object>) payload -> System.out.println("[memories loaded] " + payload),
+            "onLoadedSkills", (java.util.function.Consumer<Object>) payload -> System.out.println("[skills loaded] " + payload),
+            "onUsedMemories", (java.util.function.Consumer<Object>) payload -> System.out.println("[memories used] " + payload),
+            "onUsedSkills", (java.util.function.Consumer<Object>) payload -> System.out.println("[skills used] " + payload),
             "executorOptions", Map.of(
                 "description", String.join("\n",
                     "You do NOT know our internal flag names, incident history, or runbook steps from your own training.",

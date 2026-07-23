@@ -225,6 +225,7 @@ struct Core {
   static Value agent_runtime_close(Value session);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
+  static Value agent_observer_notify(Value state, Value forward_options, Value kind, Value payload);
   static Value agent_transcribe(Value client, Value request, Value options);
   static Value agent_callable_invoke(Value state, Value request, Value options);
   static Value stream_event_content_parts(Value event);
@@ -1031,6 +1032,9 @@ AxAgent agent(Value signature, Value options = Value::object());
 // and return Value: memories (searches, alreadyLoaded) -> results, skills (searches) -> results.
 Value register_memories_search(std::function<Value(Value, Value)> fn);
 Value register_skills_search(std::function<Value(Value)> fn);
+// Register a non-fatal AxAgent observer and return a marker usable as any
+// onLoadedMemories/onLoadedSkills/onUsedMemories/onUsedSkills option value.
+Value register_agent_observer(std::function<void(Value)> fn);
 AxFlow flow(Value options = Value::object());
 AxFlow flow(const std::string& mermaid, Value bindings = Value::object());
 Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);

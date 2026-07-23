@@ -2851,8 +2851,11 @@ func TestAxAgentConformanceFixturesLoad(t *testing.T) {
 			if _, ok := fixture["signature"]; !ok {
 				t.Fatalf("%s missing signature", file)
 			}
-			if _, ok := fixture["input"]; !ok {
-				t.Fatalf("%s missing input", file)
+			if _, hasInput := fixture["input"]; !hasInput {
+				forwardRuns, hasForwardRuns := fixture["forward_runs"].([]any)
+				if !hasForwardRuns || len(forwardRuns) == 0 {
+					t.Fatalf("%s missing input or forward_runs", file)
+				}
 			}
 			if _, ok := fixture["expected_output"]; !ok {
 				if _, ok := fixture["expected_error_contains"]; !ok {

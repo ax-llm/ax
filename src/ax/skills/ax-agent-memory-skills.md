@@ -200,7 +200,7 @@ const myAgent = agent('task:string -> answer:string', {
 
 ## Skills Search
 
-Use `onSkillsSearch` when the agent needs to load skill guides such as usage instructions, runbooks, or domain conventions into the executor's system prompt on demand. The actor decides which skills to fetch and when, so you do not pre-render every skill into every prompt.
+Use `onSkillsSearch` when the agent needs to load skill guides such as usage instructions, operational guides, or domain conventions into the executor's system prompt on demand. The actor decides which skills to fetch and when, so you do not pre-render every skill into every prompt.
 
 When `onSkillsSearch` is set, the distiller and executor stages gain:
 
@@ -388,6 +388,7 @@ Rules:
 - When tracking is enabled, the actor sees `await used(id, reason?)`; this is the actor-side declaration mechanism.
 - `used(...)` resolves against loaded memory IDs and loaded skill IDs.
 - If memory IDs and skill IDs can collide, namespace them in your application, for example `mem:abc` and `skill:planning`.
+- Python, Go, and Java accept these observers directly in their agent option maps. C++ wraps them with `register_agent_observer(...)`; Rust wraps them with `agent_observer(...)`. The returned marker can be used in constructor or forward option maps, and observer failures are ignored in every language.
 
 Types:
 
@@ -414,6 +415,10 @@ skillsCatalog?: readonly AxAgentCatalogSkill[];
 memoriesCatalog?: readonly AxAgentMemoryResult[];
 relevanceRanking?: boolean | { topK?: number; minScore?: number };
 ```
+
+## Persisting Agent State Across Languages
+
+TypeScript uses `getState()` / `setState()` for the actor runtime snapshot. The generated packages keep their legacy `GetState` / `SetState` (or language-shaped equivalents) as bare-runtime compatibility methods. Use `ExportRuntimeState` / `RestoreRuntimeState` in generated packages when you need the complete portable agent snapshot, including loaded skills and constructor-preset reapplication after restore. Do not interchange the two snapshot shapes.
 
 ## Examples
 

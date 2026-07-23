@@ -1,21 +1,18 @@
 {
   "discover": {
-    "skills": [
-      "sql"
-    ]
+    "skills": ["sql"]
   },
   "expected_discover_result": null,
   "expected_loaded_skill_docs_subset": [
     {
-      "content": "Skill docs loaded for sql",
+      "content": "Use parameterized SQL queries.",
+      "id": "sql",
       "name": "sql"
     }
   ],
   "expected_policy_trace_subset": [
     {
-      "skills": [
-        "sql"
-      ],
+      "skills": ["sql"],
       "tools": [],
       "type": "discover"
     }
@@ -23,7 +20,13 @@
   "kind": "agent_runtime_policy",
   "name": "discover-skills-mutates-next-prompt-state",
   "options": {
-    "skillsMode": true
+    "skillsCatalog": [
+      {
+        "content": "Use parameterized SQL queries.",
+        "id": "sql",
+        "name": "sql"
+      }
+    ]
   },
   "signature": "question:string -> answer:string"
 }

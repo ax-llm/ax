@@ -8,7 +8,27 @@
         "suite": "axagent",
         "kind": "agent_forward",
         "runner": "cpp:axagent",
-        "category": "semantic"
+        "category": "semantic",
+        "contract_ids": [
+          "axagent.constructor.directResponse",
+          "axagent.constructor.memoriesCatalog",
+          "axagent.constructor.onLoadedMemories",
+          "axagent.constructor.onLoadedSkills",
+          "axagent.constructor.onMemoriesSearch",
+          "axagent.constructor.onSkillsSearch",
+          "axagent.constructor.onUsedMemories",
+          "axagent.constructor.onUsedSkills",
+          "axagent.constructor.relevanceRanking",
+          "axagent.constructor.skills",
+          "axagent.constructor.skillsCatalog",
+          "axagent.forward.onUsedMemories",
+          "axagent.forward.onUsedSkills",
+          "axagent.forward.skills",
+          "axagent.method.forward",
+          "axagent.method.getState",
+          "axagent.method.setState",
+          "axagent.state.skillsPromptState"
+        ]
       },
       {
         "suite": "axagent",

@@ -62,7 +62,7 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-python-agent-memory-skills/SKILL.md",
-      "digest": "sha256:a7414a1c019f664f04521e1e3e1fa797a0b39375544d7eba96a13d59fdfacebc"
+      "digest": "sha256:1fe2b0f2c5624605859dd64c8d804b9e88ef81e71f21f90badf8727fe3f5e98e"
     },
     {
       "name": "ax-python-agent-observability",

@@ -17,7 +17,7 @@
     "answer": "AxIR is portable"
   },
   "expected_request_contains": [
-    "inputs.document",
+    "Large document: AxIR is portable.",
     "Distilled Context",
     "AxIR is portable"
   ],

@@ -148,6 +148,7 @@ const (
 	IntrinsicAgentRuntimeClose      CoreIntrinsic = "intrinsic.agent.runtime.close"
 	IntrinsicAgentMemorySearch      CoreIntrinsic = "intrinsic.agent.memory_search"
 	IntrinsicAgentSkillSearch       CoreIntrinsic = "intrinsic.agent.skill_search"
+	IntrinsicAgentObserverNotify    CoreIntrinsic = "intrinsic.agent.observer.notify"
 	IntrinsicAgentTranscribe        CoreIntrinsic = "intrinsic.agent.transcribe"
 	IntrinsicAgentCallableInvoke    CoreIntrinsic = "intrinsic.agent.callable.invoke"
 	IntrinsicStreamEventParts       CoreIntrinsic = "intrinsic.stream.event_content_parts"
@@ -275,6 +276,7 @@ var coreIntrinsicPython = map[CoreIntrinsic]string{
 	IntrinsicAgentRuntimeClose:      "_core_agent_runtime_close",
 	IntrinsicAgentMemorySearch:      "_core_agent_memory_search",
 	IntrinsicAgentSkillSearch:       "_core_agent_skill_search",
+	IntrinsicAgentObserverNotify:    "_core_agent_observer_notify",
 	IntrinsicAgentTranscribe:        "_core_agent_transcribe",
 	IntrinsicAgentCallableInvoke:    "_core_agent_callable_invoke",
 	IntrinsicStreamEventParts:       "_core_stream_event_content_parts",
@@ -411,6 +413,7 @@ var knownCoreIntrinsics = map[string]bool{
 	"intrinsic.agent.runtime.close":                   true,
 	"intrinsic.agent.memory_search":                   true,
 	"intrinsic.agent.skill_search":                    true,
+	"intrinsic.agent.observer.notify":                 true,
 	"intrinsic.agent.transcribe":                      true,
 	"intrinsic.agent.callable.invoke":                 true,
 	"intrinsic.stream.event_content_parts":            true,
@@ -691,6 +694,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.agent.runtime.close":          intrinsicInfo("intrinsic.agent.runtime.close", 1, 1, true, "json"),
 	"intrinsic.agent.memory_search":          intrinsicInfo("intrinsic.agent.memory_search", 3, 3, true, "json"),
 	"intrinsic.agent.skill_search":           intrinsicInfo("intrinsic.agent.skill_search", 2, 2, true, "json"),
+	"intrinsic.agent.observer.notify":        intrinsicInfo("intrinsic.agent.observer.notify", 4, 4, true, "json"),
 	"intrinsic.agent.transcribe":             intrinsicInfo("intrinsic.agent.transcribe", 3, 3, true, "json"),
 	"intrinsic.agent.callable.invoke":        intrinsicInfo("intrinsic.agent.callable.invoke", 3, 3, true, "json"),
 	"intrinsic.object.call_method":           intrinsicInfo("intrinsic.object.call_method", 2, -1, true, "json"),

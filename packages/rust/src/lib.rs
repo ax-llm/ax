@@ -2946,6 +2946,25 @@ pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
     agent_with_core_options(spec, core_value_from_json(&options))
 }
 
+static AX_AGENT_OBSERVER_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Wrap a native non-fatal AxAgent observer as a JSON value usable in either
+/// constructor or forward option maps under onLoadedMemories/onLoadedSkills/
+/// onUsedMemories/onUsedSkills.
+pub fn agent_observer<F>(observer: F) -> Value
+where
+    F: Fn(Value) + 'static,
+{
+    let id = format!(
+        "__agent_observer_{}",
+        AX_AGENT_OBSERVER_COUNTER.fetch_add(1, Ordering::Relaxed) + 1
+    );
+    AGENT_OBSERVER_REGISTRY.with(|registry| {
+        registry.borrow_mut().insert(id.clone(), Rc::new(observer));
+    });
+    json!({"__agent_observer_id": id})
+}
+
 pub fn agent_with_execution_context(
     spec: &str,
     options: Value,
@@ -11198,6 +11217,75 @@ fn run_agent_prompt_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+const SEMANTIC_PROMPT_FIELD_LABELS: [&str; 14] = [
+    "Query",
+    "Executor Request",
+    "Distilled Context Summary",
+    "Context Metadata",
+    "Context Map",
+    "Discovered Tool Docs",
+    "Loaded Skills",
+    "Memories",
+    "Relevance Hints",
+    "Summarized Actor Log",
+    "Guidance Log",
+    "Action Log",
+    "Live Runtime State",
+    "Context Pressure",
+];
+
+fn normalize_semantic_prompt_text(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn semantic_prompt_field(user: &str, label: &str) -> String {
+    let normalized = normalize_semantic_prompt_text(user);
+    let marker = format!("{label}: ");
+    let Some(start) = normalized.find(&marker) else {
+        return String::new();
+    };
+    let body_start = start + marker.len();
+    let mut end = normalized.len();
+    for candidate in SEMANTIC_PROMPT_FIELD_LABELS {
+        if candidate == label {
+            continue;
+        }
+        if let Some(next) = normalized[body_start..].find(&format!("\n\n{candidate}: ")) {
+            end = end.min(body_start + next);
+        }
+    }
+    normalize_semantic_prompt_text(&format!("{label}: {}", &normalized[body_start..end]))
+}
+
+fn semantic_available_skills_index(system: &str) -> String {
+    let normalized = normalize_semantic_prompt_text(system);
+    let heading = "### Available Skills";
+    let Some(start) = normalized.find(heading) else {
+        return String::new();
+    };
+    let mut entries = Vec::new();
+    for line in normalized[start + heading.len()..].lines() {
+        if line.trim().is_empty() && entries.is_empty() {
+            continue;
+        }
+        if !line.starts_with("- `") {
+            break;
+        }
+        entries.push(line);
+    }
+    if entries.is_empty() {
+        return String::new();
+    }
+    format!("{heading}\n\n{}", entries.join("\n"))
+}
+
 fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     let responses = fixture
         .get("responses")
@@ -11214,8 +11302,41 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             .into(),
         requests: Vec::new(),
     };
-    let agent_options =
-        core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
+    let semantic_observer_transcript = Rc::new(RefCell::new(Vec::<Value>::new()));
+    let semantic_observers_enabled = fixture.get("expected_observer_transcript").is_some();
+    let install_semantic_observer = |target: &mut serde_json::Map<String, Value>,
+                                     key: &str,
+                                     label: &'static str,
+                                     throws_error: bool| {
+        if !semantic_observers_enabled || !target.contains_key(key) {
+            return;
+        }
+        let transcript = semantic_observer_transcript.clone();
+        target.insert(
+            key.to_string(),
+            agent_observer(move |payload| {
+                transcript
+                    .borrow_mut()
+                    .push(json!({"callback": label, "payload": payload}));
+                if throws_error {
+                    panic!("semantic parity observer failure");
+                }
+            }),
+        );
+    };
+    let mut raw_agent_options = fixture.get("options").cloned().unwrap_or_else(|| json!({}));
+    if let Some(options) = raw_agent_options.as_object_mut() {
+        install_semantic_observer(options, "onLoadedSkills", "loaded_skills", true);
+        install_semantic_observer(options, "onLoadedMemories", "loaded_memories", true);
+        install_semantic_observer(options, "onUsedSkills", "constructor.used_skills", false);
+        install_semantic_observer(
+            options,
+            "onUsedMemories",
+            "constructor.used_memories",
+            false,
+        );
+    }
+    let agent_options = core_value_from_json(&raw_agent_options);
     let scripted = fixture
         .get("runtime_script")
         .and_then(Value::as_array)
@@ -11309,12 +11430,99 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(snapshot) = fixture.get("restore_runtime_state") {
         agent.restore_runtime_state(snapshot.clone())?;
     }
-    let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
-    let forward_options = fixture
-        .get("forward_options")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let output = match agent.forward_with_options(&mut client, input, forward_options) {
+    let mut run_state_projections = Vec::<Value>::new();
+    let mut saved_runtime_state: Option<Value> = None;
+    let mut state_roundtrip_projection = json!({});
+    let output_result: AxResult<Value> = (|| {
+        if let Some(runs) = fixture.get("forward_runs").and_then(Value::as_array) {
+            let mut outputs = Vec::<Value>::new();
+            for run in runs {
+                match run
+                    .get("state_action")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                {
+                    "reset" => {
+                        agent.restore_runtime_state(json!({}))?;
+                    }
+                    "restore_saved" => {
+                        let saved = saved_runtime_state.clone().ok_or_else(|| {
+                            AxError::new(
+                                "fixture",
+                                "restore_saved requires an earlier save_runtime_state run",
+                            )
+                        })?;
+                        let restored = agent.restore_runtime_state(saved)?;
+                        state_roundtrip_projection
+                            .as_object_mut()
+                            .expect("state roundtrip projection is an object")
+                            .insert(
+                                "restored".into(),
+                                json!({
+                                    "loaded_skill_docs": restored.get("loaded_skill_docs").cloned().unwrap_or_else(|| json!([])),
+                                }),
+                            );
+                    }
+                    _ => {}
+                }
+                let input = run.get("input").cloned().unwrap_or_else(|| json!({}));
+                let mut forward_options = run
+                    .get("forward_options")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                if let Some(options) = forward_options.as_object_mut() {
+                    install_semantic_observer(
+                        options,
+                        "onUsedSkills",
+                        "forward.used_skills",
+                        false,
+                    );
+                    install_semantic_observer(
+                        options,
+                        "onUsedMemories",
+                        "forward.used_memories",
+                        false,
+                    );
+                }
+                outputs.push(agent.forward_with_options(&mut client, input, forward_options)?);
+                let run_exported = agent.export_runtime_state()?;
+                if run
+                    .get("save_runtime_state")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    saved_runtime_state = Some(run_exported.clone());
+                    state_roundtrip_projection
+                        .as_object_mut()
+                        .expect("state roundtrip projection is an object")
+                        .insert(
+                            "saved".into(),
+                            json!({
+                                "loaded_skill_docs": run_exported.get("loaded_skill_docs").cloned().unwrap_or_else(|| json!([])),
+                            }),
+                        );
+                }
+                run_state_projections.push(json!({
+                    "loaded_skill_docs": run_exported.get("loaded_skill_docs").cloned().unwrap_or_else(|| json!([])),
+                    "loaded_memories": run_exported.get("loaded_memories").cloned().unwrap_or_else(|| json!([])),
+                    "used_skills": run_exported.get("used_skills").cloned().unwrap_or_else(|| json!([])),
+                    "used_memories": run_exported.get("used_memories").cloned().unwrap_or_else(|| json!([])),
+                }));
+            }
+            return Ok(Value::Array(outputs));
+        }
+        let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
+        let mut forward_options = fixture
+            .get("forward_options")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        if let Some(options) = forward_options.as_object_mut() {
+            install_semantic_observer(options, "onUsedSkills", "forward.used_skills", false);
+            install_semantic_observer(options, "onUsedMemories", "forward.used_memories", false);
+        }
+        agent.forward_with_options(&mut client, input, forward_options)
+    })();
+    let output = match output_result {
         Ok(output) => output,
         Err(error) => {
             if let Some(expected) = fixture
@@ -11343,6 +11551,27 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("agent output", &output, expected)?;
     }
+    if let Some(expected) = fixture.get("expected_run_state_projections") {
+        expect_json_equal(
+            "agent run state projections",
+            &Value::Array(run_state_projections),
+            expected,
+        )?;
+    }
+    if let Some(expected) = fixture.get("expected_state_roundtrip_projection") {
+        expect_json_equal(
+            "agent state roundtrip projection",
+            &state_roundtrip_projection,
+            expected,
+        )?;
+    }
+    if let Some(expected) = fixture.get("expected_observer_transcript") {
+        expect_json_equal(
+            "agent observer transcript",
+            &Value::Array(semantic_observer_transcript.borrow().clone()),
+            expected,
+        )?;
+    }
     if fixture
         .get("observer_throws")
         .and_then(Value::as_bool)
@@ -11365,6 +11594,124 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                 ),
             ));
         }
+    }
+    let exact_projection = fixture.get("exact_observable_projection");
+    if let Some(expected) = exact_projection.and_then(|projection| projection.get("stateRoundtrip"))
+    {
+        expect_json_equal(
+            "exact agent state roundtrip projection",
+            &state_roundtrip_projection,
+            expected,
+        )?;
+    }
+    if let Some(expected) = exact_projection.and_then(|projection| projection.get("ranking")) {
+        let mut executor_system = String::new();
+        let mut executor_user = String::new();
+        for request in &client.requests {
+            let prompt = request
+                .get("chat_prompt")
+                .or_else(|| request.get("chatPrompt"))
+                .and_then(Value::as_array);
+            let mut system_text = String::new();
+            let mut user_text = String::new();
+            for message in prompt.into_iter().flatten() {
+                let content_value = message.get("content").unwrap_or(&Value::Null);
+                let content = content_value
+                    .as_str()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| stable_stringify(content_value));
+                match message.get("role").and_then(Value::as_str).unwrap_or("") {
+                    "system" => {
+                        system_text.push_str(&content);
+                        system_text.push('\n');
+                    }
+                    "user" => {
+                        user_text.push_str(&content);
+                        user_text.push('\n');
+                    }
+                    _ => {}
+                }
+            }
+            if system_text.contains("You (`executor`)") {
+                executor_system = system_text;
+                executor_user = user_text;
+                break;
+            }
+        }
+        let mut matches = serde_json::Map::new();
+        for probe in fixture
+            .get("ranking_probe")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let label = probe.get("label").and_then(Value::as_str).unwrap_or("");
+            let needle = probe.get("needle").and_then(Value::as_str).unwrap_or("");
+            matches.insert(
+                label.to_string(),
+                Value::Bool(executor_user.contains(needle)),
+            );
+        }
+        let actual = json!({
+            "hasLikelyRelevant": executor_system.contains("Likely Relevant"),
+            "matches": matches,
+        });
+        expect_json_equal("exact agent ranking projection", &actual, expected)?;
+    }
+    if let Some(expected_stage_requests) =
+        exact_projection.and_then(|projection| projection.get("stageRequests"))
+    {
+        let actual_stage_requests = Value::Array(
+            client
+                .requests
+                .iter()
+                .map(|request| {
+                    let prompt = request
+                        .get("chat_prompt")
+                        .or_else(|| request.get("chatPrompt"))
+                        .and_then(Value::as_array);
+                    let mut system_text = String::new();
+                    let mut user_text = String::new();
+                    for message in prompt.into_iter().flatten() {
+                        let content_value = message.get("content").unwrap_or(&Value::Null);
+                        let content = content_value
+                            .as_str()
+                            .map(ToString::to_string)
+                            .unwrap_or_else(|| stable_stringify(content_value));
+                        match message.get("role").and_then(Value::as_str).unwrap_or("") {
+                            "system" => {
+                                system_text.push_str(&content);
+                                system_text.push('\n');
+                            }
+                            "user" => {
+                                user_text.push_str(&content);
+                                user_text.push('\n');
+                            }
+                            _ => {}
+                        }
+                    }
+                    let stage = if system_text.contains("You (`distiller`)") {
+                        "distiller"
+                    } else if system_text.contains("You (`executor`)") {
+                        "executor"
+                    } else {
+                        "responder"
+                    };
+                    json!({
+                        "stage": stage,
+                        "availableSkills": semantic_available_skills_index(&system_text),
+                        "loadedSkills": semantic_prompt_field(&user_text, "Loaded Skills"),
+                        "memories": semantic_prompt_field(&user_text, "Memories"),
+                        "relevanceHints": semantic_prompt_field(&user_text, "Relevance Hints"),
+                    })
+                })
+                .collect(),
+        );
+        expect_json_equal(
+            "exact agent stage request projection",
+            &actual_stage_requests,
+            expected_stage_requests,
+        )?;
     }
     if let Some(items) = fixture
         .get("expected_request_contains")
@@ -11479,6 +11826,32 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     }
     if let Some(expected) = fixture.get("expected_exported_state_subset") {
         expect_json_subset("runtime state", &exported, expected)?;
+    }
+    for (expected_key, state_key, label) in [
+        (
+            "expected_loaded_skill_docs",
+            "loaded_skill_docs",
+            "loaded skills exact",
+        ),
+        (
+            "expected_loaded_memories",
+            "loaded_memories",
+            "loaded memories exact",
+        ),
+        ("expected_used_skills", "used_skills", "used skills exact"),
+        (
+            "expected_used_memories",
+            "used_memories",
+            "used memories exact",
+        ),
+    ] {
+        if let Some(expected) = fixture.get(expected_key) {
+            let actual = exported
+                .get(state_key)
+                .cloned()
+                .unwrap_or_else(|| json!([]));
+            expect_json_equal(label, &actual, expected)?;
+        }
     }
     if let Some(expected) = fixture
         .get("expected_context_events_subset")
@@ -15973,6 +16346,16 @@ fn core_list_get(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let index = core_arg(args, 1);
     let default = core_arg(args, 2);
     Ok(core_get(&values, &index, default))
+}
+
+fn core_sorted_strings(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let values = core_arg(args, 0);
+    let CoreValue::List(items) = values else {
+        return Ok(CoreValue::new_list());
+    };
+    let mut sorted = items.borrow().clone();
+    sorted.sort_by_key(CoreValue::text);
+    Ok(CoreValue::list_from(sorted))
 }
 
 fn core_record_new(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -20599,6 +20982,11 @@ fn core_agent_runtime_close(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 
 // ----- memory / skill search intrinsics -----
 
+thread_local! {
+    static AGENT_OBSERVER_REGISTRY: RefCell<BTreeMap<String, Rc<dyn Fn(Value)>>> =
+        RefCell::new(BTreeMap::new());
+}
+
 // python: _core_agent_memory_search(state, searches, already_loaded).
 // Callback path first (on_memories_search / onMemoriesSearch), then scripted
 // results (memory_search_results / memorySearchResults): exact joined key,
@@ -20736,6 +21124,49 @@ fn core_agent_skill_search(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::List(_) => Ok(core_agent_deep_copy(&scripted)),
         _ => Ok(CoreValue::new_list()),
     }
+}
+
+#[allow(dead_code)]
+fn core_agent_observer_notify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let state = core_arg(args, 0);
+    let forward_options = core_arg(args, 1);
+    let kind = core_arg(args, 2).text();
+    let payload = core_arg(args, 3);
+    let constructor_options = core_agent_state_options(&state);
+    let keys = match kind.as_str() {
+        "loaded_memories" => ("on_loaded_memories", "onLoadedMemories"),
+        "loaded_skills" => ("on_loaded_skills", "onLoadedSkills"),
+        "used_memories" => ("on_used_memories", "onUsedMemories"),
+        "used_skills" => ("on_used_skills", "onUsedSkills"),
+        _ => return Ok(CoreValue::Null),
+    };
+    let mut callback = CoreValue::Null;
+    if kind.starts_with("used_") {
+        callback = core_agent_option(&forward_options, keys.0, keys.1);
+    }
+    if callback.is_null() {
+        callback = core_agent_option(&constructor_options, keys.0, keys.1);
+    }
+    if let Some(result) = core_host_try(&callback, "call", &[payload.clone()]) {
+        let _ = result;
+        return Ok(CoreValue::Null);
+    }
+    let marker = core_get(
+        &callback,
+        &CoreValue::from("__agent_observer_id"),
+        CoreValue::Null,
+    )
+    .text();
+    if marker.is_empty() {
+        return Ok(CoreValue::Null);
+    }
+    AGENT_OBSERVER_REGISTRY.with(|registry| {
+        if let Some(observer) = registry.borrow().get(&marker).cloned() {
+            let value = core_value_to_json(&payload);
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| observer(value)));
+        }
+    });
+    Ok(CoreValue::Null)
 }
 
 // ----- callable invocation intrinsic -----
@@ -42446,6 +42877,7 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_discovered_tool_docs = CoreValue::Null;
     let mut v_discovery_catalog = CoreValue::Null;
     let mut v_distiller_description = CoreValue::Null;
+    let mut v_distiller_loaded_skill_docs = CoreValue::Null;
     let mut v_distiller_signature = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
@@ -42480,7 +42912,7 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_matches = CoreValue::Null;
     let mut v_memories_catalog = CoreValue::Null;
     let mut v_memories_catalog_camel = CoreValue::Null;
-    let mut v_memories_catalog_is_list = CoreValue::Null;
+    let mut v_memories_catalog_raw = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     let mut v_missing = CoreValue::Null;
     let mut v_optimizer_metadata = CoreValue::Null;
@@ -42489,6 +42921,12 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_policy_flags = CoreValue::Null;
     let mut v_policy_registry = CoreValue::Null;
     let mut v_policy_trace = CoreValue::Null;
+    let mut v_preset_skill_docs = CoreValue::Null;
+    let mut v_preset_skills_raw = CoreValue::Null;
+    let mut v_relevance_ranking_camel = CoreValue::Null;
+    let mut v_relevance_ranking_is_map = CoreValue::Null;
+    let mut v_relevance_ranking_options = CoreValue::Null;
+    let mut v_relevance_ranking_raw = CoreValue::Null;
     let mut v_responder_description = CoreValue::Null;
     let mut v_responder_exclude = CoreValue::Null;
     let mut v_responder_exclude_camel = CoreValue::Null;
@@ -42502,7 +42940,7 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_sig = CoreValue::Null;
     let mut v_skills_catalog = CoreValue::Null;
     let mut v_skills_catalog_camel = CoreValue::Null;
-    let mut v_skills_catalog_is_list = CoreValue::Null;
+    let mut v_skills_catalog_raw = CoreValue::Null;
     let mut v_stage_instruction = CoreValue::Null;
     let mut v_state = CoreValue::Null;
     let mut v_state_alpha = CoreValue::Null;
@@ -42630,39 +43068,55 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_auto_upgrade.clone(),
     ])?;
     v_policy_registry = _agent_policy_registry(&[v_policy.clone(), v_policy_flags.clone()])?;
+    v_relevance_ranking_camel = core_get(
+        &v_options,
+        &CoreValue::from("relevanceRanking"),
+        CoreValue::Null,
+    );
+    v_relevance_ranking_raw = core_get(
+        &v_options,
+        &CoreValue::from("relevance_ranking"),
+        v_relevance_ranking_camel.clone(),
+    );
+    v_relevance_ranking_options = CoreValue::new_map();
+    v_relevance_ranking_is_map = core_type_is(&v_relevance_ranking_raw, CoreValue::from("object"));
+    if core_truthy(&v_relevance_ranking_is_map) {
+        v_relevance_ranking_options = core_map_merge(&[
+            v_relevance_ranking_options.clone(),
+            v_relevance_ranking_raw.clone(),
+        ])?;
+    }
     v_discovery_catalog = _render_agent_discovery_catalog(&[v_callable_split.clone()])?;
     v_skills_catalog_camel = core_get(
         &v_options,
         &CoreValue::from("skillsCatalog"),
         v_empty_list.clone(),
     );
-    v_skills_catalog = core_get(
+    v_skills_catalog_raw = core_get(
         &v_options,
         &CoreValue::from("skills_catalog"),
         v_skills_catalog_camel.clone(),
     );
-    v_skills_catalog_is_list = core_type_is(&v_skills_catalog, CoreValue::from("list"));
-    if core_truthy(&v_skills_catalog_is_list) {
-    } else {
-        v_skills_catalog = v_empty_list.clone();
-    }
+    v_skills_catalog = _agent_normalize_skill_catalog(&[v_skills_catalog_raw.clone()])?;
     v_memories_catalog_camel = core_get(
         &v_options,
         &CoreValue::from("memoriesCatalog"),
         v_empty_list.clone(),
     );
-    v_memories_catalog = core_get(
+    v_memories_catalog_raw = core_get(
         &v_options,
         &CoreValue::from("memories_catalog"),
         v_memories_catalog_camel.clone(),
     );
-    v_memories_catalog_is_list = core_type_is(&v_memories_catalog, CoreValue::from("list"));
-    if core_truthy(&v_memories_catalog_is_list) {
-    } else {
-        v_memories_catalog = v_empty_list.clone();
-    }
+    v_memories_catalog =
+        _agent_merge_memory_results(&[v_empty_list.clone(), v_memories_catalog_raw.clone()])?;
     v_discovered_tool_docs = CoreValue::new_list();
-    v_loaded_skill_docs = CoreValue::new_list();
+    v_preset_skills_raw = core_get(&v_options, &CoreValue::from("skills"), v_empty_list.clone());
+    v_preset_skill_docs =
+        _agent_merge_skill_results(&[v_empty_list.clone(), v_preset_skills_raw.clone()])?;
+    v_loaded_skill_docs =
+        _agent_merge_skill_results(&[v_empty_list.clone(), v_preset_skill_docs.clone()])?;
+    v_distiller_loaded_skill_docs = CoreValue::new_list();
     v_loaded_memories = CoreValue::new_list();
     v_used_memories = CoreValue::new_list();
     v_used_skills = CoreValue::new_list();
@@ -42790,6 +43244,11 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &v_state,
         CoreValue::from("policy_registry"),
         v_policy_registry.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("relevance_ranking_options"),
+        v_relevance_ranking_options.clone(),
     )?;
     core_set(
         &v_state,
@@ -42946,8 +43405,18 @@ fn _agent_factory(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     )?;
     core_set(
         &v_state,
+        CoreValue::from("preset_skill_docs"),
+        v_preset_skill_docs.clone(),
+    )?;
+    core_set(
+        &v_state,
         CoreValue::from("loaded_skill_docs"),
         v_loaded_skill_docs.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("distiller_loaded_skill_docs"),
+        v_distiller_loaded_skill_docs.clone(),
     )?;
     core_set(
         &v_state,
@@ -43179,6 +43648,39 @@ fn _agent_reserved_runtime_names(args: &[CoreValue]) -> Result<CoreValue, AxErro
         v_names = CoreValue::new_list();
     }
     return Ok(v_names.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_runtime_reserved_names_for_state(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_reserved_names_for_state");
+    let mut v_state = core_arg(args, 0);
+    let mut v_already = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_input_names = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_reserved = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_reserved = _agent_reserved_runtime_names(&[])?;
+    v_input_names = core_get(
+        &v_state,
+        &CoreValue::from("runtime_input_names"),
+        v_empty_list.clone(),
+    );
+    for v_name in core_iter(&v_input_names)? {
+        let mut v_name = v_name;
+        v_already = core_contains(&[v_reserved.clone(), v_name.clone()])?;
+        if core_truthy(&v_already) {
+        } else {
+            core_append(&v_reserved, v_name.clone())?;
+        }
+    }
+    return Ok(v_reserved.clone());
 }
 
 #[allow(
@@ -44152,6 +44654,9 @@ fn _agent_policy_flags(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_has_skills_callback_snake = CoreValue::Null;
     let mut v_has_skills_catalog = CoreValue::Null;
     let mut v_has_status_callback = CoreValue::Null;
+    let mut v_has_used_memories_observer = CoreValue::Null;
+    let mut v_has_used_observer = CoreValue::Null;
+    let mut v_has_used_skills_observer = CoreValue::Null;
     let mut v_inline_callable_count = CoreValue::Null;
     let mut v_inline_callables = CoreValue::Null;
     let mut v_inspect_camel = CoreValue::Null;
@@ -44187,7 +44692,12 @@ fn _agent_policy_flags(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_status_direct = CoreValue::Null;
     let mut v_status_mode = CoreValue::Null;
     let mut v_usage_camel = CoreValue::Null;
+    let mut v_usage_direct = CoreValue::Null;
     let mut v_usage_enabled = CoreValue::Null;
+    let mut v_used_memories_observer = CoreValue::Null;
+    let mut v_used_memories_observer_snake = CoreValue::Null;
+    let mut v_used_skills_observer = CoreValue::Null;
+    let mut v_used_skills_observer_snake = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
     v_has_function_discovery_camel =
         core_map_contains(&[v_options.clone(), CoreValue::from("functionDiscovery")])?;
@@ -44321,11 +44831,38 @@ fn _agent_policy_flags(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &CoreValue::from("usageTrackingMode"),
         CoreValue::Bool(false),
     );
-    v_usage_enabled = core_get(
+    v_usage_direct = core_get(
         &v_options,
         &CoreValue::from("usage_tracking_mode"),
         v_usage_camel.clone(),
     );
+    v_used_memories_observer = core_get(
+        &v_options,
+        &CoreValue::from("onUsedMemories"),
+        CoreValue::Null,
+    );
+    v_used_memories_observer_snake = core_get(
+        &v_options,
+        &CoreValue::from("on_used_memories"),
+        v_used_memories_observer.clone(),
+    );
+    v_used_skills_observer = core_get(
+        &v_options,
+        &CoreValue::from("onUsedSkills"),
+        CoreValue::Null,
+    );
+    v_used_skills_observer_snake = core_get(
+        &v_options,
+        &CoreValue::from("on_used_skills"),
+        v_used_skills_observer.clone(),
+    );
+    v_has_used_memories_observer = core_is_not_none(&[v_used_memories_observer_snake.clone()])?;
+    v_has_used_skills_observer = core_is_not_none(&[v_used_skills_observer_snake.clone()])?;
+    v_has_used_observer = core_or(&[
+        v_has_used_memories_observer.clone(),
+        v_has_used_skills_observer.clone(),
+    ])?;
+    v_usage_enabled = core_or(&[v_usage_direct.clone(), v_has_used_observer.clone()])?;
     v_status_camel = core_get(
         &v_options,
         &CoreValue::from("hasAgentStatusCallback"),
@@ -46595,10 +47132,16 @@ fn _build_rlm_flags(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_state = core_arg(args, 0);
     let mut v_combined = CoreValue::Null;
     let mut v_disc = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_flags = CoreValue::Null;
+    let mut v_has_loaded_skills = CoreValue::Null;
+    let mut v_has_skills = CoreValue::Null;
+    let mut v_loaded_skills = CoreValue::Null;
+    let mut v_loaded_skills_count = CoreValue::Null;
     let mut v_skills = CoreValue::Null;
     v_empty_map = CoreValue::new_map();
+    v_empty_list = CoreValue::new_list();
     v_flags = core_get(
         &v_state,
         &CoreValue::from("policy_flags"),
@@ -46614,12 +47157,21 @@ fn _build_rlm_flags(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &CoreValue::from("skillsMode"),
         CoreValue::Bool(false),
     );
+    v_loaded_skills = core_get(
+        &v_state,
+        &CoreValue::from("loaded_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_loaded_skills_count = core_len(&[v_loaded_skills.clone()])?;
+    v_has_loaded_skills = core_gt(&[v_loaded_skills_count.clone(), CoreValue::Num(0f64)])?;
+    v_has_skills = core_or(&[v_skills.clone(), v_has_loaded_skills.clone()])?;
     v_combined = core_and(&[v_disc.clone(), v_skills.clone()])?;
     core_set(
         &v_flags,
         CoreValue::from("discoveryMode+skillsMode"),
         v_combined.clone(),
     )?;
+    core_set(&v_flags, CoreValue::from("hasSkills"), v_has_skills.clone())?;
     return Ok(v_flags.clone());
 }
 
@@ -46822,6 +47374,7 @@ fn _render_agent_skills_catalog_list(args: &[CoreValue]) -> Result<CoreValue, Ax
     axir_coverage_mark("_render_agent_skills_catalog_list");
     let mut v_skills_catalog = core_arg(args, 0);
     let mut v_description = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
     let mut v_id = CoreValue::Null;
     let mut v_line = CoreValue::Null;
     let mut v_lines = CoreValue::Null;
@@ -46838,12 +47391,16 @@ fn _render_agent_skills_catalog_list(args: &[CoreValue]) -> Result<CoreValue, Ax
             &CoreValue::from("description"),
             CoreValue::from(""),
         );
-        v_line = core_string_format(&[
-            CoreValue::from("- `{}` — {}. {}"),
-            v_id.clone(),
-            v_name.clone(),
-            v_description.clone(),
-        ])?;
+        v_line =
+            core_string_format(&[CoreValue::from("- `{}` — {}"), v_id.clone(), v_name.clone()])?;
+        v_has_description = core_ne(&[v_description.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_description) {
+            v_line = core_string_format(&[
+                CoreValue::from("{} — {}"),
+                v_line.clone(),
+                v_description.clone(),
+            ])?;
+        }
         core_append(&v_lines, v_line.clone())?;
     }
     v_out = core_string_join_intrinsic(&[CoreValue::from("\n"), v_lines.clone()])?;
@@ -46897,6 +47454,7 @@ fn _render_rlm_executor_description(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_flags_base = CoreValue::Null;
     let mut v_functions_list = CoreValue::Null;
     let mut v_has_modules = CoreValue::Null;
+    let mut v_has_skills = CoreValue::Null;
     let mut v_has_skills_catalog = CoreValue::Null;
     let mut v_is_javascript = CoreValue::Null;
     let mut v_language = CoreValue::Null;
@@ -46973,6 +47531,11 @@ fn _render_rlm_executor_description(args: &[CoreValue]) -> Result<CoreValue, AxE
         &v_flags,
         &CoreValue::from("skillsMode"),
         CoreValue::Bool(false),
+    );
+    v_has_skills = core_get(
+        &v_flags,
+        &CoreValue::from("hasSkills"),
+        v_skills_mode.clone(),
     );
     v_memories_mode = core_get(
         &v_flags,
@@ -47090,7 +47653,7 @@ fn _render_rlm_executor_description(args: &[CoreValue]) -> Result<CoreValue, AxE
         CoreValue::from("hasRelevanceHints"),
         v_relevance_hints_mode.clone(),
     )?;
-    core_set(&v_vars, CoreValue::from("hasSkills"), v_skills_mode.clone())?;
+    core_set(&v_vars, CoreValue::from("hasSkills"), v_has_skills.clone())?;
     core_set(
         &v_vars,
         CoreValue::from("hasSkillsCatalog"),
@@ -47220,6 +47783,7 @@ fn _render_rlm_distiller_description(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_functions_list = CoreValue::Null;
     let mut v_has_executor_functions = CoreValue::Null;
     let mut v_has_modules = CoreValue::Null;
+    let mut v_has_skills = CoreValue::Null;
     let mut v_has_skills_catalog = CoreValue::Null;
     let mut v_is_javascript = CoreValue::Null;
     let mut v_language = CoreValue::Null;
@@ -47293,6 +47857,11 @@ fn _render_rlm_distiller_description(args: &[CoreValue]) -> Result<CoreValue, Ax
         &v_flags,
         &CoreValue::from("skillsMode"),
         CoreValue::Bool(false),
+    );
+    v_has_skills = core_get(
+        &v_flags,
+        &CoreValue::from("hasSkills"),
+        v_skills_mode.clone(),
     );
     v_memory_usage_camel = core_get(
         &v_options,
@@ -47380,7 +47949,7 @@ fn _render_rlm_distiller_description(args: &[CoreValue]) -> Result<CoreValue, Ax
         CoreValue::from("hasDiscoveredDocs"),
         v_discovery_mode.clone(),
     )?;
-    core_set(&v_vars, CoreValue::from("hasSkills"), v_skills_mode.clone())?;
+    core_set(&v_vars, CoreValue::from("hasSkills"), v_has_skills.clone())?;
     core_set(
         &v_vars,
         CoreValue::from("hasSkillsCatalog"),
@@ -52614,6 +53183,479 @@ fn _agent_append_unique_by_field(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
+fn _agent_normalize_skill_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_normalize_skill_entry");
+    let mut v_entry = core_arg(args, 0);
+    let mut v_content = CoreValue::Null;
+    let mut v_content_is_string = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_id_has_value = CoreValue::Null;
+    let mut v_id_is_string = CoreValue::Null;
+    let mut v_id_raw = CoreValue::Null;
+    let mut v_id_trimmed = CoreValue::Null;
+    let mut v_is_map = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_name_empty = CoreValue::Null;
+    let mut v_name_is_string = CoreValue::Null;
+    let mut v_name_raw = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_valid_types = CoreValue::Null;
+    v_is_map = core_type_is(&v_entry, CoreValue::from("object"));
+    if core_truthy(&v_is_map) {
+    } else {
+        v_none = core_none(&[])?;
+        return Ok(v_none.clone());
+    }
+    v_name_raw = core_get(&v_entry, &CoreValue::from("name"), CoreValue::Null);
+    v_content = core_get(&v_entry, &CoreValue::from("content"), CoreValue::Null);
+    v_name_is_string = core_type_is(&v_name_raw, CoreValue::from("string"));
+    v_content_is_string = core_type_is(&v_content, CoreValue::from("string"));
+    v_valid_types = core_and(&[v_name_is_string.clone(), v_content_is_string.clone()])?;
+    if core_truthy(&v_valid_types) {
+    } else {
+        v_none = core_none(&[])?;
+        return Ok(v_none.clone());
+    }
+    v_name = core_string_trim(&v_name_raw);
+    v_name_empty = core_eq(&[v_name.clone(), CoreValue::from("")])?;
+    if core_truthy(&v_name_empty) {
+        v_none = core_none(&[])?;
+        return Ok(v_none.clone());
+    }
+    v_id_raw = core_get(&v_entry, &CoreValue::from("id"), v_name.clone());
+    v_id = v_name.clone();
+    v_id_is_string = core_type_is(&v_id_raw, CoreValue::from("string"));
+    if core_truthy(&v_id_is_string) {
+        v_id_trimmed = core_string_trim(&v_id_raw);
+        v_id_has_value = core_ne(&[v_id_trimmed.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_id_has_value) {
+            v_id = v_id_trimmed.clone();
+        }
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_out, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_merge_skill_results(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_merge_skill_results");
+    let mut v_existing = core_arg(args, 0);
+    let mut v_incoming = core_arg(args, 1);
+    let mut v_by_id = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry2 = CoreValue::Null;
+    let mut v_existing_is_list = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_id2 = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_incoming_is_list = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_normalized2 = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_sorted_id = CoreValue::Null;
+    let mut v_sorted_ids = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    let mut v_valid2 = CoreValue::Null;
+    v_by_id = CoreValue::new_map();
+    v_existing_is_list = core_type_is(&v_existing, CoreValue::from("list"));
+    if core_truthy(&v_existing_is_list) {
+        for v_entry in core_iter(&v_existing)? {
+            let mut v_entry = v_entry;
+            v_normalized = _agent_normalize_skill_entry(&[v_entry.clone()])?;
+            v_valid = core_type_is(&v_normalized, CoreValue::from("object"));
+            if core_truthy(&v_valid) {
+                v_id = core_get(&v_normalized, &CoreValue::from("id"), CoreValue::Null);
+                core_set(&v_by_id, v_id.clone(), v_normalized.clone())?;
+            }
+        }
+    }
+    v_incoming_is_list = core_type_is(&v_incoming, CoreValue::from("list"));
+    if core_truthy(&v_incoming_is_list) {
+        for v_entry2 in core_iter(&v_incoming)? {
+            let mut v_entry2 = v_entry2;
+            v_normalized2 = _agent_normalize_skill_entry(&[v_entry2.clone()])?;
+            v_valid2 = core_type_is(&v_normalized2, CoreValue::from("object"));
+            if core_truthy(&v_valid2) {
+                v_id2 = core_get(&v_normalized2, &CoreValue::from("id"), CoreValue::Null);
+                core_set(&v_by_id, v_id2.clone(), v_normalized2.clone())?;
+            }
+        }
+    }
+    v_ids = core_map_keys(&[v_by_id.clone()])?;
+    v_sorted_ids = core_sorted_strings(&[v_ids.clone()])?;
+    v_out = CoreValue::new_list();
+    for v_sorted_id in core_iter(&v_sorted_ids)? {
+        let mut v_sorted_id = v_sorted_id;
+        v_item = core_get(&v_by_id, &v_sorted_id.clone(), CoreValue::Null);
+        core_append(&v_out, v_item.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_normalize_skill_catalog(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_normalize_skill_catalog");
+    let mut v_catalog = core_arg(args, 0);
+    let mut v_base = CoreValue::Null;
+    let mut v_base_count = CoreValue::Null;
+    let mut v_catalog_by_id = CoreValue::Null;
+    let mut v_catalog_is_list = CoreValue::Null;
+    let mut v_description_is_string = CoreValue::Null;
+    let mut v_description_raw = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_has_base = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_raw = CoreValue::Null;
+    let mut v_sorted_id = CoreValue::Null;
+    let mut v_sorted_ids = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_empty = CoreValue::new_list();
+    v_base = _agent_merge_skill_results(&[v_empty.clone(), v_catalog.clone()])?;
+    v_catalog_by_id = CoreValue::new_map();
+    v_catalog_is_list = core_type_is(&v_catalog, CoreValue::from("list"));
+    if core_truthy(&v_catalog_is_list) {
+        for v_raw in core_iter(&v_catalog)? {
+            let mut v_raw = v_raw;
+            v_normalized = _agent_normalize_skill_entry(&[v_raw.clone()])?;
+            v_valid = core_type_is(&v_normalized, CoreValue::from("object"));
+            if core_truthy(&v_valid) {
+                v_id = core_get(&v_normalized, &CoreValue::from("id"), CoreValue::Null);
+                v_description_raw =
+                    core_get(&v_raw, &CoreValue::from("description"), CoreValue::Null);
+                v_description_is_string =
+                    core_type_is(&v_description_raw, CoreValue::from("string"));
+                if core_truthy(&v_description_is_string) {
+                    core_set(
+                        &v_normalized,
+                        CoreValue::from("description"),
+                        v_description_raw.clone(),
+                    )?;
+                }
+                core_set(&v_catalog_by_id, v_id.clone(), v_normalized.clone())?;
+            }
+        }
+    }
+    v_base_count = core_len(&[v_base.clone()])?;
+    v_has_base = core_gt(&[v_base_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_base) {
+        v_ids = core_map_keys(&[v_catalog_by_id.clone()])?;
+        v_sorted_ids = core_sorted_strings(&[v_ids.clone()])?;
+        v_out = CoreValue::new_list();
+        for v_sorted_id in core_iter(&v_sorted_ids)? {
+            let mut v_sorted_id = v_sorted_id;
+            v_item = core_get(&v_catalog_by_id, &v_sorted_id.clone(), CoreValue::Null);
+            core_append(&v_out, v_item.clone())?;
+        }
+        return Ok(v_out.clone());
+    }
+    return Ok(v_empty.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_catalog_skill_search(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_catalog_skill_search");
+    let mut v_catalog = core_arg(args, 0);
+    let mut v_searches = core_arg(args, 1);
+    let mut v_already = CoreValue::Null;
+    let mut v_catalog_id = CoreValue::Null;
+    let mut v_catalog_skill = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_content_field = CoreValue::Null;
+    let mut v_content_head = CoreValue::Null;
+    let mut v_description = CoreValue::Null;
+    let mut v_description_field = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_docs = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_fresh = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_id_field = CoreValue::Null;
+    let mut v_matched_id = CoreValue::Null;
+    let mut v_matched_ids = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_name_field = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_ranked = CoreValue::Null;
+    let mut v_ranked_entry = CoreValue::Null;
+    let mut v_ranked_id = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_result_content = CoreValue::Null;
+    let mut v_result_name = CoreValue::Null;
+    let mut v_search = CoreValue::Null;
+    let mut v_skill = CoreValue::Null;
+    v_docs = CoreValue::new_list();
+    for v_skill in core_iter(&v_catalog)? {
+        let mut v_skill = v_skill;
+        v_id = core_get(&v_skill, &CoreValue::from("id"), CoreValue::from(""));
+        v_name = core_get(&v_skill, &CoreValue::from("name"), v_id.clone());
+        v_description = core_get(
+            &v_skill,
+            &CoreValue::from("description"),
+            CoreValue::from(""),
+        );
+        v_content = core_get(&v_skill, &CoreValue::from("content"), CoreValue::from(""));
+        v_content_head = core_string_slice(&[
+            v_content.clone(),
+            CoreValue::Num(0f64),
+            CoreValue::Num(600f64),
+        ])?;
+        v_fields = CoreValue::new_list();
+        v_id_field = CoreValue::new_map();
+        core_set(&v_id_field, CoreValue::from("text"), v_id.clone())?;
+        core_set(
+            &v_id_field,
+            CoreValue::from("identifier"),
+            CoreValue::Bool(true),
+        )?;
+        core_append(&v_fields, v_id_field.clone())?;
+        v_name_field = CoreValue::new_map();
+        core_set(&v_name_field, CoreValue::from("text"), v_name.clone())?;
+        core_set(
+            &v_name_field,
+            CoreValue::from("weight"),
+            CoreValue::Num(2f64),
+        )?;
+        core_append(&v_fields, v_name_field.clone())?;
+        v_has_description = core_ne(&[v_description.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_description) {
+            v_description_field = CoreValue::new_map();
+            core_set(
+                &v_description_field,
+                CoreValue::from("text"),
+                v_description.clone(),
+            )?;
+            core_set(
+                &v_description_field,
+                CoreValue::from("weight"),
+                CoreValue::Num(2f64),
+            )?;
+            core_append(&v_fields, v_description_field.clone())?;
+        }
+        v_content_field = CoreValue::new_map();
+        core_set(
+            &v_content_field,
+            CoreValue::from("text"),
+            v_content_head.clone(),
+        )?;
+        core_append(&v_fields, v_content_field.clone())?;
+        v_doc = CoreValue::new_map();
+        core_set(&v_doc, CoreValue::from("id"), v_id.clone())?;
+        core_set(&v_doc, CoreValue::from("fields"), v_fields.clone())?;
+        core_append(&v_docs, v_doc.clone())?;
+    }
+    v_opts = CoreValue::new_map();
+    core_set(&v_opts, CoreValue::from("topK"), CoreValue::Num(2f64))?;
+    core_set(&v_opts, CoreValue::from("minScore"), CoreValue::Num(0f64))?;
+    core_set(
+        &v_opts,
+        CoreValue::from("marginRatio"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(&v_opts, CoreValue::from("minDocs"), CoreValue::Num(1f64))?;
+    v_matched_ids = CoreValue::new_list();
+    for v_search in core_iter(&v_searches)? {
+        let mut v_search = v_search;
+        v_ranked = _agent_rank_documents(&[v_search.clone(), v_docs.clone(), v_opts.clone()])?;
+        for v_ranked_entry in core_iter(&v_ranked)? {
+            let mut v_ranked_entry = v_ranked_entry;
+            v_ranked_id = core_get(&v_ranked_entry, &CoreValue::from("id"), CoreValue::from(""));
+            v_already = core_contains(&[v_matched_ids.clone(), v_ranked_id.clone()])?;
+            v_fresh = core_not(&[v_already.clone()])?;
+            if core_truthy(&v_fresh) {
+                core_append(&v_matched_ids, v_ranked_id.clone())?;
+            }
+        }
+    }
+    v_out = CoreValue::new_list();
+    for v_matched_id in core_iter(&v_matched_ids)? {
+        let mut v_matched_id = v_matched_id;
+        for v_catalog_skill in core_iter(&v_catalog)? {
+            let mut v_catalog_skill = v_catalog_skill;
+            v_catalog_id = core_get(
+                &v_catalog_skill,
+                &CoreValue::from("id"),
+                CoreValue::from(""),
+            );
+            v_matches = core_eq(&[v_catalog_id.clone(), v_matched_id.clone()])?;
+            if core_truthy(&v_matches) {
+                v_result = CoreValue::new_map();
+                v_result_name = core_get(
+                    &v_catalog_skill,
+                    &CoreValue::from("name"),
+                    v_catalog_id.clone(),
+                );
+                v_result_content = core_get(
+                    &v_catalog_skill,
+                    &CoreValue::from("content"),
+                    CoreValue::from(""),
+                );
+                core_set(&v_result, CoreValue::from("id"), v_catalog_id.clone())?;
+                core_set(&v_result, CoreValue::from("name"), v_result_name.clone())?;
+                core_set(
+                    &v_result,
+                    CoreValue::from("content"),
+                    v_result_content.clone(),
+                )?;
+                core_append(&v_out, v_result.clone())?;
+            }
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_catalog_memory_search(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_catalog_memory_search");
+    let mut v_catalog = core_arg(args, 0);
+    let mut v_searches = core_arg(args, 1);
+    let mut v_already_loaded = core_arg(args, 2);
+    let mut v_already = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_candidate_id = CoreValue::Null;
+    let mut v_candidates = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_content_field = CoreValue::Null;
+    let mut v_content_head = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_docs = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_fresh = CoreValue::Null;
+    let mut v_fresh2 = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_id_field = CoreValue::Null;
+    let mut v_loaded = CoreValue::Null;
+    let mut v_matched_id = CoreValue::Null;
+    let mut v_matched_ids = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_memory = CoreValue::Null;
+    let mut v_opts = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_ranked = CoreValue::Null;
+    let mut v_ranked_entry = CoreValue::Null;
+    let mut v_ranked_id = CoreValue::Null;
+    let mut v_search = CoreValue::Null;
+    v_candidates = CoreValue::new_list();
+    v_docs = CoreValue::new_list();
+    for v_memory in core_iter(&v_catalog)? {
+        let mut v_memory = v_memory;
+        v_id = core_get(&v_memory, &CoreValue::from("id"), CoreValue::from(""));
+        v_loaded = _agent_relevance_has_id(&[
+            v_already_loaded.clone(),
+            CoreValue::from("id"),
+            v_id.clone(),
+        ])?;
+        v_fresh = core_not(&[v_loaded.clone()])?;
+        if core_truthy(&v_fresh) {
+            core_append(&v_candidates, v_memory.clone())?;
+            v_content = core_get(&v_memory, &CoreValue::from("content"), CoreValue::from(""));
+            v_content_head = core_string_slice(&[
+                v_content.clone(),
+                CoreValue::Num(0f64),
+                CoreValue::Num(600f64),
+            ])?;
+            v_fields = CoreValue::new_list();
+            v_id_field = CoreValue::new_map();
+            core_set(&v_id_field, CoreValue::from("text"), v_id.clone())?;
+            core_set(
+                &v_id_field,
+                CoreValue::from("identifier"),
+                CoreValue::Bool(true),
+            )?;
+            core_append(&v_fields, v_id_field.clone())?;
+            v_content_field = CoreValue::new_map();
+            core_set(
+                &v_content_field,
+                CoreValue::from("text"),
+                v_content_head.clone(),
+            )?;
+            core_append(&v_fields, v_content_field.clone())?;
+            v_doc = CoreValue::new_map();
+            core_set(&v_doc, CoreValue::from("id"), v_id.clone())?;
+            core_set(&v_doc, CoreValue::from("fields"), v_fields.clone())?;
+            core_append(&v_docs, v_doc.clone())?;
+        }
+    }
+    v_opts = CoreValue::new_map();
+    core_set(&v_opts, CoreValue::from("topK"), CoreValue::Num(3f64))?;
+    core_set(&v_opts, CoreValue::from("minScore"), CoreValue::Num(0f64))?;
+    core_set(
+        &v_opts,
+        CoreValue::from("marginRatio"),
+        CoreValue::Num(0f64),
+    )?;
+    core_set(&v_opts, CoreValue::from("minDocs"), CoreValue::Num(1f64))?;
+    v_matched_ids = CoreValue::new_list();
+    for v_search in core_iter(&v_searches)? {
+        let mut v_search = v_search;
+        v_ranked = _agent_rank_documents(&[v_search.clone(), v_docs.clone(), v_opts.clone()])?;
+        for v_ranked_entry in core_iter(&v_ranked)? {
+            let mut v_ranked_entry = v_ranked_entry;
+            v_ranked_id = core_get(&v_ranked_entry, &CoreValue::from("id"), CoreValue::from(""));
+            v_already = core_contains(&[v_matched_ids.clone(), v_ranked_id.clone()])?;
+            v_fresh2 = core_not(&[v_already.clone()])?;
+            if core_truthy(&v_fresh2) {
+                core_append(&v_matched_ids, v_ranked_id.clone())?;
+            }
+        }
+    }
+    v_out = CoreValue::new_list();
+    for v_matched_id in core_iter(&v_matched_ids)? {
+        let mut v_matched_id = v_matched_id;
+        for v_candidate in core_iter(&v_candidates)? {
+            let mut v_candidate = v_candidate;
+            v_candidate_id = core_get(&v_candidate, &CoreValue::from("id"), CoreValue::from(""));
+            v_matches = core_eq(&[v_candidate_id.clone(), v_matched_id.clone()])?;
+            if core_truthy(&v_matches) {
+                core_append(&v_out, v_candidate.clone())?;
+            }
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _agent_render_discovered_tool_docs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_agent_render_discovered_tool_docs");
     let mut v_docs = core_arg(args, 0);
@@ -52664,33 +53706,59 @@ fn _agent_render_loaded_skills(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_skills = core_arg(args, 0);
     let mut v_body = CoreValue::Null;
     let mut v_content = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
     let mut v_line = CoreValue::Null;
     let mut v_lines = CoreValue::Null;
     let mut v_name = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
     let mut v_skill = CoreValue::Null;
     v_lines = CoreValue::new_list();
     for v_skill in core_iter(&v_skills)? {
         let mut v_skill = v_skill;
+        v_id = core_get(&v_skill, &CoreValue::from("id"), CoreValue::from(""));
         v_name = core_get(&v_skill, &CoreValue::from("name"), CoreValue::from(""));
         v_content = core_get(&v_skill, &CoreValue::from("content"), CoreValue::from(""));
         v_line = core_string_format(&[
-            CoreValue::from("### {}\n{}"),
+            CoreValue::from("### {}\n\nID: `{}`\n\n{}"),
             v_name.clone(),
+            v_id.clone(),
             v_content.clone(),
         ])?;
         core_append(&v_lines, v_line.clone())?;
     }
     v_body = core_string_join_intrinsic(&[CoreValue::from("\n\n"), v_lines.clone()])?;
-    v_empty = core_eq(&[v_body.clone(), CoreValue::from("")])?;
-    v_out = v_body.clone();
-    if core_truthy(&v_empty) {
-        v_out = CoreValue::from("");
-    } else {
-        v_out = core_string_format(&[CoreValue::from("Loaded Skills\n{}"), v_body.clone()])?;
+    return Ok(v_body.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_render_loaded_memories(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_render_loaded_memories");
+    let mut v_memories = core_arg(args, 0);
+    let mut v_body = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_memory = CoreValue::Null;
+    v_lines = CoreValue::new_list();
+    for v_memory in core_iter(&v_memories)? {
+        let mut v_memory = v_memory;
+        v_id = core_get(&v_memory, &CoreValue::from("id"), CoreValue::from(""));
+        v_content = core_get(&v_memory, &CoreValue::from("content"), CoreValue::from(""));
+        v_line = core_string_format(&[
+            CoreValue::from("### Memory\n\nID: `{}`\n\n{}"),
+            v_id.clone(),
+            v_content.clone(),
+        ])?;
+        core_append(&v_lines, v_line.clone())?;
     }
-    return Ok(v_out.clone());
+    v_body = core_string_join_intrinsic(&[CoreValue::from("\n\n"), v_lines.clone()])?;
+    return Ok(v_body.clone());
 }
 
 #[allow(
@@ -52706,9 +53774,12 @@ fn _agent_discover(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 1);
     let mut v_action_event = CoreValue::Null;
     let mut v_action_log = CoreValue::Null;
+    let mut v_active_stage = CoreValue::Null;
     let mut v_callable = CoreValue::Null;
     let mut v_callables = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
+    let mut v_callback_camel = CoreValue::Null;
+    let mut v_callback_value = CoreValue::Null;
+    let mut v_catalog = CoreValue::Null;
     let mut v_description = CoreValue::Null;
     let mut v_doc = CoreValue::Null;
     let mut v_doc_description = CoreValue::Null;
@@ -52719,13 +53790,17 @@ fn _agent_discover(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_empty_list = CoreValue::Null;
     let mut v_event = CoreValue::Null;
     let mut v_group = CoreValue::Null;
-    let mut v_has_host = CoreValue::Null;
+    let mut v_has_callback = CoreValue::Null;
+    let mut v_has_host_search = CoreValue::Null;
+    let mut v_has_scripted = CoreValue::Null;
     let mut v_has_skills = CoreValue::Null;
-    let mut v_host_count = CoreValue::Null;
-    let mut v_host_skill = CoreValue::Null;
     let mut v_host_skills = CoreValue::Null;
     let mut v_inventory = CoreValue::Null;
+    let mut v_is_distiller = CoreValue::Null;
     let mut v_kind = CoreValue::Null;
+    let mut v_loaded_any = CoreValue::Null;
+    let mut v_loaded_count = CoreValue::Null;
+    let mut v_loaded_from_search = CoreValue::Null;
     let mut v_matches = CoreValue::Null;
     let mut v_name = CoreValue::Null;
     let mut v_name_match = CoreValue::Null;
@@ -52733,14 +53808,16 @@ fn _agent_discover(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_namespace_match = CoreValue::Null;
     let mut v_none = CoreValue::Null;
     let mut v_normalized = CoreValue::Null;
+    let mut v_observer_loaded_from_search = CoreValue::Null;
+    let mut v_observer_options = CoreValue::Null;
     let mut v_qualified = CoreValue::Null;
     let mut v_qualified_match = CoreValue::Null;
-    let mut v_skill = CoreValue::Null;
+    let mut v_scripted_camel = CoreValue::Null;
+    let mut v_scripted_value = CoreValue::Null;
     let mut v_skill_count = CoreValue::Null;
     let mut v_skill_docs = CoreValue::Null;
-    let mut v_skill_id = CoreValue::Null;
-    let mut v_skill_name = CoreValue::Null;
     let mut v_skills = CoreValue::Null;
+    let mut v_state_options = CoreValue::Null;
     let mut v_tools = CoreValue::Null;
     let mut v_trace = CoreValue::Null;
     let mut v_wanted = CoreValue::Null;
@@ -52756,11 +53833,24 @@ fn _agent_discover(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &CoreValue::from("discovered_tool_docs"),
         v_empty_list.clone(),
     );
+    v_active_stage = core_get(
+        &v_state,
+        &CoreValue::from("active_stage"),
+        CoreValue::from("executor"),
+    );
+    v_is_distiller = core_eq(&[v_active_stage.clone(), CoreValue::from("distiller")])?;
     v_skill_docs = core_get(
         &v_state,
         &CoreValue::from("loaded_skill_docs"),
         v_empty_list.clone(),
     );
+    if core_truthy(&v_is_distiller) {
+        v_skill_docs = core_get(
+            &v_state,
+            &CoreValue::from("distiller_loaded_skill_docs"),
+            v_empty_list.clone(),
+        );
+    }
     v_trace = core_get(
         &v_state,
         &CoreValue::from("policy_trace"),
@@ -52872,40 +53962,60 @@ fn _agent_discover(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     }
     v_skill_count = core_len(&[v_skills.clone()])?;
     v_has_skills = core_gt(&[v_skill_count.clone(), CoreValue::Num(0f64)])?;
+    v_loaded_from_search = CoreValue::new_list();
+    v_observer_loaded_from_search = CoreValue::new_list();
     if core_truthy(&v_has_skills) {
-        v_host_skills = core_agent_skill_search(&[v_state.clone(), v_skills.clone()])?;
-        v_host_count = core_len(&[v_host_skills.clone()])?;
-        v_has_host = core_gt(&[v_host_count.clone(), CoreValue::Num(0f64)])?;
-        if core_truthy(&v_has_host) {
-            for v_host_skill in core_iter(&v_host_skills)? {
-                let mut v_host_skill = v_host_skill;
-                v_skill_name =
-                    core_get(&v_host_skill, &CoreValue::from("name"), CoreValue::from(""));
-                v_skill_id = core_get(&v_host_skill, &CoreValue::from("id"), v_skill_name.clone());
-                core_set(&v_host_skill, CoreValue::from("id"), v_skill_id.clone())?;
-                v_skill_docs = _agent_append_unique_by_field(&[
-                    v_skill_docs.clone(),
-                    v_host_skill.clone(),
-                    CoreValue::from("id"),
-                ])?;
-            }
+        v_state_options = core_get(&v_state, &CoreValue::from("options"), CoreValue::Null);
+        v_callback_camel = core_get(
+            &v_state_options,
+            &CoreValue::from("onSkillsSearch"),
+            CoreValue::Null,
+        );
+        v_callback_value = core_get(
+            &v_state_options,
+            &CoreValue::from("on_skills_search"),
+            v_callback_camel.clone(),
+        );
+        v_scripted_camel = core_get(
+            &v_state_options,
+            &CoreValue::from("skillSearchResults"),
+            CoreValue::Null,
+        );
+        v_scripted_value = core_get(
+            &v_state_options,
+            &CoreValue::from("skill_search_results"),
+            v_scripted_camel.clone(),
+        );
+        v_has_callback = core_is_not_none(&[v_callback_value.clone()])?;
+        v_has_scripted = core_is_not_none(&[v_scripted_value.clone()])?;
+        v_has_host_search = core_or(&[v_has_callback.clone(), v_has_scripted.clone()])?;
+        if core_truthy(&v_has_host_search) {
+            v_host_skills = core_agent_skill_search(&[v_state.clone(), v_skills.clone()])?;
+            v_observer_loaded_from_search = v_host_skills.clone();
+            v_loaded_from_search =
+                _agent_merge_skill_results(&[v_empty_list.clone(), v_host_skills.clone()])?;
         } else {
-            for v_skill in core_iter(&v_skills)? {
-                let mut v_skill = v_skill;
-                v_doc = CoreValue::new_map();
-                core_set(&v_doc, CoreValue::from("id"), v_skill.clone())?;
-                core_set(&v_doc, CoreValue::from("name"), v_skill.clone())?;
-                v_content = core_string_format(&[
-                    CoreValue::from("Skill docs loaded for {}"),
-                    v_skill.clone(),
-                ])?;
-                core_set(&v_doc, CoreValue::from("content"), v_content.clone())?;
-                v_skill_docs = _agent_append_unique_by_field(&[
-                    v_skill_docs.clone(),
-                    v_doc.clone(),
-                    CoreValue::from("id"),
-                ])?;
-            }
+            v_catalog = core_get(
+                &v_state,
+                &CoreValue::from("skills_catalog"),
+                v_empty_list.clone(),
+            );
+            v_loaded_from_search =
+                _agent_catalog_skill_search(&[v_catalog.clone(), v_skills.clone()])?;
+            v_observer_loaded_from_search = v_loaded_from_search.clone();
+        }
+        v_skill_docs =
+            _agent_merge_skill_results(&[v_skill_docs.clone(), v_loaded_from_search.clone()])?;
+        v_loaded_count = core_len(&[v_loaded_from_search.clone()])?;
+        v_loaded_any = core_gt(&[v_loaded_count.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_loaded_any) {
+            v_observer_options = CoreValue::new_map();
+            core_agent_observer_notify(&[
+                v_state.clone(),
+                v_observer_options.clone(),
+                CoreValue::from("loaded_skills"),
+                v_observer_loaded_from_search.clone(),
+            ])?;
         }
     }
     v_event = CoreValue::new_map();
@@ -52936,11 +54046,19 @@ fn _agent_discover(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("discovered_tool_docs"),
         v_docs.clone(),
     )?;
-    core_set(
-        &v_state,
-        CoreValue::from("loaded_skill_docs"),
-        v_skill_docs.clone(),
-    )?;
+    if core_truthy(&v_is_distiller) {
+        core_set(
+            &v_state,
+            CoreValue::from("distiller_loaded_skill_docs"),
+            v_skill_docs.clone(),
+        )?;
+    } else {
+        core_set(
+            &v_state,
+            CoreValue::from("loaded_skill_docs"),
+            v_skill_docs.clone(),
+        )?;
+    }
     core_set(&v_state, CoreValue::from("policy_trace"), v_trace.clone())?;
     core_set(
         &v_state,
@@ -53004,28 +54122,95 @@ fn _agent_merge_memory_results(args: &[CoreValue]) -> Result<CoreValue, AxError>
     axir_coverage_mark("_agent_merge_memory_results");
     let mut v_existing = core_arg(args, 0);
     let mut v_incoming = core_arg(args, 1);
+    let mut v_by_id = CoreValue::Null;
     let mut v_content = CoreValue::Null;
-    let mut v_has_content = CoreValue::Null;
+    let mut v_content2 = CoreValue::Null;
+    let mut v_content2_is_string = CoreValue::Null;
+    let mut v_content_is_string = CoreValue::Null;
+    let mut v_existing_is_list = CoreValue::Null;
     let mut v_has_id = CoreValue::Null;
+    let mut v_has_id2 = CoreValue::Null;
     let mut v_id = CoreValue::Null;
+    let mut v_id2 = CoreValue::Null;
+    let mut v_id2_is_string = CoreValue::Null;
+    let mut v_id2_raw = CoreValue::Null;
+    let mut v_id_is_string = CoreValue::Null;
+    let mut v_id_raw = CoreValue::Null;
+    let mut v_ids = CoreValue::Null;
+    let mut v_incoming_is_list = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
     let mut v_memory = CoreValue::Null;
+    let mut v_memory2 = CoreValue::Null;
+    let mut v_memory2_is_map = CoreValue::Null;
+    let mut v_memory_is_map = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_normalized2 = CoreValue::Null;
     let mut v_out = CoreValue::Null;
-    let mut v_valid = CoreValue::Null;
-    v_out = v_existing.clone();
-    for v_memory in core_iter(&v_incoming)? {
-        let mut v_memory = v_memory;
-        v_id = core_get(&v_memory, &CoreValue::from("id"), CoreValue::from(""));
-        v_content = core_get(&v_memory, &CoreValue::from("content"), CoreValue::from(""));
-        v_has_id = core_ne(&[v_id.clone(), CoreValue::from("")])?;
-        v_has_content = core_ne(&[v_content.clone(), CoreValue::from("")])?;
-        v_valid = core_and(&[v_has_id.clone(), v_has_content.clone()])?;
-        if core_truthy(&v_valid) {
-            v_out = _agent_append_unique_by_field(&[
-                v_out.clone(),
-                v_memory.clone(),
-                CoreValue::from("id"),
-            ])?;
+    let mut v_sorted_id = CoreValue::Null;
+    let mut v_sorted_ids = CoreValue::Null;
+    let mut v_valid2_types = CoreValue::Null;
+    let mut v_valid_types = CoreValue::Null;
+    v_by_id = CoreValue::new_map();
+    v_existing_is_list = core_type_is(&v_existing, CoreValue::from("list"));
+    if core_truthy(&v_existing_is_list) {
+        for v_memory in core_iter(&v_existing)? {
+            let mut v_memory = v_memory;
+            v_memory_is_map = core_type_is(&v_memory, CoreValue::from("object"));
+            if core_truthy(&v_memory_is_map) {
+                v_id_raw = core_get(&v_memory, &CoreValue::from("id"), CoreValue::Null);
+                v_content = core_get(&v_memory, &CoreValue::from("content"), CoreValue::Null);
+                v_id_is_string = core_type_is(&v_id_raw, CoreValue::from("string"));
+                v_content_is_string = core_type_is(&v_content, CoreValue::from("string"));
+                v_valid_types = core_and(&[v_id_is_string.clone(), v_content_is_string.clone()])?;
+                if core_truthy(&v_valid_types) {
+                    v_id = core_string_trim(&v_id_raw);
+                    v_has_id = core_ne(&[v_id.clone(), CoreValue::from("")])?;
+                    if core_truthy(&v_has_id) {
+                        v_normalized = CoreValue::new_map();
+                        core_set(&v_normalized, CoreValue::from("id"), v_id.clone())?;
+                        core_set(&v_normalized, CoreValue::from("content"), v_content.clone())?;
+                        core_set(&v_by_id, v_id.clone(), v_normalized.clone())?;
+                    }
+                }
+            }
         }
+    }
+    v_incoming_is_list = core_type_is(&v_incoming, CoreValue::from("list"));
+    if core_truthy(&v_incoming_is_list) {
+        for v_memory2 in core_iter(&v_incoming)? {
+            let mut v_memory2 = v_memory2;
+            v_memory2_is_map = core_type_is(&v_memory2, CoreValue::from("object"));
+            if core_truthy(&v_memory2_is_map) {
+                v_id2_raw = core_get(&v_memory2, &CoreValue::from("id"), CoreValue::Null);
+                v_content2 = core_get(&v_memory2, &CoreValue::from("content"), CoreValue::Null);
+                v_id2_is_string = core_type_is(&v_id2_raw, CoreValue::from("string"));
+                v_content2_is_string = core_type_is(&v_content2, CoreValue::from("string"));
+                v_valid2_types =
+                    core_and(&[v_id2_is_string.clone(), v_content2_is_string.clone()])?;
+                if core_truthy(&v_valid2_types) {
+                    v_id2 = core_string_trim(&v_id2_raw);
+                    v_has_id2 = core_ne(&[v_id2.clone(), CoreValue::from("")])?;
+                    if core_truthy(&v_has_id2) {
+                        v_normalized2 = CoreValue::new_map();
+                        core_set(&v_normalized2, CoreValue::from("id"), v_id2.clone())?;
+                        core_set(
+                            &v_normalized2,
+                            CoreValue::from("content"),
+                            v_content2.clone(),
+                        )?;
+                        core_set(&v_by_id, v_id2.clone(), v_normalized2.clone())?;
+                    }
+                }
+            }
+        }
+    }
+    v_ids = core_map_keys(&[v_by_id.clone()])?;
+    v_sorted_ids = core_sorted_strings(&[v_ids.clone()])?;
+    v_out = CoreValue::new_list();
+    for v_sorted_id in core_iter(&v_sorted_ids)? {
+        let mut v_sorted_id = v_sorted_id;
+        v_item = core_get(&v_by_id, &v_sorted_id.clone(), CoreValue::Null);
+        core_append(&v_out, v_item.clone())?;
     }
     return Ok(v_out.clone());
 }
@@ -53043,14 +54228,28 @@ fn _agent_recall(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 1);
     let mut v_action = CoreValue::Null;
     let mut v_action_log = CoreValue::Null;
+    let mut v_callback_camel = CoreValue::Null;
+    let mut v_callback_value = CoreValue::Null;
+    let mut v_catalog = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_event = CoreValue::Null;
+    let mut v_has_callback = CoreValue::Null;
+    let mut v_has_host_search = CoreValue::Null;
+    let mut v_has_incoming = CoreValue::Null;
+    let mut v_has_scripted = CoreValue::Null;
+    let mut v_host_incoming = CoreValue::Null;
     let mut v_incoming = CoreValue::Null;
+    let mut v_incoming_count = CoreValue::Null;
     let mut v_loaded = CoreValue::Null;
     let mut v_merged = CoreValue::Null;
     let mut v_none = CoreValue::Null;
     let mut v_normalized = CoreValue::Null;
+    let mut v_observer_incoming = CoreValue::Null;
+    let mut v_observer_options = CoreValue::Null;
+    let mut v_scripted_camel = CoreValue::Null;
+    let mut v_scripted_value = CoreValue::Null;
     let mut v_searches = CoreValue::Null;
+    let mut v_state_options = CoreValue::Null;
     let mut v_trace = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
     v_normalized = _normalize_agent_recall_request(&[v_state.clone(), v_request.clone()])?;
@@ -53064,14 +54263,67 @@ fn _agent_recall(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &CoreValue::from("loaded_memories"),
         v_empty_list.clone(),
     );
-    v_incoming =
-        core_agent_memory_search(&[v_state.clone(), v_searches.clone(), v_loaded.clone()])?;
+    v_state_options = core_get(&v_state, &CoreValue::from("options"), CoreValue::Null);
+    v_callback_camel = core_get(
+        &v_state_options,
+        &CoreValue::from("onMemoriesSearch"),
+        CoreValue::Null,
+    );
+    v_callback_value = core_get(
+        &v_state_options,
+        &CoreValue::from("on_memories_search"),
+        v_callback_camel.clone(),
+    );
+    v_scripted_camel = core_get(
+        &v_state_options,
+        &CoreValue::from("memorySearchResults"),
+        CoreValue::Null,
+    );
+    v_scripted_value = core_get(
+        &v_state_options,
+        &CoreValue::from("memory_search_results"),
+        v_scripted_camel.clone(),
+    );
+    v_has_callback = core_is_not_none(&[v_callback_value.clone()])?;
+    v_has_scripted = core_is_not_none(&[v_scripted_value.clone()])?;
+    v_has_host_search = core_or(&[v_has_callback.clone(), v_has_scripted.clone()])?;
+    v_incoming = CoreValue::new_list();
+    v_observer_incoming = CoreValue::new_list();
+    if core_truthy(&v_has_host_search) {
+        v_host_incoming =
+            core_agent_memory_search(&[v_state.clone(), v_searches.clone(), v_loaded.clone()])?;
+        v_observer_incoming = v_host_incoming.clone();
+        v_incoming = _agent_merge_memory_results(&[v_empty_list.clone(), v_host_incoming.clone()])?;
+    } else {
+        v_catalog = core_get(
+            &v_state,
+            &CoreValue::from("memories_catalog"),
+            v_empty_list.clone(),
+        );
+        v_incoming = _agent_catalog_memory_search(&[
+            v_catalog.clone(),
+            v_searches.clone(),
+            v_loaded.clone(),
+        ])?;
+        v_observer_incoming = v_incoming.clone();
+    }
     v_merged = _agent_merge_memory_results(&[v_loaded.clone(), v_incoming.clone()])?;
     core_set(
         &v_state,
         CoreValue::from("loaded_memories"),
         v_merged.clone(),
     )?;
+    v_incoming_count = core_len(&[v_incoming.clone()])?;
+    v_has_incoming = core_gt(&[v_incoming_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_incoming) {
+        v_observer_options = CoreValue::new_map();
+        core_agent_observer_notify(&[
+            v_state.clone(),
+            v_observer_options.clone(),
+            CoreValue::from("loaded_memories"),
+            v_observer_incoming.clone(),
+        ])?;
+    }
     v_trace = core_get(
         &v_state,
         &CoreValue::from("policy_trace"),
@@ -53114,6 +54366,56 @@ fn _agent_recall(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _agent_append_unique_used_entry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_append_unique_used_entry");
+    let mut v_items = core_arg(args, 0);
+    let mut v_entry = core_arg(args, 1);
+    let mut v_entry_id = CoreValue::Null;
+    let mut v_entry_reason = CoreValue::Null;
+    let mut v_entry_stage = CoreValue::Null;
+    let mut v_exists = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_item_id = CoreValue::Null;
+    let mut v_item_reason = CoreValue::Null;
+    let mut v_item_stage = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_same = CoreValue::Null;
+    let mut v_same_id = CoreValue::Null;
+    let mut v_same_id_reason = CoreValue::Null;
+    let mut v_same_reason = CoreValue::Null;
+    let mut v_same_stage = CoreValue::Null;
+    v_entry_id = core_get(&v_entry, &CoreValue::from("id"), CoreValue::from(""));
+    v_entry_reason = core_get(&v_entry, &CoreValue::from("reason"), CoreValue::from(""));
+    v_entry_stage = core_get(&v_entry, &CoreValue::from("stage"), CoreValue::from(""));
+    v_exists = CoreValue::Bool(false);
+    for v_item in core_iter(&v_items)? {
+        let mut v_item = v_item;
+        v_item_id = core_get(&v_item, &CoreValue::from("id"), CoreValue::from(""));
+        v_item_reason = core_get(&v_item, &CoreValue::from("reason"), CoreValue::from(""));
+        v_item_stage = core_get(&v_item, &CoreValue::from("stage"), CoreValue::from(""));
+        v_same_id = core_eq(&[v_entry_id.clone(), v_item_id.clone()])?;
+        v_same_reason = core_eq(&[v_entry_reason.clone(), v_item_reason.clone()])?;
+        v_same_stage = core_eq(&[v_entry_stage.clone(), v_item_stage.clone()])?;
+        v_same_id_reason = core_and(&[v_same_id.clone(), v_same_reason.clone()])?;
+        v_same = core_and(&[v_same_id_reason.clone(), v_same_stage.clone()])?;
+        if core_truthy(&v_same) {
+            v_exists = CoreValue::Bool(true);
+        }
+    }
+    v_missing = core_not(&[v_exists.clone()])?;
+    if core_truthy(&v_missing) {
+        core_append(&v_items, v_entry.clone())?;
+    }
+    return Ok(v_items.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _normalize_agent_used_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_normalize_agent_used_request");
     let mut v_request = core_arg(args, 0);
@@ -53142,6 +54444,11 @@ fn _normalize_agent_used_request(args: &[CoreValue]) -> Result<CoreValue, AxErro
     }
     v_id = core_string_trim(&v_id);
     v_reason = core_string_trim(&v_reason);
+    v_reason = core_string_slice(&[
+        v_reason.clone(),
+        CoreValue::Num(0f64),
+        CoreValue::Num(300f64),
+    ])?;
     v_missing = core_eq(&[v_id.clone(), CoreValue::from("")])?;
     if core_truthy(&v_missing) {
         v_error = core_runtime_error(&[CoreValue::from(
@@ -53169,7 +54476,6 @@ fn _agent_used(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_request = core_arg(args, 1);
     let mut v_stage = core_arg(args, 2);
     let mut v_action_log = CoreValue::Null;
-    let mut v_dedupe_key = CoreValue::Null;
     let mut v_disabled = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_enabled = CoreValue::Null;
@@ -53177,6 +54483,7 @@ fn _agent_used(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_event = CoreValue::Null;
     let mut v_flags = CoreValue::Null;
     let mut v_id = CoreValue::Null;
+    let mut v_is_distiller = CoreValue::Null;
     let mut v_is_match = CoreValue::Null;
     let mut v_matched = CoreValue::Null;
     let mut v_memories = CoreValue::Null;
@@ -53216,12 +54523,6 @@ fn _agent_used(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from(""),
     );
     v_normalized_stage = core_get(&v_normalized, &CoreValue::from("stage"), v_stage.clone());
-    v_dedupe_key = core_string_format(&[
-        CoreValue::from("{}\n{}\n{}"),
-        v_normalized_stage.clone(),
-        v_id.clone(),
-        v_reason.clone(),
-    ])?;
     v_memories = core_get(
         &v_state,
         &CoreValue::from("loaded_memories"),
@@ -53232,6 +54533,14 @@ fn _agent_used(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &CoreValue::from("loaded_skill_docs"),
         v_empty_list.clone(),
     );
+    v_is_distiller = core_eq(&[v_normalized_stage.clone(), CoreValue::from("distiller")])?;
+    if core_truthy(&v_is_distiller) {
+        v_skills = core_get(
+            &v_state,
+            &CoreValue::from("distiller_loaded_skill_docs"),
+            v_empty_list.clone(),
+        );
+    }
     v_used_memories = core_get(
         &v_state,
         &CoreValue::from("used_memories"),
@@ -53256,16 +54565,8 @@ fn _agent_used(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 CoreValue::from("stage"),
                 v_normalized_stage.clone(),
             )?;
-            core_set(
-                &v_record,
-                CoreValue::from("dedupe_key"),
-                v_dedupe_key.clone(),
-            )?;
-            v_used_memories = _agent_append_unique_by_field(&[
-                v_used_memories.clone(),
-                v_record.clone(),
-                CoreValue::from("dedupe_key"),
-            ])?;
+            v_used_memories =
+                _agent_append_unique_used_entry(&[v_used_memories.clone(), v_record.clone()])?;
             v_matched = CoreValue::Bool(true);
         }
     }
@@ -53284,16 +54585,8 @@ fn _agent_used(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 CoreValue::from("stage"),
                 v_normalized_stage.clone(),
             )?;
-            core_set(
-                &v_record,
-                CoreValue::from("dedupe_key"),
-                v_dedupe_key.clone(),
-            )?;
-            v_used_skills = _agent_append_unique_by_field(&[
-                v_used_skills.clone(),
-                v_record.clone(),
-                CoreValue::from("dedupe_key"),
-            ])?;
+            v_used_skills =
+                _agent_append_unique_used_entry(&[v_used_skills.clone(), v_record.clone()])?;
             v_matched = CoreValue::Bool(true);
         }
     }
@@ -54650,6 +55943,7 @@ fn _agent_export_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_context_policy = CoreValue::Null;
     let mut v_discovered = CoreValue::Null;
     let mut v_distiller_signature = CoreValue::Null;
+    let mut v_distiller_skills = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_executor_signature = CoreValue::Null;
@@ -54688,6 +55982,11 @@ fn _agent_export_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError>
     v_skills = core_get(
         &v_state,
         &CoreValue::from("loaded_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_distiller_skills = core_get(
+        &v_state,
+        &CoreValue::from("distiller_loaded_skill_docs"),
         v_empty_list.clone(),
     );
     v_memories = core_get(
@@ -54825,6 +56124,11 @@ fn _agent_export_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError>
     )?;
     core_set(
         &v_out,
+        CoreValue::from("distiller_loaded_skill_docs"),
+        v_distiller_skills.clone(),
+    )?;
+    core_set(
+        &v_out,
         CoreValue::from("loaded_memories"),
         v_memories.clone(),
     )?;
@@ -54953,6 +56257,8 @@ fn _agent_restore_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_context_events = CoreValue::Null;
     let mut v_context_map = CoreValue::Null;
     let mut v_discovered = CoreValue::Null;
+    let mut v_distiller_skills = CoreValue::Null;
+    let mut v_distiller_skills_raw = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_function_call_traces = CoreValue::Null;
@@ -54961,8 +56267,10 @@ fn _agent_restore_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_has_trace = CoreValue::Null;
     let mut v_last_actor_context = CoreValue::Null;
     let mut v_memories = CoreValue::Null;
+    let mut v_memories_raw = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_policy_registry = CoreValue::Null;
+    let mut v_preset_skills = CoreValue::Null;
     let mut v_provenance = CoreValue::Null;
     let mut v_run_trace = CoreValue::Null;
     let mut v_runtime_globals = CoreValue::Null;
@@ -54970,6 +56278,7 @@ fn _agent_restore_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_runtime_state = CoreValue::Null;
     let mut v_runtime_state_summary = CoreValue::Null;
     let mut v_skills = CoreValue::Null;
+    let mut v_skills_raw = CoreValue::Null;
     let mut v_status_log = CoreValue::Null;
     let mut v_trace = CoreValue::Null;
     let mut v_used_memories = CoreValue::Null;
@@ -54986,16 +56295,31 @@ fn _agent_restore_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError
         &CoreValue::from("discovered_tool_docs"),
         v_empty_list.clone(),
     );
-    v_skills = core_get(
+    v_skills_raw = core_get(
         &v_snapshot,
         &CoreValue::from("loaded_skill_docs"),
         v_empty_list.clone(),
     );
-    v_memories = core_get(
+    v_distiller_skills_raw = core_get(
+        &v_snapshot,
+        &CoreValue::from("distiller_loaded_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_preset_skills = core_get(
+        &v_state,
+        &CoreValue::from("preset_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_skills = _agent_merge_skill_results(&[v_empty_list.clone(), v_skills_raw.clone()])?;
+    v_skills = _agent_merge_skill_results(&[v_skills.clone(), v_preset_skills.clone()])?;
+    v_distiller_skills =
+        _agent_merge_skill_results(&[v_empty_list.clone(), v_distiller_skills_raw.clone()])?;
+    v_memories_raw = core_get(
         &v_snapshot,
         &CoreValue::from("loaded_memories"),
         v_empty_list.clone(),
     );
+    v_memories = _agent_merge_memory_results(&[v_empty_list.clone(), v_memories_raw.clone()])?;
     v_used_memories = core_get(
         &v_snapshot,
         &CoreValue::from("used_memories"),
@@ -55097,6 +56421,11 @@ fn _agent_restore_runtime_state(args: &[CoreValue]) -> Result<CoreValue, AxError
         &v_state,
         CoreValue::from("loaded_skill_docs"),
         v_skills.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("distiller_loaded_skill_docs"),
+        v_distiller_skills.clone(),
     )?;
     core_set(
         &v_state,
@@ -55213,6 +56542,8 @@ fn _agent_runtime_build_globals(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_empty_map = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_globals = CoreValue::Null;
+    let mut v_input_name = CoreValue::Null;
+    let mut v_input_name_known = CoreValue::Null;
     let mut v_key = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     let mut v_name = CoreValue::Null;
@@ -55222,6 +56553,7 @@ fn _agent_runtime_build_globals(args: &[CoreValue]) -> Result<CoreValue, AxError
     let mut v_registry = CoreValue::Null;
     let mut v_reserved = CoreValue::Null;
     let mut v_runtime_contract = CoreValue::Null;
+    let mut v_runtime_input_names = CoreValue::Null;
     let mut v_selected_primitives = CoreValue::Null;
     let mut v_value = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
@@ -55244,6 +56576,24 @@ fn _agent_runtime_build_globals(args: &[CoreValue]) -> Result<CoreValue, AxError
         &CoreValue::from("policy_registry"),
         v_empty_map.clone(),
     );
+    v_runtime_input_names = core_get(
+        &v_state,
+        &CoreValue::from("runtime_input_names"),
+        v_empty_list.clone(),
+    );
+    for v_input_name in core_iter(&v_values)? {
+        let mut v_input_name = v_input_name;
+        v_input_name_known = core_contains(&[v_runtime_input_names.clone(), v_input_name.clone()])?;
+        if core_truthy(&v_input_name_known) {
+        } else {
+            core_append(&v_runtime_input_names, v_input_name.clone())?;
+        }
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_input_names"),
+        v_runtime_input_names.clone(),
+    )?;
     v_selected_primitives =
         _select_actor_primitives(&[v_registry.clone(), CoreValue::from("executor")])?;
     core_set(&v_globals, CoreValue::from("inputs"), v_values.clone())?;
@@ -55322,14 +56672,15 @@ fn _agent_runtime_build_globals(args: &[CoreValue]) -> Result<CoreValue, AxError
 )]
 fn _agent_runtime_sanitize_bindings(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_agent_runtime_sanitize_bindings");
-    let mut v_bindings = core_arg(args, 0);
+    let mut v_state = core_arg(args, 0);
+    let mut v_bindings = core_arg(args, 1);
     let mut v_bindings_is_map = CoreValue::Null;
     let mut v_conflict = CoreValue::Null;
     let mut v_key = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_reserved = CoreValue::Null;
     let mut v_value = CoreValue::Null;
-    v_reserved = _agent_reserved_runtime_names(&[])?;
+    v_reserved = _agent_runtime_reserved_names_for_state(&[v_state.clone()])?;
     v_out = CoreValue::new_map();
     v_bindings_is_map = core_type_is(&v_bindings, CoreValue::from("object"));
     if core_truthy(&v_bindings_is_map) {
@@ -55355,13 +56706,18 @@ fn _agent_runtime_sanitize_bindings(args: &[CoreValue]) -> Result<CoreValue, AxE
 )]
 fn _normalize_agent_runtime_snapshot(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_normalize_agent_runtime_snapshot");
-    let mut v_snapshot = core_arg(args, 0);
+    let mut v_state = core_arg(args, 0);
+    let mut v_snapshot = core_arg(args, 1);
     let mut v_bindings = CoreValue::Null;
     let mut v_clean_bindings = CoreValue::Null;
+    let mut v_clean_entries = CoreValue::Null;
     let mut v_closed = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_entries = CoreValue::Null;
     let mut v_entries_is_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_entry_name = CoreValue::Null;
+    let mut v_entry_reserved = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_error2 = CoreValue::Null;
     let mut v_has_any = CoreValue::Null;
@@ -55370,6 +56726,7 @@ fn _normalize_agent_runtime_snapshot(args: &[CoreValue]) -> Result<CoreValue, Ax
     let mut v_out = CoreValue::Null;
     let mut v_raw_bindings = CoreValue::Null;
     let mut v_raw_globals = CoreValue::Null;
+    let mut v_reserved = CoreValue::Null;
     let mut v_snapshot_is_map = CoreValue::Null;
     let mut v_version = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
@@ -55397,7 +56754,8 @@ fn _normalize_agent_runtime_snapshot(args: &[CoreValue]) -> Result<CoreValue, Ax
     if core_truthy(&v_has_bindings) {
         v_bindings = v_raw_bindings.clone();
     }
-    v_clean_bindings = _agent_runtime_sanitize_bindings(&[v_bindings.clone()])?;
+    v_reserved = _agent_runtime_reserved_names_for_state(&[v_state.clone()])?;
+    v_clean_bindings = _agent_runtime_sanitize_bindings(&[v_state.clone(), v_bindings.clone()])?;
     v_entries = core_get(
         &v_snapshot,
         &CoreValue::from("entries"),
@@ -55407,6 +56765,16 @@ fn _normalize_agent_runtime_snapshot(args: &[CoreValue]) -> Result<CoreValue, Ax
     if core_truthy(&v_entries_is_list) {
     } else {
         v_entries = v_empty_list.clone();
+    }
+    v_clean_entries = CoreValue::new_list();
+    for v_entry in core_iter(&v_entries)? {
+        let mut v_entry = v_entry;
+        v_entry_name = core_get(&v_entry, &CoreValue::from("name"), CoreValue::from(""));
+        v_entry_reserved = core_contains(&[v_reserved.clone(), v_entry_name.clone()])?;
+        if core_truthy(&v_entry_reserved) {
+        } else {
+            core_append(&v_clean_entries, v_entry.clone())?;
+        }
     }
     v_closed = core_get(
         &v_snapshot,
@@ -55420,7 +56788,7 @@ fn _normalize_agent_runtime_snapshot(args: &[CoreValue]) -> Result<CoreValue, Ax
     );
     v_out = CoreValue::new_map();
     core_set(&v_out, CoreValue::from("version"), v_version.clone())?;
-    core_set(&v_out, CoreValue::from("entries"), v_entries.clone())?;
+    core_set(&v_out, CoreValue::from("entries"), v_clean_entries.clone())?;
     core_set(
         &v_out,
         CoreValue::from("bindings"),
@@ -55745,7 +57113,7 @@ fn _agent_runtime_execution_options(args: &[CoreValue]) -> Result<CoreValue, AxE
     let mut v_trace_id = CoreValue::Null;
     let mut v_trace_id_snake = CoreValue::Null;
     v_empty_map = CoreValue::new_map();
-    v_reserved_names = _agent_reserved_runtime_names(&[])?;
+    v_reserved_names = _agent_runtime_reserved_names_for_state(&[v_state.clone()])?;
     v_runtime_options = core_map_merge(&[v_empty_map.clone(), v_options.clone()])?;
     core_map_delete(&[v_runtime_options.clone(), CoreValue::from("runtime")])?;
     core_set(
@@ -55913,11 +57281,13 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_session = core_arg(args, 2);
     let mut v_code = core_arg(args, 3);
     let mut v_options = core_arg(args, 4);
+    let mut v_active_stage = CoreValue::Null;
     let mut v_callable_request = CoreValue::Null;
     let mut v_callable_result = CoreValue::Null;
     let mut v_closed = CoreValue::Null;
     let mut v_completion_payload = CoreValue::Null;
     let mut v_completion_type = CoreValue::Null;
+    let mut v_current_memories = CoreValue::Null;
     let mut v_discover_request = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
@@ -55933,6 +57303,10 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
     let mut v_is_clarification_completion = CoreValue::Null;
     let mut v_is_closed = CoreValue::Null;
     let mut v_is_final_completion = CoreValue::Null;
+    let mut v_memory_context = CoreValue::Null;
+    let mut v_memory_globals = CoreValue::Null;
+    let mut v_memory_inputs = CoreValue::Null;
+    let mut v_memory_patch = CoreValue::Null;
     let mut v_missing_session = CoreValue::Null;
     let mut v_normalized = CoreValue::Null;
     let mut v_notice = CoreValue::Null;
@@ -56031,6 +57405,68 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
     v_has_recall = core_is_not_none(&[v_recall_request.clone()])?;
     if core_truthy(&v_has_recall) {
         _agent_recall(&[v_state.clone(), v_recall_request.clone()])?;
+        v_memory_globals = core_get(
+            &v_state,
+            &CoreValue::from("runtime_globals"),
+            v_empty_map.clone(),
+        );
+        v_memory_inputs = core_get(
+            &v_memory_globals,
+            &CoreValue::from("inputs"),
+            v_empty_map.clone(),
+        );
+        v_memory_context = core_get(
+            &v_memory_globals,
+            &CoreValue::from("context"),
+            v_empty_map.clone(),
+        );
+        v_current_memories = core_get(
+            &v_state,
+            &CoreValue::from("loaded_memories"),
+            CoreValue::Null,
+        );
+        core_set(
+            &v_memory_inputs,
+            CoreValue::from("memories"),
+            v_current_memories.clone(),
+        )?;
+        core_set(
+            &v_memory_context,
+            CoreValue::from("memories"),
+            v_current_memories.clone(),
+        )?;
+        core_set(
+            &v_memory_globals,
+            CoreValue::from("inputs"),
+            v_memory_inputs.clone(),
+        )?;
+        core_set(
+            &v_memory_globals,
+            CoreValue::from("context"),
+            v_memory_context.clone(),
+        )?;
+        core_set(
+            &v_memory_globals,
+            CoreValue::from("memories"),
+            v_current_memories.clone(),
+        )?;
+        core_set(
+            &v_state,
+            CoreValue::from("runtime_globals"),
+            v_memory_globals.clone(),
+        )?;
+        v_memory_patch = CoreValue::new_map();
+        core_set(
+            &v_memory_patch,
+            CoreValue::from("globals"),
+            v_memory_globals.clone(),
+        )?;
+        _agent_runtime_restore_session_state(&[
+            v_state.clone(),
+            v_session.clone(),
+            v_memory_patch.clone(),
+            v_runtime_options.clone(),
+        ])?;
     }
     v_used_request = core_get(
         &v_normalized,
@@ -56039,10 +57475,15 @@ fn _agent_runtime_execute_step(args: &[CoreValue]) -> Result<CoreValue, AxError>
     );
     v_has_used = core_is_not_none(&[v_used_request.clone()])?;
     if core_truthy(&v_has_used) {
+        v_active_stage = core_get(
+            &v_state,
+            &CoreValue::from("active_stage"),
+            CoreValue::from("executor"),
+        );
         _agent_used(&[
             v_state.clone(),
             v_used_request.clone(),
-            CoreValue::from("executor"),
+            v_active_stage.clone(),
         ])?;
     }
     v_callable_request = core_get(
@@ -56183,7 +57624,7 @@ fn _agent_runtime_export_session_state(args: &[CoreValue]) -> Result<CoreValue, 
     let mut v_raw_snapshot = CoreValue::Null;
     let mut v_snapshot = CoreValue::Null;
     v_raw_snapshot = core_agent_runtime_export_state(&[v_session.clone(), v_options.clone()])?;
-    v_snapshot = _normalize_agent_runtime_snapshot(&[v_raw_snapshot.clone()])?;
+    v_snapshot = _normalize_agent_runtime_snapshot(&[v_state.clone(), v_raw_snapshot.clone()])?;
     core_set(
         &v_state,
         CoreValue::from("runtime_session_state"),
@@ -56258,7 +57699,7 @@ fn _agent_runtime_refresh_state_summary(args: &[CoreValue]) -> Result<CoreValue,
             _agent_runtime_execution_options(&[v_state.clone(), v_options.clone()])?;
         v_raw_snapshot =
             core_agent_runtime_export_state(&[v_session.clone(), v_runtime_options.clone()])?;
-        v_snapshot = _normalize_agent_runtime_snapshot(&[v_raw_snapshot.clone()])?;
+        v_snapshot = _normalize_agent_runtime_snapshot(&[v_state.clone(), v_raw_snapshot.clone()])?;
         core_set(
             &v_state,
             CoreValue::from("runtime_session_state"),
@@ -56287,13 +57728,14 @@ fn _agent_runtime_restore_session_state(args: &[CoreValue]) -> Result<CoreValue,
     let mut v_normalized_snapshot = CoreValue::Null;
     let mut v_raw_restored = CoreValue::Null;
     let mut v_restored = CoreValue::Null;
-    v_normalized_snapshot = _normalize_agent_runtime_snapshot(&[v_snapshot.clone()])?;
+    v_normalized_snapshot =
+        _normalize_agent_runtime_snapshot(&[v_state.clone(), v_snapshot.clone()])?;
     v_raw_restored = core_agent_runtime_restore_state(&[
         v_session.clone(),
         v_normalized_snapshot.clone(),
         v_options.clone(),
     ])?;
-    v_restored = _normalize_agent_runtime_snapshot(&[v_raw_restored.clone()])?;
+    v_restored = _normalize_agent_runtime_snapshot(&[v_state.clone(), v_raw_restored.clone()])?;
     core_set(
         &v_state,
         CoreValue::from("runtime_session_state"),
@@ -56704,44 +58146,52 @@ fn _agent_render_evidence_descriptor(args: &[CoreValue]) -> Result<CoreValue, Ax
     unreachable_code,
     clippy::all
 )]
-fn _agent_relevance_tokens(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_relevance_tokens");
+fn _agent_identifier_tokens(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_identifier_tokens");
     let mut v_text = core_arg(args, 0);
-    let mut v_already = CoreValue::Null;
-    let mut v_clean = CoreValue::Null;
-    let mut v_fresh = CoreValue::Null;
-    let mut v_is_stop = CoreValue::Null;
+    let mut v_acronyms = CoreValue::Null;
+    let mut v_camel = CoreValue::Null;
+    let mut v_keep = CoreValue::Null;
     let mut v_len = CoreValue::Null;
     let mut v_long_enough = CoreValue::Null;
     let mut v_lower = CoreValue::Null;
-    let mut v_not_stop = CoreValue::Null;
-    let mut v_ok = CoreValue::Null;
+    let mut v_not_numeric = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_part = CoreValue::Null;
     let mut v_parts = CoreValue::Null;
-    let mut v_stopwords = CoreValue::Null;
-    v_stopwords = core_json_parse(&[CoreValue::from("[\n  \"a\",\n  \"an\",\n  \"and\",\n  \"are\",\n  \"as\",\n  \"at\",\n  \"be\",\n  \"by\",\n  \"for\",\n  \"from\",\n  \"has\",\n  \"have\",\n  \"how\",\n  \"i\",\n  \"in\",\n  \"into\",\n  \"is\",\n  \"it\",\n  \"of\",\n  \"on\",\n  \"or\",\n  \"our\",\n  \"please\",\n  \"show\",\n  \"that\",\n  \"the\",\n  \"their\",\n  \"this\",\n  \"to\",\n  \"use\",\n  \"with\",\n  \"you\"\n]\n")])?;
-    v_lower = core_string_lower(&[v_text.clone()])?;
-    v_clean = core_regex_replace(&[
-        CoreValue::from("[^a-z0-9]+"),
-        CoreValue::from(" "),
-        v_lower.clone(),
+    let mut v_spaced = CoreValue::Null;
+    let mut v_without_digits = CoreValue::Null;
+    v_acronyms = core_regex_replace(&[
+        CoreValue::from("([A-Z]+)([A-Z][a-z])"),
+        CoreValue::from("$1 $2"),
+        v_text.clone(),
     ])?;
-    v_parts = core_string_split_trim_nonempty(&[v_clean.clone(), CoreValue::from(" ")])?;
+    v_camel = core_regex_replace(&[
+        CoreValue::from("([a-z0-9])([A-Z])"),
+        CoreValue::from("$1 $2"),
+        v_acronyms.clone(),
+    ])?;
+    v_spaced = core_regex_replace(&[
+        CoreValue::from("[^A-Za-z0-9]+"),
+        CoreValue::from(" "),
+        v_camel.clone(),
+    ])?;
+    v_lower = core_string_lower(&[v_spaced.clone()])?;
+    v_parts = core_string_split_trim_nonempty(&[v_lower.clone(), CoreValue::from(" ")])?;
     v_out = CoreValue::new_list();
     for v_part in core_iter(&v_parts)? {
         let mut v_part = v_part;
         v_len = core_len(&[v_part.clone()])?;
         v_long_enough = core_gt(&[v_len.clone(), CoreValue::Num(1f64)])?;
-        v_is_stop = core_contains(&[v_stopwords.clone(), v_part.clone()])?;
-        v_not_stop = core_not(&[v_is_stop.clone()])?;
-        v_ok = core_and(&[v_long_enough.clone(), v_not_stop.clone()])?;
-        if core_truthy(&v_ok) {
-            v_already = core_contains(&[v_out.clone(), v_part.clone()])?;
-            v_fresh = core_not(&[v_already.clone()])?;
-            if core_truthy(&v_fresh) {
-                core_append(&v_out, v_part.clone())?;
-            }
+        v_without_digits = core_regex_replace(&[
+            CoreValue::from("^[0-9]+$"),
+            CoreValue::from(""),
+            v_part.clone(),
+        ])?;
+        v_not_numeric = core_ne(&[v_without_digits.clone(), CoreValue::from("")])?;
+        v_keep = core_and(&[v_long_enough.clone(), v_not_numeric.clone()])?;
+        if core_truthy(&v_keep) {
+            core_append(&v_out, v_part.clone())?;
         }
     }
     return Ok(v_out.clone());
@@ -56754,24 +58204,461 @@ fn _agent_relevance_tokens(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _agent_relevance_score(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_agent_relevance_score");
-    let mut v_tokens = core_arg(args, 0);
-    let mut v_text = core_arg(args, 1);
-    let mut v_doc = CoreValue::Null;
-    let mut v_hit = CoreValue::Null;
-    let mut v_score = CoreValue::Null;
-    let mut v_token = CoreValue::Null;
-    v_doc = core_string_lower(&[v_text.clone()])?;
-    v_score = CoreValue::Num(0f64);
-    for v_token in core_iter(&v_tokens)? {
-        let mut v_token = v_token;
-        v_hit = core_contains(&[v_doc.clone(), v_token.clone()])?;
-        if core_truthy(&v_hit) {
-            v_score = core_add(&[v_score.clone(), CoreValue::Num(1f64)])?;
+fn _agent_relevance_tokens(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_relevance_tokens");
+    let mut v_text = core_arg(args, 0);
+    let mut v_base_ok = CoreValue::Null;
+    let mut v_clean = CoreValue::Null;
+    let mut v_is_stop = CoreValue::Null;
+    let mut v_len = CoreValue::Null;
+    let mut v_long_enough = CoreValue::Null;
+    let mut v_lower = CoreValue::Null;
+    let mut v_not_numeric = CoreValue::Null;
+    let mut v_not_stop = CoreValue::Null;
+    let mut v_ok = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_stopwords = CoreValue::Null;
+    let mut v_without_digits = CoreValue::Null;
+    v_stopwords = core_json_parse(&[CoreValue::from("[\n  \"a\",\n  \"an\",\n  \"and\",\n  \"are\",\n  \"as\",\n  \"at\",\n  \"be\",\n  \"by\",\n  \"for\",\n  \"from\",\n  \"has\",\n  \"have\",\n  \"how\",\n  \"i\",\n  \"in\",\n  \"into\",\n  \"is\",\n  \"it\",\n  \"of\",\n  \"on\",\n  \"or\",\n  \"our\",\n  \"please\",\n  \"show\",\n  \"that\",\n  \"the\",\n  \"their\",\n  \"this\",\n  \"to\",\n  \"use\",\n  \"with\",\n  \"you\"\n]\n")])?;
+    v_lower = core_string_lower(&[v_text.clone()])?;
+    v_clean = core_regex_replace(&[
+        CoreValue::from("[-!\"#$%&'()*+,./:;<=>?@\\[\\]^_`{|}~]"),
+        CoreValue::from(" "),
+        v_lower.clone(),
+    ])?;
+    v_parts = core_string_split_trim_nonempty(&[v_clean.clone(), CoreValue::from(" ")])?;
+    v_out = CoreValue::new_list();
+    for v_part in core_iter(&v_parts)? {
+        let mut v_part = v_part;
+        v_len = core_len(&[v_part.clone()])?;
+        v_long_enough = core_gt(&[v_len.clone(), CoreValue::Num(1f64)])?;
+        v_without_digits = core_regex_replace(&[
+            CoreValue::from("^[0-9]+$"),
+            CoreValue::from(""),
+            v_part.clone(),
+        ])?;
+        v_not_numeric = core_ne(&[v_without_digits.clone(), CoreValue::from("")])?;
+        v_is_stop = core_contains(&[v_stopwords.clone(), v_part.clone()])?;
+        v_not_stop = core_not(&[v_is_stop.clone()])?;
+        v_base_ok = core_and(&[v_long_enough.clone(), v_not_numeric.clone()])?;
+        v_ok = core_and(&[v_base_ok.clone(), v_not_stop.clone()])?;
+        if core_truthy(&v_ok) {
+            core_append(&v_out, v_part.clone())?;
         }
     }
-    return Ok(v_score.clone());
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_document_term_frequency(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_document_term_frequency");
+    let mut v_fields = core_arg(args, 0);
+    let mut v_current = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_identifier = CoreValue::Null;
+    let mut v_next = CoreValue::Null;
+    let mut v_term = CoreValue::Null;
+    let mut v_terms = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_tf = CoreValue::Null;
+    let mut v_weight = CoreValue::Null;
+    v_tf = CoreValue::new_map();
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_text = core_get(&v_field, &CoreValue::from("text"), CoreValue::from(""));
+        v_weight = core_get(&v_field, &CoreValue::from("weight"), CoreValue::Num(1f64));
+        v_identifier = core_get(
+            &v_field,
+            &CoreValue::from("identifier"),
+            CoreValue::Bool(false),
+        );
+        v_terms = _agent_relevance_tokens(&[v_text.clone()])?;
+        if core_truthy(&v_identifier) {
+            v_terms = _agent_identifier_tokens(&[v_text.clone()])?;
+        }
+        for v_term in core_iter(&v_terms)? {
+            let mut v_term = v_term;
+            v_current = core_get(&v_tf, &v_term.clone(), CoreValue::Num(0f64));
+            v_next = core_add(&[v_current.clone(), v_weight.clone()])?;
+            core_set(&v_tf, v_term.clone(), v_next.clone())?;
+        }
+    }
+    return Ok(v_tf.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_rank_documents(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_rank_documents");
+    let mut v_query = core_arg(args, 0);
+    let mut v_docs = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_all_near = CoreValue::Null;
+    let mut v_all_sorted = CoreValue::Null;
+    let mut v_already = CoreValue::Null;
+    let mut v_already_effective = CoreValue::Null;
+    let mut v_appears = CoreValue::Null;
+    let mut v_below_floor = CoreValue::Null;
+    let mut v_best = CoreValue::Null;
+    let mut v_best_id = CoreValue::Null;
+    let mut v_best_raw = CoreValue::Null;
+    let mut v_better = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_candidate_id = CoreValue::Null;
+    let mut v_candidate_raw = CoreValue::Null;
+    let mut v_count = CoreValue::Null;
+    let mut v_coverage = CoreValue::Null;
+    let mut v_coverage_weight = CoreValue::Null;
+    let mut v_df = CoreValue::Null;
+    let mut v_difference = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_doc_count = CoreValue::Null;
+    let mut v_doc_id = CoreValue::Null;
+    let mut v_effective = CoreValue::Null;
+    let mut v_effective_count = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_entry_raw = CoreValue::Null;
+    let mut v_entry_raw2 = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_frequency = CoreValue::Null;
+    let mut v_frequency2 = CoreValue::Null;
+    let mut v_fresh = CoreValue::Null;
+    let mut v_fresh_effective = CoreValue::Null;
+    let mut v_greater = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_idf = CoreValue::Null;
+    let mut v_idf_weight = CoreValue::Null;
+    let mut v_include = CoreValue::Null;
+    let mut v_include_effective = CoreValue::Null;
+    let mut v_indexed = CoreValue::Null;
+    let mut v_indexed_doc = CoreValue::Null;
+    let mut v_indexed_doc2 = CoreValue::Null;
+    let mut v_margin_ratio = CoreValue::Null;
+    let mut v_matched = CoreValue::Null;
+    let mut v_matched_frequency = CoreValue::Null;
+    let mut v_min_docs = CoreValue::Null;
+    let mut v_min_score = CoreValue::Null;
+    let mut v_multiple_docs = CoreValue::Null;
+    let mut v_near = CoreValue::Null;
+    let mut v_near_top = CoreValue::Null;
+    let mut v_negative_entry_raw = CoreValue::Null;
+    let mut v_no_effective = CoreValue::Null;
+    let mut v_no_match = CoreValue::Null;
+    let mut v_normalized_score = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_out_count = CoreValue::Null;
+    let mut v_positive = CoreValue::Null;
+    let mut v_positive2 = CoreValue::Null;
+    let mut v_query_term = CoreValue::Null;
+    let mut v_query_terms = CoreValue::Null;
+    let mut v_ranked = CoreValue::Null;
+    let mut v_ranked_id = CoreValue::Null;
+    let mut v_ranked_terms = CoreValue::Null;
+    let mut v_ratio = CoreValue::Null;
+    let mut v_ratio_plus_one = CoreValue::Null;
+    let mut v_raw = CoreValue::Null;
+    let mut v_rejected = CoreValue::Null;
+    let mut v_relative = CoreValue::Null;
+    let mut v_same_scored_id = CoreValue::Null;
+    let mut v_saturated = CoreValue::Null;
+    let mut v_saturated_denominator = CoreValue::Null;
+    let mut v_score_entry = CoreValue::Null;
+    let mut v_scored = CoreValue::Null;
+    let mut v_scored_by_id = CoreValue::Null;
+    let mut v_scored_entry = CoreValue::Null;
+    let mut v_scored_entry2 = CoreValue::Null;
+    let mut v_scored_for_id = CoreValue::Null;
+    let mut v_scored_for_sort = CoreValue::Null;
+    let mut v_scored_for_sort_id = CoreValue::Null;
+    let mut v_scored_id = CoreValue::Null;
+    let mut v_scored_ids = CoreValue::Null;
+    let mut v_sorted = CoreValue::Null;
+    let mut v_sorted_count = CoreValue::Null;
+    let mut v_sorted_scored_id = CoreValue::Null;
+    let mut v_sorted_scored_ids = CoreValue::Null;
+    let mut v_suppress = CoreValue::Null;
+    let mut v_term = CoreValue::Null;
+    let mut v_term2 = CoreValue::Null;
+    let mut v_term3 = CoreValue::Null;
+    let mut v_terms = CoreValue::Null;
+    let mut v_tf = CoreValue::Null;
+    let mut v_tf2 = CoreValue::Null;
+    let mut v_too_few = CoreValue::Null;
+    let mut v_top = CoreValue::Null;
+    let mut v_top_coverage = CoreValue::Null;
+    let mut v_top_k = CoreValue::Null;
+    let mut v_top_raw = CoreValue::Null;
+    let mut v_total_idf = CoreValue::Null;
+    let mut v_under_limit = CoreValue::Null;
+    let mut v_use_margin = CoreValue::Null;
+    let mut v_weight = CoreValue::Null;
+    let mut v_weighted = CoreValue::Null;
+    v_empty = CoreValue::new_list();
+    v_top_k = core_get(&v_options, &CoreValue::from("topK"), CoreValue::Num(3f64));
+    v_min_score = core_get(
+        &v_options,
+        &CoreValue::from("minScore"),
+        CoreValue::Num(0.08f64),
+    );
+    v_margin_ratio = core_get(
+        &v_options,
+        &CoreValue::from("marginRatio"),
+        CoreValue::Num(0.15f64),
+    );
+    v_min_docs = core_get(
+        &v_options,
+        &CoreValue::from("minDocs"),
+        CoreValue::Num(2f64),
+    );
+    v_doc_count = core_len(&[v_docs.clone()])?;
+    v_too_few = core_lt(&[v_doc_count.clone(), v_min_docs.clone()])?;
+    if core_truthy(&v_too_few) {
+        return Ok(v_empty.clone());
+    }
+    v_indexed = CoreValue::new_list();
+    v_df = CoreValue::new_map();
+    for v_doc in core_iter(&v_docs)? {
+        let mut v_doc = v_doc;
+        v_fields = core_get(&v_doc, &CoreValue::from("fields"), v_empty.clone());
+        v_tf = _agent_document_term_frequency(&[v_fields.clone()])?;
+        v_doc_id = core_get(&v_doc, &CoreValue::from("id"), CoreValue::from(""));
+        v_indexed_doc = CoreValue::new_map();
+        core_set(&v_indexed_doc, CoreValue::from("id"), v_doc_id.clone())?;
+        core_set(&v_indexed_doc, CoreValue::from("tf"), v_tf.clone())?;
+        core_append(&v_indexed, v_indexed_doc.clone())?;
+        v_terms = core_map_keys(&[v_tf.clone()])?;
+        for v_term in core_iter(&v_terms)? {
+            let mut v_term = v_term;
+            v_count = core_get(&v_df, &v_term.clone(), CoreValue::Num(0f64));
+            v_count = core_add(&[v_count.clone(), CoreValue::Num(1f64)])?;
+            core_set(&v_df, v_term.clone(), v_count.clone())?;
+        }
+    }
+    v_query_terms = _agent_relevance_tokens(&[v_query.clone()])?;
+    v_effective = CoreValue::new_list();
+    for v_query_term in core_iter(&v_query_terms)? {
+        let mut v_query_term = v_query_term;
+        v_appears = core_map_contains(&[v_df.clone(), v_query_term.clone()])?;
+        v_already_effective = core_contains(&[v_effective.clone(), v_query_term.clone()])?;
+        v_fresh_effective = core_not(&[v_already_effective.clone()])?;
+        v_include_effective = core_and(&[v_appears.clone(), v_fresh_effective.clone()])?;
+        if core_truthy(&v_include_effective) {
+            core_append(&v_effective, v_query_term.clone())?;
+        }
+    }
+    v_effective_count = core_len(&[v_effective.clone()])?;
+    v_no_effective = core_eq(&[v_effective_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_no_effective) {
+        return Ok(v_empty.clone());
+    }
+    v_idf = CoreValue::new_map();
+    v_total_idf = CoreValue::Num(0f64);
+    for v_term2 in core_iter(&v_effective)? {
+        let mut v_term2 = v_term2;
+        v_frequency = core_get(&v_df, &v_term2.clone(), CoreValue::Num(1f64));
+        v_ratio = core_div(&[v_doc_count.clone(), v_frequency.clone()])?;
+        v_ratio_plus_one = core_add(&[CoreValue::Num(1f64), v_ratio.clone()])?;
+        v_weight = core_math_log(&[v_ratio_plus_one.clone()])?;
+        core_set(&v_idf, v_term2.clone(), v_weight.clone())?;
+        v_total_idf = core_add(&[v_total_idf.clone(), v_weight.clone()])?;
+    }
+    v_scored = CoreValue::new_list();
+    for v_indexed_doc2 in core_iter(&v_indexed)? {
+        let mut v_indexed_doc2 = v_indexed_doc2;
+        v_id = core_get(&v_indexed_doc2, &CoreValue::from("id"), CoreValue::from(""));
+        v_tf2 = core_get(&v_indexed_doc2, &CoreValue::from("tf"), CoreValue::Null);
+        v_raw = CoreValue::Num(0f64);
+        v_coverage_weight = CoreValue::Num(0f64);
+        v_matched = CoreValue::new_list();
+        for v_term3 in core_iter(&v_effective)? {
+            let mut v_term3 = v_term3;
+            v_frequency2 = core_get(&v_tf2, &v_term3.clone(), CoreValue::Num(0f64));
+            v_matched_frequency = core_gt(&[v_frequency2.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_matched_frequency) {
+                v_idf_weight = core_get(&v_idf, &v_term3.clone(), CoreValue::Num(0f64));
+                v_saturated_denominator = core_add(&[v_frequency2.clone(), CoreValue::Num(1f64)])?;
+                v_saturated = core_div(&[v_frequency2.clone(), v_saturated_denominator.clone()])?;
+                v_weighted = core_mul(&[v_idf_weight.clone(), v_saturated.clone()])?;
+                v_raw = core_add(&[v_raw.clone(), v_weighted.clone()])?;
+                v_coverage_weight = core_add(&[v_coverage_weight.clone(), v_idf_weight.clone()])?;
+                core_append(&v_matched, v_term3.clone())?;
+            }
+        }
+        v_coverage = core_div(&[v_coverage_weight.clone(), v_total_idf.clone()])?;
+        v_score_entry = CoreValue::new_map();
+        core_set(&v_score_entry, CoreValue::from("id"), v_id.clone())?;
+        core_set(&v_score_entry, CoreValue::from("raw"), v_raw.clone())?;
+        core_set(
+            &v_score_entry,
+            CoreValue::from("coverage"),
+            v_coverage.clone(),
+        )?;
+        core_set(
+            &v_score_entry,
+            CoreValue::from("matchedTerms"),
+            v_matched.clone(),
+        )?;
+        core_append(&v_scored, v_score_entry.clone())?;
+    }
+    v_scored_ids = CoreValue::new_list();
+    for v_scored_for_id in core_iter(&v_scored)? {
+        let mut v_scored_for_id = v_scored_for_id;
+        v_scored_id = core_get(
+            &v_scored_for_id,
+            &CoreValue::from("id"),
+            CoreValue::from(""),
+        );
+        core_append(&v_scored_ids, v_scored_id.clone())?;
+    }
+    v_sorted_scored_ids = core_sorted_strings(&[v_scored_ids.clone()])?;
+    v_scored_by_id = CoreValue::new_list();
+    for v_sorted_scored_id in core_iter(&v_sorted_scored_ids)? {
+        let mut v_sorted_scored_id = v_sorted_scored_id;
+        for v_scored_for_sort in core_iter(&v_scored)? {
+            let mut v_scored_for_sort = v_scored_for_sort;
+            v_scored_for_sort_id = core_get(
+                &v_scored_for_sort,
+                &CoreValue::from("id"),
+                CoreValue::from(""),
+            );
+            v_same_scored_id =
+                core_eq(&[v_scored_for_sort_id.clone(), v_sorted_scored_id.clone()])?;
+            if core_truthy(&v_same_scored_id) {
+                core_append(&v_scored_by_id, v_scored_for_sort.clone())?;
+            }
+        }
+    }
+    v_scored = v_scored_by_id.clone();
+    v_sorted = CoreValue::new_list();
+    loop {
+        v_sorted_count = core_len(&[v_sorted.clone()])?;
+        v_all_sorted = core_gte(&[v_sorted_count.clone(), v_doc_count.clone()])?;
+        if core_truthy(&v_all_sorted) {
+            break;
+        }
+        v_best = core_none(&[])?;
+        v_best_raw = CoreValue::Num(-1f64);
+        v_best_id = CoreValue::from("");
+        v_found = CoreValue::Bool(false);
+        for v_candidate in core_iter(&v_scored)? {
+            let mut v_candidate = v_candidate;
+            v_candidate_id = core_get(&v_candidate, &CoreValue::from("id"), CoreValue::from(""));
+            v_already = _agent_relevance_has_id(&[
+                v_sorted.clone(),
+                CoreValue::from("id"),
+                v_candidate_id.clone(),
+            ])?;
+            v_fresh = core_not(&[v_already.clone()])?;
+            if core_truthy(&v_fresh) {
+                v_candidate_raw =
+                    core_get(&v_candidate, &CoreValue::from("raw"), CoreValue::Num(0f64));
+                v_greater = core_gt(&[v_candidate_raw.clone(), v_best_raw.clone()])?;
+                v_better = v_greater.clone();
+                if core_truthy(&v_better) {
+                    v_best = v_candidate.clone();
+                    v_best_raw = v_candidate_raw.clone();
+                    v_best_id = v_candidate_id.clone();
+                    v_found = CoreValue::Bool(true);
+                }
+            }
+        }
+        if core_truthy(&v_found) {
+            core_append(&v_sorted, v_best.clone())?;
+        } else {
+            break;
+        }
+    }
+    v_top = core_list_get(&[v_sorted.clone(), CoreValue::Num(0f64), CoreValue::Null])?;
+    v_top_raw = core_get(&v_top, &CoreValue::from("raw"), CoreValue::Num(0f64));
+    v_top_coverage = core_get(&v_top, &CoreValue::from("coverage"), CoreValue::Num(0f64));
+    v_no_match = core_lte(&[v_top_raw.clone(), CoreValue::Num(0f64)])?;
+    v_below_floor = core_lt(&[v_top_coverage.clone(), v_min_score.clone()])?;
+    v_rejected = core_or(&[v_no_match.clone(), v_below_floor.clone()])?;
+    if core_truthy(&v_rejected) {
+        return Ok(v_empty.clone());
+    }
+    v_use_margin = core_gt(&[v_margin_ratio.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_use_margin) {
+        v_near_top = CoreValue::Num(0f64);
+        for v_scored_entry in core_iter(&v_sorted)? {
+            let mut v_scored_entry = v_scored_entry;
+            v_entry_raw = core_get(
+                &v_scored_entry,
+                &CoreValue::from("raw"),
+                CoreValue::Num(0f64),
+            );
+            v_positive = core_gt(&[v_entry_raw.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_positive) {
+                v_negative_entry_raw = core_mul(&[v_entry_raw.clone(), CoreValue::Num(-1f64)])?;
+                v_difference = core_add(&[v_top_raw.clone(), v_negative_entry_raw.clone()])?;
+                v_relative = core_div(&[v_difference.clone(), v_top_raw.clone()])?;
+                v_near = core_lt(&[v_relative.clone(), v_margin_ratio.clone()])?;
+                if core_truthy(&v_near) {
+                    v_near_top = core_add(&[v_near_top.clone(), CoreValue::Num(1f64)])?;
+                }
+            }
+        }
+        v_multiple_docs = core_gte(&[v_doc_count.clone(), CoreValue::Num(2f64)])?;
+        v_all_near = core_gte(&[v_near_top.clone(), v_doc_count.clone()])?;
+        v_suppress = core_and(&[v_multiple_docs.clone(), v_all_near.clone()])?;
+        if core_truthy(&v_suppress) {
+            return Ok(v_empty.clone());
+        }
+    }
+    v_out = CoreValue::new_list();
+    for v_scored_entry2 in core_iter(&v_sorted)? {
+        let mut v_scored_entry2 = v_scored_entry2;
+        v_out_count = core_len(&[v_out.clone()])?;
+        v_under_limit = core_lt(&[v_out_count.clone(), v_top_k.clone()])?;
+        v_entry_raw2 = core_get(
+            &v_scored_entry2,
+            &CoreValue::from("raw"),
+            CoreValue::Num(0f64),
+        );
+        v_positive2 = core_gt(&[v_entry_raw2.clone(), CoreValue::Num(0f64)])?;
+        v_include = core_and(&[v_under_limit.clone(), v_positive2.clone()])?;
+        if core_truthy(&v_include) {
+            v_normalized_score = core_div(&[v_entry_raw2.clone(), v_top_raw.clone()])?;
+            v_ranked_id = core_get(
+                &v_scored_entry2,
+                &CoreValue::from("id"),
+                CoreValue::from(""),
+            );
+            v_ranked_terms = core_get(
+                &v_scored_entry2,
+                &CoreValue::from("matchedTerms"),
+                v_empty.clone(),
+            );
+            v_ranked = CoreValue::new_map();
+            core_set(&v_ranked, CoreValue::from("id"), v_ranked_id.clone())?;
+            core_set(
+                &v_ranked,
+                CoreValue::from("score"),
+                v_normalized_score.clone(),
+            )?;
+            core_set(
+                &v_ranked,
+                CoreValue::from("matchedTerms"),
+                v_ranked_terms.clone(),
+            )?;
+            core_append(&v_out, v_ranked.clone())?;
+        }
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -56811,46 +58698,43 @@ fn _agent_rank_relevance_modules(args: &[CoreValue]) -> Result<CoreValue, AxErro
     axir_coverage_mark("_agent_rank_relevance_modules");
     let mut v_state = core_arg(args, 0);
     let mut v_task = core_arg(args, 1);
-    let mut v_already = CoreValue::Null;
     let mut v_callable = CoreValue::Null;
     let mut v_callables = CoreValue::Null;
-    let mut v_cdesc = CoreValue::Null;
     let mut v_description = CoreValue::Null;
+    let mut v_description_field = CoreValue::Null;
     let mut v_discoverable = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_docs = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_entry = CoreValue::Null;
-    let mut v_fresh = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
     let mut v_group = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
+    let mut v_has_selection = CoreValue::Null;
+    let mut v_has_title = CoreValue::Null;
+    let mut v_matched = CoreValue::Null;
     let mut v_name = CoreValue::Null;
+    let mut v_name_field = CoreValue::Null;
     let mut v_namespace = CoreValue::Null;
-    let mut v_no_tokens = CoreValue::Null;
+    let mut v_namespace2 = CoreValue::Null;
+    let mut v_namespace_field = CoreValue::Null;
     let mut v_out = CoreValue::Null;
-    let mut v_out_count = CoreValue::Null;
     let mut v_params = CoreValue::Null;
-    let mut v_passes = CoreValue::Null;
-    let mut v_pieces = CoreValue::Null;
+    let mut v_prop_field = CoreValue::Null;
+    let mut v_prop_key = CoreValue::Null;
     let mut v_prop_keys = CoreValue::Null;
-    let mut v_prop_text = CoreValue::Null;
     let mut v_properties = CoreValue::Null;
     let mut v_props_is_object = CoreValue::Null;
-    let mut v_qualified = CoreValue::Null;
+    let mut v_ranked = CoreValue::Null;
+    let mut v_ranked_entry = CoreValue::Null;
+    let mut v_ranking_options = CoreValue::Null;
     let mut v_score = CoreValue::Null;
     let mut v_selection = CoreValue::Null;
+    let mut v_selection_field = CoreValue::Null;
     let mut v_split = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    let mut v_threshold = CoreValue::Null;
-    let mut v_thresholds = CoreValue::Null;
     let mut v_title = CoreValue::Null;
-    let mut v_token_count = CoreValue::Null;
-    let mut v_tokens = CoreValue::Null;
-    let mut v_under = CoreValue::Null;
+    let mut v_title_field = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
-    v_tokens = _agent_relevance_tokens(&[v_task.clone()])?;
-    v_token_count = core_len(&[v_tokens.clone()])?;
-    v_no_tokens = core_eq(&[v_token_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_no_tokens) {
-        return Ok(v_empty_list.clone());
-    }
     v_split = core_get(
         &v_state,
         &CoreValue::from("callable_split"),
@@ -56861,92 +58745,129 @@ fn _agent_rank_relevance_modules(args: &[CoreValue]) -> Result<CoreValue, AxErro
         &CoreValue::from("discoverable"),
         v_empty_list.clone(),
     );
-    v_out = CoreValue::new_list();
-    v_thresholds = CoreValue::new_list();
-    core_append(&v_thresholds, CoreValue::Num(3f64))?;
-    core_append(&v_thresholds, CoreValue::Num(2f64))?;
-    core_append(&v_thresholds, CoreValue::Num(1f64))?;
-    for v_threshold in core_iter(&v_thresholds)? {
-        let mut v_threshold = v_threshold;
-        for v_group in core_iter(&v_discoverable)? {
-            let mut v_group = v_group;
-            v_out_count = core_len(&[v_out.clone()])?;
-            v_under = core_lt(&[v_out_count.clone(), CoreValue::Num(3f64)])?;
-            if core_truthy(&v_under) {
-                v_namespace =
-                    core_get(&v_group, &CoreValue::from("namespace"), CoreValue::from(""));
-                v_already = _agent_relevance_has_id(&[
-                    v_out.clone(),
-                    CoreValue::from("namespace"),
-                    v_namespace.clone(),
-                ])?;
-                v_fresh = core_not(&[v_already.clone()])?;
-                if core_truthy(&v_fresh) {
-                    v_title = core_get(&v_group, &CoreValue::from("title"), CoreValue::from(""));
-                    v_description = core_get(
-                        &v_group,
-                        &CoreValue::from("description"),
-                        CoreValue::from(""),
-                    );
-                    v_selection = core_get(
-                        &v_group,
-                        &CoreValue::from("selection_criteria"),
-                        CoreValue::from(""),
-                    );
-                    v_callables = core_get(
-                        &v_group,
-                        &CoreValue::from("callables"),
-                        v_empty_list.clone(),
-                    );
-                    v_pieces = CoreValue::new_list();
-                    core_append(&v_pieces, v_namespace.clone())?;
-                    core_append(&v_pieces, v_title.clone())?;
-                    core_append(&v_pieces, v_description.clone())?;
-                    core_append(&v_pieces, v_selection.clone())?;
-                    core_append(&v_pieces, v_selection.clone())?;
-                    for v_callable in core_iter(&v_callables)? {
-                        let mut v_callable = v_callable;
-                        v_name =
-                            core_get(&v_callable, &CoreValue::from("name"), CoreValue::from(""));
-                        v_qualified = core_get(
-                            &v_callable,
-                            &CoreValue::from("qualified_name"),
-                            CoreValue::from(""),
-                        );
-                        v_cdesc = core_get(
-                            &v_callable,
-                            &CoreValue::from("description"),
-                            CoreValue::from(""),
-                        );
-                        core_append(&v_pieces, v_name.clone())?;
-                        core_append(&v_pieces, v_qualified.clone())?;
-                        core_append(&v_pieces, v_cdesc.clone())?;
-                        v_params =
-                            core_get(&v_callable, &CoreValue::from("parameters"), CoreValue::Null);
-                        v_properties =
-                            core_get(&v_params, &CoreValue::from("properties"), CoreValue::Null);
-                        v_props_is_object = core_type_is(&v_properties, CoreValue::from("object"));
-                        if core_truthy(&v_props_is_object) {
-                            v_prop_keys = core_map_keys(&[v_properties.clone()])?;
-                            v_prop_text = core_string_join_intrinsic(&[
-                                CoreValue::from(" "),
-                                v_prop_keys.clone(),
-                            ])?;
-                            core_append(&v_pieces, v_prop_text.clone())?;
-                        }
-                    }
-                    v_text = core_string_join_intrinsic(&[CoreValue::from(" "), v_pieces.clone()])?;
-                    v_score = _agent_relevance_score(&[v_tokens.clone(), v_text.clone()])?;
-                    v_passes = core_gte(&[v_score.clone(), v_threshold.clone()])?;
-                    if core_truthy(&v_passes) {
-                        v_entry = CoreValue::new_map();
-                        core_set(&v_entry, CoreValue::from("namespace"), v_namespace.clone())?;
-                        core_set(&v_entry, CoreValue::from("score"), v_score.clone())?;
-                        core_append(&v_out, v_entry.clone())?;
-                    }
+    v_docs = CoreValue::new_list();
+    for v_group in core_iter(&v_discoverable)? {
+        let mut v_group = v_group;
+        v_namespace = core_get(&v_group, &CoreValue::from("namespace"), CoreValue::from(""));
+        v_title = core_get(&v_group, &CoreValue::from("title"), CoreValue::from(""));
+        v_description = core_get(
+            &v_group,
+            &CoreValue::from("description"),
+            CoreValue::from(""),
+        );
+        v_selection = core_get(
+            &v_group,
+            &CoreValue::from("selection_criteria"),
+            CoreValue::from(""),
+        );
+        v_fields = CoreValue::new_list();
+        v_namespace_field = CoreValue::new_map();
+        core_set(
+            &v_namespace_field,
+            CoreValue::from("text"),
+            v_namespace.clone(),
+        )?;
+        core_set(
+            &v_namespace_field,
+            CoreValue::from("identifier"),
+            CoreValue::Bool(true),
+        )?;
+        core_append(&v_fields, v_namespace_field.clone())?;
+        v_has_title = core_ne(&[v_title.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_title) {
+            v_title_field = CoreValue::new_map();
+            core_set(&v_title_field, CoreValue::from("text"), v_title.clone())?;
+            core_append(&v_fields, v_title_field.clone())?;
+        }
+        v_has_description = core_ne(&[v_description.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_description) {
+            v_description_field = CoreValue::new_map();
+            core_set(
+                &v_description_field,
+                CoreValue::from("text"),
+                v_description.clone(),
+            )?;
+            core_append(&v_fields, v_description_field.clone())?;
+        }
+        v_has_selection = core_ne(&[v_selection.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_selection) {
+            v_selection_field = CoreValue::new_map();
+            core_set(
+                &v_selection_field,
+                CoreValue::from("text"),
+                v_selection.clone(),
+            )?;
+            core_set(
+                &v_selection_field,
+                CoreValue::from("weight"),
+                CoreValue::Num(2f64),
+            )?;
+            core_append(&v_fields, v_selection_field.clone())?;
+        }
+        v_callables = core_get(
+            &v_group,
+            &CoreValue::from("callables"),
+            v_empty_list.clone(),
+        );
+        for v_callable in core_iter(&v_callables)? {
+            let mut v_callable = v_callable;
+            v_name = core_get(&v_callable, &CoreValue::from("name"), CoreValue::from(""));
+            v_name_field = CoreValue::new_map();
+            core_set(&v_name_field, CoreValue::from("text"), v_name.clone())?;
+            core_set(
+                &v_name_field,
+                CoreValue::from("identifier"),
+                CoreValue::Bool(true),
+            )?;
+            core_append(&v_fields, v_name_field.clone())?;
+            v_params = core_get(&v_callable, &CoreValue::from("parameters"), CoreValue::Null);
+            v_properties = core_get(&v_params, &CoreValue::from("properties"), CoreValue::Null);
+            v_props_is_object = core_type_is(&v_properties, CoreValue::from("object"));
+            if core_truthy(&v_props_is_object) {
+                v_prop_keys = core_map_keys(&[v_properties.clone()])?;
+                for v_prop_key in core_iter(&v_prop_keys)? {
+                    let mut v_prop_key = v_prop_key;
+                    v_prop_field = CoreValue::new_map();
+                    core_set(&v_prop_field, CoreValue::from("text"), v_prop_key.clone())?;
+                    core_set(
+                        &v_prop_field,
+                        CoreValue::from("identifier"),
+                        CoreValue::Bool(true),
+                    )?;
+                    core_append(&v_fields, v_prop_field.clone())?;
                 }
             }
         }
+        v_doc = CoreValue::new_map();
+        core_set(&v_doc, CoreValue::from("id"), v_namespace.clone())?;
+        core_set(&v_doc, CoreValue::from("fields"), v_fields.clone())?;
+        core_append(&v_docs, v_doc.clone())?;
+    }
+    v_ranking_options = core_get(
+        &v_state,
+        &CoreValue::from("relevance_ranking_options"),
+        CoreValue::Null,
+    );
+    v_ranked = _agent_rank_documents(&[v_task.clone(), v_docs.clone(), v_ranking_options.clone()])?;
+    v_out = CoreValue::new_list();
+    for v_ranked_entry in core_iter(&v_ranked)? {
+        let mut v_ranked_entry = v_ranked_entry;
+        v_entry = CoreValue::new_map();
+        v_namespace2 = core_get(&v_ranked_entry, &CoreValue::from("id"), CoreValue::from(""));
+        v_score = core_get(
+            &v_ranked_entry,
+            &CoreValue::from("score"),
+            CoreValue::Num(0f64),
+        );
+        v_matched = core_get(
+            &v_ranked_entry,
+            &CoreValue::from("matchedTerms"),
+            v_empty_list.clone(),
+        );
+        core_set(&v_entry, CoreValue::from("namespace"), v_namespace2.clone())?;
+        core_set(&v_entry, CoreValue::from("score"), v_score.clone())?;
+        core_set(&v_entry, CoreValue::from("matchedTerms"), v_matched.clone())?;
+        core_append(&v_out, v_entry.clone())?;
     }
     return Ok(v_out.clone());
 }
@@ -56962,84 +58883,136 @@ fn _agent_rank_relevance_skills(args: &[CoreValue]) -> Result<CoreValue, AxError
     axir_coverage_mark("_agent_rank_relevance_skills");
     let mut v_state = core_arg(args, 0);
     let mut v_task = core_arg(args, 1);
-    let mut v_already = CoreValue::Null;
     let mut v_catalog = CoreValue::Null;
+    let mut v_catalog_id = CoreValue::Null;
+    let mut v_catalog_skill = CoreValue::Null;
     let mut v_content = CoreValue::Null;
+    let mut v_content_field = CoreValue::Null;
+    let mut v_content_head = CoreValue::Null;
     let mut v_description = CoreValue::Null;
+    let mut v_description_field = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_docs = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_entry = CoreValue::Null;
-    let mut v_fresh = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
+    let mut v_has_description = CoreValue::Null;
     let mut v_id = CoreValue::Null;
+    let mut v_id_field = CoreValue::Null;
+    let mut v_id_match = CoreValue::Null;
     let mut v_name = CoreValue::Null;
-    let mut v_no_tokens = CoreValue::Null;
+    let mut v_name_field = CoreValue::Null;
     let mut v_out = CoreValue::Null;
-    let mut v_out_count = CoreValue::Null;
-    let mut v_passes = CoreValue::Null;
-    let mut v_score = CoreValue::Null;
+    let mut v_ranked = CoreValue::Null;
+    let mut v_ranked_entry = CoreValue::Null;
+    let mut v_ranked_id = CoreValue::Null;
+    let mut v_ranked_name = CoreValue::Null;
+    let mut v_ranked_score = CoreValue::Null;
+    let mut v_ranking_options = CoreValue::Null;
     let mut v_skill = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    let mut v_text_parts = CoreValue::Null;
-    let mut v_threshold = CoreValue::Null;
-    let mut v_thresholds = CoreValue::Null;
-    let mut v_token_count = CoreValue::Null;
-    let mut v_tokens = CoreValue::Null;
-    let mut v_under = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
-    v_tokens = _agent_relevance_tokens(&[v_task.clone()])?;
-    v_token_count = core_len(&[v_tokens.clone()])?;
-    v_no_tokens = core_eq(&[v_token_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_no_tokens) {
-        return Ok(v_empty_list.clone());
-    }
     v_catalog = core_get(
         &v_state,
         &CoreValue::from("skills_catalog"),
         v_empty_list.clone(),
     );
+    v_docs = CoreValue::new_list();
+    for v_skill in core_iter(&v_catalog)? {
+        let mut v_skill = v_skill;
+        v_id = core_get(&v_skill, &CoreValue::from("id"), CoreValue::from(""));
+        v_name = core_get(&v_skill, &CoreValue::from("name"), v_id.clone());
+        v_description = core_get(
+            &v_skill,
+            &CoreValue::from("description"),
+            CoreValue::from(""),
+        );
+        v_content = core_get(&v_skill, &CoreValue::from("content"), CoreValue::from(""));
+        v_content_head = core_string_slice(&[
+            v_content.clone(),
+            CoreValue::Num(0f64),
+            CoreValue::Num(600f64),
+        ])?;
+        v_fields = CoreValue::new_list();
+        v_id_field = CoreValue::new_map();
+        core_set(&v_id_field, CoreValue::from("text"), v_id.clone())?;
+        core_set(
+            &v_id_field,
+            CoreValue::from("identifier"),
+            CoreValue::Bool(true),
+        )?;
+        core_append(&v_fields, v_id_field.clone())?;
+        v_name_field = CoreValue::new_map();
+        core_set(&v_name_field, CoreValue::from("text"), v_name.clone())?;
+        core_set(
+            &v_name_field,
+            CoreValue::from("weight"),
+            CoreValue::Num(2f64),
+        )?;
+        core_append(&v_fields, v_name_field.clone())?;
+        v_has_description = core_ne(&[v_description.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_has_description) {
+            v_description_field = CoreValue::new_map();
+            core_set(
+                &v_description_field,
+                CoreValue::from("text"),
+                v_description.clone(),
+            )?;
+            core_set(
+                &v_description_field,
+                CoreValue::from("weight"),
+                CoreValue::Num(2f64),
+            )?;
+            core_append(&v_fields, v_description_field.clone())?;
+        }
+        v_content_field = CoreValue::new_map();
+        core_set(
+            &v_content_field,
+            CoreValue::from("text"),
+            v_content_head.clone(),
+        )?;
+        core_append(&v_fields, v_content_field.clone())?;
+        v_doc = CoreValue::new_map();
+        core_set(&v_doc, CoreValue::from("id"), v_id.clone())?;
+        core_set(&v_doc, CoreValue::from("fields"), v_fields.clone())?;
+        core_append(&v_docs, v_doc.clone())?;
+    }
+    v_ranking_options = core_get(
+        &v_state,
+        &CoreValue::from("relevance_ranking_options"),
+        CoreValue::Null,
+    );
+    v_ranked = _agent_rank_documents(&[v_task.clone(), v_docs.clone(), v_ranking_options.clone()])?;
     v_out = CoreValue::new_list();
-    v_thresholds = CoreValue::new_list();
-    core_append(&v_thresholds, CoreValue::Num(3f64))?;
-    core_append(&v_thresholds, CoreValue::Num(2f64))?;
-    core_append(&v_thresholds, CoreValue::Num(1f64))?;
-    for v_threshold in core_iter(&v_thresholds)? {
-        let mut v_threshold = v_threshold;
-        for v_skill in core_iter(&v_catalog)? {
-            let mut v_skill = v_skill;
-            v_out_count = core_len(&[v_out.clone()])?;
-            v_under = core_lt(&[v_out_count.clone(), CoreValue::Num(3f64)])?;
-            if core_truthy(&v_under) {
-                v_id = core_get(&v_skill, &CoreValue::from("id"), CoreValue::from(""));
-                v_already =
-                    _agent_relevance_has_id(&[v_out.clone(), CoreValue::from("id"), v_id.clone()])?;
-                v_fresh = core_not(&[v_already.clone()])?;
-                if core_truthy(&v_fresh) {
-                    v_name = core_get(&v_skill, &CoreValue::from("name"), v_id.clone());
-                    v_description = core_get(
-                        &v_skill,
-                        &CoreValue::from("description"),
-                        CoreValue::from(""),
-                    );
-                    v_content =
-                        core_get(&v_skill, &CoreValue::from("content"), CoreValue::from(""));
-                    v_text_parts = CoreValue::new_list();
-                    core_append(&v_text_parts, v_id.clone())?;
-                    core_append(&v_text_parts, v_name.clone())?;
-                    core_append(&v_text_parts, v_description.clone())?;
-                    core_append(&v_text_parts, v_content.clone())?;
-                    v_text =
-                        core_string_join_intrinsic(&[CoreValue::from(" "), v_text_parts.clone()])?;
-                    v_score = _agent_relevance_score(&[v_tokens.clone(), v_text.clone()])?;
-                    v_passes = core_gte(&[v_score.clone(), v_threshold.clone()])?;
-                    if core_truthy(&v_passes) {
-                        v_entry = CoreValue::new_map();
-                        core_set(&v_entry, CoreValue::from("id"), v_id.clone())?;
-                        core_set(&v_entry, CoreValue::from("name"), v_name.clone())?;
-                        core_set(&v_entry, CoreValue::from("score"), v_score.clone())?;
-                        core_append(&v_out, v_entry.clone())?;
-                    }
-                }
+    for v_ranked_entry in core_iter(&v_ranked)? {
+        let mut v_ranked_entry = v_ranked_entry;
+        v_ranked_id = core_get(&v_ranked_entry, &CoreValue::from("id"), CoreValue::from(""));
+        v_ranked_score = core_get(
+            &v_ranked_entry,
+            &CoreValue::from("score"),
+            CoreValue::Num(0f64),
+        );
+        v_ranked_name = v_ranked_id.clone();
+        for v_catalog_skill in core_iter(&v_catalog)? {
+            let mut v_catalog_skill = v_catalog_skill;
+            v_catalog_id = core_get(
+                &v_catalog_skill,
+                &CoreValue::from("id"),
+                CoreValue::from(""),
+            );
+            v_id_match = core_eq(&[v_catalog_id.clone(), v_ranked_id.clone()])?;
+            if core_truthy(&v_id_match) {
+                v_ranked_name = core_get(
+                    &v_catalog_skill,
+                    &CoreValue::from("name"),
+                    v_ranked_id.clone(),
+                );
             }
         }
+        v_entry = CoreValue::new_map();
+        core_set(&v_entry, CoreValue::from("id"), v_ranked_id.clone())?;
+        core_set(&v_entry, CoreValue::from("name"), v_ranked_name.clone())?;
+        core_set(&v_entry, CoreValue::from("score"), v_ranked_score.clone())?;
+        core_append(&v_out, v_entry.clone())?;
     }
     return Ok(v_out.clone());
 }
@@ -57055,35 +59028,36 @@ fn _agent_rank_relevance_memories(args: &[CoreValue]) -> Result<CoreValue, AxErr
     axir_coverage_mark("_agent_rank_relevance_memories");
     let mut v_state = core_arg(args, 0);
     let mut v_task = core_arg(args, 1);
-    let mut v_already_any = CoreValue::Null;
     let mut v_already_loaded = CoreValue::Null;
-    let mut v_already_out = CoreValue::Null;
+    let mut v_candidate = CoreValue::Null;
+    let mut v_candidate_content = CoreValue::Null;
+    let mut v_candidate_id = CoreValue::Null;
+    let mut v_candidates = CoreValue::Null;
     let mut v_catalog = CoreValue::Null;
     let mut v_content = CoreValue::Null;
+    let mut v_content_field = CoreValue::Null;
+    let mut v_content_head = CoreValue::Null;
+    let mut v_doc = CoreValue::Null;
+    let mut v_docs = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_entry = CoreValue::Null;
+    let mut v_fields = CoreValue::Null;
     let mut v_fresh = CoreValue::Null;
     let mut v_id = CoreValue::Null;
+    let mut v_id_field = CoreValue::Null;
+    let mut v_id_match = CoreValue::Null;
     let mut v_loaded = CoreValue::Null;
     let mut v_memory = CoreValue::Null;
-    let mut v_no_tokens = CoreValue::Null;
     let mut v_out = CoreValue::Null;
-    let mut v_out_count = CoreValue::Null;
-    let mut v_passes = CoreValue::Null;
-    let mut v_score = CoreValue::Null;
+    let mut v_ranked = CoreValue::Null;
+    let mut v_ranked_entry = CoreValue::Null;
+    let mut v_ranked_id = CoreValue::Null;
+    let mut v_ranked_score = CoreValue::Null;
+    let mut v_ranking_options = CoreValue::Null;
+    let mut v_single_line = CoreValue::Null;
     let mut v_snippet = CoreValue::Null;
-    let mut v_threshold = CoreValue::Null;
-    let mut v_thresholds = CoreValue::Null;
-    let mut v_token_count = CoreValue::Null;
-    let mut v_tokens = CoreValue::Null;
-    let mut v_under = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
-    v_tokens = _agent_relevance_tokens(&[v_task.clone()])?;
-    v_token_count = core_len(&[v_tokens.clone()])?;
-    v_no_tokens = core_eq(&[v_token_count.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_no_tokens) {
-        return Ok(v_empty_list.clone());
-    }
     v_catalog = core_get(
         &v_state,
         &CoreValue::from("memories_catalog"),
@@ -57094,48 +59068,88 @@ fn _agent_rank_relevance_memories(args: &[CoreValue]) -> Result<CoreValue, AxErr
         &CoreValue::from("loaded_memories"),
         v_empty_list.clone(),
     );
+    v_candidates = CoreValue::new_list();
+    v_docs = CoreValue::new_list();
+    for v_memory in core_iter(&v_catalog)? {
+        let mut v_memory = v_memory;
+        v_id = core_get(&v_memory, &CoreValue::from("id"), CoreValue::from(""));
+        v_already_loaded =
+            _agent_relevance_has_id(&[v_loaded.clone(), CoreValue::from("id"), v_id.clone()])?;
+        v_fresh = core_not(&[v_already_loaded.clone()])?;
+        if core_truthy(&v_fresh) {
+            core_append(&v_candidates, v_memory.clone())?;
+            v_content = core_get(&v_memory, &CoreValue::from("content"), CoreValue::from(""));
+            v_content_head = core_string_slice(&[
+                v_content.clone(),
+                CoreValue::Num(0f64),
+                CoreValue::Num(600f64),
+            ])?;
+            v_fields = CoreValue::new_list();
+            v_id_field = CoreValue::new_map();
+            core_set(&v_id_field, CoreValue::from("text"), v_id.clone())?;
+            core_set(
+                &v_id_field,
+                CoreValue::from("identifier"),
+                CoreValue::Bool(true),
+            )?;
+            core_append(&v_fields, v_id_field.clone())?;
+            v_content_field = CoreValue::new_map();
+            core_set(
+                &v_content_field,
+                CoreValue::from("text"),
+                v_content_head.clone(),
+            )?;
+            core_append(&v_fields, v_content_field.clone())?;
+            v_doc = CoreValue::new_map();
+            core_set(&v_doc, CoreValue::from("id"), v_id.clone())?;
+            core_set(&v_doc, CoreValue::from("fields"), v_fields.clone())?;
+            core_append(&v_docs, v_doc.clone())?;
+        }
+    }
+    v_ranking_options = core_get(
+        &v_state,
+        &CoreValue::from("relevance_ranking_options"),
+        CoreValue::Null,
+    );
+    v_ranked = _agent_rank_documents(&[v_task.clone(), v_docs.clone(), v_ranking_options.clone()])?;
     v_out = CoreValue::new_list();
-    v_thresholds = CoreValue::new_list();
-    core_append(&v_thresholds, CoreValue::Num(3f64))?;
-    core_append(&v_thresholds, CoreValue::Num(2f64))?;
-    core_append(&v_thresholds, CoreValue::Num(1f64))?;
-    for v_threshold in core_iter(&v_thresholds)? {
-        let mut v_threshold = v_threshold;
-        for v_memory in core_iter(&v_catalog)? {
-            let mut v_memory = v_memory;
-            v_out_count = core_len(&[v_out.clone()])?;
-            v_under = core_lt(&[v_out_count.clone(), CoreValue::Num(3f64)])?;
-            if core_truthy(&v_under) {
-                v_id = core_get(&v_memory, &CoreValue::from("id"), CoreValue::from(""));
-                v_already_out =
-                    _agent_relevance_has_id(&[v_out.clone(), CoreValue::from("id"), v_id.clone()])?;
-                v_already_loaded = _agent_relevance_has_id(&[
-                    v_loaded.clone(),
-                    CoreValue::from("id"),
-                    v_id.clone(),
+    for v_ranked_entry in core_iter(&v_ranked)? {
+        let mut v_ranked_entry = v_ranked_entry;
+        v_ranked_id = core_get(&v_ranked_entry, &CoreValue::from("id"), CoreValue::from(""));
+        v_ranked_score = core_get(
+            &v_ranked_entry,
+            &CoreValue::from("score"),
+            CoreValue::Num(0f64),
+        );
+        v_snippet = CoreValue::from("");
+        for v_candidate in core_iter(&v_candidates)? {
+            let mut v_candidate = v_candidate;
+            v_candidate_id = core_get(&v_candidate, &CoreValue::from("id"), CoreValue::from(""));
+            v_id_match = core_eq(&[v_candidate_id.clone(), v_ranked_id.clone()])?;
+            if core_truthy(&v_id_match) {
+                v_candidate_content = core_get(
+                    &v_candidate,
+                    &CoreValue::from("content"),
+                    CoreValue::from(""),
+                );
+                v_single_line = core_regex_replace(&[
+                    CoreValue::from("\\s+"),
+                    CoreValue::from(" "),
+                    v_candidate_content.clone(),
                 ])?;
-                v_already_any = core_or(&[v_already_out.clone(), v_already_loaded.clone()])?;
-                v_fresh = core_not(&[v_already_any.clone()])?;
-                if core_truthy(&v_fresh) {
-                    v_content =
-                        core_get(&v_memory, &CoreValue::from("content"), CoreValue::from(""));
-                    v_score = _agent_relevance_score(&[v_tokens.clone(), v_content.clone()])?;
-                    v_passes = core_gte(&[v_score.clone(), v_threshold.clone()])?;
-                    if core_truthy(&v_passes) {
-                        v_snippet = core_string_slice(&[
-                            v_content.clone(),
-                            CoreValue::Num(0f64),
-                            CoreValue::Num(120f64),
-                        ])?;
-                        v_entry = CoreValue::new_map();
-                        core_set(&v_entry, CoreValue::from("id"), v_id.clone())?;
-                        core_set(&v_entry, CoreValue::from("snippet"), v_snippet.clone())?;
-                        core_set(&v_entry, CoreValue::from("score"), v_score.clone())?;
-                        core_append(&v_out, v_entry.clone())?;
-                    }
-                }
+                v_trimmed = core_string_trim(&v_single_line);
+                v_snippet = core_string_slice(&[
+                    v_trimmed.clone(),
+                    CoreValue::Num(0f64),
+                    CoreValue::Num(80f64),
+                ])?;
             }
         }
+        v_entry = CoreValue::new_map();
+        core_set(&v_entry, CoreValue::from("id"), v_ranked_id.clone())?;
+        core_set(&v_entry, CoreValue::from("snippet"), v_snippet.clone())?;
+        core_set(&v_entry, CoreValue::from("score"), v_ranked_score.clone())?;
+        core_append(&v_out, v_entry.clone())?;
     }
     return Ok(v_out.clone());
 }
@@ -57689,11 +59703,13 @@ fn _build_distiller_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_cv_str = CoreValue::Null;
     let mut v_discovered_docs = CoreValue::Null;
     let mut v_discovered_text = CoreValue::Null;
+    let mut v_distiller_runtime_enabled = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
     let mut v_empty_map = CoreValue::Null;
     let mut v_guidance_text = CoreValue::Null;
     let mut v_loaded_memories = CoreValue::Null;
     let mut v_loaded_skills = CoreValue::Null;
+    let mut v_memories_text = CoreValue::Null;
     let mut v_meta_note = CoreValue::Null;
     let mut v_non_ctx = CoreValue::Null;
     let mut v_out = CoreValue::Null;
@@ -57711,13 +59727,22 @@ fn _build_distiller_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_cm_text = core_get(&v_cm_state, &CoreValue::from("text"), CoreValue::from(""));
     v_cm_has = core_ne(&[v_cm_text.clone(), CoreValue::from("")])?;
     v_ctx_out = CoreValue::new_map();
+    v_distiller_runtime_enabled = core_get(
+        &v_state,
+        &CoreValue::from("runtime_enabled"),
+        CoreValue::Bool(false),
+    );
     for v_ck in core_iter(&v_context)? {
         let mut v_ck = v_ck;
         v_cv = core_get(&v_context, &v_ck.clone(), CoreValue::Null);
-        v_cv_str = core_string_format(&[CoreValue::from("{}"), v_cv.clone()])?;
-        v_cv_len = core_len(&[v_cv_str.clone()])?;
-        v_meta_note = core_string_format(&[CoreValue::from("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents"), v_ck.clone(), v_cv_len.clone()])?;
-        core_set(&v_ctx_out, v_ck.clone(), v_meta_note.clone())?;
+        if core_truthy(&v_distiller_runtime_enabled) {
+            v_cv_str = core_string_format(&[CoreValue::from("{}"), v_cv.clone()])?;
+            v_cv_len = core_len(&[v_cv_str.clone()])?;
+            v_meta_note = core_string_format(&[CoreValue::from("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents"), v_ck.clone(), v_cv_len.clone()])?;
+            core_set(&v_ctx_out, v_ck.clone(), v_meta_note.clone())?;
+        } else {
+            core_set(&v_ctx_out, v_ck.clone(), v_cv.clone())?;
+        }
     }
     if core_truthy(&v_cm_has) {
         core_set(&v_ctx_out, CoreValue::from("contextMap"), v_cm_text.clone())?;
@@ -57758,7 +59783,7 @@ fn _build_distiller_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     );
     v_loaded_skills = core_get(
         &v_state,
-        &CoreValue::from("loaded_skill_docs"),
+        &CoreValue::from("distiller_loaded_skill_docs"),
         v_empty_list.clone(),
     );
     v_loaded_memories = core_get(
@@ -57768,6 +59793,7 @@ fn _build_distiller_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     );
     v_discovered_text = _agent_render_discovered_tool_docs(&[v_discovered_docs.clone()])?;
     v_skills_text = _agent_render_loaded_skills(&[v_loaded_skills.clone()])?;
+    v_memories_text = _agent_render_loaded_memories(&[v_loaded_memories.clone()])?;
     core_set(
         &v_out,
         CoreValue::from("discoveredToolDocs"),
@@ -57778,11 +59804,7 @@ fn _build_distiller_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("loadedSkills"),
         v_skills_text.clone(),
     )?;
-    core_set(
-        &v_out,
-        CoreValue::from("memories"),
-        v_loaded_memories.clone(),
-    )?;
+    core_set(&v_out, CoreValue::from("memories"), v_memories_text.clone())?;
     core_set(
         &v_out,
         CoreValue::from("summarizedActorLog"),
@@ -57840,10 +59862,12 @@ fn _build_executor_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_has_context_metadata = CoreValue::Null;
     let mut v_has_hints = CoreValue::Null;
     let mut v_hints = CoreValue::Null;
+    let mut v_hints_is_object = CoreValue::Null;
     let mut v_hints_text = CoreValue::Null;
     let mut v_key = CoreValue::Null;
     let mut v_loaded_memories = CoreValue::Null;
     let mut v_loaded_skills = CoreValue::Null;
+    let mut v_memories_text = CoreValue::Null;
     let mut v_non_ctx = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_pressure_text = CoreValue::Null;
@@ -57917,11 +59941,25 @@ fn _build_executor_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_context_metadata.clone(),
         )?;
     }
-    v_hints = _agent_build_relevance_hints(&[
-        v_state.clone(),
-        v_non_ctx.clone(),
-        v_executor_request.clone(),
-    ])?;
+    v_hints = core_get(
+        &v_state,
+        &CoreValue::from("relevance_hints_for_turn"),
+        CoreValue::Null,
+    );
+    v_hints_is_object = core_type_is(&v_hints, CoreValue::from("object"));
+    if core_truthy(&v_hints_is_object) {
+    } else {
+        v_hints = _agent_build_relevance_hints(&[
+            v_state.clone(),
+            v_non_ctx.clone(),
+            v_executor_request.clone(),
+        ])?;
+        core_set(
+            &v_state,
+            CoreValue::from("relevance_hints_for_turn"),
+            v_hints.clone(),
+        )?;
+    }
     v_hints_text = _agent_render_relevance_hints(&[v_hints.clone()])?;
     v_has_hints = core_ne(&[v_hints_text.clone(), CoreValue::from("")])?;
     if core_truthy(&v_has_hints) {
@@ -57948,6 +59986,7 @@ fn _build_executor_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     );
     v_discovered_text = _agent_render_discovered_tool_docs(&[v_discovered_docs.clone()])?;
     v_skills_text = _agent_render_loaded_skills(&[v_loaded_skills.clone()])?;
+    v_memories_text = _agent_render_loaded_memories(&[v_loaded_memories.clone()])?;
     v_actor_context = _agent_prepare_actor_context(&[v_state.clone()])?;
     v_guidance_text = core_get(
         &v_actor_context,
@@ -57984,11 +60023,7 @@ fn _build_executor_inputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("loadedSkills"),
         v_skills_text.clone(),
     )?;
-    core_set(
-        &v_out,
-        CoreValue::from("memories"),
-        v_loaded_memories.clone(),
-    )?;
+    core_set(&v_out, CoreValue::from("memories"), v_memories_text.clone())?;
     core_set(
         &v_out,
         CoreValue::from("summarizedActorLog"),
@@ -60584,8 +62619,10 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_citation_retry_options = CoreValue::Null;
     let mut v_citations_invalid = CoreValue::Null;
     let mut v_citations_valid = CoreValue::Null;
+    let mut v_clean_previous_runtime_state = CoreValue::Null;
     let mut v_code = CoreValue::Null;
     let mut v_completion_payload = CoreValue::Null;
+    let mut v_direct_respond_only = CoreValue::Null;
     let mut v_distiller_code = CoreValue::Null;
     let mut v_distiller_completion = CoreValue::Null;
     let mut v_distiller_empty_log = CoreValue::Null;
@@ -60605,12 +62642,16 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_distiller_saved_action_log = CoreValue::Null;
     let mut v_distiller_session = CoreValue::Null;
     let mut v_distiller_session_reset = CoreValue::Null;
+    let mut v_distiller_skills = CoreValue::Null;
+    let mut v_distiller_skills_after = CoreValue::Null;
     let mut v_distiller_state_reset = CoreValue::Null;
     let mut v_distiller_step = CoreValue::Null;
     let mut v_distiller_step_error = CoreValue::Null;
     let mut v_distiller_step_ok = CoreValue::Null;
     let mut v_distiller_too_many = CoreValue::Null;
     let mut v_distiller_values = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_empty_map = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_error_event = CoreValue::Null;
     let mut v_exec_args = CoreValue::Null;
@@ -60637,15 +62678,36 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_executor_payload_type = CoreValue::Null;
     let mut v_executor_request_event = CoreValue::Null;
     let mut v_executor_response_event = CoreValue::Null;
+    let mut v_executor_skills_after = CoreValue::Null;
     let mut v_executor_values = CoreValue::Null;
+    let mut v_flags = CoreValue::Null;
+    let mut v_forward_skills = CoreValue::Null;
+    let mut v_forward_used_memories = CoreValue::Null;
+    let mut v_forward_used_memories_snake = CoreValue::Null;
+    let mut v_forward_used_skills = CoreValue::Null;
+    let mut v_forward_used_skills_snake = CoreValue::Null;
     let mut v_globals = CoreValue::Null;
     let mut v_has_completion = CoreValue::Null;
+    let mut v_has_forward_used_memories = CoreValue::Null;
+    let mut v_has_forward_used_observer = CoreValue::Null;
+    let mut v_has_forward_used_skills = CoreValue::Null;
     let mut v_has_shared_session = CoreValue::Null;
     let mut v_invalid_citations_output = CoreValue::Null;
+    let mut v_loaded_memories = CoreValue::Null;
+    let mut v_loaded_skills = CoreValue::Null;
     let mut v_logs = CoreValue::Null;
     let mut v_max_steps = CoreValue::Null;
     let mut v_non_runtime_executor = CoreValue::Null;
     let mut v_patch_snapshot = CoreValue::Null;
+    let mut v_preset_memories = CoreValue::Null;
+    let mut v_previous_runtime_bindings = CoreValue::Null;
+    let mut v_previous_runtime_bindings_is_map = CoreValue::Null;
+    let mut v_previous_runtime_globals = CoreValue::Null;
+    let mut v_previous_runtime_globals_is_map = CoreValue::Null;
+    let mut v_previous_runtime_session_state = CoreValue::Null;
+    let mut v_previous_runtime_session_state_is_map = CoreValue::Null;
+    let mut v_previous_runtime_state_has_bindings = CoreValue::Null;
+    let mut v_relevance_hints_for_turn = CoreValue::Null;
     let mut v_responder_options = CoreValue::Null;
     let mut v_responder_output = CoreValue::Null;
     let mut v_responder_request_event = CoreValue::Null;
@@ -60657,6 +62719,8 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_runtime_executor_enabled = CoreValue::Null;
     let mut v_runtime_from_options = CoreValue::Null;
     let mut v_runtime_from_state = CoreValue::Null;
+    let mut v_runtime_input_name = CoreValue::Null;
+    let mut v_runtime_input_names = CoreValue::Null;
     let mut v_runtime_step = CoreValue::Null;
     let mut v_session = CoreValue::Null;
     let mut v_shared_contract = CoreValue::Null;
@@ -60675,6 +62739,122 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_too_many = CoreValue::Null;
     let mut v_transcribed_values = CoreValue::Null;
     let mut v_usage = CoreValue::Null;
+    let mut v_used_memories = CoreValue::Null;
+    let mut v_used_skills = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_empty_map = CoreValue::new_map();
+    v_loaded_memories = CoreValue::new_list();
+    v_used_memories = CoreValue::new_list();
+    v_used_skills = CoreValue::new_list();
+    v_relevance_hints_for_turn = core_none(&[])?;
+    core_set(
+        &v_state,
+        CoreValue::from("loaded_memories"),
+        v_loaded_memories.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("used_memories"),
+        v_used_memories.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("used_skills"),
+        v_used_skills.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("relevance_hints_for_turn"),
+        v_relevance_hints_for_turn.clone(),
+    )?;
+    v_preset_memories = core_get(
+        &v_values,
+        &CoreValue::from("memories"),
+        v_empty_list.clone(),
+    );
+    v_loaded_memories =
+        _agent_merge_memory_results(&[v_loaded_memories.clone(), v_preset_memories.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("loaded_memories"),
+        v_loaded_memories.clone(),
+    )?;
+    v_loaded_skills = core_get(
+        &v_state,
+        &CoreValue::from("loaded_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_forward_skills = core_get(&v_options, &CoreValue::from("skills"), v_empty_list.clone());
+    v_loaded_skills =
+        _agent_merge_skill_results(&[v_loaded_skills.clone(), v_forward_skills.clone()])?;
+    core_set(
+        &v_state,
+        CoreValue::from("loaded_skill_docs"),
+        v_loaded_skills.clone(),
+    )?;
+    v_flags = core_get(
+        &v_state,
+        &CoreValue::from("policy_flags"),
+        v_empty_map.clone(),
+    );
+    v_forward_used_memories = core_get(
+        &v_options,
+        &CoreValue::from("onUsedMemories"),
+        CoreValue::Null,
+    );
+    v_forward_used_memories_snake = core_get(
+        &v_options,
+        &CoreValue::from("on_used_memories"),
+        v_forward_used_memories.clone(),
+    );
+    v_forward_used_skills = core_get(
+        &v_options,
+        &CoreValue::from("onUsedSkills"),
+        CoreValue::Null,
+    );
+    v_forward_used_skills_snake = core_get(
+        &v_options,
+        &CoreValue::from("on_used_skills"),
+        v_forward_used_skills.clone(),
+    );
+    v_has_forward_used_memories = core_is_not_none(&[v_forward_used_memories_snake.clone()])?;
+    v_has_forward_used_skills = core_is_not_none(&[v_forward_used_skills_snake.clone()])?;
+    v_has_forward_used_observer = core_or(&[
+        v_has_forward_used_memories.clone(),
+        v_has_forward_used_skills.clone(),
+    ])?;
+    if core_truthy(&v_has_forward_used_observer) {
+        core_set(
+            &v_flags,
+            CoreValue::from("usageTrackingMode"),
+            CoreValue::Bool(true),
+        )?;
+        core_set(&v_state, CoreValue::from("policy_flags"), v_flags.clone())?;
+    }
+    v_direct_respond_only = core_get(
+        &v_flags,
+        &CoreValue::from("directRespondOnly"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_direct_respond_only) {
+        v_distiller_skills = core_get(
+            &v_state,
+            &CoreValue::from("distiller_loaded_skill_docs"),
+            v_empty_list.clone(),
+        );
+        v_distiller_skills =
+            _agent_merge_skill_results(&[v_distiller_skills.clone(), v_forward_skills.clone()])?;
+        core_set(
+            &v_state,
+            CoreValue::from("distiller_loaded_skill_docs"),
+            v_distiller_skills.clone(),
+        )?;
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("active_stage"),
+        CoreValue::from("distiller"),
+    )?;
     v_transcribed_values = _agent_transcribe_audio_inputs(&[
         v_state.clone(),
         v_client.clone(),
@@ -60682,6 +62862,54 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_options.clone(),
     ])?;
     v_values = v_transcribed_values.clone();
+    v_runtime_input_names = CoreValue::new_list();
+    for v_runtime_input_name in core_iter(&v_values)? {
+        let mut v_runtime_input_name = v_runtime_input_name;
+        core_append(&v_runtime_input_names, v_runtime_input_name.clone())?;
+    }
+    core_set(
+        &v_state,
+        CoreValue::from("runtime_input_names"),
+        v_runtime_input_names.clone(),
+    )?;
+    v_previous_runtime_session_state = core_get(
+        &v_state,
+        &CoreValue::from("runtime_session_state"),
+        CoreValue::Null,
+    );
+    v_previous_runtime_session_state_is_map =
+        core_type_is(&v_previous_runtime_session_state, CoreValue::from("object"));
+    if core_truthy(&v_previous_runtime_session_state_is_map) {
+        v_previous_runtime_globals = core_get(
+            &v_previous_runtime_session_state,
+            &CoreValue::from("globals"),
+            CoreValue::Null,
+        );
+        v_previous_runtime_bindings = core_get(
+            &v_previous_runtime_session_state,
+            &CoreValue::from("bindings"),
+            CoreValue::Null,
+        );
+        v_previous_runtime_globals_is_map =
+            core_type_is(&v_previous_runtime_globals, CoreValue::from("object"));
+        v_previous_runtime_bindings_is_map =
+            core_type_is(&v_previous_runtime_bindings, CoreValue::from("object"));
+        v_previous_runtime_state_has_bindings = core_or(&[
+            v_previous_runtime_globals_is_map.clone(),
+            v_previous_runtime_bindings_is_map.clone(),
+        ])?;
+        if core_truthy(&v_previous_runtime_state_has_bindings) {
+            v_clean_previous_runtime_state = _normalize_agent_runtime_snapshot(&[
+                v_state.clone(),
+                v_previous_runtime_session_state.clone(),
+            ])?;
+            core_set(
+                &v_state,
+                CoreValue::from("runtime_session_state"),
+                v_clean_previous_runtime_state.clone(),
+            )?;
+        }
+    }
     _agent_begin_trace(&[v_state.clone(), v_values.clone()])?;
     _agent_apply_llm_checkpoint_summary(&[v_state.clone(), v_client.clone(), v_options.clone()])?;
     v_state_options = core_get(&v_state, &CoreValue::from("options"), CoreValue::Null);
@@ -60939,6 +63167,30 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_distiller_payload = _normalize_agent_completion_payload(&[v_distiller_output.clone()])?;
     }
     _throw_agent_clarification(&[v_distiller_payload.clone(), v_state.clone()])?;
+    v_distiller_skills_after = core_get(
+        &v_state,
+        &CoreValue::from("distiller_loaded_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_executor_skills_after = core_get(
+        &v_state,
+        &CoreValue::from("loaded_skill_docs"),
+        v_empty_list.clone(),
+    );
+    v_executor_skills_after = _agent_merge_skill_results(&[
+        v_executor_skills_after.clone(),
+        v_distiller_skills_after.clone(),
+    ])?;
+    core_set(
+        &v_state,
+        CoreValue::from("loaded_skill_docs"),
+        v_executor_skills_after.clone(),
+    )?;
+    core_set(
+        &v_state,
+        CoreValue::from("active_stage"),
+        CoreValue::from("executor"),
+    )?;
     v_executor_payload = core_none(&[])?;
     v_distiller_payload_type = core_get(
         &v_distiller_payload,
@@ -61417,6 +63669,28 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     )?;
     core_set(&v_state, CoreValue::from("chat_log"), v_logs.clone())?;
     core_set(&v_state, CoreValue::from("usage"), v_usage.clone())?;
+    v_forward_used_memories = core_get(
+        &v_state,
+        &CoreValue::from("used_memories"),
+        v_empty_list.clone(),
+    );
+    v_forward_used_skills = core_get(
+        &v_state,
+        &CoreValue::from("used_skills"),
+        v_empty_list.clone(),
+    );
+    core_agent_observer_notify(&[
+        v_state.clone(),
+        v_options.clone(),
+        CoreValue::from("used_memories"),
+        v_forward_used_memories.clone(),
+    ])?;
+    core_agent_observer_notify(&[
+        v_state.clone(),
+        v_options.clone(),
+        CoreValue::from("used_skills"),
+        v_forward_used_skills.clone(),
+    ])?;
     _agent_build_failure_signals(&[v_state.clone()])?;
     _agent_finalize_trace(&[
         v_state.clone(),
@@ -67531,4 +69805,4 @@ fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (509 of 509 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (519 of 519 core functions)

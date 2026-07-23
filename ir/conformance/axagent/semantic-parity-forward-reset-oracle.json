@@ -1,0 +1,534 @@
+{
+  "exact_observable_projection": {
+    "errors": [],
+    "output": [
+      {
+        "answer": "one"
+      },
+      {
+        "answer": "two"
+      },
+      {
+        "answer": "three"
+      },
+      {
+        "answer": "four"
+      }
+    ],
+    "runStateProjections": [
+      {
+        "loaded_memories": [
+          {
+            "content": "HOST MEMORY FIRST RUN",
+            "id": "run-memory"
+          }
+        ],
+        "loaded_skill_docs": [
+          {
+            "content": "CONSTRUCTOR PRESET SKILL",
+            "id": "constructor-preset",
+            "name": "Constructor preset"
+          },
+          {
+            "content": "FORWARD SKILL",
+            "id": "forward-persist",
+            "name": "Forward persist"
+          }
+        ],
+        "used_memories": [],
+        "used_skills": []
+      },
+      {
+        "loaded_memories": [],
+        "loaded_skill_docs": [
+          {
+            "content": "CONSTRUCTOR PRESET SKILL",
+            "id": "constructor-preset",
+            "name": "Constructor preset"
+          },
+          {
+            "content": "FORWARD SKILL",
+            "id": "forward-persist",
+            "name": "Forward persist"
+          }
+        ],
+        "used_memories": [],
+        "used_skills": []
+      },
+      {
+        "loaded_memories": [],
+        "loaded_skill_docs": [
+          {
+            "content": "CONSTRUCTOR PRESET SKILL",
+            "id": "constructor-preset",
+            "name": "Constructor preset"
+          }
+        ],
+        "used_memories": [],
+        "used_skills": []
+      },
+      {
+        "loaded_memories": [],
+        "loaded_skill_docs": [
+          {
+            "content": "CONSTRUCTOR PRESET SKILL",
+            "id": "constructor-preset",
+            "name": "Constructor preset"
+          },
+          {
+            "content": "FORWARD SKILL",
+            "id": "forward-persist",
+            "name": "Forward persist"
+          }
+        ],
+        "used_memories": [],
+        "used_skills": []
+      }
+    ],
+    "stageRequests": [
+      {
+        "availableSkills": "",
+        "loadedSkills": "",
+        "memories": "Memories: ### Memory\n\nID: `run-memory`\n\nHOST MEMORY FIRST RUN",
+        "relevanceHints": "",
+        "stage": "distiller"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "Loaded Skills: ### Constructor preset\n\nID: `constructor-preset`\n\nCONSTRUCTOR PRESET SKILL\n\n### Forward persist\n\nID: `forward-persist`\n\nFORWARD SKILL",
+        "memories": "Memories: ### Memory\n\nID: `run-memory`\n\nHOST MEMORY FIRST RUN",
+        "relevanceHints": "",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "responder"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "distiller"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "Loaded Skills: ### Constructor preset\n\nID: `constructor-preset`\n\nCONSTRUCTOR PRESET SKILL\n\n### Forward persist\n\nID: `forward-persist`\n\nFORWARD SKILL",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "responder"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "distiller"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "Loaded Skills: ### Constructor preset\n\nID: `constructor-preset`\n\nCONSTRUCTOR PRESET SKILL",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "responder"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "distiller"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "Loaded Skills: ### Constructor preset\n\nID: `constructor-preset`\n\nCONSTRUCTOR PRESET SKILL\n\n### Forward persist\n\nID: `forward-persist`\n\nFORWARD SKILL",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "responder"
+      }
+    ],
+    "stateRoundtrip": {
+      "restored": {
+        "loaded_skill_docs": [
+          {
+            "content": "CONSTRUCTOR PRESET SKILL",
+            "id": "constructor-preset",
+            "name": "Constructor preset"
+          },
+          {
+            "content": "FORWARD SKILL",
+            "id": "forward-persist",
+            "name": "Forward persist"
+          }
+        ]
+      },
+      "saved": {
+        "loaded_skill_docs": [
+          {
+            "content": "CONSTRUCTOR PRESET SKILL",
+            "id": "constructor-preset",
+            "name": "Constructor preset"
+          },
+          {
+            "content": "FORWARD SKILL",
+            "id": "forward-persist",
+            "name": "Forward persist"
+          }
+        ]
+      }
+    }
+  },
+  "expected_output": [
+    {
+      "answer": "one"
+    },
+    {
+      "answer": "two"
+    },
+    {
+      "answer": "three"
+    },
+    {
+      "answer": "four"
+    }
+  ],
+  "expected_request_contains": [
+    "CONSTRUCTOR PRESET SKILL",
+    "FORWARD SKILL",
+    "HOST MEMORY FIRST RUN"
+  ],
+  "expected_request_count": 12,
+  "expected_run_state_projections": [
+    {
+      "loaded_memories": [
+        {
+          "content": "HOST MEMORY FIRST RUN",
+          "id": "run-memory"
+        }
+      ],
+      "loaded_skill_docs": [
+        {
+          "content": "CONSTRUCTOR PRESET SKILL",
+          "id": "constructor-preset",
+          "name": "Constructor preset"
+        },
+        {
+          "content": "FORWARD SKILL",
+          "id": "forward-persist",
+          "name": "Forward persist"
+        }
+      ],
+      "used_memories": [],
+      "used_skills": []
+    },
+    {
+      "loaded_memories": [],
+      "loaded_skill_docs": [
+        {
+          "content": "CONSTRUCTOR PRESET SKILL",
+          "id": "constructor-preset",
+          "name": "Constructor preset"
+        },
+        {
+          "content": "FORWARD SKILL",
+          "id": "forward-persist",
+          "name": "Forward persist"
+        }
+      ],
+      "used_memories": [],
+      "used_skills": []
+    },
+    {
+      "loaded_memories": [],
+      "loaded_skill_docs": [
+        {
+          "content": "CONSTRUCTOR PRESET SKILL",
+          "id": "constructor-preset",
+          "name": "Constructor preset"
+        }
+      ],
+      "used_memories": [],
+      "used_skills": []
+    },
+    {
+      "loaded_memories": [],
+      "loaded_skill_docs": [
+        {
+          "content": "CONSTRUCTOR PRESET SKILL",
+          "id": "constructor-preset",
+          "name": "Constructor preset"
+        },
+        {
+          "content": "FORWARD SKILL",
+          "id": "forward-persist",
+          "name": "Forward persist"
+        }
+      ],
+      "used_memories": [],
+      "used_skills": []
+    }
+  ],
+  "expected_stage_request_not_contains": [
+    {
+      "absent": ["HOST MEMORY FIRST RUN"],
+      "index": 4
+    },
+    {
+      "absent": ["HOST MEMORY FIRST RUN", "FORWARD SKILL"],
+      "index": 7
+    }
+  ],
+  "expected_state_roundtrip_projection": {
+    "restored": {
+      "loaded_skill_docs": [
+        {
+          "content": "CONSTRUCTOR PRESET SKILL",
+          "id": "constructor-preset",
+          "name": "Constructor preset"
+        },
+        {
+          "content": "FORWARD SKILL",
+          "id": "forward-persist",
+          "name": "Forward persist"
+        }
+      ]
+    },
+    "saved": {
+      "loaded_skill_docs": [
+        {
+          "content": "CONSTRUCTOR PRESET SKILL",
+          "id": "constructor-preset",
+          "name": "Constructor preset"
+        },
+        {
+          "content": "FORWARD SKILL",
+          "id": "forward-persist",
+          "name": "Forward persist"
+        }
+      ]
+    }
+  },
+  "forward_runs": [
+    {
+      "forward_options": {
+        "skills": [
+          {
+            "content": "FORWARD SKILL",
+            "id": "forward-persist",
+            "name": "Forward persist"
+          }
+        ]
+      },
+      "input": {
+        "memories": [
+          {
+            "content": "HOST MEMORY FIRST RUN",
+            "id": "run-memory"
+          }
+        ],
+        "query": "first run"
+      },
+      "save_runtime_state": true
+    },
+    {
+      "forward_options": {},
+      "input": {
+        "query": "second run"
+      }
+    },
+    {
+      "forward_options": {},
+      "input": {
+        "query": "third run after reset"
+      },
+      "state_action": "reset"
+    },
+    {
+      "forward_options": {},
+      "input": {
+        "query": "fourth run after restore"
+      },
+      "state_action": "restore_saved"
+    }
+  ],
+  "kind": "agent_forward",
+  "name": "semantic-parity-forward-reset-oracle",
+  "option_effect": "Removing constructor or forward skills changes run projections; retaining values.memories across forwards changes the second run; ignoring reset or restore changes the third, fourth, and state-roundtrip projections.",
+  "option_effects": {
+    "axagent.constructor.skills": "runStateProjections",
+    "axagent.forward.skills": "runStateProjections",
+    "axagent.method.forward": "output",
+    "axagent.method.getState": "stateRoundtrip.saved",
+    "axagent.method.setState": "stateRoundtrip.restored",
+    "axagent.state.skillsPromptState": "runStateProjections"
+  },
+  "options": {
+    "directResponse": "off",
+    "memoriesCatalog": [
+      {
+        "content": "UNUSED CATALOG MEMORY",
+        "id": "catalog-unused"
+      }
+    ],
+    "relevanceRanking": false,
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "skills": [
+      {
+        "content": "CONSTRUCTOR PRESET SKILL",
+        "id": "constructor-preset",
+        "name": "Constructor preset"
+      }
+    ]
+  },
+  "parity_contract_ids": [
+    "axagent.constructor.skills",
+    "axagent.forward.skills",
+    "axagent.method.forward",
+    "axagent.method.getState",
+    "axagent.method.setState",
+    "axagent.state.skillsPromptState"
+  ],
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"execute-one\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"answer-one\\\", {\\\"answer\\\":\\\"one\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"one\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"execute-two\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"answer-two\\\", {\\\"answer\\\":\\\"two\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"two\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"execute-three\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"answer-three\\\", {\\\"answer\\\":\\\"three\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"three\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"execute-four\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"answer-four\\\", {\\\"answer\\\":\\\"four\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"four\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"execute-one\", {})",
+      "result": {
+        "args": ["execute-one", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"answer-one\", {\"answer\":\"one\"})",
+      "result": {
+        "args": [
+          "answer-one",
+          {
+            "answer": "one"
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"execute-two\", {})",
+      "result": {
+        "args": ["execute-two", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"answer-two\", {\"answer\":\"two\"})",
+      "result": {
+        "args": [
+          "answer-two",
+          {
+            "answer": "two"
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"execute-three\", {})",
+      "result": {
+        "args": ["execute-three", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"answer-three\", {\"answer\":\"three\"})",
+      "result": {
+        "args": [
+          "answer-three",
+          {
+            "answer": "three"
+          }
+        ],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"execute-four\", {})",
+      "result": {
+        "args": ["execute-four", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "final(\"answer-four\", {\"answer\":\"four\"})",
+      "result": {
+        "args": [
+          "answer-four",
+          {
+            "answer": "four"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "query:string -> answer:string"
+}

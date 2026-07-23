@@ -62,7 +62,7 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-cpp-agent-memory-skills/SKILL.md",
-      "digest": "sha256:759ffd0aeb0d0973a539192151875d1dfece158a96c671a5a7e76392cbd9f443"
+      "digest": "sha256:2b448b2e538b243490a94efa57faa036de106c32b9d4b2bf5d130ea02ac4eced"
     },
     {
       "name": "ax-cpp-agent-observability",

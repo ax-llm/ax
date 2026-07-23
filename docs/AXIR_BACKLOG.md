@@ -6,6 +6,10 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Non-Portable Exemptions
 
+- `axagent-claim-complete-target-native-surfaces` [axagent]
+  - Reason: The claim-complete AxAgent gate inventories the entire inherited TypeScript surface. Members outside the enrolled skills, memories, ranker, observer, prompt, forward, and state lifecycle contract retain target-native generated APIs or TypeScript coordinator/DSP semantics and are explicitly not claimed byte-for-byte portable by this enrollment.
+  - Paths: `src/ax/agent/agentInternal/agentOptimizeTypes.ts`, `src/ax/agent/agentInternal/coordinator.ts`, `src/ax/agent/agentInternal/agentStateTypes.ts`
+  - Tags: `claim-complete`, `target-native`, `public-inventory`
 - `webllm-browser-only` [axai]
   - Reason: WebLLM is browser-specific integration code around a caller-supplied MLCEngine/WebGPU runtime. It is not a portable Ax semantic and should not create Python/Java/C++/Go/Rust AxIR backlog work.
   - Paths: `src/ax/ai/webllm`, `src/examples/webllm-chat.html`

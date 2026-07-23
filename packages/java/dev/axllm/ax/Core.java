@@ -939,6 +939,35 @@ final class Core {
     if (scripted instanceof List<?>) return scripted;
     return List.of();
   }
+  static Object agentObserverNotify(Object state, Object forwardOptionsValue, Object kindValue, Object payload) {
+    Map<String, Object> constructorOptions = asMap(get(state, "options", Map.of()));
+    Map<String, Object> forwardOptions = asMap(forwardOptionsValue);
+    String kind = String.valueOf(kindValue);
+    Map<String, String[]> keys = Map.of(
+        "loaded_memories", new String[]{"on_loaded_memories", "onLoadedMemories"},
+        "loaded_skills", new String[]{"on_loaded_skills", "onLoadedSkills"},
+        "used_memories", new String[]{"on_used_memories", "onUsedMemories"},
+        "used_skills", new String[]{"on_used_skills", "onUsedSkills"});
+    String[] pair = keys.get(kind);
+    if (pair == null) return null;
+    Object callback = null;
+    if (kind.startsWith("used_")) {
+      callback = forwardOptions.getOrDefault(pair[0], forwardOptions.get(pair[1]));
+    }
+    if (callback == null) {
+      callback = constructorOptions.getOrDefault(pair[0], constructorOptions.get(pair[1]));
+    }
+    if (callback instanceof java.util.function.Consumer<?> consumer) {
+      try {
+        @SuppressWarnings("unchecked")
+        java.util.function.Consumer<Object> observer = (java.util.function.Consumer<Object>) consumer;
+        observer.accept(new ArrayList<>(asList(payload)));
+      } catch (Throwable ignored) {
+        // Observer failures are intentionally non-fatal, matching TypeScript.
+      }
+    }
+    return null;
+  }
   static Object agentCallableInvoke(Object state, Object request, Object optionsArg) {
     Map<String, Object> options = asMap(get(state, "options", Map.of()));
     String qualified = String.valueOf(get(request, "qualified_name", get(request, "name", "")));
@@ -10647,27 +10676,25 @@ final class Core {
     Object policy = Core._normalize_agent_policy(options);
     Object policy_flags = Core._agent_policy_flags(options, callable_split, auto_upgrade);
     Object policy_registry = Core._agent_policy_registry(policy, policy_flags);
+    Object relevance_ranking_camel = Core.get(options, "relevanceRanking", null);
+    Object relevance_ranking_raw = Core.get(options, "relevance_ranking", relevance_ranking_camel);
+    Object relevance_ranking_options = new java.util.LinkedHashMap<String, Object>();
+    Object relevance_ranking_is_map = Core.typeIs(relevance_ranking_raw, "object");
+    if (Core.truthy(relevance_ranking_is_map)) {
+      relevance_ranking_options = Core.mapMerge(relevance_ranking_options, relevance_ranking_raw);
+    }
     Object discovery_catalog = Core._render_agent_discovery_catalog(callable_split);
     Object skills_catalog_camel = Core.get(options, "skillsCatalog", empty_list);
-    Object skills_catalog = Core.get(options, "skills_catalog", skills_catalog_camel);
-    Object skills_catalog_is_list = Core.typeIs(skills_catalog, "list");
-    if (Core.truthy(skills_catalog_is_list)) {
-      // empty
-    }
-    if (!Core.truthy(skills_catalog_is_list)) {
-      skills_catalog = empty_list;
-    }
+    Object skills_catalog_raw = Core.get(options, "skills_catalog", skills_catalog_camel);
+    Object skills_catalog = Core._agent_normalize_skill_catalog(skills_catalog_raw);
     Object memories_catalog_camel = Core.get(options, "memoriesCatalog", empty_list);
-    Object memories_catalog = Core.get(options, "memories_catalog", memories_catalog_camel);
-    Object memories_catalog_is_list = Core.typeIs(memories_catalog, "list");
-    if (Core.truthy(memories_catalog_is_list)) {
-      // empty
-    }
-    if (!Core.truthy(memories_catalog_is_list)) {
-      memories_catalog = empty_list;
-    }
+    Object memories_catalog_raw = Core.get(options, "memories_catalog", memories_catalog_camel);
+    Object memories_catalog = Core._agent_merge_memory_results(empty_list, memories_catalog_raw);
     Object discovered_tool_docs = new java.util.ArrayList<Object>();
-    Object loaded_skill_docs = new java.util.ArrayList<Object>();
+    Object preset_skills_raw = Core.get(options, "skills", empty_list);
+    Object preset_skill_docs = Core._agent_merge_skill_results(empty_list, preset_skills_raw);
+    Object loaded_skill_docs = Core._agent_merge_skill_results(empty_list, preset_skill_docs);
+    Object distiller_loaded_skill_docs = new java.util.ArrayList<Object>();
     Object loaded_memories = new java.util.ArrayList<Object>();
     Object used_memories = new java.util.ArrayList<Object>();
     Object used_skills = new java.util.ArrayList<Object>();
@@ -10718,6 +10745,7 @@ final class Core {
     Core.set(state, "policy", policy);
     Core.set(state, "policy_flags", policy_flags);
     Core.set(state, "policy_registry", policy_registry);
+    Core.set(state, "relevance_ranking_options", relevance_ranking_options);
     Core.set(state, "context_policy", context_policy);
     Core.set(state, "auto_upgrade", auto_upgrade);
     Object context_map_config = Core.get(options, "contextMap", null);
@@ -10763,7 +10791,9 @@ final class Core {
     Core.set(state, "skills_catalog", skills_catalog);
     Core.set(state, "memories_catalog", memories_catalog);
     Core.set(state, "discovered_tool_docs", discovered_tool_docs);
+    Core.set(state, "preset_skill_docs", preset_skill_docs);
     Core.set(state, "loaded_skill_docs", loaded_skill_docs);
+    Core.set(state, "distiller_loaded_skill_docs", distiller_loaded_skill_docs);
     Core.set(state, "loaded_memories", loaded_memories);
     Core.set(state, "used_memories", used_memories);
     Core.set(state, "used_skills", used_skills);
@@ -10850,6 +10880,23 @@ final class Core {
       names = new java.util.ArrayList<Object>();
     }
     return names;
+  }
+
+  static Object _agent_runtime_reserved_names_for_state(Object state) {
+    axirCoverageMark("_agent_runtime_reserved_names_for_state");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object reserved = Core._agent_reserved_runtime_names();
+    Object input_names = Core.get(state, "runtime_input_names", empty_list);
+    for (Object name : Core.iter(input_names)) {
+      Object already = Core.contains(reserved, name);
+      if (Core.truthy(already)) {
+        // empty
+      }
+      if (!Core.truthy(already)) {
+        Core.append(reserved, name);
+      }
+    }
+    return reserved;
   }
 
   static Object _agent_runtime_language_tokens(Object language) {
@@ -11265,7 +11312,15 @@ final class Core {
     Object memories_callback_mode = Core.or(memories_direct, has_any_memories_callback);
     Object memories_mode = Core.or(memories_callback_mode, has_memories_catalog);
     Object usage_camel = Core.get(options, "usageTrackingMode", Boolean.FALSE);
-    Object usage_enabled = Core.get(options, "usage_tracking_mode", usage_camel);
+    Object usage_direct = Core.get(options, "usage_tracking_mode", usage_camel);
+    Object used_memories_observer = Core.get(options, "onUsedMemories", null);
+    Object used_memories_observer_snake = Core.get(options, "on_used_memories", used_memories_observer);
+    Object used_skills_observer = Core.get(options, "onUsedSkills", null);
+    Object used_skills_observer_snake = Core.get(options, "on_used_skills", used_skills_observer);
+    Object has_used_memories_observer = Core.isNotNone(used_memories_observer_snake);
+    Object has_used_skills_observer = Core.isNotNone(used_skills_observer_snake);
+    Object has_used_observer = Core.or(has_used_memories_observer, has_used_skills_observer);
+    Object usage_enabled = Core.or(usage_direct, has_used_observer);
     Object status_camel = Core.get(options, "hasAgentStatusCallback", Boolean.FALSE);
     Object status_direct = Core.get(options, "has_agent_status_callback", status_camel);
     Object has_status_callback = Core.mapContains(options, "agentStatusCallback");
@@ -11954,11 +12009,17 @@ final class Core {
   static Object _build_rlm_flags(Object state) {
     axirCoverageMark("_build_rlm_flags");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object empty_list = new java.util.ArrayList<Object>();
     Object flags = Core.get(state, "policy_flags", empty_map);
     Object disc = Core.get(flags, "discoveryMode", Boolean.FALSE);
     Object skills = Core.get(flags, "skillsMode", Boolean.FALSE);
+    Object loaded_skills = Core.get(state, "loaded_skill_docs", empty_list);
+    Object loaded_skills_count = Core.len(loaded_skills);
+    Object has_loaded_skills = Core.gt(loaded_skills_count, 0);
+    Object has_skills = Core.or(skills, has_loaded_skills);
     Object combined = Core.and(disc, skills);
     Core.set(flags, "discoveryMode+skillsMode", combined);
+    Core.set(flags, "hasSkills", has_skills);
     return flags;
   }
 
@@ -12043,7 +12104,11 @@ final class Core {
       Object id = Core.get(skill, "id", "");
       Object name = Core.get(skill, "name", id);
       Object description = Core.get(skill, "description", "");
-      Object line = Core.stringFormat("- `{}` — {}. {}", id, name, description);
+      Object line = Core.stringFormat("- `{}` — {}", id, name);
+      Object has_description = Core.ne(description, "");
+      if (Core.truthy(has_description)) {
+        line = Core.stringFormat("{} — {}", line, description);
+      }
       Core.append(lines, line);
     }
     Object out = Core.stringJoin("\n", lines);
@@ -12075,6 +12140,7 @@ final class Core {
     Object usage_instructions = Core.get(contract, "usage_instructions", "");
     Object discovery_mode = Core.get(flags, "discoveryMode", Boolean.FALSE);
     Object skills_mode = Core.get(flags, "skillsMode", Boolean.FALSE);
+    Object has_skills = Core.get(flags, "hasSkills", skills_mode);
     Object memories_mode = Core.get(flags, "memoriesMode", Boolean.FALSE);
     Object status_callback = Core.get(flags, "hasAgentStatusCallback", Boolean.FALSE);
     Object relevance_hints_mode = Core.get(flags, "relevanceHintsEnabled", Boolean.FALSE);
@@ -12109,7 +12175,7 @@ final class Core {
     Core.set(vars, "hasModules", has_modules);
     Core.set(vars, "hasDiscoveredDocs", discovery_mode);
     Core.set(vars, "hasRelevanceHints", relevance_hints_mode);
-    Core.set(vars, "hasSkills", skills_mode);
+    Core.set(vars, "hasSkills", has_skills);
     Core.set(vars, "hasSkillsCatalog", has_skills_catalog);
     Core.set(vars, "skillsCatalogList", skills_catalog_list);
     Core.set(vars, "skillUsageMode", skill_usage_mode);
@@ -12162,6 +12228,7 @@ final class Core {
     Object memories_mode = Core.get(flags, "memoriesMode", Boolean.FALSE);
     Object discovery_mode = Core.get(flags, "discoveryMode", Boolean.FALSE);
     Object skills_mode = Core.get(flags, "skillsMode", Boolean.FALSE);
+    Object has_skills = Core.get(flags, "hasSkills", skills_mode);
     Object memory_usage_camel = Core.get(options, "memoryUsageMode", Boolean.FALSE);
     Object memory_usage_mode = Core.get(options, "memory_usage_mode", memory_usage_camel);
     Object skill_usage_camel = Core.get(options, "skillUsageMode", Boolean.FALSE);
@@ -12194,7 +12261,7 @@ final class Core {
     Core.set(vars, "discoveryMode", discovery_mode);
     Core.set(vars, "hasModules", has_modules);
     Core.set(vars, "hasDiscoveredDocs", discovery_mode);
-    Core.set(vars, "hasSkills", skills_mode);
+    Core.set(vars, "hasSkills", has_skills);
     Core.set(vars, "hasSkillsCatalog", has_skills_catalog);
     Core.set(vars, "skillsCatalogList", skills_catalog_list);
     Core.set(vars, "isJavaScriptRuntime", is_javascript);
@@ -14407,6 +14474,247 @@ final class Core {
     return items;
   }
 
+  static Object _agent_normalize_skill_entry(Object entry) {
+    axirCoverageMark("_agent_normalize_skill_entry");
+    Object is_map = Core.typeIs(entry, "object");
+    if (Core.truthy(is_map)) {
+      // empty
+    }
+    if (!Core.truthy(is_map)) {
+      Object none = Core.none();
+      return none;
+    }
+    Object name_raw = Core.get(entry, "name", null);
+    Object content = Core.get(entry, "content", null);
+    Object name_is_string = Core.typeIs(name_raw, "string");
+    Object content_is_string = Core.typeIs(content, "string");
+    Object valid_types = Core.and(name_is_string, content_is_string);
+    if (Core.truthy(valid_types)) {
+      // empty
+    }
+    if (!Core.truthy(valid_types)) {
+      Object none = Core.none();
+      return none;
+    }
+    Object name = Core.stringTrim(name_raw);
+    Object name_empty = Core.eq(name, "");
+    if (Core.truthy(name_empty)) {
+      Object none = Core.none();
+      return none;
+    }
+    Object id_raw = Core.get(entry, "id", name);
+    Object id = name;
+    Object id_is_string = Core.typeIs(id_raw, "string");
+    if (Core.truthy(id_is_string)) {
+      Object id_trimmed = Core.stringTrim(id_raw);
+      Object id_has_value = Core.ne(id_trimmed, "");
+      if (Core.truthy(id_has_value)) {
+        id = id_trimmed;
+      }
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "id", id);
+    Core.set(out, "name", name);
+    Core.set(out, "content", content);
+    return out;
+  }
+
+  static Object _agent_merge_skill_results(Object existing, Object incoming) {
+    axirCoverageMark("_agent_merge_skill_results");
+    Object by_id = new java.util.LinkedHashMap<String, Object>();
+    Object existing_is_list = Core.typeIs(existing, "list");
+    if (Core.truthy(existing_is_list)) {
+      for (Object entry : Core.iter(existing)) {
+        Object normalized = Core._agent_normalize_skill_entry(entry);
+        Object valid = Core.typeIs(normalized, "object");
+        if (Core.truthy(valid)) {
+          Object id = Core.get(normalized, "id", null);
+          Core.set(by_id, id, normalized);
+        }
+      }
+    }
+    Object incoming_is_list = Core.typeIs(incoming, "list");
+    if (Core.truthy(incoming_is_list)) {
+      for (Object entry2 : Core.iter(incoming)) {
+        Object normalized2 = Core._agent_normalize_skill_entry(entry2);
+        Object valid2 = Core.typeIs(normalized2, "object");
+        if (Core.truthy(valid2)) {
+          Object id2 = Core.get(normalized2, "id", null);
+          Core.set(by_id, id2, normalized2);
+        }
+      }
+    }
+    Object ids = Core.mapKeys(by_id);
+    Object sorted_ids = Core.sortedStrings(ids);
+    Object out = new java.util.ArrayList<Object>();
+    for (Object sorted_id : Core.iter(sorted_ids)) {
+      Object item = Core.get(by_id, sorted_id, null);
+      Core.append(out, item);
+    }
+    return out;
+  }
+
+  static Object _agent_normalize_skill_catalog(Object catalog) {
+    axirCoverageMark("_agent_normalize_skill_catalog");
+    Object empty = new java.util.ArrayList<Object>();
+    Object base = Core._agent_merge_skill_results(empty, catalog);
+    Object catalog_by_id = new java.util.LinkedHashMap<String, Object>();
+    Object catalog_is_list = Core.typeIs(catalog, "list");
+    if (Core.truthy(catalog_is_list)) {
+      for (Object raw : Core.iter(catalog)) {
+        Object normalized = Core._agent_normalize_skill_entry(raw);
+        Object valid = Core.typeIs(normalized, "object");
+        if (Core.truthy(valid)) {
+          Object id = Core.get(normalized, "id", null);
+          Object description_raw = Core.get(raw, "description", null);
+          Object description_is_string = Core.typeIs(description_raw, "string");
+          if (Core.truthy(description_is_string)) {
+            Core.set(normalized, "description", description_raw);
+          }
+          Core.set(catalog_by_id, id, normalized);
+        }
+      }
+    }
+    Object base_count = Core.len(base);
+    Object has_base = Core.gt(base_count, 0);
+    if (Core.truthy(has_base)) {
+      Object ids = Core.mapKeys(catalog_by_id);
+      Object sorted_ids = Core.sortedStrings(ids);
+      Object out = new java.util.ArrayList<Object>();
+      for (Object sorted_id : Core.iter(sorted_ids)) {
+        Object item = Core.get(catalog_by_id, sorted_id, null);
+        Core.append(out, item);
+      }
+      return out;
+    }
+    return empty;
+  }
+
+  static Object _agent_catalog_skill_search(Object catalog, Object searches) {
+    axirCoverageMark("_agent_catalog_skill_search");
+    Object docs = new java.util.ArrayList<Object>();
+    for (Object skill : Core.iter(catalog)) {
+      Object id = Core.get(skill, "id", "");
+      Object name = Core.get(skill, "name", id);
+      Object description = Core.get(skill, "description", "");
+      Object content = Core.get(skill, "content", "");
+      Object content_head = Core.stringSlice(content, 0, 600);
+      Object fields = new java.util.ArrayList<Object>();
+      Object id_field = new java.util.LinkedHashMap<String, Object>();
+      Core.set(id_field, "text", id);
+      Core.set(id_field, "identifier", Boolean.TRUE);
+      Core.append(fields, id_field);
+      Object name_field = new java.util.LinkedHashMap<String, Object>();
+      Core.set(name_field, "text", name);
+      Core.set(name_field, "weight", 2);
+      Core.append(fields, name_field);
+      Object has_description = Core.ne(description, "");
+      if (Core.truthy(has_description)) {
+        Object description_field = new java.util.LinkedHashMap<String, Object>();
+        Core.set(description_field, "text", description);
+        Core.set(description_field, "weight", 2);
+        Core.append(fields, description_field);
+      }
+      Object content_field = new java.util.LinkedHashMap<String, Object>();
+      Core.set(content_field, "text", content_head);
+      Core.append(fields, content_field);
+      Object doc = new java.util.LinkedHashMap<String, Object>();
+      Core.set(doc, "id", id);
+      Core.set(doc, "fields", fields);
+      Core.append(docs, doc);
+    }
+    Object opts = new java.util.LinkedHashMap<String, Object>();
+    Core.set(opts, "topK", 2);
+    Core.set(opts, "minScore", 0);
+    Core.set(opts, "marginRatio", 0);
+    Core.set(opts, "minDocs", 1);
+    Object matched_ids = new java.util.ArrayList<Object>();
+    for (Object search : Core.iter(searches)) {
+      Object ranked = Core._agent_rank_documents(search, docs, opts);
+      for (Object ranked_entry : Core.iter(ranked)) {
+        Object ranked_id = Core.get(ranked_entry, "id", "");
+        Object already = Core.contains(matched_ids, ranked_id);
+        Object fresh = Core.not(already);
+        if (Core.truthy(fresh)) {
+          Core.append(matched_ids, ranked_id);
+        }
+      }
+    }
+    Object out = new java.util.ArrayList<Object>();
+    for (Object matched_id : Core.iter(matched_ids)) {
+      for (Object catalog_skill : Core.iter(catalog)) {
+        Object catalog_id = Core.get(catalog_skill, "id", "");
+        Object matches = Core.eq(catalog_id, matched_id);
+        if (Core.truthy(matches)) {
+          Object result = new java.util.LinkedHashMap<String, Object>();
+          Object result_name = Core.get(catalog_skill, "name", catalog_id);
+          Object result_content = Core.get(catalog_skill, "content", "");
+          Core.set(result, "id", catalog_id);
+          Core.set(result, "name", result_name);
+          Core.set(result, "content", result_content);
+          Core.append(out, result);
+        }
+      }
+    }
+    return out;
+  }
+
+  static Object _agent_catalog_memory_search(Object catalog, Object searches, Object already_loaded) {
+    axirCoverageMark("_agent_catalog_memory_search");
+    Object candidates = new java.util.ArrayList<Object>();
+    Object docs = new java.util.ArrayList<Object>();
+    for (Object memory : Core.iter(catalog)) {
+      Object id = Core.get(memory, "id", "");
+      Object loaded = Core._agent_relevance_has_id(already_loaded, "id", id);
+      Object fresh = Core.not(loaded);
+      if (Core.truthy(fresh)) {
+        Core.append(candidates, memory);
+        Object content = Core.get(memory, "content", "");
+        Object content_head = Core.stringSlice(content, 0, 600);
+        Object fields = new java.util.ArrayList<Object>();
+        Object id_field = new java.util.LinkedHashMap<String, Object>();
+        Core.set(id_field, "text", id);
+        Core.set(id_field, "identifier", Boolean.TRUE);
+        Core.append(fields, id_field);
+        Object content_field = new java.util.LinkedHashMap<String, Object>();
+        Core.set(content_field, "text", content_head);
+        Core.append(fields, content_field);
+        Object doc = new java.util.LinkedHashMap<String, Object>();
+        Core.set(doc, "id", id);
+        Core.set(doc, "fields", fields);
+        Core.append(docs, doc);
+      }
+    }
+    Object opts = new java.util.LinkedHashMap<String, Object>();
+    Core.set(opts, "topK", 3);
+    Core.set(opts, "minScore", 0);
+    Core.set(opts, "marginRatio", 0);
+    Core.set(opts, "minDocs", 1);
+    Object matched_ids = new java.util.ArrayList<Object>();
+    for (Object search : Core.iter(searches)) {
+      Object ranked = Core._agent_rank_documents(search, docs, opts);
+      for (Object ranked_entry : Core.iter(ranked)) {
+        Object ranked_id = Core.get(ranked_entry, "id", "");
+        Object already = Core.contains(matched_ids, ranked_id);
+        Object fresh2 = Core.not(already);
+        if (Core.truthy(fresh2)) {
+          Core.append(matched_ids, ranked_id);
+        }
+      }
+    }
+    Object out = new java.util.ArrayList<Object>();
+    for (Object matched_id : Core.iter(matched_ids)) {
+      for (Object candidate : Core.iter(candidates)) {
+        Object candidate_id = Core.get(candidate, "id", "");
+        Object matches = Core.eq(candidate_id, matched_id);
+        if (Core.truthy(matches)) {
+          Core.append(out, candidate);
+        }
+      }
+    }
+    return out;
+  }
+
   static Object _agent_render_discovered_tool_docs(Object docs) {
     axirCoverageMark("_agent_render_discovered_tool_docs");
     Object lines = new java.util.ArrayList<Object>();
@@ -14432,21 +14740,27 @@ final class Core {
     axirCoverageMark("_agent_render_loaded_skills");
     Object lines = new java.util.ArrayList<Object>();
     for (Object skill : Core.iter(skills)) {
+      Object id = Core.get(skill, "id", "");
       Object name = Core.get(skill, "name", "");
       Object content = Core.get(skill, "content", "");
-      Object line = Core.stringFormat("### {}\n{}", name, content);
+      Object line = Core.stringFormat("### {}\n\nID: `{}`\n\n{}", name, id, content);
       Core.append(lines, line);
     }
     Object body = Core.stringJoin("\n\n", lines);
-    Object empty = Core.eq(body, "");
-    Object out = body;
-    if (Core.truthy(empty)) {
-      out = "";
+    return body;
+  }
+
+  static Object _agent_render_loaded_memories(Object memories) {
+    axirCoverageMark("_agent_render_loaded_memories");
+    Object lines = new java.util.ArrayList<Object>();
+    for (Object memory : Core.iter(memories)) {
+      Object id = Core.get(memory, "id", "");
+      Object content = Core.get(memory, "content", "");
+      Object line = Core.stringFormat("### Memory\n\nID: `{}`\n\n{}", id, content);
+      Core.append(lines, line);
     }
-    if (!Core.truthy(empty)) {
-      out = Core.stringFormat("Loaded Skills\n{}", body);
-    }
-    return out;
+    Object body = Core.stringJoin("\n\n", lines);
+    return body;
   }
 
   static Object _agent_discover(Object state, Object request) {
@@ -14455,7 +14769,12 @@ final class Core {
     Object normalized = Core._normalize_agent_discover_request(state, request);
     Object inventory = Core.get(state, "callable_inventory", empty_list);
     Object docs = Core.get(state, "discovered_tool_docs", empty_list);
+    Object active_stage = Core.get(state, "active_stage", "executor");
+    Object is_distiller = Core.eq(active_stage, "distiller");
     Object skill_docs = Core.get(state, "loaded_skill_docs", empty_list);
+    if (Core.truthy(is_distiller)) {
+      skill_docs = Core.get(state, "distiller_loaded_skill_docs", empty_list);
+    }
     Object trace = Core.get(state, "policy_trace", empty_list);
     Object action_log = Core.get(state, "action_log", empty_list);
     Object tools = Core.get(normalized, "tools", empty_list);
@@ -14504,27 +14823,33 @@ final class Core {
     }
     Object skill_count = Core.len(skills);
     Object has_skills = Core.gt(skill_count, 0);
+    Object loaded_from_search = new java.util.ArrayList<Object>();
+    Object observer_loaded_from_search = new java.util.ArrayList<Object>();
     if (Core.truthy(has_skills)) {
-      Object host_skills = Core.agentSkillSearch(state, skills);
-      Object host_count = Core.len(host_skills);
-      Object has_host = Core.gt(host_count, 0);
-      if (Core.truthy(has_host)) {
-        for (Object host_skill : Core.iter(host_skills)) {
-          Object skill_name = Core.get(host_skill, "name", "");
-          Object skill_id = Core.get(host_skill, "id", skill_name);
-          Core.set(host_skill, "id", skill_id);
-          skill_docs = Core._agent_append_unique_by_field(skill_docs, host_skill, "id");
-        }
+      Object state_options = Core.get(state, "options", null);
+      Object callback_camel = Core.get(state_options, "onSkillsSearch", null);
+      Object callback_value = Core.get(state_options, "on_skills_search", callback_camel);
+      Object scripted_camel = Core.get(state_options, "skillSearchResults", null);
+      Object scripted_value = Core.get(state_options, "skill_search_results", scripted_camel);
+      Object has_callback = Core.isNotNone(callback_value);
+      Object has_scripted = Core.isNotNone(scripted_value);
+      Object has_host_search = Core.or(has_callback, has_scripted);
+      if (Core.truthy(has_host_search)) {
+        Object host_skills = Core.agentSkillSearch(state, skills);
+        observer_loaded_from_search = host_skills;
+        loaded_from_search = Core._agent_merge_skill_results(empty_list, host_skills);
       }
-      if (!Core.truthy(has_host)) {
-        for (Object skill : Core.iter(skills)) {
-          Object doc = new java.util.LinkedHashMap<String, Object>();
-          Core.set(doc, "id", skill);
-          Core.set(doc, "name", skill);
-          Object content = Core.stringFormat("Skill docs loaded for {}", skill);
-          Core.set(doc, "content", content);
-          skill_docs = Core._agent_append_unique_by_field(skill_docs, doc, "id");
-        }
+      if (!Core.truthy(has_host_search)) {
+        Object catalog = Core.get(state, "skills_catalog", empty_list);
+        loaded_from_search = Core._agent_catalog_skill_search(catalog, skills);
+        observer_loaded_from_search = loaded_from_search;
+      }
+      skill_docs = Core._agent_merge_skill_results(skill_docs, loaded_from_search);
+      Object loaded_count = Core.len(loaded_from_search);
+      Object loaded_any = Core.gt(loaded_count, 0);
+      if (Core.truthy(loaded_any)) {
+        Object observer_options = new java.util.LinkedHashMap<String, Object>();
+        Core.agentObserverNotify(state, observer_options, "loaded_skills", observer_loaded_from_search);
       }
     }
     Object event = new java.util.LinkedHashMap<String, Object>();
@@ -14539,7 +14864,12 @@ final class Core {
     Core.set(action_event, "skills", skills);
     Core.append(action_log, action_event);
     Core.set(state, "discovered_tool_docs", docs);
-    Core.set(state, "loaded_skill_docs", skill_docs);
+    if (Core.truthy(is_distiller)) {
+      Core.set(state, "distiller_loaded_skill_docs", skill_docs);
+    }
+    if (!Core.truthy(is_distiller)) {
+      Core.set(state, "loaded_skill_docs", skill_docs);
+    }
     Core.set(state, "policy_trace", trace);
     Core.set(state, "action_log", action_log);
     Core._agent_record_trace_event(state, "discover", event);
@@ -14564,16 +14894,59 @@ final class Core {
 
   static Object _agent_merge_memory_results(Object existing, Object incoming) {
     axirCoverageMark("_agent_merge_memory_results");
-    Object out = existing;
-    for (Object memory : Core.iter(incoming)) {
-      Object id = Core.get(memory, "id", "");
-      Object content = Core.get(memory, "content", "");
-      Object has_id = Core.ne(id, "");
-      Object has_content = Core.ne(content, "");
-      Object valid = Core.and(has_id, has_content);
-      if (Core.truthy(valid)) {
-        out = Core._agent_append_unique_by_field(out, memory, "id");
+    Object by_id = new java.util.LinkedHashMap<String, Object>();
+    Object existing_is_list = Core.typeIs(existing, "list");
+    if (Core.truthy(existing_is_list)) {
+      for (Object memory : Core.iter(existing)) {
+        Object memory_is_map = Core.typeIs(memory, "object");
+        if (Core.truthy(memory_is_map)) {
+          Object id_raw = Core.get(memory, "id", null);
+          Object content = Core.get(memory, "content", null);
+          Object id_is_string = Core.typeIs(id_raw, "string");
+          Object content_is_string = Core.typeIs(content, "string");
+          Object valid_types = Core.and(id_is_string, content_is_string);
+          if (Core.truthy(valid_types)) {
+            Object id = Core.stringTrim(id_raw);
+            Object has_id = Core.ne(id, "");
+            if (Core.truthy(has_id)) {
+              Object normalized = new java.util.LinkedHashMap<String, Object>();
+              Core.set(normalized, "id", id);
+              Core.set(normalized, "content", content);
+              Core.set(by_id, id, normalized);
+            }
+          }
+        }
       }
+    }
+    Object incoming_is_list = Core.typeIs(incoming, "list");
+    if (Core.truthy(incoming_is_list)) {
+      for (Object memory2 : Core.iter(incoming)) {
+        Object memory2_is_map = Core.typeIs(memory2, "object");
+        if (Core.truthy(memory2_is_map)) {
+          Object id2_raw = Core.get(memory2, "id", null);
+          Object content2 = Core.get(memory2, "content", null);
+          Object id2_is_string = Core.typeIs(id2_raw, "string");
+          Object content2_is_string = Core.typeIs(content2, "string");
+          Object valid2_types = Core.and(id2_is_string, content2_is_string);
+          if (Core.truthy(valid2_types)) {
+            Object id2 = Core.stringTrim(id2_raw);
+            Object has_id2 = Core.ne(id2, "");
+            if (Core.truthy(has_id2)) {
+              Object normalized2 = new java.util.LinkedHashMap<String, Object>();
+              Core.set(normalized2, "id", id2);
+              Core.set(normalized2, "content", content2);
+              Core.set(by_id, id2, normalized2);
+            }
+          }
+        }
+      }
+    }
+    Object ids = Core.mapKeys(by_id);
+    Object sorted_ids = Core.sortedStrings(ids);
+    Object out = new java.util.ArrayList<Object>();
+    for (Object sorted_id : Core.iter(sorted_ids)) {
+      Object item = Core.get(by_id, sorted_id, null);
+      Core.append(out, item);
     }
     return out;
   }
@@ -14584,9 +14957,34 @@ final class Core {
     Object normalized = Core._normalize_agent_recall_request(state, request);
     Object searches = Core.get(normalized, "searches", empty_list);
     Object loaded = Core.get(state, "loaded_memories", empty_list);
-    Object incoming = Core.agentMemorySearch(state, searches, loaded);
+    Object state_options = Core.get(state, "options", null);
+    Object callback_camel = Core.get(state_options, "onMemoriesSearch", null);
+    Object callback_value = Core.get(state_options, "on_memories_search", callback_camel);
+    Object scripted_camel = Core.get(state_options, "memorySearchResults", null);
+    Object scripted_value = Core.get(state_options, "memory_search_results", scripted_camel);
+    Object has_callback = Core.isNotNone(callback_value);
+    Object has_scripted = Core.isNotNone(scripted_value);
+    Object has_host_search = Core.or(has_callback, has_scripted);
+    Object incoming = new java.util.ArrayList<Object>();
+    Object observer_incoming = new java.util.ArrayList<Object>();
+    if (Core.truthy(has_host_search)) {
+      Object host_incoming = Core.agentMemorySearch(state, searches, loaded);
+      observer_incoming = host_incoming;
+      incoming = Core._agent_merge_memory_results(empty_list, host_incoming);
+    }
+    if (!Core.truthy(has_host_search)) {
+      Object catalog = Core.get(state, "memories_catalog", empty_list);
+      incoming = Core._agent_catalog_memory_search(catalog, searches, loaded);
+      observer_incoming = incoming;
+    }
     Object merged = Core._agent_merge_memory_results(loaded, incoming);
     Core.set(state, "loaded_memories", merged);
+    Object incoming_count = Core.len(incoming);
+    Object has_incoming = Core.gt(incoming_count, 0);
+    if (Core.truthy(has_incoming)) {
+      Object observer_options = new java.util.LinkedHashMap<String, Object>();
+      Core.agentObserverNotify(state, observer_options, "loaded_memories", observer_incoming);
+    }
     Object trace = Core.get(state, "policy_trace", empty_list);
     Object event = new java.util.LinkedHashMap<String, Object>();
     Core.set(event, "type", "recall");
@@ -14606,6 +15004,32 @@ final class Core {
     return none;
   }
 
+  static Object _agent_append_unique_used_entry(Object items, Object entry) {
+    axirCoverageMark("_agent_append_unique_used_entry");
+    Object entry_id = Core.get(entry, "id", "");
+    Object entry_reason = Core.get(entry, "reason", "");
+    Object entry_stage = Core.get(entry, "stage", "");
+    Object exists = Boolean.FALSE;
+    for (Object item : Core.iter(items)) {
+      Object item_id = Core.get(item, "id", "");
+      Object item_reason = Core.get(item, "reason", "");
+      Object item_stage = Core.get(item, "stage", "");
+      Object same_id = Core.eq(entry_id, item_id);
+      Object same_reason = Core.eq(entry_reason, item_reason);
+      Object same_stage = Core.eq(entry_stage, item_stage);
+      Object same_id_reason = Core.and(same_id, same_reason);
+      Object same = Core.and(same_id_reason, same_stage);
+      if (Core.truthy(same)) {
+        exists = Boolean.TRUE;
+      }
+    }
+    Object missing = Core.not(exists);
+    if (Core.truthy(missing)) {
+      Core.append(items, entry);
+    }
+    return items;
+  }
+
   static Object _normalize_agent_used_request(Object request, Object default_stage) {
     axirCoverageMark("_normalize_agent_used_request");
     Object is_map = Core.typeIs(request, "object");
@@ -14622,6 +15046,7 @@ final class Core {
     }
     id = Core.stringTrim(id);
     reason = Core.stringTrim(reason);
+    reason = Core.stringSlice(reason, 0, 300);
     Object missing = Core.eq(id, "");
     if (Core.truthy(missing)) {
       Object error = Core.runtimeError("used(...) requires a non-empty loaded memory or skill id");
@@ -14648,9 +15073,12 @@ final class Core {
     Object id = Core.get(normalized, "id", null);
     Object reason = Core.get(normalized, "reason", "");
     Object normalized_stage = Core.get(normalized, "stage", stage);
-    Object dedupe_key = Core.stringFormat("{}\n{}\n{}", normalized_stage, id, reason);
     Object memories = Core.get(state, "loaded_memories", empty_list);
     Object skills = Core.get(state, "loaded_skill_docs", empty_list);
+    Object is_distiller = Core.eq(normalized_stage, "distiller");
+    if (Core.truthy(is_distiller)) {
+      skills = Core.get(state, "distiller_loaded_skill_docs", empty_list);
+    }
     Object used_memories = Core.get(state, "used_memories", empty_list);
     Object used_skills = Core.get(state, "used_skills", empty_list);
     Object matched = Boolean.FALSE;
@@ -14662,8 +15090,7 @@ final class Core {
         Core.set(record, "id", id);
         Core.set(record, "reason", reason);
         Core.set(record, "stage", normalized_stage);
-        Core.set(record, "dedupe_key", dedupe_key);
-        used_memories = Core._agent_append_unique_by_field(used_memories, record, "dedupe_key");
+        used_memories = Core._agent_append_unique_used_entry(used_memories, record);
         matched = Boolean.TRUE;
       }
     }
@@ -14677,8 +15104,7 @@ final class Core {
         Core.set(record, "name", skill_name);
         Core.set(record, "reason", reason);
         Core.set(record, "stage", normalized_stage);
-        Core.set(record, "dedupe_key", dedupe_key);
-        used_skills = Core._agent_append_unique_by_field(used_skills, record, "dedupe_key");
+        used_skills = Core._agent_append_unique_used_entry(used_skills, record);
         matched = Boolean.TRUE;
       }
     }
@@ -15215,6 +15641,7 @@ final class Core {
     Object runtime_state = Core.get(state, "runtime_state", empty_map);
     Object discovered = Core.get(state, "discovered_tool_docs", empty_list);
     Object skills = Core.get(state, "loaded_skill_docs", empty_list);
+    Object distiller_skills = Core.get(state, "distiller_loaded_skill_docs", empty_list);
     Object memories = Core.get(state, "loaded_memories", empty_list);
     Object used_memories = Core.get(state, "used_memories", empty_list);
     Object used_skills = Core.get(state, "used_skills", empty_list);
@@ -15244,6 +15671,7 @@ final class Core {
     Core.set(out, "runtime_state", runtime_state);
     Core.set(out, "discovered_tool_docs", discovered);
     Core.set(out, "loaded_skill_docs", skills);
+    Core.set(out, "distiller_loaded_skill_docs", distiller_skills);
     Core.set(out, "loaded_memories", memories);
     Core.set(out, "used_memories", used_memories);
     Core.set(out, "used_skills", used_skills);
@@ -15278,8 +15706,14 @@ final class Core {
     Object empty_list = new java.util.ArrayList<Object>();
     Object runtime_state = Core.get(snapshot, "runtime_state", empty_map);
     Object discovered = Core.get(snapshot, "discovered_tool_docs", empty_list);
-    Object skills = Core.get(snapshot, "loaded_skill_docs", empty_list);
-    Object memories = Core.get(snapshot, "loaded_memories", empty_list);
+    Object skills_raw = Core.get(snapshot, "loaded_skill_docs", empty_list);
+    Object distiller_skills_raw = Core.get(snapshot, "distiller_loaded_skill_docs", empty_list);
+    Object preset_skills = Core.get(state, "preset_skill_docs", empty_list);
+    Object skills = Core._agent_merge_skill_results(empty_list, skills_raw);
+    skills = Core._agent_merge_skill_results(skills, preset_skills);
+    Object distiller_skills = Core._agent_merge_skill_results(empty_list, distiller_skills_raw);
+    Object memories_raw = Core.get(snapshot, "loaded_memories", empty_list);
+    Object memories = Core._agent_merge_memory_results(empty_list, memories_raw);
     Object used_memories = Core.get(snapshot, "used_memories", empty_list);
     Object used_skills = Core.get(snapshot, "used_skills", empty_list);
     Object guidance_log = Core.get(snapshot, "guidance_log", empty_list);
@@ -15302,6 +15736,7 @@ final class Core {
     Core.set(state, "runtime_state", runtime_state);
     Core.set(state, "discovered_tool_docs", discovered);
     Core.set(state, "loaded_skill_docs", skills);
+    Core.set(state, "distiller_loaded_skill_docs", distiller_skills);
     Core.set(state, "loaded_memories", memories);
     Core.set(state, "used_memories", used_memories);
     Core.set(state, "used_skills", used_skills);
@@ -15341,6 +15776,17 @@ final class Core {
     Object callable_inventory = Core.get(state, "callable_inventory", empty_list);
     Object discovery_catalog = Core.get(state, "discovery_catalog", empty_list);
     Object registry = Core.get(state, "policy_registry", empty_map);
+    Object runtime_input_names = Core.get(state, "runtime_input_names", empty_list);
+    for (Object input_name : Core.iter(values)) {
+      Object input_name_known = Core.contains(runtime_input_names, input_name);
+      if (Core.truthy(input_name_known)) {
+        // empty
+      }
+      if (!Core.truthy(input_name_known)) {
+        Core.append(runtime_input_names, input_name);
+      }
+    }
+    Core.set(state, "runtime_input_names", runtime_input_names);
     Object selected_primitives = Core._select_actor_primitives(registry, "executor");
     Core.set(globals, "inputs", values);
     Core.set(globals, "context", values);
@@ -15373,9 +15819,9 @@ final class Core {
     return globals;
   }
 
-  static Object _agent_runtime_sanitize_bindings(Object bindings) {
+  static Object _agent_runtime_sanitize_bindings(Object state, Object bindings) {
     axirCoverageMark("_agent_runtime_sanitize_bindings");
-    Object reserved = Core._agent_reserved_runtime_names();
+    Object reserved = Core._agent_runtime_reserved_names_for_state(state);
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object bindings_is_map = Core.typeIs(bindings, "object");
     if (Core.truthy(bindings_is_map)) {
@@ -15393,7 +15839,7 @@ final class Core {
     return out;
   }
 
-  static Object _normalize_agent_runtime_snapshot(Object snapshot) {
+  static Object _normalize_agent_runtime_snapshot(Object state, Object snapshot) {
     axirCoverageMark("_normalize_agent_runtime_snapshot");
     Object empty_list = new java.util.ArrayList<Object>();
     Object snapshot_is_map = Core.typeIs(snapshot, "object");
@@ -15420,7 +15866,8 @@ final class Core {
     if (Core.truthy(has_bindings)) {
       bindings = raw_bindings;
     }
-    Object clean_bindings = Core._agent_runtime_sanitize_bindings(bindings);
+    Object reserved = Core._agent_runtime_reserved_names_for_state(state);
+    Object clean_bindings = Core._agent_runtime_sanitize_bindings(state, bindings);
     Object entries = Core.get(snapshot, "entries", empty_list);
     Object entries_is_list = Core.typeIs(entries, "list");
     if (Core.truthy(entries_is_list)) {
@@ -15429,11 +15876,22 @@ final class Core {
     if (!Core.truthy(entries_is_list)) {
       entries = empty_list;
     }
+    Object clean_entries = new java.util.ArrayList<Object>();
+    for (Object entry : Core.iter(entries)) {
+      Object entry_name = Core.get(entry, "name", "");
+      Object entry_reserved = Core.contains(reserved, entry_name);
+      if (Core.truthy(entry_reserved)) {
+        // empty
+      }
+      if (!Core.truthy(entry_reserved)) {
+        Core.append(clean_entries, entry);
+      }
+    }
     Object closed = Core.get(snapshot, "closed", Boolean.FALSE);
     Object version = Core.get(snapshot, "version", 1);
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "version", version);
-    Core.set(out, "entries", entries);
+    Core.set(out, "entries", clean_entries);
     Core.set(out, "bindings", clean_bindings);
     Core.set(out, "globals", clean_bindings);
     Core.set(out, "closed", closed);
@@ -15597,7 +16055,7 @@ final class Core {
   static Object _agent_runtime_execution_options(Object state, Object options) {
     axirCoverageMark("_agent_runtime_execution_options");
     Object empty_map = new java.util.LinkedHashMap<String, Object>();
-    Object reserved_names = Core._agent_reserved_runtime_names();
+    Object reserved_names = Core._agent_runtime_reserved_names_for_state(state);
     Object runtime_options = Core.mapMerge(empty_map, options);
     Core.mapDelete(runtime_options, "runtime");
     Core.set(runtime_options, "reservedNames", reserved_names);
@@ -15689,11 +16147,25 @@ final class Core {
     Object has_recall = Core.isNotNone(recall_request);
     if (Core.truthy(has_recall)) {
       Core._agent_recall(state, recall_request);
+      Object memory_globals = Core.get(state, "runtime_globals", empty_map);
+      Object memory_inputs = Core.get(memory_globals, "inputs", empty_map);
+      Object memory_context = Core.get(memory_globals, "context", empty_map);
+      Object current_memories = Core.get(state, "loaded_memories", null);
+      Core.set(memory_inputs, "memories", current_memories);
+      Core.set(memory_context, "memories", current_memories);
+      Core.set(memory_globals, "inputs", memory_inputs);
+      Core.set(memory_globals, "context", memory_context);
+      Core.set(memory_globals, "memories", current_memories);
+      Core.set(state, "runtime_globals", memory_globals);
+      Object memory_patch = new java.util.LinkedHashMap<String, Object>();
+      Core.set(memory_patch, "globals", memory_globals);
+      Core._agent_runtime_restore_session_state(state, session, memory_patch, runtime_options);
     }
     Object used_request = Core.get(normalized, "used_request", null);
     Object has_used = Core.isNotNone(used_request);
     if (Core.truthy(has_used)) {
-      Core._agent_used(state, used_request, "executor");
+      Object active_stage = Core.get(state, "active_stage", "executor");
+      Core._agent_used(state, used_request, active_stage);
     }
     Object callable_request = Core.get(normalized, "callable_request", null);
     Object has_callable = Core.isNotNone(callable_request);
@@ -15749,7 +16221,7 @@ final class Core {
   static Object _agent_runtime_export_session_state(Object state, Object session, Object options) {
     axirCoverageMark("_agent_runtime_export_session_state");
     Object raw_snapshot = Core.agentRuntimeExportState(session, options);
-    Object snapshot = Core._normalize_agent_runtime_snapshot(raw_snapshot);
+    Object snapshot = Core._normalize_agent_runtime_snapshot(state, raw_snapshot);
     Core.set(state, "runtime_session_state", snapshot);
     Object log_entry = new java.util.LinkedHashMap<String, Object>();
     Core.set(log_entry, "type", "runtime_session");
@@ -15772,7 +16244,7 @@ final class Core {
     if (Core.truthy(enabled)) {
       Object runtime_options = Core._agent_runtime_execution_options(state, options);
       Object raw_snapshot = Core.agentRuntimeExportState(session, runtime_options);
-      Object snapshot = Core._normalize_agent_runtime_snapshot(raw_snapshot);
+      Object snapshot = Core._normalize_agent_runtime_snapshot(state, raw_snapshot);
       Core.set(state, "runtime_session_state", snapshot);
       return snapshot;
     }
@@ -15781,9 +16253,9 @@ final class Core {
 
   static Object _agent_runtime_restore_session_state(Object state, Object session, Object snapshot, Object options) {
     axirCoverageMark("_agent_runtime_restore_session_state");
-    Object normalized_snapshot = Core._normalize_agent_runtime_snapshot(snapshot);
+    Object normalized_snapshot = Core._normalize_agent_runtime_snapshot(state, snapshot);
     Object raw_restored = Core.agentRuntimeRestoreState(session, normalized_snapshot, options);
-    Object restored = Core._normalize_agent_runtime_snapshot(raw_restored);
+    Object restored = Core._normalize_agent_runtime_snapshot(state, raw_restored);
     Core.set(state, "runtime_session_state", restored);
     Object log_entry = new java.util.LinkedHashMap<String, Object>();
     Core.set(log_entry, "type", "runtime_session");
@@ -15993,41 +16465,255 @@ final class Core {
     return out;
   }
 
-  static Object _agent_relevance_tokens(Object text) {
-    axirCoverageMark("_agent_relevance_tokens");
-    Object stopwords = Core.jsonParse("[\n  \"a\",\n  \"an\",\n  \"and\",\n  \"are\",\n  \"as\",\n  \"at\",\n  \"be\",\n  \"by\",\n  \"for\",\n  \"from\",\n  \"has\",\n  \"have\",\n  \"how\",\n  \"i\",\n  \"in\",\n  \"into\",\n  \"is\",\n  \"it\",\n  \"of\",\n  \"on\",\n  \"or\",\n  \"our\",\n  \"please\",\n  \"show\",\n  \"that\",\n  \"the\",\n  \"their\",\n  \"this\",\n  \"to\",\n  \"use\",\n  \"with\",\n  \"you\"\n]\n");
-    Object lower = Core.stringLower(text);
-    Object clean = Core.regexReplace("[^a-z0-9]+", " ", lower);
-    Object parts = Core.stringSplitTrimNonEmpty(clean, " ");
+  static Object _agent_identifier_tokens(Object text) {
+    axirCoverageMark("_agent_identifier_tokens");
+    Object acronyms = Core.regexReplace("([A-Z]+)([A-Z][a-z])", "$1 $2", text);
+    Object camel = Core.regexReplace("([a-z0-9])([A-Z])", "$1 $2", acronyms);
+    Object spaced = Core.regexReplace("[^A-Za-z0-9]+", " ", camel);
+    Object lower = Core.stringLower(spaced);
+    Object parts = Core.stringSplitTrimNonEmpty(lower, " ");
     Object out = new java.util.ArrayList<Object>();
     for (Object part : Core.iter(parts)) {
       Object len = Core.len(part);
       Object long_enough = Core.gt(len, 1);
-      Object is_stop = Core.contains(stopwords, part);
-      Object not_stop = Core.not(is_stop);
-      Object ok = Core.and(long_enough, not_stop);
-      if (Core.truthy(ok)) {
-        Object already = Core.contains(out, part);
-        Object fresh = Core.not(already);
-        if (Core.truthy(fresh)) {
-          Core.append(out, part);
-        }
+      Object without_digits = Core.regexReplace("^[0-9]+$", "", part);
+      Object not_numeric = Core.ne(without_digits, "");
+      Object keep = Core.and(long_enough, not_numeric);
+      if (Core.truthy(keep)) {
+        Core.append(out, part);
       }
     }
     return out;
   }
 
-  static Object _agent_relevance_score(Object tokens, Object text) {
-    axirCoverageMark("_agent_relevance_score");
-    Object doc = Core.stringLower(text);
-    Object score = 0;
-    for (Object token : Core.iter(tokens)) {
-      Object hit = Core.contains(doc, token);
-      if (Core.truthy(hit)) {
-        score = Core.add(score, 1);
+  static Object _agent_relevance_tokens(Object text) {
+    axirCoverageMark("_agent_relevance_tokens");
+    Object stopwords = Core.jsonParse("[\n  \"a\",\n  \"an\",\n  \"and\",\n  \"are\",\n  \"as\",\n  \"at\",\n  \"be\",\n  \"by\",\n  \"for\",\n  \"from\",\n  \"has\",\n  \"have\",\n  \"how\",\n  \"i\",\n  \"in\",\n  \"into\",\n  \"is\",\n  \"it\",\n  \"of\",\n  \"on\",\n  \"or\",\n  \"our\",\n  \"please\",\n  \"show\",\n  \"that\",\n  \"the\",\n  \"their\",\n  \"this\",\n  \"to\",\n  \"use\",\n  \"with\",\n  \"you\"\n]\n");
+    Object lower = Core.stringLower(text);
+    Object clean = Core.regexReplace("[-!\"#$%&'()*+,./:;<=>?@\\[\\]^_`{|}~]", " ", lower);
+    Object parts = Core.stringSplitTrimNonEmpty(clean, " ");
+    Object out = new java.util.ArrayList<Object>();
+    for (Object part : Core.iter(parts)) {
+      Object len = Core.len(part);
+      Object long_enough = Core.gt(len, 1);
+      Object without_digits = Core.regexReplace("^[0-9]+$", "", part);
+      Object not_numeric = Core.ne(without_digits, "");
+      Object is_stop = Core.contains(stopwords, part);
+      Object not_stop = Core.not(is_stop);
+      Object base_ok = Core.and(long_enough, not_numeric);
+      Object ok = Core.and(base_ok, not_stop);
+      if (Core.truthy(ok)) {
+        Core.append(out, part);
       }
     }
-    return score;
+    return out;
+  }
+
+  static Object _agent_document_term_frequency(Object fields) {
+    axirCoverageMark("_agent_document_term_frequency");
+    Object tf = new java.util.LinkedHashMap<String, Object>();
+    for (Object field : Core.iter(fields)) {
+      Object text = Core.get(field, "text", "");
+      Object weight = Core.get(field, "weight", 1);
+      Object identifier = Core.get(field, "identifier", Boolean.FALSE);
+      Object terms = Core._agent_relevance_tokens(text);
+      if (Core.truthy(identifier)) {
+        terms = Core._agent_identifier_tokens(text);
+      }
+      for (Object term : Core.iter(terms)) {
+        Object current = Core.get(tf, term, 0);
+        Object next = Core.add(current, weight);
+        Core.set(tf, term, next);
+      }
+    }
+    return tf;
+  }
+
+  static Object _agent_rank_documents(Object query, Object docs, Object options) {
+    axirCoverageMark("_agent_rank_documents");
+    Object empty = new java.util.ArrayList<Object>();
+    Object top_k = Core.get(options, "topK", 3);
+    Object min_score = Core.get(options, "minScore", 0.08);
+    Object margin_ratio = Core.get(options, "marginRatio", 0.15);
+    Object min_docs = Core.get(options, "minDocs", 2);
+    Object doc_count = Core.len(docs);
+    Object too_few = Core.lt(doc_count, min_docs);
+    if (Core.truthy(too_few)) {
+      return empty;
+    }
+    Object indexed = new java.util.ArrayList<Object>();
+    Object df = new java.util.LinkedHashMap<String, Object>();
+    for (Object doc : Core.iter(docs)) {
+      Object fields = Core.get(doc, "fields", empty);
+      Object tf = Core._agent_document_term_frequency(fields);
+      Object doc_id = Core.get(doc, "id", "");
+      Object indexed_doc = new java.util.LinkedHashMap<String, Object>();
+      Core.set(indexed_doc, "id", doc_id);
+      Core.set(indexed_doc, "tf", tf);
+      Core.append(indexed, indexed_doc);
+      Object terms = Core.mapKeys(tf);
+      for (Object term : Core.iter(terms)) {
+        Object count = Core.get(df, term, 0);
+        count = Core.add(count, 1);
+        Core.set(df, term, count);
+      }
+    }
+    Object query_terms = Core._agent_relevance_tokens(query);
+    Object effective = new java.util.ArrayList<Object>();
+    for (Object query_term : Core.iter(query_terms)) {
+      Object appears = Core.mapContains(df, query_term);
+      Object already_effective = Core.contains(effective, query_term);
+      Object fresh_effective = Core.not(already_effective);
+      Object include_effective = Core.and(appears, fresh_effective);
+      if (Core.truthy(include_effective)) {
+        Core.append(effective, query_term);
+      }
+    }
+    Object effective_count = Core.len(effective);
+    Object no_effective = Core.eq(effective_count, 0);
+    if (Core.truthy(no_effective)) {
+      return empty;
+    }
+    Object idf = new java.util.LinkedHashMap<String, Object>();
+    Object total_idf = 0;
+    for (Object term2 : Core.iter(effective)) {
+      Object frequency = Core.get(df, term2, 1);
+      Object ratio = Core.div(doc_count, frequency);
+      Object ratio_plus_one = Core.add(1, ratio);
+      Object weight = Core.mathLog(ratio_plus_one);
+      Core.set(idf, term2, weight);
+      total_idf = Core.add(total_idf, weight);
+    }
+    Object scored = new java.util.ArrayList<Object>();
+    for (Object indexed_doc2 : Core.iter(indexed)) {
+      Object id = Core.get(indexed_doc2, "id", "");
+      Object tf2 = Core.get(indexed_doc2, "tf", null);
+      Object raw = 0;
+      Object coverage_weight = 0;
+      Object matched = new java.util.ArrayList<Object>();
+      for (Object term3 : Core.iter(effective)) {
+        Object frequency2 = Core.get(tf2, term3, 0);
+        Object matched_frequency = Core.gt(frequency2, 0);
+        if (Core.truthy(matched_frequency)) {
+          Object idf_weight = Core.get(idf, term3, 0);
+          Object saturated_denominator = Core.add(frequency2, 1);
+          Object saturated = Core.div(frequency2, saturated_denominator);
+          Object weighted = Core.mul(idf_weight, saturated);
+          raw = Core.add(raw, weighted);
+          coverage_weight = Core.add(coverage_weight, idf_weight);
+          Core.append(matched, term3);
+        }
+      }
+      Object coverage = Core.div(coverage_weight, total_idf);
+      Object score_entry = new java.util.LinkedHashMap<String, Object>();
+      Core.set(score_entry, "id", id);
+      Core.set(score_entry, "raw", raw);
+      Core.set(score_entry, "coverage", coverage);
+      Core.set(score_entry, "matchedTerms", matched);
+      Core.append(scored, score_entry);
+    }
+    Object scored_ids = new java.util.ArrayList<Object>();
+    for (Object scored_for_id : Core.iter(scored)) {
+      Object scored_id = Core.get(scored_for_id, "id", "");
+      Core.append(scored_ids, scored_id);
+    }
+    Object sorted_scored_ids = Core.sortedStrings(scored_ids);
+    Object scored_by_id = new java.util.ArrayList<Object>();
+    for (Object sorted_scored_id : Core.iter(sorted_scored_ids)) {
+      for (Object scored_for_sort : Core.iter(scored)) {
+        Object scored_for_sort_id = Core.get(scored_for_sort, "id", "");
+        Object same_scored_id = Core.eq(scored_for_sort_id, sorted_scored_id);
+        if (Core.truthy(same_scored_id)) {
+          Core.append(scored_by_id, scored_for_sort);
+        }
+      }
+    }
+    scored = scored_by_id;
+    Object sorted = new java.util.ArrayList<Object>();
+    while (Core.truthy(Boolean.TRUE)) {
+      Object sorted_count = Core.len(sorted);
+      Object all_sorted = Core.gte(sorted_count, doc_count);
+      if (Core.truthy(all_sorted)) {
+        break;
+      }
+      Object best = Core.none();
+      Object best_raw = -1;
+      Object best_id = "";
+      Object found = Boolean.FALSE;
+      for (Object candidate : Core.iter(scored)) {
+        Object candidate_id = Core.get(candidate, "id", "");
+        Object already = Core._agent_relevance_has_id(sorted, "id", candidate_id);
+        Object fresh = Core.not(already);
+        if (Core.truthy(fresh)) {
+          Object candidate_raw = Core.get(candidate, "raw", 0);
+          Object greater = Core.gt(candidate_raw, best_raw);
+          Object better = greater;
+          if (Core.truthy(better)) {
+            best = candidate;
+            best_raw = candidate_raw;
+            best_id = candidate_id;
+            found = Boolean.TRUE;
+          }
+        }
+      }
+      if (Core.truthy(found)) {
+        Core.append(sorted, best);
+      }
+      if (!Core.truthy(found)) {
+        break;
+      }
+    }
+    Object top = Core.listGet(sorted, 0, null);
+    Object top_raw = Core.get(top, "raw", 0);
+    Object top_coverage = Core.get(top, "coverage", 0);
+    Object no_match = Core.lte(top_raw, 0);
+    Object below_floor = Core.lt(top_coverage, min_score);
+    Object rejected = Core.or(no_match, below_floor);
+    if (Core.truthy(rejected)) {
+      return empty;
+    }
+    Object use_margin = Core.gt(margin_ratio, 0);
+    if (Core.truthy(use_margin)) {
+      Object near_top = 0;
+      for (Object scored_entry : Core.iter(sorted)) {
+        Object entry_raw = Core.get(scored_entry, "raw", 0);
+        Object positive = Core.gt(entry_raw, 0);
+        if (Core.truthy(positive)) {
+          Object negative_entry_raw = Core.mul(entry_raw, -1);
+          Object difference = Core.add(top_raw, negative_entry_raw);
+          Object relative = Core.div(difference, top_raw);
+          Object near = Core.lt(relative, margin_ratio);
+          if (Core.truthy(near)) {
+            near_top = Core.add(near_top, 1);
+          }
+        }
+      }
+      Object multiple_docs = Core.gte(doc_count, 2);
+      Object all_near = Core.gte(near_top, doc_count);
+      Object suppress = Core.and(multiple_docs, all_near);
+      if (Core.truthy(suppress)) {
+        return empty;
+      }
+    }
+    Object out = new java.util.ArrayList<Object>();
+    for (Object scored_entry2 : Core.iter(sorted)) {
+      Object out_count = Core.len(out);
+      Object under_limit = Core.lt(out_count, top_k);
+      Object entry_raw2 = Core.get(scored_entry2, "raw", 0);
+      Object positive2 = Core.gt(entry_raw2, 0);
+      Object include = Core.and(under_limit, positive2);
+      if (Core.truthy(include)) {
+        Object normalized_score = Core.div(entry_raw2, top_raw);
+        Object ranked_id = Core.get(scored_entry2, "id", "");
+        Object ranked_terms = Core.get(scored_entry2, "matchedTerms", empty);
+        Object ranked = new java.util.LinkedHashMap<String, Object>();
+        Core.set(ranked, "id", ranked_id);
+        Core.set(ranked, "score", normalized_score);
+        Core.set(ranked, "matchedTerms", ranked_terms);
+        Core.append(out, ranked);
+      }
+    }
+    return out;
   }
 
   static Object _agent_relevance_has_id(Object items, Object field, Object id) {
@@ -16045,66 +16731,75 @@ final class Core {
   static Object _agent_rank_relevance_modules(Object state, Object task) {
     axirCoverageMark("_agent_rank_relevance_modules");
     Object empty_list = new java.util.ArrayList<Object>();
-    Object tokens = Core._agent_relevance_tokens(task);
-    Object token_count = Core.len(tokens);
-    Object no_tokens = Core.eq(token_count, 0);
-    if (Core.truthy(no_tokens)) {
-      return empty_list;
-    }
     Object split = Core.get(state, "callable_split", null);
     Object discoverable = Core.get(split, "discoverable", empty_list);
-    Object out = new java.util.ArrayList<Object>();
-    Object thresholds = new java.util.ArrayList<Object>();
-    Core.append(thresholds, 3);
-    Core.append(thresholds, 2);
-    Core.append(thresholds, 1);
-    for (Object threshold : Core.iter(thresholds)) {
-      for (Object group : Core.iter(discoverable)) {
-        Object out_count = Core.len(out);
-        Object under = Core.lt(out_count, 3);
-        if (Core.truthy(under)) {
-          Object namespace = Core.get(group, "namespace", "");
-          Object already = Core._agent_relevance_has_id(out, "namespace", namespace);
-          Object fresh = Core.not(already);
-          if (Core.truthy(fresh)) {
-            Object title = Core.get(group, "title", "");
-            Object description = Core.get(group, "description", "");
-            Object selection = Core.get(group, "selection_criteria", "");
-            Object callables = Core.get(group, "callables", empty_list);
-            Object pieces = new java.util.ArrayList<Object>();
-            Core.append(pieces, namespace);
-            Core.append(pieces, title);
-            Core.append(pieces, description);
-            Core.append(pieces, selection);
-            Core.append(pieces, selection);
-            for (Object callable : Core.iter(callables)) {
-              Object name = Core.get(callable, "name", "");
-              Object qualified = Core.get(callable, "qualified_name", "");
-              Object cdesc = Core.get(callable, "description", "");
-              Core.append(pieces, name);
-              Core.append(pieces, qualified);
-              Core.append(pieces, cdesc);
-              Object params = Core.get(callable, "parameters", null);
-              Object properties = Core.get(params, "properties", null);
-              Object props_is_object = Core.typeIs(properties, "object");
-              if (Core.truthy(props_is_object)) {
-                Object prop_keys = Core.mapKeys(properties);
-                Object prop_text = Core.stringJoin(" ", prop_keys);
-                Core.append(pieces, prop_text);
-              }
-            }
-            Object text = Core.stringJoin(" ", pieces);
-            Object score = Core._agent_relevance_score(tokens, text);
-            Object passes = Core.gte(score, threshold);
-            if (Core.truthy(passes)) {
-              Object entry = new java.util.LinkedHashMap<String, Object>();
-              Core.set(entry, "namespace", namespace);
-              Core.set(entry, "score", score);
-              Core.append(out, entry);
-            }
+    Object docs = new java.util.ArrayList<Object>();
+    for (Object group : Core.iter(discoverable)) {
+      Object namespace = Core.get(group, "namespace", "");
+      Object title = Core.get(group, "title", "");
+      Object description = Core.get(group, "description", "");
+      Object selection = Core.get(group, "selection_criteria", "");
+      Object fields = new java.util.ArrayList<Object>();
+      Object namespace_field = new java.util.LinkedHashMap<String, Object>();
+      Core.set(namespace_field, "text", namespace);
+      Core.set(namespace_field, "identifier", Boolean.TRUE);
+      Core.append(fields, namespace_field);
+      Object has_title = Core.ne(title, "");
+      if (Core.truthy(has_title)) {
+        Object title_field = new java.util.LinkedHashMap<String, Object>();
+        Core.set(title_field, "text", title);
+        Core.append(fields, title_field);
+      }
+      Object has_description = Core.ne(description, "");
+      if (Core.truthy(has_description)) {
+        Object description_field = new java.util.LinkedHashMap<String, Object>();
+        Core.set(description_field, "text", description);
+        Core.append(fields, description_field);
+      }
+      Object has_selection = Core.ne(selection, "");
+      if (Core.truthy(has_selection)) {
+        Object selection_field = new java.util.LinkedHashMap<String, Object>();
+        Core.set(selection_field, "text", selection);
+        Core.set(selection_field, "weight", 2);
+        Core.append(fields, selection_field);
+      }
+      Object callables = Core.get(group, "callables", empty_list);
+      for (Object callable : Core.iter(callables)) {
+        Object name = Core.get(callable, "name", "");
+        Object name_field = new java.util.LinkedHashMap<String, Object>();
+        Core.set(name_field, "text", name);
+        Core.set(name_field, "identifier", Boolean.TRUE);
+        Core.append(fields, name_field);
+        Object params = Core.get(callable, "parameters", null);
+        Object properties = Core.get(params, "properties", null);
+        Object props_is_object = Core.typeIs(properties, "object");
+        if (Core.truthy(props_is_object)) {
+          Object prop_keys = Core.mapKeys(properties);
+          for (Object prop_key : Core.iter(prop_keys)) {
+            Object prop_field = new java.util.LinkedHashMap<String, Object>();
+            Core.set(prop_field, "text", prop_key);
+            Core.set(prop_field, "identifier", Boolean.TRUE);
+            Core.append(fields, prop_field);
           }
         }
       }
+      Object doc = new java.util.LinkedHashMap<String, Object>();
+      Core.set(doc, "id", namespace);
+      Core.set(doc, "fields", fields);
+      Core.append(docs, doc);
+    }
+    Object ranking_options = Core.get(state, "relevance_ranking_options", null);
+    Object ranked = Core._agent_rank_documents(task, docs, ranking_options);
+    Object out = new java.util.ArrayList<Object>();
+    for (Object ranked_entry : Core.iter(ranked)) {
+      Object entry = new java.util.LinkedHashMap<String, Object>();
+      Object namespace2 = Core.get(ranked_entry, "id", "");
+      Object score = Core.get(ranked_entry, "score", 0);
+      Object matched = Core.get(ranked_entry, "matchedTerms", empty_list);
+      Core.set(entry, "namespace", namespace2);
+      Core.set(entry, "score", score);
+      Core.set(entry, "matchedTerms", matched);
+      Core.append(out, entry);
     }
     return out;
   }
@@ -16112,48 +16807,57 @@ final class Core {
   static Object _agent_rank_relevance_skills(Object state, Object task) {
     axirCoverageMark("_agent_rank_relevance_skills");
     Object empty_list = new java.util.ArrayList<Object>();
-    Object tokens = Core._agent_relevance_tokens(task);
-    Object token_count = Core.len(tokens);
-    Object no_tokens = Core.eq(token_count, 0);
-    if (Core.truthy(no_tokens)) {
-      return empty_list;
-    }
     Object catalog = Core.get(state, "skills_catalog", empty_list);
+    Object docs = new java.util.ArrayList<Object>();
+    for (Object skill : Core.iter(catalog)) {
+      Object id = Core.get(skill, "id", "");
+      Object name = Core.get(skill, "name", id);
+      Object description = Core.get(skill, "description", "");
+      Object content = Core.get(skill, "content", "");
+      Object content_head = Core.stringSlice(content, 0, 600);
+      Object fields = new java.util.ArrayList<Object>();
+      Object id_field = new java.util.LinkedHashMap<String, Object>();
+      Core.set(id_field, "text", id);
+      Core.set(id_field, "identifier", Boolean.TRUE);
+      Core.append(fields, id_field);
+      Object name_field = new java.util.LinkedHashMap<String, Object>();
+      Core.set(name_field, "text", name);
+      Core.set(name_field, "weight", 2);
+      Core.append(fields, name_field);
+      Object has_description = Core.ne(description, "");
+      if (Core.truthy(has_description)) {
+        Object description_field = new java.util.LinkedHashMap<String, Object>();
+        Core.set(description_field, "text", description);
+        Core.set(description_field, "weight", 2);
+        Core.append(fields, description_field);
+      }
+      Object content_field = new java.util.LinkedHashMap<String, Object>();
+      Core.set(content_field, "text", content_head);
+      Core.append(fields, content_field);
+      Object doc = new java.util.LinkedHashMap<String, Object>();
+      Core.set(doc, "id", id);
+      Core.set(doc, "fields", fields);
+      Core.append(docs, doc);
+    }
+    Object ranking_options = Core.get(state, "relevance_ranking_options", null);
+    Object ranked = Core._agent_rank_documents(task, docs, ranking_options);
     Object out = new java.util.ArrayList<Object>();
-    Object thresholds = new java.util.ArrayList<Object>();
-    Core.append(thresholds, 3);
-    Core.append(thresholds, 2);
-    Core.append(thresholds, 1);
-    for (Object threshold : Core.iter(thresholds)) {
-      for (Object skill : Core.iter(catalog)) {
-        Object out_count = Core.len(out);
-        Object under = Core.lt(out_count, 3);
-        if (Core.truthy(under)) {
-          Object id = Core.get(skill, "id", "");
-          Object already = Core._agent_relevance_has_id(out, "id", id);
-          Object fresh = Core.not(already);
-          if (Core.truthy(fresh)) {
-            Object name = Core.get(skill, "name", id);
-            Object description = Core.get(skill, "description", "");
-            Object content = Core.get(skill, "content", "");
-            Object text_parts = new java.util.ArrayList<Object>();
-            Core.append(text_parts, id);
-            Core.append(text_parts, name);
-            Core.append(text_parts, description);
-            Core.append(text_parts, content);
-            Object text = Core.stringJoin(" ", text_parts);
-            Object score = Core._agent_relevance_score(tokens, text);
-            Object passes = Core.gte(score, threshold);
-            if (Core.truthy(passes)) {
-              Object entry = new java.util.LinkedHashMap<String, Object>();
-              Core.set(entry, "id", id);
-              Core.set(entry, "name", name);
-              Core.set(entry, "score", score);
-              Core.append(out, entry);
-            }
-          }
+    for (Object ranked_entry : Core.iter(ranked)) {
+      Object ranked_id = Core.get(ranked_entry, "id", "");
+      Object ranked_score = Core.get(ranked_entry, "score", 0);
+      Object ranked_name = ranked_id;
+      for (Object catalog_skill : Core.iter(catalog)) {
+        Object catalog_id = Core.get(catalog_skill, "id", "");
+        Object id_match = Core.eq(catalog_id, ranked_id);
+        if (Core.truthy(id_match)) {
+          ranked_name = Core.get(catalog_skill, "name", ranked_id);
         }
       }
+      Object entry = new java.util.LinkedHashMap<String, Object>();
+      Core.set(entry, "id", ranked_id);
+      Core.set(entry, "name", ranked_name);
+      Core.set(entry, "score", ranked_score);
+      Core.append(out, entry);
     }
     return out;
   }
@@ -16161,44 +16865,54 @@ final class Core {
   static Object _agent_rank_relevance_memories(Object state, Object task) {
     axirCoverageMark("_agent_rank_relevance_memories");
     Object empty_list = new java.util.ArrayList<Object>();
-    Object tokens = Core._agent_relevance_tokens(task);
-    Object token_count = Core.len(tokens);
-    Object no_tokens = Core.eq(token_count, 0);
-    if (Core.truthy(no_tokens)) {
-      return empty_list;
-    }
     Object catalog = Core.get(state, "memories_catalog", empty_list);
     Object loaded = Core.get(state, "loaded_memories", empty_list);
+    Object candidates = new java.util.ArrayList<Object>();
+    Object docs = new java.util.ArrayList<Object>();
+    for (Object memory : Core.iter(catalog)) {
+      Object id = Core.get(memory, "id", "");
+      Object already_loaded = Core._agent_relevance_has_id(loaded, "id", id);
+      Object fresh = Core.not(already_loaded);
+      if (Core.truthy(fresh)) {
+        Core.append(candidates, memory);
+        Object content = Core.get(memory, "content", "");
+        Object content_head = Core.stringSlice(content, 0, 600);
+        Object fields = new java.util.ArrayList<Object>();
+        Object id_field = new java.util.LinkedHashMap<String, Object>();
+        Core.set(id_field, "text", id);
+        Core.set(id_field, "identifier", Boolean.TRUE);
+        Core.append(fields, id_field);
+        Object content_field = new java.util.LinkedHashMap<String, Object>();
+        Core.set(content_field, "text", content_head);
+        Core.append(fields, content_field);
+        Object doc = new java.util.LinkedHashMap<String, Object>();
+        Core.set(doc, "id", id);
+        Core.set(doc, "fields", fields);
+        Core.append(docs, doc);
+      }
+    }
+    Object ranking_options = Core.get(state, "relevance_ranking_options", null);
+    Object ranked = Core._agent_rank_documents(task, docs, ranking_options);
     Object out = new java.util.ArrayList<Object>();
-    Object thresholds = new java.util.ArrayList<Object>();
-    Core.append(thresholds, 3);
-    Core.append(thresholds, 2);
-    Core.append(thresholds, 1);
-    for (Object threshold : Core.iter(thresholds)) {
-      for (Object memory : Core.iter(catalog)) {
-        Object out_count = Core.len(out);
-        Object under = Core.lt(out_count, 3);
-        if (Core.truthy(under)) {
-          Object id = Core.get(memory, "id", "");
-          Object already_out = Core._agent_relevance_has_id(out, "id", id);
-          Object already_loaded = Core._agent_relevance_has_id(loaded, "id", id);
-          Object already_any = Core.or(already_out, already_loaded);
-          Object fresh = Core.not(already_any);
-          if (Core.truthy(fresh)) {
-            Object content = Core.get(memory, "content", "");
-            Object score = Core._agent_relevance_score(tokens, content);
-            Object passes = Core.gte(score, threshold);
-            if (Core.truthy(passes)) {
-              Object snippet = Core.stringSlice(content, 0, 120);
-              Object entry = new java.util.LinkedHashMap<String, Object>();
-              Core.set(entry, "id", id);
-              Core.set(entry, "snippet", snippet);
-              Core.set(entry, "score", score);
-              Core.append(out, entry);
-            }
-          }
+    for (Object ranked_entry : Core.iter(ranked)) {
+      Object ranked_id = Core.get(ranked_entry, "id", "");
+      Object ranked_score = Core.get(ranked_entry, "score", 0);
+      Object snippet = "";
+      for (Object candidate : Core.iter(candidates)) {
+        Object candidate_id = Core.get(candidate, "id", "");
+        Object id_match = Core.eq(candidate_id, ranked_id);
+        if (Core.truthy(id_match)) {
+          Object candidate_content = Core.get(candidate, "content", "");
+          Object single_line = Core.regexReplace("\\s+", " ", candidate_content);
+          Object trimmed = Core.stringTrim(single_line);
+          snippet = Core.stringSlice(trimmed, 0, 80);
         }
       }
+      Object entry = new java.util.LinkedHashMap<String, Object>();
+      Core.set(entry, "id", ranked_id);
+      Core.set(entry, "snippet", snippet);
+      Core.set(entry, "score", ranked_score);
+      Core.append(out, entry);
     }
     return out;
   }
@@ -16445,12 +17159,18 @@ final class Core {
     Object cm_text = Core.get(cm_state, "text", "");
     Object cm_has = Core.ne(cm_text, "");
     Object ctx_out = new java.util.LinkedHashMap<String, Object>();
+    Object distiller_runtime_enabled = Core.get(state, "runtime_enabled", Boolean.FALSE);
     for (Object ck : Core.iter(context)) {
       Object cv = Core.get(context, ck, null);
-      Object cv_str = Core.stringFormat("{}", cv);
-      Object cv_len = Core.len(cv_str);
-      Object meta_note = Core.stringFormat("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", ck, cv_len);
-      Core.set(ctx_out, ck, meta_note);
+      if (Core.truthy(distiller_runtime_enabled)) {
+        Object cv_str = Core.stringFormat("{}", cv);
+        Object cv_len = Core.len(cv_str);
+        Object meta_note = Core.stringFormat("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", ck, cv_len);
+        Core.set(ctx_out, ck, meta_note);
+      }
+      if (!Core.truthy(distiller_runtime_enabled)) {
+        Core.set(ctx_out, ck, cv);
+      }
     }
     if (Core.truthy(cm_has)) {
       Core.set(ctx_out, "contextMap", cm_text);
@@ -16465,13 +17185,14 @@ final class Core {
     Object runtime_text = Core.get(actor_context, "liveRuntimeState", "");
     Object pressure_text = Core.get(actor_context, "contextPressure", "");
     Object discovered_docs = Core.get(state, "discovered_tool_docs", empty_list);
-    Object loaded_skills = Core.get(state, "loaded_skill_docs", empty_list);
+    Object loaded_skills = Core.get(state, "distiller_loaded_skill_docs", empty_list);
     Object loaded_memories = Core.get(state, "loaded_memories", empty_list);
     Object discovered_text = Core._agent_render_discovered_tool_docs(discovered_docs);
     Object skills_text = Core._agent_render_loaded_skills(loaded_skills);
+    Object memories_text = Core._agent_render_loaded_memories(loaded_memories);
     Core.set(out, "discoveredToolDocs", discovered_text);
     Core.set(out, "loadedSkills", skills_text);
-    Core.set(out, "memories", loaded_memories);
+    Core.set(out, "memories", memories_text);
     Core.set(out, "summarizedActorLog", summary_text);
     Core.set(out, "guidanceLog", guidance_text);
     Core.set(out, "actionLog", action_text);
@@ -16516,7 +17237,15 @@ final class Core {
     if (Core.truthy(has_context_metadata)) {
       Core.set(out, "contextMetadata", context_metadata);
     }
-    Object hints = Core._agent_build_relevance_hints(state, non_ctx, executor_request);
+    Object hints = Core.get(state, "relevance_hints_for_turn", null);
+    Object hints_is_object = Core.typeIs(hints, "object");
+    if (Core.truthy(hints_is_object)) {
+      // empty
+    }
+    if (!Core.truthy(hints_is_object)) {
+      hints = Core._agent_build_relevance_hints(state, non_ctx, executor_request);
+      Core.set(state, "relevance_hints_for_turn", hints);
+    }
     Object hints_text = Core._agent_render_relevance_hints(hints);
     Object has_hints = Core.ne(hints_text, "");
     if (Core.truthy(has_hints)) {
@@ -16527,6 +17256,7 @@ final class Core {
     Object loaded_memories = Core.get(state, "loaded_memories", empty_list);
     Object discovered_text = Core._agent_render_discovered_tool_docs(discovered_docs);
     Object skills_text = Core._agent_render_loaded_skills(loaded_skills);
+    Object memories_text = Core._agent_render_loaded_memories(loaded_memories);
     Object actor_context = Core._agent_prepare_actor_context(state);
     Object guidance_text = Core.get(actor_context, "guidanceLog", "[]");
     Object action_text = Core.get(actor_context, "actionLog", "(no actions yet)");
@@ -16535,7 +17265,7 @@ final class Core {
     Object pressure_text = Core.get(actor_context, "contextPressure", "");
     Core.set(out, "discoveredToolDocs", discovered_text);
     Core.set(out, "loadedSkills", skills_text);
-    Core.set(out, "memories", loaded_memories);
+    Core.set(out, "memories", memories_text);
     Core.set(out, "summarizedActorLog", summary_text);
     Core.set(out, "guidanceLog", guidance_text);
     Core.set(out, "actionLog", action_text);
@@ -17680,8 +18410,62 @@ final class Core {
 
   static Object _agent_forward(Object state, Object distiller, Object executor, Object responder, Object client, Object values, Object options) {
     axirCoverageMark("_agent_forward");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object empty_map = new java.util.LinkedHashMap<String, Object>();
+    Object loaded_memories = new java.util.ArrayList<Object>();
+    Object used_memories = new java.util.ArrayList<Object>();
+    Object used_skills = new java.util.ArrayList<Object>();
+    Object relevance_hints_for_turn = Core.none();
+    Core.set(state, "loaded_memories", loaded_memories);
+    Core.set(state, "used_memories", used_memories);
+    Core.set(state, "used_skills", used_skills);
+    Core.set(state, "relevance_hints_for_turn", relevance_hints_for_turn);
+    Object preset_memories = Core.get(values, "memories", empty_list);
+    loaded_memories = Core._agent_merge_memory_results(loaded_memories, preset_memories);
+    Core.set(state, "loaded_memories", loaded_memories);
+    Object loaded_skills = Core.get(state, "loaded_skill_docs", empty_list);
+    Object forward_skills = Core.get(options, "skills", empty_list);
+    loaded_skills = Core._agent_merge_skill_results(loaded_skills, forward_skills);
+    Core.set(state, "loaded_skill_docs", loaded_skills);
+    Object flags = Core.get(state, "policy_flags", empty_map);
+    Object forward_used_memories = Core.get(options, "onUsedMemories", null);
+    Object forward_used_memories_snake = Core.get(options, "on_used_memories", forward_used_memories);
+    Object forward_used_skills = Core.get(options, "onUsedSkills", null);
+    Object forward_used_skills_snake = Core.get(options, "on_used_skills", forward_used_skills);
+    Object has_forward_used_memories = Core.isNotNone(forward_used_memories_snake);
+    Object has_forward_used_skills = Core.isNotNone(forward_used_skills_snake);
+    Object has_forward_used_observer = Core.or(has_forward_used_memories, has_forward_used_skills);
+    if (Core.truthy(has_forward_used_observer)) {
+      Core.set(flags, "usageTrackingMode", Boolean.TRUE);
+      Core.set(state, "policy_flags", flags);
+    }
+    Object direct_respond_only = Core.get(flags, "directRespondOnly", Boolean.FALSE);
+    if (Core.truthy(direct_respond_only)) {
+      Object distiller_skills = Core.get(state, "distiller_loaded_skill_docs", empty_list);
+      distiller_skills = Core._agent_merge_skill_results(distiller_skills, forward_skills);
+      Core.set(state, "distiller_loaded_skill_docs", distiller_skills);
+    }
+    Core.set(state, "active_stage", "distiller");
     Object transcribed_values = Core._agent_transcribe_audio_inputs(state, client, values, options);
     values = transcribed_values;
+    Object runtime_input_names = new java.util.ArrayList<Object>();
+    for (Object runtime_input_name : Core.iter(values)) {
+      Core.append(runtime_input_names, runtime_input_name);
+    }
+    Core.set(state, "runtime_input_names", runtime_input_names);
+    Object previous_runtime_session_state = Core.get(state, "runtime_session_state", null);
+    Object previous_runtime_session_state_is_map = Core.typeIs(previous_runtime_session_state, "object");
+    if (Core.truthy(previous_runtime_session_state_is_map)) {
+      Object previous_runtime_globals = Core.get(previous_runtime_session_state, "globals", null);
+      Object previous_runtime_bindings = Core.get(previous_runtime_session_state, "bindings", null);
+      Object previous_runtime_globals_is_map = Core.typeIs(previous_runtime_globals, "object");
+      Object previous_runtime_bindings_is_map = Core.typeIs(previous_runtime_bindings, "object");
+      Object previous_runtime_state_has_bindings = Core.or(previous_runtime_globals_is_map, previous_runtime_bindings_is_map);
+      if (Core.truthy(previous_runtime_state_has_bindings)) {
+        Object clean_previous_runtime_state = Core._normalize_agent_runtime_snapshot(state, previous_runtime_session_state);
+        Core.set(state, "runtime_session_state", clean_previous_runtime_state);
+      }
+    }
     Core._agent_begin_trace(state, values);
     Core._agent_apply_llm_checkpoint_summary(state, client, options);
     Object state_options = Core.get(state, "options", null);
@@ -17768,6 +18552,11 @@ final class Core {
       distiller_payload = Core._normalize_agent_completion_payload(distiller_output);
     }
     Core._throw_agent_clarification(distiller_payload, state);
+    Object distiller_skills_after = Core.get(state, "distiller_loaded_skill_docs", empty_list);
+    Object executor_skills_after = Core.get(state, "loaded_skill_docs", empty_list);
+    executor_skills_after = Core._agent_merge_skill_results(executor_skills_after, distiller_skills_after);
+    Core.set(state, "loaded_skill_docs", executor_skills_after);
+    Core.set(state, "active_stage", "executor");
     Object executor_payload = Core.none();
     Object distiller_payload_type = Core.get(distiller_payload, "type", "");
     Object distiller_is_respond = Core.eq(distiller_payload_type, "respond");
@@ -17942,6 +18731,10 @@ final class Core {
     Core.set(state, "last_output", responder_output);
     Core.set(state, "chat_log", logs);
     Core.set(state, "usage", usage);
+    forward_used_memories = Core.get(state, "used_memories", empty_list);
+    forward_used_skills = Core.get(state, "used_skills", empty_list);
+    Core.agentObserverNotify(state, options, "used_memories", forward_used_memories);
+    Core.agentObserverNotify(state, options, "used_skills", forward_used_skills);
     Core._agent_build_failure_signals(state);
     Core._agent_finalize_trace(state, "completed", responder_output);
     return responder_output;

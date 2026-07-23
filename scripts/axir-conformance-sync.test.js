@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  compareGeneratedFixtures,
   compareValues,
   normalizeCatalog,
   readProviderDataJson,
@@ -88,5 +89,38 @@ describe('axir-conformance-sync helpers', () => {
     writeProviderDataJson(repoRoot, 'summary', summary);
     expect(readProviderDataJson(repoRoot, 'registry')).toEqual(registry);
     expect(readProviderDataJson(repoRoot, 'summary')).toEqual(summary);
+  });
+
+  it('detects a stale checked-in AxAgent oracle fixture', () => {
+    const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'axir-sync-repo-'));
+    const generatedRoot = mkdtempSync(
+      path.join(os.tmpdir(), 'axir-sync-generated-')
+    );
+    const relative = path.join(
+      'ir',
+      'conformance',
+      'axagent',
+      'semantic-parity-lifecycle-oracle.json'
+    );
+    mkdirSync(path.dirname(path.join(repoRoot, relative)), {
+      recursive: true,
+    });
+    mkdirSync(path.dirname(path.join(generatedRoot, relative)), {
+      recursive: true,
+    });
+    writeFileSync(
+      path.join(generatedRoot, relative),
+      JSON.stringify({ expected_output: { answer: 'oracle' } })
+    );
+    writeFileSync(
+      path.join(repoRoot, relative),
+      JSON.stringify({ expected_output: { answer: 'stale' } })
+    );
+
+    expect(
+      compareGeneratedFixtures(repoRoot, generatedRoot, 'axagent', false)
+    ).toEqual([
+      'stale fixture ir/conformance/axagent/semantic-parity-lifecycle-oracle.json',
+    ]);
   });
 });

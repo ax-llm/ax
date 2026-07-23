@@ -79,6 +79,8 @@ jobs:
         run: npm run test:axir:tools
       - name: Check AxIR behavioral-parity ledger
         run: npm run axir:gate:ledger
+      - name: Check complete AxAgent semantic parity
+        run: npm run axir:semantic-parity
       - name: Check AxIR anti-facade examples
         run: npm run axir:gate:anti-facade
       - name: Check AxIR RLM prompt sync (TS .md vs IR json)
@@ -202,6 +204,8 @@ jobs:
             ${{ runner.os }}-axir-go-
       - name: Install dependencies
         run: npm ci
+      - name: Check complete AxAgent semantic parity
+        run: npm run axir:semantic-parity
       - name: Check generated package freshness
         run: npm run axir:check-packages
 

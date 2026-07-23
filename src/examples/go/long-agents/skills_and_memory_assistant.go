@@ -149,6 +149,10 @@ func main() {
 			// prompt advertises recall()/discover()), mirroring the TS/Python API.
 			"onMemoriesSearch": memoriesSearch,
 			"onSkillsSearch":   skillsSearch,
+			"onLoadedMemories": ax.AxAgentObserverFn(func(payload []ax.Value) { fmt.Println("[memories loaded]", payload) }),
+			"onLoadedSkills":   ax.AxAgentObserverFn(func(payload []ax.Value) { fmt.Println("[skills loaded]", payload) }),
+			"onUsedMemories":   ax.AxAgentObserverFn(func(payload []ax.Value) { fmt.Println("[memories used]", payload) }),
+			"onUsedSkills":     ax.AxAgentObserverFn(func(payload []ax.Value) { fmt.Println("[skills used]", payload) }),
 			"executorOptions": ax.Object("description", strings.Join([]string{
 				"You do NOT know our internal flag names, incident history, or runbook steps from your own training.",
 				"The only source of truth is our memory (past decisions/postmortems) and our runbook skills.",

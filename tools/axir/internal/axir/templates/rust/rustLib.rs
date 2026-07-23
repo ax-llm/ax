@@ -2642,6 +2642,25 @@ pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
     agent_with_core_options(spec, core_value_from_json(&options))
 }
 
+static AX_AGENT_OBSERVER_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Wrap a native non-fatal AxAgent observer as a JSON value usable in either
+/// constructor or forward option maps under onLoadedMemories/onLoadedSkills/
+/// onUsedMemories/onUsedSkills.
+pub fn agent_observer<F>(observer: F) -> Value
+where
+    F: Fn(Value) + 'static,
+{
+    let id = format!(
+        "__agent_observer_{}",
+        AX_AGENT_OBSERVER_COUNTER.fetch_add(1, Ordering::Relaxed) + 1
+    );
+    AGENT_OBSERVER_REGISTRY.with(|registry| {
+        registry.borrow_mut().insert(id.clone(), Rc::new(observer));
+    });
+    json!({"__agent_observer_id": id})
+}
+
 pub fn agent_with_execution_context(spec: &str, options: Value, context: AxExecutionContext) -> AxResult<AxAgent> {
     let options = core_value_from_json(&options);
     let modules = CoreValue::new_list();
@@ -8084,6 +8103,78 @@ fn run_agent_prompt_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+const SEMANTIC_PROMPT_FIELD_LABELS: [&str; 14] = [
+    "Query",
+    "Executor Request",
+    "Distilled Context Summary",
+    "Context Metadata",
+    "Context Map",
+    "Discovered Tool Docs",
+    "Loaded Skills",
+    "Memories",
+    "Relevance Hints",
+    "Summarized Actor Log",
+    "Guidance Log",
+    "Action Log",
+    "Live Runtime State",
+    "Context Pressure",
+];
+
+fn normalize_semantic_prompt_text(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn semantic_prompt_field(user: &str, label: &str) -> String {
+    let normalized = normalize_semantic_prompt_text(user);
+    let marker = format!("{label}: ");
+    let Some(start) = normalized.find(&marker) else {
+        return String::new();
+    };
+    let body_start = start + marker.len();
+    let mut end = normalized.len();
+    for candidate in SEMANTIC_PROMPT_FIELD_LABELS {
+        if candidate == label {
+            continue;
+        }
+        if let Some(next) = normalized[body_start..].find(&format!("\n\n{candidate}: ")) {
+            end = end.min(body_start + next);
+        }
+    }
+    normalize_semantic_prompt_text(&format!(
+        "{label}: {}",
+        &normalized[body_start..end]
+    ))
+}
+
+fn semantic_available_skills_index(system: &str) -> String {
+    let normalized = normalize_semantic_prompt_text(system);
+    let heading = "### Available Skills";
+    let Some(start) = normalized.find(heading) else {
+        return String::new();
+    };
+    let mut entries = Vec::new();
+    for line in normalized[start + heading.len()..].lines() {
+        if line.trim().is_empty() && entries.is_empty() {
+            continue;
+        }
+        if !line.starts_with("- `") {
+            break;
+        }
+        entries.push(line);
+    }
+    if entries.is_empty() {
+        return String::new();
+    }
+    format!("{heading}\n\n{}", entries.join("\n"))
+}
+
 fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     let responses = fixture
         .get("responses")
@@ -8100,9 +8191,31 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             .into(),
         requests: Vec::new(),
     };
-    let agent_options = core_value_from_json(
-        &fixture.get("options").cloned().unwrap_or_else(|| json!({})),
-    );
+    let semantic_observer_transcript = Rc::new(RefCell::new(Vec::<Value>::new()));
+    let semantic_observers_enabled = fixture.get("expected_observer_transcript").is_some();
+    let install_semantic_observer = |target: &mut serde_json::Map<String, Value>, key: &str, label: &'static str, throws_error: bool| {
+        if !semantic_observers_enabled || !target.contains_key(key) {
+            return;
+        }
+        let transcript = semantic_observer_transcript.clone();
+        target.insert(
+            key.to_string(),
+            agent_observer(move |payload| {
+                transcript.borrow_mut().push(json!({"callback": label, "payload": payload}));
+                if throws_error {
+                    panic!("semantic parity observer failure");
+                }
+            }),
+        );
+    };
+    let mut raw_agent_options = fixture.get("options").cloned().unwrap_or_else(|| json!({}));
+    if let Some(options) = raw_agent_options.as_object_mut() {
+        install_semantic_observer(options, "onLoadedSkills", "loaded_skills", true);
+        install_semantic_observer(options, "onLoadedMemories", "loaded_memories", true);
+        install_semantic_observer(options, "onUsedSkills", "constructor.used_skills", false);
+        install_semantic_observer(options, "onUsedMemories", "constructor.used_memories", false);
+    }
+    let agent_options = core_value_from_json(&raw_agent_options);
     let scripted = fixture.get("runtime_script").and_then(Value::as_array).map(|script| {
         let runtime_config = fixture
             .get("options")
@@ -8190,12 +8303,85 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(snapshot) = fixture.get("restore_runtime_state") {
         agent.restore_runtime_state(snapshot.clone())?;
     }
-    let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
-    let forward_options = fixture
-        .get("forward_options")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let output = match agent.forward_with_options(&mut client, input, forward_options) {
+    let mut run_state_projections = Vec::<Value>::new();
+    let mut saved_runtime_state: Option<Value> = None;
+    let mut state_roundtrip_projection = json!({});
+    let output_result: AxResult<Value> = (|| {
+        if let Some(runs) = fixture.get("forward_runs").and_then(Value::as_array) {
+            let mut outputs = Vec::<Value>::new();
+            for run in runs {
+                match run.get("state_action").and_then(Value::as_str).unwrap_or("") {
+                    "reset" => {
+                        agent.restore_runtime_state(json!({}))?;
+                    }
+                    "restore_saved" => {
+                        let saved = saved_runtime_state.clone().ok_or_else(|| {
+                            AxError::new(
+                                "fixture",
+                                "restore_saved requires an earlier save_runtime_state run",
+                            )
+                        })?;
+                        let restored = agent.restore_runtime_state(saved)?;
+                        state_roundtrip_projection
+                            .as_object_mut()
+                            .expect("state roundtrip projection is an object")
+                            .insert(
+                                "restored".into(),
+                                json!({
+                                    "loaded_skill_docs": restored.get("loaded_skill_docs").cloned().unwrap_or_else(|| json!([])),
+                                }),
+                            );
+                    }
+                    _ => {}
+                }
+                let input = run.get("input").cloned().unwrap_or_else(|| json!({}));
+                let mut forward_options = run
+                    .get("forward_options")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                if let Some(options) = forward_options.as_object_mut() {
+                    install_semantic_observer(options, "onUsedSkills", "forward.used_skills", false);
+                    install_semantic_observer(options, "onUsedMemories", "forward.used_memories", false);
+                }
+                outputs.push(agent.forward_with_options(&mut client, input, forward_options)?);
+                let run_exported = agent.export_runtime_state()?;
+                if run
+                    .get("save_runtime_state")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    saved_runtime_state = Some(run_exported.clone());
+                    state_roundtrip_projection
+                        .as_object_mut()
+                        .expect("state roundtrip projection is an object")
+                        .insert(
+                            "saved".into(),
+                            json!({
+                                "loaded_skill_docs": run_exported.get("loaded_skill_docs").cloned().unwrap_or_else(|| json!([])),
+                            }),
+                        );
+                }
+                run_state_projections.push(json!({
+                    "loaded_skill_docs": run_exported.get("loaded_skill_docs").cloned().unwrap_or_else(|| json!([])),
+                    "loaded_memories": run_exported.get("loaded_memories").cloned().unwrap_or_else(|| json!([])),
+                    "used_skills": run_exported.get("used_skills").cloned().unwrap_or_else(|| json!([])),
+                    "used_memories": run_exported.get("used_memories").cloned().unwrap_or_else(|| json!([])),
+                }));
+            }
+            return Ok(Value::Array(outputs));
+        }
+        let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
+        let mut forward_options = fixture
+            .get("forward_options")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        if let Some(options) = forward_options.as_object_mut() {
+            install_semantic_observer(options, "onUsedSkills", "forward.used_skills", false);
+            install_semantic_observer(options, "onUsedMemories", "forward.used_memories", false);
+        }
+        agent.forward_with_options(&mut client, input, forward_options)
+    })();
+    let output = match output_result {
         Ok(output) => output,
         Err(error) => {
             if let Some(expected) = fixture.get("expected_error_contains").and_then(Value::as_str) {
@@ -8220,6 +8406,27 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("agent output", &output, expected)?;
     }
+    if let Some(expected) = fixture.get("expected_run_state_projections") {
+        expect_json_equal(
+            "agent run state projections",
+            &Value::Array(run_state_projections),
+            expected,
+        )?;
+    }
+    if let Some(expected) = fixture.get("expected_state_roundtrip_projection") {
+        expect_json_equal(
+            "agent state roundtrip projection",
+            &state_roundtrip_projection,
+            expected,
+        )?;
+    }
+    if let Some(expected) = fixture.get("expected_observer_transcript") {
+        expect_json_equal(
+            "agent observer transcript",
+            &Value::Array(semantic_observer_transcript.borrow().clone()),
+            expected,
+        )?;
+    }
     if fixture
         .get("observer_throws")
         .and_then(Value::as_bool)
@@ -8235,6 +8442,120 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
                 format!("expected {} requests, got {}", expected, client.requests.len()),
             ));
         }
+    }
+    let exact_projection = fixture.get("exact_observable_projection");
+    if let Some(expected) = exact_projection.and_then(|projection| projection.get("stateRoundtrip")) {
+        expect_json_equal(
+            "exact agent state roundtrip projection",
+            &state_roundtrip_projection,
+            expected,
+        )?;
+    }
+    if let Some(expected) = exact_projection.and_then(|projection| projection.get("ranking")) {
+        let mut executor_system = String::new();
+        let mut executor_user = String::new();
+        for request in &client.requests {
+            let prompt = request
+                .get("chat_prompt")
+                .or_else(|| request.get("chatPrompt"))
+                .and_then(Value::as_array);
+            let mut system_text = String::new();
+            let mut user_text = String::new();
+            for message in prompt.into_iter().flatten() {
+                let content_value = message.get("content").unwrap_or(&Value::Null);
+                let content = content_value
+                    .as_str()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| stable_stringify(content_value));
+                match message.get("role").and_then(Value::as_str).unwrap_or("") {
+                    "system" => {
+                        system_text.push_str(&content);
+                        system_text.push('\n');
+                    }
+                    "user" => {
+                        user_text.push_str(&content);
+                        user_text.push('\n');
+                    }
+                    _ => {}
+                }
+            }
+            if system_text.contains("You (`executor`)") {
+                executor_system = system_text;
+                executor_user = user_text;
+                break;
+            }
+        }
+        let mut matches = serde_json::Map::new();
+        for probe in fixture
+            .get("ranking_probe")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let label = probe.get("label").and_then(Value::as_str).unwrap_or("");
+            let needle = probe.get("needle").and_then(Value::as_str).unwrap_or("");
+            matches.insert(label.to_string(), Value::Bool(executor_user.contains(needle)));
+        }
+        let actual = json!({
+            "hasLikelyRelevant": executor_system.contains("Likely Relevant"),
+            "matches": matches,
+        });
+        expect_json_equal("exact agent ranking projection", &actual, expected)?;
+    }
+    if let Some(expected_stage_requests) = exact_projection
+        .and_then(|projection| projection.get("stageRequests"))
+    {
+        let actual_stage_requests = Value::Array(
+            client
+                .requests
+                .iter()
+                .map(|request| {
+                    let prompt = request
+                        .get("chat_prompt")
+                        .or_else(|| request.get("chatPrompt"))
+                        .and_then(Value::as_array);
+                    let mut system_text = String::new();
+                    let mut user_text = String::new();
+                    for message in prompt.into_iter().flatten() {
+                        let content_value = message.get("content").unwrap_or(&Value::Null);
+                        let content = content_value
+                            .as_str()
+                            .map(ToString::to_string)
+                            .unwrap_or_else(|| stable_stringify(content_value));
+                        match message.get("role").and_then(Value::as_str).unwrap_or("") {
+                            "system" => {
+                                system_text.push_str(&content);
+                                system_text.push('\n');
+                            }
+                            "user" => {
+                                user_text.push_str(&content);
+                                user_text.push('\n');
+                            }
+                            _ => {}
+                        }
+                    }
+                    let stage = if system_text.contains("You (`distiller`)") {
+                        "distiller"
+                    } else if system_text.contains("You (`executor`)") {
+                        "executor"
+                    } else {
+                        "responder"
+                    };
+                    json!({
+                        "stage": stage,
+                        "availableSkills": semantic_available_skills_index(&system_text),
+                        "loadedSkills": semantic_prompt_field(&user_text, "Loaded Skills"),
+                        "memories": semantic_prompt_field(&user_text, "Memories"),
+                        "relevanceHints": semantic_prompt_field(&user_text, "Relevance Hints"),
+                    })
+                })
+                .collect(),
+        );
+        expect_json_equal(
+            "exact agent stage request projection",
+            &actual_stage_requests,
+            expected_stage_requests,
+        )?;
     }
     if let Some(items) = fixture.get("expected_request_contains").and_then(Value::as_array) {
         let request_text = stable_stringify(&Value::Array(client.requests.clone()));
@@ -8327,6 +8648,17 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
     }
     if let Some(expected) = fixture.get("expected_exported_state_subset") {
         expect_json_subset("runtime state", &exported, expected)?;
+    }
+    for (expected_key, state_key, label) in [
+        ("expected_loaded_skill_docs", "loaded_skill_docs", "loaded skills exact"),
+        ("expected_loaded_memories", "loaded_memories", "loaded memories exact"),
+        ("expected_used_skills", "used_skills", "used skills exact"),
+        ("expected_used_memories", "used_memories", "used memories exact"),
+    ] {
+        if let Some(expected) = fixture.get(expected_key) {
+            let actual = exported.get(state_key).cloned().unwrap_or_else(|| json!([]));
+            expect_json_equal(label, &actual, expected)?;
+        }
     }
     if let Some(expected) = fixture.get("expected_context_events_subset").and_then(Value::as_array) {
         expect_json_list_subset(
@@ -12280,6 +12612,16 @@ fn core_list_get(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let index = core_arg(args, 1);
     let default = core_arg(args, 2);
     Ok(core_get(&values, &index, default))
+}
+
+fn core_sorted_strings(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let values = core_arg(args, 0);
+    let CoreValue::List(items) = values else {
+        return Ok(CoreValue::new_list());
+    };
+    let mut sorted = items.borrow().clone();
+    sorted.sort_by_key(CoreValue::text);
+    Ok(CoreValue::list_from(sorted))
 }
 
 fn core_record_new(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -16450,6 +16792,11 @@ fn core_agent_runtime_close(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 
 // ----- memory / skill search intrinsics -----
 
+thread_local! {
+    static AGENT_OBSERVER_REGISTRY: RefCell<BTreeMap<String, Rc<dyn Fn(Value)>>> =
+        RefCell::new(BTreeMap::new());
+}
+
 // python: _core_agent_memory_search(state, searches, already_loaded).
 // Callback path first (on_memories_search / onMemoriesSearch), then scripted
 // results (memory_search_results / memorySearchResults): exact joined key,
@@ -16587,6 +16934,49 @@ fn core_agent_skill_search(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::List(_) => Ok(core_agent_deep_copy(&scripted)),
         _ => Ok(CoreValue::new_list()),
     }
+}
+
+#[allow(dead_code)]
+fn core_agent_observer_notify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let state = core_arg(args, 0);
+    let forward_options = core_arg(args, 1);
+    let kind = core_arg(args, 2).text();
+    let payload = core_arg(args, 3);
+    let constructor_options = core_agent_state_options(&state);
+    let keys = match kind.as_str() {
+        "loaded_memories" => ("on_loaded_memories", "onLoadedMemories"),
+        "loaded_skills" => ("on_loaded_skills", "onLoadedSkills"),
+        "used_memories" => ("on_used_memories", "onUsedMemories"),
+        "used_skills" => ("on_used_skills", "onUsedSkills"),
+        _ => return Ok(CoreValue::Null),
+    };
+    let mut callback = CoreValue::Null;
+    if kind.starts_with("used_") {
+        callback = core_agent_option(&forward_options, keys.0, keys.1);
+    }
+    if callback.is_null() {
+        callback = core_agent_option(&constructor_options, keys.0, keys.1);
+    }
+    if let Some(result) = core_host_try(&callback, "call", &[payload.clone()]) {
+        let _ = result;
+        return Ok(CoreValue::Null);
+    }
+    let marker = core_get(
+        &callback,
+        &CoreValue::from("__agent_observer_id"),
+        CoreValue::Null,
+    )
+    .text();
+    if marker.is_empty() {
+        return Ok(CoreValue::Null);
+    }
+    AGENT_OBSERVER_REGISTRY.with(|registry| {
+        if let Some(observer) = registry.borrow().get(&marker).cloned() {
+            let value = core_value_to_json(&payload);
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| observer(value)));
+        }
+    });
+    Ok(CoreValue::Null)
 }
 
 // ----- callable invocation intrinsic -----

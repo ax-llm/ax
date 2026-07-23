@@ -9,18 +9,15 @@
     ],
     "loaded_skill_docs": [
       {
-        "content": "Skill docs loaded for sql",
+        "content": "Use parameterized SQL.",
+        "id": "sql",
         "name": "sql"
       }
     ],
     "policy_trace": [
       {
-        "skills": [
-          "sql"
-        ],
-        "tools": [
-          "docs"
-        ],
+        "skills": ["sql"],
+        "tools": ["docs"],
         "type": "discover"
       }
     ],
@@ -40,18 +37,14 @@
     ],
     "loaded_skill_docs": [
       {
-        "content": "Skill docs loaded for sql",
+        "content": "Use parameterized SQL.",
         "name": "sql"
       }
     ],
     "policy_trace": [
       {
-        "skills": [
-          "sql"
-        ],
-        "tools": [
-          "docs"
-        ],
+        "skills": ["sql"],
+        "tools": ["docs"],
         "type": "discover"
       }
     ],

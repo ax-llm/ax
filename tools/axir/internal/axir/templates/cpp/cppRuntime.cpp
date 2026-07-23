@@ -80,6 +80,10 @@ static std::map<std::string, std::function<Value(Value)>>& skills_search_registr
   static std::map<std::string, std::function<Value(Value)>> registry;
   return registry;
 }
+static std::map<std::string, std::function<void(Value)>>& agent_observer_registry() {
+  static std::map<std::string, std::function<void(Value)>> registry;
+  return registry;
+}
 Value register_memories_search(std::function<Value(Value, Value)> fn) {
   static int counter = 0;
   std::string id = "__mem_search_" + std::to_string(++counter);
@@ -91,6 +95,12 @@ Value register_skills_search(std::function<Value(Value)> fn) {
   std::string id = "__skill_search_" + std::to_string(++counter);
   skills_search_registry()[id] = std::move(fn);
   return object({{"__skills_search_id", id}});
+}
+Value register_agent_observer(std::function<void(Value)> fn) {
+  static int counter = 0;
+  std::string id = "__agent_observer_" + std::to_string(++counter);
+  agent_observer_registry()[id] = std::move(fn);
+  return object({{"__agent_observer_id", id}});
 }
 
 static std::map<std::string, std::function<Value(Value)>>& tool_registry() {
@@ -1251,6 +1261,37 @@ Value Core::agent_skill_search(Value state, Value searches) {
   }
   if (scripted.is_array()) return scripted;
   return Value::array();
+}
+Value Core::agent_observer_notify(Value state, Value forward_options, Value kind, Value payload) {
+  Value constructor_options = get_key(state, "options", Value::object());
+  std::string kind_text = str(kind);
+  std::map<std::string, std::pair<std::string, std::string>> keys = {
+      {"loaded_memories", {"on_loaded_memories", "onLoadedMemories"}},
+      {"loaded_skills", {"on_loaded_skills", "onLoadedSkills"}},
+      {"used_memories", {"on_used_memories", "onUsedMemories"}},
+      {"used_skills", {"on_used_skills", "onUsedSkills"}},
+  };
+  auto key_it = keys.find(kind_text);
+  if (key_it == keys.end()) return Value();
+  const auto& pair = key_it->second;
+  Value callback;
+  if (kind_text.rfind("used_", 0) == 0) {
+    callback = get_key(forward_options, pair.first, get_key(forward_options, pair.second, Value()));
+  }
+  if (callback.is_null()) {
+    callback = get_key(constructor_options, pair.first, get_key(constructor_options, pair.second, Value()));
+  }
+  if (!callback.is_object()) return Value();
+  std::string id = str(get_key(callback, "__agent_observer_id", Value("")));
+  if (id.empty()) return Value();
+  auto it = agent_observer_registry().find(id);
+  if (it == agent_observer_registry().end() || !it->second) return Value();
+  try {
+    it->second(payload);
+  } catch (...) {
+    // Observer failures are deliberately ignored.
+  }
+  return Value();
 }
 Value Core::agent_callable_invoke(Value state, Value request, Value options_arg) {
   Value options = get_key(state, "options", Value::object());

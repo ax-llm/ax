@@ -21269,6 +21269,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_discovered_tool_docs Value
 	var v_discovery_catalog Value
 	var v_distiller_description Value
+	var v_distiller_loaded_skill_docs Value
 	var v_distiller_signature Value
 	var v_empty_list Value
 	var v_empty_map Value
@@ -21303,7 +21304,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_matches Value
 	var v_memories_catalog Value
 	var v_memories_catalog_camel Value
-	var v_memories_catalog_is_list Value
+	var v_memories_catalog_raw Value
 	var v_message Value
 	var v_missing Value
 	var v_optimizer_metadata Value
@@ -21312,6 +21313,12 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_policy_flags Value
 	var v_policy_registry Value
 	var v_policy_trace Value
+	var v_preset_skill_docs Value
+	var v_preset_skills_raw Value
+	var v_relevance_ranking_camel Value
+	var v_relevance_ranking_is_map Value
+	var v_relevance_ranking_options Value
+	var v_relevance_ranking_raw Value
 	var v_responder_description Value
 	var v_responder_exclude Value
 	var v_responder_exclude_camel Value
@@ -21325,7 +21332,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	var v_sig Value
 	var v_skills_catalog Value
 	var v_skills_catalog_camel Value
-	var v_skills_catalog_is_list Value
+	var v_skills_catalog_raw Value
 	var v_stage_instruction Value
 	var v_state Value
 	var v_state_alpha Value
@@ -21373,6 +21380,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_discovered_tool_docs
 	_ = v_discovery_catalog
 	_ = v_distiller_description
+	_ = v_distiller_loaded_skill_docs
 	_ = v_distiller_signature
 	_ = v_empty_list
 	_ = v_empty_map
@@ -21407,7 +21415,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_matches
 	_ = v_memories_catalog
 	_ = v_memories_catalog_camel
-	_ = v_memories_catalog_is_list
+	_ = v_memories_catalog_raw
 	_ = v_message
 	_ = v_missing
 	_ = v_optimizer_metadata
@@ -21416,6 +21424,12 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_policy_flags
 	_ = v_policy_registry
 	_ = v_policy_trace
+	_ = v_preset_skill_docs
+	_ = v_preset_skills_raw
+	_ = v_relevance_ranking_camel
+	_ = v_relevance_ranking_is_map
+	_ = v_relevance_ranking_options
+	_ = v_relevance_ranking_raw
 	_ = v_responder_description
 	_ = v_responder_exclude
 	_ = v_responder_exclude_camel
@@ -21429,7 +21443,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	_ = v_sig
 	_ = v_skills_catalog
 	_ = v_skills_catalog_camel
-	_ = v_skills_catalog_is_list
+	_ = v_skills_catalog_raw
 	_ = v_stage_instruction
 	_ = v_state
 	_ = v_state_alpha
@@ -21500,25 +21514,27 @@ func _agent_factory(args ...Value) (Value, error) {
 	{ v, err := _normalize_agent_policy(v_options); if err != nil { return nil, err }; v_policy = v }
 	{ v, err := _agent_policy_flags(v_options, v_callable_split, v_auto_upgrade); if err != nil { return nil, err }; v_policy_flags = v }
 	{ v, err := _agent_policy_registry(v_policy, v_policy_flags); if err != nil { return nil, err }; v_policy_registry = v }
+	v_relevance_ranking_camel = coreGet(v_options, "relevanceRanking", nil)
+	v_relevance_ranking_raw = coreGet(v_options, "relevance_ranking", v_relevance_ranking_camel)
+	v_relevance_ranking_options = Object()
+	v_relevance_ranking_is_map = coreTypeIs(v_relevance_ranking_raw, "object")
+	if coreTruthy(v_relevance_ranking_is_map) {
+		v_relevance_ranking_options = _core_map_merge(v_relevance_ranking_options, v_relevance_ranking_raw)
+	} else {
+	// empty
+	}
 	{ v, err := _render_agent_discovery_catalog(v_callable_split); if err != nil { return nil, err }; v_discovery_catalog = v }
 	v_skills_catalog_camel = coreGet(v_options, "skillsCatalog", v_empty_list)
-	v_skills_catalog = coreGet(v_options, "skills_catalog", v_skills_catalog_camel)
-	v_skills_catalog_is_list = coreTypeIs(v_skills_catalog, "list")
-	if coreTruthy(v_skills_catalog_is_list) {
-	// empty
-	} else {
-		v_skills_catalog = v_empty_list
-	}
+	v_skills_catalog_raw = coreGet(v_options, "skills_catalog", v_skills_catalog_camel)
+	{ v, err := _agent_normalize_skill_catalog(v_skills_catalog_raw); if err != nil { return nil, err }; v_skills_catalog = v }
 	v_memories_catalog_camel = coreGet(v_options, "memoriesCatalog", v_empty_list)
-	v_memories_catalog = coreGet(v_options, "memories_catalog", v_memories_catalog_camel)
-	v_memories_catalog_is_list = coreTypeIs(v_memories_catalog, "list")
-	if coreTruthy(v_memories_catalog_is_list) {
-	// empty
-	} else {
-		v_memories_catalog = v_empty_list
-	}
+	v_memories_catalog_raw = coreGet(v_options, "memories_catalog", v_memories_catalog_camel)
+	{ v, err := _agent_merge_memory_results(v_empty_list, v_memories_catalog_raw); if err != nil { return nil, err }; v_memories_catalog = v }
 	v_discovered_tool_docs = MutableArray()
-	v_loaded_skill_docs = MutableArray()
+	v_preset_skills_raw = coreGet(v_options, "skills", v_empty_list)
+	{ v, err := _agent_merge_skill_results(v_empty_list, v_preset_skills_raw); if err != nil { return nil, err }; v_preset_skill_docs = v }
+	{ v, err := _agent_merge_skill_results(v_empty_list, v_preset_skill_docs); if err != nil { return nil, err }; v_loaded_skill_docs = v }
+	v_distiller_loaded_skill_docs = MutableArray()
 	v_loaded_memories = MutableArray()
 	v_used_memories = MutableArray()
 	v_used_skills = MutableArray()
@@ -21573,6 +21589,7 @@ func _agent_factory(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "policy", v_policy); err != nil { return nil, err }
 	if err := coreSet(v_state, "policy_flags", v_policy_flags); err != nil { return nil, err }
 	if err := coreSet(v_state, "policy_registry", v_policy_registry); err != nil { return nil, err }
+	if err := coreSet(v_state, "relevance_ranking_options", v_relevance_ranking_options); err != nil { return nil, err }
 	if err := coreSet(v_state, "context_policy", v_context_policy); err != nil { return nil, err }
 	if err := coreSet(v_state, "auto_upgrade", v_auto_upgrade); err != nil { return nil, err }
 	v_context_map_config = coreGet(v_options, "contextMap", nil)
@@ -21624,7 +21641,9 @@ func _agent_factory(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "skills_catalog", v_skills_catalog); err != nil { return nil, err }
 	if err := coreSet(v_state, "memories_catalog", v_memories_catalog); err != nil { return nil, err }
 	if err := coreSet(v_state, "discovered_tool_docs", v_discovered_tool_docs); err != nil { return nil, err }
+	if err := coreSet(v_state, "preset_skill_docs", v_preset_skill_docs); err != nil { return nil, err }
 	if err := coreSet(v_state, "loaded_skill_docs", v_loaded_skill_docs); err != nil { return nil, err }
+	if err := coreSet(v_state, "distiller_loaded_skill_docs", v_distiller_loaded_skill_docs); err != nil { return nil, err }
 	if err := coreSet(v_state, "loaded_memories", v_loaded_memories); err != nil { return nil, err }
 	if err := coreSet(v_state, "used_memories", v_used_memories); err != nil { return nil, err }
 	if err := coreSet(v_state, "used_skills", v_used_skills); err != nil { return nil, err }
@@ -21775,6 +21794,35 @@ func _agent_reserved_runtime_names(args ...Value) (Value, error) {
 		v_names = MutableArray()
 	}
 	return v_names, nil
+}
+
+func _agent_runtime_reserved_names_for_state(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_reserved_names_for_state")
+	var v_state Value
+	var v_already Value
+	var v_empty_list Value
+	var v_input_names Value
+	var v_name Value
+	var v_reserved Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	_ = v_already
+	_ = v_empty_list
+	_ = v_input_names
+	_ = v_name
+	_ = v_reserved
+	v_empty_list = MutableArray()
+	{ v, err := _agent_reserved_runtime_names(); if err != nil { return nil, err }; v_reserved = v }
+	v_input_names = coreGet(v_state, "runtime_input_names", v_empty_list)
+	for _, v_name = range coreIter(v_input_names) {
+		v_already = _core_contains(v_reserved, v_name)
+		if coreTruthy(v_already) {
+		// empty
+		} else {
+			v_reserved = coreAppend(v_reserved, v_name)
+		}
+	}
+	return v_reserved, nil
 }
 
 func _agent_runtime_language_tokens(args ...Value) (Value, error) {
@@ -22523,6 +22571,9 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	var v_has_skills_callback_snake Value
 	var v_has_skills_catalog Value
 	var v_has_status_callback Value
+	var v_has_used_memories_observer Value
+	var v_has_used_observer Value
+	var v_has_used_skills_observer Value
 	var v_inline_callable_count Value
 	var v_inline_callables Value
 	var v_inspect_camel Value
@@ -22558,7 +22609,12 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	var v_status_direct Value
 	var v_status_mode Value
 	var v_usage_camel Value
+	var v_usage_direct Value
 	var v_usage_enabled Value
+	var v_used_memories_observer Value
+	var v_used_memories_observer_snake Value
+	var v_used_skills_observer Value
+	var v_used_skills_observer_snake Value
 	if len(args) > 0 { v_options = args[0] }
 	_ = v_options
 	if len(args) > 1 { v_callable_split = args[1] }
@@ -22608,6 +22664,9 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	_ = v_has_skills_callback_snake
 	_ = v_has_skills_catalog
 	_ = v_has_status_callback
+	_ = v_has_used_memories_observer
+	_ = v_has_used_observer
+	_ = v_has_used_skills_observer
 	_ = v_inline_callable_count
 	_ = v_inline_callables
 	_ = v_inspect_camel
@@ -22643,7 +22702,12 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	_ = v_status_direct
 	_ = v_status_mode
 	_ = v_usage_camel
+	_ = v_usage_direct
 	_ = v_usage_enabled
+	_ = v_used_memories_observer
+	_ = v_used_memories_observer_snake
+	_ = v_used_skills_observer
+	_ = v_used_skills_observer_snake
 	v_empty_list = MutableArray()
 	v_has_function_discovery_camel = _core_map_contains(v_options, "functionDiscovery")
 	v_has_function_discovery_snake = _core_map_contains(v_options, "function_discovery")
@@ -22704,7 +22768,15 @@ func _agent_policy_flags(args ...Value) (Value, error) {
 	v_memories_callback_mode = _core_or(v_memories_direct, v_has_any_memories_callback)
 	v_memories_mode = _core_or(v_memories_callback_mode, v_has_memories_catalog)
 	v_usage_camel = coreGet(v_options, "usageTrackingMode", false)
-	v_usage_enabled = coreGet(v_options, "usage_tracking_mode", v_usage_camel)
+	v_usage_direct = coreGet(v_options, "usage_tracking_mode", v_usage_camel)
+	v_used_memories_observer = coreGet(v_options, "onUsedMemories", nil)
+	v_used_memories_observer_snake = coreGet(v_options, "on_used_memories", v_used_memories_observer)
+	v_used_skills_observer = coreGet(v_options, "onUsedSkills", nil)
+	v_used_skills_observer_snake = coreGet(v_options, "on_used_skills", v_used_skills_observer)
+	v_has_used_memories_observer = _core_is_not_none(v_used_memories_observer_snake)
+	v_has_used_skills_observer = _core_is_not_none(v_used_skills_observer_snake)
+	v_has_used_observer = _core_or(v_has_used_memories_observer, v_has_used_skills_observer)
+	v_usage_enabled = _core_or(v_usage_direct, v_has_used_observer)
 	v_status_camel = coreGet(v_options, "hasAgentStatusCallback", false)
 	v_status_direct = coreGet(v_options, "has_agent_status_callback", v_status_camel)
 	v_has_status_callback = _core_map_contains(v_options, "agentStatusCallback")
@@ -23920,22 +23992,38 @@ func _build_rlm_flags(args ...Value) (Value, error) {
 	var v_state Value
 	var v_combined Value
 	var v_disc Value
+	var v_empty_list Value
 	var v_empty_map Value
 	var v_flags Value
+	var v_has_loaded_skills Value
+	var v_has_skills Value
+	var v_loaded_skills Value
+	var v_loaded_skills_count Value
 	var v_skills Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	_ = v_combined
 	_ = v_disc
+	_ = v_empty_list
 	_ = v_empty_map
 	_ = v_flags
+	_ = v_has_loaded_skills
+	_ = v_has_skills
+	_ = v_loaded_skills
+	_ = v_loaded_skills_count
 	_ = v_skills
 	v_empty_map = Object()
+	v_empty_list = MutableArray()
 	v_flags = coreGet(v_state, "policy_flags", v_empty_map)
 	v_disc = coreGet(v_flags, "discoveryMode", false)
 	v_skills = coreGet(v_flags, "skillsMode", false)
+	v_loaded_skills = coreGet(v_state, "loaded_skill_docs", v_empty_list)
+	v_loaded_skills_count = _core_len(v_loaded_skills)
+	v_has_loaded_skills = _core_gt(v_loaded_skills_count, 0)
+	v_has_skills = _core_or(v_skills, v_has_loaded_skills)
 	v_combined = _core_and(v_disc, v_skills)
 	if err := coreSet(v_flags, "discoveryMode+skillsMode", v_combined); err != nil { return nil, err }
+	if err := coreSet(v_flags, "hasSkills", v_has_skills); err != nil { return nil, err }
 	return v_flags, nil
 }
 
@@ -24107,6 +24195,7 @@ func _render_agent_skills_catalog_list(args ...Value) (Value, error) {
 	axirCoverageMark("_render_agent_skills_catalog_list")
 	var v_skills_catalog Value
 	var v_description Value
+	var v_has_description Value
 	var v_id Value
 	var v_line Value
 	var v_lines Value
@@ -24116,6 +24205,7 @@ func _render_agent_skills_catalog_list(args ...Value) (Value, error) {
 	if len(args) > 0 { v_skills_catalog = args[0] }
 	_ = v_skills_catalog
 	_ = v_description
+	_ = v_has_description
 	_ = v_id
 	_ = v_line
 	_ = v_lines
@@ -24127,7 +24217,13 @@ func _render_agent_skills_catalog_list(args ...Value) (Value, error) {
 		v_id = coreGet(v_skill, "id", "")
 		v_name = coreGet(v_skill, "name", v_id)
 		v_description = coreGet(v_skill, "description", "")
-		v_line = _core_string_format("- `{}` — {}. {}", v_id, v_name, v_description)
+		v_line = _core_string_format("- `{}` — {}", v_id, v_name)
+		v_has_description = _core_ne(v_description, "")
+		if coreTruthy(v_has_description) {
+			v_line = _core_string_format("{} — {}", v_line, v_description)
+		} else {
+		// empty
+		}
 		v_lines = coreAppend(v_lines, v_line)
 	}
 	v_out = _core_string_join("\n", v_lines)
@@ -24172,6 +24268,7 @@ func _render_rlm_executor_description(args ...Value) (Value, error) {
 	var v_flags_base Value
 	var v_functions_list Value
 	var v_has_modules Value
+	var v_has_skills Value
 	var v_has_skills_catalog Value
 	var v_is_javascript Value
 	var v_language Value
@@ -24208,6 +24305,7 @@ func _render_rlm_executor_description(args ...Value) (Value, error) {
 	_ = v_flags_base
 	_ = v_functions_list
 	_ = v_has_modules
+	_ = v_has_skills
 	_ = v_has_skills_catalog
 	_ = v_is_javascript
 	_ = v_language
@@ -24244,6 +24342,7 @@ func _render_rlm_executor_description(args ...Value) (Value, error) {
 	v_usage_instructions = coreGet(v_contract, "usage_instructions", "")
 	v_discovery_mode = coreGet(v_flags, "discoveryMode", false)
 	v_skills_mode = coreGet(v_flags, "skillsMode", false)
+	v_has_skills = coreGet(v_flags, "hasSkills", v_skills_mode)
 	v_memories_mode = coreGet(v_flags, "memoriesMode", false)
 	v_status_callback = coreGet(v_flags, "hasAgentStatusCallback", false)
 	v_relevance_hints_mode = coreGet(v_flags, "relevanceHintsEnabled", false)
@@ -24277,7 +24376,7 @@ func _render_rlm_executor_description(args ...Value) (Value, error) {
 	if err := coreSet(v_vars, "hasModules", v_has_modules); err != nil { return nil, err }
 	if err := coreSet(v_vars, "hasDiscoveredDocs", v_discovery_mode); err != nil { return nil, err }
 	if err := coreSet(v_vars, "hasRelevanceHints", v_relevance_hints_mode); err != nil { return nil, err }
-	if err := coreSet(v_vars, "hasSkills", v_skills_mode); err != nil { return nil, err }
+	if err := coreSet(v_vars, "hasSkills", v_has_skills); err != nil { return nil, err }
 	if err := coreSet(v_vars, "hasSkillsCatalog", v_has_skills_catalog); err != nil { return nil, err }
 	if err := coreSet(v_vars, "skillsCatalogList", v_skills_catalog_list); err != nil { return nil, err }
 	if err := coreSet(v_vars, "skillUsageMode", v_skill_usage_mode); err != nil { return nil, err }
@@ -24348,6 +24447,7 @@ func _render_rlm_distiller_description(args ...Value) (Value, error) {
 	var v_functions_list Value
 	var v_has_executor_functions Value
 	var v_has_modules Value
+	var v_has_skills Value
 	var v_has_skills_catalog Value
 	var v_is_javascript Value
 	var v_language Value
@@ -24389,6 +24489,7 @@ func _render_rlm_distiller_description(args ...Value) (Value, error) {
 	_ = v_functions_list
 	_ = v_has_executor_functions
 	_ = v_has_modules
+	_ = v_has_skills
 	_ = v_has_skills_catalog
 	_ = v_is_javascript
 	_ = v_language
@@ -24422,6 +24523,7 @@ func _render_rlm_distiller_description(args ...Value) (Value, error) {
 	v_memories_mode = coreGet(v_flags, "memoriesMode", false)
 	v_discovery_mode = coreGet(v_flags, "discoveryMode", false)
 	v_skills_mode = coreGet(v_flags, "skillsMode", false)
+	v_has_skills = coreGet(v_flags, "hasSkills", v_skills_mode)
 	v_memory_usage_camel = coreGet(v_options, "memoryUsageMode", false)
 	v_memory_usage_mode = coreGet(v_options, "memory_usage_mode", v_memory_usage_camel)
 	v_skill_usage_camel = coreGet(v_options, "skillUsageMode", false)
@@ -24453,7 +24555,7 @@ func _render_rlm_distiller_description(args ...Value) (Value, error) {
 	if err := coreSet(v_vars, "discoveryMode", v_discovery_mode); err != nil { return nil, err }
 	if err := coreSet(v_vars, "hasModules", v_has_modules); err != nil { return nil, err }
 	if err := coreSet(v_vars, "hasDiscoveredDocs", v_discovery_mode); err != nil { return nil, err }
-	if err := coreSet(v_vars, "hasSkills", v_skills_mode); err != nil { return nil, err }
+	if err := coreSet(v_vars, "hasSkills", v_has_skills); err != nil { return nil, err }
 	if err := coreSet(v_vars, "hasSkillsCatalog", v_has_skills_catalog); err != nil { return nil, err }
 	if err := coreSet(v_vars, "skillsCatalogList", v_skills_catalog_list); err != nil { return nil, err }
 	if err := coreSet(v_vars, "isJavaScriptRuntime", v_is_javascript); err != nil { return nil, err }
@@ -29093,6 +29195,512 @@ func _agent_append_unique_by_field(args ...Value) (Value, error) {
 	return v_items, nil
 }
 
+func _agent_normalize_skill_entry(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_normalize_skill_entry")
+	var v_entry Value
+	var v_content Value
+	var v_content_is_string Value
+	var v_id Value
+	var v_id_has_value Value
+	var v_id_is_string Value
+	var v_id_raw Value
+	var v_id_trimmed Value
+	var v_is_map Value
+	var v_name Value
+	var v_name_empty Value
+	var v_name_is_string Value
+	var v_name_raw Value
+	var v_none Value
+	var v_out Value
+	var v_valid_types Value
+	if len(args) > 0 { v_entry = args[0] }
+	_ = v_entry
+	_ = v_content
+	_ = v_content_is_string
+	_ = v_id
+	_ = v_id_has_value
+	_ = v_id_is_string
+	_ = v_id_raw
+	_ = v_id_trimmed
+	_ = v_is_map
+	_ = v_name
+	_ = v_name_empty
+	_ = v_name_is_string
+	_ = v_name_raw
+	_ = v_none
+	_ = v_out
+	_ = v_valid_types
+	v_is_map = coreTypeIs(v_entry, "object")
+	if coreTruthy(v_is_map) {
+	// empty
+	} else {
+		v_none = _core_none()
+		return v_none, nil
+	}
+	v_name_raw = coreGet(v_entry, "name", nil)
+	v_content = coreGet(v_entry, "content", nil)
+	v_name_is_string = coreTypeIs(v_name_raw, "string")
+	v_content_is_string = coreTypeIs(v_content, "string")
+	v_valid_types = _core_and(v_name_is_string, v_content_is_string)
+	if coreTruthy(v_valid_types) {
+	// empty
+	} else {
+		v_none = _core_none()
+		return v_none, nil
+	}
+	v_name = coreStringTrim(v_name_raw)
+	v_name_empty = _core_eq(v_name, "")
+	if coreTruthy(v_name_empty) {
+		v_none = _core_none()
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_id_raw = coreGet(v_entry, "id", v_name)
+	v_id = v_name
+	v_id_is_string = coreTypeIs(v_id_raw, "string")
+	if coreTruthy(v_id_is_string) {
+		v_id_trimmed = coreStringTrim(v_id_raw)
+		v_id_has_value = _core_ne(v_id_trimmed, "")
+		if coreTruthy(v_id_has_value) {
+			v_id = v_id_trimmed
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_out, "content", v_content); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _agent_merge_skill_results(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_merge_skill_results")
+	var v_existing Value
+	var v_incoming Value
+	var v_by_id Value
+	var v_entry Value
+	var v_entry2 Value
+	var v_existing_is_list Value
+	var v_id Value
+	var v_id2 Value
+	var v_ids Value
+	var v_incoming_is_list Value
+	var v_item Value
+	var v_normalized Value
+	var v_normalized2 Value
+	var v_out Value
+	var v_sorted_id Value
+	var v_sorted_ids Value
+	var v_valid Value
+	var v_valid2 Value
+	if len(args) > 0 { v_existing = args[0] }
+	_ = v_existing
+	if len(args) > 1 { v_incoming = args[1] }
+	_ = v_incoming
+	_ = v_by_id
+	_ = v_entry
+	_ = v_entry2
+	_ = v_existing_is_list
+	_ = v_id
+	_ = v_id2
+	_ = v_ids
+	_ = v_incoming_is_list
+	_ = v_item
+	_ = v_normalized
+	_ = v_normalized2
+	_ = v_out
+	_ = v_sorted_id
+	_ = v_sorted_ids
+	_ = v_valid
+	_ = v_valid2
+	v_by_id = Object()
+	v_existing_is_list = coreTypeIs(v_existing, "list")
+	if coreTruthy(v_existing_is_list) {
+		for _, v_entry = range coreIter(v_existing) {
+			{ v, err := _agent_normalize_skill_entry(v_entry); if err != nil { return nil, err }; v_normalized = v }
+			v_valid = coreTypeIs(v_normalized, "object")
+			if coreTruthy(v_valid) {
+				v_id = coreGet(v_normalized, "id", nil)
+				if err := coreSet(v_by_id, v_id, v_normalized); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_incoming_is_list = coreTypeIs(v_incoming, "list")
+	if coreTruthy(v_incoming_is_list) {
+		for _, v_entry2 = range coreIter(v_incoming) {
+			{ v, err := _agent_normalize_skill_entry(v_entry2); if err != nil { return nil, err }; v_normalized2 = v }
+			v_valid2 = coreTypeIs(v_normalized2, "object")
+			if coreTruthy(v_valid2) {
+				v_id2 = coreGet(v_normalized2, "id", nil)
+				if err := coreSet(v_by_id, v_id2, v_normalized2); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_ids = _core_map_keys(v_by_id)
+	v_sorted_ids = _core_sorted_strings(v_ids)
+	v_out = MutableArray()
+	for _, v_sorted_id = range coreIter(v_sorted_ids) {
+		v_item = coreGet(v_by_id, v_sorted_id, nil)
+		v_out = coreAppend(v_out, v_item)
+	}
+	return v_out, nil
+}
+
+func _agent_normalize_skill_catalog(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_normalize_skill_catalog")
+	var v_catalog Value
+	var v_base Value
+	var v_base_count Value
+	var v_catalog_by_id Value
+	var v_catalog_is_list Value
+	var v_description_is_string Value
+	var v_description_raw Value
+	var v_empty Value
+	var v_has_base Value
+	var v_id Value
+	var v_ids Value
+	var v_item Value
+	var v_normalized Value
+	var v_out Value
+	var v_raw Value
+	var v_sorted_id Value
+	var v_sorted_ids Value
+	var v_valid Value
+	if len(args) > 0 { v_catalog = args[0] }
+	_ = v_catalog
+	_ = v_base
+	_ = v_base_count
+	_ = v_catalog_by_id
+	_ = v_catalog_is_list
+	_ = v_description_is_string
+	_ = v_description_raw
+	_ = v_empty
+	_ = v_has_base
+	_ = v_id
+	_ = v_ids
+	_ = v_item
+	_ = v_normalized
+	_ = v_out
+	_ = v_raw
+	_ = v_sorted_id
+	_ = v_sorted_ids
+	_ = v_valid
+	v_empty = MutableArray()
+	{ v, err := _agent_merge_skill_results(v_empty, v_catalog); if err != nil { return nil, err }; v_base = v }
+	v_catalog_by_id = Object()
+	v_catalog_is_list = coreTypeIs(v_catalog, "list")
+	if coreTruthy(v_catalog_is_list) {
+		for _, v_raw = range coreIter(v_catalog) {
+			{ v, err := _agent_normalize_skill_entry(v_raw); if err != nil { return nil, err }; v_normalized = v }
+			v_valid = coreTypeIs(v_normalized, "object")
+			if coreTruthy(v_valid) {
+				v_id = coreGet(v_normalized, "id", nil)
+				v_description_raw = coreGet(v_raw, "description", nil)
+				v_description_is_string = coreTypeIs(v_description_raw, "string")
+				if coreTruthy(v_description_is_string) {
+					if err := coreSet(v_normalized, "description", v_description_raw); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+				if err := coreSet(v_catalog_by_id, v_id, v_normalized); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_base_count = _core_len(v_base)
+	v_has_base = _core_gt(v_base_count, 0)
+	if coreTruthy(v_has_base) {
+		v_ids = _core_map_keys(v_catalog_by_id)
+		v_sorted_ids = _core_sorted_strings(v_ids)
+		v_out = MutableArray()
+		for _, v_sorted_id = range coreIter(v_sorted_ids) {
+			v_item = coreGet(v_catalog_by_id, v_sorted_id, nil)
+			v_out = coreAppend(v_out, v_item)
+		}
+		return v_out, nil
+	} else {
+	// empty
+	}
+	return v_empty, nil
+}
+
+func _agent_catalog_skill_search(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_catalog_skill_search")
+	var v_catalog Value
+	var v_searches Value
+	var v_already Value
+	var v_catalog_id Value
+	var v_catalog_skill Value
+	var v_content Value
+	var v_content_field Value
+	var v_content_head Value
+	var v_description Value
+	var v_description_field Value
+	var v_doc Value
+	var v_docs Value
+	var v_fields Value
+	var v_fresh Value
+	var v_has_description Value
+	var v_id Value
+	var v_id_field Value
+	var v_matched_id Value
+	var v_matched_ids Value
+	var v_matches Value
+	var v_name Value
+	var v_name_field Value
+	var v_opts Value
+	var v_out Value
+	var v_ranked Value
+	var v_ranked_entry Value
+	var v_ranked_id Value
+	var v_result Value
+	var v_result_content Value
+	var v_result_name Value
+	var v_search Value
+	var v_skill Value
+	if len(args) > 0 { v_catalog = args[0] }
+	_ = v_catalog
+	if len(args) > 1 { v_searches = args[1] }
+	_ = v_searches
+	_ = v_already
+	_ = v_catalog_id
+	_ = v_catalog_skill
+	_ = v_content
+	_ = v_content_field
+	_ = v_content_head
+	_ = v_description
+	_ = v_description_field
+	_ = v_doc
+	_ = v_docs
+	_ = v_fields
+	_ = v_fresh
+	_ = v_has_description
+	_ = v_id
+	_ = v_id_field
+	_ = v_matched_id
+	_ = v_matched_ids
+	_ = v_matches
+	_ = v_name
+	_ = v_name_field
+	_ = v_opts
+	_ = v_out
+	_ = v_ranked
+	_ = v_ranked_entry
+	_ = v_ranked_id
+	_ = v_result
+	_ = v_result_content
+	_ = v_result_name
+	_ = v_search
+	_ = v_skill
+	v_docs = MutableArray()
+	for _, v_skill = range coreIter(v_catalog) {
+		v_id = coreGet(v_skill, "id", "")
+		v_name = coreGet(v_skill, "name", v_id)
+		v_description = coreGet(v_skill, "description", "")
+		v_content = coreGet(v_skill, "content", "")
+		v_content_head = _core_string_slice(v_content, 0, 600)
+		v_fields = MutableArray()
+		v_id_field = Object()
+		if err := coreSet(v_id_field, "text", v_id); err != nil { return nil, err }
+		if err := coreSet(v_id_field, "identifier", true); err != nil { return nil, err }
+		v_fields = coreAppend(v_fields, v_id_field)
+		v_name_field = Object()
+		if err := coreSet(v_name_field, "text", v_name); err != nil { return nil, err }
+		if err := coreSet(v_name_field, "weight", 2); err != nil { return nil, err }
+		v_fields = coreAppend(v_fields, v_name_field)
+		v_has_description = _core_ne(v_description, "")
+		if coreTruthy(v_has_description) {
+			v_description_field = Object()
+			if err := coreSet(v_description_field, "text", v_description); err != nil { return nil, err }
+			if err := coreSet(v_description_field, "weight", 2); err != nil { return nil, err }
+			v_fields = coreAppend(v_fields, v_description_field)
+		} else {
+		// empty
+		}
+		v_content_field = Object()
+		if err := coreSet(v_content_field, "text", v_content_head); err != nil { return nil, err }
+		v_fields = coreAppend(v_fields, v_content_field)
+		v_doc = Object()
+		if err := coreSet(v_doc, "id", v_id); err != nil { return nil, err }
+		if err := coreSet(v_doc, "fields", v_fields); err != nil { return nil, err }
+		v_docs = coreAppend(v_docs, v_doc)
+	}
+	v_opts = Object()
+	if err := coreSet(v_opts, "topK", 2); err != nil { return nil, err }
+	if err := coreSet(v_opts, "minScore", 0); err != nil { return nil, err }
+	if err := coreSet(v_opts, "marginRatio", 0); err != nil { return nil, err }
+	if err := coreSet(v_opts, "minDocs", 1); err != nil { return nil, err }
+	v_matched_ids = MutableArray()
+	for _, v_search = range coreIter(v_searches) {
+		{ v, err := _agent_rank_documents(v_search, v_docs, v_opts); if err != nil { return nil, err }; v_ranked = v }
+		for _, v_ranked_entry = range coreIter(v_ranked) {
+			v_ranked_id = coreGet(v_ranked_entry, "id", "")
+			v_already = _core_contains(v_matched_ids, v_ranked_id)
+			v_fresh = _core_not(v_already)
+			if coreTruthy(v_fresh) {
+				v_matched_ids = coreAppend(v_matched_ids, v_ranked_id)
+			} else {
+			// empty
+			}
+		}
+	}
+	v_out = MutableArray()
+	for _, v_matched_id = range coreIter(v_matched_ids) {
+		for _, v_catalog_skill = range coreIter(v_catalog) {
+			v_catalog_id = coreGet(v_catalog_skill, "id", "")
+			v_matches = _core_eq(v_catalog_id, v_matched_id)
+			if coreTruthy(v_matches) {
+				v_result = Object()
+				v_result_name = coreGet(v_catalog_skill, "name", v_catalog_id)
+				v_result_content = coreGet(v_catalog_skill, "content", "")
+				if err := coreSet(v_result, "id", v_catalog_id); err != nil { return nil, err }
+				if err := coreSet(v_result, "name", v_result_name); err != nil { return nil, err }
+				if err := coreSet(v_result, "content", v_result_content); err != nil { return nil, err }
+				v_out = coreAppend(v_out, v_result)
+			} else {
+			// empty
+			}
+		}
+	}
+	return v_out, nil
+}
+
+func _agent_catalog_memory_search(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_catalog_memory_search")
+	var v_catalog Value
+	var v_searches Value
+	var v_already_loaded Value
+	var v_already Value
+	var v_candidate Value
+	var v_candidate_id Value
+	var v_candidates Value
+	var v_content Value
+	var v_content_field Value
+	var v_content_head Value
+	var v_doc Value
+	var v_docs Value
+	var v_fields Value
+	var v_fresh Value
+	var v_fresh2 Value
+	var v_id Value
+	var v_id_field Value
+	var v_loaded Value
+	var v_matched_id Value
+	var v_matched_ids Value
+	var v_matches Value
+	var v_memory Value
+	var v_opts Value
+	var v_out Value
+	var v_ranked Value
+	var v_ranked_entry Value
+	var v_ranked_id Value
+	var v_search Value
+	if len(args) > 0 { v_catalog = args[0] }
+	_ = v_catalog
+	if len(args) > 1 { v_searches = args[1] }
+	_ = v_searches
+	if len(args) > 2 { v_already_loaded = args[2] }
+	_ = v_already_loaded
+	_ = v_already
+	_ = v_candidate
+	_ = v_candidate_id
+	_ = v_candidates
+	_ = v_content
+	_ = v_content_field
+	_ = v_content_head
+	_ = v_doc
+	_ = v_docs
+	_ = v_fields
+	_ = v_fresh
+	_ = v_fresh2
+	_ = v_id
+	_ = v_id_field
+	_ = v_loaded
+	_ = v_matched_id
+	_ = v_matched_ids
+	_ = v_matches
+	_ = v_memory
+	_ = v_opts
+	_ = v_out
+	_ = v_ranked
+	_ = v_ranked_entry
+	_ = v_ranked_id
+	_ = v_search
+	v_candidates = MutableArray()
+	v_docs = MutableArray()
+	for _, v_memory = range coreIter(v_catalog) {
+		v_id = coreGet(v_memory, "id", "")
+		{ v, err := _agent_relevance_has_id(v_already_loaded, "id", v_id); if err != nil { return nil, err }; v_loaded = v }
+		v_fresh = _core_not(v_loaded)
+		if coreTruthy(v_fresh) {
+			v_candidates = coreAppend(v_candidates, v_memory)
+			v_content = coreGet(v_memory, "content", "")
+			v_content_head = _core_string_slice(v_content, 0, 600)
+			v_fields = MutableArray()
+			v_id_field = Object()
+			if err := coreSet(v_id_field, "text", v_id); err != nil { return nil, err }
+			if err := coreSet(v_id_field, "identifier", true); err != nil { return nil, err }
+			v_fields = coreAppend(v_fields, v_id_field)
+			v_content_field = Object()
+			if err := coreSet(v_content_field, "text", v_content_head); err != nil { return nil, err }
+			v_fields = coreAppend(v_fields, v_content_field)
+			v_doc = Object()
+			if err := coreSet(v_doc, "id", v_id); err != nil { return nil, err }
+			if err := coreSet(v_doc, "fields", v_fields); err != nil { return nil, err }
+			v_docs = coreAppend(v_docs, v_doc)
+		} else {
+		// empty
+		}
+	}
+	v_opts = Object()
+	if err := coreSet(v_opts, "topK", 3); err != nil { return nil, err }
+	if err := coreSet(v_opts, "minScore", 0); err != nil { return nil, err }
+	if err := coreSet(v_opts, "marginRatio", 0); err != nil { return nil, err }
+	if err := coreSet(v_opts, "minDocs", 1); err != nil { return nil, err }
+	v_matched_ids = MutableArray()
+	for _, v_search = range coreIter(v_searches) {
+		{ v, err := _agent_rank_documents(v_search, v_docs, v_opts); if err != nil { return nil, err }; v_ranked = v }
+		for _, v_ranked_entry = range coreIter(v_ranked) {
+			v_ranked_id = coreGet(v_ranked_entry, "id", "")
+			v_already = _core_contains(v_matched_ids, v_ranked_id)
+			v_fresh2 = _core_not(v_already)
+			if coreTruthy(v_fresh2) {
+				v_matched_ids = coreAppend(v_matched_ids, v_ranked_id)
+			} else {
+			// empty
+			}
+		}
+	}
+	v_out = MutableArray()
+	for _, v_matched_id = range coreIter(v_matched_ids) {
+		for _, v_candidate = range coreIter(v_candidates) {
+			v_candidate_id = coreGet(v_candidate, "id", "")
+			v_matches = _core_eq(v_candidate_id, v_matched_id)
+			if coreTruthy(v_matches) {
+				v_out = coreAppend(v_out, v_candidate)
+			} else {
+			// empty
+			}
+		}
+	}
+	return v_out, nil
+}
+
 func _agent_render_discovered_tool_docs(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_render_discovered_tool_docs")
 	var v_docs Value
@@ -29137,38 +29745,58 @@ func _agent_render_loaded_skills(args ...Value) (Value, error) {
 	var v_skills Value
 	var v_body Value
 	var v_content Value
-	var v_empty Value
+	var v_id Value
 	var v_line Value
 	var v_lines Value
 	var v_name Value
-	var v_out Value
 	var v_skill Value
 	if len(args) > 0 { v_skills = args[0] }
 	_ = v_skills
 	_ = v_body
 	_ = v_content
-	_ = v_empty
+	_ = v_id
 	_ = v_line
 	_ = v_lines
 	_ = v_name
-	_ = v_out
 	_ = v_skill
 	v_lines = MutableArray()
 	for _, v_skill = range coreIter(v_skills) {
+		v_id = coreGet(v_skill, "id", "")
 		v_name = coreGet(v_skill, "name", "")
 		v_content = coreGet(v_skill, "content", "")
-		v_line = _core_string_format("### {}\n{}", v_name, v_content)
+		v_line = _core_string_format("### {}\n\nID: `{}`\n\n{}", v_name, v_id, v_content)
 		v_lines = coreAppend(v_lines, v_line)
 	}
 	v_body = _core_string_join("\n\n", v_lines)
-	v_empty = _core_eq(v_body, "")
-	v_out = v_body
-	if coreTruthy(v_empty) {
-		v_out = ""
-	} else {
-		v_out = _core_string_format("Loaded Skills\n{}", v_body)
+	return v_body, nil
+}
+
+func _agent_render_loaded_memories(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_render_loaded_memories")
+	var v_memories Value
+	var v_body Value
+	var v_content Value
+	var v_id Value
+	var v_line Value
+	var v_lines Value
+	var v_memory Value
+	if len(args) > 0 { v_memories = args[0] }
+	_ = v_memories
+	_ = v_body
+	_ = v_content
+	_ = v_id
+	_ = v_line
+	_ = v_lines
+	_ = v_memory
+	v_lines = MutableArray()
+	for _, v_memory = range coreIter(v_memories) {
+		v_id = coreGet(v_memory, "id", "")
+		v_content = coreGet(v_memory, "content", "")
+		v_line = _core_string_format("### Memory\n\nID: `{}`\n\n{}", v_id, v_content)
+		v_lines = coreAppend(v_lines, v_line)
 	}
-	return v_out, nil
+	v_body = _core_string_join("\n\n", v_lines)
+	return v_body, nil
 }
 
 func _agent_discover(args ...Value) (Value, error) {
@@ -29177,9 +29805,12 @@ func _agent_discover(args ...Value) (Value, error) {
 	var v_request Value
 	var v_action_event Value
 	var v_action_log Value
+	var v_active_stage Value
 	var v_callable Value
 	var v_callables Value
-	var v_content Value
+	var v_callback_camel Value
+	var v_callback_value Value
+	var v_catalog Value
 	var v_description Value
 	var v_doc Value
 	var v_doc_description Value
@@ -29190,13 +29821,17 @@ func _agent_discover(args ...Value) (Value, error) {
 	var v_empty_list Value
 	var v_event Value
 	var v_group Value
-	var v_has_host Value
+	var v_has_callback Value
+	var v_has_host_search Value
+	var v_has_scripted Value
 	var v_has_skills Value
-	var v_host_count Value
-	var v_host_skill Value
 	var v_host_skills Value
 	var v_inventory Value
+	var v_is_distiller Value
 	var v_kind Value
+	var v_loaded_any Value
+	var v_loaded_count Value
+	var v_loaded_from_search Value
 	var v_matches Value
 	var v_name Value
 	var v_name_match Value
@@ -29204,14 +29839,16 @@ func _agent_discover(args ...Value) (Value, error) {
 	var v_namespace_match Value
 	var v_none Value
 	var v_normalized Value
+	var v_observer_loaded_from_search Value
+	var v_observer_options Value
 	var v_qualified Value
 	var v_qualified_match Value
-	var v_skill Value
+	var v_scripted_camel Value
+	var v_scripted_value Value
 	var v_skill_count Value
 	var v_skill_docs Value
-	var v_skill_id Value
-	var v_skill_name Value
 	var v_skills Value
+	var v_state_options Value
 	var v_tools Value
 	var v_trace Value
 	var v_wanted Value
@@ -29221,9 +29858,12 @@ func _agent_discover(args ...Value) (Value, error) {
 	_ = v_request
 	_ = v_action_event
 	_ = v_action_log
+	_ = v_active_stage
 	_ = v_callable
 	_ = v_callables
-	_ = v_content
+	_ = v_callback_camel
+	_ = v_callback_value
+	_ = v_catalog
 	_ = v_description
 	_ = v_doc
 	_ = v_doc_description
@@ -29234,13 +29874,17 @@ func _agent_discover(args ...Value) (Value, error) {
 	_ = v_empty_list
 	_ = v_event
 	_ = v_group
-	_ = v_has_host
+	_ = v_has_callback
+	_ = v_has_host_search
+	_ = v_has_scripted
 	_ = v_has_skills
-	_ = v_host_count
-	_ = v_host_skill
 	_ = v_host_skills
 	_ = v_inventory
+	_ = v_is_distiller
 	_ = v_kind
+	_ = v_loaded_any
+	_ = v_loaded_count
+	_ = v_loaded_from_search
 	_ = v_matches
 	_ = v_name
 	_ = v_name_match
@@ -29248,14 +29892,16 @@ func _agent_discover(args ...Value) (Value, error) {
 	_ = v_namespace_match
 	_ = v_none
 	_ = v_normalized
+	_ = v_observer_loaded_from_search
+	_ = v_observer_options
 	_ = v_qualified
 	_ = v_qualified_match
-	_ = v_skill
+	_ = v_scripted_camel
+	_ = v_scripted_value
 	_ = v_skill_count
 	_ = v_skill_docs
-	_ = v_skill_id
-	_ = v_skill_name
 	_ = v_skills
+	_ = v_state_options
 	_ = v_tools
 	_ = v_trace
 	_ = v_wanted
@@ -29263,7 +29909,14 @@ func _agent_discover(args ...Value) (Value, error) {
 	{ v, err := _normalize_agent_discover_request(v_state, v_request); if err != nil { return nil, err }; v_normalized = v }
 	v_inventory = coreGet(v_state, "callable_inventory", v_empty_list)
 	v_docs = coreGet(v_state, "discovered_tool_docs", v_empty_list)
+	v_active_stage = coreGet(v_state, "active_stage", "executor")
+	v_is_distiller = _core_eq(v_active_stage, "distiller")
 	v_skill_docs = coreGet(v_state, "loaded_skill_docs", v_empty_list)
+	if coreTruthy(v_is_distiller) {
+		v_skill_docs = coreGet(v_state, "distiller_loaded_skill_docs", v_empty_list)
+	} else {
+	// empty
+	}
 	v_trace = coreGet(v_state, "policy_trace", v_empty_list)
 	v_action_log = coreGet(v_state, "action_log", v_empty_list)
 	v_tools = coreGet(v_normalized, "tools", v_empty_list)
@@ -29313,26 +29966,34 @@ func _agent_discover(args ...Value) (Value, error) {
 	}
 	v_skill_count = _core_len(v_skills)
 	v_has_skills = _core_gt(v_skill_count, 0)
+	v_loaded_from_search = MutableArray()
+	v_observer_loaded_from_search = MutableArray()
 	if coreTruthy(v_has_skills) {
-		v_host_skills = _core_agent_skill_search(v_state, v_skills)
-		v_host_count = _core_len(v_host_skills)
-		v_has_host = _core_gt(v_host_count, 0)
-		if coreTruthy(v_has_host) {
-			for _, v_host_skill = range coreIter(v_host_skills) {
-				v_skill_name = coreGet(v_host_skill, "name", "")
-				v_skill_id = coreGet(v_host_skill, "id", v_skill_name)
-				if err := coreSet(v_host_skill, "id", v_skill_id); err != nil { return nil, err }
-				{ v, err := _agent_append_unique_by_field(v_skill_docs, v_host_skill, "id"); if err != nil { return nil, err }; v_skill_docs = v }
-			}
+		v_state_options = coreGet(v_state, "options", nil)
+		v_callback_camel = coreGet(v_state_options, "onSkillsSearch", nil)
+		v_callback_value = coreGet(v_state_options, "on_skills_search", v_callback_camel)
+		v_scripted_camel = coreGet(v_state_options, "skillSearchResults", nil)
+		v_scripted_value = coreGet(v_state_options, "skill_search_results", v_scripted_camel)
+		v_has_callback = _core_is_not_none(v_callback_value)
+		v_has_scripted = _core_is_not_none(v_scripted_value)
+		v_has_host_search = _core_or(v_has_callback, v_has_scripted)
+		if coreTruthy(v_has_host_search) {
+			v_host_skills = _core_agent_skill_search(v_state, v_skills)
+			v_observer_loaded_from_search = v_host_skills
+			{ v, err := _agent_merge_skill_results(v_empty_list, v_host_skills); if err != nil { return nil, err }; v_loaded_from_search = v }
 		} else {
-			for _, v_skill = range coreIter(v_skills) {
-				v_doc = Object()
-				if err := coreSet(v_doc, "id", v_skill); err != nil { return nil, err }
-				if err := coreSet(v_doc, "name", v_skill); err != nil { return nil, err }
-				v_content = _core_string_format("Skill docs loaded for {}", v_skill)
-				if err := coreSet(v_doc, "content", v_content); err != nil { return nil, err }
-				{ v, err := _agent_append_unique_by_field(v_skill_docs, v_doc, "id"); if err != nil { return nil, err }; v_skill_docs = v }
-			}
+			v_catalog = coreGet(v_state, "skills_catalog", v_empty_list)
+			{ v, err := _agent_catalog_skill_search(v_catalog, v_skills); if err != nil { return nil, err }; v_loaded_from_search = v }
+			v_observer_loaded_from_search = v_loaded_from_search
+		}
+		{ v, err := _agent_merge_skill_results(v_skill_docs, v_loaded_from_search); if err != nil { return nil, err }; v_skill_docs = v }
+		v_loaded_count = _core_len(v_loaded_from_search)
+		v_loaded_any = _core_gt(v_loaded_count, 0)
+		if coreTruthy(v_loaded_any) {
+			v_observer_options = Object()
+			_core_agent_observer_notify(v_state, v_observer_options, "loaded_skills", v_observer_loaded_from_search)
+		} else {
+		// empty
 		}
 	} else {
 	// empty
@@ -29349,7 +30010,11 @@ func _agent_discover(args ...Value) (Value, error) {
 	if err := coreSet(v_action_event, "skills", v_skills); err != nil { return nil, err }
 	v_action_log = coreAppend(v_action_log, v_action_event)
 	if err := coreSet(v_state, "discovered_tool_docs", v_docs); err != nil { return nil, err }
-	if err := coreSet(v_state, "loaded_skill_docs", v_skill_docs); err != nil { return nil, err }
+	if coreTruthy(v_is_distiller) {
+		if err := coreSet(v_state, "distiller_loaded_skill_docs", v_skill_docs); err != nil { return nil, err }
+	} else {
+		if err := coreSet(v_state, "loaded_skill_docs", v_skill_docs); err != nil { return nil, err }
+	}
 	if err := coreSet(v_state, "policy_trace", v_trace); err != nil { return nil, err }
 	if err := coreSet(v_state, "action_log", v_action_log); err != nil { return nil, err }
 	if _, err := _agent_record_trace_event(v_state, "discover", v_event); err != nil { return nil, err }
@@ -29396,36 +30061,135 @@ func _agent_merge_memory_results(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_merge_memory_results")
 	var v_existing Value
 	var v_incoming Value
+	var v_by_id Value
 	var v_content Value
-	var v_has_content Value
+	var v_content2 Value
+	var v_content2_is_string Value
+	var v_content_is_string Value
+	var v_existing_is_list Value
 	var v_has_id Value
+	var v_has_id2 Value
 	var v_id Value
+	var v_id2 Value
+	var v_id2_is_string Value
+	var v_id2_raw Value
+	var v_id_is_string Value
+	var v_id_raw Value
+	var v_ids Value
+	var v_incoming_is_list Value
+	var v_item Value
 	var v_memory Value
+	var v_memory2 Value
+	var v_memory2_is_map Value
+	var v_memory_is_map Value
+	var v_normalized Value
+	var v_normalized2 Value
 	var v_out Value
-	var v_valid Value
+	var v_sorted_id Value
+	var v_sorted_ids Value
+	var v_valid2_types Value
+	var v_valid_types Value
 	if len(args) > 0 { v_existing = args[0] }
 	_ = v_existing
 	if len(args) > 1 { v_incoming = args[1] }
 	_ = v_incoming
+	_ = v_by_id
 	_ = v_content
-	_ = v_has_content
+	_ = v_content2
+	_ = v_content2_is_string
+	_ = v_content_is_string
+	_ = v_existing_is_list
 	_ = v_has_id
+	_ = v_has_id2
 	_ = v_id
+	_ = v_id2
+	_ = v_id2_is_string
+	_ = v_id2_raw
+	_ = v_id_is_string
+	_ = v_id_raw
+	_ = v_ids
+	_ = v_incoming_is_list
+	_ = v_item
 	_ = v_memory
+	_ = v_memory2
+	_ = v_memory2_is_map
+	_ = v_memory_is_map
+	_ = v_normalized
+	_ = v_normalized2
 	_ = v_out
-	_ = v_valid
-	v_out = v_existing
-	for _, v_memory = range coreIter(v_incoming) {
-		v_id = coreGet(v_memory, "id", "")
-		v_content = coreGet(v_memory, "content", "")
-		v_has_id = _core_ne(v_id, "")
-		v_has_content = _core_ne(v_content, "")
-		v_valid = _core_and(v_has_id, v_has_content)
-		if coreTruthy(v_valid) {
-			{ v, err := _agent_append_unique_by_field(v_out, v_memory, "id"); if err != nil { return nil, err }; v_out = v }
-		} else {
-		// empty
+	_ = v_sorted_id
+	_ = v_sorted_ids
+	_ = v_valid2_types
+	_ = v_valid_types
+	v_by_id = Object()
+	v_existing_is_list = coreTypeIs(v_existing, "list")
+	if coreTruthy(v_existing_is_list) {
+		for _, v_memory = range coreIter(v_existing) {
+			v_memory_is_map = coreTypeIs(v_memory, "object")
+			if coreTruthy(v_memory_is_map) {
+				v_id_raw = coreGet(v_memory, "id", nil)
+				v_content = coreGet(v_memory, "content", nil)
+				v_id_is_string = coreTypeIs(v_id_raw, "string")
+				v_content_is_string = coreTypeIs(v_content, "string")
+				v_valid_types = _core_and(v_id_is_string, v_content_is_string)
+				if coreTruthy(v_valid_types) {
+					v_id = coreStringTrim(v_id_raw)
+					v_has_id = _core_ne(v_id, "")
+					if coreTruthy(v_has_id) {
+						v_normalized = Object()
+						if err := coreSet(v_normalized, "id", v_id); err != nil { return nil, err }
+						if err := coreSet(v_normalized, "content", v_content); err != nil { return nil, err }
+						if err := coreSet(v_by_id, v_id, v_normalized); err != nil { return nil, err }
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
 		}
+	} else {
+	// empty
+	}
+	v_incoming_is_list = coreTypeIs(v_incoming, "list")
+	if coreTruthy(v_incoming_is_list) {
+		for _, v_memory2 = range coreIter(v_incoming) {
+			v_memory2_is_map = coreTypeIs(v_memory2, "object")
+			if coreTruthy(v_memory2_is_map) {
+				v_id2_raw = coreGet(v_memory2, "id", nil)
+				v_content2 = coreGet(v_memory2, "content", nil)
+				v_id2_is_string = coreTypeIs(v_id2_raw, "string")
+				v_content2_is_string = coreTypeIs(v_content2, "string")
+				v_valid2_types = _core_and(v_id2_is_string, v_content2_is_string)
+				if coreTruthy(v_valid2_types) {
+					v_id2 = coreStringTrim(v_id2_raw)
+					v_has_id2 = _core_ne(v_id2, "")
+					if coreTruthy(v_has_id2) {
+						v_normalized2 = Object()
+						if err := coreSet(v_normalized2, "id", v_id2); err != nil { return nil, err }
+						if err := coreSet(v_normalized2, "content", v_content2); err != nil { return nil, err }
+						if err := coreSet(v_by_id, v_id2, v_normalized2); err != nil { return nil, err }
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+	} else {
+	// empty
+	}
+	v_ids = _core_map_keys(v_by_id)
+	v_sorted_ids = _core_sorted_strings(v_ids)
+	v_out = MutableArray()
+	for _, v_sorted_id = range coreIter(v_sorted_ids) {
+		v_item = coreGet(v_by_id, v_sorted_id, nil)
+		v_out = coreAppend(v_out, v_item)
 	}
 	return v_out, nil
 }
@@ -29436,14 +30200,28 @@ func _agent_recall(args ...Value) (Value, error) {
 	var v_request Value
 	var v_action Value
 	var v_action_log Value
+	var v_callback_camel Value
+	var v_callback_value Value
+	var v_catalog Value
 	var v_empty_list Value
 	var v_event Value
+	var v_has_callback Value
+	var v_has_host_search Value
+	var v_has_incoming Value
+	var v_has_scripted Value
+	var v_host_incoming Value
 	var v_incoming Value
+	var v_incoming_count Value
 	var v_loaded Value
 	var v_merged Value
 	var v_none Value
 	var v_normalized Value
+	var v_observer_incoming Value
+	var v_observer_options Value
+	var v_scripted_camel Value
+	var v_scripted_value Value
 	var v_searches Value
+	var v_state_options Value
 	var v_trace Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
@@ -29451,22 +30229,62 @@ func _agent_recall(args ...Value) (Value, error) {
 	_ = v_request
 	_ = v_action
 	_ = v_action_log
+	_ = v_callback_camel
+	_ = v_callback_value
+	_ = v_catalog
 	_ = v_empty_list
 	_ = v_event
+	_ = v_has_callback
+	_ = v_has_host_search
+	_ = v_has_incoming
+	_ = v_has_scripted
+	_ = v_host_incoming
 	_ = v_incoming
+	_ = v_incoming_count
 	_ = v_loaded
 	_ = v_merged
 	_ = v_none
 	_ = v_normalized
+	_ = v_observer_incoming
+	_ = v_observer_options
+	_ = v_scripted_camel
+	_ = v_scripted_value
 	_ = v_searches
+	_ = v_state_options
 	_ = v_trace
 	v_empty_list = MutableArray()
 	{ v, err := _normalize_agent_recall_request(v_state, v_request); if err != nil { return nil, err }; v_normalized = v }
 	v_searches = coreGet(v_normalized, "searches", v_empty_list)
 	v_loaded = coreGet(v_state, "loaded_memories", v_empty_list)
-	v_incoming = _core_agent_memory_search(v_state, v_searches, v_loaded)
+	v_state_options = coreGet(v_state, "options", nil)
+	v_callback_camel = coreGet(v_state_options, "onMemoriesSearch", nil)
+	v_callback_value = coreGet(v_state_options, "on_memories_search", v_callback_camel)
+	v_scripted_camel = coreGet(v_state_options, "memorySearchResults", nil)
+	v_scripted_value = coreGet(v_state_options, "memory_search_results", v_scripted_camel)
+	v_has_callback = _core_is_not_none(v_callback_value)
+	v_has_scripted = _core_is_not_none(v_scripted_value)
+	v_has_host_search = _core_or(v_has_callback, v_has_scripted)
+	v_incoming = MutableArray()
+	v_observer_incoming = MutableArray()
+	if coreTruthy(v_has_host_search) {
+		v_host_incoming = _core_agent_memory_search(v_state, v_searches, v_loaded)
+		v_observer_incoming = v_host_incoming
+		{ v, err := _agent_merge_memory_results(v_empty_list, v_host_incoming); if err != nil { return nil, err }; v_incoming = v }
+	} else {
+		v_catalog = coreGet(v_state, "memories_catalog", v_empty_list)
+		{ v, err := _agent_catalog_memory_search(v_catalog, v_searches, v_loaded); if err != nil { return nil, err }; v_incoming = v }
+		v_observer_incoming = v_incoming
+	}
 	{ v, err := _agent_merge_memory_results(v_loaded, v_incoming); if err != nil { return nil, err }; v_merged = v }
 	if err := coreSet(v_state, "loaded_memories", v_merged); err != nil { return nil, err }
+	v_incoming_count = _core_len(v_incoming)
+	v_has_incoming = _core_gt(v_incoming_count, 0)
+	if coreTruthy(v_has_incoming) {
+		v_observer_options = Object()
+		_core_agent_observer_notify(v_state, v_observer_options, "loaded_memories", v_observer_incoming)
+	} else {
+	// empty
+	}
 	v_trace = coreGet(v_state, "policy_trace", v_empty_list)
 	v_event = Object()
 	if err := coreSet(v_event, "type", "recall"); err != nil { return nil, err }
@@ -29484,6 +30302,70 @@ func _agent_recall(args ...Value) (Value, error) {
 	if _, err := _agent_record_trace_event(v_state, "recall", v_event); err != nil { return nil, err }
 	v_none = _core_none()
 	return v_none, nil
+}
+
+func _agent_append_unique_used_entry(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_append_unique_used_entry")
+	var v_items Value
+	var v_entry Value
+	var v_entry_id Value
+	var v_entry_reason Value
+	var v_entry_stage Value
+	var v_exists Value
+	var v_item Value
+	var v_item_id Value
+	var v_item_reason Value
+	var v_item_stage Value
+	var v_missing Value
+	var v_same Value
+	var v_same_id Value
+	var v_same_id_reason Value
+	var v_same_reason Value
+	var v_same_stage Value
+	if len(args) > 0 { v_items = args[0] }
+	_ = v_items
+	if len(args) > 1 { v_entry = args[1] }
+	_ = v_entry
+	_ = v_entry_id
+	_ = v_entry_reason
+	_ = v_entry_stage
+	_ = v_exists
+	_ = v_item
+	_ = v_item_id
+	_ = v_item_reason
+	_ = v_item_stage
+	_ = v_missing
+	_ = v_same
+	_ = v_same_id
+	_ = v_same_id_reason
+	_ = v_same_reason
+	_ = v_same_stage
+	v_entry_id = coreGet(v_entry, "id", "")
+	v_entry_reason = coreGet(v_entry, "reason", "")
+	v_entry_stage = coreGet(v_entry, "stage", "")
+	v_exists = false
+	for _, v_item = range coreIter(v_items) {
+		v_item_id = coreGet(v_item, "id", "")
+		v_item_reason = coreGet(v_item, "reason", "")
+		v_item_stage = coreGet(v_item, "stage", "")
+		v_same_id = _core_eq(v_entry_id, v_item_id)
+		v_same_reason = _core_eq(v_entry_reason, v_item_reason)
+		v_same_stage = _core_eq(v_entry_stage, v_item_stage)
+		v_same_id_reason = _core_and(v_same_id, v_same_reason)
+		v_same = _core_and(v_same_id_reason, v_same_stage)
+		if coreTruthy(v_same) {
+			v_exists = true
+		} else {
+		// empty
+		}
+	}
+	v_missing = _core_not(v_exists)
+	if coreTruthy(v_missing) {
+		v_items = coreAppend(v_items, v_entry)
+	} else {
+	// empty
+	}
+	return v_items, nil
 }
 
 func _normalize_agent_used_request(args ...Value) (Value, error) {
@@ -29521,6 +30403,7 @@ func _normalize_agent_used_request(args ...Value) (Value, error) {
 	}
 	v_id = coreStringTrim(v_id)
 	v_reason = coreStringTrim(v_reason)
+	v_reason = _core_string_slice(v_reason, 0, 300)
 	v_missing = _core_eq(v_id, "")
 	if coreTruthy(v_missing) {
 		v_error = _core_runtime_error("used(...) requires a non-empty loaded memory or skill id")
@@ -29541,7 +30424,6 @@ func _agent_used(args ...Value) (Value, error) {
 	var v_request Value
 	var v_stage Value
 	var v_action_log Value
-	var v_dedupe_key Value
 	var v_disabled Value
 	var v_empty_list Value
 	var v_enabled Value
@@ -29549,6 +30431,7 @@ func _agent_used(args ...Value) (Value, error) {
 	var v_event Value
 	var v_flags Value
 	var v_id Value
+	var v_is_distiller Value
 	var v_is_match Value
 	var v_matched Value
 	var v_memories Value
@@ -29573,7 +30456,6 @@ func _agent_used(args ...Value) (Value, error) {
 	if len(args) > 2 { v_stage = args[2] }
 	_ = v_stage
 	_ = v_action_log
-	_ = v_dedupe_key
 	_ = v_disabled
 	_ = v_empty_list
 	_ = v_enabled
@@ -29581,6 +30463,7 @@ func _agent_used(args ...Value) (Value, error) {
 	_ = v_event
 	_ = v_flags
 	_ = v_id
+	_ = v_is_distiller
 	_ = v_is_match
 	_ = v_matched
 	_ = v_memories
@@ -29612,9 +30495,14 @@ func _agent_used(args ...Value) (Value, error) {
 	v_id = coreGet(v_normalized, "id", nil)
 	v_reason = coreGet(v_normalized, "reason", "")
 	v_normalized_stage = coreGet(v_normalized, "stage", v_stage)
-	v_dedupe_key = _core_string_format("{}\n{}\n{}", v_normalized_stage, v_id, v_reason)
 	v_memories = coreGet(v_state, "loaded_memories", v_empty_list)
 	v_skills = coreGet(v_state, "loaded_skill_docs", v_empty_list)
+	v_is_distiller = _core_eq(v_normalized_stage, "distiller")
+	if coreTruthy(v_is_distiller) {
+		v_skills = coreGet(v_state, "distiller_loaded_skill_docs", v_empty_list)
+	} else {
+	// empty
+	}
 	v_used_memories = coreGet(v_state, "used_memories", v_empty_list)
 	v_used_skills = coreGet(v_state, "used_skills", v_empty_list)
 	v_matched = false
@@ -29626,8 +30514,7 @@ func _agent_used(args ...Value) (Value, error) {
 			if err := coreSet(v_record, "id", v_id); err != nil { return nil, err }
 			if err := coreSet(v_record, "reason", v_reason); err != nil { return nil, err }
 			if err := coreSet(v_record, "stage", v_normalized_stage); err != nil { return nil, err }
-			if err := coreSet(v_record, "dedupe_key", v_dedupe_key); err != nil { return nil, err }
-			{ v, err := _agent_append_unique_by_field(v_used_memories, v_record, "dedupe_key"); if err != nil { return nil, err }; v_used_memories = v }
+			{ v, err := _agent_append_unique_used_entry(v_used_memories, v_record); if err != nil { return nil, err }; v_used_memories = v }
 			v_matched = true
 		} else {
 		// empty
@@ -29643,8 +30530,7 @@ func _agent_used(args ...Value) (Value, error) {
 			if err := coreSet(v_record, "name", v_skill_name); err != nil { return nil, err }
 			if err := coreSet(v_record, "reason", v_reason); err != nil { return nil, err }
 			if err := coreSet(v_record, "stage", v_normalized_stage); err != nil { return nil, err }
-			if err := coreSet(v_record, "dedupe_key", v_dedupe_key); err != nil { return nil, err }
-			{ v, err := _agent_append_unique_by_field(v_used_skills, v_record, "dedupe_key"); if err != nil { return nil, err }; v_used_skills = v }
+			{ v, err := _agent_append_unique_used_entry(v_used_skills, v_record); if err != nil { return nil, err }; v_used_skills = v }
 			v_matched = true
 		} else {
 		// empty
@@ -30679,6 +31565,7 @@ func _agent_export_runtime_state(args ...Value) (Value, error) {
 	var v_context_policy Value
 	var v_discovered Value
 	var v_distiller_signature Value
+	var v_distiller_skills Value
 	var v_empty_list Value
 	var v_empty_map Value
 	var v_executor_signature Value
@@ -30713,6 +31600,7 @@ func _agent_export_runtime_state(args ...Value) (Value, error) {
 	_ = v_context_policy
 	_ = v_discovered
 	_ = v_distiller_signature
+	_ = v_distiller_skills
 	_ = v_empty_list
 	_ = v_empty_map
 	_ = v_executor_signature
@@ -30741,6 +31629,7 @@ func _agent_export_runtime_state(args ...Value) (Value, error) {
 	v_runtime_state = coreGet(v_state, "runtime_state", v_empty_map)
 	v_discovered = coreGet(v_state, "discovered_tool_docs", v_empty_list)
 	v_skills = coreGet(v_state, "loaded_skill_docs", v_empty_list)
+	v_distiller_skills = coreGet(v_state, "distiller_loaded_skill_docs", v_empty_list)
 	v_memories = coreGet(v_state, "loaded_memories", v_empty_list)
 	v_used_memories = coreGet(v_state, "used_memories", v_empty_list)
 	v_used_skills = coreGet(v_state, "used_skills", v_empty_list)
@@ -30770,6 +31659,7 @@ func _agent_export_runtime_state(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "runtime_state", v_runtime_state); err != nil { return nil, err }
 	if err := coreSet(v_out, "discovered_tool_docs", v_discovered); err != nil { return nil, err }
 	if err := coreSet(v_out, "loaded_skill_docs", v_skills); err != nil { return nil, err }
+	if err := coreSet(v_out, "distiller_loaded_skill_docs", v_distiller_skills); err != nil { return nil, err }
 	if err := coreSet(v_out, "loaded_memories", v_memories); err != nil { return nil, err }
 	if err := coreSet(v_out, "used_memories", v_used_memories); err != nil { return nil, err }
 	if err := coreSet(v_out, "used_skills", v_used_skills); err != nil { return nil, err }
@@ -30809,6 +31699,8 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	var v_context_events Value
 	var v_context_map Value
 	var v_discovered Value
+	var v_distiller_skills Value
+	var v_distiller_skills_raw Value
 	var v_empty_list Value
 	var v_empty_map Value
 	var v_function_call_traces Value
@@ -30817,8 +31709,10 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	var v_has_trace Value
 	var v_last_actor_context Value
 	var v_memories Value
+	var v_memories_raw Value
 	var v_out Value
 	var v_policy_registry Value
+	var v_preset_skills Value
 	var v_provenance Value
 	var v_run_trace Value
 	var v_runtime_globals Value
@@ -30826,6 +31720,7 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	var v_runtime_state Value
 	var v_runtime_state_summary Value
 	var v_skills Value
+	var v_skills_raw Value
 	var v_status_log Value
 	var v_trace Value
 	var v_used_memories Value
@@ -30841,6 +31736,8 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	_ = v_context_events
 	_ = v_context_map
 	_ = v_discovered
+	_ = v_distiller_skills
+	_ = v_distiller_skills_raw
 	_ = v_empty_list
 	_ = v_empty_map
 	_ = v_function_call_traces
@@ -30849,8 +31746,10 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	_ = v_has_trace
 	_ = v_last_actor_context
 	_ = v_memories
+	_ = v_memories_raw
 	_ = v_out
 	_ = v_policy_registry
+	_ = v_preset_skills
 	_ = v_provenance
 	_ = v_run_trace
 	_ = v_runtime_globals
@@ -30858,6 +31757,7 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	_ = v_runtime_state
 	_ = v_runtime_state_summary
 	_ = v_skills
+	_ = v_skills_raw
 	_ = v_status_log
 	_ = v_trace
 	_ = v_used_memories
@@ -30866,8 +31766,14 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	v_empty_list = MutableArray()
 	v_runtime_state = coreGet(v_snapshot, "runtime_state", v_empty_map)
 	v_discovered = coreGet(v_snapshot, "discovered_tool_docs", v_empty_list)
-	v_skills = coreGet(v_snapshot, "loaded_skill_docs", v_empty_list)
-	v_memories = coreGet(v_snapshot, "loaded_memories", v_empty_list)
+	v_skills_raw = coreGet(v_snapshot, "loaded_skill_docs", v_empty_list)
+	v_distiller_skills_raw = coreGet(v_snapshot, "distiller_loaded_skill_docs", v_empty_list)
+	v_preset_skills = coreGet(v_state, "preset_skill_docs", v_empty_list)
+	{ v, err := _agent_merge_skill_results(v_empty_list, v_skills_raw); if err != nil { return nil, err }; v_skills = v }
+	{ v, err := _agent_merge_skill_results(v_skills, v_preset_skills); if err != nil { return nil, err }; v_skills = v }
+	{ v, err := _agent_merge_skill_results(v_empty_list, v_distiller_skills_raw); if err != nil { return nil, err }; v_distiller_skills = v }
+	v_memories_raw = coreGet(v_snapshot, "loaded_memories", v_empty_list)
+	{ v, err := _agent_merge_memory_results(v_empty_list, v_memories_raw); if err != nil { return nil, err }; v_memories = v }
 	v_used_memories = coreGet(v_snapshot, "used_memories", v_empty_list)
 	v_used_skills = coreGet(v_snapshot, "used_skills", v_empty_list)
 	v_guidance_log = coreGet(v_snapshot, "guidance_log", v_empty_list)
@@ -30890,6 +31796,7 @@ func _agent_restore_runtime_state(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "runtime_state", v_runtime_state); err != nil { return nil, err }
 	if err := coreSet(v_state, "discovered_tool_docs", v_discovered); err != nil { return nil, err }
 	if err := coreSet(v_state, "loaded_skill_docs", v_skills); err != nil { return nil, err }
+	if err := coreSet(v_state, "distiller_loaded_skill_docs", v_distiller_skills); err != nil { return nil, err }
 	if err := coreSet(v_state, "loaded_memories", v_memories); err != nil { return nil, err }
 	if err := coreSet(v_state, "used_memories", v_used_memories); err != nil { return nil, err }
 	if err := coreSet(v_state, "used_skills", v_used_skills); err != nil { return nil, err }
@@ -30934,6 +31841,8 @@ func _agent_runtime_build_globals(args ...Value) (Value, error) {
 	var v_empty_map Value
 	var v_error Value
 	var v_globals Value
+	var v_input_name Value
+	var v_input_name_known Value
 	var v_key Value
 	var v_message Value
 	var v_name Value
@@ -30943,6 +31852,7 @@ func _agent_runtime_build_globals(args ...Value) (Value, error) {
 	var v_registry Value
 	var v_reserved Value
 	var v_runtime_contract Value
+	var v_runtime_input_names Value
 	var v_selected_primitives Value
 	var v_value Value
 	if len(args) > 0 { v_state = args[0] }
@@ -30956,6 +31866,8 @@ func _agent_runtime_build_globals(args ...Value) (Value, error) {
 	_ = v_empty_map
 	_ = v_error
 	_ = v_globals
+	_ = v_input_name
+	_ = v_input_name_known
 	_ = v_key
 	_ = v_message
 	_ = v_name
@@ -30965,6 +31877,7 @@ func _agent_runtime_build_globals(args ...Value) (Value, error) {
 	_ = v_registry
 	_ = v_reserved
 	_ = v_runtime_contract
+	_ = v_runtime_input_names
 	_ = v_selected_primitives
 	_ = v_value
 	v_empty_list = MutableArray()
@@ -30975,6 +31888,16 @@ func _agent_runtime_build_globals(args ...Value) (Value, error) {
 	v_callable_inventory = coreGet(v_state, "callable_inventory", v_empty_list)
 	v_discovery_catalog = coreGet(v_state, "discovery_catalog", v_empty_list)
 	v_registry = coreGet(v_state, "policy_registry", v_empty_map)
+	v_runtime_input_names = coreGet(v_state, "runtime_input_names", v_empty_list)
+	for _, v_input_name = range coreIter(v_values) {
+		v_input_name_known = _core_contains(v_runtime_input_names, v_input_name)
+		if coreTruthy(v_input_name_known) {
+		// empty
+		} else {
+			v_runtime_input_names = coreAppend(v_runtime_input_names, v_input_name)
+		}
+	}
+	if err := coreSet(v_state, "runtime_input_names", v_runtime_input_names); err != nil { return nil, err }
 	{ v, err := _select_actor_primitives(v_registry, "executor"); if err != nil { return nil, err }; v_selected_primitives = v }
 	if err := coreSet(v_globals, "inputs", v_values); err != nil { return nil, err }
 	if err := coreSet(v_globals, "context", v_values); err != nil { return nil, err }
@@ -31008,6 +31931,7 @@ func _agent_runtime_build_globals(args ...Value) (Value, error) {
 
 func _agent_runtime_sanitize_bindings(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_runtime_sanitize_bindings")
+	var v_state Value
 	var v_bindings Value
 	var v_bindings_is_map Value
 	var v_conflict Value
@@ -31015,7 +31939,9 @@ func _agent_runtime_sanitize_bindings(args ...Value) (Value, error) {
 	var v_out Value
 	var v_reserved Value
 	var v_value Value
-	if len(args) > 0 { v_bindings = args[0] }
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_bindings = args[1] }
 	_ = v_bindings
 	_ = v_bindings_is_map
 	_ = v_conflict
@@ -31023,7 +31949,7 @@ func _agent_runtime_sanitize_bindings(args ...Value) (Value, error) {
 	_ = v_out
 	_ = v_reserved
 	_ = v_value
-	{ v, err := _agent_reserved_runtime_names(); if err != nil { return nil, err }; v_reserved = v }
+	{ v, err := _agent_runtime_reserved_names_for_state(v_state); if err != nil { return nil, err }; v_reserved = v }
 	v_out = Object()
 	v_bindings_is_map = coreTypeIs(v_bindings, "object")
 	if coreTruthy(v_bindings_is_map) {
@@ -31044,13 +31970,18 @@ func _agent_runtime_sanitize_bindings(args ...Value) (Value, error) {
 
 func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	axirCoverageMark("_normalize_agent_runtime_snapshot")
+	var v_state Value
 	var v_snapshot Value
 	var v_bindings Value
 	var v_clean_bindings Value
+	var v_clean_entries Value
 	var v_closed Value
 	var v_empty_list Value
 	var v_entries Value
 	var v_entries_is_list Value
+	var v_entry Value
+	var v_entry_name Value
+	var v_entry_reserved Value
 	var v_error Value
 	var v_error2 Value
 	var v_has_any Value
@@ -31059,16 +31990,23 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	var v_out Value
 	var v_raw_bindings Value
 	var v_raw_globals Value
+	var v_reserved Value
 	var v_snapshot_is_map Value
 	var v_version Value
-	if len(args) > 0 { v_snapshot = args[0] }
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_snapshot = args[1] }
 	_ = v_snapshot
 	_ = v_bindings
 	_ = v_clean_bindings
+	_ = v_clean_entries
 	_ = v_closed
 	_ = v_empty_list
 	_ = v_entries
 	_ = v_entries_is_list
+	_ = v_entry
+	_ = v_entry_name
+	_ = v_entry_reserved
 	_ = v_error
 	_ = v_error2
 	_ = v_has_any
@@ -31077,6 +32015,7 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	_ = v_out
 	_ = v_raw_bindings
 	_ = v_raw_globals
+	_ = v_reserved
 	_ = v_snapshot_is_map
 	_ = v_version
 	v_empty_list = MutableArray()
@@ -31104,7 +32043,8 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	{ v, err := _agent_runtime_sanitize_bindings(v_bindings); if err != nil { return nil, err }; v_clean_bindings = v }
+	{ v, err := _agent_runtime_reserved_names_for_state(v_state); if err != nil { return nil, err }; v_reserved = v }
+	{ v, err := _agent_runtime_sanitize_bindings(v_state, v_bindings); if err != nil { return nil, err }; v_clean_bindings = v }
 	v_entries = coreGet(v_snapshot, "entries", v_empty_list)
 	v_entries_is_list = coreTypeIs(v_entries, "list")
 	if coreTruthy(v_entries_is_list) {
@@ -31112,11 +32052,21 @@ func _normalize_agent_runtime_snapshot(args ...Value) (Value, error) {
 	} else {
 		v_entries = v_empty_list
 	}
+	v_clean_entries = MutableArray()
+	for _, v_entry = range coreIter(v_entries) {
+		v_entry_name = coreGet(v_entry, "name", "")
+		v_entry_reserved = _core_contains(v_reserved, v_entry_name)
+		if coreTruthy(v_entry_reserved) {
+		// empty
+		} else {
+			v_clean_entries = coreAppend(v_clean_entries, v_entry)
+		}
+	}
 	v_closed = coreGet(v_snapshot, "closed", false)
 	v_version = coreGet(v_snapshot, "version", 1)
 	v_out = Object()
 	if err := coreSet(v_out, "version", v_version); err != nil { return nil, err }
-	if err := coreSet(v_out, "entries", v_entries); err != nil { return nil, err }
+	if err := coreSet(v_out, "entries", v_clean_entries); err != nil { return nil, err }
 	if err := coreSet(v_out, "bindings", v_clean_bindings); err != nil { return nil, err }
 	if err := coreSet(v_out, "globals", v_clean_bindings); err != nil { return nil, err }
 	if err := coreSet(v_out, "closed", v_closed); err != nil { return nil, err }
@@ -31453,7 +32403,7 @@ func _agent_runtime_execution_options(args ...Value) (Value, error) {
 	_ = v_trace_id
 	_ = v_trace_id_snake
 	v_empty_map = Object()
-	{ v, err := _agent_reserved_runtime_names(); if err != nil { return nil, err }; v_reserved_names = v }
+	{ v, err := _agent_runtime_reserved_names_for_state(v_state); if err != nil { return nil, err }; v_reserved_names = v }
 	v_runtime_options = _core_map_merge(v_empty_map, v_options)
 	_core_map_delete(v_runtime_options, "runtime")
 	if err := coreSet(v_runtime_options, "reservedNames", v_reserved_names); err != nil { return nil, err }
@@ -31555,11 +32505,13 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	var v_session Value
 	var v_code Value
 	var v_options Value
+	var v_active_stage Value
 	var v_callable_request Value
 	var v_callable_result Value
 	var v_closed Value
 	var v_completion_payload Value
 	var v_completion_type Value
+	var v_current_memories Value
 	var v_discover_request Value
 	var v_empty_list Value
 	var v_empty_map Value
@@ -31575,6 +32527,10 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	var v_is_clarification_completion Value
 	var v_is_closed Value
 	var v_is_final_completion Value
+	var v_memory_context Value
+	var v_memory_globals Value
+	var v_memory_inputs Value
+	var v_memory_patch Value
 	var v_missing_session Value
 	var v_normalized Value
 	var v_notice Value
@@ -31595,11 +32551,13 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	_ = v_code
 	if len(args) > 4 { v_options = args[4] }
 	_ = v_options
+	_ = v_active_stage
 	_ = v_callable_request
 	_ = v_callable_result
 	_ = v_closed
 	_ = v_completion_payload
 	_ = v_completion_type
+	_ = v_current_memories
 	_ = v_discover_request
 	_ = v_empty_list
 	_ = v_empty_map
@@ -31615,6 +32573,10 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	_ = v_is_clarification_completion
 	_ = v_is_closed
 	_ = v_is_final_completion
+	_ = v_memory_context
+	_ = v_memory_globals
+	_ = v_memory_inputs
+	_ = v_memory_patch
 	_ = v_missing_session
 	_ = v_normalized
 	_ = v_notice
@@ -31667,13 +32629,27 @@ func _agent_runtime_execute_step(args ...Value) (Value, error) {
 	v_has_recall = _core_is_not_none(v_recall_request)
 	if coreTruthy(v_has_recall) {
 		if _, err := _agent_recall(v_state, v_recall_request); err != nil { return nil, err }
+		v_memory_globals = coreGet(v_state, "runtime_globals", v_empty_map)
+		v_memory_inputs = coreGet(v_memory_globals, "inputs", v_empty_map)
+		v_memory_context = coreGet(v_memory_globals, "context", v_empty_map)
+		v_current_memories = coreGet(v_state, "loaded_memories", nil)
+		if err := coreSet(v_memory_inputs, "memories", v_current_memories); err != nil { return nil, err }
+		if err := coreSet(v_memory_context, "memories", v_current_memories); err != nil { return nil, err }
+		if err := coreSet(v_memory_globals, "inputs", v_memory_inputs); err != nil { return nil, err }
+		if err := coreSet(v_memory_globals, "context", v_memory_context); err != nil { return nil, err }
+		if err := coreSet(v_memory_globals, "memories", v_current_memories); err != nil { return nil, err }
+		if err := coreSet(v_state, "runtime_globals", v_memory_globals); err != nil { return nil, err }
+		v_memory_patch = Object()
+		if err := coreSet(v_memory_patch, "globals", v_memory_globals); err != nil { return nil, err }
+		if _, err := _agent_runtime_restore_session_state(v_state, v_session, v_memory_patch, v_runtime_options); err != nil { return nil, err }
 	} else {
 	// empty
 	}
 	v_used_request = coreGet(v_normalized, "used_request", nil)
 	v_has_used = _core_is_not_none(v_used_request)
 	if coreTruthy(v_has_used) {
-		if _, err := _agent_used(v_state, v_used_request, "executor"); err != nil { return nil, err }
+		v_active_stage = coreGet(v_state, "active_stage", "executor")
+		if _, err := _agent_used(v_state, v_used_request, v_active_stage); err != nil { return nil, err }
 	} else {
 	// empty
 	}
@@ -31770,7 +32746,7 @@ func _agent_runtime_export_session_state(args ...Value) (Value, error) {
 	_ = v_raw_snapshot
 	_ = v_snapshot
 	{ v, err := _core_agent_runtime_export_state(v_session, v_options); if err != nil { return nil, err }; v_raw_snapshot = v }
-	{ v, err := _normalize_agent_runtime_snapshot(v_raw_snapshot); if err != nil { return nil, err }; v_snapshot = v }
+	{ v, err := _normalize_agent_runtime_snapshot(v_state, v_raw_snapshot); if err != nil { return nil, err }; v_snapshot = v }
 	if err := coreSet(v_state, "runtime_session_state", v_snapshot); err != nil { return nil, err }
 	v_log_entry = Object()
 	if err := coreSet(v_log_entry, "type", "runtime_session"); err != nil { return nil, err }
@@ -31818,7 +32794,7 @@ func _agent_runtime_refresh_state_summary(args ...Value) (Value, error) {
 	if coreTruthy(v_enabled) {
 		{ v, err := _agent_runtime_execution_options(v_state, v_options); if err != nil { return nil, err }; v_runtime_options = v }
 		{ v, err := _core_agent_runtime_export_state(v_session, v_runtime_options); if err != nil { return nil, err }; v_raw_snapshot = v }
-		{ v, err := _normalize_agent_runtime_snapshot(v_raw_snapshot); if err != nil { return nil, err }; v_snapshot = v }
+		{ v, err := _normalize_agent_runtime_snapshot(v_state, v_raw_snapshot); if err != nil { return nil, err }; v_snapshot = v }
 		if err := coreSet(v_state, "runtime_session_state", v_snapshot); err != nil { return nil, err }
 		return v_snapshot, nil
 	} else {
@@ -31851,9 +32827,9 @@ func _agent_runtime_restore_session_state(args ...Value) (Value, error) {
 	_ = v_normalized_snapshot
 	_ = v_raw_restored
 	_ = v_restored
-	{ v, err := _normalize_agent_runtime_snapshot(v_snapshot); if err != nil { return nil, err }; v_normalized_snapshot = v }
+	{ v, err := _normalize_agent_runtime_snapshot(v_state, v_snapshot); if err != nil { return nil, err }; v_normalized_snapshot = v }
 	{ v, err := _core_agent_runtime_restore_state(v_session, v_normalized_snapshot, v_options); if err != nil { return nil, err }; v_raw_restored = v }
-	{ v, err := _normalize_agent_runtime_snapshot(v_raw_restored); if err != nil { return nil, err }; v_restored = v }
+	{ v, err := _normalize_agent_runtime_snapshot(v_state, v_raw_restored); if err != nil { return nil, err }; v_restored = v }
 	if err := coreSet(v_state, "runtime_session_state", v_restored); err != nil { return nil, err }
 	v_log_entry = Object()
 	if err := coreSet(v_log_entry, "type", "runtime_session"); err != nil { return nil, err }
@@ -32262,56 +33238,49 @@ func _agent_render_evidence_descriptor(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _agent_relevance_tokens(args ...Value) (Value, error) {
-	axirCoverageMark("_agent_relevance_tokens")
+func _agent_identifier_tokens(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_identifier_tokens")
 	var v_text Value
-	var v_already Value
-	var v_clean Value
-	var v_fresh Value
-	var v_is_stop Value
+	var v_acronyms Value
+	var v_camel Value
+	var v_keep Value
 	var v_len Value
 	var v_long_enough Value
 	var v_lower Value
-	var v_not_stop Value
-	var v_ok Value
+	var v_not_numeric Value
 	var v_out Value
 	var v_part Value
 	var v_parts Value
-	var v_stopwords Value
+	var v_spaced Value
+	var v_without_digits Value
 	if len(args) > 0 { v_text = args[0] }
 	_ = v_text
-	_ = v_already
-	_ = v_clean
-	_ = v_fresh
-	_ = v_is_stop
+	_ = v_acronyms
+	_ = v_camel
+	_ = v_keep
 	_ = v_len
 	_ = v_long_enough
 	_ = v_lower
-	_ = v_not_stop
-	_ = v_ok
+	_ = v_not_numeric
 	_ = v_out
 	_ = v_part
 	_ = v_parts
-	_ = v_stopwords
-	{ v, err := _core_json_parse("[\n  \"a\",\n  \"an\",\n  \"and\",\n  \"are\",\n  \"as\",\n  \"at\",\n  \"be\",\n  \"by\",\n  \"for\",\n  \"from\",\n  \"has\",\n  \"have\",\n  \"how\",\n  \"i\",\n  \"in\",\n  \"into\",\n  \"is\",\n  \"it\",\n  \"of\",\n  \"on\",\n  \"or\",\n  \"our\",\n  \"please\",\n  \"show\",\n  \"that\",\n  \"the\",\n  \"their\",\n  \"this\",\n  \"to\",\n  \"use\",\n  \"with\",\n  \"you\"\n]\n"); if err != nil { return nil, err }; v_stopwords = v }
-	v_lower = _core_string_lower(v_text)
-	v_clean = _core_regex_replace("[^a-z0-9]+", " ", v_lower)
-	v_parts = _core_string_split_trim_nonempty(v_clean, " ")
+	_ = v_spaced
+	_ = v_without_digits
+	v_acronyms = _core_regex_replace("([A-Z]+)([A-Z][a-z])", "$1 $2", v_text)
+	v_camel = _core_regex_replace("([a-z0-9])([A-Z])", "$1 $2", v_acronyms)
+	v_spaced = _core_regex_replace("[^A-Za-z0-9]+", " ", v_camel)
+	v_lower = _core_string_lower(v_spaced)
+	v_parts = _core_string_split_trim_nonempty(v_lower, " ")
 	v_out = MutableArray()
 	for _, v_part = range coreIter(v_parts) {
 		v_len = _core_len(v_part)
 		v_long_enough = _core_gt(v_len, 1)
-		v_is_stop = _core_contains(v_stopwords, v_part)
-		v_not_stop = _core_not(v_is_stop)
-		v_ok = _core_and(v_long_enough, v_not_stop)
-		if coreTruthy(v_ok) {
-			v_already = _core_contains(v_out, v_part)
-			v_fresh = _core_not(v_already)
-			if coreTruthy(v_fresh) {
-				v_out = coreAppend(v_out, v_part)
-			} else {
-			// empty
-			}
+		v_without_digits = _core_regex_replace("^[0-9]+$", "", v_part)
+		v_not_numeric = _core_ne(v_without_digits, "")
+		v_keep = _core_and(v_long_enough, v_not_numeric)
+		if coreTruthy(v_keep) {
+			v_out = coreAppend(v_out, v_part)
 		} else {
 		// empty
 		}
@@ -32319,33 +33288,528 @@ func _agent_relevance_tokens(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _agent_relevance_score(args ...Value) (Value, error) {
-	axirCoverageMark("_agent_relevance_score")
-	var v_tokens Value
+func _agent_relevance_tokens(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_relevance_tokens")
 	var v_text Value
-	var v_doc Value
-	var v_hit Value
-	var v_score Value
-	var v_token Value
-	if len(args) > 0 { v_tokens = args[0] }
-	_ = v_tokens
-	if len(args) > 1 { v_text = args[1] }
+	var v_base_ok Value
+	var v_clean Value
+	var v_is_stop Value
+	var v_len Value
+	var v_long_enough Value
+	var v_lower Value
+	var v_not_numeric Value
+	var v_not_stop Value
+	var v_ok Value
+	var v_out Value
+	var v_part Value
+	var v_parts Value
+	var v_stopwords Value
+	var v_without_digits Value
+	if len(args) > 0 { v_text = args[0] }
 	_ = v_text
-	_ = v_doc
-	_ = v_hit
-	_ = v_score
-	_ = v_token
-	v_doc = _core_string_lower(v_text)
-	v_score = 0
-	for _, v_token = range coreIter(v_tokens) {
-		v_hit = _core_contains(v_doc, v_token)
-		if coreTruthy(v_hit) {
-			v_score = _core_add(v_score, 1)
+	_ = v_base_ok
+	_ = v_clean
+	_ = v_is_stop
+	_ = v_len
+	_ = v_long_enough
+	_ = v_lower
+	_ = v_not_numeric
+	_ = v_not_stop
+	_ = v_ok
+	_ = v_out
+	_ = v_part
+	_ = v_parts
+	_ = v_stopwords
+	_ = v_without_digits
+	{ v, err := _core_json_parse("[\n  \"a\",\n  \"an\",\n  \"and\",\n  \"are\",\n  \"as\",\n  \"at\",\n  \"be\",\n  \"by\",\n  \"for\",\n  \"from\",\n  \"has\",\n  \"have\",\n  \"how\",\n  \"i\",\n  \"in\",\n  \"into\",\n  \"is\",\n  \"it\",\n  \"of\",\n  \"on\",\n  \"or\",\n  \"our\",\n  \"please\",\n  \"show\",\n  \"that\",\n  \"the\",\n  \"their\",\n  \"this\",\n  \"to\",\n  \"use\",\n  \"with\",\n  \"you\"\n]\n"); if err != nil { return nil, err }; v_stopwords = v }
+	v_lower = _core_string_lower(v_text)
+	v_clean = _core_regex_replace("[-!\"#$%&'()*+,./:;<=>?@\\[\\]^_`{|}~]", " ", v_lower)
+	v_parts = _core_string_split_trim_nonempty(v_clean, " ")
+	v_out = MutableArray()
+	for _, v_part = range coreIter(v_parts) {
+		v_len = _core_len(v_part)
+		v_long_enough = _core_gt(v_len, 1)
+		v_without_digits = _core_regex_replace("^[0-9]+$", "", v_part)
+		v_not_numeric = _core_ne(v_without_digits, "")
+		v_is_stop = _core_contains(v_stopwords, v_part)
+		v_not_stop = _core_not(v_is_stop)
+		v_base_ok = _core_and(v_long_enough, v_not_numeric)
+		v_ok = _core_and(v_base_ok, v_not_stop)
+		if coreTruthy(v_ok) {
+			v_out = coreAppend(v_out, v_part)
 		} else {
 		// empty
 		}
 	}
-	return v_score, nil
+	return v_out, nil
+}
+
+func _agent_document_term_frequency(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_document_term_frequency")
+	var v_fields Value
+	var v_current Value
+	var v_field Value
+	var v_identifier Value
+	var v_next Value
+	var v_term Value
+	var v_terms Value
+	var v_text Value
+	var v_tf Value
+	var v_weight Value
+	if len(args) > 0 { v_fields = args[0] }
+	_ = v_fields
+	_ = v_current
+	_ = v_field
+	_ = v_identifier
+	_ = v_next
+	_ = v_term
+	_ = v_terms
+	_ = v_text
+	_ = v_tf
+	_ = v_weight
+	v_tf = Object()
+	for _, v_field = range coreIter(v_fields) {
+		v_text = coreGet(v_field, "text", "")
+		v_weight = coreGet(v_field, "weight", 1)
+		v_identifier = coreGet(v_field, "identifier", false)
+		{ v, err := _agent_relevance_tokens(v_text); if err != nil { return nil, err }; v_terms = v }
+		if coreTruthy(v_identifier) {
+			{ v, err := _agent_identifier_tokens(v_text); if err != nil { return nil, err }; v_terms = v }
+		} else {
+		// empty
+		}
+		for _, v_term = range coreIter(v_terms) {
+			v_current = coreGet(v_tf, v_term, 0)
+			v_next = _core_add(v_current, v_weight)
+			if err := coreSet(v_tf, v_term, v_next); err != nil { return nil, err }
+		}
+	}
+	return v_tf, nil
+}
+
+func _agent_rank_documents(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_rank_documents")
+	var v_query Value
+	var v_docs Value
+	var v_options Value
+	var v_all_near Value
+	var v_all_sorted Value
+	var v_already Value
+	var v_already_effective Value
+	var v_appears Value
+	var v_below_floor Value
+	var v_best Value
+	var v_best_id Value
+	var v_best_raw Value
+	var v_better Value
+	var v_candidate Value
+	var v_candidate_id Value
+	var v_candidate_raw Value
+	var v_count Value
+	var v_coverage Value
+	var v_coverage_weight Value
+	var v_df Value
+	var v_difference Value
+	var v_doc Value
+	var v_doc_count Value
+	var v_doc_id Value
+	var v_effective Value
+	var v_effective_count Value
+	var v_empty Value
+	var v_entry_raw Value
+	var v_entry_raw2 Value
+	var v_fields Value
+	var v_found Value
+	var v_frequency Value
+	var v_frequency2 Value
+	var v_fresh Value
+	var v_fresh_effective Value
+	var v_greater Value
+	var v_id Value
+	var v_idf Value
+	var v_idf_weight Value
+	var v_include Value
+	var v_include_effective Value
+	var v_indexed Value
+	var v_indexed_doc Value
+	var v_indexed_doc2 Value
+	var v_margin_ratio Value
+	var v_matched Value
+	var v_matched_frequency Value
+	var v_min_docs Value
+	var v_min_score Value
+	var v_multiple_docs Value
+	var v_near Value
+	var v_near_top Value
+	var v_negative_entry_raw Value
+	var v_no_effective Value
+	var v_no_match Value
+	var v_normalized_score Value
+	var v_out Value
+	var v_out_count Value
+	var v_positive Value
+	var v_positive2 Value
+	var v_query_term Value
+	var v_query_terms Value
+	var v_ranked Value
+	var v_ranked_id Value
+	var v_ranked_terms Value
+	var v_ratio Value
+	var v_ratio_plus_one Value
+	var v_raw Value
+	var v_rejected Value
+	var v_relative Value
+	var v_same_scored_id Value
+	var v_saturated Value
+	var v_saturated_denominator Value
+	var v_score_entry Value
+	var v_scored Value
+	var v_scored_by_id Value
+	var v_scored_entry Value
+	var v_scored_entry2 Value
+	var v_scored_for_id Value
+	var v_scored_for_sort Value
+	var v_scored_for_sort_id Value
+	var v_scored_id Value
+	var v_scored_ids Value
+	var v_sorted Value
+	var v_sorted_count Value
+	var v_sorted_scored_id Value
+	var v_sorted_scored_ids Value
+	var v_suppress Value
+	var v_term Value
+	var v_term2 Value
+	var v_term3 Value
+	var v_terms Value
+	var v_tf Value
+	var v_tf2 Value
+	var v_too_few Value
+	var v_top Value
+	var v_top_coverage Value
+	var v_top_k Value
+	var v_top_raw Value
+	var v_total_idf Value
+	var v_under_limit Value
+	var v_use_margin Value
+	var v_weight Value
+	var v_weighted Value
+	if len(args) > 0 { v_query = args[0] }
+	_ = v_query
+	if len(args) > 1 { v_docs = args[1] }
+	_ = v_docs
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_all_near
+	_ = v_all_sorted
+	_ = v_already
+	_ = v_already_effective
+	_ = v_appears
+	_ = v_below_floor
+	_ = v_best
+	_ = v_best_id
+	_ = v_best_raw
+	_ = v_better
+	_ = v_candidate
+	_ = v_candidate_id
+	_ = v_candidate_raw
+	_ = v_count
+	_ = v_coverage
+	_ = v_coverage_weight
+	_ = v_df
+	_ = v_difference
+	_ = v_doc
+	_ = v_doc_count
+	_ = v_doc_id
+	_ = v_effective
+	_ = v_effective_count
+	_ = v_empty
+	_ = v_entry_raw
+	_ = v_entry_raw2
+	_ = v_fields
+	_ = v_found
+	_ = v_frequency
+	_ = v_frequency2
+	_ = v_fresh
+	_ = v_fresh_effective
+	_ = v_greater
+	_ = v_id
+	_ = v_idf
+	_ = v_idf_weight
+	_ = v_include
+	_ = v_include_effective
+	_ = v_indexed
+	_ = v_indexed_doc
+	_ = v_indexed_doc2
+	_ = v_margin_ratio
+	_ = v_matched
+	_ = v_matched_frequency
+	_ = v_min_docs
+	_ = v_min_score
+	_ = v_multiple_docs
+	_ = v_near
+	_ = v_near_top
+	_ = v_negative_entry_raw
+	_ = v_no_effective
+	_ = v_no_match
+	_ = v_normalized_score
+	_ = v_out
+	_ = v_out_count
+	_ = v_positive
+	_ = v_positive2
+	_ = v_query_term
+	_ = v_query_terms
+	_ = v_ranked
+	_ = v_ranked_id
+	_ = v_ranked_terms
+	_ = v_ratio
+	_ = v_ratio_plus_one
+	_ = v_raw
+	_ = v_rejected
+	_ = v_relative
+	_ = v_same_scored_id
+	_ = v_saturated
+	_ = v_saturated_denominator
+	_ = v_score_entry
+	_ = v_scored
+	_ = v_scored_by_id
+	_ = v_scored_entry
+	_ = v_scored_entry2
+	_ = v_scored_for_id
+	_ = v_scored_for_sort
+	_ = v_scored_for_sort_id
+	_ = v_scored_id
+	_ = v_scored_ids
+	_ = v_sorted
+	_ = v_sorted_count
+	_ = v_sorted_scored_id
+	_ = v_sorted_scored_ids
+	_ = v_suppress
+	_ = v_term
+	_ = v_term2
+	_ = v_term3
+	_ = v_terms
+	_ = v_tf
+	_ = v_tf2
+	_ = v_too_few
+	_ = v_top
+	_ = v_top_coverage
+	_ = v_top_k
+	_ = v_top_raw
+	_ = v_total_idf
+	_ = v_under_limit
+	_ = v_use_margin
+	_ = v_weight
+	_ = v_weighted
+	v_empty = MutableArray()
+	v_top_k = coreGet(v_options, "topK", 3)
+	v_min_score = coreGet(v_options, "minScore", 0.08)
+	v_margin_ratio = coreGet(v_options, "marginRatio", 0.15)
+	v_min_docs = coreGet(v_options, "minDocs", 2)
+	v_doc_count = _core_len(v_docs)
+	v_too_few = _core_lt(v_doc_count, v_min_docs)
+	if coreTruthy(v_too_few) {
+		return v_empty, nil
+	} else {
+	// empty
+	}
+	v_indexed = MutableArray()
+	v_df = Object()
+	for _, v_doc = range coreIter(v_docs) {
+		v_fields = coreGet(v_doc, "fields", v_empty)
+		{ v, err := _agent_document_term_frequency(v_fields); if err != nil { return nil, err }; v_tf = v }
+		v_doc_id = coreGet(v_doc, "id", "")
+		v_indexed_doc = Object()
+		if err := coreSet(v_indexed_doc, "id", v_doc_id); err != nil { return nil, err }
+		if err := coreSet(v_indexed_doc, "tf", v_tf); err != nil { return nil, err }
+		v_indexed = coreAppend(v_indexed, v_indexed_doc)
+		v_terms = _core_map_keys(v_tf)
+		for _, v_term = range coreIter(v_terms) {
+			v_count = coreGet(v_df, v_term, 0)
+			v_count = _core_add(v_count, 1)
+			if err := coreSet(v_df, v_term, v_count); err != nil { return nil, err }
+		}
+	}
+	{ v, err := _agent_relevance_tokens(v_query); if err != nil { return nil, err }; v_query_terms = v }
+	v_effective = MutableArray()
+	for _, v_query_term = range coreIter(v_query_terms) {
+		v_appears = _core_map_contains(v_df, v_query_term)
+		v_already_effective = _core_contains(v_effective, v_query_term)
+		v_fresh_effective = _core_not(v_already_effective)
+		v_include_effective = _core_and(v_appears, v_fresh_effective)
+		if coreTruthy(v_include_effective) {
+			v_effective = coreAppend(v_effective, v_query_term)
+		} else {
+		// empty
+		}
+	}
+	v_effective_count = _core_len(v_effective)
+	v_no_effective = _core_eq(v_effective_count, 0)
+	if coreTruthy(v_no_effective) {
+		return v_empty, nil
+	} else {
+	// empty
+	}
+	v_idf = Object()
+	v_total_idf = 0
+	for _, v_term2 = range coreIter(v_effective) {
+		v_frequency = coreGet(v_df, v_term2, 1)
+		v_ratio = _core_div(v_doc_count, v_frequency)
+		v_ratio_plus_one = _core_add(1, v_ratio)
+		v_weight = _core_math_log(v_ratio_plus_one)
+		if err := coreSet(v_idf, v_term2, v_weight); err != nil { return nil, err }
+		v_total_idf = _core_add(v_total_idf, v_weight)
+	}
+	v_scored = MutableArray()
+	for _, v_indexed_doc2 = range coreIter(v_indexed) {
+		v_id = coreGet(v_indexed_doc2, "id", "")
+		v_tf2 = coreGet(v_indexed_doc2, "tf", nil)
+		v_raw = 0
+		v_coverage_weight = 0
+		v_matched = MutableArray()
+		for _, v_term3 = range coreIter(v_effective) {
+			v_frequency2 = coreGet(v_tf2, v_term3, 0)
+			v_matched_frequency = _core_gt(v_frequency2, 0)
+			if coreTruthy(v_matched_frequency) {
+				v_idf_weight = coreGet(v_idf, v_term3, 0)
+				v_saturated_denominator = _core_add(v_frequency2, 1)
+				v_saturated = _core_div(v_frequency2, v_saturated_denominator)
+				v_weighted = _core_mul(v_idf_weight, v_saturated)
+				v_raw = _core_add(v_raw, v_weighted)
+				v_coverage_weight = _core_add(v_coverage_weight, v_idf_weight)
+				v_matched = coreAppend(v_matched, v_term3)
+			} else {
+			// empty
+			}
+		}
+		v_coverage = _core_div(v_coverage_weight, v_total_idf)
+		v_score_entry = Object()
+		if err := coreSet(v_score_entry, "id", v_id); err != nil { return nil, err }
+		if err := coreSet(v_score_entry, "raw", v_raw); err != nil { return nil, err }
+		if err := coreSet(v_score_entry, "coverage", v_coverage); err != nil { return nil, err }
+		if err := coreSet(v_score_entry, "matchedTerms", v_matched); err != nil { return nil, err }
+		v_scored = coreAppend(v_scored, v_score_entry)
+	}
+	v_scored_ids = MutableArray()
+	for _, v_scored_for_id = range coreIter(v_scored) {
+		v_scored_id = coreGet(v_scored_for_id, "id", "")
+		v_scored_ids = coreAppend(v_scored_ids, v_scored_id)
+	}
+	v_sorted_scored_ids = _core_sorted_strings(v_scored_ids)
+	v_scored_by_id = MutableArray()
+	for _, v_sorted_scored_id = range coreIter(v_sorted_scored_ids) {
+		for _, v_scored_for_sort = range coreIter(v_scored) {
+			v_scored_for_sort_id = coreGet(v_scored_for_sort, "id", "")
+			v_same_scored_id = _core_eq(v_scored_for_sort_id, v_sorted_scored_id)
+			if coreTruthy(v_same_scored_id) {
+				v_scored_by_id = coreAppend(v_scored_by_id, v_scored_for_sort)
+			} else {
+			// empty
+			}
+		}
+	}
+	v_scored = v_scored_by_id
+	v_sorted = MutableArray()
+	for {
+		v_sorted_count = _core_len(v_sorted)
+		v_all_sorted = _core_gte(v_sorted_count, v_doc_count)
+		if coreTruthy(v_all_sorted) {
+			break
+		} else {
+		// empty
+		}
+		v_best = _core_none()
+		v_best_raw = -1
+		v_best_id = ""
+		v_found = false
+		for _, v_candidate = range coreIter(v_scored) {
+			v_candidate_id = coreGet(v_candidate, "id", "")
+			{ v, err := _agent_relevance_has_id(v_sorted, "id", v_candidate_id); if err != nil { return nil, err }; v_already = v }
+			v_fresh = _core_not(v_already)
+			if coreTruthy(v_fresh) {
+				v_candidate_raw = coreGet(v_candidate, "raw", 0)
+				v_greater = _core_gt(v_candidate_raw, v_best_raw)
+				v_better = v_greater
+				if coreTruthy(v_better) {
+					v_best = v_candidate
+					v_best_raw = v_candidate_raw
+					v_best_id = v_candidate_id
+					v_found = true
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+		if coreTruthy(v_found) {
+			v_sorted = coreAppend(v_sorted, v_best)
+		} else {
+			break
+		}
+	}
+	v_top = _core_list_get(v_sorted, 0, nil)
+	v_top_raw = coreGet(v_top, "raw", 0)
+	v_top_coverage = coreGet(v_top, "coverage", 0)
+	v_no_match = _core_lte(v_top_raw, 0)
+	v_below_floor = _core_lt(v_top_coverage, v_min_score)
+	v_rejected = _core_or(v_no_match, v_below_floor)
+	if coreTruthy(v_rejected) {
+		return v_empty, nil
+	} else {
+	// empty
+	}
+	v_use_margin = _core_gt(v_margin_ratio, 0)
+	if coreTruthy(v_use_margin) {
+		v_near_top = 0
+		for _, v_scored_entry = range coreIter(v_sorted) {
+			v_entry_raw = coreGet(v_scored_entry, "raw", 0)
+			v_positive = _core_gt(v_entry_raw, 0)
+			if coreTruthy(v_positive) {
+				v_negative_entry_raw = _core_mul(v_entry_raw, -1)
+				v_difference = _core_add(v_top_raw, v_negative_entry_raw)
+				v_relative = _core_div(v_difference, v_top_raw)
+				v_near = _core_lt(v_relative, v_margin_ratio)
+				if coreTruthy(v_near) {
+					v_near_top = _core_add(v_near_top, 1)
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		}
+		v_multiple_docs = _core_gte(v_doc_count, 2)
+		v_all_near = _core_gte(v_near_top, v_doc_count)
+		v_suppress = _core_and(v_multiple_docs, v_all_near)
+		if coreTruthy(v_suppress) {
+			return v_empty, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_out = MutableArray()
+	for _, v_scored_entry2 = range coreIter(v_sorted) {
+		v_out_count = _core_len(v_out)
+		v_under_limit = _core_lt(v_out_count, v_top_k)
+		v_entry_raw2 = coreGet(v_scored_entry2, "raw", 0)
+		v_positive2 = _core_gt(v_entry_raw2, 0)
+		v_include = _core_and(v_under_limit, v_positive2)
+		if coreTruthy(v_include) {
+			v_normalized_score = _core_div(v_entry_raw2, v_top_raw)
+			v_ranked_id = coreGet(v_scored_entry2, "id", "")
+			v_ranked_terms = coreGet(v_scored_entry2, "matchedTerms", v_empty)
+			v_ranked = Object()
+			if err := coreSet(v_ranked, "id", v_ranked_id); err != nil { return nil, err }
+			if err := coreSet(v_ranked, "score", v_normalized_score); err != nil { return nil, err }
+			if err := coreSet(v_ranked, "matchedTerms", v_ranked_terms); err != nil { return nil, err }
+			v_out = coreAppend(v_out, v_ranked)
+		} else {
+		// empty
+		}
+	}
+	return v_out, nil
 }
 
 func _agent_relevance_has_id(args ...Value) (Value, error) {
@@ -32381,147 +33845,160 @@ func _agent_rank_relevance_modules(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_rank_relevance_modules")
 	var v_state Value
 	var v_task Value
-	var v_already Value
 	var v_callable Value
 	var v_callables Value
-	var v_cdesc Value
 	var v_description Value
+	var v_description_field Value
 	var v_discoverable Value
+	var v_doc Value
+	var v_docs Value
 	var v_empty_list Value
 	var v_entry Value
-	var v_fresh Value
+	var v_fields Value
 	var v_group Value
+	var v_has_description Value
+	var v_has_selection Value
+	var v_has_title Value
+	var v_matched Value
 	var v_name Value
+	var v_name_field Value
 	var v_namespace Value
-	var v_no_tokens Value
+	var v_namespace2 Value
+	var v_namespace_field Value
 	var v_out Value
-	var v_out_count Value
 	var v_params Value
-	var v_passes Value
-	var v_pieces Value
+	var v_prop_field Value
+	var v_prop_key Value
 	var v_prop_keys Value
-	var v_prop_text Value
 	var v_properties Value
 	var v_props_is_object Value
-	var v_qualified Value
+	var v_ranked Value
+	var v_ranked_entry Value
+	var v_ranking_options Value
 	var v_score Value
 	var v_selection Value
+	var v_selection_field Value
 	var v_split Value
-	var v_text Value
-	var v_threshold Value
-	var v_thresholds Value
 	var v_title Value
-	var v_token_count Value
-	var v_tokens Value
-	var v_under Value
+	var v_title_field Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_task = args[1] }
 	_ = v_task
-	_ = v_already
 	_ = v_callable
 	_ = v_callables
-	_ = v_cdesc
 	_ = v_description
+	_ = v_description_field
 	_ = v_discoverable
+	_ = v_doc
+	_ = v_docs
 	_ = v_empty_list
 	_ = v_entry
-	_ = v_fresh
+	_ = v_fields
 	_ = v_group
+	_ = v_has_description
+	_ = v_has_selection
+	_ = v_has_title
+	_ = v_matched
 	_ = v_name
+	_ = v_name_field
 	_ = v_namespace
-	_ = v_no_tokens
+	_ = v_namespace2
+	_ = v_namespace_field
 	_ = v_out
-	_ = v_out_count
 	_ = v_params
-	_ = v_passes
-	_ = v_pieces
+	_ = v_prop_field
+	_ = v_prop_key
 	_ = v_prop_keys
-	_ = v_prop_text
 	_ = v_properties
 	_ = v_props_is_object
-	_ = v_qualified
+	_ = v_ranked
+	_ = v_ranked_entry
+	_ = v_ranking_options
 	_ = v_score
 	_ = v_selection
+	_ = v_selection_field
 	_ = v_split
-	_ = v_text
-	_ = v_threshold
-	_ = v_thresholds
 	_ = v_title
-	_ = v_token_count
-	_ = v_tokens
-	_ = v_under
+	_ = v_title_field
 	v_empty_list = MutableArray()
-	{ v, err := _agent_relevance_tokens(v_task); if err != nil { return nil, err }; v_tokens = v }
-	v_token_count = _core_len(v_tokens)
-	v_no_tokens = _core_eq(v_token_count, 0)
-	if coreTruthy(v_no_tokens) {
-		return v_empty_list, nil
-	} else {
-	// empty
-	}
 	v_split = coreGet(v_state, "callable_split", nil)
 	v_discoverable = coreGet(v_split, "discoverable", v_empty_list)
-	v_out = MutableArray()
-	v_thresholds = MutableArray()
-	v_thresholds = coreAppend(v_thresholds, 3)
-	v_thresholds = coreAppend(v_thresholds, 2)
-	v_thresholds = coreAppend(v_thresholds, 1)
-	for _, v_threshold = range coreIter(v_thresholds) {
-		for _, v_group = range coreIter(v_discoverable) {
-			v_out_count = _core_len(v_out)
-			v_under = _core_lt(v_out_count, 3)
-			if coreTruthy(v_under) {
-				v_namespace = coreGet(v_group, "namespace", "")
-				{ v, err := _agent_relevance_has_id(v_out, "namespace", v_namespace); if err != nil { return nil, err }; v_already = v }
-				v_fresh = _core_not(v_already)
-				if coreTruthy(v_fresh) {
-					v_title = coreGet(v_group, "title", "")
-					v_description = coreGet(v_group, "description", "")
-					v_selection = coreGet(v_group, "selection_criteria", "")
-					v_callables = coreGet(v_group, "callables", v_empty_list)
-					v_pieces = MutableArray()
-					v_pieces = coreAppend(v_pieces, v_namespace)
-					v_pieces = coreAppend(v_pieces, v_title)
-					v_pieces = coreAppend(v_pieces, v_description)
-					v_pieces = coreAppend(v_pieces, v_selection)
-					v_pieces = coreAppend(v_pieces, v_selection)
-					for _, v_callable = range coreIter(v_callables) {
-						v_name = coreGet(v_callable, "name", "")
-						v_qualified = coreGet(v_callable, "qualified_name", "")
-						v_cdesc = coreGet(v_callable, "description", "")
-						v_pieces = coreAppend(v_pieces, v_name)
-						v_pieces = coreAppend(v_pieces, v_qualified)
-						v_pieces = coreAppend(v_pieces, v_cdesc)
-						v_params = coreGet(v_callable, "parameters", nil)
-						v_properties = coreGet(v_params, "properties", nil)
-						v_props_is_object = coreTypeIs(v_properties, "object")
-						if coreTruthy(v_props_is_object) {
-							v_prop_keys = _core_map_keys(v_properties)
-							v_prop_text = _core_string_join(" ", v_prop_keys)
-							v_pieces = coreAppend(v_pieces, v_prop_text)
-						} else {
-						// empty
-						}
-					}
-					v_text = _core_string_join(" ", v_pieces)
-					{ v, err := _agent_relevance_score(v_tokens, v_text); if err != nil { return nil, err }; v_score = v }
-					v_passes = _core_gte(v_score, v_threshold)
-					if coreTruthy(v_passes) {
-						v_entry = Object()
-						if err := coreSet(v_entry, "namespace", v_namespace); err != nil { return nil, err }
-						if err := coreSet(v_entry, "score", v_score); err != nil { return nil, err }
-						v_out = coreAppend(v_out, v_entry)
-					} else {
-					// empty
-					}
-				} else {
-				// empty
+	v_docs = MutableArray()
+	for _, v_group = range coreIter(v_discoverable) {
+		v_namespace = coreGet(v_group, "namespace", "")
+		v_title = coreGet(v_group, "title", "")
+		v_description = coreGet(v_group, "description", "")
+		v_selection = coreGet(v_group, "selection_criteria", "")
+		v_fields = MutableArray()
+		v_namespace_field = Object()
+		if err := coreSet(v_namespace_field, "text", v_namespace); err != nil { return nil, err }
+		if err := coreSet(v_namespace_field, "identifier", true); err != nil { return nil, err }
+		v_fields = coreAppend(v_fields, v_namespace_field)
+		v_has_title = _core_ne(v_title, "")
+		if coreTruthy(v_has_title) {
+			v_title_field = Object()
+			if err := coreSet(v_title_field, "text", v_title); err != nil { return nil, err }
+			v_fields = coreAppend(v_fields, v_title_field)
+		} else {
+		// empty
+		}
+		v_has_description = _core_ne(v_description, "")
+		if coreTruthy(v_has_description) {
+			v_description_field = Object()
+			if err := coreSet(v_description_field, "text", v_description); err != nil { return nil, err }
+			v_fields = coreAppend(v_fields, v_description_field)
+		} else {
+		// empty
+		}
+		v_has_selection = _core_ne(v_selection, "")
+		if coreTruthy(v_has_selection) {
+			v_selection_field = Object()
+			if err := coreSet(v_selection_field, "text", v_selection); err != nil { return nil, err }
+			if err := coreSet(v_selection_field, "weight", 2); err != nil { return nil, err }
+			v_fields = coreAppend(v_fields, v_selection_field)
+		} else {
+		// empty
+		}
+		v_callables = coreGet(v_group, "callables", v_empty_list)
+		for _, v_callable = range coreIter(v_callables) {
+			v_name = coreGet(v_callable, "name", "")
+			v_name_field = Object()
+			if err := coreSet(v_name_field, "text", v_name); err != nil { return nil, err }
+			if err := coreSet(v_name_field, "identifier", true); err != nil { return nil, err }
+			v_fields = coreAppend(v_fields, v_name_field)
+			v_params = coreGet(v_callable, "parameters", nil)
+			v_properties = coreGet(v_params, "properties", nil)
+			v_props_is_object = coreTypeIs(v_properties, "object")
+			if coreTruthy(v_props_is_object) {
+				v_prop_keys = _core_map_keys(v_properties)
+				for _, v_prop_key = range coreIter(v_prop_keys) {
+					v_prop_field = Object()
+					if err := coreSet(v_prop_field, "text", v_prop_key); err != nil { return nil, err }
+					if err := coreSet(v_prop_field, "identifier", true); err != nil { return nil, err }
+					v_fields = coreAppend(v_fields, v_prop_field)
 				}
 			} else {
 			// empty
 			}
 		}
+		v_doc = Object()
+		if err := coreSet(v_doc, "id", v_namespace); err != nil { return nil, err }
+		if err := coreSet(v_doc, "fields", v_fields); err != nil { return nil, err }
+		v_docs = coreAppend(v_docs, v_doc)
+	}
+	v_ranking_options = coreGet(v_state, "relevance_ranking_options", nil)
+	{ v, err := _agent_rank_documents(v_task, v_docs, v_ranking_options); if err != nil { return nil, err }; v_ranked = v }
+	v_out = MutableArray()
+	for _, v_ranked_entry = range coreIter(v_ranked) {
+		v_entry = Object()
+		v_namespace2 = coreGet(v_ranked_entry, "id", "")
+		v_score = coreGet(v_ranked_entry, "score", 0)
+		v_matched = coreGet(v_ranked_entry, "matchedTerms", v_empty_list)
+		if err := coreSet(v_entry, "namespace", v_namespace2); err != nil { return nil, err }
+		if err := coreSet(v_entry, "score", v_score); err != nil { return nil, err }
+		if err := coreSet(v_entry, "matchedTerms", v_matched); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_entry)
 	}
 	return v_out, nil
 }
@@ -32530,105 +34007,120 @@ func _agent_rank_relevance_skills(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_rank_relevance_skills")
 	var v_state Value
 	var v_task Value
-	var v_already Value
 	var v_catalog Value
+	var v_catalog_id Value
+	var v_catalog_skill Value
 	var v_content Value
+	var v_content_field Value
+	var v_content_head Value
 	var v_description Value
+	var v_description_field Value
+	var v_doc Value
+	var v_docs Value
 	var v_empty_list Value
 	var v_entry Value
-	var v_fresh Value
+	var v_fields Value
+	var v_has_description Value
 	var v_id Value
+	var v_id_field Value
+	var v_id_match Value
 	var v_name Value
-	var v_no_tokens Value
+	var v_name_field Value
 	var v_out Value
-	var v_out_count Value
-	var v_passes Value
-	var v_score Value
+	var v_ranked Value
+	var v_ranked_entry Value
+	var v_ranked_id Value
+	var v_ranked_name Value
+	var v_ranked_score Value
+	var v_ranking_options Value
 	var v_skill Value
-	var v_text Value
-	var v_text_parts Value
-	var v_threshold Value
-	var v_thresholds Value
-	var v_token_count Value
-	var v_tokens Value
-	var v_under Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_task = args[1] }
 	_ = v_task
-	_ = v_already
 	_ = v_catalog
+	_ = v_catalog_id
+	_ = v_catalog_skill
 	_ = v_content
+	_ = v_content_field
+	_ = v_content_head
 	_ = v_description
+	_ = v_description_field
+	_ = v_doc
+	_ = v_docs
 	_ = v_empty_list
 	_ = v_entry
-	_ = v_fresh
+	_ = v_fields
+	_ = v_has_description
 	_ = v_id
+	_ = v_id_field
+	_ = v_id_match
 	_ = v_name
-	_ = v_no_tokens
+	_ = v_name_field
 	_ = v_out
-	_ = v_out_count
-	_ = v_passes
-	_ = v_score
+	_ = v_ranked
+	_ = v_ranked_entry
+	_ = v_ranked_id
+	_ = v_ranked_name
+	_ = v_ranked_score
+	_ = v_ranking_options
 	_ = v_skill
-	_ = v_text
-	_ = v_text_parts
-	_ = v_threshold
-	_ = v_thresholds
-	_ = v_token_count
-	_ = v_tokens
-	_ = v_under
 	v_empty_list = MutableArray()
-	{ v, err := _agent_relevance_tokens(v_task); if err != nil { return nil, err }; v_tokens = v }
-	v_token_count = _core_len(v_tokens)
-	v_no_tokens = _core_eq(v_token_count, 0)
-	if coreTruthy(v_no_tokens) {
-		return v_empty_list, nil
-	} else {
-	// empty
-	}
 	v_catalog = coreGet(v_state, "skills_catalog", v_empty_list)
+	v_docs = MutableArray()
+	for _, v_skill = range coreIter(v_catalog) {
+		v_id = coreGet(v_skill, "id", "")
+		v_name = coreGet(v_skill, "name", v_id)
+		v_description = coreGet(v_skill, "description", "")
+		v_content = coreGet(v_skill, "content", "")
+		v_content_head = _core_string_slice(v_content, 0, 600)
+		v_fields = MutableArray()
+		v_id_field = Object()
+		if err := coreSet(v_id_field, "text", v_id); err != nil { return nil, err }
+		if err := coreSet(v_id_field, "identifier", true); err != nil { return nil, err }
+		v_fields = coreAppend(v_fields, v_id_field)
+		v_name_field = Object()
+		if err := coreSet(v_name_field, "text", v_name); err != nil { return nil, err }
+		if err := coreSet(v_name_field, "weight", 2); err != nil { return nil, err }
+		v_fields = coreAppend(v_fields, v_name_field)
+		v_has_description = _core_ne(v_description, "")
+		if coreTruthy(v_has_description) {
+			v_description_field = Object()
+			if err := coreSet(v_description_field, "text", v_description); err != nil { return nil, err }
+			if err := coreSet(v_description_field, "weight", 2); err != nil { return nil, err }
+			v_fields = coreAppend(v_fields, v_description_field)
+		} else {
+		// empty
+		}
+		v_content_field = Object()
+		if err := coreSet(v_content_field, "text", v_content_head); err != nil { return nil, err }
+		v_fields = coreAppend(v_fields, v_content_field)
+		v_doc = Object()
+		if err := coreSet(v_doc, "id", v_id); err != nil { return nil, err }
+		if err := coreSet(v_doc, "fields", v_fields); err != nil { return nil, err }
+		v_docs = coreAppend(v_docs, v_doc)
+	}
+	v_ranking_options = coreGet(v_state, "relevance_ranking_options", nil)
+	{ v, err := _agent_rank_documents(v_task, v_docs, v_ranking_options); if err != nil { return nil, err }; v_ranked = v }
 	v_out = MutableArray()
-	v_thresholds = MutableArray()
-	v_thresholds = coreAppend(v_thresholds, 3)
-	v_thresholds = coreAppend(v_thresholds, 2)
-	v_thresholds = coreAppend(v_thresholds, 1)
-	for _, v_threshold = range coreIter(v_thresholds) {
-		for _, v_skill = range coreIter(v_catalog) {
-			v_out_count = _core_len(v_out)
-			v_under = _core_lt(v_out_count, 3)
-			if coreTruthy(v_under) {
-				v_id = coreGet(v_skill, "id", "")
-				{ v, err := _agent_relevance_has_id(v_out, "id", v_id); if err != nil { return nil, err }; v_already = v }
-				v_fresh = _core_not(v_already)
-				if coreTruthy(v_fresh) {
-					v_name = coreGet(v_skill, "name", v_id)
-					v_description = coreGet(v_skill, "description", "")
-					v_content = coreGet(v_skill, "content", "")
-					v_text_parts = MutableArray()
-					v_text_parts = coreAppend(v_text_parts, v_id)
-					v_text_parts = coreAppend(v_text_parts, v_name)
-					v_text_parts = coreAppend(v_text_parts, v_description)
-					v_text_parts = coreAppend(v_text_parts, v_content)
-					v_text = _core_string_join(" ", v_text_parts)
-					{ v, err := _agent_relevance_score(v_tokens, v_text); if err != nil { return nil, err }; v_score = v }
-					v_passes = _core_gte(v_score, v_threshold)
-					if coreTruthy(v_passes) {
-						v_entry = Object()
-						if err := coreSet(v_entry, "id", v_id); err != nil { return nil, err }
-						if err := coreSet(v_entry, "name", v_name); err != nil { return nil, err }
-						if err := coreSet(v_entry, "score", v_score); err != nil { return nil, err }
-						v_out = coreAppend(v_out, v_entry)
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
+	for _, v_ranked_entry = range coreIter(v_ranked) {
+		v_ranked_id = coreGet(v_ranked_entry, "id", "")
+		v_ranked_score = coreGet(v_ranked_entry, "score", 0)
+		v_ranked_name = v_ranked_id
+		for _, v_catalog_skill = range coreIter(v_catalog) {
+			v_catalog_id = coreGet(v_catalog_skill, "id", "")
+			v_id_match = _core_eq(v_catalog_id, v_ranked_id)
+			if coreTruthy(v_id_match) {
+				v_ranked_name = coreGet(v_catalog_skill, "name", v_ranked_id)
 			} else {
 			// empty
 			}
 		}
+		v_entry = Object()
+		if err := coreSet(v_entry, "id", v_ranked_id); err != nil { return nil, err }
+		if err := coreSet(v_entry, "name", v_ranked_name); err != nil { return nil, err }
+		if err := coreSet(v_entry, "score", v_ranked_score); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_entry)
 	}
 	return v_out, nil
 }
@@ -32637,101 +34129,121 @@ func _agent_rank_relevance_memories(args ...Value) (Value, error) {
 	axirCoverageMark("_agent_rank_relevance_memories")
 	var v_state Value
 	var v_task Value
-	var v_already_any Value
 	var v_already_loaded Value
-	var v_already_out Value
+	var v_candidate Value
+	var v_candidate_content Value
+	var v_candidate_id Value
+	var v_candidates Value
 	var v_catalog Value
 	var v_content Value
+	var v_content_field Value
+	var v_content_head Value
+	var v_doc Value
+	var v_docs Value
 	var v_empty_list Value
 	var v_entry Value
+	var v_fields Value
 	var v_fresh Value
 	var v_id Value
+	var v_id_field Value
+	var v_id_match Value
 	var v_loaded Value
 	var v_memory Value
-	var v_no_tokens Value
 	var v_out Value
-	var v_out_count Value
-	var v_passes Value
-	var v_score Value
+	var v_ranked Value
+	var v_ranked_entry Value
+	var v_ranked_id Value
+	var v_ranked_score Value
+	var v_ranking_options Value
+	var v_single_line Value
 	var v_snippet Value
-	var v_threshold Value
-	var v_thresholds Value
-	var v_token_count Value
-	var v_tokens Value
-	var v_under Value
+	var v_trimmed Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_task = args[1] }
 	_ = v_task
-	_ = v_already_any
 	_ = v_already_loaded
-	_ = v_already_out
+	_ = v_candidate
+	_ = v_candidate_content
+	_ = v_candidate_id
+	_ = v_candidates
 	_ = v_catalog
 	_ = v_content
+	_ = v_content_field
+	_ = v_content_head
+	_ = v_doc
+	_ = v_docs
 	_ = v_empty_list
 	_ = v_entry
+	_ = v_fields
 	_ = v_fresh
 	_ = v_id
+	_ = v_id_field
+	_ = v_id_match
 	_ = v_loaded
 	_ = v_memory
-	_ = v_no_tokens
 	_ = v_out
-	_ = v_out_count
-	_ = v_passes
-	_ = v_score
+	_ = v_ranked
+	_ = v_ranked_entry
+	_ = v_ranked_id
+	_ = v_ranked_score
+	_ = v_ranking_options
+	_ = v_single_line
 	_ = v_snippet
-	_ = v_threshold
-	_ = v_thresholds
-	_ = v_token_count
-	_ = v_tokens
-	_ = v_under
+	_ = v_trimmed
 	v_empty_list = MutableArray()
-	{ v, err := _agent_relevance_tokens(v_task); if err != nil { return nil, err }; v_tokens = v }
-	v_token_count = _core_len(v_tokens)
-	v_no_tokens = _core_eq(v_token_count, 0)
-	if coreTruthy(v_no_tokens) {
-		return v_empty_list, nil
-	} else {
-	// empty
-	}
 	v_catalog = coreGet(v_state, "memories_catalog", v_empty_list)
 	v_loaded = coreGet(v_state, "loaded_memories", v_empty_list)
+	v_candidates = MutableArray()
+	v_docs = MutableArray()
+	for _, v_memory = range coreIter(v_catalog) {
+		v_id = coreGet(v_memory, "id", "")
+		{ v, err := _agent_relevance_has_id(v_loaded, "id", v_id); if err != nil { return nil, err }; v_already_loaded = v }
+		v_fresh = _core_not(v_already_loaded)
+		if coreTruthy(v_fresh) {
+			v_candidates = coreAppend(v_candidates, v_memory)
+			v_content = coreGet(v_memory, "content", "")
+			v_content_head = _core_string_slice(v_content, 0, 600)
+			v_fields = MutableArray()
+			v_id_field = Object()
+			if err := coreSet(v_id_field, "text", v_id); err != nil { return nil, err }
+			if err := coreSet(v_id_field, "identifier", true); err != nil { return nil, err }
+			v_fields = coreAppend(v_fields, v_id_field)
+			v_content_field = Object()
+			if err := coreSet(v_content_field, "text", v_content_head); err != nil { return nil, err }
+			v_fields = coreAppend(v_fields, v_content_field)
+			v_doc = Object()
+			if err := coreSet(v_doc, "id", v_id); err != nil { return nil, err }
+			if err := coreSet(v_doc, "fields", v_fields); err != nil { return nil, err }
+			v_docs = coreAppend(v_docs, v_doc)
+		} else {
+		// empty
+		}
+	}
+	v_ranking_options = coreGet(v_state, "relevance_ranking_options", nil)
+	{ v, err := _agent_rank_documents(v_task, v_docs, v_ranking_options); if err != nil { return nil, err }; v_ranked = v }
 	v_out = MutableArray()
-	v_thresholds = MutableArray()
-	v_thresholds = coreAppend(v_thresholds, 3)
-	v_thresholds = coreAppend(v_thresholds, 2)
-	v_thresholds = coreAppend(v_thresholds, 1)
-	for _, v_threshold = range coreIter(v_thresholds) {
-		for _, v_memory = range coreIter(v_catalog) {
-			v_out_count = _core_len(v_out)
-			v_under = _core_lt(v_out_count, 3)
-			if coreTruthy(v_under) {
-				v_id = coreGet(v_memory, "id", "")
-				{ v, err := _agent_relevance_has_id(v_out, "id", v_id); if err != nil { return nil, err }; v_already_out = v }
-				{ v, err := _agent_relevance_has_id(v_loaded, "id", v_id); if err != nil { return nil, err }; v_already_loaded = v }
-				v_already_any = _core_or(v_already_out, v_already_loaded)
-				v_fresh = _core_not(v_already_any)
-				if coreTruthy(v_fresh) {
-					v_content = coreGet(v_memory, "content", "")
-					{ v, err := _agent_relevance_score(v_tokens, v_content); if err != nil { return nil, err }; v_score = v }
-					v_passes = _core_gte(v_score, v_threshold)
-					if coreTruthy(v_passes) {
-						v_snippet = _core_string_slice(v_content, 0, 120)
-						v_entry = Object()
-						if err := coreSet(v_entry, "id", v_id); err != nil { return nil, err }
-						if err := coreSet(v_entry, "snippet", v_snippet); err != nil { return nil, err }
-						if err := coreSet(v_entry, "score", v_score); err != nil { return nil, err }
-						v_out = coreAppend(v_out, v_entry)
-					} else {
-					// empty
-					}
-				} else {
-				// empty
-				}
+	for _, v_ranked_entry = range coreIter(v_ranked) {
+		v_ranked_id = coreGet(v_ranked_entry, "id", "")
+		v_ranked_score = coreGet(v_ranked_entry, "score", 0)
+		v_snippet = ""
+		for _, v_candidate = range coreIter(v_candidates) {
+			v_candidate_id = coreGet(v_candidate, "id", "")
+			v_id_match = _core_eq(v_candidate_id, v_ranked_id)
+			if coreTruthy(v_id_match) {
+				v_candidate_content = coreGet(v_candidate, "content", "")
+				v_single_line = _core_regex_replace("\\s+", " ", v_candidate_content)
+				v_trimmed = coreStringTrim(v_single_line)
+				v_snippet = _core_string_slice(v_trimmed, 0, 80)
 			} else {
 			// empty
 			}
 		}
+		v_entry = Object()
+		if err := coreSet(v_entry, "id", v_ranked_id); err != nil { return nil, err }
+		if err := coreSet(v_entry, "snippet", v_snippet); err != nil { return nil, err }
+		if err := coreSet(v_entry, "score", v_ranked_score); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_entry)
 	}
 	return v_out, nil
 }
@@ -33267,11 +34779,13 @@ func _build_distiller_inputs(args ...Value) (Value, error) {
 	var v_cv_str Value
 	var v_discovered_docs Value
 	var v_discovered_text Value
+	var v_distiller_runtime_enabled Value
 	var v_empty_list Value
 	var v_empty_map Value
 	var v_guidance_text Value
 	var v_loaded_memories Value
 	var v_loaded_skills Value
+	var v_memories_text Value
 	var v_meta_note Value
 	var v_non_ctx Value
 	var v_out Value
@@ -33297,11 +34811,13 @@ func _build_distiller_inputs(args ...Value) (Value, error) {
 	_ = v_cv_str
 	_ = v_discovered_docs
 	_ = v_discovered_text
+	_ = v_distiller_runtime_enabled
 	_ = v_empty_list
 	_ = v_empty_map
 	_ = v_guidance_text
 	_ = v_loaded_memories
 	_ = v_loaded_skills
+	_ = v_memories_text
 	_ = v_meta_note
 	_ = v_non_ctx
 	_ = v_out
@@ -33319,12 +34835,17 @@ func _build_distiller_inputs(args ...Value) (Value, error) {
 	v_cm_text = coreGet(v_cm_state, "text", "")
 	v_cm_has = _core_ne(v_cm_text, "")
 	v_ctx_out = Object()
+	v_distiller_runtime_enabled = coreGet(v_state, "runtime_enabled", false)
 	for _, v_ck = range coreIter(v_context) {
 		v_cv = coreGet(v_context, v_ck, nil)
-		v_cv_str = _core_string_format("{}", v_cv)
-		v_cv_len = _core_len(v_cv_str)
-		v_meta_note = _core_string_format("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", v_ck, v_cv_len)
-		if err := coreSet(v_ctx_out, v_ck, v_meta_note); err != nil { return nil, err }
+		if coreTruthy(v_distiller_runtime_enabled) {
+			v_cv_str = _core_string_format("{}", v_cv)
+			v_cv_len = _core_len(v_cv_str)
+			v_meta_note = _core_string_format("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", v_ck, v_cv_len)
+			if err := coreSet(v_ctx_out, v_ck, v_meta_note); err != nil { return nil, err }
+		} else {
+			if err := coreSet(v_ctx_out, v_ck, v_cv); err != nil { return nil, err }
+		}
 	}
 	if coreTruthy(v_cm_has) {
 		if err := coreSet(v_ctx_out, "contextMap", v_cm_text); err != nil { return nil, err }
@@ -33341,13 +34862,14 @@ func _build_distiller_inputs(args ...Value) (Value, error) {
 	v_runtime_text = coreGet(v_actor_context, "liveRuntimeState", "")
 	v_pressure_text = coreGet(v_actor_context, "contextPressure", "")
 	v_discovered_docs = coreGet(v_state, "discovered_tool_docs", v_empty_list)
-	v_loaded_skills = coreGet(v_state, "loaded_skill_docs", v_empty_list)
+	v_loaded_skills = coreGet(v_state, "distiller_loaded_skill_docs", v_empty_list)
 	v_loaded_memories = coreGet(v_state, "loaded_memories", v_empty_list)
 	{ v, err := _agent_render_discovered_tool_docs(v_discovered_docs); if err != nil { return nil, err }; v_discovered_text = v }
 	{ v, err := _agent_render_loaded_skills(v_loaded_skills); if err != nil { return nil, err }; v_skills_text = v }
+	{ v, err := _agent_render_loaded_memories(v_loaded_memories); if err != nil { return nil, err }; v_memories_text = v }
 	if err := coreSet(v_out, "discoveredToolDocs", v_discovered_text); err != nil { return nil, err }
 	if err := coreSet(v_out, "loadedSkills", v_skills_text); err != nil { return nil, err }
-	if err := coreSet(v_out, "memories", v_loaded_memories); err != nil { return nil, err }
+	if err := coreSet(v_out, "memories", v_memories_text); err != nil { return nil, err }
 	if err := coreSet(v_out, "summarizedActorLog", v_summary_text); err != nil { return nil, err }
 	if err := coreSet(v_out, "guidanceLog", v_guidance_text); err != nil { return nil, err }
 	if err := coreSet(v_out, "actionLog", v_action_text); err != nil { return nil, err }
@@ -33382,10 +34904,12 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 	var v_has_context_metadata Value
 	var v_has_hints Value
 	var v_hints Value
+	var v_hints_is_object Value
 	var v_hints_text Value
 	var v_key Value
 	var v_loaded_memories Value
 	var v_loaded_skills Value
+	var v_memories_text Value
 	var v_non_ctx Value
 	var v_out Value
 	var v_pressure_text Value
@@ -33423,10 +34947,12 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 	_ = v_has_context_metadata
 	_ = v_has_hints
 	_ = v_hints
+	_ = v_hints_is_object
 	_ = v_hints_text
 	_ = v_key
 	_ = v_loaded_memories
 	_ = v_loaded_skills
+	_ = v_memories_text
 	_ = v_non_ctx
 	_ = v_out
 	_ = v_pressure_text
@@ -33474,7 +35000,14 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	{ v, err := _agent_build_relevance_hints(v_state, v_non_ctx, v_executor_request); if err != nil { return nil, err }; v_hints = v }
+	v_hints = coreGet(v_state, "relevance_hints_for_turn", nil)
+	v_hints_is_object = coreTypeIs(v_hints, "object")
+	if coreTruthy(v_hints_is_object) {
+	// empty
+	} else {
+		{ v, err := _agent_build_relevance_hints(v_state, v_non_ctx, v_executor_request); if err != nil { return nil, err }; v_hints = v }
+		if err := coreSet(v_state, "relevance_hints_for_turn", v_hints); err != nil { return nil, err }
+	}
 	{ v, err := _agent_render_relevance_hints(v_hints); if err != nil { return nil, err }; v_hints_text = v }
 	v_has_hints = _core_ne(v_hints_text, "")
 	if coreTruthy(v_has_hints) {
@@ -33487,6 +35020,7 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 	v_loaded_memories = coreGet(v_state, "loaded_memories", v_empty_list)
 	{ v, err := _agent_render_discovered_tool_docs(v_discovered_docs); if err != nil { return nil, err }; v_discovered_text = v }
 	{ v, err := _agent_render_loaded_skills(v_loaded_skills); if err != nil { return nil, err }; v_skills_text = v }
+	{ v, err := _agent_render_loaded_memories(v_loaded_memories); if err != nil { return nil, err }; v_memories_text = v }
 	{ v, err := _agent_prepare_actor_context(v_state); if err != nil { return nil, err }; v_actor_context = v }
 	v_guidance_text = coreGet(v_actor_context, "guidanceLog", "[]")
 	v_action_text = coreGet(v_actor_context, "actionLog", "(no actions yet)")
@@ -33495,7 +35029,7 @@ func _build_executor_inputs(args ...Value) (Value, error) {
 	v_pressure_text = coreGet(v_actor_context, "contextPressure", "")
 	if err := coreSet(v_out, "discoveredToolDocs", v_discovered_text); err != nil { return nil, err }
 	if err := coreSet(v_out, "loadedSkills", v_skills_text); err != nil { return nil, err }
-	if err := coreSet(v_out, "memories", v_loaded_memories); err != nil { return nil, err }
+	if err := coreSet(v_out, "memories", v_memories_text); err != nil { return nil, err }
 	if err := coreSet(v_out, "summarizedActorLog", v_summary_text); err != nil { return nil, err }
 	if err := coreSet(v_out, "guidanceLog", v_guidance_text); err != nil { return nil, err }
 	if err := coreSet(v_out, "actionLog", v_action_text); err != nil { return nil, err }
@@ -36008,8 +37542,10 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_citation_retry_options Value
 	var v_citations_invalid Value
 	var v_citations_valid Value
+	var v_clean_previous_runtime_state Value
 	var v_code Value
 	var v_completion_payload Value
+	var v_direct_respond_only Value
 	var v_distiller_code Value
 	var v_distiller_completion Value
 	var v_distiller_empty_log Value
@@ -36029,12 +37565,16 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_distiller_saved_action_log Value
 	var v_distiller_session Value
 	var v_distiller_session_reset Value
+	var v_distiller_skills Value
+	var v_distiller_skills_after Value
 	var v_distiller_state_reset Value
 	var v_distiller_step Value
 	var v_distiller_step_error Value
 	var v_distiller_step_ok Value
 	var v_distiller_too_many Value
 	var v_distiller_values Value
+	var v_empty_list Value
+	var v_empty_map Value
 	var v_error Value
 	var v_error_event Value
 	var v_exec_args Value
@@ -36061,15 +37601,36 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_executor_payload_type Value
 	var v_executor_request_event Value
 	var v_executor_response_event Value
+	var v_executor_skills_after Value
 	var v_executor_values Value
+	var v_flags Value
+	var v_forward_skills Value
+	var v_forward_used_memories Value
+	var v_forward_used_memories_snake Value
+	var v_forward_used_skills Value
+	var v_forward_used_skills_snake Value
 	var v_globals Value
 	var v_has_completion Value
+	var v_has_forward_used_memories Value
+	var v_has_forward_used_observer Value
+	var v_has_forward_used_skills Value
 	var v_has_shared_session Value
 	var v_invalid_citations_output Value
+	var v_loaded_memories Value
+	var v_loaded_skills Value
 	var v_logs Value
 	var v_max_steps Value
 	var v_non_runtime_executor Value
 	var v_patch_snapshot Value
+	var v_preset_memories Value
+	var v_previous_runtime_bindings Value
+	var v_previous_runtime_bindings_is_map Value
+	var v_previous_runtime_globals Value
+	var v_previous_runtime_globals_is_map Value
+	var v_previous_runtime_session_state Value
+	var v_previous_runtime_session_state_is_map Value
+	var v_previous_runtime_state_has_bindings Value
+	var v_relevance_hints_for_turn Value
 	var v_responder_options Value
 	var v_responder_output Value
 	var v_responder_request_event Value
@@ -36081,6 +37642,8 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_runtime_executor_enabled Value
 	var v_runtime_from_options Value
 	var v_runtime_from_state Value
+	var v_runtime_input_name Value
+	var v_runtime_input_names Value
 	var v_runtime_step Value
 	var v_session Value
 	var v_shared_contract Value
@@ -36099,6 +37662,8 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_too_many Value
 	var v_transcribed_values Value
 	var v_usage Value
+	var v_used_memories Value
+	var v_used_skills Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
 	if len(args) > 1 { v_distiller = args[1] }
@@ -36117,8 +37682,10 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_citation_retry_options
 	_ = v_citations_invalid
 	_ = v_citations_valid
+	_ = v_clean_previous_runtime_state
 	_ = v_code
 	_ = v_completion_payload
+	_ = v_direct_respond_only
 	_ = v_distiller_code
 	_ = v_distiller_completion
 	_ = v_distiller_empty_log
@@ -36138,12 +37705,16 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_distiller_saved_action_log
 	_ = v_distiller_session
 	_ = v_distiller_session_reset
+	_ = v_distiller_skills
+	_ = v_distiller_skills_after
 	_ = v_distiller_state_reset
 	_ = v_distiller_step
 	_ = v_distiller_step_error
 	_ = v_distiller_step_ok
 	_ = v_distiller_too_many
 	_ = v_distiller_values
+	_ = v_empty_list
+	_ = v_empty_map
 	_ = v_error
 	_ = v_error_event
 	_ = v_exec_args
@@ -36170,15 +37741,36 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_executor_payload_type
 	_ = v_executor_request_event
 	_ = v_executor_response_event
+	_ = v_executor_skills_after
 	_ = v_executor_values
+	_ = v_flags
+	_ = v_forward_skills
+	_ = v_forward_used_memories
+	_ = v_forward_used_memories_snake
+	_ = v_forward_used_skills
+	_ = v_forward_used_skills_snake
 	_ = v_globals
 	_ = v_has_completion
+	_ = v_has_forward_used_memories
+	_ = v_has_forward_used_observer
+	_ = v_has_forward_used_skills
 	_ = v_has_shared_session
 	_ = v_invalid_citations_output
+	_ = v_loaded_memories
+	_ = v_loaded_skills
 	_ = v_logs
 	_ = v_max_steps
 	_ = v_non_runtime_executor
 	_ = v_patch_snapshot
+	_ = v_preset_memories
+	_ = v_previous_runtime_bindings
+	_ = v_previous_runtime_bindings_is_map
+	_ = v_previous_runtime_globals
+	_ = v_previous_runtime_globals_is_map
+	_ = v_previous_runtime_session_state
+	_ = v_previous_runtime_session_state_is_map
+	_ = v_previous_runtime_state_has_bindings
+	_ = v_relevance_hints_for_turn
 	_ = v_responder_options
 	_ = v_responder_output
 	_ = v_responder_request_event
@@ -36190,6 +37782,8 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_runtime_executor_enabled
 	_ = v_runtime_from_options
 	_ = v_runtime_from_state
+	_ = v_runtime_input_name
+	_ = v_runtime_input_names
 	_ = v_runtime_step
 	_ = v_session
 	_ = v_shared_contract
@@ -36208,8 +37802,72 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_too_many
 	_ = v_transcribed_values
 	_ = v_usage
+	_ = v_used_memories
+	_ = v_used_skills
+	v_empty_list = MutableArray()
+	v_empty_map = Object()
+	v_loaded_memories = MutableArray()
+	v_used_memories = MutableArray()
+	v_used_skills = MutableArray()
+	v_relevance_hints_for_turn = _core_none()
+	if err := coreSet(v_state, "loaded_memories", v_loaded_memories); err != nil { return nil, err }
+	if err := coreSet(v_state, "used_memories", v_used_memories); err != nil { return nil, err }
+	if err := coreSet(v_state, "used_skills", v_used_skills); err != nil { return nil, err }
+	if err := coreSet(v_state, "relevance_hints_for_turn", v_relevance_hints_for_turn); err != nil { return nil, err }
+	v_preset_memories = coreGet(v_values, "memories", v_empty_list)
+	{ v, err := _agent_merge_memory_results(v_loaded_memories, v_preset_memories); if err != nil { return nil, err }; v_loaded_memories = v }
+	if err := coreSet(v_state, "loaded_memories", v_loaded_memories); err != nil { return nil, err }
+	v_loaded_skills = coreGet(v_state, "loaded_skill_docs", v_empty_list)
+	v_forward_skills = coreGet(v_options, "skills", v_empty_list)
+	{ v, err := _agent_merge_skill_results(v_loaded_skills, v_forward_skills); if err != nil { return nil, err }; v_loaded_skills = v }
+	if err := coreSet(v_state, "loaded_skill_docs", v_loaded_skills); err != nil { return nil, err }
+	v_flags = coreGet(v_state, "policy_flags", v_empty_map)
+	v_forward_used_memories = coreGet(v_options, "onUsedMemories", nil)
+	v_forward_used_memories_snake = coreGet(v_options, "on_used_memories", v_forward_used_memories)
+	v_forward_used_skills = coreGet(v_options, "onUsedSkills", nil)
+	v_forward_used_skills_snake = coreGet(v_options, "on_used_skills", v_forward_used_skills)
+	v_has_forward_used_memories = _core_is_not_none(v_forward_used_memories_snake)
+	v_has_forward_used_skills = _core_is_not_none(v_forward_used_skills_snake)
+	v_has_forward_used_observer = _core_or(v_has_forward_used_memories, v_has_forward_used_skills)
+	if coreTruthy(v_has_forward_used_observer) {
+		if err := coreSet(v_flags, "usageTrackingMode", true); err != nil { return nil, err }
+		if err := coreSet(v_state, "policy_flags", v_flags); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_direct_respond_only = coreGet(v_flags, "directRespondOnly", false)
+	if coreTruthy(v_direct_respond_only) {
+		v_distiller_skills = coreGet(v_state, "distiller_loaded_skill_docs", v_empty_list)
+		{ v, err := _agent_merge_skill_results(v_distiller_skills, v_forward_skills); if err != nil { return nil, err }; v_distiller_skills = v }
+		if err := coreSet(v_state, "distiller_loaded_skill_docs", v_distiller_skills); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if err := coreSet(v_state, "active_stage", "distiller"); err != nil { return nil, err }
 	{ v, err := _agent_transcribe_audio_inputs(v_state, v_client, v_values, v_options); if err != nil { return nil, err }; v_transcribed_values = v }
 	v_values = v_transcribed_values
+	v_runtime_input_names = MutableArray()
+	for _, v_runtime_input_name = range coreIter(v_values) {
+		v_runtime_input_names = coreAppend(v_runtime_input_names, v_runtime_input_name)
+	}
+	if err := coreSet(v_state, "runtime_input_names", v_runtime_input_names); err != nil { return nil, err }
+	v_previous_runtime_session_state = coreGet(v_state, "runtime_session_state", nil)
+	v_previous_runtime_session_state_is_map = coreTypeIs(v_previous_runtime_session_state, "object")
+	if coreTruthy(v_previous_runtime_session_state_is_map) {
+		v_previous_runtime_globals = coreGet(v_previous_runtime_session_state, "globals", nil)
+		v_previous_runtime_bindings = coreGet(v_previous_runtime_session_state, "bindings", nil)
+		v_previous_runtime_globals_is_map = coreTypeIs(v_previous_runtime_globals, "object")
+		v_previous_runtime_bindings_is_map = coreTypeIs(v_previous_runtime_bindings, "object")
+		v_previous_runtime_state_has_bindings = _core_or(v_previous_runtime_globals_is_map, v_previous_runtime_bindings_is_map)
+		if coreTruthy(v_previous_runtime_state_has_bindings) {
+			{ v, err := _normalize_agent_runtime_snapshot(v_state, v_previous_runtime_session_state); if err != nil { return nil, err }; v_clean_previous_runtime_state = v }
+			if err := coreSet(v_state, "runtime_session_state", v_clean_previous_runtime_state); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
 	if _, err := _agent_begin_trace(v_state, v_values); err != nil { return nil, err }
 	if _, err := _agent_apply_llm_checkpoint_summary(v_state, v_client, v_options); err != nil { return nil, err }
 	v_state_options = coreGet(v_state, "options", nil)
@@ -36300,6 +37958,11 @@ func _agent_forward(args ...Value) (Value, error) {
 		{ v, err := _normalize_agent_completion_payload(v_distiller_output); if err != nil { return nil, err }; v_distiller_payload = v }
 	}
 	if _, err := _throw_agent_clarification(v_distiller_payload, v_state); err != nil { return nil, err }
+	v_distiller_skills_after = coreGet(v_state, "distiller_loaded_skill_docs", v_empty_list)
+	v_executor_skills_after = coreGet(v_state, "loaded_skill_docs", v_empty_list)
+	{ v, err := _agent_merge_skill_results(v_executor_skills_after, v_distiller_skills_after); if err != nil { return nil, err }; v_executor_skills_after = v }
+	if err := coreSet(v_state, "loaded_skill_docs", v_executor_skills_after); err != nil { return nil, err }
+	if err := coreSet(v_state, "active_stage", "executor"); err != nil { return nil, err }
 	v_executor_payload = _core_none()
 	v_distiller_payload_type = coreGet(v_distiller_payload, "type", "")
 	v_distiller_is_respond = _core_eq(v_distiller_payload_type, "respond")
@@ -36499,6 +38162,10 @@ func _agent_forward(args ...Value) (Value, error) {
 	if err := coreSet(v_state, "last_output", v_responder_output); err != nil { return nil, err }
 	if err := coreSet(v_state, "chat_log", v_logs); err != nil { return nil, err }
 	if err := coreSet(v_state, "usage", v_usage); err != nil { return nil, err }
+	v_forward_used_memories = coreGet(v_state, "used_memories", v_empty_list)
+	v_forward_used_skills = coreGet(v_state, "used_skills", v_empty_list)
+	_core_agent_observer_notify(v_state, v_options, "used_memories", v_forward_used_memories)
+	_core_agent_observer_notify(v_state, v_options, "used_skills", v_forward_used_skills)
 	if _, err := _agent_build_failure_signals(v_state); err != nil { return nil, err }
 	if _, err := _agent_finalize_trace(v_state, "completed", v_responder_output); err != nil { return nil, err }
 	return v_responder_output, nil
@@ -45081,6 +46748,7 @@ type AxAgent struct {
 // skill subsystems, so the actor's prompt advertises recall()/discover()), mirroring the TS/Python API.
 type AxMemoriesSearchFn func(searches []Value, alreadyLoaded []Value) []Value
 type AxSkillsSearchFn func(searches []Value) []Value
+type AxAgentObserverFn func(items []Value)
 
 // runtimeCallableRegistrar is satisfied by any code runtime that can host a
 // callable (e.g. the goja *Runtime). Declared structurally so the agent wrapper
@@ -48317,6 +49985,43 @@ func _core_agent_skill_search(values ...Value) Value {
 	scripted := coreGet(options, "skill_search_results", coreGet(options, "skillSearchResults", Object()))
 	return scriptedAgentSearchResults(scripted, searches, true)
 }
+func _core_agent_observer_notify(values ...Value) Value {
+	if len(values) < 4 {
+		return nil
+	}
+	state := values[0]
+	forwardOptions := asMap(values[1])
+	kind := display(values[2])
+	payload := asSlice(values[3])
+	constructorOptions := asMap(coreGet(state, "options", Object()))
+	keys := map[string][2]string{
+		"loaded_memories": {"on_loaded_memories", "onLoadedMemories"},
+		"loaded_skills":   {"on_loaded_skills", "onLoadedSkills"},
+		"used_memories":   {"on_used_memories", "onUsedMemories"},
+		"used_skills":     {"on_used_skills", "onUsedSkills"},
+	}
+	pair, ok := keys[kind]
+	if !ok {
+		return nil
+	}
+	callback := Value(nil)
+	if strings.HasPrefix(kind, "used_") {
+		callback = coreGet(forwardOptions, pair[0], coreGet(forwardOptions, pair[1], nil))
+	}
+	if callback == nil {
+		callback = coreGet(constructorOptions, pair[0], coreGet(constructorOptions, pair[1], nil))
+	}
+	defer func() { _ = recover() }()
+	switch cb := callback.(type) {
+	case AxAgentObserverFn:
+		cb(asSlice(cloneValue(payload)))
+	case func([]Value):
+		cb(asSlice(cloneValue(payload)))
+	case func(Value):
+		cb(cloneValue(payload))
+	}
+	return nil
+}
 func agentSearchResultOrEmpty(result []Value) Value {
 	if result == nil {
 		return MutableArray()
@@ -51040,9 +52745,96 @@ func runConformanceAgentPrompt(fixture map[string]Value) {
 	}
 }
 
+var semanticPromptFieldLabels = []string{
+	"Query",
+	"Executor Request",
+	"Distilled Context Summary",
+	"Context Metadata",
+	"Context Map",
+	"Discovered Tool Docs",
+	"Loaded Skills",
+	"Memories",
+	"Relevance Hints",
+	"Summarized Actor Log",
+	"Guidance Log",
+	"Action Log",
+	"Live Runtime State",
+	"Context Pressure",
+}
+
+func normalizeSemanticPromptText(text string) string {
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+	lines := strings.Split(text, "\n")
+	for index := range lines {
+		lines[index] = strings.TrimRight(lines[index], " \t")
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func semanticPromptField(user, label string) string {
+	normalized := normalizeSemanticPromptText(user)
+	marker := label + ": "
+	start := strings.Index(normalized, marker)
+	if start < 0 {
+		return ""
+	}
+	bodyStart := start + len(marker)
+	end := len(normalized)
+	for _, candidate := range semanticPromptFieldLabels {
+		if candidate == label {
+			continue
+		}
+		next := strings.Index(normalized[bodyStart:], "\n\n"+candidate+": ")
+		if next >= 0 && bodyStart+next < end {
+			end = bodyStart + next
+		}
+	}
+	return normalizeSemanticPromptText(label + ": " + normalized[bodyStart:end])
+}
+
+func semanticAvailableSkillsIndex(system string) string {
+	normalized := normalizeSemanticPromptText(system)
+	heading := "### Available Skills"
+	start := strings.Index(normalized, heading)
+	if start < 0 {
+		return ""
+	}
+	entries := []string{}
+	for _, line := range strings.Split(normalized[start+len(heading):], "\n") {
+		if strings.TrimSpace(line) == "" && len(entries) == 0 {
+			continue
+		}
+		if !strings.HasPrefix(line, "- `") {
+			break
+		}
+		entries = append(entries, line)
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	return heading + "\n\n" + strings.Join(entries, "\n")
+}
+
 func runConformanceAgentForward(fixture map[string]Value) {
 	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	observerTranscript := MutableArray()
+	semanticObserversEnabled := coreGet(fixture, "expected_observer_transcript", nil) != nil
+	installSemanticObserver := func(target map[string]Value, key, label string, throws bool) {
+		if !semanticObserversEnabled || coreGet(target, key, nil) == nil {
+			return
+		}
+		coreSet(target, key, AxAgentObserverFn(func(payload []Value) {
+			coreAppend(observerTranscript, Object("callback", label, "payload", cloneValue(payload)))
+			if throws {
+				panic("semantic parity observer failure")
+			}
+		}))
+	}
+	installSemanticObserver(options, "onLoadedSkills", "loaded_skills", true)
+	installSemanticObserver(options, "onLoadedMemories", "loaded_memories", true)
+	installSemanticObserver(options, "onUsedSkills", "constructor.used_skills", false)
+	installSemanticObserver(options, "onUsedMemories", "constructor.used_memories", false)
 	observerCalled := false
 	if coreTruthy(coreGet(fixture, "observer_throws", false)) {
 		citations := cloneMap(asMap(coreGet(options, "citations", Object())))
@@ -51062,6 +52854,9 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	}
 	var ag *AxAgent
 	var output Value
+	runStateProjections := MutableArray()
+	var savedRuntimeState Value
+	stateRoundtripProjection := Object()
 	_, err := safeValue(func() Value {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 		if instruction := coreGet(fixture, "set_instruction", nil); instruction != nil {
@@ -51076,7 +52871,51 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		if snapshot := coreGet(fixture, "restore_runtime_state", nil); snapshot != nil {
 			ag.RestoreRuntimeState(snapshot)
 		}
-		out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
+		if forwardRuns := coreGet(fixture, "forward_runs", nil); forwardRuns != nil {
+			outputs := MutableArray()
+			for _, rawRun := range asSlice(forwardRuns) {
+				run := asMap(rawRun)
+				switch display(coreGet(run, "state_action", "")) {
+				case "reset":
+					ag.RestoreRuntimeState(Object())
+				case "restore_saved":
+					if savedRuntimeState == nil {
+						panic(AxError{Category: "fixture", Message: "restore_saved requires an earlier save_runtime_state run"})
+					}
+					restored := ag.RestoreRuntimeState(savedRuntimeState)
+					coreSet(stateRoundtripProjection, "restored", Object(
+						"loaded_skill_docs", coreGet(restored, "loaded_skill_docs", Array()),
+					))
+				}
+				forwardOptions := cloneMap(asMap(coreGet(run, "forward_options", Object())))
+				installSemanticObserver(forwardOptions, "onUsedSkills", "forward.used_skills", false)
+				installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
+				out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(run, "input", Object())), forwardOptions)
+				if forwardErr != nil {
+					panic(forwardErr)
+				}
+				coreAppend(outputs, out)
+				runExported := ag.ExportRuntimeState()
+				if coreTruthy(coreGet(run, "save_runtime_state", false)) {
+					savedRuntimeState = runExported
+					coreSet(stateRoundtripProjection, "saved", Object(
+						"loaded_skill_docs", coreGet(runExported, "loaded_skill_docs", Array()),
+					))
+				}
+				coreAppend(runStateProjections, Object(
+					"loaded_skill_docs", coreGet(runExported, "loaded_skill_docs", Array()),
+					"loaded_memories", coreGet(runExported, "loaded_memories", Array()),
+					"used_skills", coreGet(runExported, "used_skills", Array()),
+					"used_memories", coreGet(runExported, "used_memories", Array()),
+				))
+			}
+			output = outputs
+			return outputs
+		}
+		forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
+		installSemanticObserver(forwardOptions, "onUsedSkills", "forward.used_skills", false)
+		installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
+		out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), forwardOptions)
 		if forwardErr != nil {
 			panic(forwardErr)
 		}
@@ -51102,11 +52941,98 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 		assertEqual(output, expected, "agent output")
 	}
+	if expected := coreGet(fixture, "expected_run_state_projections", nil); expected != nil {
+		assertEqual(runStateProjections, expected, "agent run state projections")
+	}
+	if expected := coreGet(fixture, "expected_state_roundtrip_projection", nil); expected != nil {
+		assertEqual(stateRoundtripProjection, expected, "agent state roundtrip projection")
+	}
+	if expected := coreGet(fixture, "expected_observer_transcript", nil); expected != nil {
+		assertEqual(observerTranscript, expected, "agent observer transcript")
+	}
 	if coreTruthy(coreGet(fixture, "observer_throws", false)) && !observerCalled {
 		panic(AxError{Category: "fixture", Message: "citation observer was not called"})
 	}
 	if expected := coreGet(fixture, "expected_request_count", nil); expected != nil && len(client.Requests) != int(num(expected)) {
 		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d requests, got %d", int(num(expected)), len(client.Requests))})
+	}
+	exactProjection := asMap(coreGet(fixture, "exact_observable_projection", Object()))
+	if expected := coreGet(exactProjection, "stateRoundtrip", nil); expected != nil {
+		assertEqual(stateRoundtripProjection, expected, "exact agent state roundtrip projection")
+	}
+	if expected := coreGet(exactProjection, "ranking", nil); expected != nil {
+		executorSystem := ""
+		executorUser := ""
+		for _, request := range client.Requests {
+			prompt := coreGet(request, "chat_prompt", coreGet(request, "chatPrompt", Array()))
+			systemText := ""
+			userText := ""
+			for _, rawMessage := range asSlice(prompt) {
+				message := asMap(rawMessage)
+				rawContent := coreGet(message, "content", "")
+				content, ok := rawContent.(string)
+				if !ok {
+					content = stableStringify(rawContent)
+				}
+				switch display(coreGet(message, "role", "")) {
+				case "system":
+					systemText += content + "\n"
+				case "user":
+					userText += content + "\n"
+				}
+			}
+			if strings.Contains(systemText, "You (`executor`)") {
+				executorSystem = systemText
+				executorUser = userText
+				break
+			}
+		}
+		matches := Object()
+		for _, rawProbe := range asSlice(coreGet(fixture, "ranking_probe", Array())) {
+			probe := asMap(rawProbe)
+			coreSet(matches, display(coreGet(probe, "label", "")), strings.Contains(executorUser, display(coreGet(probe, "needle", ""))))
+		}
+		actual := Object(
+			"hasLikelyRelevant", strings.Contains(executorSystem, "Likely Relevant"),
+			"matches", matches,
+		)
+		assertEqual(actual, expected, "exact agent ranking projection")
+	}
+	if expectedStageRequests := coreGet(exactProjection, "stageRequests", nil); expectedStageRequests != nil {
+		actualStageRequests := MutableArray()
+		for _, request := range client.Requests {
+			prompt := coreGet(request, "chat_prompt", coreGet(request, "chatPrompt", Array()))
+			systemText := ""
+			userText := ""
+			for _, rawMessage := range asSlice(prompt) {
+				message := asMap(rawMessage)
+				rawContent := coreGet(message, "content", "")
+				content, ok := rawContent.(string)
+				if !ok {
+					content = stableStringify(rawContent)
+				}
+				switch display(coreGet(message, "role", "")) {
+				case "system":
+					systemText += content + "\n"
+				case "user":
+					userText += content + "\n"
+				}
+			}
+			stage := "responder"
+			if strings.Contains(systemText, "You (`distiller`)") {
+				stage = "distiller"
+			} else if strings.Contains(systemText, "You (`executor`)") {
+				stage = "executor"
+			}
+			coreAppend(actualStageRequests, Object(
+				"stage", stage,
+				"availableSkills", semanticAvailableSkillsIndex(systemText),
+				"loadedSkills", semanticPromptField(userText, "Loaded Skills"),
+				"memories", semanticPromptField(userText, "Memories"),
+				"relevanceHints", semanticPromptField(userText, "Relevance Hints"),
+			))
+		}
+		assertEqual(actualStageRequests, expectedStageRequests, "exact agent stage request projection")
 	}
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
@@ -51171,6 +53097,16 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	}
 	if expected := coreGet(fixture, "expected_exported_state_subset", nil); expected != nil {
 		assertSubset(exported, expected, "runtime state")
+	}
+	for _, spec := range []struct{ expectedKey, stateKey, label string }{
+		{"expected_loaded_skill_docs", "loaded_skill_docs", "loaded skills exact"},
+		{"expected_loaded_memories", "loaded_memories", "loaded memories exact"},
+		{"expected_used_skills", "used_skills", "used skills exact"},
+		{"expected_used_memories", "used_memories", "used memories exact"},
+	} {
+		if expected := coreGet(fixture, spec.expectedKey, nil); expected != nil {
+			assertEqual(coreGet(exported, spec.stateKey, Array()), expected, spec.label)
+		}
 	}
 	if expected := coreGet(fixture, "expected_context_events_subset", nil); expected != nil {
 		assertListSubset(coreGet(exported, "context_events", Array()), expected, "agent context events")

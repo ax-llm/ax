@@ -538,6 +538,19 @@
   ],
   "nonPortableExemptions": [
     {
+      "id": "axagent-claim-complete-target-native-surfaces",
+      "surface": "axagent",
+      "paths": [
+        "src/ax/agent/agentInternal/agentOptimizeTypes.ts",
+        "src/ax/agent/agentInternal/coordinator.ts",
+        "src/ax/agent/agentInternal/agentStateTypes.ts"
+      ],
+      "scopedFiles": [],
+      "tags": ["claim-complete", "target-native", "public-inventory"],
+      "reason": "The claim-complete AxAgent gate inventories the entire inherited TypeScript surface. Members outside the enrolled skills, memories, ranker, observer, prompt, forward, and state lifecycle contract retain target-native generated APIs or TypeScript coordinator/DSP semantics and are explicitly not claimed byte-for-byte portable by this enrollment.",
+      "createdAt": "2026-07-22"
+    },
+    {
       "id": "webllm-browser-only",
       "surface": "axai",
       "paths": ["src/ax/ai/webllm", "src/examples/webllm-chat.html"],

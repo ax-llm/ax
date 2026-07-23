@@ -1437,10 +1437,78 @@ public final class Conformance {
     }
   }
 
+  static final List<String> SEMANTIC_PROMPT_FIELD_LABELS = List.of(
+      "Query",
+      "Executor Request",
+      "Distilled Context Summary",
+      "Context Metadata",
+      "Context Map",
+      "Discovered Tool Docs",
+      "Loaded Skills",
+      "Memories",
+      "Relevance Hints",
+      "Summarized Actor Log",
+      "Guidance Log",
+      "Action Log",
+      "Live Runtime State",
+      "Context Pressure");
+
+  static String normalizeSemanticPromptText(String text) {
+    return java.util.Arrays.stream(
+            text.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1))
+        .map(String::stripTrailing)
+        .collect(java.util.stream.Collectors.joining("\n"))
+        .strip();
+  }
+
+  static String semanticPromptField(String user, String label) {
+    String normalized = normalizeSemanticPromptText(user);
+    String marker = label + ": ";
+    int start = normalized.indexOf(marker);
+    if (start < 0) return "";
+    int bodyStart = start + marker.length();
+    int end = normalized.length();
+    for (String candidate : SEMANTIC_PROMPT_FIELD_LABELS) {
+      if (candidate.equals(label)) continue;
+      int next = normalized.indexOf("\n\n" + candidate + ": ", bodyStart);
+      if (next >= 0 && next < end) end = next;
+    }
+    return normalizeSemanticPromptText(
+        label + ": " + normalized.substring(bodyStart, end));
+  }
+
+  static String semanticAvailableSkillsIndex(String system) {
+    String normalized = normalizeSemanticPromptText(system);
+    String heading = "### Available Skills";
+    int start = normalized.indexOf(heading);
+    if (start < 0) return "";
+    List<String> entries = new ArrayList<>();
+    for (String line : normalized.substring(start + heading.length()).split("\n", -1)) {
+      if (line.isBlank() && entries.isEmpty()) continue;
+      if (!line.startsWith("- `")) break;
+      entries.add(line);
+    }
+    if (entries.isEmpty()) return "";
+    return heading + "\n\n" + String.join("\n", entries);
+  }
+
   static void runAgentForward(Map<String, Object> fixture) {
     ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
     client.transcribeResponses.addAll(Core.asList(fixture.getOrDefault("transcribe_responses", List.of())));
     Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
+    List<Object> semanticObserverTranscript = new ArrayList<>();
+    boolean semanticObserversEnabled = fixture.containsKey("expected_observer_transcript");
+    java.util.function.BiFunction<String, Boolean, java.util.function.Consumer<Object>> semanticObserver =
+        (label, throwsError) -> payload -> {
+          semanticObserverTranscript.add(Map.of("callback", label, "payload", payload == null ? List.of() : payload));
+          if (throwsError) throw new RuntimeException("semantic parity observer failure");
+        };
+    if (semanticObserversEnabled) {
+      if (agentOptions.containsKey("onLoadedSkills")) agentOptions.put("onLoadedSkills", semanticObserver.apply("loaded_skills", true));
+      if (agentOptions.containsKey("onLoadedMemories")) agentOptions.put("onLoadedMemories", semanticObserver.apply("loaded_memories", true));
+      if (agentOptions.containsKey("onUsedSkills")) agentOptions.put("onUsedSkills", semanticObserver.apply("constructor.used_skills", false));
+      if (agentOptions.containsKey("onUsedMemories")) agentOptions.put("onUsedMemories", semanticObserver.apply("constructor.used_memories", false));
+    }
     java.util.concurrent.atomic.AtomicBoolean observerCalled = new java.util.concurrent.atomic.AtomicBoolean(false);
     if (Boolean.TRUE.equals(fixture.get("observer_throws"))) {
       Map<String, Object> citations = new LinkedHashMap<>(Core.asMap(agentOptions.getOrDefault("citations", Map.of())));
@@ -1474,15 +1542,64 @@ public final class Conformance {
       }
     }
     AxAgent agent = null;
+    List<Object> runStateProjections = new ArrayList<>();
+    Map<String, Object> savedRuntimeState = null;
+    Map<String, Object> stateRoundtripProjection = new LinkedHashMap<>();
     try {
       agent = Ax.agent(String.valueOf(fixture.get("signature")), agentOptions);
       if (fixture.containsKey("set_instruction")) agent.setInstruction(String.valueOf(fixture.get("set_instruction")));
       if (fixture.containsKey("add_actor_instruction")) agent.addActorInstruction(String.valueOf(fixture.get("add_actor_instruction")));
       if (fixture.containsKey("set_state")) agent.setState(Core.asMap(fixture.get("set_state")));
       if (fixture.containsKey("restore_runtime_state")) agent.restoreRuntimeState(Core.asMap(fixture.get("restore_runtime_state")));
-      Object output = agent.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+      Object output;
+      if (fixture.containsKey("forward_runs")) {
+        List<Object> outputs = new ArrayList<>();
+        for (Object rawRun : Core.asList(fixture.get("forward_runs"))) {
+          Map<String, Object> run = Core.asMap(rawRun);
+          String stateAction = String.valueOf(run.getOrDefault("state_action", ""));
+          if ("reset".equals(stateAction)) {
+            agent.restoreRuntimeState(new LinkedHashMap<>());
+          } else if ("restore_saved".equals(stateAction)) {
+            if (savedRuntimeState == null) throw new FixtureError("restore_saved requires an earlier save_runtime_state run");
+            Map<String, Object> restored = agent.restoreRuntimeState(savedRuntimeState);
+            stateRoundtripProjection.put("restored", Map.of(
+              "loaded_skill_docs", Core.asList(restored.get("loaded_skill_docs"))
+            ));
+          }
+          Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(run.getOrDefault("forward_options", Map.of())));
+          if (semanticObserversEnabled) {
+            if (forwardOptions.containsKey("onUsedSkills")) forwardOptions.put("onUsedSkills", semanticObserver.apply("forward.used_skills", false));
+            if (forwardOptions.containsKey("onUsedMemories")) forwardOptions.put("onUsedMemories", semanticObserver.apply("forward.used_memories", false));
+          }
+          outputs.add(agent.forward(client, Core.asMap(run.getOrDefault("input", Map.of())), forwardOptions));
+          Map<String, Object> runExported = agent.exportRuntimeState();
+          if (Boolean.TRUE.equals(run.get("save_runtime_state"))) {
+            savedRuntimeState = runExported;
+            stateRoundtripProjection.put("saved", Map.of(
+              "loaded_skill_docs", Core.asList(runExported.get("loaded_skill_docs"))
+            ));
+          }
+          runStateProjections.add(Map.of(
+            "loaded_skill_docs", Core.asList(runExported.get("loaded_skill_docs")),
+            "loaded_memories", Core.asList(runExported.get("loaded_memories")),
+            "used_skills", Core.asList(runExported.get("used_skills")),
+            "used_memories", Core.asList(runExported.get("used_memories"))
+          ));
+        }
+        output = outputs;
+      } else {
+        Map<String, Object> forwardOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("forward_options", Map.of())));
+        if (semanticObserversEnabled) {
+          if (forwardOptions.containsKey("onUsedSkills")) forwardOptions.put("onUsedSkills", semanticObserver.apply("forward.used_skills", false));
+          if (forwardOptions.containsKey("onUsedMemories")) forwardOptions.put("onUsedMemories", semanticObserver.apply("forward.used_memories", false));
+        }
+        output = agent.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), forwardOptions);
+      }
       if (fixture.containsKey("expected_error_contains")) throw new FixtureError("expected agent forward to fail");
       if (fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "agent output");
+      if (fixture.containsKey("expected_run_state_projections")) assertEqual(runStateProjections, fixture.get("expected_run_state_projections"), "agent run state projections");
+      if (fixture.containsKey("expected_state_roundtrip_projection")) assertEqual(stateRoundtripProjection, fixture.get("expected_state_roundtrip_projection"), "agent state roundtrip projection");
+      if (fixture.containsKey("expected_observer_transcript")) assertEqual(semanticObserverTranscript, fixture.get("expected_observer_transcript"), "agent observer transcript");
       if (Boolean.TRUE.equals(fixture.get("observer_throws")) && !observerCalled.get()) throw new FixtureError("citation observer was not called");
     } catch (AxAgentClarificationException e) {
       String expected = (String) fixture.get("expected_error_contains");
@@ -1499,6 +1616,64 @@ public final class Conformance {
       throw e;
     }
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected agent request count mismatch");
+    Map<String, Object> exactProjection = Core.asMap(fixture.getOrDefault("exact_observable_projection", Map.of()));
+    if (exactProjection.containsKey("stateRoundtrip")) assertEqual(stateRoundtripProjection, exactProjection.get("stateRoundtrip"), "exact agent state roundtrip projection");
+    if (exactProjection.containsKey("ranking")) {
+      String executorSystem = "";
+      String executorUser = "";
+      for (Map<String, Object> request : client.requests) {
+        Object rawPrompt = request.getOrDefault("chat_prompt", request.getOrDefault("chatPrompt", List.of()));
+        StringBuilder system = new StringBuilder();
+        StringBuilder user = new StringBuilder();
+        for (Object rawMessage : Core.asList(rawPrompt)) {
+          Map<String, Object> message = Core.asMap(rawMessage);
+          String content = String.valueOf(message.getOrDefault("content", ""));
+          if ("system".equals(message.get("role"))) system.append(content).append('\n');
+          if ("user".equals(message.get("role"))) user.append(content).append('\n');
+        }
+        if (system.toString().contains("You (`executor`)")) {
+          executorSystem = system.toString();
+          executorUser = user.toString();
+          break;
+        }
+      }
+      Map<String, Object> matches = new LinkedHashMap<>();
+      for (Object rawProbe : Core.asList(fixture.getOrDefault("ranking_probe", List.of()))) {
+        Map<String, Object> probe = Core.asMap(rawProbe);
+        matches.put(String.valueOf(probe.get("label")), executorUser.contains(String.valueOf(probe.get("needle"))));
+      }
+      assertEqual(Map.of(
+        "hasLikelyRelevant", executorSystem.contains("Likely Relevant"),
+        "matches", matches
+      ), exactProjection.get("ranking"), "exact agent ranking projection");
+    }
+    if (exactProjection.containsKey("stageRequests")) {
+      List<Object> actualStageRequests = new ArrayList<>();
+      for (Map<String, Object> request : client.requests) {
+        Object rawPrompt = request.getOrDefault("chat_prompt", request.getOrDefault("chatPrompt", List.of()));
+        StringBuilder system = new StringBuilder();
+        StringBuilder user = new StringBuilder();
+        for (Object rawMessage : Core.asList(rawPrompt)) {
+          Map<String, Object> message = Core.asMap(rawMessage);
+          Object contentValue = message.getOrDefault("content", "");
+          String content = contentValue instanceof String ? String.valueOf(contentValue) : Json.stringify(contentValue);
+          String role = String.valueOf(message.getOrDefault("role", ""));
+          if (role.equals("system")) system.append(content).append('\n');
+          if (role.equals("user")) user.append(content).append('\n');
+        }
+        String systemText = system.toString();
+        String userText = user.toString();
+        String stage = systemText.contains("You (`distiller`)") ? "distiller" : systemText.contains("You (`executor`)") ? "executor" : "responder";
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("stage", stage);
+        item.put("availableSkills", semanticAvailableSkillsIndex(systemText));
+        item.put("loadedSkills", semanticPromptField(userText, "Loaded Skills"));
+        item.put("memories", semanticPromptField(userText, "Memories"));
+        item.put("relevanceHints", semanticPromptField(userText, "Relevance Hints"));
+        actualStageRequests.add(item);
+      }
+      assertEqual(actualStageRequests, exactProjection.get("stageRequests"), "exact agent stage request projection");
+    }
     if (fixture.containsKey("expected_request_contains")) {
       String text = Json.stringify(client.requests);
       for (Object item : Core.asList(fixture.get("expected_request_contains"))) if (!text.contains(String.valueOf(item))) throw new FixtureError("agent request missing " + item + ": " + text);
@@ -1530,6 +1705,13 @@ public final class Conformance {
     Map<String, Object> exported = agent.exportRuntimeState();
     if (fixture.containsKey("expected_runtime_contract_subset")) assertSubset(agent.getRuntimeContract(), fixture.get("expected_runtime_contract_subset"), "runtime contract");
     if (fixture.containsKey("expected_exported_state_subset")) assertSubset(exported, fixture.get("expected_exported_state_subset"), "runtime state");
+    for (String[] spec : List.of(
+        new String[]{"expected_loaded_skill_docs", "loaded_skill_docs", "loaded skills exact"},
+        new String[]{"expected_loaded_memories", "loaded_memories", "loaded memories exact"},
+        new String[]{"expected_used_skills", "used_skills", "used skills exact"},
+        new String[]{"expected_used_memories", "used_memories", "used memories exact"})) {
+      if (fixture.containsKey(spec[0])) assertEqual(exported.getOrDefault(spec[1], List.of()), fixture.get(spec[0]), spec[2]);
+    }
     if (fixture.containsKey("expected_context_events_subset")) assertListSubset(Core.asList(exported.get("context_events")), fixture.get("expected_context_events_subset"), "agent context events");
     if (fixture.containsKey("expected_action_log_subset")) assertListSubset(Core.asList(exported.get("action_log")), fixture.get("expected_action_log_subset"), "action log");
     if (runtime != null && fixture.containsKey("expected_executed")) assertEqual(runtime.executed, fixture.get("expected_executed"), "executed code");

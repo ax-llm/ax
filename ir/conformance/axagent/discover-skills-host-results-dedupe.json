@@ -1,22 +1,18 @@
 {
   "discover": {
-    "skills": [
-      "sql"
-    ]
+    "skills": ["sql"]
   },
   "expected_discover_result": null,
   "expected_loaded_skill_docs_subset": [
     {
-      "content": "Use SELECT carefully.",
+      "content": "Duplicate should dedupe.",
       "id": "skill.sql",
       "name": "sql"
     }
   ],
   "expected_policy_trace_subset": [
     {
-      "skills": [
-        "sql"
-      ],
+      "skills": ["sql"],
       "tools": [],
       "type": "discover"
     }

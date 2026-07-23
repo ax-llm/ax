@@ -1585,10 +1585,89 @@ def _run_agent_prompt(fixture):
 _AxQuickJsRuntime = AxQuickJsCodeRuntime
 
 
+_SEMANTIC_PROMPT_FIELD_LABELS = (
+    "Query",
+    "Executor Request",
+    "Distilled Context Summary",
+    "Context Metadata",
+    "Context Map",
+    "Discovered Tool Docs",
+    "Loaded Skills",
+    "Memories",
+    "Relevance Hints",
+    "Summarized Actor Log",
+    "Guidance Log",
+    "Action Log",
+    "Live Runtime State",
+    "Context Pressure",
+)
+
+
+def _normalize_semantic_prompt_text(text):
+    return "\n".join(
+        line.rstrip()
+        for line in str(text).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    ).strip()
+
+
+def _semantic_prompt_field(user, label):
+    normalized = _normalize_semantic_prompt_text(user)
+    marker = f"{label}: "
+    start = normalized.find(marker)
+    if start < 0:
+        return ""
+    body_start = start + len(marker)
+    end = len(normalized)
+    for candidate in _SEMANTIC_PROMPT_FIELD_LABELS:
+        if candidate == label:
+            continue
+        next_index = normalized.find(f"\n\n{candidate}: ", body_start)
+        if 0 <= next_index < end:
+            end = next_index
+    return _normalize_semantic_prompt_text(
+        f"{label}: {normalized[body_start:end]}"
+    )
+
+
+def _semantic_available_skills_index(system):
+    normalized = _normalize_semantic_prompt_text(system)
+    heading = "### Available Skills"
+    start = normalized.find(heading)
+    if start < 0:
+        return ""
+    entries = []
+    for line in normalized[start + len(heading) :].split("\n"):
+        if not line.strip() and not entries:
+            continue
+        if not line.startswith("- `"):
+            break
+        entries.append(line)
+    if not entries:
+        return ""
+    return f"{heading}\n\n" + "\n".join(entries)
+
+
 def _run_agent_forward(fixture):
     client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
     runtime = None
     agent_options = copy.deepcopy(fixture.get("options") or {})
+    semantic_observer_transcript = []
+    semantic_observers_enabled = "expected_observer_transcript" in fixture
+    def _semantic_observer(label, throws=False):
+        def observe(payload):
+            semantic_observer_transcript.append({"callback": label, "payload": copy.deepcopy(payload or [])})
+            if throws:
+                raise RuntimeError("semantic parity observer failure")
+        return observe
+    if semantic_observers_enabled:
+        for key, label, throws in (
+            ("onLoadedSkills", "loaded_skills", True),
+            ("onLoadedMemories", "loaded_memories", True),
+            ("onUsedSkills", "constructor.used_skills", False),
+            ("onUsedMemories", "constructor.used_memories", False),
+        ):
+            if key in agent_options:
+                agent_options[key] = _semantic_observer(label, throws)
     observer_called = [False]
     if fixture.get("observer_throws"):
         def _throwing_citations_observer(_citations):
@@ -1611,6 +1690,9 @@ def _run_agent_forward(fixture):
         runtime = _AxQuickJsRuntime()
         agent_options["runtime"] = runtime
     ag = None
+    run_state_projections = []
+    saved_runtime_state = None
+    state_roundtrip_projection = {}
     try:
         ag = agent(fixture.get("signature"), agent_options)
         if "set_instruction" in fixture:
@@ -1621,7 +1703,47 @@ def _run_agent_forward(fixture):
             ag.set_state(fixture.get("set_state") or {})
         if "restore_runtime_state" in fixture:
             ag.restore_runtime_state(fixture.get("restore_runtime_state") or {})
-        output = ag.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
+        forward_runs = fixture.get("forward_runs")
+        if forward_runs:
+            output = []
+            for run in forward_runs:
+                state_action = run.get("state_action")
+                if state_action == "reset":
+                    ag.restore_runtime_state({})
+                elif state_action == "restore_saved":
+                    if saved_runtime_state is None:
+                        raise FixtureError("restore_saved requires an earlier save_runtime_state run")
+                    restored = ag.restore_runtime_state(copy.deepcopy(saved_runtime_state))
+                    state_roundtrip_projection["restored"] = {
+                        "loaded_skill_docs": restored.get("loaded_skill_docs") or [],
+                    }
+                forward_options = copy.deepcopy(run.get("forward_options") or {})
+                if semantic_observers_enabled:
+                    if "onUsedSkills" in forward_options:
+                        forward_options["onUsedSkills"] = _semantic_observer("forward.used_skills")
+                    if "onUsedMemories" in forward_options:
+                        forward_options["onUsedMemories"] = _semantic_observer("forward.used_memories")
+                output.append(ag.forward(client, run.get("input") or {}, forward_options))
+                run_exported = ag.export_runtime_state()
+                if run.get("save_runtime_state"):
+                    saved_runtime_state = copy.deepcopy(run_exported)
+                    state_roundtrip_projection["saved"] = {
+                        "loaded_skill_docs": run_exported.get("loaded_skill_docs") or [],
+                    }
+                run_state_projections.append({
+                    "loaded_skill_docs": run_exported.get("loaded_skill_docs") or [],
+                    "loaded_memories": run_exported.get("loaded_memories") or [],
+                    "used_skills": run_exported.get("used_skills") or [],
+                    "used_memories": run_exported.get("used_memories") or [],
+                })
+        else:
+            forward_options = copy.deepcopy(fixture.get("forward_options") or {})
+            if semantic_observers_enabled:
+                if "onUsedSkills" in forward_options:
+                    forward_options["onUsedSkills"] = _semantic_observer("forward.used_skills")
+                if "onUsedMemories" in forward_options:
+                    forward_options["onUsedMemories"] = _semantic_observer("forward.used_memories")
+            output = ag.forward(client, fixture.get("input") or {}, forward_options)
     except AxAgentClarificationError as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
@@ -1642,10 +1764,73 @@ def _run_agent_forward(fixture):
         raise FixtureError("expected agent forward to fail")
     if "expected_output" in fixture:
         _assert_equal(output, fixture["expected_output"], "agent output")
+    if "expected_run_state_projections" in fixture:
+        _assert_equal(run_state_projections, fixture["expected_run_state_projections"], "agent run state projections")
+    if "expected_state_roundtrip_projection" in fixture:
+        _assert_equal(state_roundtrip_projection, fixture["expected_state_roundtrip_projection"], "agent state roundtrip projection")
+    if "expected_observer_transcript" in fixture:
+        _assert_equal(semantic_observer_transcript, fixture["expected_observer_transcript"], "agent observer transcript")
     if fixture.get("observer_throws") and not observer_called[0]:
         raise FixtureError("citation observer was not called")
     if "expected_request_count" in fixture and len(client.requests) != fixture["expected_request_count"]:
         raise FixtureError(f"expected {fixture['expected_request_count']} requests, got {len(client.requests)}")
+    projection = fixture.get("exact_observable_projection") or {}
+    if "stateRoundtrip" in projection:
+        _assert_equal(state_roundtrip_projection, projection["stateRoundtrip"], "exact agent state roundtrip projection")
+    if "ranking" in projection:
+        executor_system = ""
+        executor_user = ""
+        for request in client.requests:
+            prompt = request.get("chat_prompt") or request.get("chatPrompt") or []
+            system = "\n".join(
+                str(message.get("content", ""))
+                for message in prompt
+                if isinstance(message, dict) and message.get("role") == "system"
+            )
+            if "You (`executor`)" not in system:
+                continue
+            executor_system = system
+            executor_user = "\n".join(
+                str(message.get("content", ""))
+                for message in prompt
+                if isinstance(message, dict) and message.get("role") == "user"
+            )
+            break
+        actual_ranking = {
+            "hasLikelyRelevant": "Likely Relevant" in executor_system,
+            "matches": {
+                str(probe.get("label")): str(probe.get("needle")) in executor_user
+                for probe in fixture.get("ranking_probe") or []
+            },
+        }
+        _assert_equal(actual_ranking, projection["ranking"], "exact agent ranking projection")
+    if "stageRequests" in projection:
+        actual_stage_requests = []
+        for request in client.requests:
+            prompt = request.get("chat_prompt") or request.get("chatPrompt") or []
+            system = "\n".join(
+                json.dumps(message.get("content", ""), sort_keys=True)
+                if not isinstance(message.get("content", ""), str)
+                else message.get("content", "")
+                for message in prompt
+                if isinstance(message, dict) and message.get("role") == "system"
+            )
+            user = "\n".join(
+                json.dumps(message.get("content", ""), sort_keys=True)
+                if not isinstance(message.get("content", ""), str)
+                else message.get("content", "")
+                for message in prompt
+                if isinstance(message, dict) and message.get("role") == "user"
+            )
+            stage = "distiller" if "You (`distiller`)" in system else "executor" if "You (`executor`)" in system else "responder"
+            actual_stage_requests.append({
+                "stage": stage,
+                "availableSkills": _semantic_available_skills_index(system),
+                "loadedSkills": _semantic_prompt_field(user, "Loaded Skills"),
+                "memories": _semantic_prompt_field(user, "Memories"),
+                "relevanceHints": _semantic_prompt_field(user, "Relevance Hints"),
+            })
+        _assert_equal(actual_stage_requests, projection["stageRequests"], "exact agent stage request projection")
     if "expected_request_contains" in fixture:
         request_text = json.dumps(client.requests, sort_keys=True)
         for item in fixture.get("expected_request_contains") or []:
@@ -1681,6 +1866,14 @@ def _run_agent_forward(fixture):
         _assert_subset(ag.get_runtime_contract(), fixture["expected_runtime_contract_subset"], "runtime contract")
     if "expected_exported_state_subset" in fixture:
         _assert_subset(exported, fixture["expected_exported_state_subset"], "runtime state")
+    for expected_key, state_key, label in (
+        ("expected_loaded_skill_docs", "loaded_skill_docs", "loaded skills exact"),
+        ("expected_loaded_memories", "loaded_memories", "loaded memories exact"),
+        ("expected_used_skills", "used_skills", "used skills exact"),
+        ("expected_used_memories", "used_memories", "used memories exact"),
+    ):
+        if expected_key in fixture:
+            _assert_equal(exported.get(state_key) or [], fixture[expected_key], label)
     if "expected_context_events_subset" in fixture:
         _assert_list_subset(exported.get("context_events") or [], fixture["expected_context_events_subset"], "agent context events")
     if "expected_action_log_subset" in fixture:

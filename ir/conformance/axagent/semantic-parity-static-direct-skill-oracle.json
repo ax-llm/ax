@@ -1,0 +1,95 @@
+{
+  "exact_observable_projection": {
+    "errors": [],
+    "output": {
+      "answer": "direct"
+    },
+    "stageRequests": [
+      {
+        "availableSkills": "",
+        "loadedSkills": "Loaded Skills: ### Forward direct\n\nID: `forward-direct`\n\nFORWARD SKILL",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "distiller"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "responder"
+      }
+    ]
+  },
+  "expected_output": {
+    "answer": "direct"
+  },
+  "expected_request_contains": ["FORWARD SKILL", "ID: `forward-direct`"],
+  "expected_request_count": 2,
+  "expected_stage_request_not_contains": [
+    {
+      "absent": ["You (`executor`)"],
+      "index": 0
+    }
+  ],
+  "forward_options": {
+    "skills": [
+      {
+        "content": "FORWARD SKILL",
+        "id": "forward-direct",
+        "name": "Forward direct"
+      }
+    ]
+  },
+  "input": {
+    "query": "answer directly"
+  },
+  "kind": "agent_forward",
+  "name": "semantic-parity-static-direct-skill-oracle",
+  "option_effect": "Removing forward skills hides FORWARD SKILL from the static direct-response distiller; disabling direct response introduces an executor request.",
+  "option_effects": {
+    "axagent.constructor.directResponse": "stageRequests",
+    "axagent.forward.skills": "stageRequests",
+    "axagent.method.forward": "output"
+  },
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "skills": [
+      {
+        "content": "CONSTRUCTOR DIRECT SKILL",
+        "id": "constructor-direct",
+        "name": "Constructor direct"
+      }
+    ]
+  },
+  "parity_contract_ids": [
+    "axagent.constructor.directResponse",
+    "axagent.forward.skills",
+    "axagent.method.forward"
+  ],
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"respond(\\\"direct\\\", {\\\"source\\\":\\\"forward-skill\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"direct\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "respond(\"direct\", {\"source\":\"forward-skill\"})",
+      "result": {
+        "args": [
+          "direct",
+          {
+            "source": "forward-skill"
+          }
+        ],
+        "type": "respond"
+      }
+    }
+  ],
+  "signature": "query:string -> answer:string"
+}

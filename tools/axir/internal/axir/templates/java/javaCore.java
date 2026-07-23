@@ -939,6 +939,35 @@ final class Core {
     if (scripted instanceof List<?>) return scripted;
     return List.of();
   }
+  static Object agentObserverNotify(Object state, Object forwardOptionsValue, Object kindValue, Object payload) {
+    Map<String, Object> constructorOptions = asMap(get(state, "options", Map.of()));
+    Map<String, Object> forwardOptions = asMap(forwardOptionsValue);
+    String kind = String.valueOf(kindValue);
+    Map<String, String[]> keys = Map.of(
+        "loaded_memories", new String[]{"on_loaded_memories", "onLoadedMemories"},
+        "loaded_skills", new String[]{"on_loaded_skills", "onLoadedSkills"},
+        "used_memories", new String[]{"on_used_memories", "onUsedMemories"},
+        "used_skills", new String[]{"on_used_skills", "onUsedSkills"});
+    String[] pair = keys.get(kind);
+    if (pair == null) return null;
+    Object callback = null;
+    if (kind.startsWith("used_")) {
+      callback = forwardOptions.getOrDefault(pair[0], forwardOptions.get(pair[1]));
+    }
+    if (callback == null) {
+      callback = constructorOptions.getOrDefault(pair[0], constructorOptions.get(pair[1]));
+    }
+    if (callback instanceof java.util.function.Consumer<?> consumer) {
+      try {
+        @SuppressWarnings("unchecked")
+        java.util.function.Consumer<Object> observer = (java.util.function.Consumer<Object>) consumer;
+        observer.accept(new ArrayList<>(asList(payload)));
+      } catch (Throwable ignored) {
+        // Observer failures are intentionally non-fatal, matching TypeScript.
+      }
+    }
+    return null;
+  }
   static Object agentCallableInvoke(Object state, Object request, Object optionsArg) {
     Map<String, Object> options = asMap(get(state, "options", Map.of()));
     String qualified = String.valueOf(get(request, "qualified_name", get(request, "name", "")));

@@ -2068,6 +2068,14 @@ def _core_string_slice(value, start, end=None):
     return text[s:e]
 
 
+def _core_math_log(value):
+    return math.log(float(value))
+
+
+def _core_sorted_strings(values):
+    return sorted(str(value) for value in (values or []))
+
+
 def _core_regex_replace(pattern, repl, value):
     return re.sub(str(pattern), str(repl), str(value))
 
@@ -2270,6 +2278,30 @@ def _core_agent_skill_search(state, searches):
     return []
 
 
+def _core_agent_observer_notify(state, forward_options, kind, payload):
+    constructor_options = _core_get(state, "options", {}) or {}
+    forward_options = forward_options or {}
+    names = {
+        "loaded_memories": ("on_loaded_memories", "onLoadedMemories"),
+        "loaded_skills": ("on_loaded_skills", "onLoadedSkills"),
+        "used_memories": ("on_used_memories", "onUsedMemories"),
+        "used_skills": ("on_used_skills", "onUsedSkills"),
+    }
+    snake, camel = names.get(str(kind), ("", ""))
+    if not snake:
+        return None
+    callback = None
+    if str(kind).startswith("used_"):
+        callback = forward_options.get(snake) or forward_options.get(camel)
+    callback = callback or constructor_options.get(snake) or constructor_options.get(camel)
+    if callable(callback):
+        try:
+            callback(copy.deepcopy(payload or []))
+        except Exception:
+            pass
+    return None
+
+
 def _core_agent_callable_invoke(state, request, options):
     agent_options = _core_get(state, "options", {}) or {}
     qualified = _core_get(request, "qualified_name", _core_get(request, "name", ""))
@@ -2353,23 +2385,26 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     policy = _normalize_agent_policy(options)
     policy_flags = _agent_policy_flags(options, callable_split, auto_upgrade)
     policy_registry = _agent_policy_registry(policy, policy_flags)
+    relevance_ranking_camel = _core_get(options, "relevanceRanking", None)
+    relevance_ranking_raw = _core_get(options, "relevance_ranking", relevance_ranking_camel)
+    relevance_ranking_options = {}
+    relevance_ranking_is_map = _core_type_is(relevance_ranking_raw, "object")
+    if relevance_ranking_is_map:
+        relevance_ranking_options = _core_map_merge(relevance_ranking_options, relevance_ranking_raw)
+    else:
+        pass
     discovery_catalog = _render_agent_discovery_catalog(callable_split)
     skills_catalog_camel = _core_get(options, "skillsCatalog", empty_list)
-    skills_catalog = _core_get(options, "skills_catalog", skills_catalog_camel)
-    skills_catalog_is_list = _core_type_is(skills_catalog, "list")
-    if skills_catalog_is_list:
-        pass
-    else:
-        skills_catalog = empty_list
+    skills_catalog_raw = _core_get(options, "skills_catalog", skills_catalog_camel)
+    skills_catalog = _agent_normalize_skill_catalog(skills_catalog_raw)
     memories_catalog_camel = _core_get(options, "memoriesCatalog", empty_list)
-    memories_catalog = _core_get(options, "memories_catalog", memories_catalog_camel)
-    memories_catalog_is_list = _core_type_is(memories_catalog, "list")
-    if memories_catalog_is_list:
-        pass
-    else:
-        memories_catalog = empty_list
+    memories_catalog_raw = _core_get(options, "memories_catalog", memories_catalog_camel)
+    memories_catalog = _agent_merge_memory_results(empty_list, memories_catalog_raw)
     discovered_tool_docs = []
-    loaded_skill_docs = []
+    preset_skills_raw = _core_get(options, "skills", empty_list)
+    preset_skill_docs = _agent_merge_skill_results(empty_list, preset_skills_raw)
+    loaded_skill_docs = _agent_merge_skill_results(empty_list, preset_skill_docs)
+    distiller_loaded_skill_docs = []
     loaded_memories = []
     used_memories = []
     used_skills = []
@@ -2422,6 +2457,7 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     state["policy"] = policy
     state["policy_flags"] = policy_flags
     state["policy_registry"] = policy_registry
+    state["relevance_ranking_options"] = relevance_ranking_options
     state["context_policy"] = context_policy
     state["auto_upgrade"] = auto_upgrade
     context_map_config = _core_get(options, "contextMap", None)
@@ -2470,7 +2506,9 @@ def _agent_factory(signature: Any, options: Any) -> Any:
     state["skills_catalog"] = skills_catalog
     state["memories_catalog"] = memories_catalog
     state["discovered_tool_docs"] = discovered_tool_docs
+    state["preset_skill_docs"] = preset_skill_docs
     state["loaded_skill_docs"] = loaded_skill_docs
+    state["distiller_loaded_skill_docs"] = distiller_loaded_skill_docs
     state["loaded_memories"] = loaded_memories
     state["used_memories"] = used_memories
     state["used_skills"] = used_skills
@@ -2555,6 +2593,20 @@ def _agent_reserved_runtime_names() -> list[Any]:
     else:
         names = []
     return names
+
+
+def _agent_runtime_reserved_names_for_state(state: Any) -> list[Any]:
+    _core_coverage_mark("_agent_runtime_reserved_names_for_state")
+    empty_list = []
+    reserved = _agent_reserved_runtime_names()
+    input_names = _core_get(state, "runtime_input_names", empty_list)
+    for name in input_names:
+        already = _core_contains(reserved, name)
+        if already:
+            pass
+        else:
+            reserved.append(name)
+    return reserved
 
 
 def _agent_runtime_language_tokens(language: str) -> list[Any]:
@@ -2970,7 +3022,15 @@ def _agent_policy_flags(options: Any, callable_split: Any, auto_upgrade: Any) ->
     memories_callback_mode = _core_or(memories_direct, has_any_memories_callback)
     memories_mode = _core_or(memories_callback_mode, has_memories_catalog)
     usage_camel = _core_get(options, "usageTrackingMode", False)
-    usage_enabled = _core_get(options, "usage_tracking_mode", usage_camel)
+    usage_direct = _core_get(options, "usage_tracking_mode", usage_camel)
+    used_memories_observer = _core_get(options, "onUsedMemories", None)
+    used_memories_observer_snake = _core_get(options, "on_used_memories", used_memories_observer)
+    used_skills_observer = _core_get(options, "onUsedSkills", None)
+    used_skills_observer_snake = _core_get(options, "on_used_skills", used_skills_observer)
+    has_used_memories_observer = _core_is_not_none(used_memories_observer_snake)
+    has_used_skills_observer = _core_is_not_none(used_skills_observer_snake)
+    has_used_observer = _core_or(has_used_memories_observer, has_used_skills_observer)
+    usage_enabled = _core_or(usage_direct, has_used_observer)
     status_camel = _core_get(options, "hasAgentStatusCallback", False)
     status_direct = _core_get(options, "has_agent_status_callback", status_camel)
     has_status_callback = _core_map_contains(options, "agentStatusCallback")
@@ -3647,11 +3707,17 @@ def _render_actor_primitives_list(stage: str, flags: Any) -> str:
 def _build_rlm_flags(state: Any) -> Any:
     _core_coverage_mark("_build_rlm_flags")
     empty_map = {}
+    empty_list = []
     flags = _core_get(state, "policy_flags", empty_map)
     disc = _core_get(flags, "discoveryMode", False)
     skills = _core_get(flags, "skillsMode", False)
+    loaded_skills = _core_get(state, "loaded_skill_docs", empty_list)
+    loaded_skills_count = _core_len(loaded_skills)
+    has_loaded_skills = _core_gt(loaded_skills_count, 0)
+    has_skills = _core_or(skills, has_loaded_skills)
     combined = _core_and(disc, skills)
     flags["discoveryMode+skillsMode"] = combined
+    flags["hasSkills"] = has_skills
     return flags
 
 
@@ -3734,7 +3800,12 @@ def _render_agent_skills_catalog_list(skills_catalog: Any) -> str:
         id = _core_get(skill, "id", "")
         name = _core_get(skill, "name", id)
         description = _core_get(skill, "description", "")
-        line = _core_string_format("- `{}` — {}. {}", id, name, description)
+        line = _core_string_format("- `{}` — {}", id, name)
+        has_description = _core_ne(description, "")
+        if has_description:
+            line = _core_string_format("{} — {}", line, description)
+        else:
+            pass
         lines.append(line)
     out = _core_string_join("\n", lines)
     return out
@@ -3765,6 +3836,7 @@ def _render_rlm_executor_description(state: Any, options: Any) -> str:
     usage_instructions = _core_get(contract, "usage_instructions", "")
     discovery_mode = _core_get(flags, "discoveryMode", False)
     skills_mode = _core_get(flags, "skillsMode", False)
+    has_skills = _core_get(flags, "hasSkills", skills_mode)
     memories_mode = _core_get(flags, "memoriesMode", False)
     status_callback = _core_get(flags, "hasAgentStatusCallback", False)
     relevance_hints_mode = _core_get(flags, "relevanceHintsEnabled", False)
@@ -3797,7 +3869,7 @@ def _render_rlm_executor_description(state: Any, options: Any) -> str:
     vars["hasModules"] = has_modules
     vars["hasDiscoveredDocs"] = discovery_mode
     vars["hasRelevanceHints"] = relevance_hints_mode
-    vars["hasSkills"] = skills_mode
+    vars["hasSkills"] = has_skills
     vars["hasSkillsCatalog"] = has_skills_catalog
     vars["skillsCatalogList"] = skills_catalog_list
     vars["skillUsageMode"] = skill_usage_mode
@@ -3842,6 +3914,7 @@ def _render_rlm_distiller_description(state: Any, options: Any) -> str:
     memories_mode = _core_get(flags, "memoriesMode", False)
     discovery_mode = _core_get(flags, "discoveryMode", False)
     skills_mode = _core_get(flags, "skillsMode", False)
+    has_skills = _core_get(flags, "hasSkills", skills_mode)
     memory_usage_camel = _core_get(options, "memoryUsageMode", False)
     memory_usage_mode = _core_get(options, "memory_usage_mode", memory_usage_camel)
     skill_usage_camel = _core_get(options, "skillUsageMode", False)
@@ -3872,7 +3945,7 @@ def _render_rlm_distiller_description(state: Any, options: Any) -> str:
     vars["discoveryMode"] = discovery_mode
     vars["hasModules"] = has_modules
     vars["hasDiscoveredDocs"] = discovery_mode
-    vars["hasSkills"] = skills_mode
+    vars["hasSkills"] = has_skills
     vars["hasSkillsCatalog"] = has_skills_catalog
     vars["skillsCatalogList"] = skills_catalog_list
     vars["isJavaScriptRuntime"] = is_javascript
@@ -6139,6 +6212,245 @@ def _agent_append_unique_by_field(items: Any, item: Any, field: str) -> Any:
     return items
 
 
+def _agent_normalize_skill_entry(entry: Any) -> Any:
+    _core_coverage_mark("_agent_normalize_skill_entry")
+    is_map = _core_type_is(entry, "object")
+    if is_map:
+        pass
+    else:
+        none = _core_none()
+        return none
+    name_raw = _core_get(entry, "name", None)
+    content = _core_get(entry, "content", None)
+    name_is_string = _core_type_is(name_raw, "string")
+    content_is_string = _core_type_is(content, "string")
+    valid_types = _core_and(name_is_string, content_is_string)
+    if valid_types:
+        pass
+    else:
+        none = _core_none()
+        return none
+    name = str(name_raw).strip()
+    name_empty = _core_eq(name, "")
+    if name_empty:
+        none = _core_none()
+        return none
+    else:
+        pass
+    id_raw = _core_get(entry, "id", name)
+    id = name
+    id_is_string = _core_type_is(id_raw, "string")
+    if id_is_string:
+        id_trimmed = str(id_raw).strip()
+        id_has_value = _core_ne(id_trimmed, "")
+        if id_has_value:
+            id = id_trimmed
+        else:
+            pass
+    else:
+        pass
+    out = {}
+    out["id"] = id
+    out["name"] = name
+    out["content"] = content
+    return out
+
+
+def _agent_merge_skill_results(existing: Any, incoming: Any) -> Any:
+    _core_coverage_mark("_agent_merge_skill_results")
+    by_id = {}
+    existing_is_list = _core_type_is(existing, "list")
+    if existing_is_list:
+        for entry in existing:
+            normalized = _agent_normalize_skill_entry(entry)
+            valid = _core_type_is(normalized, "object")
+            if valid:
+                id = _core_get(normalized, "id", None)
+                by_id[id] = normalized
+            else:
+                pass
+    else:
+        pass
+    incoming_is_list = _core_type_is(incoming, "list")
+    if incoming_is_list:
+        for entry2 in incoming:
+            normalized2 = _agent_normalize_skill_entry(entry2)
+            valid2 = _core_type_is(normalized2, "object")
+            if valid2:
+                id2 = _core_get(normalized2, "id", None)
+                by_id[id2] = normalized2
+            else:
+                pass
+    else:
+        pass
+    ids = _core_map_keys(by_id)
+    sorted_ids = _core_sorted_strings(ids)
+    out = []
+    for sorted_id in sorted_ids:
+        item = _core_get(by_id, sorted_id, None)
+        out.append(item)
+    return out
+
+
+def _agent_normalize_skill_catalog(catalog: Any) -> Any:
+    _core_coverage_mark("_agent_normalize_skill_catalog")
+    empty = []
+    base = _agent_merge_skill_results(empty, catalog)
+    catalog_by_id = {}
+    catalog_is_list = _core_type_is(catalog, "list")
+    if catalog_is_list:
+        for raw in catalog:
+            normalized = _agent_normalize_skill_entry(raw)
+            valid = _core_type_is(normalized, "object")
+            if valid:
+                id = _core_get(normalized, "id", None)
+                description_raw = _core_get(raw, "description", None)
+                description_is_string = _core_type_is(description_raw, "string")
+                if description_is_string:
+                    normalized["description"] = description_raw
+                else:
+                    pass
+                catalog_by_id[id] = normalized
+            else:
+                pass
+    else:
+        pass
+    base_count = _core_len(base)
+    has_base = _core_gt(base_count, 0)
+    if has_base:
+        ids = _core_map_keys(catalog_by_id)
+        sorted_ids = _core_sorted_strings(ids)
+        out = []
+        for sorted_id in sorted_ids:
+            item = _core_get(catalog_by_id, sorted_id, None)
+            out.append(item)
+        return out
+    else:
+        pass
+    return empty
+
+
+def _agent_catalog_skill_search(catalog: Any, searches: Any) -> Any:
+    _core_coverage_mark("_agent_catalog_skill_search")
+    docs = []
+    for skill in catalog:
+        id = _core_get(skill, "id", "")
+        name = _core_get(skill, "name", id)
+        description = _core_get(skill, "description", "")
+        content = _core_get(skill, "content", "")
+        content_head = _core_string_slice(content, 0, 600)
+        fields = []
+        id_field = {}
+        id_field["text"] = id
+        id_field["identifier"] = True
+        fields.append(id_field)
+        name_field = {}
+        name_field["text"] = name
+        name_field["weight"] = 2
+        fields.append(name_field)
+        has_description = _core_ne(description, "")
+        if has_description:
+            description_field = {}
+            description_field["text"] = description
+            description_field["weight"] = 2
+            fields.append(description_field)
+        else:
+            pass
+        content_field = {}
+        content_field["text"] = content_head
+        fields.append(content_field)
+        doc = {}
+        doc["id"] = id
+        doc["fields"] = fields
+        docs.append(doc)
+    opts = {}
+    opts["topK"] = 2
+    opts["minScore"] = 0
+    opts["marginRatio"] = 0
+    opts["minDocs"] = 1
+    matched_ids = []
+    for search in searches:
+        ranked = _agent_rank_documents(search, docs, opts)
+        for ranked_entry in ranked:
+            ranked_id = _core_get(ranked_entry, "id", "")
+            already = _core_contains(matched_ids, ranked_id)
+            fresh = _core_not(already)
+            if fresh:
+                matched_ids.append(ranked_id)
+            else:
+                pass
+    out = []
+    for matched_id in matched_ids:
+        for catalog_skill in catalog:
+            catalog_id = _core_get(catalog_skill, "id", "")
+            matches = _core_eq(catalog_id, matched_id)
+            if matches:
+                result = {}
+                result_name = _core_get(catalog_skill, "name", catalog_id)
+                result_content = _core_get(catalog_skill, "content", "")
+                result["id"] = catalog_id
+                result["name"] = result_name
+                result["content"] = result_content
+                out.append(result)
+            else:
+                pass
+    return out
+
+
+def _agent_catalog_memory_search(catalog: Any, searches: Any, already_loaded: Any) -> Any:
+    _core_coverage_mark("_agent_catalog_memory_search")
+    candidates = []
+    docs = []
+    for memory in catalog:
+        id = _core_get(memory, "id", "")
+        loaded = _agent_relevance_has_id(already_loaded, "id", id)
+        fresh = _core_not(loaded)
+        if fresh:
+            candidates.append(memory)
+            content = _core_get(memory, "content", "")
+            content_head = _core_string_slice(content, 0, 600)
+            fields = []
+            id_field = {}
+            id_field["text"] = id
+            id_field["identifier"] = True
+            fields.append(id_field)
+            content_field = {}
+            content_field["text"] = content_head
+            fields.append(content_field)
+            doc = {}
+            doc["id"] = id
+            doc["fields"] = fields
+            docs.append(doc)
+        else:
+            pass
+    opts = {}
+    opts["topK"] = 3
+    opts["minScore"] = 0
+    opts["marginRatio"] = 0
+    opts["minDocs"] = 1
+    matched_ids = []
+    for search in searches:
+        ranked = _agent_rank_documents(search, docs, opts)
+        for ranked_entry in ranked:
+            ranked_id = _core_get(ranked_entry, "id", "")
+            already = _core_contains(matched_ids, ranked_id)
+            fresh2 = _core_not(already)
+            if fresh2:
+                matched_ids.append(ranked_id)
+            else:
+                pass
+    out = []
+    for matched_id in matched_ids:
+        for candidate in candidates:
+            candidate_id = _core_get(candidate, "id", "")
+            matches = _core_eq(candidate_id, matched_id)
+            if matches:
+                out.append(candidate)
+            else:
+                pass
+    return out
+
+
 def _agent_render_discovered_tool_docs(docs: Any) -> str:
     _core_coverage_mark("_agent_render_discovered_tool_docs")
     lines = []
@@ -6161,18 +6473,25 @@ def _agent_render_loaded_skills(skills: Any) -> str:
     _core_coverage_mark("_agent_render_loaded_skills")
     lines = []
     for skill in skills:
+        id = _core_get(skill, "id", "")
         name = _core_get(skill, "name", "")
         content = _core_get(skill, "content", "")
-        line = _core_string_format("### {}\n{}", name, content)
+        line = _core_string_format("### {}\n\nID: `{}`\n\n{}", name, id, content)
         lines.append(line)
     body = _core_string_join("\n\n", lines)
-    empty = _core_eq(body, "")
-    out = body
-    if empty:
-        out = ""
-    else:
-        out = _core_string_format("Loaded Skills\n{}", body)
-    return out
+    return body
+
+
+def _agent_render_loaded_memories(memories: Any) -> str:
+    _core_coverage_mark("_agent_render_loaded_memories")
+    lines = []
+    for memory in memories:
+        id = _core_get(memory, "id", "")
+        content = _core_get(memory, "content", "")
+        line = _core_string_format("### Memory\n\nID: `{}`\n\n{}", id, content)
+        lines.append(line)
+    body = _core_string_join("\n\n", lines)
+    return body
 
 
 def _agent_discover(state: Any, request: Any) -> None:
@@ -6181,7 +6500,13 @@ def _agent_discover(state: Any, request: Any) -> None:
     normalized = _normalize_agent_discover_request(state, request)
     inventory = _core_get(state, "callable_inventory", empty_list)
     docs = _core_get(state, "discovered_tool_docs", empty_list)
+    active_stage = _core_get(state, "active_stage", "executor")
+    is_distiller = _core_eq(active_stage, "distiller")
     skill_docs = _core_get(state, "loaded_skill_docs", empty_list)
+    if is_distiller:
+        skill_docs = _core_get(state, "distiller_loaded_skill_docs", empty_list)
+    else:
+        pass
     trace = _core_get(state, "policy_trace", empty_list)
     action_log = _core_get(state, "action_log", empty_list)
     tools = _core_get(normalized, "tools", empty_list)
@@ -6225,24 +6550,33 @@ def _agent_discover(state: Any, request: Any) -> None:
                         pass
     skill_count = _core_len(skills)
     has_skills = _core_gt(skill_count, 0)
+    loaded_from_search = []
+    observer_loaded_from_search = []
     if has_skills:
-        host_skills = _core_agent_skill_search(state, skills)
-        host_count = _core_len(host_skills)
-        has_host = _core_gt(host_count, 0)
-        if has_host:
-            for host_skill in host_skills:
-                skill_name = _core_get(host_skill, "name", "")
-                skill_id = _core_get(host_skill, "id", skill_name)
-                host_skill["id"] = skill_id
-                skill_docs = _agent_append_unique_by_field(skill_docs, host_skill, "id")
+        state_options = _core_get(state, "options", None)
+        callback_camel = _core_get(state_options, "onSkillsSearch", None)
+        callback_value = _core_get(state_options, "on_skills_search", callback_camel)
+        scripted_camel = _core_get(state_options, "skillSearchResults", None)
+        scripted_value = _core_get(state_options, "skill_search_results", scripted_camel)
+        has_callback = _core_is_not_none(callback_value)
+        has_scripted = _core_is_not_none(scripted_value)
+        has_host_search = _core_or(has_callback, has_scripted)
+        if has_host_search:
+            host_skills = _core_agent_skill_search(state, skills)
+            observer_loaded_from_search = host_skills
+            loaded_from_search = _agent_merge_skill_results(empty_list, host_skills)
         else:
-            for skill in skills:
-                doc = {}
-                doc["id"] = skill
-                doc["name"] = skill
-                content = _core_string_format("Skill docs loaded for {}", skill)
-                doc["content"] = content
-                skill_docs = _agent_append_unique_by_field(skill_docs, doc, "id")
+            catalog = _core_get(state, "skills_catalog", empty_list)
+            loaded_from_search = _agent_catalog_skill_search(catalog, skills)
+            observer_loaded_from_search = loaded_from_search
+        skill_docs = _agent_merge_skill_results(skill_docs, loaded_from_search)
+        loaded_count = _core_len(loaded_from_search)
+        loaded_any = _core_gt(loaded_count, 0)
+        if loaded_any:
+            observer_options = {}
+            _core_agent_observer_notify(state, observer_options, "loaded_skills", observer_loaded_from_search)
+        else:
+            pass
     else:
         pass
     event = {}
@@ -6257,7 +6591,10 @@ def _agent_discover(state: Any, request: Any) -> None:
     action_event["skills"] = skills
     action_log.append(action_event)
     state["discovered_tool_docs"] = docs
-    state["loaded_skill_docs"] = skill_docs
+    if is_distiller:
+        state["distiller_loaded_skill_docs"] = skill_docs
+    else:
+        state["loaded_skill_docs"] = skill_docs
     state["policy_trace"] = trace
     state["action_log"] = action_log
     _agent_record_trace_event(state, "discover", event)
@@ -6283,17 +6620,65 @@ def _normalize_agent_recall_request(state: Any, request: Any) -> Any:
 
 def _agent_merge_memory_results(existing: Any, incoming: Any) -> Any:
     _core_coverage_mark("_agent_merge_memory_results")
-    out = existing
-    for memory in incoming:
-        id = _core_get(memory, "id", "")
-        content = _core_get(memory, "content", "")
-        has_id = _core_ne(id, "")
-        has_content = _core_ne(content, "")
-        valid = _core_and(has_id, has_content)
-        if valid:
-            out = _agent_append_unique_by_field(out, memory, "id")
-        else:
-            pass
+    by_id = {}
+    existing_is_list = _core_type_is(existing, "list")
+    if existing_is_list:
+        for memory in existing:
+            memory_is_map = _core_type_is(memory, "object")
+            if memory_is_map:
+                id_raw = _core_get(memory, "id", None)
+                content = _core_get(memory, "content", None)
+                id_is_string = _core_type_is(id_raw, "string")
+                content_is_string = _core_type_is(content, "string")
+                valid_types = _core_and(id_is_string, content_is_string)
+                if valid_types:
+                    id = str(id_raw).strip()
+                    has_id = _core_ne(id, "")
+                    if has_id:
+                        normalized = {}
+                        normalized["id"] = id
+                        normalized["content"] = content
+                        by_id[id] = normalized
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+    else:
+        pass
+    incoming_is_list = _core_type_is(incoming, "list")
+    if incoming_is_list:
+        for memory2 in incoming:
+            memory2_is_map = _core_type_is(memory2, "object")
+            if memory2_is_map:
+                id2_raw = _core_get(memory2, "id", None)
+                content2 = _core_get(memory2, "content", None)
+                id2_is_string = _core_type_is(id2_raw, "string")
+                content2_is_string = _core_type_is(content2, "string")
+                valid2_types = _core_and(id2_is_string, content2_is_string)
+                if valid2_types:
+                    id2 = str(id2_raw).strip()
+                    has_id2 = _core_ne(id2, "")
+                    if has_id2:
+                        normalized2 = {}
+                        normalized2["id"] = id2
+                        normalized2["content"] = content2
+                        by_id[id2] = normalized2
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+    else:
+        pass
+    ids = _core_map_keys(by_id)
+    sorted_ids = _core_sorted_strings(ids)
+    out = []
+    for sorted_id in sorted_ids:
+        item = _core_get(by_id, sorted_id, None)
+        out.append(item)
     return out
 
 
@@ -6303,9 +6688,33 @@ def _agent_recall(state: Any, request: Any) -> None:
     normalized = _normalize_agent_recall_request(state, request)
     searches = _core_get(normalized, "searches", empty_list)
     loaded = _core_get(state, "loaded_memories", empty_list)
-    incoming = _core_agent_memory_search(state, searches, loaded)
+    state_options = _core_get(state, "options", None)
+    callback_camel = _core_get(state_options, "onMemoriesSearch", None)
+    callback_value = _core_get(state_options, "on_memories_search", callback_camel)
+    scripted_camel = _core_get(state_options, "memorySearchResults", None)
+    scripted_value = _core_get(state_options, "memory_search_results", scripted_camel)
+    has_callback = _core_is_not_none(callback_value)
+    has_scripted = _core_is_not_none(scripted_value)
+    has_host_search = _core_or(has_callback, has_scripted)
+    incoming = []
+    observer_incoming = []
+    if has_host_search:
+        host_incoming = _core_agent_memory_search(state, searches, loaded)
+        observer_incoming = host_incoming
+        incoming = _agent_merge_memory_results(empty_list, host_incoming)
+    else:
+        catalog = _core_get(state, "memories_catalog", empty_list)
+        incoming = _agent_catalog_memory_search(catalog, searches, loaded)
+        observer_incoming = incoming
     merged = _agent_merge_memory_results(loaded, incoming)
     state["loaded_memories"] = merged
+    incoming_count = _core_len(incoming)
+    has_incoming = _core_gt(incoming_count, 0)
+    if has_incoming:
+        observer_options = {}
+        _core_agent_observer_notify(state, observer_options, "loaded_memories", observer_incoming)
+    else:
+        pass
     trace = _core_get(state, "policy_trace", empty_list)
     event = {}
     event["type"] = "recall"
@@ -6325,6 +6734,33 @@ def _agent_recall(state: Any, request: Any) -> None:
     return none
 
 
+def _agent_append_unique_used_entry(items: Any, entry: Any) -> Any:
+    _core_coverage_mark("_agent_append_unique_used_entry")
+    entry_id = _core_get(entry, "id", "")
+    entry_reason = _core_get(entry, "reason", "")
+    entry_stage = _core_get(entry, "stage", "")
+    exists = False
+    for item in items:
+        item_id = _core_get(item, "id", "")
+        item_reason = _core_get(item, "reason", "")
+        item_stage = _core_get(item, "stage", "")
+        same_id = _core_eq(entry_id, item_id)
+        same_reason = _core_eq(entry_reason, item_reason)
+        same_stage = _core_eq(entry_stage, item_stage)
+        same_id_reason = _core_and(same_id, same_reason)
+        same = _core_and(same_id_reason, same_stage)
+        if same:
+            exists = True
+        else:
+            pass
+    missing = _core_not(exists)
+    if missing:
+        items.append(entry)
+    else:
+        pass
+    return items
+
+
 def _normalize_agent_used_request(request: Any, default_stage: str) -> Any:
     _core_coverage_mark("_normalize_agent_used_request")
     is_map = _core_type_is(request, "object")
@@ -6339,6 +6775,7 @@ def _normalize_agent_used_request(request: Any, default_stage: str) -> Any:
         id = request
     id = str(id).strip()
     reason = str(reason).strip()
+    reason = _core_string_slice(reason, 0, 300)
     missing = _core_eq(id, "")
     if missing:
         error = _core_runtime_error("used(...) requires a non-empty loaded memory or skill id")
@@ -6367,9 +6804,13 @@ def _agent_used(state: Any, request: Any, stage: str) -> None:
     id = _core_get(normalized, "id", None)
     reason = _core_get(normalized, "reason", "")
     normalized_stage = _core_get(normalized, "stage", stage)
-    dedupe_key = _core_string_format("{}\n{}\n{}", normalized_stage, id, reason)
     memories = _core_get(state, "loaded_memories", empty_list)
     skills = _core_get(state, "loaded_skill_docs", empty_list)
+    is_distiller = _core_eq(normalized_stage, "distiller")
+    if is_distiller:
+        skills = _core_get(state, "distiller_loaded_skill_docs", empty_list)
+    else:
+        pass
     used_memories = _core_get(state, "used_memories", empty_list)
     used_skills = _core_get(state, "used_skills", empty_list)
     matched = False
@@ -6381,8 +6822,7 @@ def _agent_used(state: Any, request: Any, stage: str) -> None:
             record["id"] = id
             record["reason"] = reason
             record["stage"] = normalized_stage
-            record["dedupe_key"] = dedupe_key
-            used_memories = _agent_append_unique_by_field(used_memories, record, "dedupe_key")
+            used_memories = _agent_append_unique_used_entry(used_memories, record)
             matched = True
         else:
             pass
@@ -6396,8 +6836,7 @@ def _agent_used(state: Any, request: Any, stage: str) -> None:
             record["name"] = skill_name
             record["reason"] = reason
             record["stage"] = normalized_stage
-            record["dedupe_key"] = dedupe_key
-            used_skills = _agent_append_unique_by_field(used_skills, record, "dedupe_key")
+            used_skills = _agent_append_unique_used_entry(used_skills, record)
             matched = True
         else:
             pass
@@ -6943,6 +7382,7 @@ def _agent_export_runtime_state(state: Any) -> Any:
     runtime_state = _core_get(state, "runtime_state", empty_map)
     discovered = _core_get(state, "discovered_tool_docs", empty_list)
     skills = _core_get(state, "loaded_skill_docs", empty_list)
+    distiller_skills = _core_get(state, "distiller_loaded_skill_docs", empty_list)
     memories = _core_get(state, "loaded_memories", empty_list)
     used_memories = _core_get(state, "used_memories", empty_list)
     used_skills = _core_get(state, "used_skills", empty_list)
@@ -6972,6 +7412,7 @@ def _agent_export_runtime_state(state: Any) -> Any:
     out["runtime_state"] = runtime_state
     out["discovered_tool_docs"] = discovered
     out["loaded_skill_docs"] = skills
+    out["distiller_loaded_skill_docs"] = distiller_skills
     out["loaded_memories"] = memories
     out["used_memories"] = used_memories
     out["used_skills"] = used_skills
@@ -7006,8 +7447,14 @@ def _agent_restore_runtime_state(state: Any, snapshot: Any) -> Any:
     empty_list = []
     runtime_state = _core_get(snapshot, "runtime_state", empty_map)
     discovered = _core_get(snapshot, "discovered_tool_docs", empty_list)
-    skills = _core_get(snapshot, "loaded_skill_docs", empty_list)
-    memories = _core_get(snapshot, "loaded_memories", empty_list)
+    skills_raw = _core_get(snapshot, "loaded_skill_docs", empty_list)
+    distiller_skills_raw = _core_get(snapshot, "distiller_loaded_skill_docs", empty_list)
+    preset_skills = _core_get(state, "preset_skill_docs", empty_list)
+    skills = _agent_merge_skill_results(empty_list, skills_raw)
+    skills = _agent_merge_skill_results(skills, preset_skills)
+    distiller_skills = _agent_merge_skill_results(empty_list, distiller_skills_raw)
+    memories_raw = _core_get(snapshot, "loaded_memories", empty_list)
+    memories = _agent_merge_memory_results(empty_list, memories_raw)
     used_memories = _core_get(snapshot, "used_memories", empty_list)
     used_skills = _core_get(snapshot, "used_skills", empty_list)
     guidance_log = _core_get(snapshot, "guidance_log", empty_list)
@@ -7030,6 +7477,7 @@ def _agent_restore_runtime_state(state: Any, snapshot: Any) -> Any:
     state["runtime_state"] = runtime_state
     state["discovered_tool_docs"] = discovered
     state["loaded_skill_docs"] = skills
+    state["distiller_loaded_skill_docs"] = distiller_skills
     state["loaded_memories"] = memories
     state["used_memories"] = used_memories
     state["used_skills"] = used_skills
@@ -7071,6 +7519,14 @@ def _agent_runtime_build_globals(state: Any, values: Any) -> Any:
     callable_inventory = _core_get(state, "callable_inventory", empty_list)
     discovery_catalog = _core_get(state, "discovery_catalog", empty_list)
     registry = _core_get(state, "policy_registry", empty_map)
+    runtime_input_names = _core_get(state, "runtime_input_names", empty_list)
+    for input_name in values:
+        input_name_known = _core_contains(runtime_input_names, input_name)
+        if input_name_known:
+            pass
+        else:
+            runtime_input_names.append(input_name)
+    state["runtime_input_names"] = runtime_input_names
     selected_primitives = _select_actor_primitives(registry, "executor")
     globals["inputs"] = values
     globals["context"] = values
@@ -7099,9 +7555,9 @@ def _agent_runtime_build_globals(state: Any, values: Any) -> Any:
     return globals
 
 
-def _agent_runtime_sanitize_bindings(bindings: Any) -> Any:
+def _agent_runtime_sanitize_bindings(state: Any, bindings: Any) -> Any:
     _core_coverage_mark("_agent_runtime_sanitize_bindings")
-    reserved = _agent_reserved_runtime_names()
+    reserved = _agent_runtime_reserved_names_for_state(state)
     out = {}
     bindings_is_map = _core_type_is(bindings, "object")
     if bindings_is_map:
@@ -7117,7 +7573,7 @@ def _agent_runtime_sanitize_bindings(bindings: Any) -> Any:
     return out
 
 
-def _normalize_agent_runtime_snapshot(snapshot: Any) -> Any:
+def _normalize_agent_runtime_snapshot(state: Any, snapshot: Any) -> Any:
     _core_coverage_mark("_normalize_agent_runtime_snapshot")
     empty_list = []
     snapshot_is_map = _core_type_is(snapshot, "object")
@@ -7141,18 +7597,27 @@ def _normalize_agent_runtime_snapshot(snapshot: Any) -> Any:
         bindings = raw_bindings
     else:
         pass
-    clean_bindings = _agent_runtime_sanitize_bindings(bindings)
+    reserved = _agent_runtime_reserved_names_for_state(state)
+    clean_bindings = _agent_runtime_sanitize_bindings(state, bindings)
     entries = _core_get(snapshot, "entries", empty_list)
     entries_is_list = _core_type_is(entries, "list")
     if entries_is_list:
         pass
     else:
         entries = empty_list
+    clean_entries = []
+    for entry in entries:
+        entry_name = _core_get(entry, "name", "")
+        entry_reserved = _core_contains(reserved, entry_name)
+        if entry_reserved:
+            pass
+        else:
+            clean_entries.append(entry)
     closed = _core_get(snapshot, "closed", False)
     version = _core_get(snapshot, "version", 1)
     out = {}
     out["version"] = version
-    out["entries"] = entries
+    out["entries"] = clean_entries
     out["bindings"] = clean_bindings
     out["globals"] = clean_bindings
     out["closed"] = closed
@@ -7318,7 +7783,7 @@ def _normalize_agent_runtime_step_result(raw: Any, code: str) -> Any:
 def _agent_runtime_execution_options(state: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_runtime_execution_options")
     empty_map = {}
-    reserved_names = _agent_reserved_runtime_names()
+    reserved_names = _agent_runtime_reserved_names_for_state(state)
     runtime_options = _core_map_merge(empty_map, options)
     _core_map_delete(runtime_options, "runtime")
     runtime_options["reservedNames"] = reserved_names
@@ -7418,12 +7883,26 @@ def _agent_runtime_execute_step(state: Any, runtime: Any, session: Any, code: st
     has_recall = _core_is_not_none(recall_request)
     if has_recall:
         _agent_recall(state, recall_request)
+        memory_globals = _core_get(state, "runtime_globals", empty_map)
+        memory_inputs = _core_get(memory_globals, "inputs", empty_map)
+        memory_context = _core_get(memory_globals, "context", empty_map)
+        current_memories = _core_get(state, "loaded_memories", None)
+        memory_inputs["memories"] = current_memories
+        memory_context["memories"] = current_memories
+        memory_globals["inputs"] = memory_inputs
+        memory_globals["context"] = memory_context
+        memory_globals["memories"] = current_memories
+        state["runtime_globals"] = memory_globals
+        memory_patch = {}
+        memory_patch["globals"] = memory_globals
+        _agent_runtime_restore_session_state(state, session, memory_patch, runtime_options)
     else:
         pass
     used_request = _core_get(normalized, "used_request", None)
     has_used = _core_is_not_none(used_request)
     if has_used:
-        _agent_used(state, used_request, "executor")
+        active_stage = _core_get(state, "active_stage", "executor")
+        _agent_used(state, used_request, active_stage)
     else:
         pass
     callable_request = _core_get(normalized, "callable_request", None)
@@ -7483,7 +7962,7 @@ def _agent_runtime_inspect_state(state: Any, session: Any, options: Any) -> Any:
 def _agent_runtime_export_session_state(state: Any, session: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_runtime_export_session_state")
     raw_snapshot = _core_agent_runtime_export_state(session, options)
-    snapshot = _normalize_agent_runtime_snapshot(raw_snapshot)
+    snapshot = _normalize_agent_runtime_snapshot(state, raw_snapshot)
     state["runtime_session_state"] = snapshot
     log_entry = {}
     log_entry["type"] = "runtime_session"
@@ -7506,7 +7985,7 @@ def _agent_runtime_refresh_state_summary(state: Any, session: Any, options: Any)
     if enabled:
         runtime_options = _agent_runtime_execution_options(state, options)
         raw_snapshot = _core_agent_runtime_export_state(session, runtime_options)
-        snapshot = _normalize_agent_runtime_snapshot(raw_snapshot)
+        snapshot = _normalize_agent_runtime_snapshot(state, raw_snapshot)
         state["runtime_session_state"] = snapshot
         return snapshot
     else:
@@ -7516,9 +7995,9 @@ def _agent_runtime_refresh_state_summary(state: Any, session: Any, options: Any)
 
 def _agent_runtime_restore_session_state(state: Any, session: Any, snapshot: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_runtime_restore_session_state")
-    normalized_snapshot = _normalize_agent_runtime_snapshot(snapshot)
+    normalized_snapshot = _normalize_agent_runtime_snapshot(state, snapshot)
     raw_restored = _core_agent_runtime_restore_state(session, normalized_snapshot, options)
-    restored = _normalize_agent_runtime_snapshot(raw_restored)
+    restored = _normalize_agent_runtime_snapshot(state, raw_restored)
     state["runtime_session_state"] = restored
     log_entry = {}
     log_entry["type"] = "runtime_session"
@@ -7737,42 +8216,253 @@ def _agent_render_evidence_descriptor(descriptor: Any) -> str:
     return out
 
 
-def _agent_relevance_tokens(text: str) -> list[Any]:
-    _core_coverage_mark("_agent_relevance_tokens")
-    stopwords = _core_json_parse("[\n  \"a\",\n  \"an\",\n  \"and\",\n  \"are\",\n  \"as\",\n  \"at\",\n  \"be\",\n  \"by\",\n  \"for\",\n  \"from\",\n  \"has\",\n  \"have\",\n  \"how\",\n  \"i\",\n  \"in\",\n  \"into\",\n  \"is\",\n  \"it\",\n  \"of\",\n  \"on\",\n  \"or\",\n  \"our\",\n  \"please\",\n  \"show\",\n  \"that\",\n  \"the\",\n  \"their\",\n  \"this\",\n  \"to\",\n  \"use\",\n  \"with\",\n  \"you\"\n]\n")
-    lower = _core_string_lower(text)
-    clean = _core_regex_replace("[^a-z0-9]+", " ", lower)
-    parts = _core_string_split_trim_nonempty(clean, " ")
+def _agent_identifier_tokens(text: str) -> list[Any]:
+    _core_coverage_mark("_agent_identifier_tokens")
+    acronyms = _core_regex_replace("([A-Z]+)([A-Z][a-z])", "$1 $2", text)
+    camel = _core_regex_replace("([a-z0-9])([A-Z])", "$1 $2", acronyms)
+    spaced = _core_regex_replace("[^A-Za-z0-9]+", " ", camel)
+    lower = _core_string_lower(spaced)
+    parts = _core_string_split_trim_nonempty(lower, " ")
     out = []
     for part in parts:
         len = _core_len(part)
         long_enough = _core_gt(len, 1)
-        is_stop = _core_contains(stopwords, part)
-        not_stop = _core_not(is_stop)
-        ok = _core_and(long_enough, not_stop)
-        if ok:
-            already = _core_contains(out, part)
-            fresh = _core_not(already)
-            if fresh:
-                out.append(part)
-            else:
-                pass
+        without_digits = _core_regex_replace("^[0-9]+$", "", part)
+        not_numeric = _core_ne(without_digits, "")
+        keep = _core_and(long_enough, not_numeric)
+        if keep:
+            out.append(part)
         else:
             pass
     return out
 
 
-def _agent_relevance_score(tokens: Any, text: str) -> number:
-    _core_coverage_mark("_agent_relevance_score")
-    doc = _core_string_lower(text)
-    score = 0
-    for token in tokens:
-        hit = _core_contains(doc, token)
-        if hit:
-            score = _core_add(score, 1)
+def _agent_relevance_tokens(text: str) -> list[Any]:
+    _core_coverage_mark("_agent_relevance_tokens")
+    stopwords = _core_json_parse("[\n  \"a\",\n  \"an\",\n  \"and\",\n  \"are\",\n  \"as\",\n  \"at\",\n  \"be\",\n  \"by\",\n  \"for\",\n  \"from\",\n  \"has\",\n  \"have\",\n  \"how\",\n  \"i\",\n  \"in\",\n  \"into\",\n  \"is\",\n  \"it\",\n  \"of\",\n  \"on\",\n  \"or\",\n  \"our\",\n  \"please\",\n  \"show\",\n  \"that\",\n  \"the\",\n  \"their\",\n  \"this\",\n  \"to\",\n  \"use\",\n  \"with\",\n  \"you\"\n]\n")
+    lower = _core_string_lower(text)
+    clean = _core_regex_replace("[-!\"#$%&'()*+,./:;<=>?@\\[\\]^_`{|}~]", " ", lower)
+    parts = _core_string_split_trim_nonempty(clean, " ")
+    out = []
+    for part in parts:
+        len = _core_len(part)
+        long_enough = _core_gt(len, 1)
+        without_digits = _core_regex_replace("^[0-9]+$", "", part)
+        not_numeric = _core_ne(without_digits, "")
+        is_stop = _core_contains(stopwords, part)
+        not_stop = _core_not(is_stop)
+        base_ok = _core_and(long_enough, not_numeric)
+        ok = _core_and(base_ok, not_stop)
+        if ok:
+            out.append(part)
         else:
             pass
-    return score
+    return out
+
+
+def _agent_document_term_frequency(fields: Any) -> Any:
+    _core_coverage_mark("_agent_document_term_frequency")
+    tf = {}
+    for field in fields:
+        text = _core_get(field, "text", "")
+        weight = _core_get(field, "weight", 1)
+        identifier = _core_get(field, "identifier", False)
+        terms = _agent_relevance_tokens(text)
+        if identifier:
+            terms = _agent_identifier_tokens(text)
+        else:
+            pass
+        for term in terms:
+            current = _core_get(tf, term, 0)
+            next = _core_add(current, weight)
+            tf[term] = next
+    return tf
+
+
+def _agent_rank_documents(query: str, docs: Any, options: Any) -> Any:
+    _core_coverage_mark("_agent_rank_documents")
+    empty = []
+    top_k = _core_get(options, "topK", 3)
+    min_score = _core_get(options, "minScore", 0.08)
+    margin_ratio = _core_get(options, "marginRatio", 0.15)
+    min_docs = _core_get(options, "minDocs", 2)
+    doc_count = _core_len(docs)
+    too_few = _core_lt(doc_count, min_docs)
+    if too_few:
+        return empty
+    else:
+        pass
+    indexed = []
+    df = {}
+    for doc in docs:
+        fields = _core_get(doc, "fields", empty)
+        tf = _agent_document_term_frequency(fields)
+        doc_id = _core_get(doc, "id", "")
+        indexed_doc = {}
+        indexed_doc["id"] = doc_id
+        indexed_doc["tf"] = tf
+        indexed.append(indexed_doc)
+        terms = _core_map_keys(tf)
+        for term in terms:
+            count = _core_get(df, term, 0)
+            count = _core_add(count, 1)
+            df[term] = count
+    query_terms = _agent_relevance_tokens(query)
+    effective = []
+    for query_term in query_terms:
+        appears = _core_map_contains(df, query_term)
+        already_effective = _core_contains(effective, query_term)
+        fresh_effective = _core_not(already_effective)
+        include_effective = _core_and(appears, fresh_effective)
+        if include_effective:
+            effective.append(query_term)
+        else:
+            pass
+    effective_count = _core_len(effective)
+    no_effective = _core_eq(effective_count, 0)
+    if no_effective:
+        return empty
+    else:
+        pass
+    idf = {}
+    total_idf = 0
+    for term2 in effective:
+        frequency = _core_get(df, term2, 1)
+        ratio = _core_div(doc_count, frequency)
+        ratio_plus_one = _core_add(1, ratio)
+        weight = _core_math_log(ratio_plus_one)
+        idf[term2] = weight
+        total_idf = _core_add(total_idf, weight)
+    scored = []
+    for indexed_doc2 in indexed:
+        id = _core_get(indexed_doc2, "id", "")
+        tf2 = _core_get(indexed_doc2, "tf", None)
+        raw = 0
+        coverage_weight = 0
+        matched = []
+        for term3 in effective:
+            frequency2 = _core_get(tf2, term3, 0)
+            matched_frequency = _core_gt(frequency2, 0)
+            if matched_frequency:
+                idf_weight = _core_get(idf, term3, 0)
+                saturated_denominator = _core_add(frequency2, 1)
+                saturated = _core_div(frequency2, saturated_denominator)
+                weighted = _core_mul(idf_weight, saturated)
+                raw = _core_add(raw, weighted)
+                coverage_weight = _core_add(coverage_weight, idf_weight)
+                matched.append(term3)
+            else:
+                pass
+        coverage = _core_div(coverage_weight, total_idf)
+        score_entry = {}
+        score_entry["id"] = id
+        score_entry["raw"] = raw
+        score_entry["coverage"] = coverage
+        score_entry["matchedTerms"] = matched
+        scored.append(score_entry)
+    scored_ids = []
+    for scored_for_id in scored:
+        scored_id = _core_get(scored_for_id, "id", "")
+        scored_ids.append(scored_id)
+    sorted_scored_ids = _core_sorted_strings(scored_ids)
+    scored_by_id = []
+    for sorted_scored_id in sorted_scored_ids:
+        for scored_for_sort in scored:
+            scored_for_sort_id = _core_get(scored_for_sort, "id", "")
+            same_scored_id = _core_eq(scored_for_sort_id, sorted_scored_id)
+            if same_scored_id:
+                scored_by_id.append(scored_for_sort)
+            else:
+                pass
+    scored = scored_by_id
+    sorted = []
+    while True:
+        sorted_count = _core_len(sorted)
+        all_sorted = _core_gte(sorted_count, doc_count)
+        if all_sorted:
+            break
+        else:
+            pass
+        best = _core_none()
+        best_raw = -1
+        best_id = ""
+        found = False
+        for candidate in scored:
+            candidate_id = _core_get(candidate, "id", "")
+            already = _agent_relevance_has_id(sorted, "id", candidate_id)
+            fresh = _core_not(already)
+            if fresh:
+                candidate_raw = _core_get(candidate, "raw", 0)
+                greater = _core_gt(candidate_raw, best_raw)
+                better = greater
+                if better:
+                    best = candidate
+                    best_raw = candidate_raw
+                    best_id = candidate_id
+                    found = True
+                else:
+                    pass
+            else:
+                pass
+        if found:
+            sorted.append(best)
+        else:
+            break
+    top = _core_list_get(sorted, 0, None)
+    top_raw = _core_get(top, "raw", 0)
+    top_coverage = _core_get(top, "coverage", 0)
+    no_match = _core_lte(top_raw, 0)
+    below_floor = _core_lt(top_coverage, min_score)
+    rejected = _core_or(no_match, below_floor)
+    if rejected:
+        return empty
+    else:
+        pass
+    use_margin = _core_gt(margin_ratio, 0)
+    if use_margin:
+        near_top = 0
+        for scored_entry in sorted:
+            entry_raw = _core_get(scored_entry, "raw", 0)
+            positive = _core_gt(entry_raw, 0)
+            if positive:
+                negative_entry_raw = _core_mul(entry_raw, -1)
+                difference = _core_add(top_raw, negative_entry_raw)
+                relative = _core_div(difference, top_raw)
+                near = _core_lt(relative, margin_ratio)
+                if near:
+                    near_top = _core_add(near_top, 1)
+                else:
+                    pass
+            else:
+                pass
+        multiple_docs = _core_gte(doc_count, 2)
+        all_near = _core_gte(near_top, doc_count)
+        suppress = _core_and(multiple_docs, all_near)
+        if suppress:
+            return empty
+        else:
+            pass
+    else:
+        pass
+    out = []
+    for scored_entry2 in sorted:
+        out_count = _core_len(out)
+        under_limit = _core_lt(out_count, top_k)
+        entry_raw2 = _core_get(scored_entry2, "raw", 0)
+        positive2 = _core_gt(entry_raw2, 0)
+        include = _core_and(under_limit, positive2)
+        if include:
+            normalized_score = _core_div(entry_raw2, top_raw)
+            ranked_id = _core_get(scored_entry2, "id", "")
+            ranked_terms = _core_get(scored_entry2, "matchedTerms", empty)
+            ranked = {}
+            ranked["id"] = ranked_id
+            ranked["score"] = normalized_score
+            ranked["matchedTerms"] = ranked_terms
+            out.append(ranked)
+        else:
+            pass
+    return out
 
 
 def _agent_relevance_has_id(items: Any, field: str, id: str) -> bool:
@@ -7790,167 +8480,187 @@ def _agent_relevance_has_id(items: Any, field: str, id: str) -> bool:
 def _agent_rank_relevance_modules(state: Any, task: str) -> Any:
     _core_coverage_mark("_agent_rank_relevance_modules")
     empty_list = []
-    tokens = _agent_relevance_tokens(task)
-    token_count = _core_len(tokens)
-    no_tokens = _core_eq(token_count, 0)
-    if no_tokens:
-        return empty_list
-    else:
-        pass
     split = _core_get(state, "callable_split", None)
     discoverable = _core_get(split, "discoverable", empty_list)
-    out = []
-    thresholds = []
-    thresholds.append(3)
-    thresholds.append(2)
-    thresholds.append(1)
-    for threshold in thresholds:
-        for group in discoverable:
-            out_count = _core_len(out)
-            under = _core_lt(out_count, 3)
-            if under:
-                namespace = _core_get(group, "namespace", "")
-                already = _agent_relevance_has_id(out, "namespace", namespace)
-                fresh = _core_not(already)
-                if fresh:
-                    title = _core_get(group, "title", "")
-                    description = _core_get(group, "description", "")
-                    selection = _core_get(group, "selection_criteria", "")
-                    callables = _core_get(group, "callables", empty_list)
-                    pieces = []
-                    pieces.append(namespace)
-                    pieces.append(title)
-                    pieces.append(description)
-                    pieces.append(selection)
-                    pieces.append(selection)
-                    for callable in callables:
-                        name = _core_get(callable, "name", "")
-                        qualified = _core_get(callable, "qualified_name", "")
-                        cdesc = _core_get(callable, "description", "")
-                        pieces.append(name)
-                        pieces.append(qualified)
-                        pieces.append(cdesc)
-                        params = _core_get(callable, "parameters", None)
-                        properties = _core_get(params, "properties", None)
-                        props_is_object = _core_type_is(properties, "object")
-                        if props_is_object:
-                            prop_keys = _core_map_keys(properties)
-                            prop_text = _core_string_join(" ", prop_keys)
-                            pieces.append(prop_text)
-                        else:
-                            pass
-                    text = _core_string_join(" ", pieces)
-                    score = _agent_relevance_score(tokens, text)
-                    passes = _core_gte(score, threshold)
-                    if passes:
-                        entry = {}
-                        entry["namespace"] = namespace
-                        entry["score"] = score
-                        out.append(entry)
-                    else:
-                        pass
-                else:
-                    pass
+    docs = []
+    for group in discoverable:
+        namespace = _core_get(group, "namespace", "")
+        title = _core_get(group, "title", "")
+        description = _core_get(group, "description", "")
+        selection = _core_get(group, "selection_criteria", "")
+        fields = []
+        namespace_field = {}
+        namespace_field["text"] = namespace
+        namespace_field["identifier"] = True
+        fields.append(namespace_field)
+        has_title = _core_ne(title, "")
+        if has_title:
+            title_field = {}
+            title_field["text"] = title
+            fields.append(title_field)
+        else:
+            pass
+        has_description = _core_ne(description, "")
+        if has_description:
+            description_field = {}
+            description_field["text"] = description
+            fields.append(description_field)
+        else:
+            pass
+        has_selection = _core_ne(selection, "")
+        if has_selection:
+            selection_field = {}
+            selection_field["text"] = selection
+            selection_field["weight"] = 2
+            fields.append(selection_field)
+        else:
+            pass
+        callables = _core_get(group, "callables", empty_list)
+        for callable in callables:
+            name = _core_get(callable, "name", "")
+            name_field = {}
+            name_field["text"] = name
+            name_field["identifier"] = True
+            fields.append(name_field)
+            params = _core_get(callable, "parameters", None)
+            properties = _core_get(params, "properties", None)
+            props_is_object = _core_type_is(properties, "object")
+            if props_is_object:
+                prop_keys = _core_map_keys(properties)
+                for prop_key in prop_keys:
+                    prop_field = {}
+                    prop_field["text"] = prop_key
+                    prop_field["identifier"] = True
+                    fields.append(prop_field)
             else:
                 pass
+        doc = {}
+        doc["id"] = namespace
+        doc["fields"] = fields
+        docs.append(doc)
+    ranking_options = _core_get(state, "relevance_ranking_options", None)
+    ranked = _agent_rank_documents(task, docs, ranking_options)
+    out = []
+    for ranked_entry in ranked:
+        entry = {}
+        namespace2 = _core_get(ranked_entry, "id", "")
+        score = _core_get(ranked_entry, "score", 0)
+        matched = _core_get(ranked_entry, "matchedTerms", empty_list)
+        entry["namespace"] = namespace2
+        entry["score"] = score
+        entry["matchedTerms"] = matched
+        out.append(entry)
     return out
 
 
 def _agent_rank_relevance_skills(state: Any, task: str) -> Any:
     _core_coverage_mark("_agent_rank_relevance_skills")
     empty_list = []
-    tokens = _agent_relevance_tokens(task)
-    token_count = _core_len(tokens)
-    no_tokens = _core_eq(token_count, 0)
-    if no_tokens:
-        return empty_list
-    else:
-        pass
     catalog = _core_get(state, "skills_catalog", empty_list)
+    docs = []
+    for skill in catalog:
+        id = _core_get(skill, "id", "")
+        name = _core_get(skill, "name", id)
+        description = _core_get(skill, "description", "")
+        content = _core_get(skill, "content", "")
+        content_head = _core_string_slice(content, 0, 600)
+        fields = []
+        id_field = {}
+        id_field["text"] = id
+        id_field["identifier"] = True
+        fields.append(id_field)
+        name_field = {}
+        name_field["text"] = name
+        name_field["weight"] = 2
+        fields.append(name_field)
+        has_description = _core_ne(description, "")
+        if has_description:
+            description_field = {}
+            description_field["text"] = description
+            description_field["weight"] = 2
+            fields.append(description_field)
+        else:
+            pass
+        content_field = {}
+        content_field["text"] = content_head
+        fields.append(content_field)
+        doc = {}
+        doc["id"] = id
+        doc["fields"] = fields
+        docs.append(doc)
+    ranking_options = _core_get(state, "relevance_ranking_options", None)
+    ranked = _agent_rank_documents(task, docs, ranking_options)
     out = []
-    thresholds = []
-    thresholds.append(3)
-    thresholds.append(2)
-    thresholds.append(1)
-    for threshold in thresholds:
-        for skill in catalog:
-            out_count = _core_len(out)
-            under = _core_lt(out_count, 3)
-            if under:
-                id = _core_get(skill, "id", "")
-                already = _agent_relevance_has_id(out, "id", id)
-                fresh = _core_not(already)
-                if fresh:
-                    name = _core_get(skill, "name", id)
-                    description = _core_get(skill, "description", "")
-                    content = _core_get(skill, "content", "")
-                    text_parts = []
-                    text_parts.append(id)
-                    text_parts.append(name)
-                    text_parts.append(description)
-                    text_parts.append(content)
-                    text = _core_string_join(" ", text_parts)
-                    score = _agent_relevance_score(tokens, text)
-                    passes = _core_gte(score, threshold)
-                    if passes:
-                        entry = {}
-                        entry["id"] = id
-                        entry["name"] = name
-                        entry["score"] = score
-                        out.append(entry)
-                    else:
-                        pass
-                else:
-                    pass
+    for ranked_entry in ranked:
+        ranked_id = _core_get(ranked_entry, "id", "")
+        ranked_score = _core_get(ranked_entry, "score", 0)
+        ranked_name = ranked_id
+        for catalog_skill in catalog:
+            catalog_id = _core_get(catalog_skill, "id", "")
+            id_match = _core_eq(catalog_id, ranked_id)
+            if id_match:
+                ranked_name = _core_get(catalog_skill, "name", ranked_id)
             else:
                 pass
+        entry = {}
+        entry["id"] = ranked_id
+        entry["name"] = ranked_name
+        entry["score"] = ranked_score
+        out.append(entry)
     return out
 
 
 def _agent_rank_relevance_memories(state: Any, task: str) -> Any:
     _core_coverage_mark("_agent_rank_relevance_memories")
     empty_list = []
-    tokens = _agent_relevance_tokens(task)
-    token_count = _core_len(tokens)
-    no_tokens = _core_eq(token_count, 0)
-    if no_tokens:
-        return empty_list
-    else:
-        pass
     catalog = _core_get(state, "memories_catalog", empty_list)
     loaded = _core_get(state, "loaded_memories", empty_list)
+    candidates = []
+    docs = []
+    for memory in catalog:
+        id = _core_get(memory, "id", "")
+        already_loaded = _agent_relevance_has_id(loaded, "id", id)
+        fresh = _core_not(already_loaded)
+        if fresh:
+            candidates.append(memory)
+            content = _core_get(memory, "content", "")
+            content_head = _core_string_slice(content, 0, 600)
+            fields = []
+            id_field = {}
+            id_field["text"] = id
+            id_field["identifier"] = True
+            fields.append(id_field)
+            content_field = {}
+            content_field["text"] = content_head
+            fields.append(content_field)
+            doc = {}
+            doc["id"] = id
+            doc["fields"] = fields
+            docs.append(doc)
+        else:
+            pass
+    ranking_options = _core_get(state, "relevance_ranking_options", None)
+    ranked = _agent_rank_documents(task, docs, ranking_options)
     out = []
-    thresholds = []
-    thresholds.append(3)
-    thresholds.append(2)
-    thresholds.append(1)
-    for threshold in thresholds:
-        for memory in catalog:
-            out_count = _core_len(out)
-            under = _core_lt(out_count, 3)
-            if under:
-                id = _core_get(memory, "id", "")
-                already_out = _agent_relevance_has_id(out, "id", id)
-                already_loaded = _agent_relevance_has_id(loaded, "id", id)
-                already_any = _core_or(already_out, already_loaded)
-                fresh = _core_not(already_any)
-                if fresh:
-                    content = _core_get(memory, "content", "")
-                    score = _agent_relevance_score(tokens, content)
-                    passes = _core_gte(score, threshold)
-                    if passes:
-                        snippet = _core_string_slice(content, 0, 120)
-                        entry = {}
-                        entry["id"] = id
-                        entry["snippet"] = snippet
-                        entry["score"] = score
-                        out.append(entry)
-                    else:
-                        pass
-                else:
-                    pass
+    for ranked_entry in ranked:
+        ranked_id = _core_get(ranked_entry, "id", "")
+        ranked_score = _core_get(ranked_entry, "score", 0)
+        snippet = ""
+        for candidate in candidates:
+            candidate_id = _core_get(candidate, "id", "")
+            id_match = _core_eq(candidate_id, ranked_id)
+            if id_match:
+                candidate_content = _core_get(candidate, "content", "")
+                single_line = _core_regex_replace("\\s+", " ", candidate_content)
+                trimmed = str(single_line).strip()
+                snippet = _core_string_slice(trimmed, 0, 80)
             else:
                 pass
+        entry = {}
+        entry["id"] = ranked_id
+        entry["snippet"] = snippet
+        entry["score"] = ranked_score
+        out.append(entry)
     return out
 
 
@@ -8192,12 +8902,16 @@ def _build_distiller_inputs(state: Any, values: Any) -> Any:
     cm_text = _core_get(cm_state, "text", "")
     cm_has = _core_ne(cm_text, "")
     ctx_out = {}
+    distiller_runtime_enabled = _core_get(state, "runtime_enabled", False)
     for ck in context:
         cv = _core_get(context, ck, None)
-        cv_str = _core_string_format("{}", cv)
-        cv_len = _core_len(cv_str)
-        meta_note = _core_string_format("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", ck, cv_len)
-        ctx_out[ck] = meta_note
+        if distiller_runtime_enabled:
+            cv_str = _core_string_format("{}", cv)
+            cv_len = _core_len(cv_str)
+            meta_note = _core_string_format("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", ck, cv_len)
+            ctx_out[ck] = meta_note
+        else:
+            ctx_out[ck] = cv
     if cm_has:
         ctx_out["contextMap"] = cm_text
     else:
@@ -8212,13 +8926,14 @@ def _build_distiller_inputs(state: Any, values: Any) -> Any:
     runtime_text = _core_get(actor_context, "liveRuntimeState", "")
     pressure_text = _core_get(actor_context, "contextPressure", "")
     discovered_docs = _core_get(state, "discovered_tool_docs", empty_list)
-    loaded_skills = _core_get(state, "loaded_skill_docs", empty_list)
+    loaded_skills = _core_get(state, "distiller_loaded_skill_docs", empty_list)
     loaded_memories = _core_get(state, "loaded_memories", empty_list)
     discovered_text = _agent_render_discovered_tool_docs(discovered_docs)
     skills_text = _agent_render_loaded_skills(loaded_skills)
+    memories_text = _agent_render_loaded_memories(loaded_memories)
     out["discoveredToolDocs"] = discovered_text
     out["loadedSkills"] = skills_text
-    out["memories"] = loaded_memories
+    out["memories"] = memories_text
     out["summarizedActorLog"] = summary_text
     out["guidanceLog"] = guidance_text
     out["actionLog"] = action_text
@@ -8263,7 +8978,13 @@ def _build_executor_inputs(state: Any, values: Any, distiller_payload: Any) -> A
         out["contextMetadata"] = context_metadata
     else:
         pass
-    hints = _agent_build_relevance_hints(state, non_ctx, executor_request)
+    hints = _core_get(state, "relevance_hints_for_turn", None)
+    hints_is_object = _core_type_is(hints, "object")
+    if hints_is_object:
+        pass
+    else:
+        hints = _agent_build_relevance_hints(state, non_ctx, executor_request)
+        state["relevance_hints_for_turn"] = hints
     hints_text = _agent_render_relevance_hints(hints)
     has_hints = _core_ne(hints_text, "")
     if has_hints:
@@ -8275,6 +8996,7 @@ def _build_executor_inputs(state: Any, values: Any, distiller_payload: Any) -> A
     loaded_memories = _core_get(state, "loaded_memories", empty_list)
     discovered_text = _agent_render_discovered_tool_docs(discovered_docs)
     skills_text = _agent_render_loaded_skills(loaded_skills)
+    memories_text = _agent_render_loaded_memories(loaded_memories)
     actor_context = _agent_prepare_actor_context(state)
     guidance_text = _core_get(actor_context, "guidanceLog", "[]")
     action_text = _core_get(actor_context, "actionLog", "(no actions yet)")
@@ -8283,7 +9005,7 @@ def _build_executor_inputs(state: Any, values: Any, distiller_payload: Any) -> A
     pressure_text = _core_get(actor_context, "contextPressure", "")
     out["discoveredToolDocs"] = discovered_text
     out["loadedSkills"] = skills_text
-    out["memories"] = loaded_memories
+    out["memories"] = memories_text
     out["summarizedActorLog"] = summary_text
     out["guidanceLog"] = guidance_text
     out["actionLog"] = action_text
@@ -9460,8 +10182,65 @@ def _agent_run_llm_query(sub_gen: Any, client: Any, params: Any) -> Any:
 
 def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, client: Any, values: Any, options: Any) -> Any:
     _core_coverage_mark("_agent_forward")
+    empty_list = []
+    empty_map = {}
+    loaded_memories = []
+    used_memories = []
+    used_skills = []
+    relevance_hints_for_turn = _core_none()
+    state["loaded_memories"] = loaded_memories
+    state["used_memories"] = used_memories
+    state["used_skills"] = used_skills
+    state["relevance_hints_for_turn"] = relevance_hints_for_turn
+    preset_memories = _core_get(values, "memories", empty_list)
+    loaded_memories = _agent_merge_memory_results(loaded_memories, preset_memories)
+    state["loaded_memories"] = loaded_memories
+    loaded_skills = _core_get(state, "loaded_skill_docs", empty_list)
+    forward_skills = _core_get(options, "skills", empty_list)
+    loaded_skills = _agent_merge_skill_results(loaded_skills, forward_skills)
+    state["loaded_skill_docs"] = loaded_skills
+    flags = _core_get(state, "policy_flags", empty_map)
+    forward_used_memories = _core_get(options, "onUsedMemories", None)
+    forward_used_memories_snake = _core_get(options, "on_used_memories", forward_used_memories)
+    forward_used_skills = _core_get(options, "onUsedSkills", None)
+    forward_used_skills_snake = _core_get(options, "on_used_skills", forward_used_skills)
+    has_forward_used_memories = _core_is_not_none(forward_used_memories_snake)
+    has_forward_used_skills = _core_is_not_none(forward_used_skills_snake)
+    has_forward_used_observer = _core_or(has_forward_used_memories, has_forward_used_skills)
+    if has_forward_used_observer:
+        flags["usageTrackingMode"] = True
+        state["policy_flags"] = flags
+    else:
+        pass
+    direct_respond_only = _core_get(flags, "directRespondOnly", False)
+    if direct_respond_only:
+        distiller_skills = _core_get(state, "distiller_loaded_skill_docs", empty_list)
+        distiller_skills = _agent_merge_skill_results(distiller_skills, forward_skills)
+        state["distiller_loaded_skill_docs"] = distiller_skills
+    else:
+        pass
+    state["active_stage"] = "distiller"
     transcribed_values = _agent_transcribe_audio_inputs(state, client, values, options)
     values = transcribed_values
+    runtime_input_names = []
+    for runtime_input_name in values:
+        runtime_input_names.append(runtime_input_name)
+    state["runtime_input_names"] = runtime_input_names
+    previous_runtime_session_state = _core_get(state, "runtime_session_state", None)
+    previous_runtime_session_state_is_map = _core_type_is(previous_runtime_session_state, "object")
+    if previous_runtime_session_state_is_map:
+        previous_runtime_globals = _core_get(previous_runtime_session_state, "globals", None)
+        previous_runtime_bindings = _core_get(previous_runtime_session_state, "bindings", None)
+        previous_runtime_globals_is_map = _core_type_is(previous_runtime_globals, "object")
+        previous_runtime_bindings_is_map = _core_type_is(previous_runtime_bindings, "object")
+        previous_runtime_state_has_bindings = _core_or(previous_runtime_globals_is_map, previous_runtime_bindings_is_map)
+        if previous_runtime_state_has_bindings:
+            clean_previous_runtime_state = _normalize_agent_runtime_snapshot(state, previous_runtime_session_state)
+            state["runtime_session_state"] = clean_previous_runtime_state
+        else:
+            pass
+    else:
+        pass
     _agent_begin_trace(state, values)
     _agent_apply_llm_checkpoint_summary(state, client, options)
     state_options = _core_get(state, "options", None)
@@ -9546,6 +10325,11 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
         _agent_record_trace_event(state, "stage_response", distiller_response_event)
         distiller_payload = _normalize_agent_completion_payload(distiller_output)
     _throw_agent_clarification(distiller_payload, state)
+    distiller_skills_after = _core_get(state, "distiller_loaded_skill_docs", empty_list)
+    executor_skills_after = _core_get(state, "loaded_skill_docs", empty_list)
+    executor_skills_after = _agent_merge_skill_results(executor_skills_after, distiller_skills_after)
+    state["loaded_skill_docs"] = executor_skills_after
+    state["active_stage"] = "executor"
     executor_payload = _core_none()
     distiller_payload_type = _core_get(distiller_payload, "type", "")
     distiller_is_respond = _core_eq(distiller_payload_type, "respond")
@@ -9730,6 +10514,10 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     state["last_output"] = responder_output
     state["chat_log"] = logs
     state["usage"] = usage
+    forward_used_memories = _core_get(state, "used_memories", empty_list)
+    forward_used_skills = _core_get(state, "used_skills", empty_list)
+    _core_agent_observer_notify(state, options, "used_memories", forward_used_memories)
+    _core_agent_observer_notify(state, options, "used_skills", forward_used_skills)
     _agent_build_failure_signals(state)
     _agent_finalize_trace(state, "completed", responder_output)
     return responder_output

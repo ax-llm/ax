@@ -1,0 +1,295 @@
+{
+  "exact_observable_projection": {
+    "errors": [],
+    "loadedMemories": [
+      {
+        "content": "Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx AFTER_SNIPPET",
+        "id": "deploy-primary"
+      },
+      {
+        "content": "deploy secondary note",
+        "id": "deploy-secondary"
+      },
+      {
+        "content": "deploy release strongest loaded memory",
+        "id": "loaded-deploy"
+      }
+    ],
+    "loadedSkills": [
+      {
+        "content": "IDENTIFIER SKILL BODY",
+        "id": "lookupInvoiceStatus",
+        "name": "Invoice status lookup"
+      }
+    ],
+    "output": {
+      "answer": "catalog"
+    },
+    "ranking": {
+      "hasLikelyRelevant": true,
+      "matches": {
+        "identifier_skill": true,
+        "loaded_memory_excluded": false,
+        "memory_after_600": false,
+        "memory_after_snippet": false,
+        "memory_snippet_80": true,
+        "ranked_memory": true,
+        "skill_after_600": false
+      }
+    },
+    "stageRequests": [
+      {
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "loadedSkills": "",
+        "memories": "Memories: ### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
+        "relevanceHints": "",
+        "stage": "distiller"
+      },
+      {
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "loadedSkills": "",
+        "memories": "Memories: ### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
+        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` — Invoice status lookup\nMemories:\n- `deploy-primary` — Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "loadedSkills": "Loaded Skills: ### Invoice status lookup\n\nID: `lookupInvoiceStatus`\n\nIDENTIFIER SKILL BODY",
+        "memories": "Memories: ### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
+        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` — Invoice status lookup\nMemories:\n- `deploy-primary` — Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "loadedSkills": "Loaded Skills: ### Invoice status lookup\n\nID: `lookupInvoiceStatus`\n\nIDENTIFIER SKILL BODY",
+        "memories": "Memories: ### Memory\n\nID: `deploy-primary`\n\nDeploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx AFTER_SNIPPET\n\n### Memory\n\nID: `deploy-secondary`\n\ndeploy secondary note\n\n### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
+        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` — Invoice status lookup\nMemories:\n- `deploy-primary` — Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "loadedSkills": "Loaded Skills: ### Invoice status lookup\n\nID: `lookupInvoiceStatus`\n\nIDENTIFIER SKILL BODY",
+        "memories": "Memories: ### Memory\n\nID: `deploy-primary`\n\nDeploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx AFTER_SNIPPET\n\n### Memory\n\nID: `deploy-secondary`\n\ndeploy secondary note\n\n### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
+        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` — Invoice status lookup\nMemories:\n- `deploy-primary` — Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "### Available Skills\n\n- `lookupInvoiceStatus` — Invoice status lookup — invoice status billing lookup\n- `skill-beyond-limit` — Archive helper — archive helper\n- `unrelated-skill` — Weather helper — weather forecast",
+        "loadedSkills": "Loaded Skills: ### Invoice status lookup\n\nID: `lookupInvoiceStatus`\n\nIDENTIFIER SKILL BODY",
+        "memories": "Memories: ### Memory\n\nID: `deploy-primary`\n\nDeploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx AFTER_SNIPPET\n\n### Memory\n\nID: `deploy-secondary`\n\ndeploy secondary note\n\n### Memory\n\nID: `loaded-deploy`\n\ndeploy release strongest loaded memory",
+        "relevanceHints": "Relevance Hints: Skills:\n- `lookupInvoiceStatus` — Invoice status lookup\nMemories:\n- `deploy-primary` — Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "stage": "executor"
+      },
+      {
+        "availableSkills": "",
+        "loadedSkills": "",
+        "memories": "",
+        "relevanceHints": "",
+        "stage": "responder"
+      }
+    ]
+  },
+  "expected_loaded_memories": [
+    {
+      "content": "Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx AFTER_SNIPPET",
+      "id": "deploy-primary"
+    },
+    {
+      "content": "deploy secondary note",
+      "id": "deploy-secondary"
+    },
+    {
+      "content": "deploy release strongest loaded memory",
+      "id": "loaded-deploy"
+    }
+  ],
+  "expected_loaded_skill_docs": [
+    {
+      "content": "IDENTIFIER SKILL BODY",
+      "id": "lookupInvoiceStatus",
+      "name": "Invoice status lookup"
+    }
+  ],
+  "expected_output": {
+    "answer": "catalog"
+  },
+  "expected_request_count": 7,
+  "forward_options": {
+    "max_actor_steps": 8
+  },
+  "input": {
+    "memories": [
+      {
+        "content": "deploy release strongest loaded memory",
+        "id": "loaded-deploy"
+      }
+    ],
+    "query": "invoice status deploy release needleafterlimit"
+  },
+  "kind": "agent_forward",
+  "name": "semantic-parity-catalog-ranking-oracle",
+  "option_effect": "Removing either static catalog changes exact loaded state; ignoring ranking changes the topK hint, snippet, loaded exclusion, identifier, and 600-character probes.",
+  "option_effects": {
+    "axagent.constructor.memoriesCatalog": "loadedMemories",
+    "axagent.constructor.relevanceRanking": "ranking",
+    "axagent.constructor.skillsCatalog": "loadedSkills",
+    "axagent.method.forward": "output"
+  },
+  "options": {
+    "directResponse": "off",
+    "memoriesCatalog": [
+      {
+        "content": "deploy release strongest loaded memory",
+        "id": "loaded-deploy"
+      },
+      {
+        "content": "Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx AFTER_SNIPPET",
+        "id": "deploy-primary"
+      },
+      {
+        "content": "deploy secondary note",
+        "id": "deploy-secondary"
+      },
+      {
+        "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxneedleafterlimit",
+        "id": "memory-beyond-limit"
+      }
+    ],
+    "relevanceRanking": {
+      "minScore": 0,
+      "topK": 1
+    },
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "skillsCatalog": [
+      {
+        "content": "IDENTIFIER SKILL BODY",
+        "description": "invoice status billing lookup",
+        "id": "lookupInvoiceStatus",
+        "name": "Invoice status lookup"
+      },
+      {
+        "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxneedleafterlimit",
+        "description": "archive helper",
+        "id": "skill-beyond-limit",
+        "name": "Archive helper"
+      },
+      {
+        "content": "forecast rain",
+        "description": "weather forecast",
+        "id": "unrelated-skill",
+        "name": "Weather helper"
+      }
+    ]
+  },
+  "parity_contract_ids": [
+    "axagent.constructor.skillsCatalog",
+    "axagent.constructor.memoriesCatalog",
+    "axagent.constructor.relevanceRanking",
+    "axagent.method.forward"
+  ],
+  "ranking_probe": [
+    {
+      "label": "identifier_skill",
+      "needle": "`lookupInvoiceStatus` —"
+    },
+    {
+      "label": "ranked_memory",
+      "needle": "`deploy-primary` —"
+    },
+    {
+      "label": "loaded_memory_excluded",
+      "needle": "`loaded-deploy` —"
+    },
+    {
+      "label": "memory_snippet_80",
+      "needle": "Deploy primary release runbook xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "label": "memory_after_snippet",
+      "needle": "AFTER_SNIPPET"
+    },
+    {
+      "label": "skill_after_600",
+      "needle": "skill-beyond-limit"
+    },
+    {
+      "label": "memory_after_600",
+      "needle": "memory-beyond-limit"
+    }
+  ],
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"catalog execute\\\", {})\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"discover({\\\"skills\\\":[\\\"invoice status\\\"]}) // discover-invoice\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"recall([\\\"deploy release\\\"]) // recall-deploy\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"discover({\\\"skills\\\":[\\\"needleafterlimit\\\"]}) // discover-limit\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"recall([\\\"needleafterlimit\\\"]) // recall-limit\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"catalog done\\\", {\\\"answer\\\":\\\"catalog\\\"})\"}"
+    },
+    {
+      "content": "{\"answer\":\"catalog\"}"
+    }
+  ],
+  "runtime_script": [
+    {
+      "expected_code": "final(\"catalog execute\", {})",
+      "result": {
+        "args": ["catalog execute", {}],
+        "type": "final"
+      }
+    },
+    {
+      "expected_code": "discover({\"skills\":[\"invoice status\"]}) // discover-invoice",
+      "result": {
+        "discover": {
+          "skills": ["invoice status"]
+        }
+      }
+    },
+    {
+      "expected_code": "recall([\"deploy release\"]) // recall-deploy",
+      "result": {
+        "recall": ["deploy release"]
+      }
+    },
+    {
+      "expected_code": "discover({\"skills\":[\"needleafterlimit\"]}) // discover-limit",
+      "result": {
+        "discover": {
+          "skills": ["needleafterlimit"]
+        }
+      }
+    },
+    {
+      "expected_code": "recall([\"needleafterlimit\"]) // recall-limit",
+      "result": {
+        "recall": ["needleafterlimit"]
+      }
+    },
+    {
+      "expected_code": "final(\"catalog done\", {\"answer\":\"catalog\"})",
+      "result": {
+        "args": [
+          "catalog done",
+          {
+            "answer": "catalog"
+          }
+        ],
+        "type": "final"
+      }
+    }
+  ],
+  "signature": "query:string -> answer:string"
+}

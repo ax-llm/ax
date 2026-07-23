@@ -62,7 +62,7 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-go-agent-memory-skills/SKILL.md",
-      "digest": "sha256:1641eda794c2600e35d66fa157db5f4f97d1fa3c5f84f1e5c5fef29e92936f16"
+      "digest": "sha256:519935c9e284b0eeaecf35c902beae3d0c906931874655f8d5377edeeead9b5f"
     },
     {
       "name": "ax-go-agent-observability",

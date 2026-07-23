@@ -5,6 +5,8 @@
 #endif
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -1273,10 +1275,108 @@ static void run_agent_playbook_evolve(Value fixture) {
   }
 }
 
+static const std::array<std::string, 14> semantic_prompt_field_labels = {
+    "Query",
+    "Executor Request",
+    "Distilled Context Summary",
+    "Context Metadata",
+    "Context Map",
+    "Discovered Tool Docs",
+    "Loaded Skills",
+    "Memories",
+    "Relevance Hints",
+    "Summarized Actor Log",
+    "Guidance Log",
+    "Action Log",
+    "Live Runtime State",
+    "Context Pressure",
+};
+
+static std::string normalize_semantic_prompt_text(const std::string& text) {
+  std::string unix_text;
+  unix_text.reserve(text.size());
+  for (char ch : text) {
+    if (ch != '\r') unix_text.push_back(ch);
+  }
+  std::string normalized;
+  size_t cursor = 0;
+  while (cursor <= unix_text.size()) {
+    size_t next = unix_text.find('\n', cursor);
+    std::string line = unix_text.substr(cursor, next == std::string::npos ? std::string::npos : next - cursor);
+    while (!line.empty() && (line.back() == ' ' || line.back() == '\t')) line.pop_back();
+    if (!normalized.empty()) normalized += "\n";
+    normalized += line;
+    if (next == std::string::npos) break;
+    cursor = next + 1;
+  }
+  size_t start = 0;
+  while (start < normalized.size() && std::isspace(static_cast<unsigned char>(normalized[start]))) ++start;
+  size_t end = normalized.size();
+  while (end > start && std::isspace(static_cast<unsigned char>(normalized[end - 1]))) --end;
+  return normalized.substr(start, end - start);
+}
+
+static std::string semantic_prompt_field(const std::string& user, const std::string& label) {
+  std::string normalized = normalize_semantic_prompt_text(user);
+  std::string marker = label + ": ";
+  size_t start = normalized.find(marker);
+  if (start == std::string::npos) return "";
+  size_t body_start = start + marker.size();
+  size_t end = normalized.size();
+  for (const auto& candidate : semantic_prompt_field_labels) {
+    if (candidate == label) continue;
+    size_t next = normalized.find("\n\n" + candidate + ": ", body_start);
+    if (next != std::string::npos && next < end) end = next;
+  }
+  return normalize_semantic_prompt_text(label + ": " + normalized.substr(body_start, end - body_start));
+}
+
+static std::string semantic_available_skills_index(const std::string& system) {
+  std::string normalized = normalize_semantic_prompt_text(system);
+  const std::string heading = "### Available Skills";
+  size_t start = normalized.find(heading);
+  if (start == std::string::npos) return "";
+  std::vector<std::string> entries;
+  size_t cursor = start + heading.size();
+  while (cursor <= normalized.size()) {
+    size_t next = normalized.find('\n', cursor);
+    std::string line = normalized.substr(cursor, next == std::string::npos ? std::string::npos : next - cursor);
+    if (line.empty() && entries.empty()) {
+      // Skip the blank line between the heading and the first index item.
+    } else if (line.rfind("- `", 0) == 0) {
+      entries.push_back(line);
+    } else {
+      break;
+    }
+    if (next == std::string::npos) break;
+    cursor = next + 1;
+  }
+  if (entries.empty()) return "";
+  std::string out = heading + "\n\n";
+  for (size_t index = 0; index < entries.size(); ++index) {
+    if (index > 0) out += "\n";
+    out += entries[index];
+  }
+  return out;
+}
+
 static void run_agent_forward(Value fixture) {
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
   client.transcribe_responses = as_array(Core::get(fixture, "transcribe_responses", Value::array()));
   Value agent_options = Core::get(fixture, "options", Value::object());
+  Value semantic_observer_transcript = Value::array();
+  bool semantic_observers_enabled = !Core::get(fixture, "expected_observer_transcript").is_null();
+  auto install_semantic_observer = [&](Value& target, const std::string& key, const std::string& label, bool throws_error) {
+    if (!semantic_observers_enabled || Core::get(target, key).is_null()) return;
+    Core::set(target, key, register_agent_observer([&, label, throws_error](Value payload) {
+      Core::append(semantic_observer_transcript, object({{"callback", label}, {"payload", payload}}));
+      if (throws_error) throw std::runtime_error("semantic parity observer failure");
+    }));
+  };
+  install_semantic_observer(agent_options, "onLoadedSkills", "loaded_skills", true);
+  install_semantic_observer(agent_options, "onLoadedMemories", "loaded_memories", true);
+  install_semantic_observer(agent_options, "onUsedSkills", "constructor.used_skills", false);
+  install_semantic_observer(agent_options, "onUsedMemories", "constructor.used_memories", false);
   std::unique_ptr<ScriptedCodeRuntime> runtime;
   if (!Core::get(fixture, "runtime_script").is_null()) {
     Value runtime_config = Core::get(agent_options, "runtime", Value::object());
@@ -1299,6 +1399,9 @@ static void run_agent_forward(Value fixture) {
 #endif
   std::unique_ptr<AxAgent> ag;
   bool observer_called = false;
+  Value run_state_projections = Value::array();
+  Value saved_runtime_state;
+  Value state_roundtrip_projection = Value::object();
   try {
     ag = std::make_unique<AxAgent>(Core::get(fixture, "signature"), agent_options);
     if (!Core::get(fixture, "set_instruction").is_null()) ag->set_instruction(Core::get(fixture, "set_instruction"));
@@ -1311,9 +1414,50 @@ static void run_agent_forward(Value fixture) {
     }
     if (!Core::get(fixture, "set_state").is_null()) ag->set_state(Core::get(fixture, "set_state"));
     if (!Core::get(fixture, "restore_runtime_state").is_null()) ag->restore_runtime_state(Core::get(fixture, "restore_runtime_state"));
-    Value output = ag->forward(client, Core::get(fixture, "input", Value::object()), Core::get(fixture, "forward_options", Value::object()));
+    Value output;
+    Value forward_runs = Core::get(fixture, "forward_runs");
+    if (!forward_runs.is_null()) {
+      output = Value::array();
+      for (const auto& run : Core::iter(forward_runs)) {
+        Value state_action = Core::get(run, "state_action", "");
+        if (display(state_action) == "reset") {
+          ag->restore_runtime_state(Value::object());
+        } else if (display(state_action) == "restore_saved") {
+          if (saved_runtime_state.is_null()) throw AxError("fixture", "restore_saved requires an earlier save_runtime_state run");
+          Value restored = ag->restore_runtime_state(saved_runtime_state);
+          Core::set(state_roundtrip_projection, "restored", object({
+              {"loaded_skill_docs", Core::get(restored, "loaded_skill_docs", Value::array())},
+          }));
+        }
+        Value forward_options = Core::get(run, "forward_options", Value::object());
+        install_semantic_observer(forward_options, "onUsedSkills", "forward.used_skills", false);
+        install_semantic_observer(forward_options, "onUsedMemories", "forward.used_memories", false);
+        Core::append(output, ag->forward(client, Core::get(run, "input", Value::object()), forward_options));
+        Value run_exported = ag->export_runtime_state();
+        if (Core::truthy(Core::get(run, "save_runtime_state", false))) {
+          saved_runtime_state = run_exported;
+          Core::set(state_roundtrip_projection, "saved", object({
+              {"loaded_skill_docs", Core::get(run_exported, "loaded_skill_docs", Value::array())},
+          }));
+        }
+        Core::append(run_state_projections, object({
+            {"loaded_skill_docs", Core::get(run_exported, "loaded_skill_docs", Value::array())},
+            {"loaded_memories", Core::get(run_exported, "loaded_memories", Value::array())},
+            {"used_skills", Core::get(run_exported, "used_skills", Value::array())},
+            {"used_memories", Core::get(run_exported, "used_memories", Value::array())},
+        }));
+      }
+    } else {
+      Value forward_options = Core::get(fixture, "forward_options", Value::object());
+      install_semantic_observer(forward_options, "onUsedSkills", "forward.used_skills", false);
+      install_semantic_observer(forward_options, "onUsedMemories", "forward.used_memories", false);
+      output = ag->forward(client, Core::get(fixture, "input", Value::object()), forward_options);
+    }
     if (!Core::get(fixture, "expected_error_contains").is_null()) throw AxError("fixture", "expected agent forward to fail");
     if (!Core::get(fixture, "expected_output").is_null()) assert_equal(output, Core::get(fixture, "expected_output"), "agent output");
+    if (!Core::get(fixture, "expected_run_state_projections").is_null()) assert_equal(run_state_projections, Core::get(fixture, "expected_run_state_projections"), "agent run state projections");
+    if (!Core::get(fixture, "expected_state_roundtrip_projection").is_null()) assert_equal(state_roundtrip_projection, Core::get(fixture, "expected_state_roundtrip_projection"), "agent state roundtrip projection");
+    if (!Core::get(fixture, "expected_observer_transcript").is_null()) assert_equal(semantic_observer_transcript, Core::get(fixture, "expected_observer_transcript"), "agent observer transcript");
     if (Core::truthy(Core::get(fixture, "observer_throws", false)) && !observer_called) throw AxError("fixture", "citation observer was not called");
   } catch (const AxError& error) {
     Value expected = Core::get(fixture, "expected_error_contains");
@@ -1325,6 +1469,65 @@ static void run_agent_forward(Value fixture) {
   Value expected_count = Core::get(fixture, "expected_request_count");
   if (!expected_count.is_null() && client.requests.size() != static_cast<size_t>(std::stoul(display(expected_count)))) {
     throw AxError("fixture", "expected agent request count mismatch");
+  }
+  Value exact_projection = Core::get(fixture, "exact_observable_projection", Value::object());
+  if (!Core::get(exact_projection, "stateRoundtrip").is_null()) assert_equal(state_roundtrip_projection, Core::get(exact_projection, "stateRoundtrip"), "exact agent state roundtrip projection");
+  if (!Core::get(exact_projection, "ranking").is_null()) {
+    std::string executor_system;
+    std::string executor_user;
+    for (const auto& request : client.requests) {
+      Value prompt = Core::get(request, "chat_prompt", Core::get(request, "chatPrompt", Value::array()));
+      std::string system_text;
+      std::string user_text;
+      for (const auto& raw_message : Core::iter(prompt)) {
+        std::string role = display(Core::get(raw_message, "role", ""));
+        std::string content = display(Core::get(raw_message, "content", ""));
+        if (role == "system") system_text += content + "\n";
+        if (role == "user") user_text += content + "\n";
+      }
+      if (system_text.find("You (`executor`)") != std::string::npos) {
+        executor_system = system_text;
+        executor_user = user_text;
+        break;
+      }
+    }
+    Value matches = Value::object();
+    for (const auto& probe : Core::iter(Core::get(fixture, "ranking_probe", Value::array()))) {
+      std::string label = display(Core::get(probe, "label", ""));
+      std::string needle = display(Core::get(probe, "needle", ""));
+      Core::set(matches, label, executor_user.find(needle) != std::string::npos);
+    }
+    Value actual_ranking = object({
+        {"hasLikelyRelevant", executor_system.find("Likely Relevant") != std::string::npos},
+        {"matches", matches},
+    });
+    assert_equal(actual_ranking, Core::get(exact_projection, "ranking"), "exact agent ranking projection");
+  }
+  Value expected_stage_requests = Core::get(exact_projection, "stageRequests");
+  if (!expected_stage_requests.is_null()) {
+    Value actual_stage_requests = Value::array();
+    for (const auto& request : client.requests) {
+      Value prompt = Core::get(request, "chat_prompt", Core::get(request, "chatPrompt", Value::array()));
+      std::string system_text;
+      std::string user_text;
+      for (const auto& raw_message : Core::iter(prompt)) {
+        std::string role = display(Core::get(raw_message, "role", ""));
+        Value raw_content = Core::get(raw_message, "content", "");
+        std::string content = raw_content.is_string() ? display(raw_content) : stringify(raw_content);
+        if (role == "system") system_text += content + "\n";
+        if (role == "user") user_text += content + "\n";
+      }
+      std::string stage = system_text.find("You (`distiller`)") != std::string::npos ? "distiller"
+          : system_text.find("You (`executor`)") != std::string::npos ? "executor" : "responder";
+      Core::append(actual_stage_requests, object({
+          {"stage", stage},
+          {"availableSkills", semantic_available_skills_index(system_text)},
+          {"loadedSkills", semantic_prompt_field(user_text, "Loaded Skills")},
+          {"memories", semantic_prompt_field(user_text, "Memories")},
+          {"relevanceHints", semantic_prompt_field(user_text, "Relevance Hints")},
+      }));
+    }
+    assert_equal(actual_stage_requests, expected_stage_requests, "exact agent stage request projection");
   }
   Value expected_contains = Core::get(fixture, "expected_request_contains");
   if (!expected_contains.is_null()) {
@@ -1363,6 +1566,13 @@ static void run_agent_forward(Value fixture) {
   Value exported = ag->export_runtime_state();
   if (!Core::get(fixture, "expected_runtime_contract_subset").is_null()) assert_subset(ag->get_runtime_contract(), Core::get(fixture, "expected_runtime_contract_subset"), "runtime contract");
   if (!Core::get(fixture, "expected_exported_state_subset").is_null()) assert_subset(exported, Core::get(fixture, "expected_exported_state_subset"), "runtime state");
+  for (const auto& spec : std::vector<std::array<std::string, 3>>{
+           {"expected_loaded_skill_docs", "loaded_skill_docs", "loaded skills exact"},
+           {"expected_loaded_memories", "loaded_memories", "loaded memories exact"},
+           {"expected_used_skills", "used_skills", "used skills exact"},
+           {"expected_used_memories", "used_memories", "used memories exact"}}) {
+    if (!Core::get(fixture, spec[0]).is_null()) assert_equal(Core::get(exported, spec[1], Value::array()), Core::get(fixture, spec[0]), spec[2]);
+  }
   if (!Core::get(fixture, "expected_context_events_subset").is_null()) assert_list_subset(Core::get(exported, "context_events", Value::array()), Core::get(fixture, "expected_context_events_subset"), "agent context events");
   if (!Core::get(fixture, "expected_action_log_subset").is_null()) assert_list_subset(Core::get(exported, "action_log", Value::array()), Core::get(fixture, "expected_action_log_subset"), "action log");
   if (runtime && !Core::get(fixture, "expected_executed").is_null()) assert_equal(Value(runtime->executed), Core::get(fixture, "expected_executed"), "executed code");

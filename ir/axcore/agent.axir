@@ -65,23 +65,25 @@ module @ax.agent version "0.1" {
       %policy = core.call @normalize_agent_policy(%options)
       %policy_flags = core.call @agent_policy_flags(%options, %callable_split, %auto_upgrade)
       %policy_registry = core.call @agent_policy_registry(%policy, %policy_flags)
+      %relevance_ranking_camel = core.get %options["relevanceRanking"] default null
+      %relevance_ranking_raw = core.get %options["relevance_ranking"] default %relevance_ranking_camel
+      %relevance_ranking_options = core.map
+      %relevance_ranking_is_map = core.type_is %relevance_ranking_raw type "object"
+      core.if %relevance_ranking_is_map {
+        %relevance_ranking_options = core.call intrinsic.map.merge(%relevance_ranking_options, %relevance_ranking_raw)
+      }
       %discovery_catalog = core.call @render_agent_discovery_catalog(%callable_split)
       %skills_catalog_camel = core.get %options["skillsCatalog"] default %empty_list
-      %skills_catalog = core.get %options["skills_catalog"] default %skills_catalog_camel
-      %skills_catalog_is_list = core.type_is %skills_catalog type "list"
-      core.if %skills_catalog_is_list {
-      } else {
-        %skills_catalog = core.let %empty_list
-      }
+      %skills_catalog_raw = core.get %options["skills_catalog"] default %skills_catalog_camel
+      %skills_catalog = core.call @agent_normalize_skill_catalog(%skills_catalog_raw)
       %memories_catalog_camel = core.get %options["memoriesCatalog"] default %empty_list
-      %memories_catalog = core.get %options["memories_catalog"] default %memories_catalog_camel
-      %memories_catalog_is_list = core.type_is %memories_catalog type "list"
-      core.if %memories_catalog_is_list {
-      } else {
-        %memories_catalog = core.let %empty_list
-      }
+      %memories_catalog_raw = core.get %options["memories_catalog"] default %memories_catalog_camel
+      %memories_catalog = core.call @agent_merge_memory_results(%empty_list, %memories_catalog_raw)
       %discovered_tool_docs = core.list
-      %loaded_skill_docs = core.list
+      %preset_skills_raw = core.get %options["skills"] default %empty_list
+      %preset_skill_docs = core.call @agent_merge_skill_results(%empty_list, %preset_skills_raw)
+      %loaded_skill_docs = core.call @agent_merge_skill_results(%empty_list, %preset_skill_docs)
+      %distiller_loaded_skill_docs = core.list
       %loaded_memories = core.list
       %used_memories = core.list
       %used_skills = core.list
@@ -132,6 +134,7 @@ module @ax.agent version "0.1" {
       core.set %state["policy"] = %policy
       core.set %state["policy_flags"] = %policy_flags
       core.set %state["policy_registry"] = %policy_registry
+      core.set %state["relevance_ranking_options"] = %relevance_ranking_options
       core.set %state["context_policy"] = %context_policy
       core.set %state["auto_upgrade"] = %auto_upgrade
       %context_map_config = core.get %options["contextMap"] default null
@@ -177,7 +180,9 @@ module @ax.agent version "0.1" {
       core.set %state["skills_catalog"] = %skills_catalog
       core.set %state["memories_catalog"] = %memories_catalog
       core.set %state["discovered_tool_docs"] = %discovered_tool_docs
+      core.set %state["preset_skill_docs"] = %preset_skill_docs
       core.set %state["loaded_skill_docs"] = %loaded_skill_docs
+      core.set %state["distiller_loaded_skill_docs"] = %distiller_loaded_skill_docs
       core.set %state["loaded_memories"] = %loaded_memories
       core.set %state["used_memories"] = %used_memories
       core.set %state["used_skills"] = %used_skills
@@ -228,6 +233,26 @@ module @ax.agent version "0.1" {
         %names = core.list
       }
       core.return %names
+    }
+  }
+
+  op ax.agent.runtime @agent_runtime_reserved_names_for_state {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> list<string>"
+    body @entry(%state: json) {
+      %empty_list = core.list
+      %reserved = core.call @agent_reserved_runtime_names()
+      %input_names = core.get %state["runtime_input_names"] default %empty_list
+      core.for %name in %input_names {
+        %already = core.call intrinsic.contains(%reserved, %name)
+        core.if %already {
+        } else {
+          core.append %reserved, %name
+        }
+      }
+      core.return %reserved
     }
   }
 
@@ -619,7 +644,15 @@ module @ax.agent version "0.1" {
       %memories_callback_mode = core.call intrinsic.or(%memories_direct, %has_any_memories_callback)
       %memories_mode = core.call intrinsic.or(%memories_callback_mode, %has_memories_catalog)
       %usage_camel = core.get %options["usageTrackingMode"] default false
-      %usage_enabled = core.get %options["usage_tracking_mode"] default %usage_camel
+      %usage_direct = core.get %options["usage_tracking_mode"] default %usage_camel
+      %used_memories_observer = core.get %options["onUsedMemories"] default null
+      %used_memories_observer_snake = core.get %options["on_used_memories"] default %used_memories_observer
+      %used_skills_observer = core.get %options["onUsedSkills"] default null
+      %used_skills_observer_snake = core.get %options["on_used_skills"] default %used_skills_observer
+      %has_used_memories_observer = core.call intrinsic.is_not_none(%used_memories_observer_snake)
+      %has_used_skills_observer = core.call intrinsic.is_not_none(%used_skills_observer_snake)
+      %has_used_observer = core.call intrinsic.or(%has_used_memories_observer, %has_used_skills_observer)
+      %usage_enabled = core.call intrinsic.or(%usage_direct, %has_used_observer)
       %status_camel = core.get %options["hasAgentStatusCallback"] default false
       %status_direct = core.get %options["has_agent_status_callback"] default %status_camel
       %has_status_callback = core.call intrinsic.map.contains(%options, "agentStatusCallback")
@@ -1383,11 +1416,17 @@ module @ax.agent version "0.1" {
     type signature = "(json) -> json"
     body @entry(%state: json) {
       %empty_map = core.map
+      %empty_list = core.list
       %flags = core.get %state["policy_flags"] default %empty_map
       %disc = core.get %flags["discoveryMode"] default false
       %skills = core.get %flags["skillsMode"] default false
+      %loaded_skills = core.get %state["loaded_skill_docs"] default %empty_list
+      %loaded_skills_count = core.call intrinsic.len(%loaded_skills)
+      %has_loaded_skills = core.call intrinsic.gt(%loaded_skills_count, 0)
+      %has_skills = core.call intrinsic.or(%skills, %has_loaded_skills)
       %combined = core.call intrinsic.and(%disc, %skills)
       core.set %flags["discoveryMode+skillsMode"] = %combined
+      core.set %flags["hasSkills"] = %has_skills
       core.return %flags
     }
   }
@@ -1497,7 +1536,11 @@ module @ax.agent version "0.1" {
         %id = core.get %skill["id"] default ""
         %name = core.get %skill["name"] default %id
         %description = core.get %skill["description"] default ""
-        %line = core.call intrinsic.string.format("- `{}` — {}. {}", %id, %name, %description)
+        %line = core.call intrinsic.string.format("- `{}` — {}", %id, %name)
+        %has_description = core.call intrinsic.ne(%description, "")
+        core.if %has_description {
+          %line = core.call intrinsic.string.format("{} — {}", %line, %description)
+        }
         core.append %lines, %line
       }
       %out = core.call intrinsic.string.join("\n", %lines)
@@ -1539,6 +1582,7 @@ module @ax.agent version "0.1" {
       %usage_instructions = core.get %contract["usage_instructions"] default ""
       %discovery_mode = core.get %flags["discoveryMode"] default false
       %skills_mode = core.get %flags["skillsMode"] default false
+      %has_skills = core.get %flags["hasSkills"] default %skills_mode
       %memories_mode = core.get %flags["memoriesMode"] default false
       %status_callback = core.get %flags["hasAgentStatusCallback"] default false
       %relevance_hints_mode = core.get %flags["relevanceHintsEnabled"] default false
@@ -1571,7 +1615,7 @@ module @ax.agent version "0.1" {
       core.set %vars["hasModules"] = %has_modules
       core.set %vars["hasDiscoveredDocs"] = %discovery_mode
       core.set %vars["hasRelevanceHints"] = %relevance_hints_mode
-      core.set %vars["hasSkills"] = %skills_mode
+      core.set %vars["hasSkills"] = %has_skills
       core.set %vars["hasSkillsCatalog"] = %has_skills_catalog
       core.set %vars["skillsCatalogList"] = %skills_catalog_list
       core.set %vars["skillUsageMode"] = %skill_usage_mode
@@ -1626,6 +1670,7 @@ module @ax.agent version "0.1" {
       %memories_mode = core.get %flags["memoriesMode"] default false
       %discovery_mode = core.get %flags["discoveryMode"] default false
       %skills_mode = core.get %flags["skillsMode"] default false
+      %has_skills = core.get %flags["hasSkills"] default %skills_mode
       %memory_usage_camel = core.get %options["memoryUsageMode"] default false
       %memory_usage_mode = core.get %options["memory_usage_mode"] default %memory_usage_camel
       %skill_usage_camel = core.get %options["skillUsageMode"] default false
@@ -1656,7 +1701,7 @@ module @ax.agent version "0.1" {
       core.set %vars["discoveryMode"] = %discovery_mode
       core.set %vars["hasModules"] = %has_modules
       core.set %vars["hasDiscoveredDocs"] = %discovery_mode
-      core.set %vars["hasSkills"] = %skills_mode
+      core.set %vars["hasSkills"] = %has_skills
       core.set %vars["hasSkillsCatalog"] = %has_skills_catalog
       core.set %vars["skillsCatalogList"] = %skills_catalog_list
       core.set %vars["isJavaScriptRuntime"] = %is_javascript
@@ -4005,6 +4050,268 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.policy @agent_normalize_skill_entry {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> json"
+    body @entry(%entry: json) {
+      %is_map = core.type_is %entry type "object"
+      core.if %is_map {
+      } else {
+        %none = core.call intrinsic.none()
+        core.return %none
+      }
+      %name_raw = core.get %entry["name"] default null
+      %content = core.get %entry["content"] default null
+      %name_is_string = core.type_is %name_raw type "string"
+      %content_is_string = core.type_is %content type "string"
+      %valid_types = core.call intrinsic.and(%name_is_string, %content_is_string)
+      core.if %valid_types {
+      } else {
+        %none = core.call intrinsic.none()
+        core.return %none
+      }
+      %name = core.string_trim %name_raw
+      %name_empty = core.call intrinsic.eq(%name, "")
+      core.if %name_empty {
+        %none = core.call intrinsic.none()
+        core.return %none
+      }
+      %id_raw = core.get %entry["id"] default %name
+      %id = core.let %name
+      %id_is_string = core.type_is %id_raw type "string"
+      core.if %id_is_string {
+        %id_trimmed = core.string_trim %id_raw
+        %id_has_value = core.call intrinsic.ne(%id_trimmed, "")
+        core.if %id_has_value {
+          %id = core.let %id_trimmed
+        }
+      }
+      %out = core.map
+      core.set %out["id"] = %id
+      core.set %out["name"] = %name
+      core.set %out["content"] = %content
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @agent_merge_skill_results {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> json"
+    body @entry(%existing: json, %incoming: json) {
+      %by_id = core.map
+      %existing_is_list = core.type_is %existing type "list"
+      core.if %existing_is_list {
+        core.for %entry in %existing {
+          %normalized = core.call @agent_normalize_skill_entry(%entry)
+          %valid = core.type_is %normalized type "object"
+          core.if %valid {
+            %id = core.get %normalized["id"]
+            core.set %by_id[%id] = %normalized
+          }
+        }
+      }
+      %incoming_is_list = core.type_is %incoming type "list"
+      core.if %incoming_is_list {
+        core.for %entry2 in %incoming {
+          %normalized2 = core.call @agent_normalize_skill_entry(%entry2)
+          %valid2 = core.type_is %normalized2 type "object"
+          core.if %valid2 {
+            %id2 = core.get %normalized2["id"]
+            core.set %by_id[%id2] = %normalized2
+          }
+        }
+      }
+      %ids = core.call intrinsic.map.keys(%by_id)
+      %sorted_ids = core.call intrinsic.list.sorted_strings(%ids)
+      %out = core.list
+      core.for %sorted_id in %sorted_ids {
+        %item = core.get %by_id[%sorted_id]
+        core.append %out, %item
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @agent_normalize_skill_catalog {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> json"
+    body @entry(%catalog: json) {
+      %empty = core.list
+      %base = core.call @agent_merge_skill_results(%empty, %catalog)
+      %catalog_by_id = core.map
+      %catalog_is_list = core.type_is %catalog type "list"
+      core.if %catalog_is_list {
+        core.for %raw in %catalog {
+          %normalized = core.call @agent_normalize_skill_entry(%raw)
+          %valid = core.type_is %normalized type "object"
+          core.if %valid {
+            %id = core.get %normalized["id"]
+            %description_raw = core.get %raw["description"] default null
+            %description_is_string = core.type_is %description_raw type "string"
+            core.if %description_is_string {
+              core.set %normalized["description"] = %description_raw
+            }
+            core.set %catalog_by_id[%id] = %normalized
+          }
+        }
+      }
+      %base_count = core.call intrinsic.len(%base)
+      %has_base = core.call intrinsic.gt(%base_count, 0)
+      core.if %has_base {
+        %ids = core.call intrinsic.map.keys(%catalog_by_id)
+        %sorted_ids = core.call intrinsic.list.sorted_strings(%ids)
+        %out = core.list
+        core.for %sorted_id in %sorted_ids {
+          %item = core.get %catalog_by_id[%sorted_id]
+          core.append %out, %item
+        }
+        core.return %out
+      }
+      core.return %empty
+    }
+  }
+
+  op ax.agent.policy @agent_catalog_skill_search {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> json"
+    body @entry(%catalog: json, %searches: json) {
+      %docs = core.list
+      core.for %skill in %catalog {
+        %id = core.get %skill["id"] default ""
+        %name = core.get %skill["name"] default %id
+        %description = core.get %skill["description"] default ""
+        %content = core.get %skill["content"] default ""
+        %content_head = core.call intrinsic.string.slice(%content, 0, 600)
+        %fields = core.list
+        %id_field = core.map
+        core.set %id_field["text"] = %id
+        core.set %id_field["identifier"] = true
+        core.append %fields, %id_field
+        %name_field = core.map
+        core.set %name_field["text"] = %name
+        core.set %name_field["weight"] = 2
+        core.append %fields, %name_field
+        %has_description = core.call intrinsic.ne(%description, "")
+        core.if %has_description {
+          %description_field = core.map
+          core.set %description_field["text"] = %description
+          core.set %description_field["weight"] = 2
+          core.append %fields, %description_field
+        }
+        %content_field = core.map
+        core.set %content_field["text"] = %content_head
+        core.append %fields, %content_field
+        %doc = core.map
+        core.set %doc["id"] = %id
+        core.set %doc["fields"] = %fields
+        core.append %docs, %doc
+      }
+      %opts = core.map
+      core.set %opts["topK"] = 2
+      core.set %opts["minScore"] = 0
+      core.set %opts["marginRatio"] = 0
+      core.set %opts["minDocs"] = 1
+      %matched_ids = core.list
+      core.for %search in %searches {
+        %ranked = core.call @agent_rank_documents(%search, %docs, %opts)
+        core.for %ranked_entry in %ranked {
+          %ranked_id = core.get %ranked_entry["id"] default ""
+          %already = core.call intrinsic.contains(%matched_ids, %ranked_id)
+          %fresh = core.call intrinsic.not(%already)
+          core.if %fresh {
+            core.append %matched_ids, %ranked_id
+          }
+        }
+      }
+      %out = core.list
+      core.for %matched_id in %matched_ids {
+        core.for %catalog_skill in %catalog {
+          %catalog_id = core.get %catalog_skill["id"] default ""
+          %matches = core.call intrinsic.eq(%catalog_id, %matched_id)
+          core.if %matches {
+            %result = core.map
+            %result_name = core.get %catalog_skill["name"] default %catalog_id
+            %result_content = core.get %catalog_skill["content"] default ""
+            core.set %result["id"] = %catalog_id
+            core.set %result["name"] = %result_name
+            core.set %result["content"] = %result_content
+            core.append %out, %result
+          }
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.agent.policy @agent_catalog_memory_search {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json, json) -> json"
+    body @entry(%catalog: json, %searches: json, %already_loaded: json) {
+      %candidates = core.list
+      %docs = core.list
+      core.for %memory in %catalog {
+        %id = core.get %memory["id"] default ""
+        %loaded = core.call @agent_relevance_has_id(%already_loaded, "id", %id)
+        %fresh = core.call intrinsic.not(%loaded)
+        core.if %fresh {
+          core.append %candidates, %memory
+          %content = core.get %memory["content"] default ""
+          %content_head = core.call intrinsic.string.slice(%content, 0, 600)
+          %fields = core.list
+          %id_field = core.map
+          core.set %id_field["text"] = %id
+          core.set %id_field["identifier"] = true
+          core.append %fields, %id_field
+          %content_field = core.map
+          core.set %content_field["text"] = %content_head
+          core.append %fields, %content_field
+          %doc = core.map
+          core.set %doc["id"] = %id
+          core.set %doc["fields"] = %fields
+          core.append %docs, %doc
+        }
+      }
+      %opts = core.map
+      core.set %opts["topK"] = 3
+      core.set %opts["minScore"] = 0
+      core.set %opts["marginRatio"] = 0
+      core.set %opts["minDocs"] = 1
+      %matched_ids = core.list
+      core.for %search in %searches {
+        %ranked = core.call @agent_rank_documents(%search, %docs, %opts)
+        core.for %ranked_entry in %ranked {
+          %ranked_id = core.get %ranked_entry["id"] default ""
+          %already = core.call intrinsic.contains(%matched_ids, %ranked_id)
+          %fresh2 = core.call intrinsic.not(%already)
+          core.if %fresh2 {
+            core.append %matched_ids, %ranked_id
+          }
+        }
+      }
+      %out = core.list
+      core.for %matched_id in %matched_ids {
+        core.for %candidate in %candidates {
+          %candidate_id = core.get %candidate["id"] default ""
+          %matches = core.call intrinsic.eq(%candidate_id, %matched_id)
+          core.if %matches {
+            core.append %out, %candidate
+          }
+        }
+      }
+      core.return %out
+    }
+  }
+
   op ax.agent.policy @agent_render_discovered_tool_docs {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -4038,20 +4345,32 @@ module @ax.agent version "0.1" {
     body @entry(%skills: json) {
       %lines = core.list
       core.for %skill in %skills {
+        %id = core.get %skill["id"] default ""
         %name = core.get %skill["name"] default ""
         %content = core.get %skill["content"] default ""
-        %line = core.call intrinsic.string.format("### {}\n{}", %name, %content)
+        %line = core.call intrinsic.string.format("### {}\n\nID: `{}`\n\n{}", %name, %id, %content)
         core.append %lines, %line
       }
       %body = core.call intrinsic.string.join("\n\n", %lines)
-      %empty = core.call intrinsic.eq(%body, "")
-      %out = core.let %body
-      core.if %empty {
-        %out = core.let ""
-      } else {
-        %out = core.call intrinsic.string.format("Loaded Skills\n{}", %body)
+      core.return %body
+    }
+  }
+
+  op ax.agent.policy @agent_render_loaded_memories {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json) -> string"
+    body @entry(%memories: json) {
+      %lines = core.list
+      core.for %memory in %memories {
+        %id = core.get %memory["id"] default ""
+        %content = core.get %memory["content"] default ""
+        %line = core.call intrinsic.string.format("### Memory\n\nID: `{}`\n\n{}", %id, %content)
+        core.append %lines, %line
       }
-      core.return %out
+      %body = core.call intrinsic.string.join("\n\n", %lines)
+      core.return %body
     }
   }
 
@@ -4065,7 +4384,12 @@ module @ax.agent version "0.1" {
       %normalized = core.call @normalize_agent_discover_request(%state, %request)
       %inventory = core.get %state["callable_inventory"] default %empty_list
       %docs = core.get %state["discovered_tool_docs"] default %empty_list
+      %active_stage = core.get %state["active_stage"] default "executor"
+      %is_distiller = core.call intrinsic.eq(%active_stage, "distiller")
       %skill_docs = core.get %state["loaded_skill_docs"] default %empty_list
+      core.if %is_distiller {
+        %skill_docs = core.get %state["distiller_loaded_skill_docs"] default %empty_list
+      }
       %trace = core.get %state["policy_trace"] default %empty_list
       %action_log = core.get %state["action_log"] default %empty_list
       %tools = core.get %normalized["tools"] default %empty_list
@@ -4113,26 +4437,32 @@ module @ax.agent version "0.1" {
       }
       %skill_count = core.call intrinsic.len(%skills)
       %has_skills = core.call intrinsic.gt(%skill_count, 0)
+      %loaded_from_search = core.list
+      %observer_loaded_from_search = core.list
       core.if %has_skills {
-        %host_skills = core.call intrinsic.agent.skill_search(%state, %skills)
-        %host_count = core.call intrinsic.len(%host_skills)
-        %has_host = core.call intrinsic.gt(%host_count, 0)
-        core.if %has_host {
-          core.for %host_skill in %host_skills {
-            %skill_name = core.get %host_skill["name"] default ""
-            %skill_id = core.get %host_skill["id"] default %skill_name
-            core.set %host_skill["id"] = %skill_id
-            %skill_docs = core.call @agent_append_unique_by_field(%skill_docs, %host_skill, "id")
-          }
+        %state_options = core.get %state["options"] default null
+        %callback_camel = core.get %state_options["onSkillsSearch"] default null
+        %callback_value = core.get %state_options["on_skills_search"] default %callback_camel
+        %scripted_camel = core.get %state_options["skillSearchResults"] default null
+        %scripted_value = core.get %state_options["skill_search_results"] default %scripted_camel
+        %has_callback = core.call intrinsic.is_not_none(%callback_value)
+        %has_scripted = core.call intrinsic.is_not_none(%scripted_value)
+        %has_host_search = core.call intrinsic.or(%has_callback, %has_scripted)
+        core.if %has_host_search {
+          %host_skills = core.call intrinsic.agent.skill_search(%state, %skills)
+          %observer_loaded_from_search = core.let %host_skills
+          %loaded_from_search = core.call @agent_merge_skill_results(%empty_list, %host_skills)
         } else {
-          core.for %skill in %skills {
-            %doc = core.map
-            core.set %doc["id"] = %skill
-            core.set %doc["name"] = %skill
-            %content = core.call intrinsic.string.format("Skill docs loaded for {}", %skill)
-            core.set %doc["content"] = %content
-            %skill_docs = core.call @agent_append_unique_by_field(%skill_docs, %doc, "id")
-          }
+          %catalog = core.get %state["skills_catalog"] default %empty_list
+          %loaded_from_search = core.call @agent_catalog_skill_search(%catalog, %skills)
+          %observer_loaded_from_search = core.let %loaded_from_search
+        }
+        %skill_docs = core.call @agent_merge_skill_results(%skill_docs, %loaded_from_search)
+        %loaded_count = core.call intrinsic.len(%loaded_from_search)
+        %loaded_any = core.call intrinsic.gt(%loaded_count, 0)
+        core.if %loaded_any {
+          %observer_options = core.map
+          core.call intrinsic.agent.observer.notify(%state, %observer_options, "loaded_skills", %observer_loaded_from_search)
         }
       }
       %event = core.map
@@ -4147,7 +4477,11 @@ module @ax.agent version "0.1" {
       core.set %action_event["skills"] = %skills
       core.append %action_log, %action_event
       core.set %state["discovered_tool_docs"] = %docs
-      core.set %state["loaded_skill_docs"] = %skill_docs
+      core.if %is_distiller {
+        core.set %state["distiller_loaded_skill_docs"] = %skill_docs
+      } else {
+        core.set %state["loaded_skill_docs"] = %skill_docs
+      }
       core.set %state["policy_trace"] = %trace
       core.set %state["action_log"] = %action_log
       core.call @agent_record_trace_event(%state, "discover", %event)
@@ -4182,16 +4516,59 @@ module @ax.agent version "0.1" {
     attr private = true
     type signature = "(json, json) -> json"
     body @entry(%existing: json, %incoming: json) {
-      %out = core.let %existing
-      core.for %memory in %incoming {
-        %id = core.get %memory["id"] default ""
-        %content = core.get %memory["content"] default ""
-        %has_id = core.call intrinsic.ne(%id, "")
-        %has_content = core.call intrinsic.ne(%content, "")
-        %valid = core.call intrinsic.and(%has_id, %has_content)
-        core.if %valid {
-          %out = core.call @agent_append_unique_by_field(%out, %memory, "id")
+      %by_id = core.map
+      %existing_is_list = core.type_is %existing type "list"
+      core.if %existing_is_list {
+        core.for %memory in %existing {
+          %memory_is_map = core.type_is %memory type "object"
+          core.if %memory_is_map {
+            %id_raw = core.get %memory["id"] default null
+            %content = core.get %memory["content"] default null
+            %id_is_string = core.type_is %id_raw type "string"
+            %content_is_string = core.type_is %content type "string"
+            %valid_types = core.call intrinsic.and(%id_is_string, %content_is_string)
+            core.if %valid_types {
+              %id = core.string_trim %id_raw
+              %has_id = core.call intrinsic.ne(%id, "")
+              core.if %has_id {
+                %normalized = core.map
+                core.set %normalized["id"] = %id
+                core.set %normalized["content"] = %content
+                core.set %by_id[%id] = %normalized
+              }
+            }
+          }
         }
+      }
+      %incoming_is_list = core.type_is %incoming type "list"
+      core.if %incoming_is_list {
+        core.for %memory2 in %incoming {
+          %memory2_is_map = core.type_is %memory2 type "object"
+          core.if %memory2_is_map {
+            %id2_raw = core.get %memory2["id"] default null
+            %content2 = core.get %memory2["content"] default null
+            %id2_is_string = core.type_is %id2_raw type "string"
+            %content2_is_string = core.type_is %content2 type "string"
+            %valid2_types = core.call intrinsic.and(%id2_is_string, %content2_is_string)
+            core.if %valid2_types {
+              %id2 = core.string_trim %id2_raw
+              %has_id2 = core.call intrinsic.ne(%id2, "")
+              core.if %has_id2 {
+                %normalized2 = core.map
+                core.set %normalized2["id"] = %id2
+                core.set %normalized2["content"] = %content2
+                core.set %by_id[%id2] = %normalized2
+              }
+            }
+          }
+        }
+      }
+      %ids = core.call intrinsic.map.keys(%by_id)
+      %sorted_ids = core.call intrinsic.list.sorted_strings(%ids)
+      %out = core.list
+      core.for %sorted_id in %sorted_ids {
+        %item = core.get %by_id[%sorted_id]
+        core.append %out, %item
       }
       core.return %out
     }
@@ -4207,9 +4584,33 @@ module @ax.agent version "0.1" {
       %normalized = core.call @normalize_agent_recall_request(%state, %request)
       %searches = core.get %normalized["searches"] default %empty_list
       %loaded = core.get %state["loaded_memories"] default %empty_list
-      %incoming = core.call intrinsic.agent.memory_search(%state, %searches, %loaded)
+      %state_options = core.get %state["options"] default null
+      %callback_camel = core.get %state_options["onMemoriesSearch"] default null
+      %callback_value = core.get %state_options["on_memories_search"] default %callback_camel
+      %scripted_camel = core.get %state_options["memorySearchResults"] default null
+      %scripted_value = core.get %state_options["memory_search_results"] default %scripted_camel
+      %has_callback = core.call intrinsic.is_not_none(%callback_value)
+      %has_scripted = core.call intrinsic.is_not_none(%scripted_value)
+      %has_host_search = core.call intrinsic.or(%has_callback, %has_scripted)
+      %incoming = core.list
+      %observer_incoming = core.list
+      core.if %has_host_search {
+        %host_incoming = core.call intrinsic.agent.memory_search(%state, %searches, %loaded)
+        %observer_incoming = core.let %host_incoming
+        %incoming = core.call @agent_merge_memory_results(%empty_list, %host_incoming)
+      } else {
+        %catalog = core.get %state["memories_catalog"] default %empty_list
+        %incoming = core.call @agent_catalog_memory_search(%catalog, %searches, %loaded)
+        %observer_incoming = core.let %incoming
+      }
       %merged = core.call @agent_merge_memory_results(%loaded, %incoming)
       core.set %state["loaded_memories"] = %merged
+      %incoming_count = core.call intrinsic.len(%incoming)
+      %has_incoming = core.call intrinsic.gt(%incoming_count, 0)
+      core.if %has_incoming {
+        %observer_options = core.map
+        core.call intrinsic.agent.observer.notify(%state, %observer_options, "loaded_memories", %observer_incoming)
+      }
       %trace = core.get %state["policy_trace"] default %empty_list
       %event = core.map
       core.set %event["type"] = "recall"
@@ -4227,6 +4628,37 @@ module @ax.agent version "0.1" {
       core.call @agent_record_trace_event(%state, "recall", %event)
       %none = core.call intrinsic.none()
       core.return %none
+    }
+  }
+
+  op ax.agent.policy @agent_append_unique_used_entry {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, json) -> json"
+    body @entry(%items: json, %entry: json) {
+      %entry_id = core.get %entry["id"] default ""
+      %entry_reason = core.get %entry["reason"] default ""
+      %entry_stage = core.get %entry["stage"] default ""
+      %exists = core.let false
+      core.for %item in %items {
+        %item_id = core.get %item["id"] default ""
+        %item_reason = core.get %item["reason"] default ""
+        %item_stage = core.get %item["stage"] default ""
+        %same_id = core.call intrinsic.eq(%entry_id, %item_id)
+        %same_reason = core.call intrinsic.eq(%entry_reason, %item_reason)
+        %same_stage = core.call intrinsic.eq(%entry_stage, %item_stage)
+        %same_id_reason = core.call intrinsic.and(%same_id, %same_reason)
+        %same = core.call intrinsic.and(%same_id_reason, %same_stage)
+        core.if %same {
+          %exists = core.let true
+        }
+      }
+      %missing = core.call intrinsic.not(%exists)
+      core.if %missing {
+        core.append %items, %entry
+      }
+      core.return %items
     }
   }
 
@@ -4249,6 +4681,7 @@ module @ax.agent version "0.1" {
       }
       %id = core.string_trim %id
       %reason = core.string_trim %reason
+      %reason = core.call intrinsic.string.slice(%reason, 0, 300)
       %missing = core.call intrinsic.eq(%id, "")
       core.if %missing {
         %error = core.call intrinsic.error.runtime("used(...) requires a non-empty loaded memory or skill id")
@@ -4280,9 +4713,12 @@ module @ax.agent version "0.1" {
       %id = core.get %normalized["id"]
       %reason = core.get %normalized["reason"] default ""
       %normalized_stage = core.get %normalized["stage"] default %stage
-      %dedupe_key = core.call intrinsic.string.format("{}\n{}\n{}", %normalized_stage, %id, %reason)
       %memories = core.get %state["loaded_memories"] default %empty_list
       %skills = core.get %state["loaded_skill_docs"] default %empty_list
+      %is_distiller = core.call intrinsic.eq(%normalized_stage, "distiller")
+      core.if %is_distiller {
+        %skills = core.get %state["distiller_loaded_skill_docs"] default %empty_list
+      }
       %used_memories = core.get %state["used_memories"] default %empty_list
       %used_skills = core.get %state["used_skills"] default %empty_list
       %matched = core.let false
@@ -4294,8 +4730,7 @@ module @ax.agent version "0.1" {
           core.set %record["id"] = %id
           core.set %record["reason"] = %reason
           core.set %record["stage"] = %normalized_stage
-          core.set %record["dedupe_key"] = %dedupe_key
-          %used_memories = core.call @agent_append_unique_by_field(%used_memories, %record, "dedupe_key")
+          %used_memories = core.call @agent_append_unique_used_entry(%used_memories, %record)
           %matched = core.let true
         }
       }
@@ -4309,8 +4744,7 @@ module @ax.agent version "0.1" {
           core.set %record["name"] = %skill_name
           core.set %record["reason"] = %reason
           core.set %record["stage"] = %normalized_stage
-          core.set %record["dedupe_key"] = %dedupe_key
-          %used_skills = core.call @agent_append_unique_by_field(%used_skills, %record, "dedupe_key")
+          %used_skills = core.call @agent_append_unique_used_entry(%used_skills, %record)
           %matched = core.let true
         }
       }
@@ -4933,6 +5367,7 @@ module @ax.agent version "0.1" {
       %runtime_state = core.get %state["runtime_state"] default %empty_map
       %discovered = core.get %state["discovered_tool_docs"] default %empty_list
       %skills = core.get %state["loaded_skill_docs"] default %empty_list
+      %distiller_skills = core.get %state["distiller_loaded_skill_docs"] default %empty_list
       %memories = core.get %state["loaded_memories"] default %empty_list
       %used_memories = core.get %state["used_memories"] default %empty_list
       %used_skills = core.get %state["used_skills"] default %empty_list
@@ -4962,6 +5397,7 @@ module @ax.agent version "0.1" {
       core.set %out["runtime_state"] = %runtime_state
       core.set %out["discovered_tool_docs"] = %discovered
       core.set %out["loaded_skill_docs"] = %skills
+      core.set %out["distiller_loaded_skill_docs"] = %distiller_skills
       core.set %out["loaded_memories"] = %memories
       core.set %out["used_memories"] = %used_memories
       core.set %out["used_skills"] = %used_skills
@@ -5001,8 +5437,14 @@ module @ax.agent version "0.1" {
       %empty_list = core.list
       %runtime_state = core.get %snapshot["runtime_state"] default %empty_map
       %discovered = core.get %snapshot["discovered_tool_docs"] default %empty_list
-      %skills = core.get %snapshot["loaded_skill_docs"] default %empty_list
-      %memories = core.get %snapshot["loaded_memories"] default %empty_list
+      %skills_raw = core.get %snapshot["loaded_skill_docs"] default %empty_list
+      %distiller_skills_raw = core.get %snapshot["distiller_loaded_skill_docs"] default %empty_list
+      %preset_skills = core.get %state["preset_skill_docs"] default %empty_list
+      %skills = core.call @agent_merge_skill_results(%empty_list, %skills_raw)
+      %skills = core.call @agent_merge_skill_results(%skills, %preset_skills)
+      %distiller_skills = core.call @agent_merge_skill_results(%empty_list, %distiller_skills_raw)
+      %memories_raw = core.get %snapshot["loaded_memories"] default %empty_list
+      %memories = core.call @agent_merge_memory_results(%empty_list, %memories_raw)
       %used_memories = core.get %snapshot["used_memories"] default %empty_list
       %used_skills = core.get %snapshot["used_skills"] default %empty_list
       %guidance_log = core.get %snapshot["guidance_log"] default %empty_list
@@ -5025,6 +5467,7 @@ module @ax.agent version "0.1" {
       core.set %state["runtime_state"] = %runtime_state
       core.set %state["discovered_tool_docs"] = %discovered
       core.set %state["loaded_skill_docs"] = %skills
+      core.set %state["distiller_loaded_skill_docs"] = %distiller_skills
       core.set %state["loaded_memories"] = %memories
       core.set %state["used_memories"] = %used_memories
       core.set %state["used_skills"] = %used_skills
@@ -5069,6 +5512,15 @@ module @ax.agent version "0.1" {
       %callable_inventory = core.get %state["callable_inventory"] default %empty_list
       %discovery_catalog = core.get %state["discovery_catalog"] default %empty_list
       %registry = core.get %state["policy_registry"] default %empty_map
+      %runtime_input_names = core.get %state["runtime_input_names"] default %empty_list
+      core.for %input_name in %values {
+        %input_name_known = core.call intrinsic.contains(%runtime_input_names, %input_name)
+        core.if %input_name_known {
+        } else {
+          core.append %runtime_input_names, %input_name
+        }
+      }
+      core.set %state["runtime_input_names"] = %runtime_input_names
       %selected_primitives = core.call @select_actor_primitives(%registry, "executor")
       core.set %globals["inputs"] = %values
       core.set %globals["context"] = %values
@@ -5105,9 +5557,9 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json) -> json"
-    body @entry(%bindings: json) {
-      %reserved = core.call @agent_reserved_runtime_names()
+    type signature = "(json, json) -> json"
+    body @entry(%state: json, %bindings: json) {
+      %reserved = core.call @agent_runtime_reserved_names_for_state(%state)
       %out = core.map
       %bindings_is_map = core.type_is %bindings type "object"
       core.if %bindings_is_map {
@@ -5128,8 +5580,8 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json) -> json throws"
-    body @entry(%snapshot: json) {
+    type signature = "(json, json) -> json throws"
+    body @entry(%state: json, %snapshot: json) {
       %empty_list = core.list
       %snapshot_is_map = core.type_is %snapshot type "object"
       core.if %snapshot_is_map {
@@ -5151,18 +5603,28 @@ module @ax.agent version "0.1" {
       core.if %has_bindings {
         %bindings = core.let %raw_bindings
       }
-      %clean_bindings = core.call @agent_runtime_sanitize_bindings(%bindings)
+      %reserved = core.call @agent_runtime_reserved_names_for_state(%state)
+      %clean_bindings = core.call @agent_runtime_sanitize_bindings(%state, %bindings)
       %entries = core.get %snapshot["entries"] default %empty_list
       %entries_is_list = core.type_is %entries type "list"
       core.if %entries_is_list {
       } else {
         %entries = core.let %empty_list
       }
+      %clean_entries = core.list
+      core.for %entry in %entries {
+        %entry_name = core.get %entry["name"] default ""
+        %entry_reserved = core.call intrinsic.contains(%reserved, %entry_name)
+        core.if %entry_reserved {
+        } else {
+          core.append %clean_entries, %entry
+        }
+      }
       %closed = core.get %snapshot["closed"] default false
       %version = core.get %snapshot["version"] default 1
       %out = core.map
       core.set %out["version"] = %version
-      core.set %out["entries"] = %entries
+      core.set %out["entries"] = %clean_entries
       core.set %out["bindings"] = %clean_bindings
       core.set %out["globals"] = %clean_bindings
       core.set %out["closed"] = %closed
@@ -5333,7 +5795,7 @@ module @ax.agent version "0.1" {
     type signature = "(json, json) -> json"
     body @entry(%state: json, %options: json) {
       %empty_map = core.map
-      %reserved_names = core.call @agent_reserved_runtime_names()
+      %reserved_names = core.call @agent_runtime_reserved_names_for_state(%state)
       %runtime_options = core.call intrinsic.map.merge(%empty_map, %options)
       core.call intrinsic.map.delete(%runtime_options, "runtime")
       core.set %runtime_options["reservedNames"] = %reserved_names
@@ -5440,11 +5902,25 @@ module @ax.agent version "0.1" {
       %has_recall = core.call intrinsic.is_not_none(%recall_request)
       core.if %has_recall {
         core.call @agent_recall(%state, %recall_request)
+        %memory_globals = core.get %state["runtime_globals"] default %empty_map
+        %memory_inputs = core.get %memory_globals["inputs"] default %empty_map
+        %memory_context = core.get %memory_globals["context"] default %empty_map
+        %current_memories = core.get %state["loaded_memories"] default null
+        core.set %memory_inputs["memories"] = %current_memories
+        core.set %memory_context["memories"] = %current_memories
+        core.set %memory_globals["inputs"] = %memory_inputs
+        core.set %memory_globals["context"] = %memory_context
+        core.set %memory_globals["memories"] = %current_memories
+        core.set %state["runtime_globals"] = %memory_globals
+        %memory_patch = core.map
+        core.set %memory_patch["globals"] = %memory_globals
+        core.call @agent_runtime_restore_session_state(%state, %session, %memory_patch, %runtime_options)
       }
       %used_request = core.get %normalized["used_request"] default null
       %has_used = core.call intrinsic.is_not_none(%used_request)
       core.if %has_used {
-        core.call @agent_used(%state, %used_request, "executor")
+        %active_stage = core.get %state["active_stage"] default "executor"
+        core.call @agent_used(%state, %used_request, %active_stage)
       }
       %callable_request = core.get %normalized["callable_request"] default null
       %has_callable = core.call intrinsic.is_not_none(%callable_request)
@@ -5509,7 +5985,7 @@ module @ax.agent version "0.1" {
     type signature = "(json, json, json) -> json throws"
     body @entry(%state: json, %session: json, %options: json) {
       %raw_snapshot = core.call intrinsic.agent.runtime.export_state(%session, %options)
-      %snapshot = core.call @normalize_agent_runtime_snapshot(%raw_snapshot)
+      %snapshot = core.call @normalize_agent_runtime_snapshot(%state, %raw_snapshot)
       core.set %state["runtime_session_state"] = %snapshot
       %log_entry = core.map
       core.set %log_entry["type"] = "runtime_session"
@@ -5537,7 +6013,7 @@ module @ax.agent version "0.1" {
       core.if %enabled {
         %runtime_options = core.call @agent_runtime_execution_options(%state, %options)
         %raw_snapshot = core.call intrinsic.agent.runtime.export_state(%session, %runtime_options)
-        %snapshot = core.call @normalize_agent_runtime_snapshot(%raw_snapshot)
+        %snapshot = core.call @normalize_agent_runtime_snapshot(%state, %raw_snapshot)
         core.set %state["runtime_session_state"] = %snapshot
         core.return %snapshot
       }
@@ -5551,9 +6027,9 @@ module @ax.agent version "0.1" {
     attr private = true
     type signature = "(json, json, json, json) -> json throws"
     body @entry(%state: json, %session: json, %snapshot: json, %options: json) {
-      %normalized_snapshot = core.call @normalize_agent_runtime_snapshot(%snapshot)
+      %normalized_snapshot = core.call @normalize_agent_runtime_snapshot(%state, %snapshot)
       %raw_restored = core.call intrinsic.agent.runtime.restore_state(%session, %normalized_snapshot, %options)
-      %restored = core.call @normalize_agent_runtime_snapshot(%raw_restored)
+      %restored = core.call @normalize_agent_runtime_snapshot(%state, %raw_restored)
       core.set %state["runtime_session_state"] = %restored
       %log_entry = core.map
       core.set %log_entry["type"] = "runtime_session"
@@ -5800,6 +6276,32 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_identifier_tokens {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string) -> list<string>"
+    body @entry(%text: string) {
+      %acronyms = core.call intrinsic.regex.replace("([A-Z]+)([A-Z][a-z])", "$1 $2", %text)
+      %camel = core.call intrinsic.regex.replace("([a-z0-9])([A-Z])", "$1 $2", %acronyms)
+      %spaced = core.call intrinsic.regex.replace("[^A-Za-z0-9]+", " ", %camel)
+      %lower = core.call intrinsic.string.lower(%spaced)
+      %parts = core.call intrinsic.string.split_trim_nonempty(%lower, " ")
+      %out = core.list
+      core.for %part in %parts {
+        %len = core.call intrinsic.len(%part)
+        %long_enough = core.call intrinsic.gt(%len, 1)
+        %without_digits = core.call intrinsic.regex.replace("^[0-9]+$", "", %part)
+        %not_numeric = core.call intrinsic.ne(%without_digits, "")
+        %keep = core.call intrinsic.and(%long_enough, %not_numeric)
+        core.if %keep {
+          core.append %out, %part
+        }
+      }
+      core.return %out
+    }
+  }
+
   op ax.agent.semantic @agent_relevance_tokens {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -5808,42 +6310,239 @@ module @ax.agent version "0.1" {
     body @entry(%text: string) {
       %stopwords = core.call intrinsic.json.parse(file "data/agent-stopwords.json")
       %lower = core.call intrinsic.string.lower(%text)
-      %clean = core.call intrinsic.regex.replace("[^a-z0-9]+", " ", %lower)
+      %clean = core.call intrinsic.regex.replace("[-!\"#$%&'()*+,./:;<=>?@\\[\\]^_`{|}~]", " ", %lower)
       %parts = core.call intrinsic.string.split_trim_nonempty(%clean, " ")
       %out = core.list
       core.for %part in %parts {
         %len = core.call intrinsic.len(%part)
         %long_enough = core.call intrinsic.gt(%len, 1)
+        %without_digits = core.call intrinsic.regex.replace("^[0-9]+$", "", %part)
+        %not_numeric = core.call intrinsic.ne(%without_digits, "")
         %is_stop = core.call intrinsic.contains(%stopwords, %part)
         %not_stop = core.call intrinsic.not(%is_stop)
-        %ok = core.call intrinsic.and(%long_enough, %not_stop)
+        %base_ok = core.call intrinsic.and(%long_enough, %not_numeric)
+        %ok = core.call intrinsic.and(%base_ok, %not_stop)
         core.if %ok {
-          %already = core.call intrinsic.contains(%out, %part)
-          %fresh = core.call intrinsic.not(%already)
-          core.if %fresh {
-            core.append %out, %part
-          }
+          core.append %out, %part
         }
       }
       core.return %out
     }
   }
 
-  op ax.agent.semantic @agent_relevance_score {
+  op ax.agent.semantic @agent_document_term_frequency {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, string) -> number"
-    body @entry(%tokens: json, %text: string) {
-      %doc = core.call intrinsic.string.lower(%text)
-      %score = core.let 0
-      core.for %token in %tokens {
-        %hit = core.call intrinsic.contains(%doc, %token)
-        core.if %hit {
-          %score = core.call intrinsic.add(%score, 1)
+    type signature = "(json) -> json"
+    body @entry(%fields: json) {
+      %tf = core.map
+      core.for %field in %fields {
+        %text = core.get %field["text"] default ""
+        %weight = core.get %field["weight"] default 1
+        %identifier = core.get %field["identifier"] default false
+        %terms = core.call @agent_relevance_tokens(%text)
+        core.if %identifier {
+          %terms = core.call @agent_identifier_tokens(%text)
+        }
+        core.for %term in %terms {
+          %current = core.get %tf[%term] default 0
+          %next = core.call intrinsic.add(%current, %weight)
+          core.set %tf[%term] = %next
         }
       }
-      core.return %score
+      core.return %tf
+    }
+  }
+
+  op ax.agent.semantic @agent_rank_documents {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string, json, json) -> json"
+    body @entry(%query: string, %docs: json, %options: json) {
+      %empty = core.list
+      %top_k = core.get %options["topK"] default 3
+      %min_score = core.get %options["minScore"] default 0.08
+      %margin_ratio = core.get %options["marginRatio"] default 0.15
+      %min_docs = core.get %options["minDocs"] default 2
+      %doc_count = core.call intrinsic.len(%docs)
+      %too_few = core.call intrinsic.lt(%doc_count, %min_docs)
+      core.if %too_few {
+        core.return %empty
+      }
+      %indexed = core.list
+      %df = core.map
+      core.for %doc in %docs {
+        %fields = core.get %doc["fields"] default %empty
+        %tf = core.call @agent_document_term_frequency(%fields)
+        %doc_id = core.get %doc["id"] default ""
+        %indexed_doc = core.map
+        core.set %indexed_doc["id"] = %doc_id
+        core.set %indexed_doc["tf"] = %tf
+        core.append %indexed, %indexed_doc
+        %terms = core.call intrinsic.map.keys(%tf)
+        core.for %term in %terms {
+          %count = core.get %df[%term] default 0
+          %count = core.call intrinsic.add(%count, 1)
+          core.set %df[%term] = %count
+        }
+      }
+      %query_terms = core.call @agent_relevance_tokens(%query)
+      %effective = core.list
+      core.for %query_term in %query_terms {
+        %appears = core.call intrinsic.map.contains(%df, %query_term)
+        %already_effective = core.call intrinsic.contains(%effective, %query_term)
+        %fresh_effective = core.call intrinsic.not(%already_effective)
+        %include_effective = core.call intrinsic.and(%appears, %fresh_effective)
+        core.if %include_effective {
+          core.append %effective, %query_term
+        }
+      }
+      %effective_count = core.call intrinsic.len(%effective)
+      %no_effective = core.call intrinsic.eq(%effective_count, 0)
+      core.if %no_effective {
+        core.return %empty
+      }
+      %idf = core.map
+      %total_idf = core.let 0
+      core.for %term2 in %effective {
+        %frequency = core.get %df[%term2] default 1
+        %ratio = core.call intrinsic.div(%doc_count, %frequency)
+        %ratio_plus_one = core.call intrinsic.add(1, %ratio)
+        %weight = core.call intrinsic.math.log(%ratio_plus_one)
+        core.set %idf[%term2] = %weight
+        %total_idf = core.call intrinsic.add(%total_idf, %weight)
+      }
+      %scored = core.list
+      core.for %indexed_doc2 in %indexed {
+        %id = core.get %indexed_doc2["id"] default ""
+        %tf2 = core.get %indexed_doc2["tf"] default null
+        %raw = core.let 0
+        %coverage_weight = core.let 0
+        %matched = core.list
+        core.for %term3 in %effective {
+          %frequency2 = core.get %tf2[%term3] default 0
+          %matched_frequency = core.call intrinsic.gt(%frequency2, 0)
+          core.if %matched_frequency {
+            %idf_weight = core.get %idf[%term3] default 0
+            %saturated_denominator = core.call intrinsic.add(%frequency2, 1)
+            %saturated = core.call intrinsic.div(%frequency2, %saturated_denominator)
+            %weighted = core.call intrinsic.mul(%idf_weight, %saturated)
+            %raw = core.call intrinsic.add(%raw, %weighted)
+            %coverage_weight = core.call intrinsic.add(%coverage_weight, %idf_weight)
+            core.append %matched, %term3
+          }
+        }
+        %coverage = core.call intrinsic.div(%coverage_weight, %total_idf)
+        %score_entry = core.map
+        core.set %score_entry["id"] = %id
+        core.set %score_entry["raw"] = %raw
+        core.set %score_entry["coverage"] = %coverage
+        core.set %score_entry["matchedTerms"] = %matched
+        core.append %scored, %score_entry
+      }
+      %scored_ids = core.list
+      core.for %scored_for_id in %scored {
+        %scored_id = core.get %scored_for_id["id"] default ""
+        core.append %scored_ids, %scored_id
+      }
+      %sorted_scored_ids = core.call intrinsic.list.sorted_strings(%scored_ids)
+      %scored_by_id = core.list
+      core.for %sorted_scored_id in %sorted_scored_ids {
+        core.for %scored_for_sort in %scored {
+          %scored_for_sort_id = core.get %scored_for_sort["id"] default ""
+          %same_scored_id = core.call intrinsic.eq(%scored_for_sort_id, %sorted_scored_id)
+          core.if %same_scored_id {
+            core.append %scored_by_id, %scored_for_sort
+          }
+        }
+      }
+      %scored = core.let %scored_by_id
+      %sorted = core.list
+      core.loop {
+        %sorted_count = core.call intrinsic.len(%sorted)
+        %all_sorted = core.call intrinsic.gte(%sorted_count, %doc_count)
+        core.if %all_sorted {
+          core.break
+        }
+        %best = core.call intrinsic.none()
+        %best_raw = core.let -1
+        %best_id = core.let ""
+        %found = core.let false
+        core.for %candidate in %scored {
+          %candidate_id = core.get %candidate["id"] default ""
+          %already = core.call @agent_relevance_has_id(%sorted, "id", %candidate_id)
+          %fresh = core.call intrinsic.not(%already)
+          core.if %fresh {
+            %candidate_raw = core.get %candidate["raw"] default 0
+            %greater = core.call intrinsic.gt(%candidate_raw, %best_raw)
+            %better = core.let %greater
+            core.if %better {
+              %best = core.let %candidate
+              %best_raw = core.let %candidate_raw
+              %best_id = core.let %candidate_id
+              %found = core.let true
+            }
+          }
+        }
+        core.if %found {
+          core.append %sorted, %best
+        } else {
+          core.break
+        }
+      }
+      %top = core.call intrinsic.list.get(%sorted, 0, null)
+      %top_raw = core.get %top["raw"] default 0
+      %top_coverage = core.get %top["coverage"] default 0
+      %no_match = core.call intrinsic.lte(%top_raw, 0)
+      %below_floor = core.call intrinsic.lt(%top_coverage, %min_score)
+      %rejected = core.call intrinsic.or(%no_match, %below_floor)
+      core.if %rejected {
+        core.return %empty
+      }
+      %use_margin = core.call intrinsic.gt(%margin_ratio, 0)
+      core.if %use_margin {
+        %near_top = core.let 0
+        core.for %scored_entry in %sorted {
+          %entry_raw = core.get %scored_entry["raw"] default 0
+          %positive = core.call intrinsic.gt(%entry_raw, 0)
+          core.if %positive {
+            %negative_entry_raw = core.call intrinsic.mul(%entry_raw, -1)
+            %difference = core.call intrinsic.add(%top_raw, %negative_entry_raw)
+            %relative = core.call intrinsic.div(%difference, %top_raw)
+            %near = core.call intrinsic.lt(%relative, %margin_ratio)
+            core.if %near {
+              %near_top = core.call intrinsic.add(%near_top, 1)
+            }
+          }
+        }
+        %multiple_docs = core.call intrinsic.gte(%doc_count, 2)
+        %all_near = core.call intrinsic.gte(%near_top, %doc_count)
+        %suppress = core.call intrinsic.and(%multiple_docs, %all_near)
+        core.if %suppress {
+          core.return %empty
+        }
+      }
+      %out = core.list
+      core.for %scored_entry2 in %sorted {
+        %out_count = core.call intrinsic.len(%out)
+        %under_limit = core.call intrinsic.lt(%out_count, %top_k)
+        %entry_raw2 = core.get %scored_entry2["raw"] default 0
+        %positive2 = core.call intrinsic.gt(%entry_raw2, 0)
+        %include = core.call intrinsic.and(%under_limit, %positive2)
+        core.if %include {
+          %normalized_score = core.call intrinsic.div(%entry_raw2, %top_raw)
+          %ranked_id = core.get %scored_entry2["id"] default ""
+          %ranked_terms = core.get %scored_entry2["matchedTerms"] default %empty
+          %ranked = core.map
+          core.set %ranked["id"] = %ranked_id
+          core.set %ranked["score"] = %normalized_score
+          core.set %ranked["matchedTerms"] = %ranked_terms
+          core.append %out, %ranked
+        }
+      }
+      core.return %out
     }
   }
 
@@ -5871,66 +6570,75 @@ module @ax.agent version "0.1" {
     type signature = "(json, string) -> json"
     body @entry(%state: json, %task: string) {
       %empty_list = core.list
-      %tokens = core.call @agent_relevance_tokens(%task)
-      %token_count = core.call intrinsic.len(%tokens)
-      %no_tokens = core.call intrinsic.eq(%token_count, 0)
-      core.if %no_tokens {
-        core.return %empty_list
-      }
       %split = core.get %state["callable_split"] default null
       %discoverable = core.get %split["discoverable"] default %empty_list
-      %out = core.list
-      %thresholds = core.list
-      core.append %thresholds, 3
-      core.append %thresholds, 2
-      core.append %thresholds, 1
-      core.for %threshold in %thresholds {
-        core.for %group in %discoverable {
-          %out_count = core.call intrinsic.len(%out)
-          %under = core.call intrinsic.lt(%out_count, 3)
-          core.if %under {
-            %namespace = core.get %group["namespace"] default ""
-            %already = core.call @agent_relevance_has_id(%out, "namespace", %namespace)
-            %fresh = core.call intrinsic.not(%already)
-            core.if %fresh {
-              %title = core.get %group["title"] default ""
-              %description = core.get %group["description"] default ""
-              %selection = core.get %group["selection_criteria"] default ""
-              %callables = core.get %group["callables"] default %empty_list
-              %pieces = core.list
-              core.append %pieces, %namespace
-              core.append %pieces, %title
-              core.append %pieces, %description
-              core.append %pieces, %selection
-              core.append %pieces, %selection
-              core.for %callable in %callables {
-                %name = core.get %callable["name"] default ""
-                %qualified = core.get %callable["qualified_name"] default ""
-                %cdesc = core.get %callable["description"] default ""
-                core.append %pieces, %name
-                core.append %pieces, %qualified
-                core.append %pieces, %cdesc
-                %params = core.get %callable["parameters"] default null
-                %properties = core.get %params["properties"] default null
-                %props_is_object = core.type_is %properties type "object"
-                core.if %props_is_object {
-                  %prop_keys = core.call intrinsic.map.keys(%properties)
-                  %prop_text = core.call intrinsic.string.join(" ", %prop_keys)
-                  core.append %pieces, %prop_text
-                }
-              }
-              %text = core.call intrinsic.string.join(" ", %pieces)
-              %score = core.call @agent_relevance_score(%tokens, %text)
-              %passes = core.call intrinsic.gte(%score, %threshold)
-              core.if %passes {
-                %entry = core.map
-                core.set %entry["namespace"] = %namespace
-                core.set %entry["score"] = %score
-                core.append %out, %entry
-              }
+      %docs = core.list
+      core.for %group in %discoverable {
+        %namespace = core.get %group["namespace"] default ""
+        %title = core.get %group["title"] default ""
+        %description = core.get %group["description"] default ""
+        %selection = core.get %group["selection_criteria"] default ""
+        %fields = core.list
+        %namespace_field = core.map
+        core.set %namespace_field["text"] = %namespace
+        core.set %namespace_field["identifier"] = true
+        core.append %fields, %namespace_field
+        %has_title = core.call intrinsic.ne(%title, "")
+        core.if %has_title {
+          %title_field = core.map
+          core.set %title_field["text"] = %title
+          core.append %fields, %title_field
+        }
+        %has_description = core.call intrinsic.ne(%description, "")
+        core.if %has_description {
+          %description_field = core.map
+          core.set %description_field["text"] = %description
+          core.append %fields, %description_field
+        }
+        %has_selection = core.call intrinsic.ne(%selection, "")
+        core.if %has_selection {
+          %selection_field = core.map
+          core.set %selection_field["text"] = %selection
+          core.set %selection_field["weight"] = 2
+          core.append %fields, %selection_field
+        }
+        %callables = core.get %group["callables"] default %empty_list
+        core.for %callable in %callables {
+          %name = core.get %callable["name"] default ""
+          %name_field = core.map
+          core.set %name_field["text"] = %name
+          core.set %name_field["identifier"] = true
+          core.append %fields, %name_field
+          %params = core.get %callable["parameters"] default null
+          %properties = core.get %params["properties"] default null
+          %props_is_object = core.type_is %properties type "object"
+          core.if %props_is_object {
+            %prop_keys = core.call intrinsic.map.keys(%properties)
+            core.for %prop_key in %prop_keys {
+              %prop_field = core.map
+              core.set %prop_field["text"] = %prop_key
+              core.set %prop_field["identifier"] = true
+              core.append %fields, %prop_field
             }
           }
         }
+        %doc = core.map
+        core.set %doc["id"] = %namespace
+        core.set %doc["fields"] = %fields
+        core.append %docs, %doc
+      }
+      %ranking_options = core.get %state["relevance_ranking_options"] default null
+      %ranked = core.call @agent_rank_documents(%task, %docs, %ranking_options)
+      %out = core.list
+      core.for %ranked_entry in %ranked {
+        %entry = core.map
+        %namespace2 = core.get %ranked_entry["id"] default ""
+        %score = core.get %ranked_entry["score"] default 0
+        %matched = core.get %ranked_entry["matchedTerms"] default %empty_list
+        core.set %entry["namespace"] = %namespace2
+        core.set %entry["score"] = %score
+        core.set %entry["matchedTerms"] = %matched
+        core.append %out, %entry
       }
       core.return %out
     }
@@ -5943,48 +6651,57 @@ module @ax.agent version "0.1" {
     type signature = "(json, string) -> json"
     body @entry(%state: json, %task: string) {
       %empty_list = core.list
-      %tokens = core.call @agent_relevance_tokens(%task)
-      %token_count = core.call intrinsic.len(%tokens)
-      %no_tokens = core.call intrinsic.eq(%token_count, 0)
-      core.if %no_tokens {
-        core.return %empty_list
-      }
       %catalog = core.get %state["skills_catalog"] default %empty_list
+      %docs = core.list
+      core.for %skill in %catalog {
+        %id = core.get %skill["id"] default ""
+        %name = core.get %skill["name"] default %id
+        %description = core.get %skill["description"] default ""
+        %content = core.get %skill["content"] default ""
+        %content_head = core.call intrinsic.string.slice(%content, 0, 600)
+        %fields = core.list
+        %id_field = core.map
+        core.set %id_field["text"] = %id
+        core.set %id_field["identifier"] = true
+        core.append %fields, %id_field
+        %name_field = core.map
+        core.set %name_field["text"] = %name
+        core.set %name_field["weight"] = 2
+        core.append %fields, %name_field
+        %has_description = core.call intrinsic.ne(%description, "")
+        core.if %has_description {
+          %description_field = core.map
+          core.set %description_field["text"] = %description
+          core.set %description_field["weight"] = 2
+          core.append %fields, %description_field
+        }
+        %content_field = core.map
+        core.set %content_field["text"] = %content_head
+        core.append %fields, %content_field
+        %doc = core.map
+        core.set %doc["id"] = %id
+        core.set %doc["fields"] = %fields
+        core.append %docs, %doc
+      }
+      %ranking_options = core.get %state["relevance_ranking_options"] default null
+      %ranked = core.call @agent_rank_documents(%task, %docs, %ranking_options)
       %out = core.list
-      %thresholds = core.list
-      core.append %thresholds, 3
-      core.append %thresholds, 2
-      core.append %thresholds, 1
-      core.for %threshold in %thresholds {
-        core.for %skill in %catalog {
-          %out_count = core.call intrinsic.len(%out)
-          %under = core.call intrinsic.lt(%out_count, 3)
-          core.if %under {
-            %id = core.get %skill["id"] default ""
-            %already = core.call @agent_relevance_has_id(%out, "id", %id)
-            %fresh = core.call intrinsic.not(%already)
-            core.if %fresh {
-              %name = core.get %skill["name"] default %id
-              %description = core.get %skill["description"] default ""
-              %content = core.get %skill["content"] default ""
-              %text_parts = core.list
-              core.append %text_parts, %id
-              core.append %text_parts, %name
-              core.append %text_parts, %description
-              core.append %text_parts, %content
-              %text = core.call intrinsic.string.join(" ", %text_parts)
-              %score = core.call @agent_relevance_score(%tokens, %text)
-              %passes = core.call intrinsic.gte(%score, %threshold)
-              core.if %passes {
-                %entry = core.map
-                core.set %entry["id"] = %id
-                core.set %entry["name"] = %name
-                core.set %entry["score"] = %score
-                core.append %out, %entry
-              }
-            }
+      core.for %ranked_entry in %ranked {
+        %ranked_id = core.get %ranked_entry["id"] default ""
+        %ranked_score = core.get %ranked_entry["score"] default 0
+        %ranked_name = core.let %ranked_id
+        core.for %catalog_skill in %catalog {
+          %catalog_id = core.get %catalog_skill["id"] default ""
+          %id_match = core.call intrinsic.eq(%catalog_id, %ranked_id)
+          core.if %id_match {
+            %ranked_name = core.get %catalog_skill["name"] default %ranked_id
           }
         }
+        %entry = core.map
+        core.set %entry["id"] = %ranked_id
+        core.set %entry["name"] = %ranked_name
+        core.set %entry["score"] = %ranked_score
+        core.append %out, %entry
       }
       core.return %out
     }
@@ -5997,44 +6714,54 @@ module @ax.agent version "0.1" {
     type signature = "(json, string) -> json"
     body @entry(%state: json, %task: string) {
       %empty_list = core.list
-      %tokens = core.call @agent_relevance_tokens(%task)
-      %token_count = core.call intrinsic.len(%tokens)
-      %no_tokens = core.call intrinsic.eq(%token_count, 0)
-      core.if %no_tokens {
-        core.return %empty_list
-      }
       %catalog = core.get %state["memories_catalog"] default %empty_list
       %loaded = core.get %state["loaded_memories"] default %empty_list
+      %candidates = core.list
+      %docs = core.list
+      core.for %memory in %catalog {
+        %id = core.get %memory["id"] default ""
+        %already_loaded = core.call @agent_relevance_has_id(%loaded, "id", %id)
+        %fresh = core.call intrinsic.not(%already_loaded)
+        core.if %fresh {
+          core.append %candidates, %memory
+          %content = core.get %memory["content"] default ""
+          %content_head = core.call intrinsic.string.slice(%content, 0, 600)
+          %fields = core.list
+          %id_field = core.map
+          core.set %id_field["text"] = %id
+          core.set %id_field["identifier"] = true
+          core.append %fields, %id_field
+          %content_field = core.map
+          core.set %content_field["text"] = %content_head
+          core.append %fields, %content_field
+          %doc = core.map
+          core.set %doc["id"] = %id
+          core.set %doc["fields"] = %fields
+          core.append %docs, %doc
+        }
+      }
+      %ranking_options = core.get %state["relevance_ranking_options"] default null
+      %ranked = core.call @agent_rank_documents(%task, %docs, %ranking_options)
       %out = core.list
-      %thresholds = core.list
-      core.append %thresholds, 3
-      core.append %thresholds, 2
-      core.append %thresholds, 1
-      core.for %threshold in %thresholds {
-        core.for %memory in %catalog {
-          %out_count = core.call intrinsic.len(%out)
-          %under = core.call intrinsic.lt(%out_count, 3)
-          core.if %under {
-            %id = core.get %memory["id"] default ""
-            %already_out = core.call @agent_relevance_has_id(%out, "id", %id)
-            %already_loaded = core.call @agent_relevance_has_id(%loaded, "id", %id)
-            %already_any = core.call intrinsic.or(%already_out, %already_loaded)
-            %fresh = core.call intrinsic.not(%already_any)
-            core.if %fresh {
-              %content = core.get %memory["content"] default ""
-              %score = core.call @agent_relevance_score(%tokens, %content)
-              %passes = core.call intrinsic.gte(%score, %threshold)
-              core.if %passes {
-                %snippet = core.call intrinsic.string.slice(%content, 0, 120)
-                %entry = core.map
-                core.set %entry["id"] = %id
-                core.set %entry["snippet"] = %snippet
-                core.set %entry["score"] = %score
-                core.append %out, %entry
-              }
-            }
+      core.for %ranked_entry in %ranked {
+        %ranked_id = core.get %ranked_entry["id"] default ""
+        %ranked_score = core.get %ranked_entry["score"] default 0
+        %snippet = core.let ""
+        core.for %candidate in %candidates {
+          %candidate_id = core.get %candidate["id"] default ""
+          %id_match = core.call intrinsic.eq(%candidate_id, %ranked_id)
+          core.if %id_match {
+            %candidate_content = core.get %candidate["content"] default ""
+            %single_line = core.call intrinsic.regex.replace("\\s+", " ", %candidate_content)
+            %trimmed = core.string_trim %single_line
+            %snippet = core.call intrinsic.string.slice(%trimmed, 0, 80)
           }
         }
+        %entry = core.map
+        core.set %entry["id"] = %ranked_id
+        core.set %entry["snippet"] = %snippet
+        core.set %entry["score"] = %ranked_score
+        core.append %out, %entry
       }
       core.return %out
     }
@@ -6310,12 +7037,17 @@ module @ax.agent version "0.1" {
       %cm_text = core.get %cm_state["text"] default ""
       %cm_has = core.call intrinsic.ne(%cm_text, "")
       %ctx_out = core.map
+      %distiller_runtime_enabled = core.get %state["runtime_enabled"] default false
       core.for %ck in %context {
         %cv = core.get %context[%ck]
-        %cv_str = core.call intrinsic.string.format("{}", %cv)
-        %cv_len = core.call intrinsic.len(%cv_str)
-        %meta_note = core.call intrinsic.string.format("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", %ck, %cv_len)
-        core.set %ctx_out[%ck] = %meta_note
+        core.if %distiller_runtime_enabled {
+          %cv_str = core.call intrinsic.string.format("{}", %cv)
+          %cv_len = core.call intrinsic.len(%cv_str)
+          %meta_note = core.call intrinsic.string.format("loaded in the runtime as inputs.{} ({} chars) — read and narrow it with code; never retype its contents", %ck, %cv_len)
+          core.set %ctx_out[%ck] = %meta_note
+        } else {
+          core.set %ctx_out[%ck] = %cv
+        }
       }
       core.if %cm_has {
         core.set %ctx_out["contextMap"] = %cm_text
@@ -6330,13 +7062,14 @@ module @ax.agent version "0.1" {
       %runtime_text = core.get %actor_context["liveRuntimeState"] default ""
       %pressure_text = core.get %actor_context["contextPressure"] default ""
       %discovered_docs = core.get %state["discovered_tool_docs"] default %empty_list
-      %loaded_skills = core.get %state["loaded_skill_docs"] default %empty_list
+      %loaded_skills = core.get %state["distiller_loaded_skill_docs"] default %empty_list
       %loaded_memories = core.get %state["loaded_memories"] default %empty_list
       %discovered_text = core.call @agent_render_discovered_tool_docs(%discovered_docs)
       %skills_text = core.call @agent_render_loaded_skills(%loaded_skills)
+      %memories_text = core.call @agent_render_loaded_memories(%loaded_memories)
       core.set %out["discoveredToolDocs"] = %discovered_text
       core.set %out["loadedSkills"] = %skills_text
-      core.set %out["memories"] = %loaded_memories
+      core.set %out["memories"] = %memories_text
       core.set %out["summarizedActorLog"] = %summary_text
       core.set %out["guidanceLog"] = %guidance_text
       core.set %out["actionLog"] = %action_text
@@ -6384,7 +7117,13 @@ module @ax.agent version "0.1" {
       core.if %has_context_metadata {
         core.set %out["contextMetadata"] = %context_metadata
       }
-      %hints = core.call @agent_build_relevance_hints(%state, %non_ctx, %executor_request)
+      %hints = core.get %state["relevance_hints_for_turn"] default null
+      %hints_is_object = core.type_is %hints type "object"
+      core.if %hints_is_object {
+      } else {
+        %hints = core.call @agent_build_relevance_hints(%state, %non_ctx, %executor_request)
+        core.set %state["relevance_hints_for_turn"] = %hints
+      }
       %hints_text = core.call @agent_render_relevance_hints(%hints)
       %has_hints = core.call intrinsic.ne(%hints_text, "")
       core.if %has_hints {
@@ -6395,6 +7134,7 @@ module @ax.agent version "0.1" {
       %loaded_memories = core.get %state["loaded_memories"] default %empty_list
       %discovered_text = core.call @agent_render_discovered_tool_docs(%discovered_docs)
       %skills_text = core.call @agent_render_loaded_skills(%loaded_skills)
+      %memories_text = core.call @agent_render_loaded_memories(%loaded_memories)
       %actor_context = core.call @agent_prepare_actor_context(%state)
       %guidance_text = core.get %actor_context["guidanceLog"] default "[]"
       %action_text = core.get %actor_context["actionLog"] default "(no actions yet)"
@@ -6403,7 +7143,7 @@ module @ax.agent version "0.1" {
       %pressure_text = core.get %actor_context["contextPressure"] default ""
       core.set %out["discoveredToolDocs"] = %discovered_text
       core.set %out["loadedSkills"] = %skills_text
-      core.set %out["memories"] = %loaded_memories
+      core.set %out["memories"] = %memories_text
       core.set %out["summarizedActorLog"] = %summary_text
       core.set %out["guidanceLog"] = %guidance_text
       core.set %out["actionLog"] = %action_text
@@ -7706,8 +8446,62 @@ module @ax.agent version "0.1" {
     attr private = true
     type signature = "(json, json, json, json, json, json, json) -> json throws"
     body @entry(%state: json, %distiller: json, %executor: json, %responder: json, %client: json, %values: json, %options: json) {
+      %empty_list = core.list
+      %empty_map = core.map
+      %loaded_memories = core.list
+      %used_memories = core.list
+      %used_skills = core.list
+      %relevance_hints_for_turn = core.call intrinsic.none()
+      core.set %state["loaded_memories"] = %loaded_memories
+      core.set %state["used_memories"] = %used_memories
+      core.set %state["used_skills"] = %used_skills
+      core.set %state["relevance_hints_for_turn"] = %relevance_hints_for_turn
+      %preset_memories = core.get %values["memories"] default %empty_list
+      %loaded_memories = core.call @agent_merge_memory_results(%loaded_memories, %preset_memories)
+      core.set %state["loaded_memories"] = %loaded_memories
+      %loaded_skills = core.get %state["loaded_skill_docs"] default %empty_list
+      %forward_skills = core.get %options["skills"] default %empty_list
+      %loaded_skills = core.call @agent_merge_skill_results(%loaded_skills, %forward_skills)
+      core.set %state["loaded_skill_docs"] = %loaded_skills
+      %flags = core.get %state["policy_flags"] default %empty_map
+      %forward_used_memories = core.get %options["onUsedMemories"] default null
+      %forward_used_memories_snake = core.get %options["on_used_memories"] default %forward_used_memories
+      %forward_used_skills = core.get %options["onUsedSkills"] default null
+      %forward_used_skills_snake = core.get %options["on_used_skills"] default %forward_used_skills
+      %has_forward_used_memories = core.call intrinsic.is_not_none(%forward_used_memories_snake)
+      %has_forward_used_skills = core.call intrinsic.is_not_none(%forward_used_skills_snake)
+      %has_forward_used_observer = core.call intrinsic.or(%has_forward_used_memories, %has_forward_used_skills)
+      core.if %has_forward_used_observer {
+        core.set %flags["usageTrackingMode"] = true
+        core.set %state["policy_flags"] = %flags
+      }
+      %direct_respond_only = core.get %flags["directRespondOnly"] default false
+      core.if %direct_respond_only {
+        %distiller_skills = core.get %state["distiller_loaded_skill_docs"] default %empty_list
+        %distiller_skills = core.call @agent_merge_skill_results(%distiller_skills, %forward_skills)
+        core.set %state["distiller_loaded_skill_docs"] = %distiller_skills
+      }
+      core.set %state["active_stage"] = "distiller"
       %transcribed_values = core.call @agent_transcribe_audio_inputs(%state, %client, %values, %options)
       %values = core.let %transcribed_values
+      %runtime_input_names = core.list
+      core.for %runtime_input_name in %values {
+        core.append %runtime_input_names, %runtime_input_name
+      }
+      core.set %state["runtime_input_names"] = %runtime_input_names
+      %previous_runtime_session_state = core.get %state["runtime_session_state"] default null
+      %previous_runtime_session_state_is_map = core.type_is %previous_runtime_session_state type "object"
+      core.if %previous_runtime_session_state_is_map {
+        %previous_runtime_globals = core.get %previous_runtime_session_state["globals"] default null
+        %previous_runtime_bindings = core.get %previous_runtime_session_state["bindings"] default null
+        %previous_runtime_globals_is_map = core.type_is %previous_runtime_globals type "object"
+        %previous_runtime_bindings_is_map = core.type_is %previous_runtime_bindings type "object"
+        %previous_runtime_state_has_bindings = core.call intrinsic.or(%previous_runtime_globals_is_map, %previous_runtime_bindings_is_map)
+        core.if %previous_runtime_state_has_bindings {
+          %clean_previous_runtime_state = core.call @normalize_agent_runtime_snapshot(%state, %previous_runtime_session_state)
+          core.set %state["runtime_session_state"] = %clean_previous_runtime_state
+        }
+      }
       core.call @agent_begin_trace(%state, %values)
       core.call @agent_apply_llm_checkpoint_summary(%state, %client, %options)
       %state_options = core.get %state["options"]
@@ -7792,6 +8586,11 @@ module @ax.agent version "0.1" {
         %distiller_payload = core.call @normalize_agent_completion_payload(%distiller_output)
       }
       core.call @throw_agent_clarification(%distiller_payload, %state)
+      %distiller_skills_after = core.get %state["distiller_loaded_skill_docs"] default %empty_list
+      %executor_skills_after = core.get %state["loaded_skill_docs"] default %empty_list
+      %executor_skills_after = core.call @agent_merge_skill_results(%executor_skills_after, %distiller_skills_after)
+      core.set %state["loaded_skill_docs"] = %executor_skills_after
+      core.set %state["active_stage"] = "executor"
       %executor_payload = core.call intrinsic.none()
       %distiller_payload_type = core.get %distiller_payload["type"] default ""
       %distiller_is_respond = core.call intrinsic.eq(%distiller_payload_type, "respond")
@@ -7964,6 +8763,10 @@ module @ax.agent version "0.1" {
       core.set %state["last_output"] = %responder_output
       core.set %state["chat_log"] = %logs
       core.set %state["usage"] = %usage
+      %forward_used_memories = core.get %state["used_memories"] default %empty_list
+      %forward_used_skills = core.get %state["used_skills"] default %empty_list
+      core.call intrinsic.agent.observer.notify(%state, %options, "used_memories", %forward_used_memories)
+      core.call intrinsic.agent.observer.notify(%state, %options, "used_skills", %forward_used_skills)
       core.call @agent_build_failure_signals(%state)
       core.call @agent_finalize_trace(%state, "completed", %responder_output)
       core.return %responder_output

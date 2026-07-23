@@ -28,7 +28,9 @@
       "llmQuery",
       "inspectRuntime",
       "reportSuccess",
-      "reportFailure"
+      "reportFailure",
+      "question",
+      "user"
     ],
     "sessionId": "session-from-options",
     "timeout": 1234,
@@ -46,7 +48,9 @@
       "llmQuery",
       "inspectRuntime",
       "reportSuccess",
-      "reportFailure"
+      "reportFailure",
+      "question",
+      "user"
     ],
     "sessionId": "session-from-options",
     "timeout": 1234,
@@ -87,7 +91,9 @@
           "llmQuery",
           "inspectRuntime",
           "reportSuccess",
-          "reportFailure"
+          "reportFailure",
+          "question",
+          "user"
         ],
         "sessionId": "session-from-options",
         "timeout": 1234,

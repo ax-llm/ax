@@ -196,7 +196,13 @@ function normalizeJsonText(text) {
   return `${JSON.stringify(stable(JSON.parse(text)), null, 2)}\n`;
 }
 
-function runConformanceExtractor(repoRoot, outRoot, extractorName, label) {
+function runConformanceExtractor(
+  repoRoot,
+  outRoot,
+  extractorName,
+  label,
+  extraEnv = {}
+) {
   const extractor = path.join(
     repoRoot,
     'tools',
@@ -206,7 +212,11 @@ function runConformanceExtractor(repoRoot, outRoot, extractorName, label) {
   );
   const result = spawnSync(process.execPath, ['--import=tsx', extractor], {
     cwd: repoRoot,
-    env: { ...process.env, AXIR_CONFORMANCE_OUT_ROOT: outRoot },
+    env: {
+      ...process.env,
+      AXIR_CONFORMANCE_OUT_ROOT: outRoot,
+      ...extraEnv,
+    },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -225,7 +235,12 @@ function listJsonFiles(dir) {
     .sort();
 }
 
-function compareGeneratedFixtures(repoRoot, generatedRoot, suite, write) {
+export function compareGeneratedFixtures(
+  repoRoot,
+  generatedRoot,
+  suite,
+  write
+) {
   const generatedDir = path.join(generatedRoot, 'ir', 'conformance', suite);
   const repoDir = path.join(repoRoot, 'ir', 'conformance', suite);
   const failures = [];
@@ -317,9 +332,13 @@ async function runSync({ repoRoot, write }) {
       'optimize-goldens.ts',
       'AxOptimize'
     );
+    runConformanceExtractor(repoRoot, tempRoot, 'agent-goldens.ts', 'AxAgent', {
+      AXIR_AGENT_PARITY_ONLY: '1',
+    });
     const failures = [
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axai', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axoptimize', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'axagent', write),
       ...(await checkProviderCatalog(repoRoot, tempRoot, write)),
     ];
     if (failures.length > 0) {

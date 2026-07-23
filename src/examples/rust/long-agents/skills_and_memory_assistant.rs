@@ -8,7 +8,7 @@
 // order: 50
 // ax-example:end
 use axllm::runtime::quickjs::QuickJsCodeRuntime;
-use axllm::{agent_with_search_callbacks, AxResult, OpenAICompatibleClient};
+use axllm::{agent_observer, agent_with_search_callbacks, AxResult, OpenAICompatibleClient};
 use serde_json::json;
 use std::env;
 
@@ -125,6 +125,10 @@ fn main() -> AxResult<()> {
                     "content": "Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps -- cite the runbook.",
                 }
             ],
+            "onLoadedMemories": agent_observer(|payload| println!("[memories loaded] {payload}")),
+            "onLoadedSkills": agent_observer(|payload| println!("[skills loaded] {payload}")),
+            "onUsedMemories": agent_observer(|payload| println!("[memories used] {payload}")),
+            "onUsedSkills": agent_observer(|payload| println!("[skills used] {payload}")),
             "executorOptions": {"description": executor_description},
             "runtime": {"language": "JavaScript"},
         }),

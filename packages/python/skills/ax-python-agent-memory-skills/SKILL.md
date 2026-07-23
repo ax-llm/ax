@@ -10,8 +10,10 @@ This skill helps an agent write Python code with the generated Ax package `axllm
 ## When To Use
 
 - Load memories or skill guides into an RLM agent run.
+- Use static skillsCatalog or memoriesCatalog search without host callbacks.
+- Preload constructor or forward-time skills with deterministic id merging.
 - Track which memories or skills actually influenced a turn.
-- Keep recall and skill search as host callbacks rather than generated-package global state.
+- Register non-fatal loaded/used observers in native option maps or target callback wrappers.
 
 ## Package Facts
 

@@ -3817,6 +3817,7 @@ type AxAgent struct {
 // skill subsystems, so the actor's prompt advertises recall()/discover()), mirroring the TS/Python API.
 type AxMemoriesSearchFn func(searches []Value, alreadyLoaded []Value) []Value
 type AxSkillsSearchFn func(searches []Value) []Value
+type AxAgentObserverFn func(items []Value)
 
 // runtimeCallableRegistrar is satisfied by any code runtime that can host a
 // callable (e.g. the goja *Runtime). Declared structurally so the agent wrapper
@@ -7053,6 +7054,43 @@ func _core_agent_skill_search(values ...Value) Value {
 	scripted := coreGet(options, "skill_search_results", coreGet(options, "skillSearchResults", Object()))
 	return scriptedAgentSearchResults(scripted, searches, true)
 }
+func _core_agent_observer_notify(values ...Value) Value {
+	if len(values) < 4 {
+		return nil
+	}
+	state := values[0]
+	forwardOptions := asMap(values[1])
+	kind := display(values[2])
+	payload := asSlice(values[3])
+	constructorOptions := asMap(coreGet(state, "options", Object()))
+	keys := map[string][2]string{
+		"loaded_memories": {"on_loaded_memories", "onLoadedMemories"},
+		"loaded_skills":   {"on_loaded_skills", "onLoadedSkills"},
+		"used_memories":   {"on_used_memories", "onUsedMemories"},
+		"used_skills":     {"on_used_skills", "onUsedSkills"},
+	}
+	pair, ok := keys[kind]
+	if !ok {
+		return nil
+	}
+	callback := Value(nil)
+	if strings.HasPrefix(kind, "used_") {
+		callback = coreGet(forwardOptions, pair[0], coreGet(forwardOptions, pair[1], nil))
+	}
+	if callback == nil {
+		callback = coreGet(constructorOptions, pair[0], coreGet(constructorOptions, pair[1], nil))
+	}
+	defer func() { _ = recover() }()
+	switch cb := callback.(type) {
+	case AxAgentObserverFn:
+		cb(asSlice(cloneValue(payload)))
+	case func([]Value):
+		cb(asSlice(cloneValue(payload)))
+	case func(Value):
+		cb(cloneValue(payload))
+	}
+	return nil
+}
 func agentSearchResultOrEmpty(result []Value) Value {
 	if result == nil {
 		return MutableArray()
@@ -9776,9 +9814,96 @@ func runConformanceAgentPrompt(fixture map[string]Value) {
 	}
 }
 
+var semanticPromptFieldLabels = []string{
+	"Query",
+	"Executor Request",
+	"Distilled Context Summary",
+	"Context Metadata",
+	"Context Map",
+	"Discovered Tool Docs",
+	"Loaded Skills",
+	"Memories",
+	"Relevance Hints",
+	"Summarized Actor Log",
+	"Guidance Log",
+	"Action Log",
+	"Live Runtime State",
+	"Context Pressure",
+}
+
+func normalizeSemanticPromptText(text string) string {
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+	lines := strings.Split(text, "\n")
+	for index := range lines {
+		lines[index] = strings.TrimRight(lines[index], " \t")
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func semanticPromptField(user, label string) string {
+	normalized := normalizeSemanticPromptText(user)
+	marker := label + ": "
+	start := strings.Index(normalized, marker)
+	if start < 0 {
+		return ""
+	}
+	bodyStart := start + len(marker)
+	end := len(normalized)
+	for _, candidate := range semanticPromptFieldLabels {
+		if candidate == label {
+			continue
+		}
+		next := strings.Index(normalized[bodyStart:], "\n\n"+candidate+": ")
+		if next >= 0 && bodyStart+next < end {
+			end = bodyStart + next
+		}
+	}
+	return normalizeSemanticPromptText(label + ": " + normalized[bodyStart:end])
+}
+
+func semanticAvailableSkillsIndex(system string) string {
+	normalized := normalizeSemanticPromptText(system)
+	heading := "### Available Skills"
+	start := strings.Index(normalized, heading)
+	if start < 0 {
+		return ""
+	}
+	entries := []string{}
+	for _, line := range strings.Split(normalized[start+len(heading):], "\n") {
+		if strings.TrimSpace(line) == "" && len(entries) == 0 {
+			continue
+		}
+		if !strings.HasPrefix(line, "- `") {
+			break
+		}
+		entries = append(entries, line)
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	return heading + "\n\n" + strings.Join(entries, "\n")
+}
+
 func runConformanceAgentForward(fixture map[string]Value) {
 	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	observerTranscript := MutableArray()
+	semanticObserversEnabled := coreGet(fixture, "expected_observer_transcript", nil) != nil
+	installSemanticObserver := func(target map[string]Value, key, label string, throws bool) {
+		if !semanticObserversEnabled || coreGet(target, key, nil) == nil {
+			return
+		}
+		coreSet(target, key, AxAgentObserverFn(func(payload []Value) {
+			coreAppend(observerTranscript, Object("callback", label, "payload", cloneValue(payload)))
+			if throws {
+				panic("semantic parity observer failure")
+			}
+		}))
+	}
+	installSemanticObserver(options, "onLoadedSkills", "loaded_skills", true)
+	installSemanticObserver(options, "onLoadedMemories", "loaded_memories", true)
+	installSemanticObserver(options, "onUsedSkills", "constructor.used_skills", false)
+	installSemanticObserver(options, "onUsedMemories", "constructor.used_memories", false)
 	observerCalled := false
 	if coreTruthy(coreGet(fixture, "observer_throws", false)) {
 		citations := cloneMap(asMap(coreGet(options, "citations", Object())))
@@ -9798,6 +9923,9 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	}
 	var ag *AxAgent
 	var output Value
+	runStateProjections := MutableArray()
+	var savedRuntimeState Value
+	stateRoundtripProjection := Object()
 	_, err := safeValue(func() Value {
 		ag = NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
 		if instruction := coreGet(fixture, "set_instruction", nil); instruction != nil {
@@ -9812,7 +9940,51 @@ func runConformanceAgentForward(fixture map[string]Value) {
 		if snapshot := coreGet(fixture, "restore_runtime_state", nil); snapshot != nil {
 			ag.RestoreRuntimeState(snapshot)
 		}
-		out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
+		if forwardRuns := coreGet(fixture, "forward_runs", nil); forwardRuns != nil {
+			outputs := MutableArray()
+			for _, rawRun := range asSlice(forwardRuns) {
+				run := asMap(rawRun)
+				switch display(coreGet(run, "state_action", "")) {
+				case "reset":
+					ag.RestoreRuntimeState(Object())
+				case "restore_saved":
+					if savedRuntimeState == nil {
+						panic(AxError{Category: "fixture", Message: "restore_saved requires an earlier save_runtime_state run"})
+					}
+					restored := ag.RestoreRuntimeState(savedRuntimeState)
+					coreSet(stateRoundtripProjection, "restored", Object(
+						"loaded_skill_docs", coreGet(restored, "loaded_skill_docs", Array()),
+					))
+				}
+				forwardOptions := cloneMap(asMap(coreGet(run, "forward_options", Object())))
+				installSemanticObserver(forwardOptions, "onUsedSkills", "forward.used_skills", false)
+				installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
+				out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(run, "input", Object())), forwardOptions)
+				if forwardErr != nil {
+					panic(forwardErr)
+				}
+				coreAppend(outputs, out)
+				runExported := ag.ExportRuntimeState()
+				if coreTruthy(coreGet(run, "save_runtime_state", false)) {
+					savedRuntimeState = runExported
+					coreSet(stateRoundtripProjection, "saved", Object(
+						"loaded_skill_docs", coreGet(runExported, "loaded_skill_docs", Array()),
+					))
+				}
+				coreAppend(runStateProjections, Object(
+					"loaded_skill_docs", coreGet(runExported, "loaded_skill_docs", Array()),
+					"loaded_memories", coreGet(runExported, "loaded_memories", Array()),
+					"used_skills", coreGet(runExported, "used_skills", Array()),
+					"used_memories", coreGet(runExported, "used_memories", Array()),
+				))
+			}
+			output = outputs
+			return outputs
+		}
+		forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
+		installSemanticObserver(forwardOptions, "onUsedSkills", "forward.used_skills", false)
+		installSemanticObserver(forwardOptions, "onUsedMemories", "forward.used_memories", false)
+		out, forwardErr := ag.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), forwardOptions)
 		if forwardErr != nil {
 			panic(forwardErr)
 		}
@@ -9838,11 +10010,98 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 		assertEqual(output, expected, "agent output")
 	}
+	if expected := coreGet(fixture, "expected_run_state_projections", nil); expected != nil {
+		assertEqual(runStateProjections, expected, "agent run state projections")
+	}
+	if expected := coreGet(fixture, "expected_state_roundtrip_projection", nil); expected != nil {
+		assertEqual(stateRoundtripProjection, expected, "agent state roundtrip projection")
+	}
+	if expected := coreGet(fixture, "expected_observer_transcript", nil); expected != nil {
+		assertEqual(observerTranscript, expected, "agent observer transcript")
+	}
 	if coreTruthy(coreGet(fixture, "observer_throws", false)) && !observerCalled {
 		panic(AxError{Category: "fixture", Message: "citation observer was not called"})
 	}
 	if expected := coreGet(fixture, "expected_request_count", nil); expected != nil && len(client.Requests) != int(num(expected)) {
 		panic(AxError{Category: "fixture", Message: fmt.Sprintf("expected %d requests, got %d", int(num(expected)), len(client.Requests))})
+	}
+	exactProjection := asMap(coreGet(fixture, "exact_observable_projection", Object()))
+	if expected := coreGet(exactProjection, "stateRoundtrip", nil); expected != nil {
+		assertEqual(stateRoundtripProjection, expected, "exact agent state roundtrip projection")
+	}
+	if expected := coreGet(exactProjection, "ranking", nil); expected != nil {
+		executorSystem := ""
+		executorUser := ""
+		for _, request := range client.Requests {
+			prompt := coreGet(request, "chat_prompt", coreGet(request, "chatPrompt", Array()))
+			systemText := ""
+			userText := ""
+			for _, rawMessage := range asSlice(prompt) {
+				message := asMap(rawMessage)
+				rawContent := coreGet(message, "content", "")
+				content, ok := rawContent.(string)
+				if !ok {
+					content = stableStringify(rawContent)
+				}
+				switch display(coreGet(message, "role", "")) {
+				case "system":
+					systemText += content + "\n"
+				case "user":
+					userText += content + "\n"
+				}
+			}
+			if strings.Contains(systemText, "You (`executor`)") {
+				executorSystem = systemText
+				executorUser = userText
+				break
+			}
+		}
+		matches := Object()
+		for _, rawProbe := range asSlice(coreGet(fixture, "ranking_probe", Array())) {
+			probe := asMap(rawProbe)
+			coreSet(matches, display(coreGet(probe, "label", "")), strings.Contains(executorUser, display(coreGet(probe, "needle", ""))))
+		}
+		actual := Object(
+			"hasLikelyRelevant", strings.Contains(executorSystem, "Likely Relevant"),
+			"matches", matches,
+		)
+		assertEqual(actual, expected, "exact agent ranking projection")
+	}
+	if expectedStageRequests := coreGet(exactProjection, "stageRequests", nil); expectedStageRequests != nil {
+		actualStageRequests := MutableArray()
+		for _, request := range client.Requests {
+			prompt := coreGet(request, "chat_prompt", coreGet(request, "chatPrompt", Array()))
+			systemText := ""
+			userText := ""
+			for _, rawMessage := range asSlice(prompt) {
+				message := asMap(rawMessage)
+				rawContent := coreGet(message, "content", "")
+				content, ok := rawContent.(string)
+				if !ok {
+					content = stableStringify(rawContent)
+				}
+				switch display(coreGet(message, "role", "")) {
+				case "system":
+					systemText += content + "\n"
+				case "user":
+					userText += content + "\n"
+				}
+			}
+			stage := "responder"
+			if strings.Contains(systemText, "You (`distiller`)") {
+				stage = "distiller"
+			} else if strings.Contains(systemText, "You (`executor`)") {
+				stage = "executor"
+			}
+			coreAppend(actualStageRequests, Object(
+				"stage", stage,
+				"availableSkills", semanticAvailableSkillsIndex(systemText),
+				"loadedSkills", semanticPromptField(userText, "Loaded Skills"),
+				"memories", semanticPromptField(userText, "Memories"),
+				"relevanceHints", semanticPromptField(userText, "Relevance Hints"),
+			))
+		}
+		assertEqual(actualStageRequests, expectedStageRequests, "exact agent stage request projection")
 	}
 	if expected := coreGet(fixture, "expected_request_contains", nil); expected != nil {
 		text := stableStringify(client.Requests)
@@ -9907,6 +10166,16 @@ func runConformanceAgentForward(fixture map[string]Value) {
 	}
 	if expected := coreGet(fixture, "expected_exported_state_subset", nil); expected != nil {
 		assertSubset(exported, expected, "runtime state")
+	}
+	for _, spec := range []struct{ expectedKey, stateKey, label string }{
+		{"expected_loaded_skill_docs", "loaded_skill_docs", "loaded skills exact"},
+		{"expected_loaded_memories", "loaded_memories", "loaded memories exact"},
+		{"expected_used_skills", "used_skills", "used skills exact"},
+		{"expected_used_memories", "used_memories", "used memories exact"},
+	} {
+		if expected := coreGet(fixture, spec.expectedKey, nil); expected != nil {
+			assertEqual(coreGet(exported, spec.stateKey, Array()), expected, spec.label)
+		}
 	}
 	if expected := coreGet(fixture, "expected_context_events_subset", nil); expected != nil {
 		assertListSubset(coreGet(exported, "context_events", Array()), expected, "agent context events")

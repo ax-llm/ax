@@ -629,11 +629,35 @@ type ConformanceCoverageManifest struct {
 }
 
 type ConformanceCoverageEntry struct {
-	Suite     string `json:"suite"`
-	Kind      string `json:"kind"`
-	Operation string `json:"operation,omitempty"`
-	Runner    string `json:"runner"`
-	Category  string `json:"category"`
+	Suite       string   `json:"suite"`
+	Kind        string   `json:"kind"`
+	Operation   string   `json:"operation,omitempty"`
+	Runner      string   `json:"runner"`
+	Category    string   `json:"category"`
+	ContractIDs []string `json:"contract_ids,omitempty"`
+}
+
+func axAgentSemanticParityContractIDs() []string {
+	return []string{
+		"axagent.constructor.directResponse",
+		"axagent.constructor.memoriesCatalog",
+		"axagent.constructor.onLoadedMemories",
+		"axagent.constructor.onLoadedSkills",
+		"axagent.constructor.onMemoriesSearch",
+		"axagent.constructor.onSkillsSearch",
+		"axagent.constructor.onUsedMemories",
+		"axagent.constructor.onUsedSkills",
+		"axagent.constructor.relevanceRanking",
+		"axagent.constructor.skills",
+		"axagent.constructor.skillsCatalog",
+		"axagent.forward.onUsedMemories",
+		"axagent.forward.onUsedSkills",
+		"axagent.forward.skills",
+		"axagent.method.forward",
+		"axagent.method.getState",
+		"axagent.method.setState",
+		"axagent.state.skillsPromptState",
+	}
 }
 
 type APIReferenceManifest struct {
@@ -1016,8 +1040,8 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 			Title:   "Agents And RLM",
 			Summary: "Run AxAgent through the RLM executor loop with stage instructions, validated evidence citations, persistent playbooks, and actor-code execution through an AxCodeRuntime session.",
 			Symbols: []APIReferenceSymbol{
-				sym("agent", "function", "Create an AxAgent from a signature and agent/runtime options.", []string{"name", "description", "runtime", "maxSteps", "context fields", "discovery", "recall", "functions", "citations", "playbook", "instruction", "instructionAddenda"}, "AxAgent"),
-				sym("AxAgent", "type", "RLM agent with Core-owned envelopes, state, traces, discovery, recall, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.", []string{"executor model", "runtime", "policy", "context", "optimizer metadata", "citations", "playbook"}, "agent program"),
+				sym("agent", "function", "Create an AxAgent from a signature and agent/runtime options.", []string{"name", "description", "runtime", "maxSteps", "context fields", "discovery", "recall", "functions", "skills", "skillsCatalog", "memoriesCatalog", "relevanceRanking", "load observers", "used observers", "citations", "playbook", "instruction", "instructionAddenda"}, "AxAgent"),
+				sym("AxAgent", "type", "RLM agent with Core-owned envelopes, complete runtime-state export/restore, traces, discovery, recall, loaded skills and memories, usage observers, delegation, validated citations, stage instructions, persistent run-end learning, and verified playbook evolution.", []string{"executor model", "runtime", "policy", "context", "skills", "memories", "relevance ranking", "observers", "runtime state", "optimizer metadata", "citations", "playbook"}, "agent program"),
 			},
 		},
 		{
@@ -1703,6 +1727,11 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axevent", "event", "lifecycle", "semantic"},
 	} {
 		add(entry.suite, entry.kind, entry.operation, entry.category)
+	}
+	for index := range suites["axagent"] {
+		if suites["axagent"][index].Kind == "agent_forward" {
+			suites["axagent"][index].ContractIDs = axAgentSemanticParityContractIDs()
+		}
 	}
 	for _, profileID := range knownRuntimeProfileIDs() {
 		add("axagent", "agent_runtime_profile", profileID, runtimeProfileCoverageCategory(target, profileID))

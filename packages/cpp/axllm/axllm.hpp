@@ -225,6 +225,7 @@ struct Core {
   static Value agent_runtime_close(Value session);
   static Value agent_memory_search(Value state, Value searches, Value already_loaded);
   static Value agent_skill_search(Value state, Value searches);
+  static Value agent_observer_notify(Value state, Value forward_options, Value kind, Value payload);
   static Value agent_transcribe(Value client, Value request, Value options);
   static Value agent_callable_invoke(Value state, Value request, Value options);
   static Value stream_event_content_parts(Value event);
@@ -489,6 +490,7 @@ struct Core {
   static Value _optimization_component(Value id, Value owner, Value kind, Value current, Value description, Value constraints, Value depends_on, Value preserve, Value format, Value validation);
   static Value _optimized_artifact(Value optimizer_name, Value optimizer_version, Value component_map, Value metadata);
   static Value _agent_reserved_runtime_names();
+  static Value _agent_runtime_reserved_names_for_state(Value state);
   static Value _agent_runtime_language_tokens(Value language);
   static Value _agent_runtime_language_alias_key(Value tokens);
   static Value _agent_runtime_is_javascript_alias(Value alias_key);
@@ -574,12 +576,19 @@ struct Core {
   static Value _normalize_agent_string_list(Value value, Value label);
   static Value _normalize_agent_discover_request(Value state, Value request);
   static Value _agent_append_unique_by_field(Value items, Value item, Value field);
+  static Value _agent_normalize_skill_entry(Value entry);
+  static Value _agent_merge_skill_results(Value existing, Value incoming);
+  static Value _agent_normalize_skill_catalog(Value catalog);
+  static Value _agent_catalog_skill_search(Value catalog, Value searches);
+  static Value _agent_catalog_memory_search(Value catalog, Value searches, Value already_loaded);
   static Value _agent_render_discovered_tool_docs(Value docs);
   static Value _agent_render_loaded_skills(Value skills);
+  static Value _agent_render_loaded_memories(Value memories);
   static Value _agent_discover(Value state, Value request);
   static Value _normalize_agent_recall_request(Value state, Value request);
   static Value _agent_merge_memory_results(Value existing, Value incoming);
   static Value _agent_recall(Value state, Value request);
+  static Value _agent_append_unique_used_entry(Value items, Value entry);
   static Value _normalize_agent_used_request(Value request, Value default_stage);
   static Value _agent_used(Value state, Value request, Value stage);
   static Value _normalize_agent_guidance_payload(Value value, Value triggered_by);
@@ -603,8 +612,8 @@ struct Core {
   static Value _agent_export_runtime_state(Value state);
   static Value _agent_restore_runtime_state(Value state, Value snapshot);
   static Value _agent_runtime_build_globals(Value state, Value values);
-  static Value _agent_runtime_sanitize_bindings(Value bindings);
-  static Value _normalize_agent_runtime_snapshot(Value snapshot);
+  static Value _agent_runtime_sanitize_bindings(Value state, Value bindings);
+  static Value _normalize_agent_runtime_snapshot(Value state, Value snapshot);
   static Value _agent_runtime_append_action_log(Value state, Value entry);
   static Value _normalize_agent_runtime_step_result(Value raw, Value code);
   static Value _agent_runtime_execution_options(Value state, Value options);
@@ -623,8 +632,10 @@ struct Core {
   static Value _agent_evidence_entry_descriptor(Value key, Value value);
   static Value _agent_build_evidence_descriptor(Value evidence);
   static Value _agent_render_evidence_descriptor(Value descriptor);
+  static Value _agent_identifier_tokens(Value text);
   static Value _agent_relevance_tokens(Value text);
-  static Value _agent_relevance_score(Value tokens, Value text);
+  static Value _agent_document_term_frequency(Value fields);
+  static Value _agent_rank_documents(Value query, Value docs, Value options);
   static Value _agent_relevance_has_id(Value items, Value field, Value id);
   static Value _agent_rank_relevance_modules(Value state, Value task);
   static Value _agent_rank_relevance_skills(Value state, Value task);
@@ -1541,6 +1552,9 @@ AxAgent agent(Value signature, Value options = Value::object());
 // and return Value: memories (searches, alreadyLoaded) -> results, skills (searches) -> results.
 Value register_memories_search(std::function<Value(Value, Value)> fn);
 Value register_skills_search(std::function<Value(Value)> fn);
+// Register a non-fatal AxAgent observer and return a marker usable as any
+// onLoadedMemories/onLoadedSkills/onUsedMemories/onUsedSkills option value.
+Value register_agent_observer(std::function<void(Value)> fn);
 AxFlow flow(Value options = Value::object());
 AxFlow flow(const std::string& mermaid, Value bindings = Value::object());
 Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);

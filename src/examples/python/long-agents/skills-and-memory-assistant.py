@@ -94,6 +94,8 @@ assistant = agent(
         "onSkillsSearch": on_skills_search,
         "onLoadedMemories": lambda results: print("[memories loaded]", ", ".join(r.get("id", "") for r in results)),
         "onLoadedSkills": lambda results: print("[skills loaded]", ", ".join(r.get("id") or r.get("name") for r in results)),
+        "onUsedMemories": lambda results: print("[memories used]", ", ".join(r.get("id", "") for r in results)),
+        "onUsedSkills": lambda results: print("[skills used]", ", ".join(r.get("id", "") for r in results)),
         "executorOptions": {
             "description": "\n".join([
                 "You do NOT know our internal flag names, incident history, or runbook steps from your own training.",
