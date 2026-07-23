@@ -1069,10 +1069,13 @@ Value Core::program_apply_components(Value program, Value component_map) {
   if (it != agent_stage_registry().end() && it->second != nullptr) it->second->apply_optimized_components(std::move(component_map));
   return Value::object();
 }
-Value Core::ai_complete_once(Value client, Value request) {
+Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
   auto it = client_registry().find(id);
   if (it == client_registry().end() || it->second == nullptr) throw AxError("runtime", "client does not implement AIClient");
+  if (auto* service = dynamic_cast<AxAIService*>(it->second)) {
+    return chat_response_to_completion(service->chat(request, options));
+  }
   return chat_response_to_completion(it->second->chat(request));
 }
 Value Core::agent_transcribe(Value client, Value request, Value options) {
@@ -4263,13 +4266,6 @@ Value Core::_openai_apply_model_config_impl(Value payload, Value model_config) {
   return Value();
 }
 
-Value Core::build_chat_request(Value service, Value request, Value options) {
-  axir_coverage_mark("build_chat_request");
-  Core::validate_chat_request(request);
-  Value payload = Core::openai_build_chat_request(request);
-  return payload;
-}
-
 Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target) {
   axir_coverage_mark("_openai_copy_config_key_impl");
   Value has_source = Core::map_contains(model_config, source);
@@ -4280,16 +4276,11 @@ Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Valu
   return Value();
 }
 
-Value Core::normalize_chat_response(Value raw) {
-  axir_coverage_mark("normalize_chat_response");
-  Value response = Core::openai_normalize_chat_response(raw);
-  return response;
-}
-
-Value Core::normalize_stream_delta(Value raw, Value state) {
-  axir_coverage_mark("normalize_stream_delta");
-  Value response = Core::openai_normalize_stream_delta(raw, state);
-  return response;
+Value Core::build_chat_request(Value service, Value request, Value options) {
+  axir_coverage_mark("build_chat_request");
+  Core::validate_chat_request(request);
+  Value payload = Core::openai_build_chat_request(request);
+  return payload;
 }
 
 Value Core::_openai_message_impl(Value message) {
@@ -4366,6 +4357,18 @@ Value Core::_openai_message_impl(Value message) {
   throw Core::as_error(error);
 }
 
+Value Core::normalize_chat_response(Value raw) {
+  axir_coverage_mark("normalize_chat_response");
+  Value response = Core::openai_normalize_chat_response(raw);
+  return response;
+}
+
+Value Core::normalize_stream_delta(Value raw, Value state) {
+  axir_coverage_mark("normalize_stream_delta");
+  Value response = Core::openai_normalize_stream_delta(raw, state);
+  return response;
+}
+
 Value Core::build_embed_request(Value service, Value request, Value options) {
   axir_coverage_mark("build_embed_request");
   Value payload = Core::openai_build_embed_request(request);
@@ -4393,6 +4396,12 @@ Value Core::normalize_token_usage(Value usage) {
   Core::set(out, Value("prompt_tokens"), prompt_tokens);
   Core::set(out, Value("completion_tokens"), completion_tokens);
   Core::set(out, Value("total_tokens"), total_tokens);
+  Value thoughts_tokens_snake = Core::get(usage, Value("thoughts_tokens"), Value());
+  Value thoughts_tokens = Core::get(usage, Value("thoughtsTokens"), thoughts_tokens_snake);
+  Value has_thoughts = Core::is_not_none(thoughts_tokens);
+  if (Core::truthy(has_thoughts)) {
+    Core::set(out, Value("thoughts_tokens"), thoughts_tokens);
+  }
   Value reasoning_tokens_snake = Core::get(usage, Value("reasoning_tokens"), Value());
   Value reasoning_tokens = Core::get(usage, Value("reasoningTokens"), reasoning_tokens_snake);
   Value has_reasoning = Core::is_not_none(reasoning_tokens);
@@ -4411,22 +4420,17 @@ Value Core::normalize_token_usage(Value usage) {
   if (Core::truthy(has_cache_creation)) {
     Core::set(out, Value("cache_creation_tokens"), cache_creation_tokens);
   }
-  return out;
-}
-
-Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
-  axir_coverage_mark("_ai_model_usage_impl");
-  Value has_usage = Core::truthy_value(usage);
-  Value missing_usage = Core::not_(has_usage);
-  if (Core::truthy(missing_usage)) {
-    Value none = Core::none();
-    return none;
+  Value service_tier_snake = Core::get(usage, Value("service_tier"), Value());
+  Value service_tier = Core::get(usage, Value("serviceTier"), service_tier_snake);
+  Value has_service_tier = Core::is_not_none(service_tier);
+  if (Core::truthy(has_service_tier)) {
+    Core::set(out, Value("service_tier"), service_tier);
   }
-  Value tokens = Core::normalize_token_usage(usage);
-  Value out = Value::object();
-  Core::set(out, Value("ai"), ai_name);
-  Core::set(out, Value("model"), model);
-  Core::set(out, Value("tokens"), tokens);
+  Value speed = Core::get(usage, Value("speed"), Value());
+  Value has_speed = Core::is_not_none(speed);
+  if (Core::truthy(has_speed)) {
+    Core::set(out, Value("speed"), speed);
+  }
   return out;
 }
 
@@ -4492,34 +4496,83 @@ Value Core::_openai_content_part_impl(Value part) {
   throw Core::as_error(error);
 }
 
-Value Core::chat_response_to_completion(Value response) {
-  axir_coverage_mark("chat_response_to_completion");
-  Value empty_results = Value::array();
-  Value results = Core::get(response, Value("results"), empty_results);
-  Value empty_result = Value::object();
-  Value result = Core::list_get(results, Value(0), empty_result);
-  Value content = Core::get(result, Value("content"), Value(""));
-  Value calls = Value::array();
-  Value empty_calls = Value::array();
-  Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
-  for (auto call : Core::iter(function_calls)) {
-    Value fn = Core::get(call, Value("function"), Value());
-    Value id = Core::get(call, Value("id"), Value());
-    Value name = Core::get(fn, Value("name"), Value());
-    Value params = Core::get(fn, Value("params"), Value());
-    Value compat_call = Value::object();
-    Core::set(compat_call, Value("id"), id);
-    Core::set(compat_call, Value("name"), name);
-    Core::set(compat_call, Value("params"), params);
-    Core::append(calls, compat_call);
+Value Core::merge_usage_context(Value defaults, Value overrides) {
+  axir_coverage_mark("merge_usage_context");
+  Value merged = Core::map_merge(defaults, overrides);
+  Value default_attributes = Core::get(defaults, Value("attributes"), Value());
+  Value override_attributes = Core::get(overrides, Value("attributes"), Value());
+  Value attributes = Core::map_merge(default_attributes, override_attributes);
+  Value has_attributes = Core::truthy_value(attributes);
+  if (Core::truthy(has_attributes)) {
+    Core::set(merged, Value("attributes"), attributes);
   }
-  Value model_usage = Core::get(response, Value("model_usage"), Value());
-  Value usage = Core::get(model_usage, Value("tokens"), Value());
-  Value out = Value::object();
-  Core::set(out, Value("content"), content);
-  Core::set(out, Value("function_calls"), calls);
-  Core::set(out, Value("usage"), usage);
-  return out;
+  return merged;
+}
+
+Value Core::build_usage_event(Value operation, Value response, Value options, Value streaming) {
+  axir_coverage_mark("build_usage_event");
+  Value model_usage_snake = Core::get(response, Value("model_usage"), Value());
+  Value top_model_usage = Core::get(response, Value("modelUsage"), model_usage_snake);
+  Value model_usage = top_model_usage;
+  Value results = Core::get(response, Value("results"), Value());
+  for (auto result : Core::iter(results)) {
+    Value result_usage_snake = Core::get(result, Value("model_usage"), Value());
+    Value result_usage = Core::get(result, Value("modelUsage"), result_usage_snake);
+    Value has_result_usage = Core::truthy_value(result_usage);
+    if (Core::truthy(has_result_usage)) {
+      model_usage = result_usage;
+    }
+  }
+  Value tokens = Core::get(model_usage, Value("tokens"), Value());
+  Value has_tokens = Core::truthy_value(tokens);
+  Value missing_tokens = Core::not_(has_tokens);
+  if (Core::truthy(missing_tokens)) {
+    Value none = Core::none();
+    return none;
+  }
+  Value event = Value::object();
+  Core::set(event, Value("operation"), operation);
+  Value ai_name = Core::get(model_usage, Value("ai"), Value());
+  Value model = Core::get(model_usage, Value("model"), Value());
+  Value normalized_tokens = Core::normalize_token_usage(tokens);
+  Core::set(event, Value("ai"), ai_name);
+  Core::set(event, Value("model"), model);
+  Core::set(event, Value("tokens"), normalized_tokens);
+  Core::set(event, Value("streaming"), streaming);
+  Value usage_context_snake = Core::get(options, Value("usage_context"), Value());
+  Value usage_context = Core::get(options, Value("usageContext"), usage_context_snake);
+  Value has_context = Core::truthy_value(usage_context);
+  if (Core::truthy(has_context)) {
+    Core::set(event, Value("context"), usage_context);
+  }
+  Value option_session_snake = Core::get(options, Value("session_id"), Value());
+  Value option_session = Core::get(options, Value("sessionId"), option_session_snake);
+  Value response_session_snake = Core::get(response, Value("session_id"), Value());
+  Value response_session = Core::get(response, Value("sessionId"), response_session_snake);
+  Value session_id = Core::coalesce(response_session, option_session);
+  Value has_session_id = Core::is_not_none(session_id);
+  if (Core::truthy(has_session_id)) {
+    Core::set(event, Value("sessionId"), session_id);
+  }
+  Value remote_id_snake = Core::get(response, Value("remote_id"), Value());
+  Value remote_id = Core::get(response, Value("remoteId"), remote_id_snake);
+  Value has_remote_id = Core::is_not_none(remote_id);
+  if (Core::truthy(has_remote_id)) {
+    Core::set(event, Value("remoteId"), remote_id);
+  }
+  Value remote_request_id_snake = Core::get(response, Value("remote_request_id"), Value());
+  Value remote_request_id = Core::get(response, Value("remoteRequestId"), remote_request_id_snake);
+  Value has_remote_request_id = Core::is_not_none(remote_request_id);
+  if (Core::truthy(has_remote_request_id)) {
+    Core::set(event, Value("remoteRequestId"), remote_request_id);
+  }
+  Value remote_session_id_snake = Core::get(response, Value("remote_session_id"), Value());
+  Value remote_session_id = Core::get(response, Value("remoteSessionId"), remote_session_id_snake);
+  Value has_remote_session_id = Core::is_not_none(remote_session_id);
+  if (Core::truthy(has_remote_session_id)) {
+    Core::set(event, Value("remoteSessionId"), remote_session_id);
+  }
+  return event;
 }
 
 Value Core::_openai_tool_call_to_provider_impl(Value call) {
@@ -4581,6 +4634,22 @@ Value Core::openai_build_embed_request(Value request) {
   return payload;
 }
 
+Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
+  axir_coverage_mark("_ai_model_usage_impl");
+  Value has_usage = Core::truthy_value(usage);
+  Value missing_usage = Core::not_(has_usage);
+  if (Core::truthy(missing_usage)) {
+    Value none = Core::none();
+    return none;
+  }
+  Value tokens = Core::normalize_token_usage(usage);
+  Value out = Value::object();
+  Core::set(out, Value("ai"), ai_name);
+  Core::set(out, Value("model"), model);
+  Core::set(out, Value("tokens"), tokens);
+  return out;
+}
+
 Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model) {
   axir_coverage_mark("openai_normalize_chat_response");
   Value raw_is_object = Core::type_is(raw, Value("object"));
@@ -4617,6 +4686,36 @@ Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model
   Core::set(out, Value("results"), results);
   Core::set(out, Value("remote_id"), remote_id);
   Core::set(out, Value("model_usage"), model_usage);
+  return out;
+}
+
+Value Core::chat_response_to_completion(Value response) {
+  axir_coverage_mark("chat_response_to_completion");
+  Value empty_results = Value::array();
+  Value results = Core::get(response, Value("results"), empty_results);
+  Value empty_result = Value::object();
+  Value result = Core::list_get(results, Value(0), empty_result);
+  Value content = Core::get(result, Value("content"), Value(""));
+  Value calls = Value::array();
+  Value empty_calls = Value::array();
+  Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
+  for (auto call : Core::iter(function_calls)) {
+    Value fn = Core::get(call, Value("function"), Value());
+    Value id = Core::get(call, Value("id"), Value());
+    Value name = Core::get(fn, Value("name"), Value());
+    Value params = Core::get(fn, Value("params"), Value());
+    Value compat_call = Value::object();
+    Core::set(compat_call, Value("id"), id);
+    Core::set(compat_call, Value("name"), name);
+    Core::set(compat_call, Value("params"), params);
+    Core::append(calls, compat_call);
+  }
+  Value model_usage = Core::get(response, Value("model_usage"), Value());
+  Value usage = Core::get(model_usage, Value("tokens"), Value());
+  Value out = Value::object();
+  Core::set(out, Value("content"), content);
+  Core::set(out, Value("function_calls"), calls);
+  Core::set(out, Value("usage"), usage);
   return out;
 }
 
@@ -9671,7 +9770,7 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
   Value last_tool_result = Core::none();
   while (true) {
     Value request = Core::_build_gen_chat_request(gen, messages, runtime_options);
-    Value response = Core::_complete_with_retries_impl(client, request, infra_retries);
+    Value response = Core::_complete_with_retries_impl(client, request, runtime_options, infra_retries);
     Core::axgen_memory_add_response(gen, request, response);
     Core::axgen_record_chat_log(gen, request, response);
     Value calls = Core::_response_function_calls_impl(response);
@@ -9975,13 +10074,13 @@ Value Core::_should_continue_steps(Value gen, Value calls) {
   return should_continue;
 }
 
-Value Core::_complete_with_retries_impl(Value client, Value request, Value retries) {
+Value Core::_complete_with_retries_impl(Value client, Value request, Value options, Value retries) {
   axir_coverage_mark("_complete_with_retries_impl");
   Value attempt = Value(0);
   Value last_error = Core::none();
   while (true) {
     try {
-      Value response = Core::ai_complete_once(client, request);
+      Value response = Core::ai_complete_once(client, request, options);
       return response;
     } catch (const std::exception& e) {
       Value error = Core::exception_value(e);
@@ -14166,7 +14265,7 @@ Value Core::_agent_apply_llm_tombstone_summary(Value state, Value client, Value 
     if (Core::truthy(pending)) {
       Value llm_input = Core::get(entry, Value("tombstone_llm_input"), Value(""));
       Value instruction = Value("You are an internal AxAgent tombstone summarizer.\n\nWrite the output as exactly one concise line.\n- Start with [TOMBSTONE]:\n- Summarize the resolved error and the successful fix.\n- Mention one failed approach to avoid when possible.\n- Do not include code fences, bullet points, or extra prose.\n- Keep it roughly 20-40 tokens.");
-      Value tombstone = Core::_context_map_complete(client, instruction, llm_input);
+      Value tombstone = Core::_context_map_complete(client, instruction, llm_input, options);
       Value has_text = Core::ne(tombstone, Value(""));
       if (Core::truthy(has_text)) {
         Core::set(entry, Value("tombstone"), tombstone);
@@ -18938,7 +19037,7 @@ Value Core::_agent_apply_llm_checkpoint_summary(Value state, Value client, Value
       Core::append(messages, usr);
       Value request = Value::object();
       Core::set(request, Value("chat_prompt"), messages);
-      Value response = Core::ai_complete_once(client, request);
+      Value response = Core::ai_complete_once(client, request, options);
       Value text = Core::get(response, Value("content"), Value(""));
       Value has_text = Core::ne(text, Value(""));
       if (Core::truthy(has_text)) {
@@ -19230,7 +19329,7 @@ Value Core::_format_context_map_trajectory(Value state) {
   return out;
 }
 
-Value Core::_context_map_complete(Value client, Value system, Value user) {
+Value Core::_context_map_complete(Value client, Value system, Value user, Value options) {
   axir_coverage_mark("_context_map_complete");
   Value messages = Value::array();
   Value sys = Value::object();
@@ -19243,7 +19342,7 @@ Value Core::_context_map_complete(Value client, Value system, Value user) {
   Core::append(messages, usr);
   Value request = Value::object();
   Core::set(request, Value("chat_prompt"), messages);
-  Value response = Core::ai_complete_once(client, request);
+  Value response = Core::ai_complete_once(client, request, options);
   Value content = Core::get(response, Value("content"), Value(""));
   return content;
 }
@@ -19290,7 +19389,7 @@ Value Core::_agent_evolve_context_map(Value state, Value client, Value options) 
     Value trajectory = Core::_format_context_map_trajectory(state);
     Value distiller_sys = Value("You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nCache only orientation work: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale.");
     Value distiller_user = Core::string_format(Value("task: {}\n\ncontextMap:\n{}\n\ntrajectory:\n{}"), task, current_text, trajectory);
-    Value distiller_resp = Core::_context_map_complete(client, distiller_sys, distiller_user);
+    Value distiller_resp = Core::_context_map_complete(client, distiller_sys, distiller_user, options);
     Value distiller_parsed = Core::_context_map_parse_json(distiller_resp);
     Value item_tags = Core::get(distiller_parsed, Value("itemTags"), empty_map);
     Value reflection = Core::json_stringify(distiller_parsed);
@@ -19298,7 +19397,7 @@ Value Core::_agent_evolve_context_map(Value state, Value client, Value options) 
     Value carto_sys = Value("You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding. When the map is near or over budget, remove or rewrite low-value entries first. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects under the key operations:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-1\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-1\",\"content\":\"...\"}");
     Value carto_user_head = Core::string_format(Value("task: {}\n\ncontextMap:\n{}\n\ndistillerReflection:\n{}"), task, current_text, reflection);
     Value carto_user = Core::string_format(Value("{}\n\ncurrentChars: {}\nmaxChars: {}"), carto_user_head, current_chars, max_chars);
-    Value carto_resp = Core::_context_map_complete(client, carto_sys, carto_user);
+    Value carto_resp = Core::_context_map_complete(client, carto_sys, carto_user, options);
     Value carto_parsed = Core::_context_map_parse_json(carto_resp);
     Value operations = Core::get(carto_parsed, Value("operations"), empty_list);
     Value items = Core::_context_map_parse_items(current_text);
@@ -22896,6 +22995,68 @@ Value AxAIService::get_last_used_chat_model() { return Value(); }
 Value AxAIService::get_last_used_embed_model() { return Value(); }
 Value AxAIService::get_last_used_model_config() { return Value(); }
 
+namespace {
+
+std::mutex usage_observer_mutex;
+AxUsageObserver usage_observer;
+
+Value clone_usage_value(const Value& value) {
+  if (value.is_array()) {
+    Array out;
+    for (const auto& item : array_ref(value)) out.push_back(clone_usage_value(item));
+    return Value(std::move(out));
+  }
+  if (value.is_object()) {
+    Object out;
+    for (const auto& entry : object_ref(value)) {
+      out.emplace(entry.first, clone_usage_value(entry.second));
+    }
+    return Value(std::move(out));
+  }
+  return value;
+}
+
+Value merge_usage_options(const Value& defaults, const Value& overrides) {
+  Value merged = Core::map_merge(defaults, overrides);
+  Value default_context = Core::get(defaults, "usage_context", Core::get(defaults, "usageContext"));
+  Value override_context = Core::get(overrides, "usage_context", Core::get(overrides, "usageContext"));
+  Value context = Core::merge_usage_context(default_context, override_context);
+  if (Core::truthy(context)) {
+    Core::set(merged, "usage_context", context);
+    Core::set(merged, "usageContext", context);
+  }
+  return merged;
+}
+
+void emit_usage_event(const std::string& operation, const Value& response,
+                      const Value& options, bool streaming) {
+  Value event;
+  try {
+    event = Core::build_usage_event(operation, response, options, streaming);
+  } catch (...) {
+    return;
+  }
+  if (!Core::truthy(event)) return;
+  AxUsageObserver observer;
+  {
+    std::lock_guard<std::mutex> lock(usage_observer_mutex);
+    observer = usage_observer;
+  }
+  if (!observer) return;
+  try {
+    observer(clone_usage_value(event));
+  } catch (...) {
+    // Usage observers are deliberately fail-open.
+  }
+}
+
+}  // namespace
+
+void set_usage_observer(AxUsageObserver observer) {
+  std::lock_guard<std::mutex> lock(usage_observer_mutex);
+  usage_observer = std::move(observer);
+}
+
 AxBaseAI::AxBaseAI(std::string name, std::string model, std::string embed_model, Value model_config, Value options)
     : name_(std::move(name)),
       model_(std::move(model)),
@@ -22913,14 +23074,16 @@ Value AxBaseAI::chat(Value request) {
 Value AxBaseAI::chat(Value request, Value call_options) {
   Value req = Core::coerce_chat_request(std::move(request));
   Core::validate_chat_request(req);
-  Value merged_options = Core::map_merge(options_, std::move(call_options));
+  Value merged_options = merge_usage_options(options_, call_options);
   Value selected_model = Core::coalesce(Core::get(req, "model"), model_);
   Value merged_config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), merged_options);
   Core::set(req, "model", selected_model);
   Core::set(req, "model_config", merged_config);
   last_used_chat_model_ = selected_model;
   last_used_model_config_ = merged_config;
-  return do_chat(req, merged_options);
+  Value response = do_chat(req, merged_options);
+  emit_usage_event("chat", response, merged_options, Core::truthy(Core::get(merged_config, "stream", false)));
+  return response;
 }
 
 Value AxBaseAI::complete(Value request) {
@@ -22939,8 +23102,10 @@ Value AxBaseAI::embed(Value request, Value call_options) {
   Value req(object_ref(request));
   Core::set(req, "embed_model", selected);
   last_used_embed_model_ = selected;
-  Value merged_options = Core::map_merge(options_, std::move(call_options));
-  return do_embed(req, merged_options);
+  Value merged_options = merge_usage_options(options_, call_options);
+  Value response = do_embed(req, merged_options);
+  emit_usage_event("embed", response, merged_options, false);
+  return response;
 }
 
 Value AxBaseAI::get_features(Value) { return AxAIService::get_features(Value()); }
@@ -22995,7 +23160,7 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
           option_string(options, "model", "model", default_model),
           option_string(options, "embed_model", "embedModel", default_embed_model),
           Core::get(options, "model_config", Value::object()),
-          Core::get(options, "options", Value::object())),
+          Core::map_merge(options, Core::get(options, "options", Value::object()))),
       profile_(std::move(profile)),
       descriptor_(Core::provider_descriptor(profile_)),
       base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", env_or_default("OPENAI_BASE_URL", str(Core::get(Core::provider_descriptor(profile_), "baseUrl", "https://api.openai.com/v1")))))),
@@ -23161,6 +23326,8 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
     Value state = Value::object();
     std::vector<Value> out;
     for (const auto& event : events) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
+    Value stream_options = merge_usage_options(options_, object({{"stream", true}}));
+    emit_usage_event("chat", object({{"results", Value(Array(out))}}), stream_options, true);
     return out;
   }
 }

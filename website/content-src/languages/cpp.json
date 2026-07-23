@@ -127,10 +127,19 @@
     "llm": [
       "auto client = axllm::ai(\"openai\", axllm::object({{\"apiKey\", std::getenv(\"OPENAI_API_KEY\")}}));"
     ],
-    "telemetry": [
-      "auto program = axllm::ax(\"text:string -> label:string\");",
-      "auto usage = program.getUsage();"
-    ],
+    "telemetry": {
+      "sourcePath": "src/examples/cpp/generation/usage_observer.cpp",
+      "code": [
+        "axllm::set_usage_observer([&](axllm::AxUsageEvent event) {",
+        "  usage_queue.push(std::move(event));",
+        "});",
+        "client.chat(request, axllm::object({",
+        "  {\"usageContext\", axllm::object({{\"tenantId\", tenant_id}, {\"userId\", user_id}, {\"requestId\", request_id}})},",
+        "}));"
+      ],
+      "verified": true,
+      "requiresCredentials": true
+    },
     "optimize": [
       "auto engine = axllm::AxGEPA(reflectionClient, axllm::object({}));",
       "auto result = engine.optimize(request, evaluator);"

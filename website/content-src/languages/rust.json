@@ -121,10 +121,19 @@
     "llm": [
       "let client = ai(\"openai\", json!({\"apiKey\": std::env::var(\"OPENAI_API_KEY\")?}))?;"
     ],
-    "telemetry": [
-      "let program = ax(\"text:string -> label:string\")?;",
-      "let usage = program.usage();"
-    ],
+    "telemetry": {
+      "sourcePath": "src/examples/rust/generation/usage_observer.rs",
+      "code": [
+        "set_usage_observer(Some(Arc::new(move |event| {",
+        "    usage_queue.lock().unwrap().push(event);",
+        "})));",
+        "client.chat_with_options(request, json!({",
+        "    \"usageContext\": {\"tenantId\": tenant_id, \"userId\": user_id, \"requestId\": request_id}",
+        "}))?;"
+      ],
+      "verified": true,
+      "requiresCredentials": true
+    },
     "optimize": [
       "let engine = AxGEPA::new(reflection_client, json!({}));",
       "let result = engine.optimize(request, evaluator);"

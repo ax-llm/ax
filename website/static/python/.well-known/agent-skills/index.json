@@ -6,21 +6,21 @@
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-python-llm/SKILL.md",
-      "digest": "sha256:f6bf84d89d627aeb304c4746e391712c2d2cdc3a9e4cc2167e9863483fe10476"
+      "digest": "sha256:09d48bb8cf2ac7bbdc7c48a22f4bb6ee674ae31790310d9a91525dcce32a56a6"
     },
     {
       "name": "ax-python-ai",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-python-ai/SKILL.md",
-      "digest": "sha256:d89c31533eb74df996d708ef2b66f2c71f026e8a9051fed9665792fd55ace911"
+      "digest": "sha256:c18dd0a4a67130fba2556e39d6b714e2d05d8b539b134be083f5b4dfd3814d17"
     },
     {
       "name": "ax-python-audio",
       "type": "skill-md",
       "description": "Use when writing Python code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-python-audio/SKILL.md",
-      "digest": "sha256:7d2230c6455b14e4d7eb17f501e0c5473ecb95fc3031eae6d1a065c91a966ead"
+      "digest": "sha256:226832a91418af76c4c487215d6d85150052535eb771b95b7e9789536ef9774a"
     },
     {
       "name": "ax-python-signature",

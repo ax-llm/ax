@@ -1069,10 +1069,13 @@ Value Core::program_apply_components(Value program, Value component_map) {
   if (it != agent_stage_registry().end() && it->second != nullptr) it->second->apply_optimized_components(std::move(component_map));
   return Value::object();
 }
-Value Core::ai_complete_once(Value client, Value request) {
+Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
   auto it = client_registry().find(id);
   if (it == client_registry().end() || it->second == nullptr) throw AxError("runtime", "client does not implement AIClient");
+  if (auto* service = dynamic_cast<AxAIService*>(it->second)) {
+    return chat_response_to_completion(service->chat(request, options));
+  }
   return chat_response_to_completion(it->second->chat(request));
 }
 Value Core::agent_transcribe(Value client, Value request, Value options) {
@@ -2274,6 +2277,68 @@ Value AxAIService::get_last_used_chat_model() { return Value(); }
 Value AxAIService::get_last_used_embed_model() { return Value(); }
 Value AxAIService::get_last_used_model_config() { return Value(); }
 
+namespace {
+
+std::mutex usage_observer_mutex;
+AxUsageObserver usage_observer;
+
+Value clone_usage_value(const Value& value) {
+  if (value.is_array()) {
+    Array out;
+    for (const auto& item : array_ref(value)) out.push_back(clone_usage_value(item));
+    return Value(std::move(out));
+  }
+  if (value.is_object()) {
+    Object out;
+    for (const auto& entry : object_ref(value)) {
+      out.emplace(entry.first, clone_usage_value(entry.second));
+    }
+    return Value(std::move(out));
+  }
+  return value;
+}
+
+Value merge_usage_options(const Value& defaults, const Value& overrides) {
+  Value merged = Core::map_merge(defaults, overrides);
+  Value default_context = Core::get(defaults, "usage_context", Core::get(defaults, "usageContext"));
+  Value override_context = Core::get(overrides, "usage_context", Core::get(overrides, "usageContext"));
+  Value context = Core::merge_usage_context(default_context, override_context);
+  if (Core::truthy(context)) {
+    Core::set(merged, "usage_context", context);
+    Core::set(merged, "usageContext", context);
+  }
+  return merged;
+}
+
+void emit_usage_event(const std::string& operation, const Value& response,
+                      const Value& options, bool streaming) {
+  Value event;
+  try {
+    event = Core::build_usage_event(operation, response, options, streaming);
+  } catch (...) {
+    return;
+  }
+  if (!Core::truthy(event)) return;
+  AxUsageObserver observer;
+  {
+    std::lock_guard<std::mutex> lock(usage_observer_mutex);
+    observer = usage_observer;
+  }
+  if (!observer) return;
+  try {
+    observer(clone_usage_value(event));
+  } catch (...) {
+    // Usage observers are deliberately fail-open.
+  }
+}
+
+}  // namespace
+
+void set_usage_observer(AxUsageObserver observer) {
+  std::lock_guard<std::mutex> lock(usage_observer_mutex);
+  usage_observer = std::move(observer);
+}
+
 AxBaseAI::AxBaseAI(std::string name, std::string model, std::string embed_model, Value model_config, Value options)
     : name_(std::move(name)),
       model_(std::move(model)),
@@ -2291,14 +2356,16 @@ Value AxBaseAI::chat(Value request) {
 Value AxBaseAI::chat(Value request, Value call_options) {
   Value req = Core::coerce_chat_request(std::move(request));
   Core::validate_chat_request(req);
-  Value merged_options = Core::map_merge(options_, std::move(call_options));
+  Value merged_options = merge_usage_options(options_, call_options);
   Value selected_model = Core::coalesce(Core::get(req, "model"), model_);
   Value merged_config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), merged_options);
   Core::set(req, "model", selected_model);
   Core::set(req, "model_config", merged_config);
   last_used_chat_model_ = selected_model;
   last_used_model_config_ = merged_config;
-  return do_chat(req, merged_options);
+  Value response = do_chat(req, merged_options);
+  emit_usage_event("chat", response, merged_options, Core::truthy(Core::get(merged_config, "stream", false)));
+  return response;
 }
 
 Value AxBaseAI::complete(Value request) {
@@ -2317,8 +2384,10 @@ Value AxBaseAI::embed(Value request, Value call_options) {
   Value req(object_ref(request));
   Core::set(req, "embed_model", selected);
   last_used_embed_model_ = selected;
-  Value merged_options = Core::map_merge(options_, std::move(call_options));
-  return do_embed(req, merged_options);
+  Value merged_options = merge_usage_options(options_, call_options);
+  Value response = do_embed(req, merged_options);
+  emit_usage_event("embed", response, merged_options, false);
+  return response;
 }
 
 Value AxBaseAI::get_features(Value) { return AxAIService::get_features(Value()); }
@@ -2373,7 +2442,7 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
           option_string(options, "model", "model", default_model),
           option_string(options, "embed_model", "embedModel", default_embed_model),
           Core::get(options, "model_config", Value::object()),
-          Core::get(options, "options", Value::object())),
+          Core::map_merge(options, Core::get(options, "options", Value::object()))),
       profile_(std::move(profile)),
       descriptor_(Core::provider_descriptor(profile_)),
       base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", env_or_default("OPENAI_BASE_URL", str(Core::get(Core::provider_descriptor(profile_), "baseUrl", "https://api.openai.com/v1")))))),
@@ -2539,6 +2608,8 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
     Value state = Value::object();
     std::vector<Value> out;
     for (const auto& event : events) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
+    Value stream_options = merge_usage_options(options_, object({{"stream", true}}));
+    emit_usage_event("chat", object({{"results", Value(Array(out))}}), stream_options, true);
     return out;
   }
 }

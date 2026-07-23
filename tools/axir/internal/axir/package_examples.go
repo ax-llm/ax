@@ -69,7 +69,7 @@ out = program.forward(
 print(json.dumps(out, indent=2, sort_keys=True))
 `
 
-const pyProviderMappingNoKeyExample = `from axllm import ai
+const pyProviderMappingNoKeyExample = `from axllm import ai, set_usage_observer
 
 
 def scripted_transport(request):
@@ -90,9 +90,28 @@ def scripted_transport(request):
     }
 
 
-service = ai("openai", model="gpt-5.4-mini", api_key="test-key", transport=scripted_transport)
-response = service.chat({"chat_prompt": [{"role": "user", "content": "hello"}]})
+events = []
+set_usage_observer(events.append)
+service = ai(
+    "openai",
+    model="gpt-5.4-mini",
+    api_key="test-key",
+    transport=scripted_transport,
+    usage_context={"tenantId": "tenant-1", "feature": "no-key-example"},
+)
+response = service.chat(
+    {"chat_prompt": [{"role": "user", "content": "hello"}]},
+    {"usageContext": {"userId": "user-1", "requestId": "request-1"}},
+)
+set_usage_observer(None)
 assert response["results"][0]["content"] == "hello from scripted transport", response
+assert len(events) == 1, events
+assert events[0]["context"] == {
+    "tenantId": "tenant-1",
+    "feature": "no-key-example",
+    "userId": "user-1",
+    "requestId": "request-1",
+}, events
 print("python-axai-ok")
 `
 
@@ -489,12 +508,26 @@ public final class ProviderMappingNoKeyExample {
         "usage", Map.of("prompt_tokens", 1, "completion_tokens", 2, "total_tokens", 3)
       )
     );
-    AxAIService service = Ax.ai("openai", Map.of("model", "gpt-5.4-mini", "api_key", "test-key", "transport", transport));
-    Map<String, Object> response = service.chat(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "hello"))));
+    List<AxUsageEvent> events = new ArrayList<>();
+    AxGlobals.setUsageObserver(events::add);
+    AxAIService service = Ax.ai("openai", Map.of(
+      "model", "gpt-5.4-mini",
+      "api_key", "test-key",
+      "transport", transport,
+      "usageContext", Map.of("tenantId", "tenant-1", "feature", "no-key-example")
+    ));
+    Map<String, Object> response = service.chat(
+      Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "hello"))),
+      Map.of("usageContext", Map.of("userId", "user-1", "requestId", "request-1"))
+    );
+    AxGlobals.setUsageObserver(null);
     List<?> results = (List<?>) response.get("results");
     Map<?, ?> first = (Map<?, ?>) results.get(0);
     if (!"hello from scripted transport".equals(first.get("content"))) {
       throw new RuntimeException("bad response: " + response);
+    }
+    if (events.size() != 1 || !"tenant-1".equals(((Map<?, ?>) events.get(0).value().get("context")).get("tenantId"))) {
+      throw new RuntimeException("bad usage event: " + events);
     }
     System.out.println("java-axai-ok");
   }
@@ -788,12 +821,25 @@ struct ScriptedTransport : axllm::Transport {
 
 int main() {
   ScriptedTransport transport;
-  axllm::OpenAICompatibleClient service(axllm::object({{"model", "gpt-5.4-mini"}, {"api_key", "test-key"}}), &transport);
+  std::vector<axllm::AxUsageEvent> events;
+  axllm::set_usage_observer([&events](axllm::AxUsageEvent event) {
+    events.push_back(std::move(event));
+  });
+  axllm::OpenAICompatibleClient service(axllm::object({
+    {"model", "gpt-5.4-mini"},
+    {"api_key", "test-key"},
+    {"usageContext", axllm::object({{"tenantId", "tenant-1"}, {"feature", "no-key-example"}})}
+  }), &transport);
   axllm::Value response = service.chat(axllm::object({
     {"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "hello"}})})}
+  }), axllm::object({
+    {"usageContext", axllm::object({{"userId", "user-1"}, {"requestId", "request-1"}})}
   }));
+  axllm::set_usage_observer({});
   axllm::Value first = axllm::Core::get(axllm::Core::get(response, "results"), 0);
   if (!axllm::equal(axllm::Core::get(first, "content"), "hello from scripted transport")) return 1;
+  if (events.size() != 1 || !axllm::equal(
+      axllm::Core::get(axllm::Core::get(events[0], "context"), "tenantId"), "tenant-1")) return 2;
   std::cout << "cpp-axai-ok\n";
 }
 `

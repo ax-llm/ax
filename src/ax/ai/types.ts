@@ -106,6 +106,46 @@ export type AxTokenUsage = {
 };
 
 /**
+ * Request-scoped attribution attached to normalized AI usage events.
+ *
+ * Keep identity and request metadata here instead of in process-global state so
+ * concurrent multi-tenant calls cannot leak attribution across requests.
+ */
+export type AxUsageContext = {
+  tenantId?: string;
+  userId?: string;
+  requestId?: string;
+  runId?: string;
+  parentRunId?: string;
+  feature?: string;
+  attributes?: Record<string, string | number | boolean>;
+};
+
+/** A normalized usage event emitted once for a completed AI operation. */
+export type AxUsageEvent = {
+  operation: 'chat' | 'embed';
+  ai: string;
+  model: string;
+  tokens: AxTokenUsage;
+  context?: AxUsageContext;
+  sessionId?: string;
+  remoteId?: string;
+  remoteRequestId?: string;
+  remoteSessionId?: string;
+  streaming: boolean;
+};
+
+/**
+ * Best-effort global usage observer.
+ *
+ * Ax does not await observers before returning model results. Production
+ * observers should synchronously enqueue the event into a durable pipeline.
+ */
+export type AxUsageObserver = (
+  event: Readonly<AxUsageEvent>
+) => void | Promise<void>;
+
+/**
  * Configuration options for AI model behavior.
  *
  * These settings control how the model generates responses. They can be set
@@ -923,6 +963,14 @@ export type AxAIServiceOptions = {
 
   /** Session identifier for conversation tracking and memory isolation. */
   sessionId?: string;
+
+  /**
+   * Request-scoped attribution included in normalized usage events.
+   *
+   * Per-call values override service defaults. Custom attributes are
+   * shallow-merged with per-call keys taking precedence.
+   */
+  usageContext?: AxUsageContext;
 
   /** Hide system prompt in debug output (for cleaner logs). */
   debugHideSystemPrompt?: boolean;

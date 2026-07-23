@@ -700,7 +700,7 @@ var coreIntrinsicInfo = map[string]CoreIntrinsicInfo{
 	"intrinsic.object.call_method":           intrinsicInfo("intrinsic.object.call_method", 2, -1, true, "json"),
 	"intrinsic.program.components":           intrinsicInfo("intrinsic.program.components", 1, 1, true, "list<json>"),
 	"intrinsic.program.apply_components":     intrinsicInfo("intrinsic.program.apply_components", 2, 2, true, "json"),
-	"intrinsic.ai.complete_once":             intrinsicInfo("intrinsic.ai.complete_once", 2, 2, true, "json"),
+	"intrinsic.ai.complete_once":             intrinsicInfo("intrinsic.ai.complete_once", 3, 3, true, "json"),
 	"intrinsic.retry.sleep":                  intrinsicInfo("intrinsic.retry.sleep", 1, 1, true, "void"),
 	"intrinsic.exception.message":            intrinsicInfo("intrinsic.exception.message", 1, 1, true, "string"),
 	"intrinsic.string.format":                intrinsicInfo("intrinsic.string.format", 1, -1, false, "string"),

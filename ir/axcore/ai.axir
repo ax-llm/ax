@@ -22,7 +22,7 @@ module @ax.ai version "0.1" {
   op ax.ai.record @AxChatResponse {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "results:list<json>,remoteId?:string,remoteRequestId?:string,modelUsage?:AxModelUsage"
+    type fields = "results:list<json>,sessionId?:string,remoteId?:string,remoteRequestId?:string,remoteSessionId?:string,modelUsage?:AxModelUsage"
   }
 
   op ax.ai.record @AxEmbedRequest {
@@ -34,7 +34,7 @@ module @ax.ai version "0.1" {
   op ax.ai.record @AxEmbedResponse {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "embeddings:list<list<f64>>,remoteId?:string,remoteRequestId?:string,modelUsage?:AxModelUsage"
+    type fields = "embeddings:list<list<f64>>,sessionId?:string,remoteId?:string,remoteRequestId?:string,remoteSessionId?:string,modelUsage?:AxModelUsage"
   }
 
   op ax.ai.record @AxModelConfig {
@@ -46,19 +46,40 @@ module @ax.ai version "0.1" {
   op ax.ai.record @AxAIServiceOptions {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string"
+    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,sessionId?:string,usageContext?:AxUsageContext"
   }
 
   op ax.ai.record @AxTokenUsage {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "promptTokens:i64,completionTokens:i64,totalTokens:i64,reasoningTokens?:i64,cacheReadTokens?:i64,cacheCreationTokens?:i64"
+    type fields = "promptTokens:i64,completionTokens:i64,totalTokens:i64,thoughtsTokens?:i64,reasoningTokens?:i64,cacheReadTokens?:i64,cacheCreationTokens?:i64,serviceTier?:string,speed?:string"
   }
 
   op ax.ai.record @AxModelUsage {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
     type fields = "ai:string,model:string,tokens?:AxTokenUsage"
+  }
+
+  op ax.ai.record @AxUsageContext {
+    attr core_kind = "record"
+    attr public = true
+    tag "src/ax/ai/types.ts"
+    type fields = "tenantId?:string,userId?:string,requestId?:string,runId?:string,parentRunId?:string,feature?:string,attributes?:json"
+  }
+
+  op ax.ai.record @AxUsageEvent {
+    attr core_kind = "record"
+    attr public = true
+    tag "src/ax/ai/types.ts"
+    type fields = "operation:string,ai:string,model:string,tokens:AxTokenUsage,context?:AxUsageContext,sessionId?:string,remoteId?:string,remoteRequestId?:string,remoteSessionId?:string,streaming:bool"
+  }
+
+  op ax.ai.interface @AxUsageObserver {
+    attr core_kind = "interface"
+    attr public = true
+    tag "usage-observer-host-boundary"
+    type observe = "(AxUsageEvent) -> void"
   }
 
   op ax.ai.record @AxAIFeatures {
@@ -245,6 +266,12 @@ module @ax.ai version "0.1" {
       core.set %out["prompt_tokens"] = %prompt_tokens
       core.set %out["completion_tokens"] = %completion_tokens
       core.set %out["total_tokens"] = %total_tokens
+      %thoughts_tokens_snake = core.get %usage["thoughts_tokens"]
+      %thoughts_tokens = core.get %usage["thoughtsTokens"] default %thoughts_tokens_snake
+      %has_thoughts = core.call intrinsic.is_not_none(%thoughts_tokens)
+      core.if %has_thoughts {
+        core.set %out["thoughts_tokens"] = %thoughts_tokens
+      }
       %reasoning_tokens_snake = core.get %usage["reasoning_tokens"]
       %reasoning_tokens = core.get %usage["reasoningTokens"] default %reasoning_tokens_snake
       %has_reasoning = core.call intrinsic.is_not_none(%reasoning_tokens)
@@ -263,7 +290,107 @@ module @ax.ai version "0.1" {
       core.if %has_cache_creation {
         core.set %out["cache_creation_tokens"] = %cache_creation_tokens
       }
+      %service_tier_snake = core.get %usage["service_tier"]
+      %service_tier = core.get %usage["serviceTier"] default %service_tier_snake
+      %has_service_tier = core.call intrinsic.is_not_none(%service_tier)
+      core.if %has_service_tier {
+        core.set %out["service_tier"] = %service_tier
+      }
+      %speed = core.get %usage["speed"]
+      %has_speed = core.call intrinsic.is_not_none(%speed)
+      core.if %has_speed {
+        core.set %out["speed"] = %speed
+      }
       core.return %out
+    }
+  }
+
+  op ax.ai.semantic @merge_usage_context {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "usage-context-core-helper"
+    type signature = "(json?, json?) -> json"
+    body @entry(%defaults: json, %overrides: json) {
+      %merged = core.call intrinsic.map.merge(%defaults, %overrides)
+      %default_attributes = core.get %defaults["attributes"]
+      %override_attributes = core.get %overrides["attributes"]
+      %attributes = core.call intrinsic.map.merge(%default_attributes, %override_attributes)
+      %has_attributes = core.call intrinsic.truthy(%attributes)
+      core.if %has_attributes {
+        core.set %merged["attributes"] = %attributes
+      }
+      core.return %merged
+    }
+  }
+
+  op ax.ai.semantic @build_usage_event {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "usage-event-core-helper"
+    type signature = "(string, json, json?, bool) -> json"
+    body @entry(%operation: string, %response: json, %options: json, %streaming: bool) {
+      %model_usage_snake = core.get %response["model_usage"]
+      %top_model_usage = core.get %response["modelUsage"] default %model_usage_snake
+      %model_usage = core.let %top_model_usage
+      %results = core.get %response["results"]
+      core.for %result in %results {
+        %result_usage_snake = core.get %result["model_usage"]
+        %result_usage = core.get %result["modelUsage"] default %result_usage_snake
+        %has_result_usage = core.call intrinsic.truthy(%result_usage)
+        core.if %has_result_usage {
+          %model_usage = core.let %result_usage
+        }
+      }
+      %tokens = core.get %model_usage["tokens"]
+      %has_tokens = core.call intrinsic.truthy(%tokens)
+      %missing_tokens = core.call intrinsic.not(%has_tokens)
+      core.if %missing_tokens {
+        %none = core.call intrinsic.none()
+        core.return %none
+      }
+      %event = core.map
+      core.set %event["operation"] = %operation
+      %ai_name = core.get %model_usage["ai"]
+      %model = core.get %model_usage["model"]
+      %normalized_tokens = core.call @normalize_token_usage(%tokens)
+      core.set %event["ai"] = %ai_name
+      core.set %event["model"] = %model
+      core.set %event["tokens"] = %normalized_tokens
+      core.set %event["streaming"] = %streaming
+      %usage_context_snake = core.get %options["usage_context"]
+      %usage_context = core.get %options["usageContext"] default %usage_context_snake
+      %has_context = core.call intrinsic.truthy(%usage_context)
+      core.if %has_context {
+        core.set %event["context"] = %usage_context
+      }
+      %option_session_snake = core.get %options["session_id"]
+      %option_session = core.get %options["sessionId"] default %option_session_snake
+      %response_session_snake = core.get %response["session_id"]
+      %response_session = core.get %response["sessionId"] default %response_session_snake
+      %session_id = core.call intrinsic.coalesce(%response_session, %option_session)
+      %has_session_id = core.call intrinsic.is_not_none(%session_id)
+      core.if %has_session_id {
+        core.set %event["sessionId"] = %session_id
+      }
+      %remote_id_snake = core.get %response["remote_id"]
+      %remote_id = core.get %response["remoteId"] default %remote_id_snake
+      %has_remote_id = core.call intrinsic.is_not_none(%remote_id)
+      core.if %has_remote_id {
+        core.set %event["remoteId"] = %remote_id
+      }
+      %remote_request_id_snake = core.get %response["remote_request_id"]
+      %remote_request_id = core.get %response["remoteRequestId"] default %remote_request_id_snake
+      %has_remote_request_id = core.call intrinsic.is_not_none(%remote_request_id)
+      core.if %has_remote_request_id {
+        core.set %event["remoteRequestId"] = %remote_request_id
+      }
+      %remote_session_id_snake = core.get %response["remote_session_id"]
+      %remote_session_id = core.get %response["remoteSessionId"] default %remote_session_id_snake
+      %has_remote_session_id = core.call intrinsic.is_not_none(%remote_session_id)
+      core.if %has_remote_session_id {
+        core.set %event["remoteSessionId"] = %remote_session_id
+      }
+      core.return %event
     }
   }
 

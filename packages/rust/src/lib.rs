@@ -29,6 +29,74 @@ pub mod runtime {
 
 pub type AxResult<T> = Result<T, AxError>;
 
+pub type AxUsageContext = Value;
+pub type AxUsageEvent = Value;
+pub type AxUsageObserver = Arc<dyn Fn(AxUsageEvent) + Send + Sync>;
+
+static USAGE_OBSERVER: OnceLock<Mutex<Option<AxUsageObserver>>> = OnceLock::new();
+
+pub fn set_usage_observer(observer: Option<AxUsageObserver>) {
+    let state = USAGE_OBSERVER.get_or_init(|| Mutex::new(None));
+    if let Ok(mut current) = state.lock() {
+        *current = observer;
+    }
+}
+
+fn emit_usage_event(operation: &str, response: &Value, options: &Value, streaming: bool) {
+    let event = match build_usage_event(&[
+        CoreValue::from(operation),
+        core_value_from_json(response),
+        core_value_from_json(options),
+        CoreValue::Bool(streaming),
+    ]) {
+        Ok(value) => core_value_to_json(&value),
+        Err(_) => return,
+    };
+    if event.is_null() {
+        return;
+    }
+    let observer = USAGE_OBSERVER
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|value| value.clone());
+    if let Some(observer) = observer {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| observer(event.clone())));
+    }
+}
+
+fn merge_ai_options(defaults: &Value, overrides: &Value) -> AxResult<Value> {
+    let mut merged = defaults.as_object().cloned().unwrap_or_default();
+    if let Some(values) = overrides.as_object() {
+        for (key, value) in values {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+    let default_context = defaults
+        .get("usage_context")
+        .or_else(|| defaults.get("usageContext"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let override_context = overrides
+        .get("usage_context")
+        .or_else(|| overrides.get("usageContext"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let context = core_value_to_json(&merge_usage_context(&[
+        core_value_from_json(&default_context),
+        core_value_from_json(&override_context),
+    ])?);
+    if context
+        .as_object()
+        .map(|value| !value.is_empty())
+        .unwrap_or(false)
+    {
+        merged.insert("usage_context".into(), context.clone());
+        merged.insert("usageContext".into(), context);
+    }
+    Ok(Value::Object(merged))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AxError {
     pub category: String,
@@ -837,6 +905,10 @@ fn bool_key(value: &Value, keys: &[&str]) -> bool {
 pub trait AxAIClient {
     fn chat(&mut self, request: Value) -> AxResult<Value>;
 
+    fn chat_with_options(&mut self, request: Value, _options: Value) -> AxResult<Value> {
+        self.chat(request)
+    }
+
     fn embed(&mut self, _request: Value) -> AxResult<Value> {
         Err(AxError::runtime(
             "embedding is not supported by this AI client",
@@ -1398,7 +1470,9 @@ impl OpenAICompatibleClient {
             provider_ai_display_name(&profile),
             CoreValue::from(model.as_str()),
         ])?;
-        Ok(core_value_to_json(&normalized))
+        let response = core_value_to_json(&normalized);
+        emit_usage_event("embed", &response, &self.options, false);
+        Ok(response)
     }
 
     pub fn transcribe(&mut self, request: Value) -> AxResult<Value> {
@@ -1851,6 +1925,13 @@ impl AxAIClient for OpenAICompatibleClient {
     fn speak(&mut self, request: Value) -> AxResult<Value> {
         OpenAICompatibleClient::speak(self, request)
     }
+    fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        let previous = self.options.clone();
+        self.options = merge_ai_options(&previous, &options)?;
+        let response = self.chat(request);
+        self.options = previous;
+        response
+    }
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         let req = self.prepare_chat_request(&request)?;
         // python: AxBaseAI.chat validates the coerced request up front.
@@ -1868,7 +1949,11 @@ impl AxAIClient for OpenAICompatibleClient {
         .as_bool()
         .unwrap_or(false)
         {
-            return self.realtime_chat(req, None);
+            let response = self.realtime_chat(req, None);
+            if let Ok(value) = &response {
+                emit_usage_event("chat", value, &self.options, false);
+            }
+            return response;
         }
         if self.profile == "openai-compatible" {
             let _ = build_chat_request(&[
@@ -1895,7 +1980,11 @@ impl AxAIClient for OpenAICompatibleClient {
         let call = self.provider_transport_request("chat", &payload, &model, false)?;
         let raw = self.dispatch_transport_request(call)?;
         let profile = self.profile.clone();
-        normalize_openai_response(&profile, &model, raw)
+        let response = normalize_openai_response(&profile, &model, raw);
+        if let Ok(value) = &response {
+            emit_usage_event("chat", value, &self.options, false);
+        }
+        response
     }
 
     fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
@@ -1942,7 +2031,14 @@ impl AxAIClient for OpenAICompatibleClient {
                     continue;
                 }
             }
-            return normalize_stream_events(&self.profile, &self.model, &events);
+            let response = normalize_stream_events(&self.profile, &self.model, &events)?;
+            emit_usage_event(
+                "chat",
+                &json!({"results": response.clone()}),
+                &self.options,
+                true,
+            );
+            return Ok(response);
         }
     }
 }
@@ -2002,7 +2098,7 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
             }
         }
     }
-    Ok(client.with_model_config(
+    Ok(client.with_options(options.clone()).with_model_config(
         options
             .get("model_config")
             .cloned()
@@ -2373,11 +2469,11 @@ impl AxGen {
             return Ok(result);
         }
         let state = core_gen_state(self)?;
-        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method == "transcribe" {
                 client.transcribe(request)
             } else {
-                client.chat(request)
+                client.chat_with_options(request, options)
             }
         };
         let result = with_core_client(&mut chat, || {
@@ -3216,11 +3312,11 @@ impl AxAgent {
         input: Value,
         options: Value,
     ) -> AxResult<Value> {
-        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method == "transcribe" {
                 client.transcribe(request)
             } else {
-                client.chat(request)
+                client.chat_with_options(request, options)
             }
         };
         // Wire the built-in llmQuery primitive onto the runtime carried in
@@ -3406,11 +3502,11 @@ impl AxAgent {
                 "prediction": output,
                 "feedback": feedback,
             });
-            let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+            let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
                 if method == "transcribe" {
                     client.transcribe(request)
                 } else {
-                    client.chat(request)
+                    client.chat_with_options(request, options)
                 }
             };
             let before = stable_stringify(&self.playbook_snapshot["playbook"]);
@@ -4196,11 +4292,11 @@ impl AxFlow {
     }
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
-        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method == "transcribe" {
                 client.transcribe(request)
             } else {
-                client.chat(request)
+                client.chat_with_options(request, options)
             }
         };
         let result = with_core_client(&mut chat, || {
@@ -8105,6 +8201,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "ai_chat" => run_ai_chat_fixture(&fixture)?,
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
         "ai_embed" => run_ai_embed_fixture(&fixture)?,
+        "ai_usage_observer" => run_ai_usage_observer_fixture(&fixture)?,
         "ai_transcribe" => run_ai_transcribe_fixture(&fixture)?,
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
         "ai_realtime" => run_ai_realtime_fixture(&fixture)?,
@@ -13235,11 +13332,11 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         cache_store.insert(key, seed.clone());
         forward_options["cache_store"] = Value::Object(cache_store);
     }
-    let mut chat = |method: &str, request: Value| -> AxResult<Value> {
+    let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
         if method == "transcribe" {
             client.transcribe(request)
         } else {
-            client.chat(request)
+            client.chat_with_options(request, options)
         }
     };
     let output = core_value_to_json(&with_core_client(&mut chat, || {
@@ -15445,6 +15542,61 @@ fn run_ai_embed_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+fn run_ai_usage_observer_fixture(fixture: &Value) -> AxResult<()> {
+    let (mut client, _requests) = fixture_client(fixture)?;
+    let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
+    let options = fixture
+        .get("call_options")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let failed_calls = Arc::new(Mutex::new(0_u64));
+    let failed_calls_observer = Arc::clone(&failed_calls);
+    set_usage_observer(Some(Arc::new(move |_| {
+        *failed_calls_observer.lock().unwrap() += 1;
+        panic!("observer failure");
+    })));
+    client.chat_with_options(request.clone(), options.clone())?;
+    if *failed_calls.lock().unwrap() != 1 {
+        set_usage_observer(None);
+        return Err(AxError::new(
+            "fixture",
+            "usage observer failure callback count mismatch",
+        ));
+    }
+
+    let events = Arc::new(Mutex::new(Vec::<AxUsageEvent>::new()));
+    let captured_events = Arc::clone(&events);
+    set_usage_observer(Some(Arc::new(move |event| {
+        captured_events.lock().unwrap().push(event);
+    })));
+    client.chat_with_options(request.clone(), options.clone())?;
+    {
+        let captured = events.lock().unwrap();
+        if captured.len() != 1 {
+            set_usage_observer(None);
+            return Err(AxError::new(
+                "fixture",
+                "usage observer callback count mismatch",
+            ));
+        }
+        expect_json_subset(
+            "usage event",
+            &captured[0],
+            fixture.get("expected_event_subset").unwrap_or(&Value::Null),
+        )?;
+    }
+
+    set_usage_observer(None);
+    client.chat_with_options(request, options)?;
+    if events.lock().unwrap().len() != 1 {
+        return Err(AxError::new(
+            "fixture",
+            "cleared usage observer received an event",
+        ));
+    }
+    Ok(())
+}
+
 fn run_ai_transcribe_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
@@ -15559,7 +15711,13 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
     }
     let client = ai(provider, options)?
         .with_transport(transport)
-        .with_options(fixture.get("options").cloned().unwrap_or_else(|| json!({})));
+        .with_options(
+            fixture
+                .get("service_options")
+                .or_else(|| fixture.get("options"))
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        );
     Ok((client, requests))
 }
 
@@ -18982,13 +19140,13 @@ thread_local! {
     // borrow-check conflict). core_ai_complete_once calls it with "chat"; core_agent_transcribe
     // with "transcribe". This keeps audio transcription emitted + uniform with the other four
     // languages (which pass the real client directly).
-    static CORE_CLIENT_STACK: RefCell<Vec<*mut (dyn FnMut(&str, Value) -> AxResult<Value> + 'static)>> =
+    static CORE_CLIENT_STACK: RefCell<Vec<*mut (dyn FnMut(&str, Value, Value) -> AxResult<Value> + 'static)>> =
         RefCell::new(Vec::new());
 }
 
 #[allow(dead_code)]
 pub(crate) fn with_core_client<R>(
-    chat: &mut dyn FnMut(&str, Value) -> AxResult<Value>,
+    chat: &mut dyn FnMut(&str, Value, Value) -> AxResult<Value>,
     run: impl FnOnce() -> R,
 ) -> R {
     struct CoreClientGuard;
@@ -19001,7 +19159,7 @@ pub(crate) fn with_core_client<R>(
     }
     // SAFETY: only the lifetime bound of the trait object changes; the fat
     // pointer layout is identical, and the pointer never outlives this frame.
-    let erased: *mut (dyn FnMut(&str, Value) -> AxResult<Value> + 'static) =
+    let erased: *mut (dyn FnMut(&str, Value, Value) -> AxResult<Value> + 'static) =
         unsafe { std::mem::transmute(chat) };
     CORE_CLIENT_STACK.with(|stack| stack.borrow_mut().push(erased));
     let _guard = CoreClientGuard;
@@ -19013,6 +19171,7 @@ pub(crate) fn with_core_client<R>(
 #[allow(dead_code)]
 pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let request = core_arg(args, 1);
+    let options = core_arg(args, 2);
     let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
     let ptr = match top {
         Some(ptr) => ptr,
@@ -19023,7 +19182,11 @@ pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxE
     // created from is still live. The RefCell borrow is released before the
     // call so the callback may itself push a nested client.
     let chat = unsafe { &mut *ptr };
-    let response = chat("chat", core_value_to_json(&request))?;
+    let response = chat(
+        "chat",
+        core_value_to_json(&request),
+        core_value_to_json(&options),
+    )?;
     chat_response_to_completion(&[core_value_from_json(&response)])
 }
 
@@ -19033,11 +19196,16 @@ pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxE
 #[allow(dead_code)]
 pub(crate) fn core_agent_transcribe(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let request = core_arg(args, 1);
+    let options = core_arg(args, 2);
     let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
     match top {
         Some(ptr) => {
             let call = unsafe { &mut *ptr };
-            let response = call("transcribe", core_value_to_json(&request))?;
+            let response = call(
+                "transcribe",
+                core_value_to_json(&request),
+                core_value_to_json(&options),
+            )?;
             Ok(core_value_from_json(&response))
         }
         None => Ok(core_value_from_json(&json!({"text": ""}))),
@@ -20240,19 +20408,24 @@ fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError
     Ok(fields)
 }
 
-struct RawScopedClient(*mut dyn FnMut(&str, Value) -> AxResult<Value>);
+struct RawScopedClient(*mut dyn FnMut(&str, Value, Value) -> AxResult<Value>);
 
 impl AxAIClient for RawScopedClient {
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         // SAFETY: the pointer was captured from the client stack inside the
         // enclosing with_core_client scope, which outlives this call.
         let call = unsafe { &mut *self.0 };
-        call("chat", request)
+        call("chat", request, Value::Null)
+    }
+
+    fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        let call = unsafe { &mut *self.0 };
+        call("chat", request, options)
     }
 
     fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         let call = unsafe { &mut *self.0 };
-        call("transcribe", request)
+        call("transcribe", request, Value::Null)
     }
 }
 
@@ -26350,24 +26523,6 @@ fn _openai_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
-fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("build_chat_request");
-    let mut v_service = core_arg(args, 0);
-    let mut v_request = core_arg(args, 1);
-    let mut v_options = core_arg(args, 2);
-    let mut v_payload = CoreValue::Null;
-    validate_chat_request(&[v_request.clone()])?;
-    v_payload = openai_build_chat_request(&[v_request.clone()])?;
-    return Ok(v_payload.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_copy_config_key_impl");
     let mut v_payload = core_arg(args, 0);
@@ -26391,28 +26546,15 @@ fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError
     unreachable_code,
     clippy::all
 )]
-fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("normalize_chat_response");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_response = CoreValue::Null;
-    v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
-    return Ok(v_response.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("normalize_stream_delta");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_state = core_arg(args, 1);
-    let mut v_response = CoreValue::Null;
-    v_response = openai_normalize_stream_delta(&[v_raw.clone(), v_state.clone()])?;
-    return Ok(v_response.clone());
+fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("build_chat_request");
+    let mut v_service = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_payload = CoreValue::Null;
+    validate_chat_request(&[v_request.clone()])?;
+    v_payload = openai_build_chat_request(&[v_request.clone()])?;
+    return Ok(v_payload.clone());
 }
 
 #[allow(
@@ -26558,6 +26700,37 @@ fn _openai_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_chat_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_response = CoreValue::Null;
+    v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
+    return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_stream_delta");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_state = core_arg(args, 1);
+    let mut v_response = CoreValue::Null;
+    v_response = openai_normalize_stream_delta(&[v_raw.clone(), v_state.clone()])?;
+    return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("build_embed_request");
     let mut v_service = core_arg(args, 0);
@@ -26603,6 +26776,9 @@ fn normalize_token_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_has_cache_creation = CoreValue::Null;
     let mut v_has_cache_read = CoreValue::Null;
     let mut v_has_reasoning = CoreValue::Null;
+    let mut v_has_service_tier = CoreValue::Null;
+    let mut v_has_speed = CoreValue::Null;
+    let mut v_has_thoughts = CoreValue::Null;
     let mut v_input_tokens = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_output_tokens = CoreValue::Null;
@@ -26610,6 +26786,11 @@ fn normalize_token_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_prompt_tokens_snake = CoreValue::Null;
     let mut v_reasoning_tokens = CoreValue::Null;
     let mut v_reasoning_tokens_snake = CoreValue::Null;
+    let mut v_service_tier = CoreValue::Null;
+    let mut v_service_tier_snake = CoreValue::Null;
+    let mut v_speed = CoreValue::Null;
+    let mut v_thoughts_tokens = CoreValue::Null;
+    let mut v_thoughts_tokens_snake = CoreValue::Null;
     let mut v_total_tokens = CoreValue::Null;
     let mut v_total_tokens_snake = CoreValue::Null;
     v_out = CoreValue::new_map();
@@ -26669,6 +26850,24 @@ fn normalize_token_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("total_tokens"),
         v_total_tokens.clone(),
     )?;
+    v_thoughts_tokens_snake = core_get(
+        &v_usage,
+        &CoreValue::from("thoughts_tokens"),
+        CoreValue::Null,
+    );
+    v_thoughts_tokens = core_get(
+        &v_usage,
+        &CoreValue::from("thoughtsTokens"),
+        v_thoughts_tokens_snake.clone(),
+    );
+    v_has_thoughts = core_is_not_none(&[v_thoughts_tokens.clone()])?;
+    if core_truthy(&v_has_thoughts) {
+        core_set(
+            &v_out,
+            CoreValue::from("thoughts_tokens"),
+            v_thoughts_tokens.clone(),
+        )?;
+    }
     v_reasoning_tokens_snake = core_get(
         &v_usage,
         &CoreValue::from("reasoning_tokens"),
@@ -26723,37 +26922,25 @@ fn normalize_token_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_cache_creation_tokens.clone(),
         )?;
     }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_ai_model_usage_impl");
-    let mut v_ai_name = core_arg(args, 0);
-    let mut v_model = core_arg(args, 1);
-    let mut v_usage = core_arg(args, 2);
-    let mut v_has_usage = CoreValue::Null;
-    let mut v_missing_usage = CoreValue::Null;
-    let mut v_none = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_tokens = CoreValue::Null;
-    v_has_usage = core_truthy_value(&[v_usage.clone()])?;
-    v_missing_usage = core_not(&[v_has_usage.clone()])?;
-    if core_truthy(&v_missing_usage) {
-        v_none = core_none(&[])?;
-        return Ok(v_none.clone());
+    v_service_tier_snake = core_get(&v_usage, &CoreValue::from("service_tier"), CoreValue::Null);
+    v_service_tier = core_get(
+        &v_usage,
+        &CoreValue::from("serviceTier"),
+        v_service_tier_snake.clone(),
+    );
+    v_has_service_tier = core_is_not_none(&[v_service_tier.clone()])?;
+    if core_truthy(&v_has_service_tier) {
+        core_set(
+            &v_out,
+            CoreValue::from("service_tier"),
+            v_service_tier.clone(),
+        )?;
     }
-    v_tokens = normalize_token_usage(&[v_usage.clone()])?;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("ai"), v_ai_name.clone())?;
-    core_set(&v_out, CoreValue::from("model"), v_model.clone())?;
-    core_set(&v_out, CoreValue::from("tokens"), v_tokens.clone())?;
+    v_speed = core_get(&v_usage, &CoreValue::from("speed"), CoreValue::Null);
+    v_has_speed = core_is_not_none(&[v_speed.clone()])?;
+    if core_truthy(&v_has_speed) {
+        core_set(&v_out, CoreValue::from("speed"), v_speed.clone())?;
+    }
     return Ok(v_out.clone());
 }
 
@@ -26886,69 +27073,210 @@ fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("chat_response_to_completion");
-    let mut v_response = core_arg(args, 0);
-    let mut v_call = CoreValue::Null;
-    let mut v_calls = CoreValue::Null;
-    let mut v_compat_call = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
-    let mut v_empty_calls = CoreValue::Null;
-    let mut v_empty_result = CoreValue::Null;
-    let mut v_empty_results = CoreValue::Null;
-    let mut v_fn = CoreValue::Null;
-    let mut v_function_calls = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_model_usage = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_results = CoreValue::Null;
-    let mut v_usage = CoreValue::Null;
-    v_empty_results = CoreValue::new_list();
-    v_results = core_get(
-        &v_response,
-        &CoreValue::from("results"),
-        v_empty_results.clone(),
+fn merge_usage_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("merge_usage_context");
+    let mut v_defaults = core_arg(args, 0);
+    let mut v_overrides = core_arg(args, 1);
+    let mut v_attributes = CoreValue::Null;
+    let mut v_default_attributes = CoreValue::Null;
+    let mut v_has_attributes = CoreValue::Null;
+    let mut v_merged = CoreValue::Null;
+    let mut v_override_attributes = CoreValue::Null;
+    v_merged = core_map_merge(&[v_defaults.clone(), v_overrides.clone()])?;
+    v_default_attributes = core_get(&v_defaults, &CoreValue::from("attributes"), CoreValue::Null);
+    v_override_attributes = core_get(
+        &v_overrides,
+        &CoreValue::from("attributes"),
+        CoreValue::Null,
     );
-    v_empty_result = CoreValue::new_map();
-    v_result = core_list_get(&[
-        v_results.clone(),
-        CoreValue::Num(0f64),
-        v_empty_result.clone(),
-    ])?;
-    v_content = core_get(&v_result, &CoreValue::from("content"), CoreValue::from(""));
-    v_calls = CoreValue::new_list();
-    v_empty_calls = CoreValue::new_list();
-    v_function_calls = core_get(
-        &v_result,
-        &CoreValue::from("function_calls"),
-        v_empty_calls.clone(),
-    );
-    for v_call in core_iter(&v_function_calls)? {
-        let mut v_call = v_call;
-        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-        v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-        v_params = core_get(&v_fn, &CoreValue::from("params"), CoreValue::Null);
-        v_compat_call = CoreValue::new_map();
-        core_set(&v_compat_call, CoreValue::from("id"), v_id.clone())?;
-        core_set(&v_compat_call, CoreValue::from("name"), v_name.clone())?;
-        core_set(&v_compat_call, CoreValue::from("params"), v_params.clone())?;
-        core_append(&v_calls, v_compat_call.clone())?;
+    v_attributes = core_map_merge(&[v_default_attributes.clone(), v_override_attributes.clone()])?;
+    v_has_attributes = core_truthy_value(&[v_attributes.clone()])?;
+    if core_truthy(&v_has_attributes) {
+        core_set(
+            &v_merged,
+            CoreValue::from("attributes"),
+            v_attributes.clone(),
+        )?;
     }
-    v_model_usage = core_get(
+    return Ok(v_merged.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn build_usage_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("build_usage_event");
+    let mut v_operation = core_arg(args, 0);
+    let mut v_response = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_streaming = core_arg(args, 3);
+    let mut v_ai_name = CoreValue::Null;
+    let mut v_event = CoreValue::Null;
+    let mut v_has_context = CoreValue::Null;
+    let mut v_has_remote_id = CoreValue::Null;
+    let mut v_has_remote_request_id = CoreValue::Null;
+    let mut v_has_remote_session_id = CoreValue::Null;
+    let mut v_has_result_usage = CoreValue::Null;
+    let mut v_has_session_id = CoreValue::Null;
+    let mut v_has_tokens = CoreValue::Null;
+    let mut v_missing_tokens = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_model_usage = CoreValue::Null;
+    let mut v_model_usage_snake = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_normalized_tokens = CoreValue::Null;
+    let mut v_option_session = CoreValue::Null;
+    let mut v_option_session_snake = CoreValue::Null;
+    let mut v_remote_id = CoreValue::Null;
+    let mut v_remote_id_snake = CoreValue::Null;
+    let mut v_remote_request_id = CoreValue::Null;
+    let mut v_remote_request_id_snake = CoreValue::Null;
+    let mut v_remote_session_id = CoreValue::Null;
+    let mut v_remote_session_id_snake = CoreValue::Null;
+    let mut v_response_session = CoreValue::Null;
+    let mut v_response_session_snake = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_result_usage = CoreValue::Null;
+    let mut v_result_usage_snake = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
+    let mut v_session_id = CoreValue::Null;
+    let mut v_tokens = CoreValue::Null;
+    let mut v_top_model_usage = CoreValue::Null;
+    let mut v_usage_context = CoreValue::Null;
+    let mut v_usage_context_snake = CoreValue::Null;
+    v_model_usage_snake = core_get(
         &v_response,
         &CoreValue::from("model_usage"),
         CoreValue::Null,
     );
-    v_usage = core_get(&v_model_usage, &CoreValue::from("tokens"), CoreValue::Null);
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
-    core_set(&v_out, CoreValue::from("function_calls"), v_calls.clone())?;
-    core_set(&v_out, CoreValue::from("usage"), v_usage.clone())?;
-    return Ok(v_out.clone());
+    v_top_model_usage = core_get(
+        &v_response,
+        &CoreValue::from("modelUsage"),
+        v_model_usage_snake.clone(),
+    );
+    v_model_usage = v_top_model_usage.clone();
+    v_results = core_get(&v_response, &CoreValue::from("results"), CoreValue::Null);
+    for v_result in core_iter(&v_results)? {
+        let mut v_result = v_result;
+        v_result_usage_snake =
+            core_get(&v_result, &CoreValue::from("model_usage"), CoreValue::Null);
+        v_result_usage = core_get(
+            &v_result,
+            &CoreValue::from("modelUsage"),
+            v_result_usage_snake.clone(),
+        );
+        v_has_result_usage = core_truthy_value(&[v_result_usage.clone()])?;
+        if core_truthy(&v_has_result_usage) {
+            v_model_usage = v_result_usage.clone();
+        }
+    }
+    v_tokens = core_get(&v_model_usage, &CoreValue::from("tokens"), CoreValue::Null);
+    v_has_tokens = core_truthy_value(&[v_tokens.clone()])?;
+    v_missing_tokens = core_not(&[v_has_tokens.clone()])?;
+    if core_truthy(&v_missing_tokens) {
+        v_none = core_none(&[])?;
+        return Ok(v_none.clone());
+    }
+    v_event = CoreValue::new_map();
+    core_set(&v_event, CoreValue::from("operation"), v_operation.clone())?;
+    v_ai_name = core_get(&v_model_usage, &CoreValue::from("ai"), CoreValue::Null);
+    v_model = core_get(&v_model_usage, &CoreValue::from("model"), CoreValue::Null);
+    v_normalized_tokens = normalize_token_usage(&[v_tokens.clone()])?;
+    core_set(&v_event, CoreValue::from("ai"), v_ai_name.clone())?;
+    core_set(&v_event, CoreValue::from("model"), v_model.clone())?;
+    core_set(
+        &v_event,
+        CoreValue::from("tokens"),
+        v_normalized_tokens.clone(),
+    )?;
+    core_set(&v_event, CoreValue::from("streaming"), v_streaming.clone())?;
+    v_usage_context_snake = core_get(
+        &v_options,
+        &CoreValue::from("usage_context"),
+        CoreValue::Null,
+    );
+    v_usage_context = core_get(
+        &v_options,
+        &CoreValue::from("usageContext"),
+        v_usage_context_snake.clone(),
+    );
+    v_has_context = core_truthy_value(&[v_usage_context.clone()])?;
+    if core_truthy(&v_has_context) {
+        core_set(
+            &v_event,
+            CoreValue::from("context"),
+            v_usage_context.clone(),
+        )?;
+    }
+    v_option_session_snake = core_get(&v_options, &CoreValue::from("session_id"), CoreValue::Null);
+    v_option_session = core_get(
+        &v_options,
+        &CoreValue::from("sessionId"),
+        v_option_session_snake.clone(),
+    );
+    v_response_session_snake =
+        core_get(&v_response, &CoreValue::from("session_id"), CoreValue::Null);
+    v_response_session = core_get(
+        &v_response,
+        &CoreValue::from("sessionId"),
+        v_response_session_snake.clone(),
+    );
+    v_session_id = core_coalesce(&[v_response_session.clone(), v_option_session.clone()])?;
+    v_has_session_id = core_is_not_none(&[v_session_id.clone()])?;
+    if core_truthy(&v_has_session_id) {
+        core_set(&v_event, CoreValue::from("sessionId"), v_session_id.clone())?;
+    }
+    v_remote_id_snake = core_get(&v_response, &CoreValue::from("remote_id"), CoreValue::Null);
+    v_remote_id = core_get(
+        &v_response,
+        &CoreValue::from("remoteId"),
+        v_remote_id_snake.clone(),
+    );
+    v_has_remote_id = core_is_not_none(&[v_remote_id.clone()])?;
+    if core_truthy(&v_has_remote_id) {
+        core_set(&v_event, CoreValue::from("remoteId"), v_remote_id.clone())?;
+    }
+    v_remote_request_id_snake = core_get(
+        &v_response,
+        &CoreValue::from("remote_request_id"),
+        CoreValue::Null,
+    );
+    v_remote_request_id = core_get(
+        &v_response,
+        &CoreValue::from("remoteRequestId"),
+        v_remote_request_id_snake.clone(),
+    );
+    v_has_remote_request_id = core_is_not_none(&[v_remote_request_id.clone()])?;
+    if core_truthy(&v_has_remote_request_id) {
+        core_set(
+            &v_event,
+            CoreValue::from("remoteRequestId"),
+            v_remote_request_id.clone(),
+        )?;
+    }
+    v_remote_session_id_snake = core_get(
+        &v_response,
+        &CoreValue::from("remote_session_id"),
+        CoreValue::Null,
+    );
+    v_remote_session_id = core_get(
+        &v_response,
+        &CoreValue::from("remoteSessionId"),
+        v_remote_session_id_snake.clone(),
+    );
+    v_has_remote_session_id = core_is_not_none(&[v_remote_session_id.clone()])?;
+    if core_truthy(&v_has_remote_session_id) {
+        core_set(
+            &v_event,
+            CoreValue::from("remoteSessionId"),
+            v_remote_session_id.clone(),
+        )?;
+    }
+    return Ok(v_event.clone());
 }
 
 #[allow(
@@ -27076,6 +27404,37 @@ fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
+fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_ai_model_usage_impl");
+    let mut v_ai_name = core_arg(args, 0);
+    let mut v_model = core_arg(args, 1);
+    let mut v_usage = core_arg(args, 2);
+    let mut v_has_usage = CoreValue::Null;
+    let mut v_missing_usage = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_tokens = CoreValue::Null;
+    v_has_usage = core_truthy_value(&[v_usage.clone()])?;
+    v_missing_usage = core_not(&[v_has_usage.clone()])?;
+    if core_truthy(&v_missing_usage) {
+        v_none = core_none(&[])?;
+        return Ok(v_none.clone());
+    }
+    v_tokens = normalize_token_usage(&[v_usage.clone()])?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("ai"), v_ai_name.clone())?;
+    core_set(&v_out, CoreValue::from("model"), v_model.clone())?;
+    core_set(&v_out, CoreValue::from("tokens"), v_tokens.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("openai_normalize_chat_response");
     let mut v_raw = core_arg(args, 0);
@@ -27149,6 +27508,78 @@ fn openai_normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxErr
         CoreValue::from("model_usage"),
         v_model_usage.clone(),
     )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("chat_response_to_completion");
+    let mut v_response = core_arg(args, 0);
+    let mut v_call = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_compat_call = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_empty_calls = CoreValue::Null;
+    let mut v_empty_result = CoreValue::Null;
+    let mut v_empty_results = CoreValue::Null;
+    let mut v_fn = CoreValue::Null;
+    let mut v_function_calls = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_model_usage = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_results = CoreValue::Null;
+    let mut v_usage = CoreValue::Null;
+    v_empty_results = CoreValue::new_list();
+    v_results = core_get(
+        &v_response,
+        &CoreValue::from("results"),
+        v_empty_results.clone(),
+    );
+    v_empty_result = CoreValue::new_map();
+    v_result = core_list_get(&[
+        v_results.clone(),
+        CoreValue::Num(0f64),
+        v_empty_result.clone(),
+    ])?;
+    v_content = core_get(&v_result, &CoreValue::from("content"), CoreValue::from(""));
+    v_calls = CoreValue::new_list();
+    v_empty_calls = CoreValue::new_list();
+    v_function_calls = core_get(
+        &v_result,
+        &CoreValue::from("function_calls"),
+        v_empty_calls.clone(),
+    );
+    for v_call in core_iter(&v_function_calls)? {
+        let mut v_call = v_call;
+        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+        v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+        v_params = core_get(&v_fn, &CoreValue::from("params"), CoreValue::Null);
+        v_compat_call = CoreValue::new_map();
+        core_set(&v_compat_call, CoreValue::from("id"), v_id.clone())?;
+        core_set(&v_compat_call, CoreValue::from("name"), v_name.clone())?;
+        core_set(&v_compat_call, CoreValue::from("params"), v_params.clone())?;
+        core_append(&v_calls, v_compat_call.clone())?;
+    }
+    v_model_usage = core_get(
+        &v_response,
+        &CoreValue::from("model_usage"),
+        CoreValue::Null,
+    );
+    v_usage = core_get(&v_model_usage, &CoreValue::from("tokens"), CoreValue::Null);
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
+    core_set(&v_out, CoreValue::from("function_calls"), v_calls.clone())?;
+    core_set(&v_out, CoreValue::from("usage"), v_usage.clone())?;
     return Ok(v_out.clone());
 }
 
@@ -38724,6 +39155,7 @@ fn _forward_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_response = _complete_with_retries_impl(&[
             v_client.clone(),
             v_request.clone(),
+            v_runtime_options.clone(),
             v_infra_retries.clone(),
         ])?;
         core_axgen_memory_add_response(&[v_gen.clone(), v_request.clone(), v_response.clone()])?;
@@ -39422,7 +39854,8 @@ fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     axir_coverage_mark("_complete_with_retries_impl");
     let mut v_client = core_arg(args, 0);
     let mut v_request = core_arg(args, 1);
-    let mut v_retries = core_arg(args, 2);
+    let mut v_options = core_arg(args, 2);
+    let mut v_retries = core_arg(args, 3);
     let mut v_attempt = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_exhausted = CoreValue::Null;
@@ -39433,7 +39866,8 @@ fn _complete_with_retries_impl(args: &[CoreValue]) -> Result<CoreValue, AxError>
     v_last_error = core_none(&[])?;
     loop {
         let __core_try: Result<CoreFlow, AxError> = (|| {
-            v_response = core_ai_complete_once(&[v_client.clone(), v_request.clone()])?;
+            v_response =
+                core_ai_complete_once(&[v_client.clone(), v_request.clone(), v_options.clone()])?;
             return Ok(CoreFlow::Return(v_response.clone()));
             Ok(CoreFlow::Normal)
         })();
@@ -50181,6 +50615,7 @@ fn _agent_apply_llm_tombstone_summary(args: &[CoreValue]) -> Result<CoreValue, A
                 v_client.clone(),
                 v_instruction.clone(),
                 v_llm_input.clone(),
+                v_options.clone(),
             ])?;
             v_has_text = core_ne(&[v_tombstone.clone(), CoreValue::from("")])?;
             if core_truthy(&v_has_text) {
@@ -61592,7 +62027,8 @@ fn _agent_apply_llm_checkpoint_summary(args: &[CoreValue]) -> Result<CoreValue, 
                 CoreValue::from("chat_prompt"),
                 v_messages.clone(),
             )?;
-            v_response = core_ai_complete_once(&[v_client.clone(), v_request.clone()])?;
+            v_response =
+                core_ai_complete_once(&[v_client.clone(), v_request.clone(), v_options.clone()])?;
             v_text = core_get(
                 &v_response,
                 &CoreValue::from("content"),
@@ -62184,6 +62620,7 @@ fn _context_map_complete(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_client = core_arg(args, 0);
     let mut v_system = core_arg(args, 1);
     let mut v_user = core_arg(args, 2);
+    let mut v_options = core_arg(args, 3);
     let mut v_content = CoreValue::Null;
     let mut v_messages = CoreValue::Null;
     let mut v_request = CoreValue::Null;
@@ -62205,7 +62642,7 @@ fn _context_map_complete(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         CoreValue::from("chat_prompt"),
         v_messages.clone(),
     )?;
-    v_response = core_ai_complete_once(&[v_client.clone(), v_request.clone()])?;
+    v_response = core_ai_complete_once(&[v_client.clone(), v_request.clone(), v_options.clone()])?;
     v_content = core_get(
         &v_response,
         &CoreValue::from("content"),
@@ -62336,6 +62773,7 @@ fn _agent_evolve_context_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_client.clone(),
             v_distiller_sys.clone(),
             v_distiller_user.clone(),
+            v_options.clone(),
         ])?;
         v_distiller_parsed = _context_map_parse_json(&[v_distiller_resp.clone()])?;
         v_item_tags = core_get(
@@ -62358,8 +62796,12 @@ fn _agent_evolve_context_map(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_current_chars.clone(),
             v_max_chars.clone(),
         ])?;
-        v_carto_resp =
-            _context_map_complete(&[v_client.clone(), v_carto_sys.clone(), v_carto_user.clone()])?;
+        v_carto_resp = _context_map_complete(&[
+            v_client.clone(),
+            v_carto_sys.clone(),
+            v_carto_user.clone(),
+            v_options.clone(),
+        ])?;
         v_carto_parsed = _context_map_parse_json(&[v_carto_resp.clone()])?;
         v_operations = core_get(
             &v_carto_parsed,
@@ -69805,4 +70247,4 @@ fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (519 of 519 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (521 of 521 core functions)

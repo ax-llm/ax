@@ -26,6 +26,38 @@ import (
 
 type Value = any
 
+type AxUsageContext = map[string]Value
+type AxUsageEvent = map[string]Value
+type AxUsageObserver func(AxUsageEvent)
+
+var usageObserverState struct {
+	sync.RWMutex
+	observer AxUsageObserver
+}
+
+func SetUsageObserver(observer AxUsageObserver) {
+	usageObserverState.Lock()
+	usageObserverState.observer = observer
+	usageObserverState.Unlock()
+}
+
+func emitUsageEvent(operation string, response Value, options map[string]Value, streaming bool) {
+	event, err := build_usage_event(operation, response, options, streaming)
+	if err != nil || event == nil {
+		return
+	}
+	usageObserverState.RLock()
+	observer := usageObserverState.observer
+	usageObserverState.RUnlock()
+	if observer == nil {
+		return
+	}
+	func() {
+		defer func() { _ = recover() }()
+		observer(asMap(cloneValue(event)))
+	}()
+}
+
 type AxError struct {
 	Category  string
 	Type      string
@@ -822,6 +854,21 @@ func _core_map_merge(left Value, right Value) Value {
 	}
 	return out
 }
+
+func mergeAIOptions(defaults map[string]Value, overrides map[string]Value) map[string]Value {
+	merged := cloneMap(defaults)
+	for _, key := range orderedKeys(overrides) {
+		coreSet(merged, key, coreGet(overrides, key, nil))
+	}
+	defaultContext := coreGet(defaults, "usage_context", coreGet(defaults, "usageContext", nil))
+	overrideContext := coreGet(overrides, "usage_context", coreGet(overrides, "usageContext", nil))
+	context, err := merge_usage_context(defaultContext, overrideContext)
+	if err == nil && coreTruthy(context) {
+		coreSet(merged, "usage_context", context)
+		coreSet(merged, "usageContext", context)
+	}
+	return merged
+}
 func _core_map_contains(values Value, key Value) Value {
 	m := asMap(values)
 	k := display(key)
@@ -882,9 +929,9 @@ func _core_program_apply_components(program Value, componentMap Value) Value {
 	}
 	return Object()
 }
-func _core_ai_complete_once(client Value, request Value) (Value, error) {
+func _core_ai_complete_once(client Value, request Value, options Value) (Value, error) {
 	if c, ok := client.(AIClient); ok {
-		out, err := c.Chat(context.Background(), asMap(request), Object())
+		out, err := c.Chat(context.Background(), asMap(request), asMap(options))
 		if err != nil {
 			return nil, err
 		}
@@ -1841,13 +1888,14 @@ func normalizeAzureOptions(options map[string]Value) map[string]Value {
 }
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	return safeValue(func() Value {
-		req := c.prepareChatRequest(request, options)
+	mergedOptions := mergeAIOptions(c.optionsSnapshot(), options)
+	response, err := safeValue(func() Value {
+		req := c.prepareChatRequest(request, mergedOptions)
 		mustCore(validate_chat_request(req))
 		opts := c.optionsSnapshot()
 		model := coreGet(req, "model", coreGet(opts, "model", nil))
 		if shouldRealtime, _ := mustCore(provider_should_use_realtime(c.Profile, display(model), req)).(bool); shouldRealtime {
-			result, rtErr := c.RealtimeChat(ctx, req, options, nil)
+			result, rtErr := c.RealtimeChat(ctx, req, mergedOptions, nil)
 			if rtErr != nil {
 				panic(AxError{Category: "network", Message: rtErr.Error()})
 			}
@@ -1863,9 +1911,14 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		body := normalizeTransportPayload(raw)
 		return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model))
 	})
+	if err == nil {
+		emitUsageEvent("chat", response, mergedOptions, false)
+	}
+	return response, err
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	return safeValue(func() Value {
+	mergedOptions := mergeAIOptions(c.optionsSnapshot(), options)
+	response, err := safeValue(func() Value {
 		req := cloneMap(request)
 		opts := c.optionsSnapshot()
 		if coreGet(req, "embed_model", coreGet(req, "embedModel", nil)) == nil {
@@ -1880,6 +1933,10 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 		}
 		return mustCore(provider_normalize_embed_response(c.Profile, coreGet(raw, "json", raw), c.Name, model))
 	})
+	if err == nil {
+		emitUsageEvent("embed", response, mergedOptions, false)
+	}
+	return response, err
 }
 func streamRetryParams(options map[string]Value) (int, float64, float64, float64) {
 	var opts Value = options
@@ -1899,13 +1956,14 @@ func streamBackoffDelay(initialDelay float64, maxDelay float64, backoff float64,
 }
 
 func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
+	mergedOptions := mergeAIOptions(c.optionsSnapshot(), options)
 	value, err := safeValue(func() Value {
 		req := c.prepareChatRequest(request, Object("stream", true))
 		mustCore(validate_chat_request(req))
 		opts := c.optionsSnapshot()
 		model := coreGet(req, "model", coreGet(opts, "model", nil))
 		transportReq := c.requestJSON("stream_chat", req, true)
-		maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(options)
+		maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(mergedOptions)
 		attempt := 0
 		for {
 			raw, err := c.Transport.Call(ctx, transportReq)
@@ -1937,7 +1995,11 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]
 			return out
 		}
 	})
-	return asSlice(value), err
+	values := asSlice(value)
+	if err == nil {
+		emitUsageEvent("chat", Object("results", values), mergedOptions, true)
+	}
+	return values, err
 }
 func (c *OpenAICompatibleClient) prepareChatRequest(request map[string]Value, options map[string]Value) map[string]Value {
 	req := cloneMap(request)
@@ -7306,6 +7368,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAIEmbed(fixture)
 	case "ai_stream":
 		runConformanceAIStream(fixture)
+	case "ai_usage_observer":
+		runConformanceAIUsageObserver(fixture)
 	case "ai_provider_descriptor":
 		profile := display(coreGet(fixture, "provider", coreGet(fixture, "profile", "")))
 		assertSubset(mustCore(provider_descriptor(profile)), coreGet(fixture, "expected_descriptor_subset", coreGet(fixture, "expected_descriptor", Object())), "provider descriptor")
@@ -8344,7 +8408,7 @@ func runConformanceStreamingAssertions(fixture map[string]Value, content Value) 
 func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *ScriptedTransport) {
 	transport := NewScriptedTransport(asSlice(coreGet(fixture, "transport_responses", Array())))
 	provider := display(coreGet(fixture, "provider", "openai-compatible"))
-	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	options := cloneMap(asMap(coreGet(fixture, "service_options", coreGet(fixture, "options", Object()))))
 	if coreGet(options, "api_key", nil) == nil && coreGet(options, "apiKey", nil) == nil {
 		coreSet(options, "api_key", "test-key")
 	}
@@ -8403,6 +8467,41 @@ func runConformanceAIChat(fixture map[string]Value) {
 			assertEqual(output, expected, "ai chat output")
 		}
 		assertTransportRequest(fixture, transport)
+	}
+}
+
+func runConformanceAIUsageObserver(fixture map[string]Value) {
+	client, _ := conformanceAIClient(fixture)
+	request := asMap(coreGet(fixture, "request", Object()))
+	options := asMap(coreGet(fixture, "call_options", Object()))
+	failedCalls := 0
+	SetUsageObserver(func(AxUsageEvent) {
+		failedCalls++
+		panic("observer failure")
+	})
+	if _, err := client.Chat(context.Background(), request, options); err != nil {
+		panic(err)
+	}
+	if failedCalls != 1 {
+		panic(AxError{Category: "fixture", Message: "usage observer failure callback count mismatch"})
+	}
+	events := []AxUsageEvent{}
+	SetUsageObserver(func(event AxUsageEvent) {
+		events = append(events, cloneMap(event))
+	})
+	if _, err := client.Chat(context.Background(), request, options); err != nil {
+		panic(err)
+	}
+	if len(events) != 1 {
+		panic(AxError{Category: "fixture", Message: "usage observer callback count mismatch"})
+	}
+	assertSubset(events[0], coreGet(fixture, "expected_event_subset", Object()), "usage event")
+	SetUsageObserver(nil)
+	if _, err := client.Chat(context.Background(), request, options); err != nil {
+		panic(err)
+	}
+	if len(events) != 1 {
+		panic(AxError{Category: "fixture", Message: "cleared usage observer received an event"})
 	}
 }
 

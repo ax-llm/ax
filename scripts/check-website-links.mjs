@@ -467,6 +467,9 @@ function collectQualityFailures(rel, html, failures) {
   if (html.includes('livereload.js')) {
     failures.push(`${rel}: production build must not include Hugo livereload`);
   }
+  if (html.includes('[object Object]')) {
+    failures.push(`${rel}: object-valued content rendered as [object Object]`);
+  }
   if (!hasAttributeValue(html, 'meta', 'name', 'description', 'content')) {
     failures.push(`${rel}: missing non-empty meta description`);
   }

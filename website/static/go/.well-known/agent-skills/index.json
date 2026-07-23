@@ -6,21 +6,21 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-go-llm/SKILL.md",
-      "digest": "sha256:31b61414c56f5d29b186d70df0884176904d03e30cefba780fd4ee31ba8b4894"
+      "digest": "sha256:8039bd400c712143530c7f5b55b1e0b3b9cc7aebe43f76a9b6305c1348663be8"
     },
     {
       "name": "ax-go-ai",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-go-ai/SKILL.md",
-      "digest": "sha256:8013d8e92b3bccb57fad0ec8174e59a6132fe8c8279e763477b37515be8c646a"
+      "digest": "sha256:c7b5a5f49f6c7c7dff0c26d7bb4c0b88d8c5ecb9fddfedbd25e16c6e784594f9"
     },
     {
       "name": "ax-go-audio",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-go-audio/SKILL.md",
-      "digest": "sha256:d1fd10d08dc977f0b0c816e78fd859d8bcfeb014d93ed95e095ee62a400ad29b"
+      "digest": "sha256:4652470a21e7e2abab9600135cb8ee7273e1c08cbe16edcf97cd3e8694c26b29"
     },
     {
       "name": "ax-go-signature",

@@ -1,0 +1,141 @@
+{
+  "name": "usage-observer",
+  "kind": "ai_usage_observer",
+  "provider": "openai-compatible",
+  "model": "gpt-5.4-mini",
+  "service_options": {
+    "usageContext": {
+      "tenantId": "tenant-default",
+      "feature": "search",
+      "attributes": {
+        "environment": "test",
+        "tier": 1
+      }
+    }
+  },
+  "call_options": {
+    "sessionId": "session-1",
+    "usageContext": {
+      "tenantId": "tenant-call",
+      "userId": "user-1",
+      "requestId": "request-1",
+      "runId": "run-1",
+      "attributes": {
+        "tier": 2,
+        "route": "chat"
+      }
+    }
+  },
+  "request": {
+    "chat_prompt": [
+      {
+        "role": "user",
+        "content": "Track this request."
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_usage_1",
+        "model": "gpt-5.4-mini",
+        "usage": {
+          "prompt_tokens": 4,
+          "completion_tokens": 2,
+          "total_tokens": 6,
+          "reasoning_tokens": 1,
+          "service_tier": "priority"
+        },
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "tracked"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_usage_2",
+        "model": "gpt-5.4-mini",
+        "usage": {
+          "prompt_tokens": 4,
+          "completion_tokens": 2,
+          "total_tokens": 6,
+          "reasoning_tokens": 1,
+          "service_tier": "priority"
+        },
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "tracked"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_usage_3",
+        "model": "gpt-5.4-mini",
+        "usage": {
+          "prompt_tokens": 4,
+          "completion_tokens": 2,
+          "total_tokens": 6,
+          "reasoning_tokens": 1,
+          "service_tier": "priority"
+        },
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "tracked"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected_event_subset": {
+    "operation": "chat",
+    "ai": "openai",
+    "model": "gpt-5.4-mini",
+    "tokens": {
+      "prompt_tokens": 4,
+      "completion_tokens": 2,
+      "total_tokens": 6,
+      "reasoning_tokens": 1,
+      "service_tier": "priority"
+    },
+    "context": {
+      "tenantId": "tenant-call",
+      "userId": "user-1",
+      "requestId": "request-1",
+      "runId": "run-1",
+      "feature": "search",
+      "attributes": {
+        "environment": "test",
+        "tier": 2,
+        "route": "chat"
+      }
+    },
+    "sessionId": "session-1",
+    "remoteId": "chatcmpl_usage_2",
+    "streaming": false
+  }
+}

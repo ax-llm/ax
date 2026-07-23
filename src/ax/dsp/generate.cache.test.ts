@@ -90,6 +90,55 @@ describe('AxGen caching via axGlobals', () => {
     expect(mockChat).toHaveBeenCalledTimes(1);
   });
 
+  it('merges and propagates usage context to ai.chat', async () => {
+    const gen = ax('userQuestion:string -> responseText:string', {
+      usageContext: {
+        tenantId: 'tenant-default',
+        feature: 'search',
+        attributes: { environment: 'test', tier: 1 },
+      },
+    });
+    const attributedAI = new AxMockAIService();
+    const mockChat = vi.fn(async (_req: unknown, options?: any) => {
+      expect(options?.usageContext).toEqual({
+        tenantId: 'tenant-call',
+        userId: 'user-1',
+        requestId: 'request-1',
+        feature: 'search',
+        attributes: {
+          environment: 'test',
+          tier: 2,
+        },
+      });
+      return {
+        results: [
+          {
+            index: 0,
+            content: 'Response Text: attributed',
+            finishReason: 'stop' as const,
+          },
+        ],
+      };
+    });
+    attributedAI.chat = mockChat as typeof attributedAI.chat;
+
+    const result = await gen.forward(
+      attributedAI,
+      { userQuestion: 'hello' },
+      {
+        usageContext: {
+          tenantId: 'tenant-call',
+          userId: 'user-1',
+          requestId: 'request-1',
+          attributes: { tier: 2 },
+        },
+      }
+    );
+
+    expect(result.responseText).toBe('attributed');
+    expect(mockChat).toHaveBeenCalledTimes(1);
+  });
+
   it('uses contextCache from ai instance options when forward options omit it', async () => {
     const gen = ax('userQuestion:string -> responseText:string');
     const contextCache = {

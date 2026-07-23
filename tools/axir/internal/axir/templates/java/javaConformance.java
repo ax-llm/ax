@@ -554,6 +554,7 @@ public final class Conformance {
       case "ai_chat" -> runAIChat(fixture);
       case "ai_embed" -> runAIEmbed(fixture);
       case "ai_stream" -> runAIStream(fixture);
+      case "ai_usage_observer" -> runAIUsageObserver(fixture);
       case "ai_error" -> runAIError(fixture);
       case "ai_unsupported" -> runAIUnsupported(fixture);
       case "ai_provider_descriptor" -> runAIProviderDescriptor(fixture);
@@ -2024,6 +2025,33 @@ public final class Conformance {
     assertTransport(fixture, cf.transport);
   }
 
+  static void runAIUsageObserver(Map<String, Object> fixture) {
+    ClientFixture cf = openaiClient(fixture);
+    Map<String, Object> request = Core.asMap(fixture.get("request"));
+    Map<String, Object> options = Core.asMap(fixture.getOrDefault("call_options", Map.of()));
+    int[] failedCalls = {0};
+    AxGlobals.setUsageObserver(event -> {
+      failedCalls[0]++;
+      throw new RuntimeException("observer failure");
+    });
+    try {
+      cf.client.chat(request, options);
+      if (failedCalls[0] != 1) throw new FixtureError("usage observer failure callback count mismatch: " + failedCalls[0]);
+      List<AxUsageEvent> events = new ArrayList<>();
+      AxGlobals.setUsageObserver(events::add);
+      cf.client.chat(request, options);
+      if (events.size() != 1) throw new FixtureError("usage observer callback count mismatch: " + events.size());
+      assertSubset(events.get(0).value(), fixture.get("expected_event_subset"), "usage event");
+      AxGlobals.setUsageObserver(null);
+      cf.client.chat(request, options);
+      if (events.size() != 1) throw new FixtureError("cleared usage observer received an event");
+    } catch (Exception e) {
+      throw Core.asRuntime(e);
+    } finally {
+      AxGlobals.setUsageObserver(null);
+    }
+  }
+
   static void runAIError(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
     try {
@@ -2453,7 +2481,7 @@ public final class Conformance {
     options.put("api_key", "test-key");
     options.put("transport", transport);
     options.put("model_config", fixture.get("model_config"));
-    options.put("options", fixture.getOrDefault("options", Map.of()));
+    options.put("options", fixture.getOrDefault("service_options", fixture.getOrDefault("options", Map.of())));
     for (String key : List.of("base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version")) {
       if (fixture.containsKey(key)) options.put(key, fixture.get(key));
     }

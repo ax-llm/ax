@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .ai import AnthropicClient, AzureOpenAIClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, RekaClient, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry
+from .ai import AnthropicClient, AzureOpenAIClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, RekaClient, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, set_usage_observer
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
@@ -490,6 +490,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_embed(fixture)
         elif kind == "ai_stream":
             _run_ai_stream(fixture)
+        elif kind == "ai_usage_observer":
+            _run_ai_usage_observer(fixture)
         elif kind == "ai_error":
             _run_ai_error(fixture)
         elif kind == "ai_unsupported":
@@ -2303,6 +2305,35 @@ def _run_ai_stream(fixture):
     _assert_transport_request(fixture, transport)
 
 
+def _run_ai_usage_observer(fixture):
+    client, _ = _openai_fixture_client(fixture)
+    request = fixture["request"]
+    options = fixture.get("call_options") or {}
+    failed_calls = 0
+
+    def failing_observer(_event):
+        nonlocal failed_calls
+        failed_calls += 1
+        raise RuntimeError("observer failure")
+
+    set_usage_observer(failing_observer)
+    client.chat(request, options)
+    if failed_calls != 1:
+        raise FixtureError(f"usage observer failure callback count mismatch: {failed_calls}")
+
+    events = []
+    set_usage_observer(events.append)
+    client.chat(request, options)
+    if len(events) != 1:
+        raise FixtureError(f"usage observer callback count mismatch: {len(events)}")
+    _assert_subset(events[0], fixture["expected_event_subset"], "usage event")
+
+    set_usage_observer(None)
+    client.chat(request, options)
+    if len(events) != 1:
+        raise FixtureError("cleared usage observer received an event")
+
+
 def _run_ai_error(fixture):
     client, transport = _openai_fixture_client(fixture)
     try:
@@ -2736,6 +2767,7 @@ def _openai_fixture_client(fixture):
         api_key="test-key",
         transport=transport,
         model_config=fixture.get("model_config"),
+        options=fixture.get("service_options") or fixture.get("options") or {},
         **extra_options,
     )
     return client, transport

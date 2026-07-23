@@ -118,6 +118,15 @@ var javaAxAIService string
 //go:embed templates/java/javaAxAIServiceError.java
 var javaAxAIServiceError string
 
+//go:embed templates/java/javaAxGlobals.java
+var javaAxGlobals string
+
+//go:embed templates/java/javaAxUsageEvent.java
+var javaAxUsageEvent string
+
+//go:embed templates/java/javaAxUsageObserver.java
+var javaAxUsageObserver string
+
 //go:embed templates/java/javaAxAgent.java
 var javaAxAgent string
 

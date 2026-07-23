@@ -199,6 +199,7 @@ axGlobals.tracer = trace.getTracer('my-app');
 axGlobals.debug = true;
 axGlobals.logger = axCreateDefaultColorLogger();
 axGlobals.customLabels = { service: 'api' };
+axGlobals.onUsage = (event) => usageQueue.enqueue(event);
 
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 ```
@@ -209,6 +210,34 @@ Rules:
 - Precedence is: per-call options, then explicit AI/service options, then current `axGlobals`, then built-in defaults.
 - `customLabels` merge from globals to service to call options; later sources override earlier keys.
 - `abortSignal` values are merged, so either a global shutdown signal or a local request signal can cancel the request.
+- `axGlobals.onUsage` receives one immutable normalized event for each completed chat or embedding call that reports token usage. A fully consumed stream emits once.
+- Usage observers are best-effort and fail-open. Ax does not await them; synchronously enqueue events and persist or aggregate them out of band.
+
+Use `usageContext` for multi-tenant and request attribution:
+
+```typescript
+const llm = ai({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY!,
+  options: {
+    usageContext: {
+      tenantId: 'tenant-42',
+      feature: 'support-chat',
+      attributes: { environment: 'production' },
+    },
+  },
+});
+
+await llm.chat(request, {
+  usageContext: {
+    userId: user.id,
+    requestId: requestId,
+    runId: runId,
+  },
+});
+```
+
+Per-call context overrides service defaults, while `attributes` are shallow-merged. Events include normalized tokens, provider/model, available session and remote IDs, and a streaming flag. They do not estimate currency cost; calculate that downstream against a versioned pricing table.
 
 ## DeepSeek Notes
 

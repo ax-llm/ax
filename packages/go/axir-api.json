@@ -176,6 +176,67 @@
         },
         {
           "target_name": "go",
+          "canonical_name": "AxUsageContext",
+          "public_name": "axllm.AxUsageContext",
+          "kind": "type",
+          "description": "Application attribution merged from service defaults and per-call overrides.",
+          "form": "axllm.AxUsageContext",
+          "important_options": [
+            "tenant",
+            "user",
+            "request",
+            "run",
+            "feature",
+            "attributes"
+          ],
+          "returns": "usage context"
+        },
+        {
+          "target_name": "go",
+          "canonical_name": "AxUsageEvent",
+          "public_name": "axllm.AxUsageEvent",
+          "kind": "type",
+          "description": "Normalized token usage and correlation data for one completed chat or embedding operation.",
+          "form": "axllm.AxUsageEvent",
+          "important_options": [
+            "provider",
+            "model",
+            "tokens",
+            "context",
+            "correlation IDs",
+            "streaming"
+          ],
+          "returns": "usage event"
+        },
+        {
+          "target_name": "go",
+          "canonical_name": "AxUsageObserver",
+          "public_name": "axllm.AxUsageObserver",
+          "kind": "interface",
+          "description": "Best-effort process-wide callback for normalized usage events.",
+          "form": "axllm.AxUsageObserver",
+          "important_options": [
+            "fail-open delivery",
+            "synchronous enqueue"
+          ],
+          "returns": "usage observer"
+        },
+        {
+          "target_name": "go",
+          "canonical_name": "set_usage_observer",
+          "public_name": "axllm.SetUsageObserver",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide usage observer.",
+          "form": "axllm.SetUsageObserver(observer)",
+          "important_options": [
+            "observer",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "axllm.SetUsageObserver(func(event axllm.AxUsageEvent) { events = append(events, event) })"
+        },
+        {
+          "target_name": "go",
           "canonical_name": "AxBalancer",
           "public_name": "axllm.AxBalancer",
           "kind": "type",

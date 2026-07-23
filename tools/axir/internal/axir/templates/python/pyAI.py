@@ -17,6 +17,60 @@ import urllib.request
 from typing import Any, Callable, Iterable
 # AXIR_CORE_IMPORTS
 
+AxUsageContext = dict[str, Any]
+AxUsageEvent = dict[str, Any]
+AxUsageObserver = Callable[[AxUsageEvent], Any]
+
+_usage_observer_lock = threading.RLock()
+_usage_observer: AxUsageObserver | None = None
+
+
+def set_usage_observer(observer: AxUsageObserver | None) -> None:
+    """Set the process-wide best-effort usage observer; pass None to clear it."""
+    global _usage_observer
+    with _usage_observer_lock:
+        _usage_observer = observer
+
+
+def _emit_usage_event(
+    operation: str,
+    response: dict[str, Any],
+    options: dict[str, Any] | None,
+    streaming: bool,
+) -> None:
+    try:
+        event = build_usage_event(operation, response, options or {}, streaming)
+    except Exception:
+        return
+    if not event:
+        return
+    with _usage_observer_lock:
+        observer = _usage_observer
+    if observer is None:
+        return
+    try:
+        observer(copy.deepcopy(event))
+    except BaseException:
+        pass
+
+
+def _usage_observed_stream(
+    values: Iterable[dict[str, Any]],
+    options: dict[str, Any],
+):
+    last_usage_response = None
+    completed = False
+    try:
+        for value in values:
+            model_usage = value.get("model_usage") or value.get("modelUsage")
+            if isinstance(model_usage, dict) and model_usage.get("tokens"):
+                last_usage_response = value
+            yield value
+        completed = True
+    finally:
+        if completed and last_usage_response is not None:
+            _emit_usage_event("chat", last_usage_response, options, True)
+
 
 class AxAIServiceError(Exception):
     def __init__(
@@ -380,13 +434,24 @@ class AxBaseAI(AIClient):
     def get_options(self) -> dict[str, Any]:
         return copy.deepcopy(self.options)
 
+    def _merged_options(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
+        call_options = dict(options or {})
+        merged = {**self.options, **call_options}
+        default_context = self.options.get("usage_context") or self.options.get("usageContext")
+        call_context = call_options.get("usage_context") or call_options.get("usageContext")
+        context = merge_usage_context(default_context, call_context)
+        if context:
+            merged["usage_context"] = context
+            merged["usageContext"] = context
+        return merged
+
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         started = time.perf_counter()
         is_error = False
         try:
             req = _coerce_chat_request(request)
             validate_chat_request(req)
-            merged_options = {**self.options, **(options or {})}
+            merged_options = self._merged_options(options)
             model = req.get("model") or self.model
             model_config = merge_model_config(self.model_config, req.get("model_config"), merged_options)
             if merged_options.get("stream") is not None:
@@ -394,7 +459,11 @@ class AxBaseAI(AIClient):
             req = {**req, "model": model, "model_config": model_config}
             self.last_used_chat_model = model
             self.last_used_model_config = copy.deepcopy(model_config)
-            return self._chat(req, merged_options)
+            response = self._chat(req, merged_options)
+            if isinstance(response, dict):
+                _emit_usage_event("chat", response, merged_options, False)
+                return response
+            return _usage_observed_stream(response, merged_options)
         except Exception:
             is_error = True
             raise
@@ -413,7 +482,10 @@ class AxBaseAI(AIClient):
                 raise AxAIServiceResponseError("Embed model not set")
             req = {**request, "texts": list(texts), "embed_model": embed_model}
             self.last_used_embed_model = embed_model
-            return self._embed(req, {**self.options, **(options or {})})
+            merged_options = self._merged_options(options)
+            response = self._embed(req, merged_options)
+            _emit_usage_event("embed", response, merged_options, False)
+            return response
         except Exception:
             is_error = True
             raise
@@ -457,14 +529,22 @@ class ProviderOperationClient(AxBaseAI):
         options: dict[str, Any] | None = None,
         model_config: dict[str, Any] | None = None,
         transport: Callable[[dict[str, Any]], Any] | None = None,
+        usage_context: AxUsageContext | None = None,
+        usageContext: AxUsageContext | None = None,
+        **runtime_options,
     ):
         descriptor = provider_descriptor(profile)
+        service_options = {**(options or {}), **runtime_options}
+        context = usage_context or usageContext
+        if context:
+            service_options["usage_context"] = copy.deepcopy(context)
+            service_options["usageContext"] = copy.deepcopy(context)
         super().__init__(
             name=name,
             model=model,
             embed_model=embed_model,
             model_config=model_config,
-            options=options,
+            options=service_options,
             features=descriptor.get("features") or default_features(),
         )
         self.profile = profile
@@ -497,7 +577,7 @@ class ProviderOperationClient(AxBaseAI):
         req = _coerce_chat_request(request)
         req.setdefault("model_config", {})["stream"] = True
         validate_chat_request(req)
-        merged_options = {**self.options, **(options or {}), "stream": True}
+        merged_options = {**self._merged_options(options), "stream": True}
         model = req.get("model") or self.model
         model_config = merge_model_config(self.model_config, req.get("model_config"), merged_options)
         model_config["stream"] = True
@@ -505,7 +585,10 @@ class ProviderOperationClient(AxBaseAI):
         self.last_used_chat_model = model
         self.last_used_model_config = copy.deepcopy(model_config)
         payload = provider_build_chat_request(self.profile, req)
-        yield from self._stream_chat(payload, req, merged_options)
+        yield from _usage_observed_stream(
+            self._stream_chat(payload, req, merged_options),
+            merged_options,
+        )
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
         payload = provider_build_embed_request(self.profile, request)

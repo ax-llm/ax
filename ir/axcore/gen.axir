@@ -163,7 +163,7 @@ module @ax.gen version "0.1" {
       %last_tool_result = core.call intrinsic.none()
       core.loop {
         %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options)
-        %response = core.call @complete_with_retries_impl(%client, %request, %infra_retries)
+        %response = core.call @complete_with_retries_impl(%client, %request, %runtime_options, %infra_retries)
         core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
         core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
         %calls = core.call @response_function_calls_impl(%response)
@@ -348,13 +348,13 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "infra-retry-core-helper"
-    type signature = "(AIClient, AxChatRequest, i64) -> json throws"
-    body @entry(%client: AIClient, %request: AxChatRequest, %retries: i64) {
+    type signature = "(AIClient, AxChatRequest, json, i64) -> json throws"
+    body @entry(%client: AIClient, %request: AxChatRequest, %options: json, %retries: i64) {
       %attempt = core.const 0
       %last_error = core.call intrinsic.none()
       core.loop {
         core.try {
-          %response = core.call intrinsic.ai.complete_once(%client, %request)
+          %response = core.call intrinsic.ai.complete_once(%client, %request, %options)
           core.return %response
         } catch %error {
           %last_error = core.let %error

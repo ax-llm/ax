@@ -3276,6 +3276,7 @@ writeFixture('anthropic-thinking-response', {
         prompt_tokens: 6,
         completion_tokens: 5,
         total_tokens: 11,
+        speed: 'standard',
       },
     },
   },

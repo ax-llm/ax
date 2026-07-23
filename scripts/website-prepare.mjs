@@ -481,7 +481,7 @@ async function renderContext(language, page) {
     aiBalancerExample:
       language.id === 'typescript' ? snippetBlock(language, 'ai.balancer') : '',
     aiProviderExamples: aiProviderExamples(language),
-    telemetryCode: lines(snippets.telemetry),
+    telemetryExample: snippetBlock(language, 'telemetry'),
     optimizeCode: lines(snippets.optimize),
     playbookCode: lines(snippets.playbook),
     optimizeAxGenExample: snippetBlock(language, 'optimize.axgen', 'optimize'),

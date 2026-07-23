@@ -133,6 +133,50 @@ Anthropic provider mapping for messages, thinking, cache control, streaming, and
 - Returns: `provider client`
 - Important options: api key, model, thinking, cache control
 
+### `axllm::AxUsageContext`
+
+Application attribution merged from service defaults and per-call overrides.
+
+- Canonical Ax concept: `AxUsageContext`
+- Kind: `type`
+- Form: `axllm::AxUsageContext`
+- Returns: `usage context`
+- Important options: tenant, user, request, run, feature, attributes
+
+### `axllm::AxUsageEvent`
+
+Normalized token usage and correlation data for one completed chat or embedding operation.
+
+- Canonical Ax concept: `AxUsageEvent`
+- Kind: `type`
+- Form: `axllm::AxUsageEvent`
+- Returns: `usage event`
+- Important options: provider, model, tokens, context, correlation IDs, streaming
+
+### `axllm::AxUsageObserver`
+
+Best-effort process-wide callback for normalized usage events.
+
+- Canonical Ax concept: `AxUsageObserver`
+- Kind: `interface`
+- Form: `axllm::AxUsageObserver`
+- Returns: `usage observer`
+- Important options: fail-open delivery, synchronous enqueue
+
+### `axllm::set_usage_observer`
+
+Register, replace, or clear the process-wide usage observer.
+
+- Canonical Ax concept: `set_usage_observer`
+- Kind: `function`
+- Form: `axllm::set_usage_observer(observer)`
+- Returns: `void`
+- Important options: observer, clear
+
+```cpp
+axllm::set_usage_observer([&](auto event) { events.push_back(event); });
+```
+
 ### `axllm::AxBalancer`
 
 Retry and route requests across multiple provider services, with opt-in adaptive cost, reliability, and deadline routing.

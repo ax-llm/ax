@@ -27,6 +27,14 @@ func main() {
 		"api_key":   "test-key",
 		"model":     "gpt-5.4-mini",
 		"transport": transport,
+		"usageContext": ax.Object(
+			"tenantId", "tenant-1",
+			"feature", "no-key-example",
+		),
+	})
+	events := []ax.AxUsageEvent{}
+	ax.SetUsageObserver(func(event ax.AxUsageEvent) {
+		events = append(events, event)
 	})
 	result, err := client.Chat(context.Background(), map[string]ax.Value{
 		"chat_prompt": ax.Array(
@@ -34,9 +42,16 @@ func main() {
 			ax.Object("role", "user", "content", "What is Ax?"),
 		),
 		"model_config": ax.Object("temperature", 0),
-	}, nil)
+	}, ax.Object(
+		"usageContext",
+		ax.Object("userId", "user-1", "requestId", "request-1"),
+	))
+	ax.SetUsageObserver(nil)
 	if err != nil {
 		panic(err)
+	}
+	if len(events) != 1 || events[0]["context"].(map[string]ax.Value)["tenantId"] != "tenant-1" {
+		panic(fmt.Sprintf("bad usage event: %#v", events))
 	}
 	first := resultsOf(result)[0].(map[string]ax.Value)
 	fmt.Println("go-provider-mapping-no-key", first["content"])

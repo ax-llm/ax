@@ -46,7 +46,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
       String.valueOf(options.getOrDefault("model", defaultModel)),
       String.valueOf(options.getOrDefault("embed_model", options.getOrDefault("embedModel", defaultEmbedModel))),
       Core.asMap(options.get("model_config")),
-      Core.asMap(options.get("options"))
+      Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))))
     );
     this.profile = profile == null || profile.isBlank() ? "openai-compatible" : profile;
     this.descriptor = Core.asMap(Core.provider_descriptor(this.profile));
@@ -121,7 +121,10 @@ public class OpenAICompatibleClient extends AxBaseAI {
     req.put("model_config", modelConfig);
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req));
     Object modelName = req.getOrDefault("model", payload.getOrDefault("model", model));
-    return streamEvents(payload, modelName);
+    List<Map<String, Object>> events = streamEvents(payload, modelName);
+    Map<String, Object> streamOptions = mergedOptions(Map.of("stream", true));
+    AxGlobals.emitUsage("chat", Map.of("results", events), streamOptions, true);
+    return events;
   }
 
   public Map<String, Object> transcribe(Map<String, Object> request) throws Exception {

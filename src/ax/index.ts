@@ -622,7 +622,11 @@ import type {
   AxRateLimiterFunction,
   AxThoughtBlockItem,
   AxTokenUsage,
+  AxUsageContext,
+  AxUsageEvent,
+  AxUsageObserver,
 } from './ai/types.js';
+import { axEmitUsageEvent, axMergeUsageContexts } from './ai/usage.js';
 import {
   axValidateChatRequestMessage,
   axValidateChatResponseResult,
@@ -1488,6 +1492,7 @@ export { axDefaultMetricsConfig };
 export { axDefaultOptimizerLogger };
 export { axDefaultOptimizerMetricsConfig };
 export { axDeserializeOptimizedProgram };
+export { axEmitUsageEvent };
 export { axEventErrorMessage };
 export { axEventId };
 export { axEventIdentityScope };
@@ -1526,6 +1531,7 @@ export { axMapOpenAIChatAudioDelta };
 export { axMapOpenAIChatAudioResponse };
 export { axMapOpenAIInputAudioPart };
 export { axMergeChatAudioConfig };
+export { axMergeUsageContexts };
 export { axModelInfoAnthropic };
 export { axModelInfoCohere };
 export { axModelInfoDeepSeek };
@@ -2364,4 +2370,7 @@ export type { AxUCPValue };
 export type { AxUCPVersionedDeclaration };
 export type { AxUCPWebhookEventSourceOptions };
 export type { AxUsable };
+export type { AxUsageContext };
+export type { AxUsageEvent };
+export type { AxUsageObserver };
 export type { AxWorkerRuntimeConfig };

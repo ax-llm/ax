@@ -27,4 +27,7 @@ export type {
   AxChatRequest,
   AxContextCacheInfo,
   AxContextCacheOptions,
+  AxUsageContext,
+  AxUsageEvent,
+  AxUsageObserver,
 } from './types.js';

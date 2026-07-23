@@ -74,6 +74,12 @@ struct Value {
   bool is_object() const;
 };
 
+using AxUsageContext = Value;
+using AxUsageEvent = Value;
+using AxUsageObserver = std::function<void(AxUsageEvent)>;
+
+void set_usage_observer(AxUsageObserver observer);
+
 class AxError : public std::runtime_error {
  public:
   std::string category;
@@ -179,7 +185,7 @@ struct Core {
   static Value object_call_method(Value target, Value method_name, Value arg = Value());
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
-  static Value ai_complete_once(Value client, Value request);
+  static Value ai_complete_once(Value client, Value request, Value options);
   static Value retry_sleep(Value attempt);
   static Value tool_invoke(Value fn, Value params);
   static Value legacy_response_to_chat_response(Value raw);
@@ -289,21 +295,23 @@ struct Core {
   static Value merge_model_config(Value base, Value override, Value options);
   static Value validate_chat_request(Value request);
   static Value _openai_apply_model_config_impl(Value payload, Value model_config);
-  static Value build_chat_request(Value service, Value request, Value options);
   static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
+  static Value build_chat_request(Value service, Value request, Value options);
+  static Value _openai_message_impl(Value message);
   static Value normalize_chat_response(Value raw);
   static Value normalize_stream_delta(Value raw, Value state);
-  static Value _openai_message_impl(Value message);
   static Value build_embed_request(Value service, Value request, Value options);
   static Value normalize_embed_response(Value raw);
   static Value normalize_token_usage(Value usage);
-  static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
   static Value _openai_content_part_impl(Value part);
-  static Value chat_response_to_completion(Value response);
+  static Value merge_usage_context(Value defaults, Value overrides);
+  static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
   static Value _openai_tool_call_to_provider_impl(Value call);
   static Value _openai_tool_spec_impl(Value fn);
   static Value openai_build_embed_request(Value request);
+  static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
   static Value openai_normalize_chat_response(Value raw, Value ai_name, Value model);
+  static Value chat_response_to_completion(Value response);
   static Value _openai_normalize_choice_impl(Value choice, Value raw);
   static Value _openai_normalize_tool_calls_impl(Value calls);
   static Value _openai_finish_reason_impl(Value value);
@@ -446,7 +454,7 @@ struct Core {
   static Value _record_trace(Value gen, Value input, Value output, Value status);
   static Value _normalize_optimization_dataset(Value dataset);
   static Value _should_continue_steps(Value gen, Value calls);
-  static Value _complete_with_retries_impl(Value client, Value request, Value retries);
+  static Value _complete_with_retries_impl(Value client, Value request, Value options, Value retries);
   static Value _normalize_optimization_metric_scores(Value raw);
   static Value _scalarize_optimization_scores(Value scores, Value options);
   static Value _parse_output_impl(Value content);
@@ -673,7 +681,7 @@ struct Core {
   static Value _context_map_apply_operations(Value items, Value operations, Value next_id);
   static Value _context_map_evict_to_budget(Value items, Value scores, Value max_chars);
   static Value _format_context_map_trajectory(Value state);
-  static Value _context_map_complete(Value client, Value system, Value user);
+  static Value _context_map_complete(Value client, Value system, Value user, Value options);
   static Value _context_map_parse_json(Value content);
   static Value _agent_evolve_context_map(Value state, Value client, Value options);
   static Value _agent_transcribe_one_audio(Value client, Value audio, Value transcribe_opts, Value options);

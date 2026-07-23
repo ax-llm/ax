@@ -42,6 +42,19 @@ public abstract class AxBaseAI implements AxAIService {
   public void setOptions(Map<String, Object> options) { this.options = new LinkedHashMap<>(options == null ? Map.of() : options); }
   public Map<String, Object> getOptions() { return new LinkedHashMap<>(options); }
 
+  protected Map<String, Object> mergedOptions(Map<String, Object> callOptions) {
+    Map<String, Object> overrides = callOptions == null ? Map.of() : callOptions;
+    Map<String, Object> merged = Core.asMap(Core.mapMerge(options, overrides));
+    Object defaultContext = options.getOrDefault("usage_context", options.get("usageContext"));
+    Object overrideContext = overrides.getOrDefault("usage_context", overrides.get("usageContext"));
+    Map<String, Object> context = Core.asMap(Core.merge_usage_context(defaultContext, overrideContext));
+    if (!context.isEmpty()) {
+      merged.put("usage_context", context);
+      merged.put("usageContext", context);
+    }
+    return merged;
+  }
+
   public Map<String, Object> chat(Map<String, Object> request) throws Exception {
     return chat(request, Map.of());
   }
@@ -49,7 +62,7 @@ public abstract class AxBaseAI implements AxAIService {
   public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> callOptions) throws Exception {
     Map<String, Object> req = Core.coerceChatRequest(request);
     Core.validate_chat_request(req);
-    Map<String, Object> mergedOptions = Core.asMap(Core.mapMerge(options, callOptions == null ? Map.of() : callOptions));
+    Map<String, Object> mergedOptions = mergedOptions(callOptions);
     Object rawModel = req.get("model");
     String selectedModel = rawModel == null ? model : String.valueOf(rawModel);
     Map<String, Object> mergedConfig = Core.asMap(Core.merge_model_config(modelConfig, req.get("model_config"), mergedOptions));
@@ -59,7 +72,9 @@ public abstract class AxBaseAI implements AxAIService {
     req.put("model_config", mergedConfig);
     lastUsedChatModel = selectedModel;
     lastUsedModelConfig = new LinkedHashMap<>(mergedConfig);
-    return doChat(req, mergedOptions);
+    Map<String, Object> response = doChat(req, mergedOptions);
+    AxGlobals.emitUsage("chat", response, mergedOptions, Boolean.TRUE.equals(mergedConfig.get("stream")));
+    return response;
   }
 
   public Map<String, Object> embed(Map<String, Object> request) throws Exception {
@@ -75,7 +90,10 @@ public abstract class AxBaseAI implements AxAIService {
     Map<String, Object> req = new LinkedHashMap<>(request);
     req.put("embed_model", selected);
     lastUsedEmbedModel = selected;
-    return doEmbed(req, Core.asMap(Core.mapMerge(options, callOptions == null ? Map.of() : callOptions)));
+    Map<String, Object> mergedOptions = mergedOptions(callOptions);
+    Map<String, Object> response = doEmbed(req, mergedOptions);
+    AxGlobals.emitUsage("embed", response, mergedOptions, false);
+    return response;
   }
 
   public Map<String, Object> complete(Map<String, Object> request) throws Exception {

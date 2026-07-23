@@ -137,12 +137,19 @@
       "",
       "client = ai('openai', api_key=os.environ['OPENAI_API_KEY'])"
     ],
-    "telemetry": [
-      "from axllm import ax",
-      "",
-      "program = ax('text:string -> label:string')",
-      "usage = program.get_usage()"
-    ],
+    "telemetry": {
+      "sourcePath": "src/examples/python/generation/usage-observer.py",
+      "code": [
+        "from axllm import set_usage_observer",
+        "",
+        "set_usage_observer(usage_queue.put_nowait)",
+        "client.chat(request, {",
+        "    \"usageContext\": {\"tenantId\": tenant_id, \"userId\": user_id, \"requestId\": request_id}",
+        "})"
+      ],
+      "verified": true,
+      "requiresCredentials": true
+    },
     "optimize": [
       "from axllm import AxGEPA",
       "",

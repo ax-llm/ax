@@ -4871,7 +4871,7 @@ def _agent_apply_llm_tombstone_summary(state: Any, client: Any, options: Any) ->
         if pending:
             llm_input = _core_get(entry, "tombstone_llm_input", "")
             instruction = "You are an internal AxAgent tombstone summarizer.\n\nWrite the output as exactly one concise line.\n- Start with [TOMBSTONE]:\n- Summarize the resolved error and the successful fix.\n- Mention one failed approach to avoid when possible.\n- Do not include code fences, bullet points, or extra prose.\n- Keep it roughly 20-40 tokens."
-            tombstone = _context_map_complete(client, instruction, llm_input)
+            tombstone = _context_map_complete(client, instruction, llm_input, options)
             has_text = _core_ne(tombstone, "")
             if has_text:
                 entry["tombstone"] = tombstone
@@ -9695,7 +9695,7 @@ def _agent_apply_llm_checkpoint_summary(state: Any, client: Any, options: Any) -
             messages.append(usr)
             request = {}
             request["chat_prompt"] = messages
-            response = _core_ai_complete_once(client, request)
+            response = _core_ai_complete_once(client, request, options)
             text = _core_get(response, "content", "")
             has_text = _core_ne(text, "")
             if has_text:
@@ -9993,7 +9993,7 @@ def _format_context_map_trajectory(state: Any) -> Any:
     return out
 
 
-def _context_map_complete(client: Any, system: Any, user: Any) -> Any:
+def _context_map_complete(client: Any, system: Any, user: Any, options: Any) -> Any:
     _core_coverage_mark("_context_map_complete")
     messages = []
     sys = {}
@@ -10006,7 +10006,7 @@ def _context_map_complete(client: Any, system: Any, user: Any) -> Any:
     messages.append(usr)
     request = {}
     request["chat_prompt"] = messages
-    response = _core_ai_complete_once(client, request)
+    response = _core_ai_complete_once(client, request, options)
     content = _core_get(response, "content", "")
     return content
 
@@ -10056,7 +10056,7 @@ def _agent_evolve_context_map(state: Any, client: Any, options: Any) -> Any:
         trajectory = _format_context_map_trajectory(state)
         distiller_sys = "You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nCache only orientation work: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale."
         distiller_user = _core_string_format("task: {}\n\ncontextMap:\n{}\n\ntrajectory:\n{}", task, current_text, trajectory)
-        distiller_resp = _context_map_complete(client, distiller_sys, distiller_user)
+        distiller_resp = _context_map_complete(client, distiller_sys, distiller_user, options)
         distiller_parsed = _context_map_parse_json(distiller_resp)
         item_tags = _core_get(distiller_parsed, "itemTags", empty_map)
         reflection = _core_json_stringify(distiller_parsed)
@@ -10064,7 +10064,7 @@ def _agent_evolve_context_map(state: Any, client: Any, options: Any) -> Any:
         carto_sys = "You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding. When the map is near or over budget, remove or rewrite low-value entries first. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects under the key operations:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-1\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-1\",\"content\":\"...\"}"
         carto_user_head = _core_string_format("task: {}\n\ncontextMap:\n{}\n\ndistillerReflection:\n{}", task, current_text, reflection)
         carto_user = _core_string_format("{}\n\ncurrentChars: {}\nmaxChars: {}", carto_user_head, current_chars, max_chars)
-        carto_resp = _context_map_complete(client, carto_sys, carto_user)
+        carto_resp = _context_map_complete(client, carto_sys, carto_user, options)
         carto_parsed = _context_map_parse_json(carto_resp)
         operations = _core_get(carto_parsed, "operations", empty_list)
         items = _context_map_parse_items(current_text)

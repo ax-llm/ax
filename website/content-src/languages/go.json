@@ -122,10 +122,19 @@
     "llm": [
       "client := axllm.NewAI(\"openai\", map[string]axllm.Value{\"apiKey\": os.Getenv(\"OPENAI_API_KEY\")})"
     ],
-    "telemetry": [
-      "program := axllm.NewAx(\"text:string -> label:string\", nil)",
-      "usage := program.GetUsage()"
-    ],
+    "telemetry": {
+      "sourcePath": "src/examples/go/generation/usage_observer.go",
+      "code": [
+        "axllm.SetUsageObserver(func(event axllm.AxUsageEvent) {",
+        "    usageQueue <- event",
+        "})",
+        "_, err := client.Chat(ctx, request, axllm.Object(",
+        "    \"usageContext\", axllm.Object(\"tenantId\", tenantID, \"userId\", userID, \"requestId\", requestID),",
+        "))"
+      ],
+      "verified": true,
+      "requiresCredentials": true
+    },
     "optimize": [
       "engine := axllm.NewAxGEPA(reflectionClient, nil)",
       "result := engine.Optimize(request, evaluator)"

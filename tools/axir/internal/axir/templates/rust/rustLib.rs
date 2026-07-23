@@ -19,6 +19,72 @@ pub mod runtime {
 
 pub type AxResult<T> = Result<T, AxError>;
 
+pub type AxUsageContext = Value;
+pub type AxUsageEvent = Value;
+pub type AxUsageObserver = Arc<dyn Fn(AxUsageEvent) + Send + Sync>;
+
+static USAGE_OBSERVER: OnceLock<Mutex<Option<AxUsageObserver>>> = OnceLock::new();
+
+pub fn set_usage_observer(observer: Option<AxUsageObserver>) {
+    let state = USAGE_OBSERVER.get_or_init(|| Mutex::new(None));
+    if let Ok(mut current) = state.lock() {
+        *current = observer;
+    }
+}
+
+fn emit_usage_event(operation: &str, response: &Value, options: &Value, streaming: bool) {
+    let event = match build_usage_event(&[
+        CoreValue::from(operation),
+        core_value_from_json(response),
+        core_value_from_json(options),
+        CoreValue::Bool(streaming),
+    ]) {
+        Ok(value) => core_value_to_json(&value),
+        Err(_) => return,
+    };
+    if event.is_null() {
+        return;
+    }
+    let observer = USAGE_OBSERVER
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|value| value.clone());
+    if let Some(observer) = observer {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            observer(event.clone())
+        }));
+    }
+}
+
+fn merge_ai_options(defaults: &Value, overrides: &Value) -> AxResult<Value> {
+    let mut merged = defaults.as_object().cloned().unwrap_or_default();
+    if let Some(values) = overrides.as_object() {
+        for (key, value) in values {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+    let default_context = defaults
+        .get("usage_context")
+        .or_else(|| defaults.get("usageContext"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let override_context = overrides
+        .get("usage_context")
+        .or_else(|| overrides.get("usageContext"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let context = core_value_to_json(&merge_usage_context(&[
+        core_value_from_json(&default_context),
+        core_value_from_json(&override_context),
+    ])?);
+    if context.as_object().map(|value| !value.is_empty()).unwrap_or(false) {
+        merged.insert("usage_context".into(), context.clone());
+        merged.insert("usageContext".into(), context);
+    }
+    Ok(Value::Object(merged))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AxError {
     pub category: String,
@@ -761,6 +827,10 @@ fn bool_key(value: &Value, keys: &[&str]) -> bool {
 pub trait AxAIClient {
     fn chat(&mut self, request: Value) -> AxResult<Value>;
 
+    fn chat_with_options(&mut self, request: Value, _options: Value) -> AxResult<Value> {
+        self.chat(request)
+    }
+
     fn embed(&mut self, _request: Value) -> AxResult<Value> {
         Err(AxError::runtime("embedding is not supported by this AI client"))
     }
@@ -1250,7 +1320,9 @@ impl OpenAICompatibleClient {
             provider_ai_display_name(&profile),
             CoreValue::from(model.as_str()),
         ])?;
-        Ok(core_value_to_json(&normalized))
+        let response = core_value_to_json(&normalized);
+        emit_usage_event("embed", &response, &self.options, false);
+        Ok(response)
     }
 
     pub fn transcribe(&mut self, request: Value) -> AxResult<Value> {
@@ -1655,6 +1727,13 @@ impl AxAIClient for OpenAICompatibleClient {
     fn embed(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::embed(self, request) }
     fn transcribe(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::transcribe(self, request) }
     fn speak(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::speak(self, request) }
+    fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        let previous = self.options.clone();
+        self.options = merge_ai_options(&previous, &options)?;
+        let response = self.chat(request);
+        self.options = previous;
+        response
+    }
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         let req = self.prepare_chat_request(&request)?;
         // python: AxBaseAI.chat validates the coerced request up front.
@@ -1672,7 +1751,11 @@ impl AxAIClient for OpenAICompatibleClient {
         .as_bool()
         .unwrap_or(false)
         {
-            return self.realtime_chat(req, None);
+            let response = self.realtime_chat(req, None);
+            if let Ok(value) = &response {
+                emit_usage_event("chat", value, &self.options, false);
+            }
+            return response;
         }
         if self.profile == "openai-compatible" {
             let _ = build_chat_request(&[
@@ -1694,7 +1777,11 @@ impl AxAIClient for OpenAICompatibleClient {
         let call = self.provider_transport_request("chat", &payload, &model, false)?;
         let raw = self.dispatch_transport_request(call)?;
         let profile = self.profile.clone();
-        normalize_openai_response(&profile, &model, raw)
+        let response = normalize_openai_response(&profile, &model, raw);
+        if let Ok(value) = &response {
+            emit_usage_event("chat", value, &self.options, false);
+        }
+        response
     }
 
     fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
@@ -1730,7 +1817,9 @@ impl AxAIClient for OpenAICompatibleClient {
                     continue;
                 }
             }
-            return normalize_stream_events(&self.profile, &self.model, &events);
+            let response = normalize_stream_events(&self.profile, &self.model, &events)?;
+            emit_usage_event("chat", &json!({"results": response.clone()}), &self.options, true);
+            return Ok(response);
         }
     }
 }
@@ -1787,7 +1876,9 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
             }
         }
     }
-    Ok(client.with_model_config(options.get("model_config").cloned().unwrap_or_else(|| json!({}))))
+    Ok(client
+        .with_options(options.clone())
+        .with_model_config(options.get("model_config").cloned().unwrap_or_else(|| json!({}))))
 }
 
 struct ProviderDefaults {
@@ -2149,8 +2240,8 @@ impl AxGen {
             return Ok(result);
         }
         let state = core_gen_state(self)?;
-        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
-            if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method == "transcribe" { client.transcribe(request) } else { client.chat_with_options(request, options) }
         };
         let result = with_core_client(&mut chat, || {
             _forward_impl(&[
@@ -2850,8 +2941,8 @@ impl AxAgent {
         input: Value,
         options: Value,
     ) -> AxResult<Value> {
-        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
-            if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method == "transcribe" { client.transcribe(request) } else { client.chat_with_options(request, options) }
         };
         // Wire the built-in llmQuery primitive onto the runtime carried in
         // agent options (the same host the actor loop will create sessions on),
@@ -2991,8 +3082,8 @@ impl AxAgent {
                 "prediction": output,
                 "feedback": feedback,
             });
-            let mut chat = |method: &str, request: Value| -> AxResult<Value> {
-                if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+            let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+                if method == "transcribe" { client.transcribe(request) } else { client.chat_with_options(request, options) }
             };
             let before = stable_stringify(&self.playbook_snapshot["playbook"]);
             let update_result = with_core_client(&mut chat, || engine.apply_online_update(&args))?;
@@ -3622,8 +3713,8 @@ impl AxFlow {
     }
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
-        let mut chat = |method: &str, request: Value| -> AxResult<Value> {
-            if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+            if method == "transcribe" { client.transcribe(request) } else { client.chat_with_options(request, options) }
         };
         let result = with_core_client(&mut chat, || {
             _flow_forward(&[
@@ -6204,6 +6295,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "ai_chat" => run_ai_chat_fixture(&fixture)?,
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
         "ai_embed" => run_ai_embed_fixture(&fixture)?,
+        "ai_usage_observer" => run_ai_usage_observer_fixture(&fixture)?,
         "ai_transcribe" => run_ai_transcribe_fixture(&fixture)?,
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
         "ai_realtime" => run_ai_realtime_fixture(&fixture)?,
@@ -9837,8 +9929,8 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         cache_store.insert(key, seed.clone());
         forward_options["cache_store"] = Value::Object(cache_store);
     }
-    let mut chat = |method: &str, request: Value| -> AxResult<Value> {
-        if method == "transcribe" { client.transcribe(request) } else { client.chat(request) }
+    let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+        if method == "transcribe" { client.transcribe(request) } else { client.chat_with_options(request, options) }
     };
     let output = core_value_to_json(&with_core_client(&mut chat, || {
         _flow_forward(&[
@@ -11762,6 +11854,63 @@ fn run_ai_embed_fixture(fixture: &Value) -> AxResult<()> {
     Ok(())
 }
 
+fn run_ai_usage_observer_fixture(fixture: &Value) -> AxResult<()> {
+    let (mut client, _requests) = fixture_client(fixture)?;
+    let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
+    let options = fixture
+        .get("call_options")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let failed_calls = Arc::new(Mutex::new(0_u64));
+    let failed_calls_observer = Arc::clone(&failed_calls);
+    set_usage_observer(Some(Arc::new(move |_| {
+        *failed_calls_observer.lock().unwrap() += 1;
+        panic!("observer failure");
+    })));
+    client.chat_with_options(request.clone(), options.clone())?;
+    if *failed_calls.lock().unwrap() != 1 {
+        set_usage_observer(None);
+        return Err(AxError::new(
+            "fixture",
+            "usage observer failure callback count mismatch",
+        ));
+    }
+
+    let events = Arc::new(Mutex::new(Vec::<AxUsageEvent>::new()));
+    let captured_events = Arc::clone(&events);
+    set_usage_observer(Some(Arc::new(move |event| {
+        captured_events.lock().unwrap().push(event);
+    })));
+    client.chat_with_options(request.clone(), options.clone())?;
+    {
+        let captured = events.lock().unwrap();
+        if captured.len() != 1 {
+            set_usage_observer(None);
+            return Err(AxError::new(
+                "fixture",
+                "usage observer callback count mismatch",
+            ));
+        }
+        expect_json_subset(
+            "usage event",
+            &captured[0],
+            fixture
+                .get("expected_event_subset")
+                .unwrap_or(&Value::Null),
+        )?;
+    }
+
+    set_usage_observer(None);
+    client.chat_with_options(request, options)?;
+    if events.lock().unwrap().len() != 1 {
+        return Err(AxError::new(
+            "fixture",
+            "cleared usage observer received an event",
+        ));
+    }
+    Ok(())
+}
+
 fn run_ai_transcribe_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
@@ -11864,7 +12013,13 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
     }
     let client = ai(provider, options)?
         .with_transport(transport)
-        .with_options(fixture.get("options").cloned().unwrap_or_else(|| json!({})));
+        .with_options(
+            fixture
+                .get("service_options")
+                .or_else(|| fixture.get("options"))
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        );
     Ok((client, requests))
 }
 
@@ -14895,13 +15050,13 @@ thread_local! {
     // borrow-check conflict). core_ai_complete_once calls it with "chat"; core_agent_transcribe
     // with "transcribe". This keeps audio transcription emitted + uniform with the other four
     // languages (which pass the real client directly).
-    static CORE_CLIENT_STACK: RefCell<Vec<*mut (dyn FnMut(&str, Value) -> AxResult<Value> + 'static)>> =
+    static CORE_CLIENT_STACK: RefCell<Vec<*mut (dyn FnMut(&str, Value, Value) -> AxResult<Value> + 'static)>> =
         RefCell::new(Vec::new());
 }
 
 #[allow(dead_code)]
 pub(crate) fn with_core_client<R>(
-    chat: &mut dyn FnMut(&str, Value) -> AxResult<Value>,
+    chat: &mut dyn FnMut(&str, Value, Value) -> AxResult<Value>,
     run: impl FnOnce() -> R,
 ) -> R {
     struct CoreClientGuard;
@@ -14914,7 +15069,7 @@ pub(crate) fn with_core_client<R>(
     }
     // SAFETY: only the lifetime bound of the trait object changes; the fat
     // pointer layout is identical, and the pointer never outlives this frame.
-    let erased: *mut (dyn FnMut(&str, Value) -> AxResult<Value> + 'static) =
+    let erased: *mut (dyn FnMut(&str, Value, Value) -> AxResult<Value> + 'static) =
         unsafe { std::mem::transmute(chat) };
     CORE_CLIENT_STACK.with(|stack| stack.borrow_mut().push(erased));
     let _guard = CoreClientGuard;
@@ -14926,6 +15081,7 @@ pub(crate) fn with_core_client<R>(
 #[allow(dead_code)]
 pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let request = core_arg(args, 1);
+    let options = core_arg(args, 2);
     let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
     let ptr = match top {
         Some(ptr) => ptr,
@@ -14936,7 +15092,11 @@ pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxE
     // created from is still live. The RefCell borrow is released before the
     // call so the callback may itself push a nested client.
     let chat = unsafe { &mut *ptr };
-    let response = chat("chat", core_value_to_json(&request))?;
+    let response = chat(
+        "chat",
+        core_value_to_json(&request),
+        core_value_to_json(&options),
+    )?;
     chat_response_to_completion(&[core_value_from_json(&response)])
 }
 
@@ -14946,11 +15106,16 @@ pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxE
 #[allow(dead_code)]
 pub(crate) fn core_agent_transcribe(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let request = core_arg(args, 1);
+    let options = core_arg(args, 2);
     let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
     match top {
         Some(ptr) => {
             let call = unsafe { &mut *ptr };
-            let response = call("transcribe", core_value_to_json(&request))?;
+            let response = call(
+                "transcribe",
+                core_value_to_json(&request),
+                core_value_to_json(&options),
+            )?;
             Ok(core_value_from_json(&response))
         }
         None => Ok(core_value_from_json(&json!({"text": ""}))),
@@ -16094,19 +16259,24 @@ fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError
 }
 
 
-struct RawScopedClient(*mut dyn FnMut(&str, Value) -> AxResult<Value>);
+struct RawScopedClient(*mut dyn FnMut(&str, Value, Value) -> AxResult<Value>);
 
 impl AxAIClient for RawScopedClient {
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         // SAFETY: the pointer was captured from the client stack inside the
         // enclosing with_core_client scope, which outlives this call.
         let call = unsafe { &mut *self.0 };
-        call("chat", request)
+        call("chat", request, Value::Null)
+    }
+
+    fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        let call = unsafe { &mut *self.0 };
+        call("chat", request, options)
     }
 
     fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         let call = unsafe { &mut *self.0 };
-        call("transcribe", request)
+        call("transcribe", request, Value::Null)
     }
 }
 

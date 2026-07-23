@@ -176,6 +176,67 @@
         },
         {
           "target_name": "java",
+          "canonical_name": "AxUsageContext",
+          "public_name": "Map\u003cString, Object\u003e",
+          "kind": "type",
+          "description": "Application attribution merged from service defaults and per-call overrides.",
+          "form": "Map\u003cString, Object\u003e",
+          "important_options": [
+            "tenant",
+            "user",
+            "request",
+            "run",
+            "feature",
+            "attributes"
+          ],
+          "returns": "usage context"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxUsageEvent",
+          "public_name": "AxUsageEvent",
+          "kind": "type",
+          "description": "Normalized token usage and correlation data for one completed chat or embedding operation.",
+          "form": "AxUsageEvent",
+          "important_options": [
+            "provider",
+            "model",
+            "tokens",
+            "context",
+            "correlation IDs",
+            "streaming"
+          ],
+          "returns": "usage event"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxUsageObserver",
+          "public_name": "AxUsageObserver",
+          "kind": "interface",
+          "description": "Best-effort process-wide callback for normalized usage events.",
+          "form": "AxUsageObserver",
+          "important_options": [
+            "fail-open delivery",
+            "synchronous enqueue"
+          ],
+          "returns": "usage observer"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "set_usage_observer",
+          "public_name": "AxGlobals.setUsageObserver",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide usage observer.",
+          "form": "AxGlobals.setUsageObserver(observer)",
+          "important_options": [
+            "observer",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "AxGlobals.setUsageObserver(events::add);"
+        },
+        {
+          "target_name": "java",
           "canonical_name": "AxBalancer",
           "public_name": "AxBalancer",
           "kind": "type",

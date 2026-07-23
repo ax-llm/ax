@@ -2692,7 +2692,7 @@ module @ax.agent version "0.1" {
         core.if %pending {
           %llm_input = core.get %entry["tombstone_llm_input"] default ""
           %instruction = core.let "You are an internal AxAgent tombstone summarizer.\n\nWrite the output as exactly one concise line.\n- Start with [TOMBSTONE]:\n- Summarize the resolved error and the successful fix.\n- Mention one failed approach to avoid when possible.\n- Do not include code fences, bullet points, or extra prose.\n- Keep it roughly 20-40 tokens."
-          %tombstone = core.call @context_map_complete(%client, %instruction, %llm_input)
+          %tombstone = core.call @context_map_complete(%client, %instruction, %llm_input, %options)
           %has_text = core.call intrinsic.ne(%tombstone, "")
           core.if %has_text {
             core.set %entry["tombstone"] = %tombstone
@@ -7897,7 +7897,7 @@ module @ax.agent version "0.1" {
           core.append %messages, %usr
           %request = core.map
           core.set %request["chat_prompt"] = %messages
-          %response = core.call intrinsic.ai.complete_once(%client, %request)
+          %response = core.call intrinsic.ai.complete_once(%client, %request, %options)
           %text = core.get %response["content"] default ""
           %has_text = core.call intrinsic.ne(%text, "")
           core.if %has_text {
@@ -8227,8 +8227,8 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json, json, json) -> json throws"
-    body @entry(%client: json, %system: json, %user: json) {
+    type signature = "(json, json, json, json) -> json throws"
+    body @entry(%client: json, %system: json, %user: json, %options: json) {
       %messages = core.list
       %sys = core.map
       core.set %sys["role"] = "system"
@@ -8240,7 +8240,7 @@ module @ax.agent version "0.1" {
       core.append %messages, %usr
       %request = core.map
       core.set %request["chat_prompt"] = %messages
-      %response = core.call intrinsic.ai.complete_once(%client, %request)
+      %response = core.call intrinsic.ai.complete_once(%client, %request, %options)
       %content = core.get %response["content"] default ""
       core.return %content
     }
@@ -8297,7 +8297,7 @@ module @ax.agent version "0.1" {
         %trajectory = core.call @format_context_map_trajectory(%state)
         %distiller_sys = core.let "You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nCache only orientation work: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale."
         %distiller_user = core.call intrinsic.string.format("task: {}\n\ncontextMap:\n{}\n\ntrajectory:\n{}", %task, %current_text, %trajectory)
-        %distiller_resp = core.call @context_map_complete(%client, %distiller_sys, %distiller_user)
+        %distiller_resp = core.call @context_map_complete(%client, %distiller_sys, %distiller_user, %options)
         %distiller_parsed = core.call @context_map_parse_json(%distiller_resp)
         %item_tags = core.get %distiller_parsed["itemTags"] default %empty_map
         %reflection = core.call intrinsic.json.stringify(%distiller_parsed)
@@ -8305,7 +8305,7 @@ module @ax.agent version "0.1" {
         %carto_sys = core.let "You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding. When the map is near or over budget, remove or rewrite low-value entries first. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects under the key operations:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-1\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-1\",\"content\":\"...\"}"
         %carto_user_head = core.call intrinsic.string.format("task: {}\n\ncontextMap:\n{}\n\ndistillerReflection:\n{}", %task, %current_text, %reflection)
         %carto_user = core.call intrinsic.string.format("{}\n\ncurrentChars: {}\nmaxChars: {}", %carto_user_head, %current_chars, %max_chars)
-        %carto_resp = core.call @context_map_complete(%client, %carto_sys, %carto_user)
+        %carto_resp = core.call @context_map_complete(%client, %carto_sys, %carto_user, %options)
         %carto_parsed = core.call @context_map_parse_json(%carto_resp)
         %operations = core.get %carto_parsed["operations"] default %empty_list
         %items = core.call @context_map_parse_items(%current_text)

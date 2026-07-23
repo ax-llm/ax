@@ -2,11 +2,9 @@
 
 Telemetry answers practical questions: what model was called, how long it took, how much it cost, what tools ran, where retries happened, and how optimization progressed.
 
-```{{fence}}
-{{telemetryCode}}
-```
+{{telemetryExample}}
 
-The TypeScript package has the richest OpenTelemetry surface. Generated packages expose the shared traces, usage, optimizer artifacts, and provider result data available in their AxIR contract.
+The TypeScript package has the richest OpenTelemetry surface. All generated packages also expose the portable global usage observer shown above, plus shared traces, optimizer artifacts, and provider result data from their AxIR contract.
 
 ## What To Track
 
@@ -37,6 +35,16 @@ Metrics should answer whether production is healthy: request counts, latency his
 ## Usage And Cost
 
 Usage is not just a provider response field. It becomes a program-level signal when a workflow retries, streams, calls tools, uses agents, or optimizes across examples. Track usage at the Ax layer so application owners see the full workflow cost instead of isolated model calls.
+
+### Centralized usage observer
+
+Install one process-wide observer at application startup, then attach `usageContext` to service defaults and individual calls. Per-call fields override service defaults; custom `attributes` are shallow-merged. This lets a large API attribute the same normalized stream by tenant, user, request, run, parent run, feature, and low-cardinality application labels without maintaining counters on every program or agent.
+
+Each completed chat or embedding operation emits at most one isolated snapshot containing the provider, model, normalized token counts, attribution context, available local/provider correlation IDs, and whether the operation streamed. Calls with no provider token data emit nothing. A stream emits only after it is fully consumed.
+
+The observer is deliberately best-effort and fail-open: an exception or rejected asynchronous callback never fails the model call, and Ax does not wait for observer delivery before returning. Keep the callback tiny—synchronously enqueue the event into your application’s durable queue, then aggregate it in a worker or telemetry backend. The observer is process-local, so multi-process or multi-service deployments should forward events to a shared store.
+
+Usage events intentionally contain facts reported by the provider, not currency estimates. Compute cost downstream from the event’s model and token fields against a versioned pricing table. Do not put secrets or unnecessary personal data in usage context; prefer opaque IDs and bounded-cardinality attributes.
 
 ## Adaptive Routing Events
 

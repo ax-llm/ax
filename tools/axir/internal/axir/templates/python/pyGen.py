@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 
 import copy
+import inspect
 import json
 import re
 import time
@@ -613,10 +614,23 @@ def _core_string_default_if_empty(value, fallback):
     return text if text else fallback
 
 
-def _core_ai_complete_once(client, request):
+def _core_ai_complete_once(client, request, options):
     chat = getattr(client, "chat", None)
     if callable(chat):
-        return chat_response_to_completion(chat(request))
+        try:
+            parameters = inspect.signature(chat).parameters.values()
+            accepts_options = (
+                len(inspect.signature(chat).parameters) >= 2
+                or any(
+                    parameter.kind
+                    in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+                    for parameter in parameters
+                )
+            )
+        except (TypeError, ValueError):
+            accepts_options = False
+        response = chat(request, options or {}) if accepts_options else chat(request)
+        return chat_response_to_completion(response)
     complete = getattr(client, "complete", None)
     if callable(complete):
         return complete(request)

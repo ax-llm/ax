@@ -26,6 +26,38 @@ import (
 
 type Value = any
 
+type AxUsageContext = map[string]Value
+type AxUsageEvent = map[string]Value
+type AxUsageObserver func(AxUsageEvent)
+
+var usageObserverState struct {
+	sync.RWMutex
+	observer AxUsageObserver
+}
+
+func SetUsageObserver(observer AxUsageObserver) {
+	usageObserverState.Lock()
+	usageObserverState.observer = observer
+	usageObserverState.Unlock()
+}
+
+func emitUsageEvent(operation string, response Value, options map[string]Value, streaming bool) {
+	event, err := build_usage_event(operation, response, options, streaming)
+	if err != nil || event == nil {
+		return
+	}
+	usageObserverState.RLock()
+	observer := usageObserverState.observer
+	usageObserverState.RUnlock()
+	if observer == nil {
+		return
+	}
+	func() {
+		defer func() { _ = recover() }()
+		observer(asMap(cloneValue(event)))
+	}()
+}
+
 type AxError struct {
 	Category  string
 	Type      string
@@ -822,6 +854,21 @@ func _core_map_merge(left Value, right Value) Value {
 	}
 	return out
 }
+
+func mergeAIOptions(defaults map[string]Value, overrides map[string]Value) map[string]Value {
+	merged := cloneMap(defaults)
+	for _, key := range orderedKeys(overrides) {
+		coreSet(merged, key, coreGet(overrides, key, nil))
+	}
+	defaultContext := coreGet(defaults, "usage_context", coreGet(defaults, "usageContext", nil))
+	overrideContext := coreGet(overrides, "usage_context", coreGet(overrides, "usageContext", nil))
+	context, err := merge_usage_context(defaultContext, overrideContext)
+	if err == nil && coreTruthy(context) {
+		coreSet(merged, "usage_context", context)
+		coreSet(merged, "usageContext", context)
+	}
+	return merged
+}
 func _core_map_contains(values Value, key Value) Value {
 	m := asMap(values)
 	k := display(key)
@@ -882,9 +929,9 @@ func _core_program_apply_components(program Value, componentMap Value) Value {
 	}
 	return Object()
 }
-func _core_ai_complete_once(client Value, request Value) (Value, error) {
+func _core_ai_complete_once(client Value, request Value, options Value) (Value, error) {
 	if c, ok := client.(AIClient); ok {
-		out, err := c.Chat(context.Background(), asMap(request), Object())
+		out, err := c.Chat(context.Background(), asMap(request), asMap(options))
 		if err != nil {
 			return nil, err
 		}
@@ -5845,24 +5892,6 @@ func _openai_apply_model_config_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func build_chat_request(args ...Value) (Value, error) {
-	axirCoverageMark("build_chat_request")
-	var v_service Value
-	var v_request Value
-	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_payload
-	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
-	{ v, err := openai_build_chat_request(v_request); if err != nil { return nil, err }; v_payload = v }
-	return v_payload, nil
-}
-
 func _openai_copy_config_key_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_copy_config_key_impl")
 	var v_payload Value
@@ -5891,29 +5920,22 @@ func _openai_copy_config_key_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func normalize_chat_response(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_chat_response")
-	var v_raw Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_response
-	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
-}
-
-func normalize_stream_delta(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_stream_delta")
-	var v_raw Value
-	var v_state Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_state = args[1] }
-	_ = v_state
-	_ = v_response
-	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
+func build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_chat_request")
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
+	{ v, err := openai_build_chat_request(v_request); if err != nil { return nil, err }; v_payload = v }
+	return v_payload, nil
 }
 
 func _openai_message_impl(args ...Value) (Value, error) {
@@ -6060,6 +6082,31 @@ func _openai_message_impl(args ...Value) (Value, error) {
 	return nil, asAxError(v_error)
 }
 
+func normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_chat_response")
+	var v_raw Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_response
+	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
+func normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_stream_delta")
+	var v_raw Value
+	var v_state Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	_ = v_response
+	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
 func build_embed_request(args ...Value) (Value, error) {
 	axirCoverageMark("build_embed_request")
 	var v_service Value
@@ -6101,6 +6148,9 @@ func normalize_token_usage(args ...Value) (Value, error) {
 	var v_has_cache_creation Value
 	var v_has_cache_read Value
 	var v_has_reasoning Value
+	var v_has_service_tier Value
+	var v_has_speed Value
+	var v_has_thoughts Value
 	var v_input_tokens Value
 	var v_out Value
 	var v_output_tokens Value
@@ -6108,6 +6158,11 @@ func normalize_token_usage(args ...Value) (Value, error) {
 	var v_prompt_tokens_snake Value
 	var v_reasoning_tokens Value
 	var v_reasoning_tokens_snake Value
+	var v_service_tier Value
+	var v_service_tier_snake Value
+	var v_speed Value
+	var v_thoughts_tokens Value
+	var v_thoughts_tokens_snake Value
 	var v_total_tokens Value
 	var v_total_tokens_snake Value
 	if len(args) > 0 { v_usage = args[0] }
@@ -6122,6 +6177,9 @@ func normalize_token_usage(args ...Value) (Value, error) {
 	_ = v_has_cache_creation
 	_ = v_has_cache_read
 	_ = v_has_reasoning
+	_ = v_has_service_tier
+	_ = v_has_speed
+	_ = v_has_thoughts
 	_ = v_input_tokens
 	_ = v_out
 	_ = v_output_tokens
@@ -6129,6 +6187,11 @@ func normalize_token_usage(args ...Value) (Value, error) {
 	_ = v_prompt_tokens_snake
 	_ = v_reasoning_tokens
 	_ = v_reasoning_tokens_snake
+	_ = v_service_tier
+	_ = v_service_tier_snake
+	_ = v_speed
+	_ = v_thoughts_tokens
+	_ = v_thoughts_tokens_snake
 	_ = v_total_tokens
 	_ = v_total_tokens_snake
 	v_out = Object()
@@ -6144,6 +6207,14 @@ func normalize_token_usage(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "prompt_tokens", v_prompt_tokens); err != nil { return nil, err }
 	if err := coreSet(v_out, "completion_tokens", v_completion_tokens); err != nil { return nil, err }
 	if err := coreSet(v_out, "total_tokens", v_total_tokens); err != nil { return nil, err }
+	v_thoughts_tokens_snake = coreGet(v_usage, "thoughts_tokens", nil)
+	v_thoughts_tokens = coreGet(v_usage, "thoughtsTokens", v_thoughts_tokens_snake)
+	v_has_thoughts = _core_is_not_none(v_thoughts_tokens)
+	if coreTruthy(v_has_thoughts) {
+		if err := coreSet(v_out, "thoughts_tokens", v_thoughts_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	v_reasoning_tokens_snake = coreGet(v_usage, "reasoning_tokens", nil)
 	v_reasoning_tokens = coreGet(v_usage, "reasoningTokens", v_reasoning_tokens_snake)
 	v_has_reasoning = _core_is_not_none(v_reasoning_tokens)
@@ -6168,43 +6239,21 @@ func normalize_token_usage(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
-	return v_out, nil
-}
-
-func _ai_model_usage_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_ai_model_usage_impl")
-	var v_ai_name Value
-	var v_model Value
-	var v_usage Value
-	var v_has_usage Value
-	var v_missing_usage Value
-	var v_none Value
-	var v_out Value
-	var v_tokens Value
-	if len(args) > 0 { v_ai_name = args[0] }
-	_ = v_ai_name
-	if len(args) > 1 { v_model = args[1] }
-	_ = v_model
-	if len(args) > 2 { v_usage = args[2] }
-	_ = v_usage
-	_ = v_has_usage
-	_ = v_missing_usage
-	_ = v_none
-	_ = v_out
-	_ = v_tokens
-	v_has_usage = _core_truthy(v_usage)
-	v_missing_usage = _core_not(v_has_usage)
-	if coreTruthy(v_missing_usage) {
-		v_none = _core_none()
-		return v_none, nil
+	v_service_tier_snake = coreGet(v_usage, "service_tier", nil)
+	v_service_tier = coreGet(v_usage, "serviceTier", v_service_tier_snake)
+	v_has_service_tier = _core_is_not_none(v_service_tier)
+	if coreTruthy(v_has_service_tier) {
+		if err := coreSet(v_out, "service_tier", v_service_tier); err != nil { return nil, err }
 	} else {
 	// empty
 	}
-	{ v, err := normalize_token_usage(v_usage); if err != nil { return nil, err }; v_tokens = v }
-	v_out = Object()
-	if err := coreSet(v_out, "ai", v_ai_name); err != nil { return nil, err }
-	if err := coreSet(v_out, "model", v_model); err != nil { return nil, err }
-	if err := coreSet(v_out, "tokens", v_tokens); err != nil { return nil, err }
+	v_speed = coreGet(v_usage, "speed", nil)
+	v_has_speed = _core_is_not_none(v_speed)
+	if coreTruthy(v_has_speed) {
+		if err := coreSet(v_out, "speed", v_speed); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	return v_out, nil
 }
 
@@ -6334,71 +6383,195 @@ func _openai_content_part_impl(args ...Value) (Value, error) {
 	return nil, asAxError(v_error)
 }
 
-func chat_response_to_completion(args ...Value) (Value, error) {
-	axirCoverageMark("chat_response_to_completion")
-	var v_response Value
-	var v_call Value
-	var v_calls Value
-	var v_compat_call Value
-	var v_content Value
-	var v_empty_calls Value
-	var v_empty_result Value
-	var v_empty_results Value
-	var v_fn Value
-	var v_function_calls Value
-	var v_id Value
-	var v_model_usage Value
-	var v_name Value
-	var v_out Value
-	var v_params Value
-	var v_result Value
-	var v_results Value
-	var v_usage Value
-	if len(args) > 0 { v_response = args[0] }
-	_ = v_response
-	_ = v_call
-	_ = v_calls
-	_ = v_compat_call
-	_ = v_content
-	_ = v_empty_calls
-	_ = v_empty_result
-	_ = v_empty_results
-	_ = v_fn
-	_ = v_function_calls
-	_ = v_id
-	_ = v_model_usage
-	_ = v_name
-	_ = v_out
-	_ = v_params
-	_ = v_result
-	_ = v_results
-	_ = v_usage
-	v_empty_results = MutableArray()
-	v_results = coreGet(v_response, "results", v_empty_results)
-	v_empty_result = Object()
-	v_result = _core_list_get(v_results, 0, v_empty_result)
-	v_content = coreGet(v_result, "content", "")
-	v_calls = MutableArray()
-	v_empty_calls = MutableArray()
-	v_function_calls = coreGet(v_result, "function_calls", v_empty_calls)
-	for _, v_call = range coreIter(v_function_calls) {
-		v_fn = coreGet(v_call, "function", nil)
-		v_id = coreGet(v_call, "id", nil)
-		v_name = coreGet(v_fn, "name", nil)
-		v_params = coreGet(v_fn, "params", nil)
-		v_compat_call = Object()
-		if err := coreSet(v_compat_call, "id", v_id); err != nil { return nil, err }
-		if err := coreSet(v_compat_call, "name", v_name); err != nil { return nil, err }
-		if err := coreSet(v_compat_call, "params", v_params); err != nil { return nil, err }
-		v_calls = coreAppend(v_calls, v_compat_call)
+func merge_usage_context(args ...Value) (Value, error) {
+	axirCoverageMark("merge_usage_context")
+	var v_defaults Value
+	var v_overrides Value
+	var v_attributes Value
+	var v_default_attributes Value
+	var v_has_attributes Value
+	var v_merged Value
+	var v_override_attributes Value
+	if len(args) > 0 { v_defaults = args[0] }
+	_ = v_defaults
+	if len(args) > 1 { v_overrides = args[1] }
+	_ = v_overrides
+	_ = v_attributes
+	_ = v_default_attributes
+	_ = v_has_attributes
+	_ = v_merged
+	_ = v_override_attributes
+	v_merged = _core_map_merge(v_defaults, v_overrides)
+	v_default_attributes = coreGet(v_defaults, "attributes", nil)
+	v_override_attributes = coreGet(v_overrides, "attributes", nil)
+	v_attributes = _core_map_merge(v_default_attributes, v_override_attributes)
+	v_has_attributes = _core_truthy(v_attributes)
+	if coreTruthy(v_has_attributes) {
+		if err := coreSet(v_merged, "attributes", v_attributes); err != nil { return nil, err }
+	} else {
+	// empty
 	}
-	v_model_usage = coreGet(v_response, "model_usage", nil)
-	v_usage = coreGet(v_model_usage, "tokens", nil)
-	v_out = Object()
-	if err := coreSet(v_out, "content", v_content); err != nil { return nil, err }
-	if err := coreSet(v_out, "function_calls", v_calls); err != nil { return nil, err }
-	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
-	return v_out, nil
+	return v_merged, nil
+}
+
+func build_usage_event(args ...Value) (Value, error) {
+	axirCoverageMark("build_usage_event")
+	var v_operation Value
+	var v_response Value
+	var v_options Value
+	var v_streaming Value
+	var v_ai_name Value
+	var v_event Value
+	var v_has_context Value
+	var v_has_remote_id Value
+	var v_has_remote_request_id Value
+	var v_has_remote_session_id Value
+	var v_has_result_usage Value
+	var v_has_session_id Value
+	var v_has_tokens Value
+	var v_missing_tokens Value
+	var v_model Value
+	var v_model_usage Value
+	var v_model_usage_snake Value
+	var v_none Value
+	var v_normalized_tokens Value
+	var v_option_session Value
+	var v_option_session_snake Value
+	var v_remote_id Value
+	var v_remote_id_snake Value
+	var v_remote_request_id Value
+	var v_remote_request_id_snake Value
+	var v_remote_session_id Value
+	var v_remote_session_id_snake Value
+	var v_response_session Value
+	var v_response_session_snake Value
+	var v_result Value
+	var v_result_usage Value
+	var v_result_usage_snake Value
+	var v_results Value
+	var v_session_id Value
+	var v_tokens Value
+	var v_top_model_usage Value
+	var v_usage_context Value
+	var v_usage_context_snake Value
+	if len(args) > 0 { v_operation = args[0] }
+	_ = v_operation
+	if len(args) > 1 { v_response = args[1] }
+	_ = v_response
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	if len(args) > 3 { v_streaming = args[3] }
+	_ = v_streaming
+	_ = v_ai_name
+	_ = v_event
+	_ = v_has_context
+	_ = v_has_remote_id
+	_ = v_has_remote_request_id
+	_ = v_has_remote_session_id
+	_ = v_has_result_usage
+	_ = v_has_session_id
+	_ = v_has_tokens
+	_ = v_missing_tokens
+	_ = v_model
+	_ = v_model_usage
+	_ = v_model_usage_snake
+	_ = v_none
+	_ = v_normalized_tokens
+	_ = v_option_session
+	_ = v_option_session_snake
+	_ = v_remote_id
+	_ = v_remote_id_snake
+	_ = v_remote_request_id
+	_ = v_remote_request_id_snake
+	_ = v_remote_session_id
+	_ = v_remote_session_id_snake
+	_ = v_response_session
+	_ = v_response_session_snake
+	_ = v_result
+	_ = v_result_usage
+	_ = v_result_usage_snake
+	_ = v_results
+	_ = v_session_id
+	_ = v_tokens
+	_ = v_top_model_usage
+	_ = v_usage_context
+	_ = v_usage_context_snake
+	v_model_usage_snake = coreGet(v_response, "model_usage", nil)
+	v_top_model_usage = coreGet(v_response, "modelUsage", v_model_usage_snake)
+	v_model_usage = v_top_model_usage
+	v_results = coreGet(v_response, "results", nil)
+	for _, v_result = range coreIter(v_results) {
+		v_result_usage_snake = coreGet(v_result, "model_usage", nil)
+		v_result_usage = coreGet(v_result, "modelUsage", v_result_usage_snake)
+		v_has_result_usage = _core_truthy(v_result_usage)
+		if coreTruthy(v_has_result_usage) {
+			v_model_usage = v_result_usage
+		} else {
+		// empty
+		}
+	}
+	v_tokens = coreGet(v_model_usage, "tokens", nil)
+	v_has_tokens = _core_truthy(v_tokens)
+	v_missing_tokens = _core_not(v_has_tokens)
+	if coreTruthy(v_missing_tokens) {
+		v_none = _core_none()
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_event = Object()
+	if err := coreSet(v_event, "operation", v_operation); err != nil { return nil, err }
+	v_ai_name = coreGet(v_model_usage, "ai", nil)
+	v_model = coreGet(v_model_usage, "model", nil)
+	{ v, err := normalize_token_usage(v_tokens); if err != nil { return nil, err }; v_normalized_tokens = v }
+	if err := coreSet(v_event, "ai", v_ai_name); err != nil { return nil, err }
+	if err := coreSet(v_event, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_event, "tokens", v_normalized_tokens); err != nil { return nil, err }
+	if err := coreSet(v_event, "streaming", v_streaming); err != nil { return nil, err }
+	v_usage_context_snake = coreGet(v_options, "usage_context", nil)
+	v_usage_context = coreGet(v_options, "usageContext", v_usage_context_snake)
+	v_has_context = _core_truthy(v_usage_context)
+	if coreTruthy(v_has_context) {
+		if err := coreSet(v_event, "context", v_usage_context); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_option_session_snake = coreGet(v_options, "session_id", nil)
+	v_option_session = coreGet(v_options, "sessionId", v_option_session_snake)
+	v_response_session_snake = coreGet(v_response, "session_id", nil)
+	v_response_session = coreGet(v_response, "sessionId", v_response_session_snake)
+	v_session_id = _core_coalesce(v_response_session, v_option_session)
+	v_has_session_id = _core_is_not_none(v_session_id)
+	if coreTruthy(v_has_session_id) {
+		if err := coreSet(v_event, "sessionId", v_session_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_remote_id_snake = coreGet(v_response, "remote_id", nil)
+	v_remote_id = coreGet(v_response, "remoteId", v_remote_id_snake)
+	v_has_remote_id = _core_is_not_none(v_remote_id)
+	if coreTruthy(v_has_remote_id) {
+		if err := coreSet(v_event, "remoteId", v_remote_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_remote_request_id_snake = coreGet(v_response, "remote_request_id", nil)
+	v_remote_request_id = coreGet(v_response, "remoteRequestId", v_remote_request_id_snake)
+	v_has_remote_request_id = _core_is_not_none(v_remote_request_id)
+	if coreTruthy(v_has_remote_request_id) {
+		if err := coreSet(v_event, "remoteRequestId", v_remote_request_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_remote_session_id_snake = coreGet(v_response, "remote_session_id", nil)
+	v_remote_session_id = coreGet(v_response, "remoteSessionId", v_remote_session_id_snake)
+	v_has_remote_session_id = _core_is_not_none(v_remote_session_id)
+	if coreTruthy(v_has_remote_session_id) {
+		if err := coreSet(v_event, "remoteSessionId", v_remote_session_id); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_event, nil
 }
 
 func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
@@ -6514,6 +6687,43 @@ func openai_build_embed_request(args ...Value) (Value, error) {
 	return v_payload, nil
 }
 
+func _ai_model_usage_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_ai_model_usage_impl")
+	var v_ai_name Value
+	var v_model Value
+	var v_usage Value
+	var v_has_usage Value
+	var v_missing_usage Value
+	var v_none Value
+	var v_out Value
+	var v_tokens Value
+	if len(args) > 0 { v_ai_name = args[0] }
+	_ = v_ai_name
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_usage = args[2] }
+	_ = v_usage
+	_ = v_has_usage
+	_ = v_missing_usage
+	_ = v_none
+	_ = v_out
+	_ = v_tokens
+	v_has_usage = _core_truthy(v_usage)
+	v_missing_usage = _core_not(v_has_usage)
+	if coreTruthy(v_missing_usage) {
+		v_none = _core_none()
+		return v_none, nil
+	} else {
+	// empty
+	}
+	{ v, err := normalize_token_usage(v_usage); if err != nil { return nil, err }; v_tokens = v }
+	v_out = Object()
+	if err := coreSet(v_out, "ai", v_ai_name); err != nil { return nil, err }
+	if err := coreSet(v_out, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_out, "tokens", v_tokens); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func openai_normalize_chat_response(args ...Value) (Value, error) {
 	axirCoverageMark("openai_normalize_chat_response")
 	var v_raw Value
@@ -6601,6 +6811,73 @@ func openai_normalize_chat_response(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "results", v_results); err != nil { return nil, err }
 	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
 	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func chat_response_to_completion(args ...Value) (Value, error) {
+	axirCoverageMark("chat_response_to_completion")
+	var v_response Value
+	var v_call Value
+	var v_calls Value
+	var v_compat_call Value
+	var v_content Value
+	var v_empty_calls Value
+	var v_empty_result Value
+	var v_empty_results Value
+	var v_fn Value
+	var v_function_calls Value
+	var v_id Value
+	var v_model_usage Value
+	var v_name Value
+	var v_out Value
+	var v_params Value
+	var v_result Value
+	var v_results Value
+	var v_usage Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	_ = v_call
+	_ = v_calls
+	_ = v_compat_call
+	_ = v_content
+	_ = v_empty_calls
+	_ = v_empty_result
+	_ = v_empty_results
+	_ = v_fn
+	_ = v_function_calls
+	_ = v_id
+	_ = v_model_usage
+	_ = v_name
+	_ = v_out
+	_ = v_params
+	_ = v_result
+	_ = v_results
+	_ = v_usage
+	v_empty_results = MutableArray()
+	v_results = coreGet(v_response, "results", v_empty_results)
+	v_empty_result = Object()
+	v_result = _core_list_get(v_results, 0, v_empty_result)
+	v_content = coreGet(v_result, "content", "")
+	v_calls = MutableArray()
+	v_empty_calls = MutableArray()
+	v_function_calls = coreGet(v_result, "function_calls", v_empty_calls)
+	for _, v_call = range coreIter(v_function_calls) {
+		v_fn = coreGet(v_call, "function", nil)
+		v_id = coreGet(v_call, "id", nil)
+		v_name = coreGet(v_fn, "name", nil)
+		v_params = coreGet(v_fn, "params", nil)
+		v_compat_call = Object()
+		if err := coreSet(v_compat_call, "id", v_id); err != nil { return nil, err }
+		if err := coreSet(v_compat_call, "name", v_name); err != nil { return nil, err }
+		if err := coreSet(v_compat_call, "params", v_params); err != nil { return nil, err }
+		v_calls = coreAppend(v_calls, v_compat_call)
+	}
+	v_model_usage = coreGet(v_response, "model_usage", nil)
+	v_usage = coreGet(v_model_usage, "tokens", nil)
+	v_out = Object()
+	if err := coreSet(v_out, "content", v_content); err != nil { return nil, err }
+	if err := coreSet(v_out, "function_calls", v_calls); err != nil { return nil, err }
+	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -17077,7 +17354,7 @@ func _forward_impl(args ...Value) (Value, error) {
 	v_last_tool_result = _core_none()
 	for {
 		{ v, err := _build_gen_chat_request(v_gen, v_messages, v_runtime_options); if err != nil { return nil, err }; v_request = v }
-		{ v, err := _complete_with_retries_impl(v_client, v_request, v_infra_retries); if err != nil { return nil, err }; v_response = v }
+		{ v, err := _complete_with_retries_impl(v_client, v_request, v_runtime_options, v_infra_retries); if err != nil { return nil, err }; v_response = v }
 		_core_axgen_memory_add_response(v_gen, v_request, v_response)
 		_core_axgen_record_chat_log(v_gen, v_request, v_response)
 		{ v, err := _response_function_calls_impl(v_response); if err != nil { return nil, err }; v_calls = v }
@@ -17689,6 +17966,7 @@ func _complete_with_retries_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_complete_with_retries_impl")
 	var v_client Value
 	var v_request Value
+	var v_options Value
 	var v_retries Value
 	var v_attempt Value
 	var v_error Value
@@ -17700,7 +17978,9 @@ func _complete_with_retries_impl(args ...Value) (Value, error) {
 	_ = v_client
 	if len(args) > 1 { v_request = args[1] }
 	_ = v_request
-	if len(args) > 2 { v_retries = args[2] }
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	if len(args) > 3 { v_retries = args[3] }
 	_ = v_retries
 	_ = v_attempt
 	_ = v_error
@@ -17713,7 +17993,7 @@ func _complete_with_retries_impl(args ...Value) (Value, error) {
 	for {
 		{
 			__flow, __err := func() (coreFlow, error) {
-				{ v, err := _core_ai_complete_once(v_client, v_request); if err != nil { return coreFlow{}, err }; v_response = v }
+				{ v, err := _core_ai_complete_once(v_client, v_request, v_options); if err != nil { return coreFlow{}, err }; v_response = v }
 				return coreFlow{kind: coreFlowReturn, value: v_response}, nil
 			}()
 			if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
@@ -26487,7 +26767,7 @@ func _agent_apply_llm_tombstone_summary(args ...Value) (Value, error) {
 		if coreTruthy(v_pending) {
 			v_llm_input = coreGet(v_entry, "tombstone_llm_input", "")
 			v_instruction = "You are an internal AxAgent tombstone summarizer.\n\nWrite the output as exactly one concise line.\n- Start with [TOMBSTONE]:\n- Summarize the resolved error and the successful fix.\n- Mention one failed approach to avoid when possible.\n- Do not include code fences, bullet points, or extra prose.\n- Keep it roughly 20-40 tokens."
-			{ v, err := _context_map_complete(v_client, v_instruction, v_llm_input); if err != nil { return nil, err }; v_tombstone = v }
+			{ v, err := _context_map_complete(v_client, v_instruction, v_llm_input, v_options); if err != nil { return nil, err }; v_tombstone = v }
 			v_has_text = _core_ne(v_tombstone, "")
 			if coreTruthy(v_has_text) {
 				if err := coreSet(v_entry, "tombstone", v_tombstone); err != nil { return nil, err }
@@ -36473,7 +36753,7 @@ func _agent_apply_llm_checkpoint_summary(args ...Value) (Value, error) {
 			v_messages = coreAppend(v_messages, v_usr)
 			v_request = Object()
 			if err := coreSet(v_request, "chat_prompt", v_messages); err != nil { return nil, err }
-			{ v, err := _core_ai_complete_once(v_client, v_request); if err != nil { return nil, err }; v_response = v }
+			{ v, err := _core_ai_complete_once(v_client, v_request, v_options); if err != nil { return nil, err }; v_response = v }
 			v_text = coreGet(v_response, "content", "")
 			v_has_text = _core_ne(v_text, "")
 			if coreTruthy(v_has_text) {
@@ -37087,6 +37367,7 @@ func _context_map_complete(args ...Value) (Value, error) {
 	var v_client Value
 	var v_system Value
 	var v_user Value
+	var v_options Value
 	var v_content Value
 	var v_messages Value
 	var v_request Value
@@ -37099,6 +37380,8 @@ func _context_map_complete(args ...Value) (Value, error) {
 	_ = v_system
 	if len(args) > 2 { v_user = args[2] }
 	_ = v_user
+	if len(args) > 3 { v_options = args[3] }
+	_ = v_options
 	_ = v_content
 	_ = v_messages
 	_ = v_request
@@ -37116,7 +37399,7 @@ func _context_map_complete(args ...Value) (Value, error) {
 	v_messages = coreAppend(v_messages, v_usr)
 	v_request = Object()
 	if err := coreSet(v_request, "chat_prompt", v_messages); err != nil { return nil, err }
-	{ v, err := _core_ai_complete_once(v_client, v_request); if err != nil { return nil, err }; v_response = v }
+	{ v, err := _core_ai_complete_once(v_client, v_request, v_options); if err != nil { return nil, err }; v_response = v }
 	v_content = coreGet(v_response, "content", "")
 	return v_content, nil
 }
@@ -37271,7 +37554,7 @@ func _agent_evolve_context_map(args ...Value) (Value, error) {
 		{ v, err := _format_context_map_trajectory(v_state); if err != nil { return nil, err }; v_trajectory = v }
 		v_distiller_sys = "You are the context-map Distiller for a recurring external context used by an AxAgent RLM loop.\n\nYour job is to read the completed trajectory and identify reusable orientation knowledge about the external context. The context map is a persistent cache of understanding, not a transcript summary, task playbook, or answer cache.\n\nCache only orientation work: would a future agent asking a completely different question about the same context benefit from knowing this?\n\nReview every existing context-map item before proposing new knowledge. Tag each existing item ID as exactly one of helpful, harmful, neutral, or stale. Treat unused-but-correct domain knowledge as neutral, not harmful.\n\nReturn:\n- diagnosis: concise analysis of orientation work vs. question-specific work.\n- itemTags: object mapping existing context-map item IDs to helpful, harmful, neutral, or stale.\n- cacheCandidates: JSON array of objects with section, value, transferability, and rationale."
 		v_distiller_user = _core_string_format("task: {}\n\ncontextMap:\n{}\n\ntrajectory:\n{}", v_task, v_current_text, v_trajectory)
-		{ v, err := _context_map_complete(v_client, v_distiller_sys, v_distiller_user); if err != nil { return nil, err }; v_distiller_resp = v }
+		{ v, err := _context_map_complete(v_client, v_distiller_sys, v_distiller_user, v_options); if err != nil { return nil, err }; v_distiller_resp = v }
 		{ v, err := _context_map_parse_json(v_distiller_resp); if err != nil { return nil, err }; v_distiller_parsed = v }
 		v_item_tags = coreGet(v_distiller_parsed, "itemTags", v_empty_map)
 		v_reflection = _core_json_stringify(v_distiller_parsed)
@@ -37279,7 +37562,7 @@ func _agent_evolve_context_map(args ...Value) (Value, error) {
 		v_carto_sys = "You are the context-map Cartographer for a recurring external context used by an AxAgent RLM loop.\n\nTranslate the Distiller reflection into a small set of concrete context-map edits. Maintain a concise, high-value context map that stores shared understanding of the external context, not answers to individual questions.\n\nPrefer REPLACE over ADD when an existing item can be made more correct, compact, or general. DELETE stale, misleading, redundant, low-value, verbose, or question-specific items. ADD only transferable context understanding. When the map is near or over budget, remove or rewrite low-value entries first. If nothing is worth keeping, return an empty operations list.\n\nReturn operations as JSON objects under the key operations:\n- {\"type\":\"ADD\",\"section\":\"context_understanding\",\"content\":\"...\"}\n- {\"type\":\"DELETE\",\"item_id\":\"cu-1\"}\n- {\"type\":\"REPLACE\",\"item_id\":\"cu-1\",\"content\":\"...\"}"
 		v_carto_user_head = _core_string_format("task: {}\n\ncontextMap:\n{}\n\ndistillerReflection:\n{}", v_task, v_current_text, v_reflection)
 		v_carto_user = _core_string_format("{}\n\ncurrentChars: {}\nmaxChars: {}", v_carto_user_head, v_current_chars, v_max_chars)
-		{ v, err := _context_map_complete(v_client, v_carto_sys, v_carto_user); if err != nil { return nil, err }; v_carto_resp = v }
+		{ v, err := _context_map_complete(v_client, v_carto_sys, v_carto_user, v_options); if err != nil { return nil, err }; v_carto_resp = v }
 		{ v, err := _context_map_parse_json(v_carto_resp); if err != nil { return nil, err }; v_carto_parsed = v }
 		v_operations = coreGet(v_carto_parsed, "operations", v_empty_list)
 		{ v, err := _context_map_parse_items(v_current_text); if err != nil { return nil, err }; v_items = v }
@@ -44772,13 +45055,14 @@ func normalizeAzureOptions(options map[string]Value) map[string]Value {
 }
 
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	return safeValue(func() Value {
-		req := c.prepareChatRequest(request, options)
+	mergedOptions := mergeAIOptions(c.optionsSnapshot(), options)
+	response, err := safeValue(func() Value {
+		req := c.prepareChatRequest(request, mergedOptions)
 		mustCore(validate_chat_request(req))
 		opts := c.optionsSnapshot()
 		model := coreGet(req, "model", coreGet(opts, "model", nil))
 		if shouldRealtime, _ := mustCore(provider_should_use_realtime(c.Profile, display(model), req)).(bool); shouldRealtime {
-			result, rtErr := c.RealtimeChat(ctx, req, options, nil)
+			result, rtErr := c.RealtimeChat(ctx, req, mergedOptions, nil)
 			if rtErr != nil {
 				panic(AxError{Category: "network", Message: rtErr.Error()})
 			}
@@ -44794,9 +45078,14 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		body := normalizeTransportPayload(raw)
 		return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model))
 	})
+	if err == nil {
+		emitUsageEvent("chat", response, mergedOptions, false)
+	}
+	return response, err
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	return safeValue(func() Value {
+	mergedOptions := mergeAIOptions(c.optionsSnapshot(), options)
+	response, err := safeValue(func() Value {
 		req := cloneMap(request)
 		opts := c.optionsSnapshot()
 		if coreGet(req, "embed_model", coreGet(req, "embedModel", nil)) == nil {
@@ -44811,6 +45100,10 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 		}
 		return mustCore(provider_normalize_embed_response(c.Profile, coreGet(raw, "json", raw), c.Name, model))
 	})
+	if err == nil {
+		emitUsageEvent("embed", response, mergedOptions, false)
+	}
+	return response, err
 }
 func streamRetryParams(options map[string]Value) (int, float64, float64, float64) {
 	var opts Value = options
@@ -44830,13 +45123,14 @@ func streamBackoffDelay(initialDelay float64, maxDelay float64, backoff float64,
 }
 
 func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
+	mergedOptions := mergeAIOptions(c.optionsSnapshot(), options)
 	value, err := safeValue(func() Value {
 		req := c.prepareChatRequest(request, Object("stream", true))
 		mustCore(validate_chat_request(req))
 		opts := c.optionsSnapshot()
 		model := coreGet(req, "model", coreGet(opts, "model", nil))
 		transportReq := c.requestJSON("stream_chat", req, true)
-		maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(options)
+		maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(mergedOptions)
 		attempt := 0
 		for {
 			raw, err := c.Transport.Call(ctx, transportReq)
@@ -44868,7 +45162,11 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]
 			return out
 		}
 	})
-	return asSlice(value), err
+	values := asSlice(value)
+	if err == nil {
+		emitUsageEvent("chat", Object("results", values), mergedOptions, true)
+	}
+	return values, err
 }
 func (c *OpenAICompatibleClient) prepareChatRequest(request map[string]Value, options map[string]Value) map[string]Value {
 	req := cloneMap(request)
@@ -50237,6 +50535,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAIEmbed(fixture)
 	case "ai_stream":
 		runConformanceAIStream(fixture)
+	case "ai_usage_observer":
+		runConformanceAIUsageObserver(fixture)
 	case "ai_provider_descriptor":
 		profile := display(coreGet(fixture, "provider", coreGet(fixture, "profile", "")))
 		assertSubset(mustCore(provider_descriptor(profile)), coreGet(fixture, "expected_descriptor_subset", coreGet(fixture, "expected_descriptor", Object())), "provider descriptor")
@@ -51275,7 +51575,7 @@ func runConformanceStreamingAssertions(fixture map[string]Value, content Value) 
 func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *ScriptedTransport) {
 	transport := NewScriptedTransport(asSlice(coreGet(fixture, "transport_responses", Array())))
 	provider := display(coreGet(fixture, "provider", "openai-compatible"))
-	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	options := cloneMap(asMap(coreGet(fixture, "service_options", coreGet(fixture, "options", Object()))))
 	if coreGet(options, "api_key", nil) == nil && coreGet(options, "apiKey", nil) == nil {
 		coreSet(options, "api_key", "test-key")
 	}
@@ -51334,6 +51634,41 @@ func runConformanceAIChat(fixture map[string]Value) {
 			assertEqual(output, expected, "ai chat output")
 		}
 		assertTransportRequest(fixture, transport)
+	}
+}
+
+func runConformanceAIUsageObserver(fixture map[string]Value) {
+	client, _ := conformanceAIClient(fixture)
+	request := asMap(coreGet(fixture, "request", Object()))
+	options := asMap(coreGet(fixture, "call_options", Object()))
+	failedCalls := 0
+	SetUsageObserver(func(AxUsageEvent) {
+		failedCalls++
+		panic("observer failure")
+	})
+	if _, err := client.Chat(context.Background(), request, options); err != nil {
+		panic(err)
+	}
+	if failedCalls != 1 {
+		panic(AxError{Category: "fixture", Message: "usage observer failure callback count mismatch"})
+	}
+	events := []AxUsageEvent{}
+	SetUsageObserver(func(event AxUsageEvent) {
+		events = append(events, cloneMap(event))
+	})
+	if _, err := client.Chat(context.Background(), request, options); err != nil {
+		panic(err)
+	}
+	if len(events) != 1 {
+		panic(AxError{Category: "fixture", Message: "usage observer callback count mismatch"})
+	}
+	assertSubset(events[0], coreGet(fixture, "expected_event_subset", Object()), "usage event")
+	SetUsageObserver(nil)
+	if _, err := client.Chat(context.Background(), request, options); err != nil {
+		panic(err)
+	}
+	if len(events) != 1 {
+		panic(AxError{Category: "fixture", Message: "cleared usage observer received an event"})
 	}
 }
 

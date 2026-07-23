@@ -568,9 +568,9 @@ final class Core {
     if (program instanceof AxProgram axProgram) axProgram.applyOptimizedComponents(asMap(componentMap));
     return Map.of();
   }
-  static Object aiCompleteOnce(Object client, Object request) {
+  static Object aiCompleteOnce(Object client, Object request, Object options) {
     try {
-      if (client instanceof AxAIService service) return chat_response_to_completion(service.chat(asMap(request)));
+      if (client instanceof AxAIService service) return chat_response_to_completion(service.chat(asMap(request), asMap(options)));
       if (client instanceof AiClient ai) return ai.complete(asMap(request));
       throw new RuntimeException("client does not implement AiClient");
     } catch (RuntimeException e) {

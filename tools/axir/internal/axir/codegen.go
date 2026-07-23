@@ -186,6 +186,9 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/Core.java":                                      core,
 		"dev/axllm/ax/AiClient.java":                                  javaAiClient,
 		"dev/axllm/ax/AxAIService.java":                               javaAxAIService,
+		"dev/axllm/ax/AxGlobals.java":                                 javaAxGlobals,
+		"dev/axllm/ax/AxUsageEvent.java":                              javaAxUsageEvent,
+		"dev/axllm/ax/AxUsageObserver.java":                           javaAxUsageObserver,
 		"dev/axllm/ax/AxMultiServiceRouter.java":                      javaAxMultiServiceRouter,
 		"dev/axllm/ax/AxBalancer.java":                                javaAxBalancer,
 		"dev/axllm/ax/AxBalancerAdaptive.java":                        javaAxBalancerAdaptive,
@@ -971,7 +974,7 @@ func ValidateAPIReferenceManifest(manifest APIReferenceManifest) error {
 			return fmt.Errorf("api reference missing section %q", id)
 		}
 	}
-	for _, canonical := range []string{"s", "ax", "ai", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
+	for _, canonical := range []string{"s", "ax", "ai", "AxUsageContext", "AxUsageEvent", "AxUsageObserver", "set_usage_observer", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
 		if !symbols[canonical] {
 			return fmt.Errorf("api reference missing canonical symbol %q", canonical)
 		}
@@ -1024,6 +1027,10 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("OpenAIResponsesClient", "type", "OpenAI Responses provider mapping using the same Core-owned request and response contract.", []string{"api key", "model", "audio", "realtime"}, "provider client"),
 				sym("GoogleGeminiClient", "type", "Gemini provider mapping for chat, streaming, media, tools, embeddings, and usage normalization.", []string{"api key", "model", "embed model"}, "provider client"),
 				sym("AnthropicClient", "type", "Anthropic provider mapping for messages, thinking, cache control, streaming, and usage normalization.", []string{"api key", "model", "thinking", "cache control"}, "provider client"),
+				sym("AxUsageContext", "type", "Application attribution merged from service defaults and per-call overrides.", []string{"tenant", "user", "request", "run", "feature", "attributes"}, "usage context"),
+				sym("AxUsageEvent", "type", "Normalized token usage and correlation data for one completed chat or embedding operation.", []string{"provider", "model", "tokens", "context", "correlation IDs", "streaming"}, "usage event"),
+				sym("AxUsageObserver", "interface", "Best-effort process-wide callback for normalized usage events.", []string{"fail-open delivery", "synchronous enqueue"}, "usage observer"),
+				sym("set_usage_observer", "function", "Register, replace, or clear the process-wide usage observer.", []string{"observer", "clear"}, "void"),
 				sym("AxBalancer", "type", "Retry and route requests across multiple provider services, with opt-in adaptive cost, reliability, and deadline routing.", []string{"services", "retry policy", "capability requirements", "adaptive strategy"}, "AI service"),
 				sym("AxBalancerAdaptiveStrategy", "type", "Configure adaptive provider routing without changing the ordered default.", []string{"deadline", "bad outcome cost", "expected tokens", "stable route keys", "slice", "stats store", "routing events"}, "adaptive strategy"),
 				sym("AxBalancerStatsStore", "interface", "Store shared adaptive decision state with atomic observations.", []string{"get", "observe"}, "stats store"),
@@ -1154,6 +1161,10 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "fn", "Ax.fn", "axllm::Tool", "axllm.Fn", "tool")
 	case "create_balancer_route_stats":
 		return mapTarget(target, "create_balancer_route_stats", "AxBalancerAdaptive.createRouteStats", "axllm::create_balancer_route_stats", "axllm.CreateBalancerRouteStats", "create_balancer_route_stats")
+	case "AxUsageContext":
+		return mapTarget(target, "AxUsageContext", "Map<String, Object>", "axllm::AxUsageContext", "axllm.AxUsageContext", "AxUsageContext")
+	case "set_usage_observer":
+		return mapTarget(target, "set_usage_observer", "AxGlobals.setUsageObserver", "axllm::set_usage_observer", "axllm.SetUsageObserver", "set_usage_observer")
 	case "update_balancer_route_stats":
 		return mapTarget(target, "update_balancer_route_stats", "AxBalancerAdaptive.updateRouteStats", "axllm::update_balancer_route_stats", "axllm.UpdateBalancerRouteStats", "update_balancer_route_stats")
 	case "sample_balancer_route_health":
@@ -1213,6 +1224,14 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "AxGen(signature, options=None)", "new AxGen(signature)", "axllm::AxGen(signature, options)", "axllm.NewGen(signature, options)", "AxGen")
 	case "ai":
 		return mapTarget(target, "ai(provider='openai', **options)", "Ax.ai(provider, options)", "axllm::ai(provider, options)", "axllm.NewAI(provider, options)", "ai(provider, options)")
+	case "AxUsageContext":
+		return mapTarget(target, "dict[str, object]", "Map<String, Object>", "axllm::AxUsageContext", "axllm.AxUsageContext", "AxUsageContext")
+	case "AxUsageEvent":
+		return mapTarget(target, "AxUsageEvent", "AxUsageEvent", "axllm::AxUsageEvent", "axllm.AxUsageEvent", "AxUsageEvent")
+	case "AxUsageObserver":
+		return mapTarget(target, "AxUsageObserver", "AxUsageObserver", "axllm::AxUsageObserver", "axllm.AxUsageObserver", "AxUsageObserver")
+	case "set_usage_observer":
+		return mapTarget(target, "set_usage_observer(observer)", "AxGlobals.setUsageObserver(observer)", "axllm::set_usage_observer(observer)", "axllm.SetUsageObserver(observer)", "set_usage_observer(observer)")
 	case "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient":
 		return providerClientForm(target, canonical)
 	case "AxBalancer":
@@ -1346,6 +1365,14 @@ func apiReferenceExample(target, canonical string) string {
 			`auto client = axllm::ai("openai", axllm::object({{"apiKey", std::getenv("OPENAI_API_KEY")}}));`,
 			`client := axllm.NewAI("openai", map[string]axllm.Value{"apiKey": os.Getenv("OPENAI_API_KEY")})`,
 			`let client = ai("openai", json!({"apiKey": std::env::var("OPENAI_API_KEY")?}))?;`,
+		)
+	case "set_usage_observer":
+		return mapTarget(target,
+			`set_usage_observer(events.append)`,
+			`AxGlobals.setUsageObserver(events::add);`,
+			`axllm::set_usage_observer([&](auto event) { events.push_back(event); });`,
+			`axllm.SetUsageObserver(func(event axllm.AxUsageEvent) { events = append(events, event) })`,
+			`set_usage_observer(Some(Arc::new(move |event| events.lock().unwrap().push(event))));`,
 		)
 	case "agent":
 		return mapTarget(target,
@@ -1669,6 +1696,7 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axai", "ai_chat", "", "transport-boundary"},
 		{"axai", "ai_stream", "", "transport-boundary"},
 		{"axai", "ai_embed", "", "transport-boundary"},
+		{"axai", "ai_usage_observer", "", "semantic"},
 		{"axai", "ai_transcribe", "", "transport-boundary"},
 		{"axai", "ai_speak", "", "transport-boundary"},
 		{"axai", "ai_realtime", "", "semantic"},

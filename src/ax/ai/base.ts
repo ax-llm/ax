@@ -72,7 +72,9 @@ import type {
   AxTokenUsage,
   AxTranscriptionRequest,
   AxTranscriptionResponse,
+  AxUsageContext,
 } from './types.js';
+import { axEmitUsageEvent, axMergeUsageContexts } from './usage.js';
 import { axValidateChatRequestMessage } from './validate.js';
 
 /**
@@ -591,6 +593,7 @@ export class AxBaseAI<
   private corsProxy?: AxAIServiceOptions['corsProxy'];
   private retry?: AxAIServiceOptions['retry'];
   private customLabels?: Record<string, string>;
+  private usageContext?: AxUsageContext;
   private contextCache?: AxAIServiceOptions['contextCache'];
   private beta?: AxAIServiceOptions['beta'];
   private includeRequestBodyInErrors?: AxAIServiceOptions['includeRequestBodyInErrors'];
@@ -765,6 +768,14 @@ export class AxBaseAI<
     this.corsProxy = options.corsProxy;
     this.retry = options.retry;
     this.customLabels = options.customLabels;
+    this.usageContext = options.usageContext
+      ? {
+          ...options.usageContext,
+          ...(options.usageContext.attributes
+            ? { attributes: { ...options.usageContext.attributes } }
+            : {}),
+        }
+      : undefined;
     this.contextCache = options.contextCache;
     this.beta = options.beta;
     this.includeRequestBodyInErrors = options.includeRequestBodyInErrors;
@@ -785,6 +796,14 @@ export class AxBaseAI<
       corsProxy: this.corsProxy,
       retry: this.retry,
       customLabels: this.getMergedCustomLabels(),
+      usageContext: this.usageContext
+        ? {
+            ...this.usageContext,
+            ...(this.usageContext.attributes
+              ? { attributes: { ...this.usageContext.attributes } }
+              : {}),
+          }
+        : undefined,
       contextCache: this.contextCache,
       beta: this.beta,
       includeRequestBodyInErrors: this.includeRequestBodyInErrors,
@@ -804,6 +823,12 @@ export class AxBaseAI<
       this.customLabels,
       optionsCustomLabels
     );
+  }
+
+  private getMergedUsageContext(
+    options?: Readonly<Pick<AxAIServiceOptions, 'usageContext'>>
+  ): AxUsageContext | undefined {
+    return axMergeUsageContexts(this.usageContext, options?.usageContext);
   }
 
   getModelList() {
@@ -2106,6 +2131,18 @@ export class AxBaseAI<
 
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const doneCb = async (values: readonly AxChatResponse[]) => {
+        for (let index = values.length - 1; index >= 0; index--) {
+          const value = values[index];
+          if (value?.modelUsage?.tokens) {
+            axEmitUsageEvent(
+              'chat',
+              value,
+              this.getMergedUsageContext(options),
+              true
+            );
+            break;
+          }
+        }
         if (span?.isRecording()) {
           span.end();
         }
@@ -2243,6 +2280,8 @@ export class AxBaseAI<
           options
         );
       }
+
+      axEmitUsageEvent('chat', res, this.getMergedUsageContext(options), false);
 
       if (span?.isRecording()) {
         setChatResponseEvents(res, span, excludeContentFromTrace);
@@ -2507,6 +2546,8 @@ export class AxBaseAI<
         options
       );
     }
+
+    axEmitUsageEvent('embed', res, this.getMergedUsageContext(options), false);
 
     if (span?.isRecording()) {
       setResponseCorrelationAttributes(res, span);

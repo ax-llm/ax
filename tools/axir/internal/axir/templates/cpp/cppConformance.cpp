@@ -2006,7 +2006,7 @@ struct ClientFixture {
     Core::set(out, "embed_model", Core::get(fixture, "embed_model", default_embed_model));
     Core::set(out, "api_key", "test-key");
     Core::set(out, "model_config", Core::get(fixture, "model_config", Value::object()));
-    Core::set(out, "options", Core::get(fixture, "options", Value::object()));
+    Core::set(out, "options", Core::get(fixture, "service_options", Core::get(fixture, "options", Value::object())));
     for (const std::string& key : {"base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version"}) {
       Value value = Core::get(fixture, key);
       if (!value.is_null()) Core::set(out, key, value);
@@ -2080,6 +2080,33 @@ static void run_ai_stream(Value fixture) {
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(out, expected, "ai stream output");
   assert_transport(fixture, cf.transport);
+}
+
+static void run_ai_usage_observer(Value fixture) {
+  ClientFixture cf(fixture);
+  Value request = Core::get(fixture, "request", Value::object());
+  Value options = Core::get(fixture, "call_options", Value::object());
+  int failed_calls = 0;
+  set_usage_observer([&failed_calls](AxUsageEvent) {
+    failed_calls += 1;
+    throw AxError("fixture", "observer failure");
+  });
+  try {
+    cf.client->chat(request, options);
+    if (failed_calls != 1) throw AxError("fixture", "usage observer failure callback count mismatch");
+    std::vector<AxUsageEvent> events;
+    set_usage_observer([&events](AxUsageEvent event) { events.push_back(std::move(event)); });
+    cf.client->chat(request, options);
+    if (events.size() != 1) throw AxError("fixture", "usage observer callback count mismatch");
+    assert_subset(events[0], Core::get(fixture, "expected_event_subset", Value::object()), "usage event");
+    set_usage_observer({});
+    cf.client->chat(request, options);
+    if (events.size() != 1) throw AxError("fixture", "cleared usage observer received an event");
+  } catch (...) {
+    set_usage_observer({});
+    throw;
+  }
+  set_usage_observer({});
 }
 
 static void run_ai_error(Value fixture) {
@@ -2732,6 +2759,8 @@ static void run(Value fixture) {
     run_ai_embed(fixture);
   } else if (kind == "ai_stream") {
     run_ai_stream(fixture);
+  } else if (kind == "ai_usage_observer") {
+    run_ai_usage_observer(fixture);
   } else if (kind == "ai_error") {
     run_ai_error(fixture);
   } else if (kind == "ai_unsupported") {

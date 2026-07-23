@@ -30,6 +30,10 @@
     "ai": [
       "ai",
       "AxAI",
+      "axGlobals",
+      "AxUsageContext",
+      "AxUsageEvent",
+      "AxUsageObserver",
       "Provider",
       "Model",
       "Router",
@@ -162,18 +166,19 @@
       "  config: { model: AxAIOpenAIModel.GPT54Mini },",
       "});"
     ],
-    "telemetry": [
-      "import { trace } from '@opentelemetry/api';",
-      "import { ai, ax } from '@ax-llm/ax';",
-      "",
-      "const tracer = trace.getTracer('docs');",
-      "await tracer.startActiveSpan('classify', async (span) => {",
-      "  const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });",
-      "  const classify = ax('text:string -> label:string');",
-      "  await classify.forward(llm, { text: 'ship it' });",
-      "  span.end();",
-      "});"
-    ],
+    "telemetry": {
+      "sourcePath": "src/examples/typescript/generation/usage-observer.ts",
+      "code": [
+        "import { axGlobals } from '@ax-llm/ax';",
+        "",
+        "axGlobals.onUsage = (event) => usageQueue.enqueue(event);",
+        "await llm.chat(request, {",
+        "  usageContext: { tenantId, userId, requestId },",
+        "});"
+      ],
+      "verified": true,
+      "requiresCredentials": true
+    },
     "optimize": [
       "import { AxAIOpenAIModel, ai, ax, optimize } from '@ax-llm/ax';",
       "",

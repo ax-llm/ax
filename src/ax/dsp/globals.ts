@@ -1,6 +1,6 @@
 import type { Meter, Tracer } from '@opentelemetry/api';
 
-import type { AxLoggerFunction } from '../ai/types.js';
+import type { AxLoggerFunction, AxUsageObserver } from '../ai/types.js';
 import type { AxOptimizerLoggerFunction } from './optimizerTypes.js';
 import type { AxGenOut } from './types.js';
 
@@ -15,6 +15,7 @@ export const axGlobals = {
   debug: undefined as boolean | undefined, // Global debug setting for all AI operations
   abortSignal: undefined as AbortSignal | undefined, // Global abort signal for requests
   customLabels: undefined as Record<string, string> | undefined, // Custom labels for OpenTelemetry metrics
+  onUsage: undefined as AxUsageObserver | undefined, // Best-effort normalized usage observer
   cachingFunction: undefined as
     | ((
         key: string,

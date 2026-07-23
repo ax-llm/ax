@@ -16,6 +16,60 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable
 
+AxUsageContext = dict[str, Any]
+AxUsageEvent = dict[str, Any]
+AxUsageObserver = Callable[[AxUsageEvent], Any]
+
+_usage_observer_lock = threading.RLock()
+_usage_observer: AxUsageObserver | None = None
+
+
+def set_usage_observer(observer: AxUsageObserver | None) -> None:
+    """Set the process-wide best-effort usage observer; pass None to clear it."""
+    global _usage_observer
+    with _usage_observer_lock:
+        _usage_observer = observer
+
+
+def _emit_usage_event(
+    operation: str,
+    response: dict[str, Any],
+    options: dict[str, Any] | None,
+    streaming: bool,
+) -> None:
+    try:
+        event = build_usage_event(operation, response, options or {}, streaming)
+    except Exception:
+        return
+    if not event:
+        return
+    with _usage_observer_lock:
+        observer = _usage_observer
+    if observer is None:
+        return
+    try:
+        observer(copy.deepcopy(event))
+    except BaseException:
+        pass
+
+
+def _usage_observed_stream(
+    values: Iterable[dict[str, Any]],
+    options: dict[str, Any],
+):
+    last_usage_response = None
+    completed = False
+    try:
+        for value in values:
+            model_usage = value.get("model_usage") or value.get("modelUsage")
+            if isinstance(model_usage, dict) and model_usage.get("tokens"):
+                last_usage_response = value
+            yield value
+        completed = True
+    finally:
+        if completed and last_usage_response is not None:
+            _emit_usage_event("chat", last_usage_response, options, True)
+
 
 class AxAIServiceError(Exception):
     def __init__(
@@ -379,13 +433,24 @@ class AxBaseAI(AIClient):
     def get_options(self) -> dict[str, Any]:
         return copy.deepcopy(self.options)
 
+    def _merged_options(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
+        call_options = dict(options or {})
+        merged = {**self.options, **call_options}
+        default_context = self.options.get("usage_context") or self.options.get("usageContext")
+        call_context = call_options.get("usage_context") or call_options.get("usageContext")
+        context = merge_usage_context(default_context, call_context)
+        if context:
+            merged["usage_context"] = context
+            merged["usageContext"] = context
+        return merged
+
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         started = time.perf_counter()
         is_error = False
         try:
             req = _coerce_chat_request(request)
             validate_chat_request(req)
-            merged_options = {**self.options, **(options or {})}
+            merged_options = self._merged_options(options)
             model = req.get("model") or self.model
             model_config = merge_model_config(self.model_config, req.get("model_config"), merged_options)
             if merged_options.get("stream") is not None:
@@ -393,7 +458,11 @@ class AxBaseAI(AIClient):
             req = {**req, "model": model, "model_config": model_config}
             self.last_used_chat_model = model
             self.last_used_model_config = copy.deepcopy(model_config)
-            return self._chat(req, merged_options)
+            response = self._chat(req, merged_options)
+            if isinstance(response, dict):
+                _emit_usage_event("chat", response, merged_options, False)
+                return response
+            return _usage_observed_stream(response, merged_options)
         except Exception:
             is_error = True
             raise
@@ -412,7 +481,10 @@ class AxBaseAI(AIClient):
                 raise AxAIServiceResponseError("Embed model not set")
             req = {**request, "texts": list(texts), "embed_model": embed_model}
             self.last_used_embed_model = embed_model
-            return self._embed(req, {**self.options, **(options or {})})
+            merged_options = self._merged_options(options)
+            response = self._embed(req, merged_options)
+            _emit_usage_event("embed", response, merged_options, False)
+            return response
         except Exception:
             is_error = True
             raise
@@ -456,14 +528,22 @@ class ProviderOperationClient(AxBaseAI):
         options: dict[str, Any] | None = None,
         model_config: dict[str, Any] | None = None,
         transport: Callable[[dict[str, Any]], Any] | None = None,
+        usage_context: AxUsageContext | None = None,
+        usageContext: AxUsageContext | None = None,
+        **runtime_options,
     ):
         descriptor = provider_descriptor(profile)
+        service_options = {**(options or {}), **runtime_options}
+        context = usage_context or usageContext
+        if context:
+            service_options["usage_context"] = copy.deepcopy(context)
+            service_options["usageContext"] = copy.deepcopy(context)
         super().__init__(
             name=name,
             model=model,
             embed_model=embed_model,
             model_config=model_config,
-            options=options,
+            options=service_options,
             features=descriptor.get("features") or default_features(),
         )
         self.profile = profile
@@ -496,7 +576,7 @@ class ProviderOperationClient(AxBaseAI):
         req = _coerce_chat_request(request)
         req.setdefault("model_config", {})["stream"] = True
         validate_chat_request(req)
-        merged_options = {**self.options, **(options or {}), "stream": True}
+        merged_options = {**self._merged_options(options), "stream": True}
         model = req.get("model") or self.model
         model_config = merge_model_config(self.model_config, req.get("model_config"), merged_options)
         model_config["stream"] = True
@@ -504,7 +584,10 @@ class ProviderOperationClient(AxBaseAI):
         self.last_used_chat_model = model
         self.last_used_model_config = copy.deepcopy(model_config)
         payload = provider_build_chat_request(self.profile, req)
-        yield from self._stream_chat(payload, req, merged_options)
+        yield from _usage_observed_stream(
+            self._stream_chat(payload, req, merged_options),
+            merged_options,
+        )
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
         payload = provider_build_embed_request(self.profile, request)
@@ -2056,13 +2139,6 @@ def _openai_apply_model_config_impl(payload: Any, model_config: Any) -> None:
     return None
 
 
-def build_chat_request(service: AxAIService, request: AxChatRequest, options: Any = None) -> Any:
-    _core_coverage_mark("build_chat_request")
-    validate_chat_request(request)
-    payload = openai_build_chat_request(request)
-    return payload
-
-
 def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, target: str) -> None:
     _core_coverage_mark("_openai_copy_config_key_impl")
     has_source = _core_map_contains(model_config, source)
@@ -2074,16 +2150,11 @@ def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, t
     return None
 
 
-def normalize_chat_response(raw: Any) -> AxChatResponse:
-    _core_coverage_mark("normalize_chat_response")
-    response = openai_normalize_chat_response(raw)
-    return response
-
-
-def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
-    _core_coverage_mark("normalize_stream_delta")
-    response = openai_normalize_stream_delta(raw, state)
-    return response
+def build_chat_request(service: AxAIService, request: AxChatRequest, options: Any = None) -> Any:
+    _core_coverage_mark("build_chat_request")
+    validate_chat_request(request)
+    payload = openai_build_chat_request(request)
+    return payload
 
 
 def _openai_message_impl(message: Any) -> Any:
@@ -2163,6 +2234,18 @@ def _openai_message_impl(message: Any) -> Any:
     raise error
 
 
+def normalize_chat_response(raw: Any) -> AxChatResponse:
+    _core_coverage_mark("normalize_chat_response")
+    response = openai_normalize_chat_response(raw)
+    return response
+
+
+def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
+    _core_coverage_mark("normalize_stream_delta")
+    response = openai_normalize_stream_delta(raw, state)
+    return response
+
+
 def build_embed_request(service: AxAIService, request: AxEmbedRequest, options: Any = None) -> Any:
     _core_coverage_mark("build_embed_request")
     payload = openai_build_embed_request(request)
@@ -2190,6 +2273,13 @@ def normalize_token_usage(usage: Any) -> Any:
     out["prompt_tokens"] = prompt_tokens
     out["completion_tokens"] = completion_tokens
     out["total_tokens"] = total_tokens
+    thoughts_tokens_snake = _core_get(usage, "thoughts_tokens", None)
+    thoughts_tokens = _core_get(usage, "thoughtsTokens", thoughts_tokens_snake)
+    has_thoughts = _core_is_not_none(thoughts_tokens)
+    if has_thoughts:
+        out["thoughts_tokens"] = thoughts_tokens
+    else:
+        pass
     reasoning_tokens_snake = _core_get(usage, "reasoning_tokens", None)
     reasoning_tokens = _core_get(usage, "reasoningTokens", reasoning_tokens_snake)
     has_reasoning = _core_is_not_none(reasoning_tokens)
@@ -2211,23 +2301,19 @@ def normalize_token_usage(usage: Any) -> Any:
         out["cache_creation_tokens"] = cache_creation_tokens
     else:
         pass
-    return out
-
-
-def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
-    _core_coverage_mark("_ai_model_usage_impl")
-    has_usage = _core_truthy(usage)
-    missing_usage = _core_not(has_usage)
-    if missing_usage:
-        none = _core_none()
-        return none
+    service_tier_snake = _core_get(usage, "service_tier", None)
+    service_tier = _core_get(usage, "serviceTier", service_tier_snake)
+    has_service_tier = _core_is_not_none(service_tier)
+    if has_service_tier:
+        out["service_tier"] = service_tier
     else:
         pass
-    tokens = normalize_token_usage(usage)
-    out = {}
-    out["ai"] = ai_name
-    out["model"] = model
-    out["tokens"] = tokens
+    speed = _core_get(usage, "speed", None)
+    has_speed = _core_is_not_none(speed)
+    if has_speed:
+        out["speed"] = speed
+    else:
+        pass
     return out
 
 
@@ -2295,33 +2381,90 @@ def _openai_content_part_impl(part: Any) -> Any:
     raise error
 
 
-def chat_response_to_completion(response: AxChatResponse) -> Any:
-    _core_coverage_mark("chat_response_to_completion")
-    empty_results = []
-    results = _core_get(response, "results", empty_results)
-    empty_result = {}
-    result = _core_list_get(results, 0, empty_result)
-    content = _core_get(result, "content", "")
-    calls = []
-    empty_calls = []
-    function_calls = _core_get(result, "function_calls", empty_calls)
-    for call in function_calls:
-        fn = _core_get(call, "function", None)
-        id = _core_get(call, "id", None)
-        name = _core_get(fn, "name", None)
-        params = _core_get(fn, "params", None)
-        compat_call = {}
-        compat_call["id"] = id
-        compat_call["name"] = name
-        compat_call["params"] = params
-        calls.append(compat_call)
-    model_usage = _core_get(response, "model_usage", None)
-    usage = _core_get(model_usage, "tokens", None)
-    out = {}
-    out["content"] = content
-    out["function_calls"] = calls
-    out["usage"] = usage
-    return out
+def merge_usage_context(defaults: Any, overrides: Any) -> Any:
+    _core_coverage_mark("merge_usage_context")
+    merged = _core_map_merge(defaults, overrides)
+    default_attributes = _core_get(defaults, "attributes", None)
+    override_attributes = _core_get(overrides, "attributes", None)
+    attributes = _core_map_merge(default_attributes, override_attributes)
+    has_attributes = _core_truthy(attributes)
+    if has_attributes:
+        merged["attributes"] = attributes
+    else:
+        pass
+    return merged
+
+
+def build_usage_event(operation: str, response: Any, options: Any, streaming: bool) -> Any:
+    _core_coverage_mark("build_usage_event")
+    model_usage_snake = _core_get(response, "model_usage", None)
+    top_model_usage = _core_get(response, "modelUsage", model_usage_snake)
+    model_usage = top_model_usage
+    results = _core_get(response, "results", None)
+    for result in results:
+        result_usage_snake = _core_get(result, "model_usage", None)
+        result_usage = _core_get(result, "modelUsage", result_usage_snake)
+        has_result_usage = _core_truthy(result_usage)
+        if has_result_usage:
+            model_usage = result_usage
+        else:
+            pass
+    tokens = _core_get(model_usage, "tokens", None)
+    has_tokens = _core_truthy(tokens)
+    missing_tokens = _core_not(has_tokens)
+    if missing_tokens:
+        none = _core_none()
+        return none
+    else:
+        pass
+    event = {}
+    event["operation"] = operation
+    ai_name = _core_get(model_usage, "ai", None)
+    model = _core_get(model_usage, "model", None)
+    normalized_tokens = normalize_token_usage(tokens)
+    event["ai"] = ai_name
+    event["model"] = model
+    event["tokens"] = normalized_tokens
+    event["streaming"] = streaming
+    usage_context_snake = _core_get(options, "usage_context", None)
+    usage_context = _core_get(options, "usageContext", usage_context_snake)
+    has_context = _core_truthy(usage_context)
+    if has_context:
+        event["context"] = usage_context
+    else:
+        pass
+    option_session_snake = _core_get(options, "session_id", None)
+    option_session = _core_get(options, "sessionId", option_session_snake)
+    response_session_snake = _core_get(response, "session_id", None)
+    response_session = _core_get(response, "sessionId", response_session_snake)
+    session_id = _core_coalesce(response_session, option_session)
+    has_session_id = _core_is_not_none(session_id)
+    if has_session_id:
+        event["sessionId"] = session_id
+    else:
+        pass
+    remote_id_snake = _core_get(response, "remote_id", None)
+    remote_id = _core_get(response, "remoteId", remote_id_snake)
+    has_remote_id = _core_is_not_none(remote_id)
+    if has_remote_id:
+        event["remoteId"] = remote_id
+    else:
+        pass
+    remote_request_id_snake = _core_get(response, "remote_request_id", None)
+    remote_request_id = _core_get(response, "remoteRequestId", remote_request_id_snake)
+    has_remote_request_id = _core_is_not_none(remote_request_id)
+    if has_remote_request_id:
+        event["remoteRequestId"] = remote_request_id
+    else:
+        pass
+    remote_session_id_snake = _core_get(response, "remote_session_id", None)
+    remote_session_id = _core_get(response, "remoteSessionId", remote_session_id_snake)
+    has_remote_session_id = _core_is_not_none(remote_session_id)
+    if has_remote_session_id:
+        event["remoteSessionId"] = remote_session_id
+    else:
+        pass
+    return event
 
 
 def _openai_tool_call_to_provider_impl(call: Any) -> Any:
@@ -2383,6 +2526,23 @@ def openai_build_embed_request(request: AxEmbedRequest) -> Any:
     return payload
 
 
+def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
+    _core_coverage_mark("_ai_model_usage_impl")
+    has_usage = _core_truthy(usage)
+    missing_usage = _core_not(has_usage)
+    if missing_usage:
+        none = _core_none()
+        return none
+    else:
+        pass
+    tokens = normalize_token_usage(usage)
+    out = {}
+    out["ai"] = ai_name
+    out["model"] = model
+    out["tokens"] = tokens
+    return out
+
+
 def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
     _core_coverage_mark("openai_normalize_chat_response")
     raw_is_object = _core_type_is(raw, "object")
@@ -2421,6 +2581,35 @@ def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str
     out["results"] = results
     out["remote_id"] = remote_id
     out["model_usage"] = model_usage
+    return out
+
+
+def chat_response_to_completion(response: AxChatResponse) -> Any:
+    _core_coverage_mark("chat_response_to_completion")
+    empty_results = []
+    results = _core_get(response, "results", empty_results)
+    empty_result = {}
+    result = _core_list_get(results, 0, empty_result)
+    content = _core_get(result, "content", "")
+    calls = []
+    empty_calls = []
+    function_calls = _core_get(result, "function_calls", empty_calls)
+    for call in function_calls:
+        fn = _core_get(call, "function", None)
+        id = _core_get(call, "id", None)
+        name = _core_get(fn, "name", None)
+        params = _core_get(fn, "params", None)
+        compat_call = {}
+        compat_call["id"] = id
+        compat_call["name"] = name
+        compat_call["params"] = params
+        calls.append(compat_call)
+    model_usage = _core_get(response, "model_usage", None)
+    usage = _core_get(model_usage, "tokens", None)
+    out = {}
+    out["content"] = content
+    out["function_calls"] = calls
+    out["usage"] = usage
     return out
 
 

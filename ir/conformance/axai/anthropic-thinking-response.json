@@ -6,6 +6,7 @@
       "tokens": {
         "completion_tokens": 5,
         "prompt_tokens": 6,
+        "speed": "standard",
         "total_tokens": 11
       }
     },

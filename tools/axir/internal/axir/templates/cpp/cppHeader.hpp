@@ -74,6 +74,12 @@ struct Value {
   bool is_object() const;
 };
 
+using AxUsageContext = Value;
+using AxUsageEvent = Value;
+using AxUsageObserver = std::function<void(AxUsageEvent)>;
+
+void set_usage_observer(AxUsageObserver observer);
+
 class AxError : public std::runtime_error {
  public:
   std::string category;
@@ -179,7 +185,7 @@ struct Core {
   static Value object_call_method(Value target, Value method_name, Value arg = Value());
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
-  static Value ai_complete_once(Value client, Value request);
+  static Value ai_complete_once(Value client, Value request, Value options);
   static Value retry_sleep(Value attempt);
   static Value tool_invoke(Value fn, Value params);
   static Value legacy_response_to_chat_response(Value raw);

@@ -22,6 +22,7 @@ import type {
   AxChatResponseResult,
   AxFunction,
 } from '../ai/types.js';
+import { axMergeUsageContexts } from '../ai/usage.js';
 import { axResolveMCPExecutionContext } from '../mcp/execution.js';
 import { AxMemory } from '../mem/memory.js';
 import type { AxAIMemory } from '../mem/types.js';
@@ -1109,6 +1110,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         contextCache,
         retry: options?.retry ?? this.options?.retry,
         customLabels: options?.customLabels,
+        usageContext: axMergeUsageContexts(
+          this.options?.usageContext,
+          options?.usageContext
+        ),
       }
     );
 

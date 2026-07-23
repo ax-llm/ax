@@ -97,6 +97,12 @@
       },
       {
         "suite": "axai",
+        "kind": "ai_usage_observer",
+        "runner": "python:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
         "kind": "ai_transcribe",
         "runner": "python:axai",
         "category": "transport-boundary"

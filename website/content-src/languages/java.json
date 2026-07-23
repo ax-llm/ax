@@ -124,10 +124,18 @@
     "llm": [
       "var client = Ax.ai(\"openai\", Map.of(\"apiKey\", System.getenv(\"OPENAI_API_KEY\")));"
     ],
-    "telemetry": [
-      "var program = Ax.ax(\"text:string -> label:string\");",
-      "var usage = program.getUsage();"
-    ],
+    "telemetry": {
+      "sourcePath": "src/examples/java/generation/UsageObserverExample.java",
+      "code": [
+        "AxGlobals.setUsageObserver(usageQueue::add);",
+        "client.chat(",
+        "    request,",
+        "    Map.of(\"usageContext\", Map.of(",
+        "        \"tenantId\", tenantId, \"userId\", userId, \"requestId\", requestId)));"
+      ],
+      "verified": true,
+      "requiresCredentials": true
+    },
     "optimize": [
       "var engine = new AxGEPA(reflectionClient, Map.of());",
       "var result = engine.optimize(request, evaluator);"

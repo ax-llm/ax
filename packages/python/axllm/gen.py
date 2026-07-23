@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 
 import copy
+import inspect
 import json
 import re
 import time
@@ -615,10 +616,23 @@ def _core_string_default_if_empty(value, fallback):
     return text if text else fallback
 
 
-def _core_ai_complete_once(client, request):
+def _core_ai_complete_once(client, request, options):
     chat = getattr(client, "chat", None)
     if callable(chat):
-        return chat_response_to_completion(chat(request))
+        try:
+            parameters = inspect.signature(chat).parameters.values()
+            accepts_options = (
+                len(inspect.signature(chat).parameters) >= 2
+                or any(
+                    parameter.kind
+                    in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+                    for parameter in parameters
+                )
+            )
+        except (TypeError, ValueError):
+            accepts_options = False
+        response = chat(request, options or {}) if accepts_options else chat(request)
+        return chat_response_to_completion(response)
     complete = getattr(client, "complete", None)
     if callable(complete):
         return complete(request)
@@ -1238,7 +1252,7 @@ def _forward_impl(gen: AxGen, client: AIClient, values: Any, options: Any) -> An
     last_tool_result = _core_none()
     while True:
         request = _build_gen_chat_request(gen, messages, runtime_options)
-        response = _complete_with_retries_impl(client, request, infra_retries)
+        response = _complete_with_retries_impl(client, request, runtime_options, infra_retries)
         _core_axgen_memory_add_response(gen, request, response)
         _core_axgen_record_chat_log(gen, request, response)
         calls = _response_function_calls_impl(response)
@@ -1542,13 +1556,13 @@ def _should_continue_steps(gen: AxGen, calls: list[Any]) -> bool:
     return should_continue
 
 
-def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, retries: int) -> Any:
+def _complete_with_retries_impl(client: AIClient, request: AxChatRequest, options: Any, retries: int) -> Any:
     _core_coverage_mark("_complete_with_retries_impl")
     attempt = 0
     last_error = _core_none()
     while True:
         try:
-            response = _core_ai_complete_once(client, request)
+            response = _core_ai_complete_once(client, request, options)
             return response
         except Exception as error:
             last_error = error
