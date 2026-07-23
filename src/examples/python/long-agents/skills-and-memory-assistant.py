@@ -86,6 +86,7 @@ assistant = agent(
         # A base skill always loaded, independent of search.
         "skills": [
             {
+                "id": "house-style",
                 "name": "house-style",
                 "content": "Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps -- cite the runbook.",
             }
@@ -119,8 +120,26 @@ result = assistant.forward(
             "and runbooks: what is the exact ordered procedure, and which specific feature flag must "
             "we set before promoting the replica?"
         ),
+        # Forward memories seed the first turn and reset before the next forward.
+        "memories": [
+            {
+                "id": "incident/current",
+                "content": "Current incident: enterprise checkout is affected; treat it as Sev-1 until proven otherwise.",
+            }
+        ],
     },
-    {"runtime": AxQuickJsCodeRuntime(), "max_actor_steps": 12},
+    {
+        "runtime": AxQuickJsCodeRuntime(),
+        "max_actor_steps": 12,
+        # Same-ID forward skills override constructor presets and remain loaded.
+        "skills": [
+            {
+                "id": "house-style",
+                "name": "house-style",
+                "content": "Be concise, operational, and explicit about ordering. Prefer remembered decisions over generic advice. Cite exact runbook steps.",
+            }
+        ],
+    },
 )
 
 print("\n=== Response ===")

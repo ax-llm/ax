@@ -114,6 +114,7 @@ int main() {
           // A base skill always loaded, independent of search.
           {"skills", axllm::array({
               axllm::object({
+                  {"id", "house-style"},
                   {"name", "house-style"},
                   {"content", "Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps -- cite the runbook."},
               }),
@@ -147,8 +148,26 @@ int main() {
                "incident as inc-118, and enterprise checkout is affected. Per our remembered decisions " +
                "and runbooks: what is the exact ordered procedure, and which specific feature flag must " +
                "we set before promoting the replica?"},
+          // Forward memories seed the first turn and reset before the next forward.
+          {"memories", axllm::array({
+                           axllm::object({
+                               {"id", "incident/current"},
+                               {"content", "Current incident: enterprise checkout is affected; treat it as Sev-1 until proven otherwise."},
+                           }),
+                       })},
       }),
-      axllm::object({{"runtime", axllm::Core::code_runtime_ref(runtime)}, {"max_actor_steps", 12}}));
+      axllm::object({
+          {"runtime", axllm::Core::code_runtime_ref(runtime)},
+          {"max_actor_steps", 12},
+          // Same-ID forward skills override constructor presets and remain loaded.
+          {"skills", axllm::array({
+                         axllm::object({
+                             {"id", "house-style"},
+                             {"name", "house-style"},
+                             {"content", "Be concise, operational, and explicit about ordering. Prefer remembered decisions over generic advice. Cite exact runbook steps."},
+                         }),
+                     })},
+      }));
 
   std::cout << "\n=== Response ===\n";
   std::cout << axllm::stringify(result) << "\n";

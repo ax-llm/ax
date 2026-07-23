@@ -33,6 +33,22 @@ AxAgent helper = Ax.agent("question:string -> answer:string", java.util.Map.of()
 var out = helper.forward(llm, java.util.Map.of("question", "How should I proceed?"));
 ```
 
+## Lifecycle And State
+
+- Constructor `skills` seed the loaded-skill prompt without firing load observers.
+- Forward-time `skills` override constructor entries by normalized ID and remain loaded for later calls. IDs and names are trimmed, malformed entries are skipped, valid empty content is preserved, and rendered entries are ID-sorted.
+- A forward input named `memories` seeds the first actor turn. Recalled entries merge by ID for that run, then memory state resets before the next forward.
+- `onSkillsSearch` / `onMemoriesSearch` take precedence over static catalogs. Without a host callback, `skillsCatalog` / `memoriesCatalog` use the built-in deterministic lexical ranker.
+- `onLoadedMemories` / `onLoadedSkills` observe runtime recall and discovery, not constructor presets. `onUsedMemories` / `onUsedSkills` emit one consolidated notification per forward. Forward observers override constructor observers, and observer errors are ignored.
+- `relevanceRanking` produces advisory skill and memory hints using the same tokenization, weighting, tie suppression, limits, snippets, and already-loaded exclusion as TypeScript.
+- `getState()` and `setState(...)` preserve the legacy bare-runtime snapshot shape. Use `exportRuntimeState()` and `restoreRuntimeState(...)` for the complete portable agent snapshot, including loaded skills and constructor-preset reapplication. Do not interchange the two shapes.
+
+## Runnable Examples
+
+- Provider-backed memory, skill, and observer lifecycle: `src/examples/java/long-agents/SkillsAndMemoryAssistantExample.java`.
+- Catalog-only search and relevance hints: the target's `smart-defaults-agent` example under `src/examples/java/long-agents/`.
+- Website gallery: https://axllm.dev/java/examples/long-agents/.
+
 ## Relevant API Surface
 
 - Agents And RLM: `Ax.agent`, `AxAgent`

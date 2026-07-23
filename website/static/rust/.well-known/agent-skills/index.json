@@ -62,7 +62,7 @@
       "type": "skill-md",
       "description": "Use when writing Rust code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-rust-agent-memory-skills/SKILL.md",
-      "digest": "sha256:f64c698a8aa92b5083bed618cc941c9d24adf9429e2ea65d8b9e4cce2889a742"
+      "digest": "sha256:45de5c45ae41847c32ba647861c6dce14f1abbbd4de6508249589804ab202418"
     },
     {
       "name": "ax-rust-agent-observability",

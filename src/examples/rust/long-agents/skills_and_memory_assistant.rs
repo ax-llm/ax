@@ -44,23 +44,37 @@ fn main() -> AxResult<()> {
 
     // Token-based matching (a stand-in for BM25/vector): an entry matches if any
     // word (len >= 3) of any search query appears in it -- robust to phrase queries.
-    let memories_search = move |searches: serde_json::Value, already_loaded: serde_json::Value| -> serde_json::Value {
+    let memories_search = move |searches: serde_json::Value,
+                                already_loaded: serde_json::Value|
+          -> serde_json::Value {
         let loaded: std::collections::HashSet<String> = already_loaded
             .as_array()
-            .map(|a| a.iter().filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut out: Vec<serde_json::Value> = vec![];
         if let Some(qs) = searches.as_array() {
             for q in qs {
                 let qstr = q.as_str().unwrap_or("").to_lowercase();
-                for tok in qstr.split(|c: char| !c.is_alphanumeric()).filter(|t| t.len() >= 3) {
+                for tok in qstr
+                    .split(|c: char| !c.is_alphanumeric())
+                    .filter(|t| t.len() >= 3)
+                {
                     for m in &memories {
                         let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("");
                         if loaded.contains(id) || seen.contains(id) {
                             continue;
                         }
-                        let hay = format!("{} {}", id, m.get("content").and_then(|v| v.as_str()).unwrap_or("")).to_lowercase();
+                        let hay = format!(
+                            "{} {}",
+                            id,
+                            m.get("content").and_then(|v| v.as_str()).unwrap_or("")
+                        )
+                        .to_lowercase();
                         if hay.contains(tok) {
                             out.push(m.clone());
                             seen.insert(id.to_string());
@@ -77,7 +91,10 @@ fn main() -> AxResult<()> {
         if let Some(qs) = searches.as_array() {
             for q in qs {
                 let qstr = q.as_str().unwrap_or("").to_lowercase();
-                for tok in qstr.split(|c: char| !c.is_alphanumeric()).filter(|t| t.len() >= 3) {
+                for tok in qstr
+                    .split(|c: char| !c.is_alphanumeric())
+                    .filter(|t| t.len() >= 3)
+                {
                     for sk in &skills {
                         let id = sk.get("id").and_then(|v| v.as_str()).unwrap_or("");
                         if seen.contains(id) {
@@ -121,6 +138,7 @@ fn main() -> AxResult<()> {
             // A base skill always loaded, independent of search.
             "skills": [
                 {
+                    "id": "house-style",
                     "name": "house-style",
                     "content": "Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps -- cite the runbook.",
                 }
@@ -141,8 +159,21 @@ fn main() -> AxResult<()> {
         &mut client,
         json!({
             "situation": "Our primary database is unhealthy and we're about to fail over -- the same class of incident as inc-118, and enterprise checkout is affected. Per our remembered decisions and runbooks: what is the exact ordered procedure, and which specific feature flag must we set before promoting the replica?",
+            // Forward memories seed the first turn and reset before the next forward.
+            "memories": [{
+                "id": "incident/current",
+                "content": "Current incident: enterprise checkout is affected; treat it as Sev-1 until proven otherwise.",
+            }],
         }),
-        json!({"max_actor_steps": 12}),
+        json!({
+            "max_actor_steps": 12,
+            // Same-ID forward skills override constructor presets and remain loaded.
+            "skills": [{
+                "id": "house-style",
+                "name": "house-style",
+                "content": "Be concise, operational, and explicit about ordering. Prefer remembered decisions over generic advice. Cite exact runbook steps.",
+            }],
+        }),
     )?;
 
     println!("\n=== Response ===");

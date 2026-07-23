@@ -502,17 +502,42 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.pipelineFlow = buildPipelineFlow(this);
   }
 
+  /**
+   * Run the agent once.
+   *
+   * @param values Signature inputs plus an optional `memories` array. Forward
+   * memories are visible from the first actor turn, merge with recalled
+   * entries by ID, and reset before the next call.
+   */
   public async forward<T extends Readonly<AxAIService>>(
     ai: T,
-    values: IN,
+    values: IN & {
+      /**
+       * Memories to expose from the first actor turn of this forward call.
+       * They merge with recalled entries by ID and reset before the next call.
+       */
+      memories?: readonly import('./memoriesTypes.js').AxAgentMemoryResult[];
+    },
     options?: Readonly<AxAgentForwardOptions<T>>
   ): Promise<OUT> {
     return forwardPipeline<IN, OUT, T>(this, ai, values, options);
   }
 
+  /**
+   * Run the agent once and stream its output.
+   *
+   * @param values Signature inputs plus an optional `memories` array with the
+   * same per-forward merge and reset semantics as `forward()`.
+   */
   public async *streamingForward<T extends Readonly<AxAIService>>(
     ai: T,
-    values: IN,
+    values: IN & {
+      /**
+       * Memories to expose from the first actor turn of this forward call.
+       * They merge with recalled entries by ID and reset before the next call.
+       */
+      memories?: readonly import('./memoriesTypes.js').AxAgentMemoryResult[];
+    },
     options?: Readonly<AxAgentStreamingForwardOptions<T>>
   ): AxGenStreamingOut<OUT> {
     yield* streamingForwardPipeline<IN, OUT, T>(this, ai, values, options);

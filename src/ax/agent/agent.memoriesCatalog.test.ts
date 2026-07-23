@@ -233,7 +233,7 @@ describe('memories catalog — end to end', () => {
     await a.forward(mockAI, {
       query: 'when can we ship to production?',
       memories: [{ id: 'preloaded-fact', content: 'PRELOADED FACT BODY' }],
-    } as never);
+    });
 
     // Preloaded memory is present from the FIRST executor turn.
     expect(capture.users[0] ?? '').toContain('PRELOADED FACT BODY');
@@ -258,7 +258,7 @@ describe('memories catalog — end to end', () => {
       query: 'schedule the production deploy',
       // Preload the on-topic memory — the hint must then EXCLUDE it.
       memories: [CATALOG[1]!],
-    } as never);
+    });
 
     const memEvent = events.find(
       (e) => e.kind === 'relevance_ranking' && e.domain === 'memories'

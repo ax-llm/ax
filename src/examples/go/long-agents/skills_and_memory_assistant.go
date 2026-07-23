@@ -142,7 +142,7 @@ func main() {
 			"contextFields": ax.Array(),
 			// A base skill always loaded, independent of search.
 			"skills": ax.Array(
-				ax.Object("name", "house-style", "content", "Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps -- cite the runbook."),
+				ax.Object("id", "house-style", "name", "house-style", "content", "Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps -- cite the runbook."),
 			),
 			// Native host search callbacks -- the actor's recall()/discover() reach these.
 			// Their presence auto-enables the memory + skill subsystems (so the actor's
@@ -173,8 +173,19 @@ func main() {
 				"incident as inc-118, and enterprise checkout is affected. Per our remembered decisions " +
 				"and runbooks: what is the exact ordered procedure, and which specific feature flag must " +
 				"we set before promoting the replica?",
+			// Forward memories seed the first turn and reset before the next forward.
+			"memories": ax.Array(
+				ax.Object("id", "incident/current", "content", "Current incident: enterprise checkout is affected; treat it as Sev-1 until proven otherwise."),
+			),
 		},
-		map[string]ax.Value{"runtime": axgoja.NewRuntime(), "max_actor_steps": 12},
+		map[string]ax.Value{
+			"runtime":         axgoja.NewRuntime(),
+			"max_actor_steps": 12,
+			// Same-ID forward skills override constructor presets and remain loaded.
+			"skills": ax.Array(
+				ax.Object("id", "house-style", "name", "house-style", "content", "Be concise, operational, and explicit about ordering. Prefer remembered decisions over generic advice. Cite exact runbook steps."),
+			),
+		},
 	)
 	if err != nil {
 		panic(err)

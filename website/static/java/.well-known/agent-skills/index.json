@@ -62,7 +62,7 @@
       "type": "skill-md",
       "description": "Use when writing Java code with `dev.axllm:ax` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-java-agent-memory-skills/SKILL.md",
-      "digest": "sha256:e39c9a7564e28a896ee43e7ae6a8a0ee8e7934aef59c0e875fc0f318fd042727"
+      "digest": "sha256:b66dfe8d31c79bff55f322495e25f2e4e9509da77197d328ac7e0f048c375d2d"
     },
     {
       "name": "ax-java-agent-observability",

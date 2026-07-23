@@ -101,6 +101,7 @@ const assistant = agent(
     // A base skill that is always loaded, independent of search.
     skills: [
       {
+        id: 'house-style',
         name: 'house-style',
         content:
           'Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps — cite the runbook.',
@@ -128,10 +129,32 @@ const assistant = agent(
   }
 );
 
-const result = await assistant.forward(llm, {
-  situation:
-    'Our primary database is unhealthy and we may need to fail over. Enterprise checkout is affected. What exactly should I do, in order?',
-});
+const result = await assistant.forward(
+  llm,
+  {
+    situation:
+      'Our primary database is unhealthy and we may need to fail over. Enterprise checkout is affected. What exactly should I do, in order?',
+    // Forward memories seed the first turn and reset before the next forward.
+    memories: [
+      {
+        id: 'incident/current',
+        content:
+          'Current incident: enterprise checkout is affected; treat it as Sev-1 until proven otherwise.',
+      },
+    ],
+  },
+  {
+    // Same-ID forward skills override constructor presets and remain loaded.
+    skills: [
+      {
+        id: 'house-style',
+        name: 'house-style',
+        content:
+          'Be concise, operational, and explicit about ordering. Prefer remembered decisions over generic advice. Cite exact runbook steps.',
+      },
+    ],
+  }
+);
 
 console.log('\n=== Response ===');
 console.log(JSON.stringify(result, null, 2));

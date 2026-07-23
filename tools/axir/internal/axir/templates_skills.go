@@ -254,6 +254,28 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 		) + "\n"
 	}
+	agentMemoryGuide := ""
+	if spec.ID == "agent-memory-skills" {
+		legacyGet, legacySet, exportState, restoreState := skillAgentStateMethods(target)
+		agentMemoryGuide = readmeLines(
+			"## Lifecycle And State",
+			"",
+			"- Constructor `skills` seed the loaded-skill prompt without firing load observers.",
+			"- Forward-time `skills` override constructor entries by normalized ID and remain loaded for later calls. IDs and names are trimmed, malformed entries are skipped, valid empty content is preserved, and rendered entries are ID-sorted.",
+			"- A forward input named `memories` seeds the first actor turn. Recalled entries merge by ID for that run, then memory state resets before the next forward.",
+			"- `onSkillsSearch` / `onMemoriesSearch` take precedence over static catalogs. Without a host callback, `skillsCatalog` / `memoriesCatalog` use the built-in deterministic lexical ranker.",
+			"- `onLoadedMemories` / `onLoadedSkills` observe runtime recall and discovery, not constructor presets. `onUsedMemories` / `onUsedSkills` emit one consolidated notification per forward. Forward observers override constructor observers, and observer errors are ignored.",
+			"- `relevanceRanking` produces advisory skill and memory hints using the same tokenization, weighting, tie suppression, limits, snippets, and already-loaded exclusion as TypeScript.",
+			"- `"+legacyGet+"` and `"+legacySet+"` preserve the legacy bare-runtime snapshot shape. Use `"+exportState+"` and `"+restoreState+"` for the complete portable agent snapshot, including loaded skills and constructor-preset reapplication. Do not interchange the two shapes.",
+			"",
+			"## Runnable Examples",
+			"",
+			"- Provider-backed memory, skill, and observer lifecycle: `"+skillAgentMemoryExamplePath(target)+"`.",
+			"- Catalog-only search and relevance hints: the target's `smart-defaults-agent` example under `src/examples/"+target+"/long-agents/`.",
+			"- Website gallery: https://axllm.dev/"+target+"/examples/long-agents/.",
+			"",
+		) + "\n"
+	}
 	return readmeLines(
 		skillFrontmatter(name, description, generatedPackageVersion()),
 		"# "+spec.Title+" For "+cfg.Language,
@@ -283,7 +305,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		skillSnippet(target, spec.ID),
 		"```",
 		"",
-		expandedExamples+routingGuide+"## Relevant API Surface",
+		expandedExamples+routingGuide+agentMemoryGuide+"## Relevant API Surface",
 		"",
 		skillAPISurface(apiRef, spec.Sections),
 		"",
@@ -297,6 +319,34 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.",
 		}),
 	)
+}
+
+func skillAgentStateMethods(target string) (string, string, string, string) {
+	switch target {
+	case "java":
+		return "getState()", "setState(...)", "exportRuntimeState()", "restoreRuntimeState(...)"
+	case "go":
+		return "GetState()", "SetState(...)", "ExportRuntimeState()", "RestoreRuntimeState(...)"
+	default:
+		return "get_state()", "set_state(...)", "export_runtime_state()", "restore_runtime_state(...)"
+	}
+}
+
+func skillAgentMemoryExamplePath(target string) string {
+	switch target {
+	case "python":
+		return "src/examples/python/long-agents/skills-and-memory-assistant.py"
+	case "java":
+		return "src/examples/java/long-agents/SkillsAndMemoryAssistantExample.java"
+	case "cpp":
+		return "src/examples/cpp/long-agents/skills_and_memory_assistant.cpp"
+	case "go":
+		return "src/examples/go/long-agents/skills_and_memory_assistant.go"
+	case "rust":
+		return "src/examples/rust/long-agents/skills_and_memory_assistant.rs"
+	default:
+		return "src/examples/" + target + "/long-agents/"
+	}
 }
 
 type skillPattern struct {

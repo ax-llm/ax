@@ -89,6 +89,7 @@ public final class SkillsAndMemoryAssistantExample {
             "contextFields", List.of(),
             // A base skill always loaded, independent of search.
             "skills", List.of(Map.of(
+                "id", "house-style",
                 "name", "house-style",
                 "content", "Be concise and operational. Prefer our remembered decisions over generic advice. Never invent flag names or steps -- cite the runbook.")),
             // Native host search callbacks -- the actor's recall()/discover() reach these.
@@ -116,8 +117,19 @@ public final class SkillsAndMemoryAssistantExample {
                   "Our primary database is unhealthy and we're about to fail over -- the same class of",
                   "incident as inc-118, and enterprise checkout is affected. Per our remembered decisions",
                   "and runbooks: what is the exact ordered procedure, and which specific feature flag must",
-                  "we set before promoting the replica?")),
-          Map.of("runtime", runtime, "max_actor_steps", 12));
+                  "we set before promoting the replica?"),
+              // Forward memories seed the first turn and reset before the next forward.
+              "memories", List.of(Map.of(
+                  "id", "incident/current",
+                  "content", "Current incident: enterprise checkout is affected; treat it as Sev-1 until proven otherwise."))),
+          Map.of(
+              "runtime", runtime,
+              "max_actor_steps", 12,
+              // Same-ID forward skills override constructor presets and remain loaded.
+              "skills", List.of(Map.of(
+                  "id", "house-style",
+                  "name", "house-style",
+                  "content", "Be concise, operational, and explicit about ordering. Prefer remembered decisions over generic advice. Cite exact runbook steps."))));
 
       System.out.println("\n=== Response ===");
       System.out.println(Json.pretty(result));

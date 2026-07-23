@@ -78,6 +78,15 @@ import {
   type WithoutUsage = Awaited<typeof withoutUsage>;
   // @ts-expect-error usedMemories is observed by callback, not returned
   const _withoutUsageBad: WithoutUsage = { answer: 'x', usedMemories: [] };
+
+  // The runtime-supported first-turn memory seed is part of the public input
+  // type even when it is not declared in the user's signature.
+  const withPreloadedMemory = a.forward(ai, {
+    query: 'hello',
+    memories: [{ id: 'prefs', content: 'Coffee' }],
+  });
+  type WithPreloadedMemory = Awaited<typeof withPreloadedMemory>;
+  const _withPreloadedMemoryOk: WithPreloadedMemory = { answer: 'x' };
 }
 
 // onUsedSkills observes actor-declared skill usage without changing output

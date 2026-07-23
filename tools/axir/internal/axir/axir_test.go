@@ -1387,6 +1387,35 @@ func TestDocsCoverCompilerAndArchitecture(t *testing.T) {
 	}
 }
 
+func TestAxAgentMemorySkillExamplesStayAligned(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "..")
+	examples := []string{
+		"src/examples/typescript/long-agents/skills-and-memory-assistant.ts",
+		"src/examples/python/long-agents/skills-and-memory-assistant.py",
+		"src/examples/java/long-agents/SkillsAndMemoryAssistantExample.java",
+		"src/examples/cpp/long-agents/skills_and_memory_assistant.cpp",
+		"src/examples/go/long-agents/skills_and_memory_assistant.go",
+		"src/examples/rust/long-agents/skills_and_memory_assistant.rs",
+	}
+	for _, rel := range examples {
+		text := readRepoFile(t, root, filepath.FromSlash(rel))
+		for _, want := range []string{
+			"Skills + Memory Ops Assistant",
+			"incident/current",
+			"Forward memories seed the first turn and reset before the next forward.",
+			"Same-ID forward skills override constructor presets and remain loaded.",
+			"onLoadedMemories",
+			"onLoadedSkills",
+			"onUsedMemories",
+			"onUsedSkills",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s missing AxAgent memory/skills example marker %q", rel, want)
+			}
+		}
+	}
+}
+
 func checkGeneratedFileContains(t *testing.T, root, rel string, wants ...string) {
 	t.Helper()
 	text := readRepoFile(t, root, filepath.FromSlash(rel))
@@ -1454,6 +1483,27 @@ func assertGeneratedSkillFrontmatter(t *testing.T, root, rel, target string) {
 		for _, want := range wants {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s missing expanded skill marker %q", rel, want)
+			}
+		}
+	}
+	if strings.HasSuffix(wantName, "-agent-memory-skills") {
+		legacyGet, legacySet, exportState, restoreState := skillAgentStateMethods(target)
+		for _, want := range []string{
+			"## Lifecycle And State",
+			"Constructor `skills` seed the loaded-skill prompt",
+			"Forward-time `skills` override constructor entries",
+			"memory state resets before the next forward",
+			"`onSkillsSearch` / `onMemoriesSearch` take precedence",
+			"one consolidated notification per forward",
+			legacyGet,
+			legacySet,
+			exportState,
+			restoreState,
+			skillAgentMemoryExamplePath(target),
+			"https://axllm.dev/" + target + "/examples/long-agents/",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s missing agent memory/skills lifecycle marker %q", rel, want)
 			}
 		}
 	}
