@@ -74,9 +74,9 @@
     {
       "name": "ax-agent-observability",
       "type": "skill-md",
-      "description": "This skill helps an LLM generate correct AxAgent observability code using @ax-llm/ax. Use when the user asks about actorTurnCallback, onContextEvent, agentStatusCallback, onFunctionCall, reportSuccess, reportFailure, getChatLog(), getUsage(), resetUsage(), debug traces, progress updates, or telemetry for AxAgent runs.",
+      "description": "This skill helps an LLM generate correct AxAgent observability code using @ax-llm/ax. Use when the user asks about axGlobals.onUsage, usageContext, centralized or multi-tenant usage accounting, actorTurnCallback, onContextEvent, agentStatusCallback, onFunctionCall, reportSuccess, reportFailure, getChatLog(), getUsage(), resetUsage(), debug traces, progress updates, or telemetry for AxAgent runs.",
       "url": "ax-agent-observability/SKILL.md",
-      "digest": "sha256:935a316ad6eea616078877208b6b9e47387f4d32f348c1ba1caa0ae75a748663"
+      "digest": "sha256:79602143257affeab3edccdd0398a2eaf78d845291f17a96dcec522228ba6287"
     },
     {
       "name": "ax-agent-optimize",

@@ -67,9 +67,9 @@
     {
       "name": "ax-go-agent-observability",
       "type": "skill-md",
-      "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent tracing, usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
+      "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-go-agent-observability/SKILL.md",
-      "digest": "sha256:f6a8121224a4fe0f9a7a9d42b1e81a87c6ddfbbef7a9d133aa8d7ffbb1c00f3c"
+      "digest": "sha256:1294c99f0be9aa5b0efde929b81edc612421f23097c4b1637b7fc89ab5191f3f"
     },
     {
       "name": "ax-go-agent-optimize",

@@ -67,9 +67,9 @@
     {
       "name": "ax-java-agent-observability",
       "type": "skill-md",
-      "description": "Use when writing Java code with `dev.axllm:ax` for agent tracing, usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
+      "description": "Use when writing Java code with `dev.axllm:ax` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-java-agent-observability/SKILL.md",
-      "digest": "sha256:9d753b07f8542924f2c55933d5cb1d4838c28e692ccf7cb9482da1741e8aac6c"
+      "digest": "sha256:3324b611b15e3f8fd288dc5048f915e66919881aaeef290a721d26256d819339"
     },
     {
       "name": "ax-java-agent-optimize",

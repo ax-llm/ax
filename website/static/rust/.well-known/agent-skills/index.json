@@ -67,9 +67,9 @@
     {
       "name": "ax-rust-agent-observability",
       "type": "skill-md",
-      "description": "Use when writing Rust code with `axllm` for agent tracing, usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
+      "description": "Use when writing Rust code with `axllm` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-rust-agent-observability/SKILL.md",
-      "digest": "sha256:e39df719f6368b1f0c8859c9026c99ab46aca12b32290ec846c27aa917d088a8"
+      "digest": "sha256:95316fece0cececa9ef02f6c0486c163c437a38910629c5c3a707ed6eb6c3ec6"
     },
     {
       "name": "ax-rust-agent-optimize",
