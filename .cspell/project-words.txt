@@ -74,6 +74,8 @@ dosco
 dspy
 effectful
 Evals
+EWMA
+Ewma
 every time
 failer
 fewshot
@@ -259,6 +261,7 @@ voxtral
 Weaviate
 weaviate
 webllm
+Welford
 xfailed
 xhigh
 Xhigh
