@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-gepa"
 description: "Use when writing C++ code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts."
-version: "23.0.3"
+version: "23.0.4"
 ---
 # Ax GEPA For C++
 

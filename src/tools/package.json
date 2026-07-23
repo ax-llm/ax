@@ -1,6 +1,6 @@
 {
   "name": "@ax-llm/ax-tools",
-  "version": "23.0.3",
+  "version": "23.0.4",
   "type": "module",
   "description": "Ax tools package",
   "repository": {
@@ -31,7 +31,7 @@
     "postbuild": "node ../../scripts/postbuild.js"
   },
   "dependencies": {
-    "@ax-llm/ax": "23.0.3",
+    "@ax-llm/ax": "23.0.4",
     "better-sqlite3": "^12.11.1"
   },
   "files": [

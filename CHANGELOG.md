@@ -1,5 +1,26 @@
 # Changelog
 
+## [23.0.4](https://github.com/ax-llm/ax/compare/23.0.2...23.0.3) (2026-07-23)
+
+### Features
+
+* **ai:** add adaptive balancer routing ([0f26c05](https://github.com/ax-llm/ax/commit/0f26c05ef2201b9c97b981510d89d38d56be4928))
+* **ai:** add portable global usage observer ([4ad1a33](https://github.com/ax-llm/ax/commit/4ad1a3307c988cb4a74dc3ea874255d24368b095))
+* **axir:** enforce AxAgent semantic parity ([7d4947a](https://github.com/ax-llm/ax/commit/7d4947aa1097348dac170a80f73c6bf4601ff65e))
+* **axir:** port adaptive balancer routing ([1b74dc0](https://github.com/ax-llm/ax/commit/1b74dc0c59a5be34fc7f7ed5265c2bf0382146bf))
+
+### Bug Fixes
+
+* **axir:** refresh agent parity inventory ([52a26bb](https://github.com/ax-llm/ax/commit/52a26bb30f48566ad23bdd3ad78779a760515b2f))
+* **ci:** add adaptive routing spelling terms ([59ac880](https://github.com/ax-llm/ax/commit/59ac880d2d851257ba1ae3c1ce295c1592e5ebfd))
+
+## [23.0.3](https://github.com/ax-llm/ax/compare/23.0.2...23.0.3) (2026-07-21)
+
+### Features
+
+* **axir:** port new Gemini Flash models ([d25acf2](https://github.com/ax-llm/ax/commit/d25acf280d7f7e8c8a44cc93bab813af9dacf766))
+* **gemini:** add 3.6 Flash and 3.5 Flash-Lite ([3fb5a8a](https://github.com/ax-llm/ax/commit/3fb5a8a41b5aab69a826e5ec4722360226dc1bec))
+
 ## [23.0.3](https://github.com/ax-llm/ax/compare/23.0.1...23.0.2) (2026-07-21)
 
 ### Features
