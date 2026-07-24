@@ -154,6 +154,7 @@ export function buildInternalSummaryRequestOptions(
     retry: options?.retry,
     contextCache: options?.contextCache,
     customLabels: options?.customLabels,
+    usageContext: options?.usageContext,
   };
 }
 
