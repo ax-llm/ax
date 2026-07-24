@@ -1,5 +1,25 @@
 # Changelog
 
+## [23.0.5](https://github.com/ax-llm/ax/compare/23.0.3...23.0.4) (2026-07-24)
+
+### Bug Fixes
+
+* **agent:** preserve usage context in internal summaries ([0d10c43](https://github.com/ax-llm/ax/commit/0d10c4308fc48d8d77e700bc36c649f9cef84b24))
+
+## [23.0.4](https://github.com/ax-llm/ax/compare/23.0.3...23.0.4) (2026-07-23)
+
+### Features
+
+* **ai:** add adaptive balancer routing ([0f26c05](https://github.com/ax-llm/ax/commit/0f26c05ef2201b9c97b981510d89d38d56be4928))
+* **ai:** add portable global usage observer ([4ad1a33](https://github.com/ax-llm/ax/commit/4ad1a3307c988cb4a74dc3ea874255d24368b095))
+* **axir:** enforce AxAgent semantic parity ([7d4947a](https://github.com/ax-llm/ax/commit/7d4947aa1097348dac170a80f73c6bf4601ff65e))
+* **axir:** port adaptive balancer routing ([1b74dc0](https://github.com/ax-llm/ax/commit/1b74dc0c59a5be34fc7f7ed5265c2bf0382146bf))
+
+### Bug Fixes
+
+* **axir:** refresh agent parity inventory ([52a26bb](https://github.com/ax-llm/ax/commit/52a26bb30f48566ad23bdd3ad78779a760515b2f))
+* **ci:** add adaptive routing spelling terms ([59ac880](https://github.com/ax-llm/ax/commit/59ac880d2d851257ba1ae3c1ce295c1592e5ebfd))
+
 ## [23.0.4](https://github.com/ax-llm/ax/compare/23.0.2...23.0.3) (2026-07-23)
 
 ### Features

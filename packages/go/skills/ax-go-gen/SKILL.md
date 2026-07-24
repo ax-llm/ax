@@ -1,7 +1,7 @@
 ---
 name: "ax-go-gen"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for AxGen programs, forward calls, streaming, tools, assertions, traces, usage, and output parsing."
-version: "23.0.4"
+version: "23.0.5"
 ---
 # AxGen Structured Generation For Go
 

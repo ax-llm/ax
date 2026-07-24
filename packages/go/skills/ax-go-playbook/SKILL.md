@@ -1,7 +1,7 @@
 ---
 name: "ax-go-playbook"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program."
-version: "23.0.4"
+version: "23.0.5"
 ---
 # Ax Playbook For Go
 
