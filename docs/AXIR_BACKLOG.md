@@ -18,11 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-07-23-propagate-usage-context-to-internal-agent-summaries` [axagent] Conformance for internal agent summary usage attribution
-  - Status: open
-  - TS paths: `src/ax/agent/runtime.ts`, `src/ax/agent/runtimeOptions.test.ts`
-  - Impact: TypeScript previously omitted request-scoped usageContext when rebuilding forward options for internal tombstone and checkpoint summarizers. AxIR and the generated agents already pass the full option map to equivalent internal model calls, but axagent conformance does not explicitly guard this attribution path against future drift.
-  - Suggested AxIR work: Add an axagent conformance fixture proving that internal summary model calls retain request-scoped usageContext.; Confirm the existing generated Python, Java, C++, Go, and Rust behavior against the fixture.; Run npm run axir:conformance:check and npm run test:axir, then close this entry if all backends pass.
+No entries.
 
 ## Done
 
@@ -231,4 +227,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-21
   - Completed by: `d25acf280d7f7e8c8a44cc93bab813af9dacf766`
+  - Verification: `npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check`
+- `axir-2026-07-23-propagate-usage-context-to-internal-agent-summaries` [axagent] Conformance for internal agent summary usage attribution
+  - Status: done
+  - TS paths: `src/ax/agent/runtime.ts`, `src/ax/agent/runtimeOptions.test.ts`
+  - Impact: TypeScript previously omitted request-scoped usageContext when rebuilding forward options for internal tombstone and checkpoint summarizers. AxIR and the generated agents already pass the full option map to equivalent internal model calls, but axagent conformance does not explicitly guard this attribution path against future drift.
+  - Suggested AxIR work: Add an axagent conformance fixture proving that internal summary model calls retain request-scoped usageContext.; Confirm the existing generated Python, Java, C++, Go, and Rust behavior against the fixture.; Run npm run axir:conformance:check and npm run test:axir, then close this entry if all backends pass.
+  - Completed at: 2026-07-24
+  - Completed by: `0d10c4308fc48d8d77e700bc36c649f9cef84b24`
   - Verification: `npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check`

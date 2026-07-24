@@ -537,7 +537,7 @@
     },
     {
       "id": "axir-2026-07-23-propagate-usage-context-to-internal-agent-summaries",
-      "status": "open",
+      "status": "done",
       "title": "Conformance for internal agent summary usage attribution",
       "createdAt": "2026-07-23",
       "sourcePR": null,
@@ -552,7 +552,10 @@
         "Add an axagent conformance fixture proving that internal summary model calls retain request-scoped usageContext.",
         "Confirm the existing generated Python, Java, C++, Go, and Rust behavior against the fixture.",
         "Run npm run axir:conformance:check and npm run test:axir, then close this entry if all backends pass."
-      ]
+      ],
+      "completedAt": "2026-07-24",
+      "completedByCommit": "0d10c4308fc48d8d77e700bc36c649f9cef84b24",
+      "verification": "npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check"
     }
   ],
   "nonPortableExemptions": [
