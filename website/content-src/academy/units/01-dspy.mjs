@@ -10,7 +10,7 @@ export const dspyUnit = {
     'website/content-src/templates/concept-dspy.md',
     'src/ax/skills/ax-signature.md',
   ],
-  examplePaths: ['src/examples/typescript/generation/axgen-openai.ts'],
+  examplePaths: ['src/examples/typescript/generation/structured.ts'],
   topics: [
     topic({
       id: 'programs-not-prompts',
@@ -56,6 +56,7 @@ export const dspyUnit = {
         'You pair realistic examples with a metric, then compare versions on the same evidence. This turns prompt tweaking into a repeatable improvement loop.',
       example:
         'const metric = ({ prediction, example }) => prediction.sentiment === example.sentiment ? 1 : 0;',
+      examplePath: 'src/examples/typescript/optimization/axgen-optimization.ts',
       exampleSteps: [
         {
           label: 'Keep a known answer',
