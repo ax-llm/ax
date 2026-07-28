@@ -18,7 +18,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-07-28-port-actor-multi-fence-rejection-before-execution` [axagent] Port actor multi-fence rejection before execution
+  - Status: open
+  - Source PR: #563
+  - Source commit: `eec609f8789e6fe22956e15006c260dbf634f86c`
+  - TS paths: `src/ax/agent/agent.test.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust agents may still normalize malformed multi-block actor responses to the first fenced block and execute a partial program.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

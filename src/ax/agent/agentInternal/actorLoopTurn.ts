@@ -1,4 +1,5 @@
 import type {
+  AxChatLogEntry,
   AxGenIn,
   AxProgramForwardOptions,
   AxProgramUsage,
@@ -44,6 +45,80 @@ const ACTOR_CODE_POLICY_GUIDANCE =
   'On this turn, set Javascript Code to runnable JavaScript only: use console.log(...) for inspection, ' +
   'await final("...", { ... }) when complete, or await askClarification(...) when blocked. ' +
   'Do not emit plain task:/evidence: labels or prose as the Javascript Code value.';
+
+function buildMultipleCodeBlocksPolicyViolation(
+  runtimeCodeFieldTitle: string
+): string {
+  return `[POLICY] ${runtimeCodeFieldTitle} must contain at most one fenced code block. No code from the previous turn was executed.`;
+}
+
+function buildMultipleCodeBlocksPolicyGuidance(
+  runtimeCodeFieldTitle: string
+): string {
+  return (
+    `Your previous ${runtimeCodeFieldTitle} value contained multiple fenced code blocks, so none of them were executed. ` +
+    `On this turn, put every executable statement in one ${runtimeCodeFieldTitle} value with at most one fence.`
+  );
+}
+
+function extractRawActorCode(
+  chatLog: readonly AxChatLogEntry[],
+  runtimeCodeFieldTitle: string
+): string | undefined {
+  const messages = chatLog[chatLog.length - 1]?.messages;
+  if (!messages) {
+    return undefined;
+  }
+
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message?.role !== 'assistant') {
+      continue;
+    }
+
+    const content = message.content
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .replace(/[^\n]*<\/think>/g, '')
+      .trim();
+
+    const prefix = `${runtimeCodeFieldTitle}:`;
+    const prefixIndex = content.indexOf(prefix);
+    if (prefixIndex >= 0) {
+      return content.slice(prefixIndex + prefix.length).trim();
+    }
+    return content;
+  }
+
+  return undefined;
+}
+
+function containsMultipleFencedCodeBlocks(code: string): boolean {
+  let insideFence = false;
+  let blockCount = 0;
+
+  for (const line of code.split(/\r?\n/)) {
+    // Match the same triple-backtick opener shape accepted by
+    // normalizeActorCode, including prose before the first fence.
+    const fence = line.match(/```([A-Za-z0-9_-]+)?[ \t]*$/);
+    if (!fence) {
+      continue;
+    }
+
+    const hasLanguage = fence[1] !== undefined;
+    if (insideFence && !hasLanguage) {
+      insideFence = false;
+      continue;
+    }
+
+    blockCount++;
+    if (blockCount > 1) {
+      return true;
+    }
+    insideFence = true;
+  }
+
+  return false;
+}
 
 export async function runActorTurn<_IN extends AxGenIn>(
   ctx: ActorLoopContext,
@@ -259,8 +334,9 @@ export async function runActorTurn<_IN extends AxGenIn>(
     actorCallOptions.model !== undefined
       ? String(actorCallOptions.model)
       : undefined;
+  const actorChatLog = s.actorProgram.getChatLog();
   const turnChatLogMessages = actorTurnCallback
-    ? snapshotChatLogMessages(s.actorProgram.getChatLog())
+    ? snapshotChatLogMessages(actorChatLog)
     : undefined;
 
   if (turn === 0) {
@@ -268,19 +344,40 @@ export async function runActorTurn<_IN extends AxGenIn>(
   }
 
   const runtimeCodeFieldName = s.runtimeCodeFieldName ?? 'javascriptCode';
+  const runtimeCodeFieldTitle = s.runtimeCodeFieldTitle ?? 'Javascript Code';
   let code = executorResult[runtimeCodeFieldName] as string | undefined;
   const trimmedCode = code?.trim();
-  if (!code || !trimmedCode) {
-    return { shouldBreak: true, shouldContinue: false };
+  // Code-field parsing extracts the first Markdown fence, so inspect the raw
+  // response before a later block can disappear from the actor turn.
+  const rawResponseCode = extractRawActorCode(
+    actorChatLog,
+    runtimeCodeFieldTitle
+  )?.trim();
+  const codeBeforeNormalization = rawResponseCode ?? trimmedCode;
+  const hasMultipleFencedCodeBlocks =
+    typeof codeBeforeNormalization === 'string' &&
+    containsMultipleFencedCodeBlocks(codeBeforeNormalization);
+  if (hasMultipleFencedCodeBlocks) {
+    code = codeBeforeNormalization;
+  } else {
+    if (!code || !trimmedCode) {
+      return { shouldBreak: true, shouldContinue: false };
+    }
+    code = normalizeActorCode(trimmedCode);
   }
-  code = normalizeActorCode(trimmedCode);
   executorResult[runtimeCodeFieldName] = code;
 
   completionState.payload = undefined;
   const functionCallStartIndex = functionCallRecords?.length ?? 0;
 
-  if (s.enforceIncrementalConsoleTurns) {
-    const policyResult = validateActorTurnCodePolicy(code);
+  if (hasMultipleFencedCodeBlocks || s.enforceIncrementalConsoleTurns) {
+    const policyResult = hasMultipleFencedCodeBlocks
+      ? {
+          violation: buildMultipleCodeBlocksPolicyViolation(
+            runtimeCodeFieldTitle
+          ),
+        }
+      : validateActorTurnCodePolicy(code);
 
     // Auto-split: discovery mixed with other code — run discovery first,
     // then proceed to execute the full code block (discovery calls are
@@ -296,7 +393,9 @@ export async function runActorTurn<_IN extends AxGenIn>(
       const entryTurn = actionLogEntries.length + 1;
       appendGuidanceEntry(guidanceState.entries, {
         turn: entryTurn,
-        guidance: ACTOR_CODE_POLICY_GUIDANCE,
+        guidance: hasMultipleFencedCodeBlocks
+          ? buildMultipleCodeBlocksPolicyGuidance(runtimeCodeFieldTitle)
+          : ACTOR_CODE_POLICY_GUIDANCE,
         triggeredBy: 'runtime policy',
       });
       actionLogEntries.push({
