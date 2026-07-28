@@ -46,12 +46,20 @@ const ACTOR_CODE_POLICY_GUIDANCE =
   'await final("...", { ... }) when complete, or await askClarification(...) when blocked. ' +
   'Do not emit plain task:/evidence: labels or prose as the Javascript Code value.';
 
-const MULTIPLE_CODE_BLOCKS_POLICY_VIOLATION =
-  '[POLICY] Javascript Code must contain at most one fenced code block. No code from the previous turn was executed.';
+function buildMultipleCodeBlocksPolicyViolation(
+  runtimeCodeFieldTitle: string
+): string {
+  return `[POLICY] ${runtimeCodeFieldTitle} must contain at most one fenced code block. No code from the previous turn was executed.`;
+}
 
-const MULTIPLE_CODE_BLOCKS_POLICY_GUIDANCE =
-  'Your previous Javascript Code value contained multiple fenced code blocks, so none of them were executed. ' +
-  'On this turn, put every executable statement in one Javascript Code value with at most one fence.';
+function buildMultipleCodeBlocksPolicyGuidance(
+  runtimeCodeFieldTitle: string
+): string {
+  return (
+    `Your previous ${runtimeCodeFieldTitle} value contained multiple fenced code blocks, so none of them were executed. ` +
+    `On this turn, put every executable statement in one ${runtimeCodeFieldTitle} value with at most one fence.`
+  );
+}
 
 function extractRawActorCode(
   chatLog: readonly AxChatLogEntry[],
@@ -84,10 +92,32 @@ function extractRawActorCode(
   return undefined;
 }
 
-function countFencedCodeBlocks(code: string): number {
-  return Array.from(
-    code.matchAll(/```(?:[A-Za-z0-9_-]+)?[ \t]*\r?\n[\s\S]*?\r?\n?```/g)
-  ).length;
+function containsMultipleFencedCodeBlocks(code: string): boolean {
+  let insideFence = false;
+  let blockCount = 0;
+
+  for (const line of code.split(/\r?\n/)) {
+    // Match the same triple-backtick opener shape accepted by
+    // normalizeActorCode, including prose before the first fence.
+    const fence = line.match(/```([A-Za-z0-9_-]+)?[ \t]*$/);
+    if (!fence) {
+      continue;
+    }
+
+    const hasLanguage = fence[1] !== undefined;
+    if (insideFence && !hasLanguage) {
+      insideFence = false;
+      continue;
+    }
+
+    blockCount++;
+    if (blockCount > 1) {
+      return true;
+    }
+    insideFence = true;
+  }
+
+  return false;
 }
 
 export async function runActorTurn<_IN extends AxGenIn>(
@@ -314,19 +344,19 @@ export async function runActorTurn<_IN extends AxGenIn>(
   }
 
   const runtimeCodeFieldName = s.runtimeCodeFieldName ?? 'javascriptCode';
+  const runtimeCodeFieldTitle = s.runtimeCodeFieldTitle ?? 'Javascript Code';
   let code = executorResult[runtimeCodeFieldName] as string | undefined;
   const trimmedCode = code?.trim();
   // Code-field parsing extracts the first Markdown fence, so inspect the raw
   // response before a later block can disappear from the actor turn.
   const rawResponseCode = extractRawActorCode(
     actorChatLog,
-    s.runtimeCodeFieldTitle ?? 'Javascript Code'
+    runtimeCodeFieldTitle
   )?.trim();
   const codeBeforeNormalization = rawResponseCode ?? trimmedCode;
   const hasMultipleFencedCodeBlocks =
-    s.isJavaScriptRuntime !== false &&
     typeof codeBeforeNormalization === 'string' &&
-    countFencedCodeBlocks(codeBeforeNormalization) > 1;
+    containsMultipleFencedCodeBlocks(codeBeforeNormalization);
   if (hasMultipleFencedCodeBlocks) {
     code = codeBeforeNormalization;
   } else {
@@ -342,7 +372,11 @@ export async function runActorTurn<_IN extends AxGenIn>(
 
   if (hasMultipleFencedCodeBlocks || s.enforceIncrementalConsoleTurns) {
     const policyResult = hasMultipleFencedCodeBlocks
-      ? { violation: MULTIPLE_CODE_BLOCKS_POLICY_VIOLATION }
+      ? {
+          violation: buildMultipleCodeBlocksPolicyViolation(
+            runtimeCodeFieldTitle
+          ),
+        }
       : validateActorTurnCodePolicy(code);
 
     // Auto-split: discovery mixed with other code — run discovery first,
@@ -360,7 +394,7 @@ export async function runActorTurn<_IN extends AxGenIn>(
       appendGuidanceEntry(guidanceState.entries, {
         turn: entryTurn,
         guidance: hasMultipleFencedCodeBlocks
-          ? MULTIPLE_CODE_BLOCKS_POLICY_GUIDANCE
+          ? buildMultipleCodeBlocksPolicyGuidance(runtimeCodeFieldTitle)
           : ACTOR_CODE_POLICY_GUIDANCE,
         triggeredBy: 'runtime policy',
       });
