@@ -38,6 +38,7 @@ describe('AxMCPWebSocketTransport', () => {
     const transport = new AxMCPWebSocketTransport('wss://mcp.example', {
       webSocketFactory: () => socket,
     });
+    expect(transport.eraHint).toBe('legacy');
     const connected = transport.connect();
     socket.open();
     await connected;

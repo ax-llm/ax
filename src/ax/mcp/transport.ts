@@ -7,7 +7,11 @@ import type {
 
 export interface AxMCPRequestOptions {
   signal?: AbortSignal;
+  /** Additional headers for this request when the transport supports them. */
+  headers?: Readonly<Record<string, string>>;
 }
+
+export type AxMCPEra = 'modern' | 'legacy';
 
 export interface AxMCPListeningHandle {
   /** Resolves when listening stops and rejects when the listener fails. */
@@ -24,6 +28,12 @@ export type AxMCPTransportLifecycleState = 'reconnected';
 export interface AxMCPTransport {
   /** Indicates whether optimizer/evaluation use can cause live side effects. */
   readonly evaluationMode?: 'live' | 'record' | 'replay' | 'sandbox';
+  /** Transport-level era preference, such as WebSocket's legacy-only binding. */
+  readonly eraHint?: AxMCPEra;
+  /** Stable key used to cache era detection, normally the HTTP origin. */
+  readonly eraCacheKey?: string;
+  /** Applies the client-selected protocol era to transport behavior. */
+  setEra?(era: AxMCPEra): void;
   /** One-shot metadata for the most recently completed request ID. */
   takeRequestMetadata?(
     id: string | number
@@ -83,6 +93,12 @@ export interface AxMCPTransport {
 
   /** Starts a nonblocking server-message listener when the transport needs one. */
   startListening?(
+    options?: Readonly<AxMCPListeningOptions>
+  ): AxMCPListeningHandle | Promise<AxMCPListeningHandle>;
+
+  /** Opens a long-lived stream carried by a specific JSON-RPC request. */
+  openRequestStream?(
+    request: Readonly<AxMCPJSONRPCRequest<unknown>>,
     options?: Readonly<AxMCPListeningOptions>
   ): AxMCPListeningHandle | Promise<AxMCPListeningHandle>;
 

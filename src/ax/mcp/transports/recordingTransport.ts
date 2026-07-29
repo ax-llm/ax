@@ -1,4 +1,5 @@
 import type {
+  AxMCPEra,
   AxMCPListeningHandle,
   AxMCPListeningOptions,
   AxMCPRequestOptions,
@@ -11,6 +12,7 @@ import type {
   AxMCPJSONRPCRequest,
   AxMCPJSONRPCResponse,
 } from '../types.js';
+import { AX_MCP_MODERN_PROTOCOL_VERSION } from '../types.js';
 
 export type AxMCPTransportRecordingEntry =
   | {
@@ -46,6 +48,18 @@ export class AxMCPRecordingTransport implements AxMCPTransport {
       await this.handler?.(message);
     });
     inner.setLifecycleHandler?.((state) => this.lifecycleHandler?.(state));
+  }
+
+  get eraHint(): AxMCPEra | undefined {
+    return this.inner.eraHint;
+  }
+
+  get eraCacheKey(): string | undefined {
+    return this.inner.eraCacheKey;
+  }
+
+  setEra(era: AxMCPEra): void {
+    this.inner.setEra?.(era);
   }
 
   getRecording(): readonly AxMCPTransportRecordingEntry[] {
@@ -153,6 +167,7 @@ export class AxMCPRecordingTransport implements AxMCPTransport {
 
 export class AxMCPReplayTransport implements AxMCPTransport {
   readonly evaluationMode = 'replay' as const;
+  readonly eraHint: AxMCPEra;
   private requestIndex = 0;
   private readonly requests: AxMCPRecordedRequest[];
 
@@ -163,6 +178,20 @@ export class AxMCPReplayTransport implements AxMCPTransport {
     this.requests = recording.filter(
       (entry): entry is AxMCPRecordedRequest => entry.direction === 'request'
     );
+    this.eraHint = this.requests.some((entry) => {
+      if (entry.message.method === 'server/discover') return true;
+      const params = entry.message.params;
+      if (!params || typeof params !== 'object' || !('_meta' in params)) {
+        return false;
+      }
+      const meta = (params as { _meta?: Record<string, unknown> })._meta;
+      return (
+        meta?.['io.modelcontextprotocol/protocolVersion'] ===
+        AX_MCP_MODERN_PROTOCOL_VERSION
+      );
+    })
+      ? 'modern'
+      : 'legacy';
   }
 
   async send(

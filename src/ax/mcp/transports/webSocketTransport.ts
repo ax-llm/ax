@@ -30,6 +30,7 @@ export interface AxMCPWebSocketTransportOptions {
 }
 
 export class AxMCPWebSocketTransport implements AxMCPTransport {
+  readonly eraHint = 'legacy' as const;
   private socket?: AxMCPWebSocketLike;
   private connectPromise?: Promise<void>;
   private listeningDone?: Promise<void>;

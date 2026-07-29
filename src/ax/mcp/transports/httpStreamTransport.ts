@@ -1,8 +1,10 @@
 import { mergeAbortSignals } from '../../util/abort.js';
 import { axApplyMCPAuthentication } from '../authentication.js';
+import { AxMCPHTTPStatusError } from '../errors.js';
 import { OAuthHelper } from '../oauth/oauthHelper.js';
 import type { TokenSet } from '../oauth/types.js';
 import type {
+  AxMCPEra,
   AxMCPListeningHandle,
   AxMCPListeningOptions,
   AxMCPRequestOptions,
@@ -14,6 +16,8 @@ import type {
   AxMCPJSONRPCRequest,
   AxMCPJSONRPCResponse,
 } from '../types.js';
+import { AX_MCP_MODERN_PROTOCOL_VERSION } from '../types.js';
+import { axMCPEncodeHeaderValue } from '../util/headerValue.js';
 import { fetchWithSSRFProtection } from '../util/ssrf.js';
 import type { AxMCPStreamableHTTPTransportOptions } from './options.js';
 
@@ -34,8 +38,17 @@ type OutboundMessage =
   | AxMCPJSONRPCNotification
   | AxMCPJSONRPCResponse;
 
+type HeaderContext = {
+  includeProtocolVersion?: boolean;
+  method?: string;
+  name?: string;
+  extraHeaders?: Readonly<Record<string, string>>;
+};
+
 export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
+  readonly eraCacheKey: string;
   private mcpEndpoint: string;
+  private era?: AxMCPEra;
   private sessionId?: string;
   private protocolVersion?: string;
   private pendingRequests = new Map<string | number, PendingRequest>();
@@ -60,6 +73,7 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     private readonly options: Readonly<AxMCPStreamableHTTPTransportOptions> = {}
   ) {
     this.mcpEndpoint = mcpEndpoint;
+    this.eraCacheKey = new URL(mcpEndpoint).origin;
     this.customHeaders = { ...(options.headers ?? {}) };
     if (options.authorization) {
       this.customHeaders.Authorization = options.authorization;
@@ -91,6 +105,16 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     this.protocolVersion = protocolVersion;
   }
 
+  setEra(era: AxMCPEra): void {
+    this.era = era;
+    if (era === 'modern') {
+      this.sessionId = undefined;
+      this.protocolVersion = AX_MCP_MODERN_PROTOCOL_VERSION;
+    } else if (this.protocolVersion === AX_MCP_MODERN_PROTOCOL_VERSION) {
+      this.protocolVersion = undefined;
+    }
+  }
+
   takeRequestMetadata(
     id: string | number
   ): Readonly<{ retryCount?: number }> | undefined {
@@ -101,12 +125,27 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
 
   private buildHeaders(
     baseHeaders: Record<string, string>,
-    includeProtocolVersion = true
+    context: Readonly<HeaderContext> = {}
   ): Record<string, string> {
-    const headers = { ...this.customHeaders, ...baseHeaders };
-    if (this.sessionId) headers['MCP-Session-Id'] = this.sessionId;
-    if (includeProtocolVersion && this.protocolVersion) {
+    const headers = {
+      ...this.customHeaders,
+      ...baseHeaders,
+      ...context.extraHeaders,
+    };
+    if (this.era !== 'modern' && this.sessionId) {
+      headers['MCP-Session-Id'] = this.sessionId;
+    }
+    if (
+      (this.era === 'modern' || context.includeProtocolVersion !== false) &&
+      this.protocolVersion
+    ) {
       headers['MCP-Protocol-Version'] = this.protocolVersion;
+    }
+    if (this.era === 'modern' && context.method) {
+      headers['Mcp-Method'] = context.method;
+      if (context.name !== undefined) {
+        headers['Mcp-Name'] = axMCPEncodeHeaderValue(context.name);
+      }
     }
     return headers;
   }
@@ -197,10 +236,13 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
       includeProtocolVersion: message.method !== 'initialize',
       signal,
       retryable: this.isSafeToRetry(message),
+      extraHeaders: options?.headers,
     });
 
     const sessionIdHeader = response.headers.get('MCP-Session-Id');
-    if (sessionIdHeader) this.sessionId = sessionIdHeader;
+    if (this.era !== 'modern' && sessionIdHeader) {
+      this.sessionId = sessionIdHeader;
+    }
     this.requestMetadata.set(message.id, {
       retryCount: this.responseRetryCounts.get(response) ?? 0,
     });
@@ -239,9 +281,12 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
       includeProtocolVersion: true,
       signal,
       retryable: messages.every((message) => this.isSafeToRetry(message)),
+      extraHeaders: options?.headers,
     });
     const sessionIdHeader = response.headers.get('MCP-Session-Id');
-    if (sessionIdHeader) this.sessionId = sessionIdHeader;
+    if (this.era !== 'modern' && sessionIdHeader) {
+      this.sessionId = sessionIdHeader;
+    }
     const retryCount = this.responseRetryCounts.get(response) ?? 0;
     for (const message of messages) {
       this.requestMetadata.set(message.id, { retryCount });
@@ -313,11 +358,11 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   }
 
   async terminateSession(): Promise<void> {
-    if (!this.sessionId) return;
+    if (this.era === 'modern' || !this.sessionId) return;
     try {
       const response = await this.fetchEndpoint({
         method: 'DELETE',
-        headers: this.buildHeaders({}, true),
+        headers: this.buildHeaders({}, { includeProtocolVersion: true }),
       });
       if (response.status === 405) {
         console.info('Server does not support explicit session termination');
@@ -341,9 +386,11 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
       includeProtocolVersion: boolean;
       signal?: AbortSignal;
       retryable: boolean;
+      extraHeaders?: Readonly<Record<string, string>>;
     }
   ): Promise<Response> {
     const body = JSON.stringify(message);
+    const headerContext = this.headerContextForMessage(message, options);
     let response = await this.fetchWithRetry(
       {
         method: 'POST',
@@ -352,7 +399,7 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
             'Content-Type': 'application/json',
             Accept: options.accept,
           },
-          options.includeProtocolVersion
+          headerContext
         ),
         body,
         signal: options.signal,
@@ -370,7 +417,7 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
               'Content-Type': 'application/json',
               Accept: options.accept,
             },
-            options.includeProtocolVersion
+            headerContext
           ),
           body,
           signal: options.signal,
@@ -388,7 +435,7 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
               'Content-Type': 'application/json',
               Accept: options.accept,
             },
-            options.includeProtocolVersion
+            headerContext
           ),
           body,
           signal: options.signal,
@@ -398,8 +445,11 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     }
 
     if (!response.ok) {
+      const parsedError = await this.parseHTTPJSONRPCError(response);
+      if (parsedError) return response;
       if (
         response.status === 404 &&
+        this.era !== 'modern' &&
         !Array.isArray(message) &&
         'method' in message &&
         message.method !== 'initialize' &&
@@ -408,10 +458,79 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
         this.sessionId = undefined;
         throw new Error('MCP session expired');
       }
-      throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
+      throw new AxMCPHTTPStatusError(
+        response.status,
+        response.statusText,
+        await this.readHTTPErrorBody(response)
+      );
     }
 
     return response;
+  }
+
+  private headerContextForMessage(
+    message: Readonly<OutboundMessage> | readonly Readonly<OutboundMessage>[],
+    options: Readonly<{
+      includeProtocolVersion: boolean;
+      extraHeaders?: Readonly<Record<string, string>>;
+    }>
+  ): HeaderContext {
+    if (Array.isArray(message) || !('method' in message)) {
+      return {
+        includeProtocolVersion: options.includeProtocolVersion,
+        extraHeaders: options.extraHeaders,
+      };
+    }
+    const params =
+      message.params && typeof message.params === 'object'
+        ? (message.params as Record<string, unknown>)
+        : undefined;
+    const name =
+      message.method === 'tools/call' || message.method === 'prompts/get'
+        ? params?.name
+        : message.method === 'resources/read'
+          ? params?.uri
+          : undefined;
+    return {
+      includeProtocolVersion: options.includeProtocolVersion,
+      method: message.method,
+      ...(typeof name === 'string' ? { name } : {}),
+      extraHeaders: options.extraHeaders,
+    };
+  }
+
+  private async parseHTTPJSONRPCError(response: Response): Promise<boolean> {
+    if (response.status < 400 || response.status > 499) return false;
+    const contentType = response.headers.get('Content-Type') ?? '';
+    if (!contentType.includes('application/json')) return false;
+    try {
+      const value = (await response.clone().json()) as {
+        jsonrpc?: unknown;
+        id?: unknown;
+        error?: { code?: unknown; message?: unknown };
+      };
+      return Boolean(
+        value &&
+          value.jsonrpc === '2.0' &&
+          Object.hasOwn(value, 'id') &&
+          value.error &&
+          typeof value.error.code === 'number' &&
+          typeof value.error.message === 'string'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async readHTTPErrorBody(response: Response): Promise<unknown> {
+    try {
+      const text = await response.clone().text();
+      if (!text) return undefined;
+      const contentType = response.headers.get('Content-Type') ?? '';
+      return contentType.includes('application/json') ? JSON.parse(text) : text;
+    } catch {
+      return undefined;
+    }
   }
 
   private shouldTryLegacySSEFallback(
@@ -430,7 +549,10 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   private async openLegacySSEEndpoint(): Promise<void> {
     const response = await this.fetchEndpoint({
       method: 'GET',
-      headers: this.buildHeaders({ Accept: 'text/event-stream' }, false),
+      headers: this.buildHeaders(
+        { Accept: 'text/event-stream' },
+        { includeProtocolVersion: false }
+      ),
     });
     if (!response.ok) {
       throw new Error(
@@ -546,7 +668,10 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     lastEventId?: string,
     signal?: AbortSignal
   ): Promise<Response> {
-    const headers = this.buildHeaders({ Accept: 'text/event-stream' }, true);
+    const headers = this.buildHeaders(
+      { Accept: 'text/event-stream' },
+      { includeProtocolVersion: true }
+    );
     if (lastEventId) headers['Last-Event-ID'] = lastEventId;
     let response = await this.fetchEndpoint({
       method: 'GET',
@@ -561,7 +686,7 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
             Accept: 'text/event-stream',
             ...(lastEventId ? { 'Last-Event-ID': lastEventId } : {}),
           },
-          true
+          { includeProtocolVersion: true }
         ),
         signal,
       });

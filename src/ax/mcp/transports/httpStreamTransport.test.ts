@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { AxMCPHTTPStatusError } from '../errors.js';
 import { AxMCPStreamableHTTPTransport } from './httpStreamTransport.js';
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
@@ -66,6 +67,54 @@ describe('AxMCPStreamableHTTPTransport', () => {
     expect(firstHeaders['MCP-Protocol-Version']).toBeUndefined();
     expect(secondHeaders['MCP-Protocol-Version']).toBe('2025-11-25');
     expect(secondHeaders['MCP-Session-Id']).toBe('session-1');
+  });
+
+  it('emits modern request metadata headers without session state', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(
+        { jsonrpc: '2.0', id: 'call-1', result: { resultType: 'complete' } },
+        { headers: { 'MCP-Session-Id': 'must-not-be-captured' } }
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const transport = new AxMCPStreamableHTTPTransport(
+      'https://mcp.example/mcp'
+    );
+    transport.setEra('modern');
+
+    await transport.send(
+      {
+        jsonrpc: '2.0',
+        id: 'call-1',
+        method: 'tools/call',
+        params: { name: 'Hello, 世界', arguments: {} },
+      },
+      { headers: { 'X-Request-Policy': 'test' } }
+    );
+    await transport.send({
+      jsonrpc: '2.0',
+      id: 'list-1',
+      method: 'tools/list',
+      params: {},
+    });
+
+    const firstHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Record<
+      string,
+      string
+    >;
+    const secondHeaders = fetchMock.mock.calls[1]?.[1]?.headers as Record<
+      string,
+      string
+    >;
+    expect(firstHeaders).toMatchObject({
+      'MCP-Protocol-Version': '2026-07-28',
+      'Mcp-Method': 'tools/call',
+      'Mcp-Name': '=?base64?SGVsbG8sIOS4lueVjA==?=',
+      'X-Request-Policy': 'test',
+    });
+    expect(firstHeaders['MCP-Session-Id']).toBeUndefined();
+    expect(secondHeaders['MCP-Session-Id']).toBeUndefined();
+    expect(transport.eraCacheKey).toBe('https://mcp.example');
   });
 
   it('parses POST SSE responses and forwards server notifications', async () => {
@@ -254,15 +303,50 @@ describe('AxMCPStreamableHTTPTransport', () => {
       { retry: { maxAttempts: 3, baseDelayMs: 0 } }
     );
 
+    const promise = transport.send({
+      jsonrpc: '2.0',
+      id: 'call-1',
+      method: 'tools/call',
+      params: { name: 'mutate' },
+    });
+    await expect(promise).rejects.toThrow('HTTP error 503');
+    await expect(promise).rejects.toBeInstanceOf(AxMCPHTTPStatusError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('returns JSON-RPC errors carried by 4xx responses in band', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            jsonrpc: '2.0',
+            id: 'discover-1',
+            error: {
+              code: -32022,
+              message: 'Unsupported protocol version',
+              data: { supported: ['2026-07-28'] },
+            },
+          },
+          { status: 400 }
+        )
+      )
+    );
+    const transport = new AxMCPStreamableHTTPTransport(
+      'https://mcp.example/mcp'
+    );
+
     await expect(
       transport.send({
         jsonrpc: '2.0',
-        id: 'call-1',
-        method: 'tools/call',
-        params: { name: 'mutate' },
+        id: 'discover-1',
+        method: 'server/discover',
+        params: {},
       })
-    ).rejects.toThrow('HTTP error 503');
-    expect(fetchMock).toHaveBeenCalledOnce();
+    ).resolves.toMatchObject({
+      id: 'discover-1',
+      error: { code: -32022 },
+    });
   });
 
   it('enforces configured response-size limits', async () => {
