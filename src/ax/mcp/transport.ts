@@ -12,6 +12,8 @@ export interface AxMCPRequestOptions {
   headers?: Readonly<Record<string, string>>;
   /** Overrides the desired modern per-request logging level. */
   logLevel?: AxMCPLoggingLevel;
+  /** Await modern task results or expose the durable task handle. */
+  taskHandling?: 'await' | 'expose';
 }
 
 export type AxMCPEra = 'modern' | 'legacy';

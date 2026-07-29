@@ -8,7 +8,10 @@ import type {
 } from '../ai/types.js';
 import { randomUUID } from '../util/crypto.js';
 import { AX_MCP_ERROR_CODES, AxMCPProtocolError } from './errors.js';
-import type { AxMCPExtensionCapability } from './extensions.js';
+import {
+  AX_MCP_TASKS_EXTENSION,
+  type AxMCPExtensionCapability,
+} from './extensions.js';
 import {
   AX_MCP_META_KEYS,
   axMCPBuildRequestMeta,
@@ -43,10 +46,12 @@ import {
   type AxMCPInitializeParams,
   type AxMCPInitializeResult,
   type AxMCPInputRequiredResult,
+  type AxMCPInputResponse,
   type AxMCPInputResponseRequestParams,
   type AxMCPJSONRPCMessage,
   type AxMCPJSONRPCNotification,
   type AxMCPJSONRPCRequest,
+  type AxMCPLegacyCreateTaskResult,
   type AxMCPListRootsResult,
   type AxMCPLoggingLevel,
   type AxMCPMeta,
@@ -72,6 +77,7 @@ import {
   type AxMCPTasksListResult,
   type AxMCPTextResourceContents,
   type AxMCPTool,
+  type AxMCPToolCallOutcome,
   type AxMCPToolCallParams,
   type AxMCPToolCallResult,
   type AxMCPToolsListResult,
@@ -176,6 +182,8 @@ export interface AxMCPClientOptions {
   maxInputRounds?: number;
   /** Enables TTL-aware caching for modern resources/read results. */
   readCache?: boolean;
+  /** Advertise the modern Tasks v2 extension. Defaults to true. */
+  tasksExtension?: boolean;
   /** Maximum pages accepted from any single catalog listing. */
   maxPaginationPages?: number;
   /** Reinitialize expired HTTP sessions for safe requests. Defaults to safe. */
@@ -722,12 +730,17 @@ export class AxMCPClient {
   }
 
   private buildClientCapabilities(): AxMCPClientCapabilities {
+    const modernTasks: Record<string, AxMCPExtensionCapability> =
+      this.era === 'modern' && this.options.tasksExtension !== false
+        ? { [AX_MCP_TASKS_EXTENSION]: {} }
+        : {};
     const capabilities: AxMCPClientCapabilities = {
       ...(this.options.capabilities ?? {}),
-      ...(this.options.extensions
+      ...(this.options.extensions || Object.keys(modernTasks).length > 0
         ? {
             extensions: {
               ...(this.options.capabilities?.extensions ?? {}),
+              ...modernTasks,
               ...this.options.extensions,
             },
           }
@@ -1128,6 +1141,9 @@ export class AxMCPClient {
   }
 
   hasTasksCapability(): boolean {
+    if (this.era === 'modern') {
+      return this.hasExtension(AX_MCP_TASKS_EXTENSION);
+    }
     return this.isCapabilityEnabled(
       this.serverCapabilities.tasks as CapabilityValue
     );
@@ -1149,43 +1165,67 @@ export class AxMCPClient {
 
   async callTool(
     name: string,
+    args: unknown,
+    options: Readonly<AxMCPRequestOptions & { taskHandling: 'expose' }>
+  ): Promise<AxMCPCreateTaskResult>;
+  async callTool(
+    name: string,
+    args?: unknown,
+    options?: Readonly<
+      AxMCPRequestOptions & { taskHandling?: 'await' | undefined }
+    >
+  ): Promise<AxMCPToolCallResult>;
+  async callTool(
+    name: string,
+    args: unknown,
+    options: Readonly<AxMCPRequestOptions>
+  ): Promise<AxMCPToolCallResult | AxMCPCreateTaskResult>;
+  async callTool(
+    name: string,
     args?: unknown,
     options?: Readonly<AxMCPRequestOptions>
-  ): Promise<AxMCPToolCallResult> {
-    if (!this.hasToolsCapability()) {
-      throw new Error('Tools are not supported');
-    }
-
-    const tool = this.tools.find((candidate) => candidate.name === name);
-    if (!tool) throw new Error(`MCP tool not found: ${name}`);
-    const authorization = await this.options.authorizeToolCall?.({
-      client: this,
-      namespace: this.getNamespace(),
-      tool,
-      arguments: args,
-    });
-    if (authorization === false) {
-      throw new Error(`MCP tool call denied by host policy: ${name}`);
-    }
-
+  ): Promise<AxMCPToolCallResult | AxMCPCreateTaskResult> {
+    const tool = await this.authorizedTool(name, args);
     return this.withToolCallSlot(
       options?.signal,
       this.toolConcurrencyLimit(tool),
-      () =>
-        this.requestWithInputRounds<AxMCPToolCallParams, AxMCPToolCallResult>(
-          'tools/call',
-          { name, arguments: args },
-          options
-        )
+      async () => {
+        const outcome = await this.requestToolCallOutcome(name, args, options);
+        if (outcome.kind === 'complete') return outcome.result;
+        if (options?.taskHandling === 'expose') return outcome.task;
+        return this.waitForTask<AxMCPToolCallResult>(outcome.task.taskId, {
+          signal: options?.signal,
+          defaultPollIntervalMs: outcome.task.pollIntervalMs,
+        });
+      }
     );
   }
 
+  async callToolOutcome(
+    name: string,
+    args?: unknown,
+    options?: Readonly<AxMCPRequestOptions>
+  ): Promise<AxMCPToolCallOutcome> {
+    const tool = await this.authorizedTool(name, args);
+    return this.withToolCallSlot(
+      options?.signal,
+      this.toolConcurrencyLimit(tool),
+      () => this.requestToolCallOutcome(name, args, options)
+    );
+  }
+
+  /** @deprecated Legacy Tasks draft API. Modern tasks are server-directed. */
   async callToolTask(
     name: string,
     args?: unknown,
     task: AxMCPTaskMetadata = {},
     options?: Readonly<AxMCPRequestOptions>
-  ): Promise<AxMCPCreateTaskResult> {
+  ): Promise<AxMCPLegacyCreateTaskResult> {
+    if (this.era === 'modern') {
+      throw new Error(
+        'callToolTask is only available for legacy MCP; modern tasks are server-directed'
+      );
+    }
     if (!this.hasToolsCapability() || !this.hasTasksCapability()) {
       throw new Error('Task-augmented tool calls are not supported');
     }
@@ -1206,7 +1246,7 @@ export class AxMCPClient {
       async () => {
         const { result } = await this.sendRequest<
           AxMCPToolCallParams,
-          AxMCPCreateTaskResult
+          AxMCPLegacyCreateTaskResult
         >('tools/call', { name, arguments: args, task }, options);
         await this.recordTask(result.task);
         return result;
@@ -1214,7 +1254,57 @@ export class AxMCPClient {
     );
   }
 
+  private async authorizedTool(
+    name: string,
+    args: unknown
+  ): Promise<AxMCPTool> {
+    if (!this.hasToolsCapability()) {
+      throw new Error('Tools are not supported');
+    }
+    const tool = this.tools.find((candidate) => candidate.name === name);
+    if (!tool) throw new Error(`MCP tool not found: ${name}`);
+    const authorization = await this.options.authorizeToolCall?.({
+      client: this,
+      namespace: this.getNamespace(),
+      tool,
+      arguments: args,
+    });
+    if (authorization === false) {
+      throw new Error(`MCP tool call denied by host policy: ${name}`);
+    }
+    return tool;
+  }
+
+  private async requestToolCallOutcome(
+    name: string,
+    args: unknown,
+    options?: Readonly<AxMCPRequestOptions>
+  ): Promise<AxMCPToolCallOutcome> {
+    const result = await this.requestWithInputRounds<
+      AxMCPToolCallParams,
+      AxMCPToolCallResult | AxMCPCreateTaskResult
+    >('tools/call', { name, arguments: args }, options);
+    if (result.resultType !== 'task') {
+      return { kind: 'complete', result: result as AxMCPToolCallResult };
+    }
+    const task = result as AxMCPCreateTaskResult;
+    if (!this.hasTasksCapability()) {
+      throw new Error(
+        'MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks'
+      );
+    }
+    if (!this.isModernTask(task)) {
+      throw new Error('MCP protocol violation: invalid CreateTaskResult');
+    }
+    await this.recordTask(task);
+    return { kind: 'task', task };
+  }
+
+  /** @deprecated The modern Tasks v2 extension does not expose tasks/list. */
   async listTasks(cursor?: string): Promise<AxMCPTasksListResult> {
+    if (this.era === 'modern') {
+      throw new Error('tasks/list is only available for legacy MCP tasks');
+    }
     if (!this.hasTasksCapability()) throw new Error('Tasks are not supported');
     const { result } = await this.sendRequest<
       { cursor?: string } | undefined,
@@ -1230,11 +1320,20 @@ export class AxMCPClient {
       'tasks/get',
       { taskId }
     );
+    if (this.era === 'modern' && !this.isModernTask(result)) {
+      throw new Error('MCP protocol violation: invalid tasks/get result');
+    }
     await this.recordTask(result);
     return result;
   }
 
+  /** @deprecated Modern task results are embedded in tasks/get. */
   async getTaskResult<T = AxMCPToolCallResult>(taskId: string): Promise<T> {
+    if (this.era === 'modern') {
+      throw new Error(
+        'tasks/result is only available for legacy MCP tasks; modern results are embedded in tasks/get'
+      );
+    }
     if (!this.hasTasksCapability()) throw new Error('Tasks are not supported');
     const { result } = await this.sendRequest<{ taskId: string }, T>(
       'tasks/result',
@@ -1243,8 +1342,25 @@ export class AxMCPClient {
     return result;
   }
 
-  async cancelTask(taskId: string): Promise<AxMCPTask> {
+  async provideTaskInput(
+    taskId: string,
+    inputResponses: Readonly<Record<string, AxMCPInputResponse>>
+  ): Promise<void> {
+    if (this.era !== 'modern' || !this.hasTasksCapability()) {
+      throw new Error('tasks/update is only available for modern MCP Tasks v2');
+    }
+    await this.sendRequest<{
+      taskId: string;
+      inputResponses: Readonly<Record<string, AxMCPInputResponse>>;
+    }>('tasks/update', { taskId, inputResponses });
+  }
+
+  async cancelTask(taskId: string): Promise<AxMCPTask | undefined> {
     if (!this.hasTasksCapability()) throw new Error('Tasks are not supported');
+    if (this.era === 'modern') {
+      await this.sendRequest<{ taskId: string }>('tasks/cancel', { taskId });
+      return;
+    }
     const { result } = await this.sendRequest<{ taskId: string }, AxMCPTask>(
       'tasks/cancel',
       { taskId }
@@ -1255,6 +1371,28 @@ export class AxMCPClient {
 
   getKnownTasks(): readonly AxMCPTask[] {
     return [...this.tasks.values()].map((task) => structuredClone(task));
+  }
+
+  private isModernTask(value: unknown): value is AxMCPTask {
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      return false;
+    const task = value as Partial<AxMCPTask>;
+    return (
+      typeof task.taskId === 'string' &&
+      [
+        'working',
+        'input_required',
+        'completed',
+        'failed',
+        'cancelled',
+      ].includes(String(task.status)) &&
+      typeof task.createdAt === 'string' &&
+      typeof task.lastUpdatedAt === 'string' &&
+      Object.hasOwn(task, 'ttlMs') &&
+      (task.ttlMs === null || typeof task.ttlMs === 'number') &&
+      (task.pollIntervalMs === undefined ||
+        typeof task.pollIntervalMs === 'number')
+    );
   }
 
   subscribeTaskStatus(
@@ -1378,6 +1516,10 @@ export class AxMCPClient {
 
   private modernSubscriptionFilter(): AxMCPSubscriptionFilter {
     const eventInterest = this.eventListeners.size > 0;
+    const taskInterest =
+      eventInterest ||
+      this.taskStatusListeners.size > 0 ||
+      Boolean(this.options.onTaskStatus);
     return {
       ...(this.hasSubCapability(this.serverCapabilities.tools, 'listChanged') &&
       (eventInterest || this.options.onToolsChanged)
@@ -1400,6 +1542,9 @@ export class AxMCPClient {
       ...(this.hasResourcesCapability() &&
       this.resourceSubscriptionOwners.size > 0
         ? { resourceSubscriptions: this.getResourceSubscriptions() as string[] }
+        : {}),
+      ...(this.hasTasksCapability() && this.tasks.size > 0 && taskInterest
+        ? { taskIds: [...this.tasks.keys()].sort() }
         : {}),
     };
   }
@@ -1426,6 +1571,68 @@ export class AxMCPClient {
         throw new Error(`MCP task wait timed out after ${options.timeoutMs}ms`);
       }
       const task = await this.getTask(taskId);
+      if (this.era === 'modern') {
+        if (task.status === 'completed') {
+          if (!Object.hasOwn(task, 'result')) {
+            throw new Error(
+              `MCP protocol violation: completed task ${taskId} omitted result`
+            );
+          }
+          return structuredClone(task.result) as T;
+        }
+        if (task.status === 'failed') {
+          const error = task.error;
+          if (
+            error &&
+            typeof error.code === 'number' &&
+            typeof error.message === 'string'
+          ) {
+            throw new AxMCPProtocolError(error.code, error.message, error.data);
+          }
+          throw new Error(
+            `MCP task ${taskId} failed: ${JSON.stringify(error ?? task.statusMessage ?? 'no error')}`
+          );
+        }
+        if (task.status === 'cancelled') {
+          throw new Error(
+            `MCP task ${taskId} cancelled: ${task.statusMessage ?? 'no status message'}`
+          );
+        }
+        if (task.status === 'input_required') {
+          if (!task.inputRequests) {
+            throw new Error(
+              `MCP protocol violation: input_required task ${taskId} omitted inputRequests`
+            );
+          }
+          const inputResponses = await axMCPFulfillInputRequests(
+            task.inputRequests,
+            {
+              roots: this.options.roots,
+              sampling: this.options.sampling
+                ? (params) =>
+                    this.options.sampling!(params, {
+                      client: this,
+                      namespace: this.getNamespace(),
+                    })
+                : undefined,
+              elicitation: this.options.elicitation
+                ? (params) =>
+                    this.options.elicitation!(params, {
+                      client: this,
+                      namespace: this.getNamespace(),
+                    })
+                : undefined,
+            }
+          );
+          await this.provideTaskInput(taskId, inputResponses);
+          continue;
+        }
+        await this.delayWithSignal(
+          task.pollIntervalMs ?? options.defaultPollIntervalMs ?? 1000,
+          options.signal
+        );
+        continue;
+      }
       if (task.status === 'completed') return this.getTaskResult<T>(taskId);
       if (task.status === 'failed' || task.status === 'cancelled') {
         throw new Error(
@@ -1811,6 +2018,7 @@ export class AxMCPClient {
           params: current.params as unknown as AxMCPProgressNotificationParams,
         });
         break;
+      case 'notifications/tasks':
       case 'notifications/tasks/status': {
         const params = current.params as
           | AxMCPTask
@@ -1866,7 +2074,9 @@ export class AxMCPClient {
 
   private async recordTask(task: Readonly<AxMCPTask>): Promise<void> {
     const snapshot = structuredClone(task);
+    const isNew = !this.tasks.has(snapshot.taskId);
     this.tasks.set(snapshot.taskId, snapshot);
+    if (isNew && this.era === 'modern') await this.restartModernListener();
     await this.options.onTaskStatus?.(snapshot);
     await Promise.all(
       [...this.taskStatusListeners].map((listener) => listener(snapshot))

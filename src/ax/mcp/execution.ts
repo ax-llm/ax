@@ -383,6 +383,28 @@ export class AxMCPExecutionContext {
       },
       func: async (args, extra): Promise<unknown> => {
         if (tool.execution?.taskSupport === 'required') {
+          if (client.getEra() === 'modern') {
+            const outcome = await client.callToolOutcome(
+              tool.name,
+              args ?? {},
+              { signal: extra?.abortSignal, taskHandling: 'expose' }
+            );
+            if (outcome.kind === 'complete') return outcome.result;
+            extra?.eventContext?.registerContinuation({
+              correlation: [
+                {
+                  kind: 'mcp.task',
+                  value: `${client.getNamespace()}:${outcome.task.taskId}`,
+                },
+              ],
+              metadata: {
+                namespace: client.getNamespace(),
+                taskId: outcome.task.taskId,
+                tool: tool.name,
+              },
+            });
+            return outcome.task;
+          }
           const result = await client.callToolTask(
             tool.name,
             args ?? {},

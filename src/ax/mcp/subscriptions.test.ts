@@ -26,6 +26,7 @@ describe('AxMCPClient subscriptions/listen', () => {
               capabilities: {
                 tools: { listChanged: true },
                 resources: { listChanged: true },
+                extensions: { 'io.modelcontextprotocol/tasks': {} },
               },
               ttlMs: 60_000,
               cacheScope: 'private',
@@ -36,7 +37,25 @@ describe('AxMCPClient subscriptions/listen', () => {
           return {
             jsonrpc: '2.0',
             id: request.id,
-            result: { tools: [], ttlMs: 60_000, cacheScope: 'private' },
+            result: {
+              tools: [{ name: 'slow', inputSchema: { type: 'object' } }],
+              ttlMs: 60_000,
+              cacheScope: 'private',
+            },
+          };
+        }
+        if (request.method === 'tools/call') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              resultType: 'task',
+              taskId: 'task-1',
+              status: 'working',
+              createdAt: '2026-07-28T00:00:00Z',
+              lastUpdatedAt: '2026-07-28T00:00:01Z',
+              ttlMs: 60_000,
+            },
           };
         }
         if (request.method === 'resources/list') {
@@ -127,6 +146,12 @@ describe('AxMCPClient subscriptions/listen', () => {
     });
     expect(ordinaryMethods).not.toContain('resources/subscribe');
     expect(ordinaryMethods).not.toContain('resources/unsubscribe');
+
+    await client.callTool('slow', {}, { taskHandling: 'expose' });
+    await vi.waitFor(() => expect(requests).toHaveLength(3));
+    expect(requests[2]?.params).toMatchObject({
+      notifications: { taskIds: ['task-1'] },
+    });
 
     await listening.close();
   });

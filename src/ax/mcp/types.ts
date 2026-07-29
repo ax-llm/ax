@@ -167,6 +167,8 @@ export interface AxMCPSubscriptionFilter {
   promptsListChanged?: boolean;
   resourcesListChanged?: boolean;
   resourceSubscriptions?: string[];
+  /** Tasks extension v2 task IDs whose status notifications are requested. */
+  taskIds?: string[];
 }
 
 export interface AxMCPSubscriptionsListenParams {
@@ -447,7 +449,8 @@ export interface AxMCPTask {
   statusMessage?: string;
   createdAt: string;
   lastUpdatedAt: string;
-  ttl: number | null;
+  /** Legacy Tasks draft TTL. */
+  ttl?: number | null;
   pollInterval?: number;
   /** MCP Tasks extension v2 time-to-live. */
   ttlMs?: number | null;
@@ -461,11 +464,21 @@ export interface AxMCPTask {
   error?: AxMCPJSONRPCErrorResponse['error'];
 }
 
-export interface AxMCPCreateTaskResult {
+export interface AxMCPLegacyCreateTaskResult {
   task: AxMCPTask;
   _meta?: AxMCPMeta;
   [key: string]: unknown;
 }
+
+/** Flattened CreateTaskResult from `io.modelcontextprotocol/tasks` v2. */
+export type AxMCPCreateTaskResult = AxMCPTask & {
+  resultType: 'task';
+  _meta?: AxMCPMeta;
+};
+
+export type AxMCPToolCallOutcome =
+  | { kind: 'complete'; result: AxMCPToolCallResult }
+  | { kind: 'task'; task: AxMCPCreateTaskResult };
 
 export interface AxMCPTasksListResult {
   tasks: AxMCPTask[];

@@ -79,6 +79,83 @@ function createInventoryClient() {
 
 describe('native MCP execution', () => {
   afterEach(() => vi.unstubAllGlobals());
+  it('exposes modern required tasks and registers a continuation', async () => {
+    const transport: AxMCPTransport = {
+      send: async (request) => {
+        if (request.method === 'server/discover') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              resultType: 'complete',
+              supportedVersions: ['2026-07-28'],
+              capabilities: {
+                tools: {},
+                extensions: { 'io.modelcontextprotocol/tasks': {} },
+              },
+              ttlMs: 60_000,
+              cacheScope: 'private',
+            },
+          };
+        }
+        if (request.method === 'tools/list') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              tools: [
+                {
+                  name: 'slow',
+                  inputSchema: { type: 'object' },
+                  execution: { taskSupport: 'required' },
+                },
+              ],
+              ttlMs: 60_000,
+              cacheScope: 'private',
+            },
+          };
+        }
+        return {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {
+            resultType: 'task',
+            taskId: 'task-modern',
+            status: 'working',
+            createdAt: '2026-07-28T00:00:00Z',
+            lastUpdatedAt: '2026-07-28T00:00:01Z',
+            ttlMs: 60_000,
+          },
+        };
+      },
+      sendNotification: async () => {},
+    };
+    const client = new AxMCPClient(transport, {
+      era: 'modern',
+      namespace: 'durable',
+    });
+    const context = new AxMCPExecutionContext(client);
+    await context.initialize();
+    const registerContinuation = vi.fn(() => 'continuation-1');
+
+    await expect(
+      context
+        .getToolBindings()[0]
+        ?.func?.({}, { eventContext: { registerContinuation } as any })
+    ).resolves.toMatchObject({
+      resultType: 'task',
+      taskId: 'task-modern',
+    });
+    expect(registerContinuation).toHaveBeenCalledWith({
+      correlation: [{ kind: 'mcp.task', value: 'durable:task-modern' }],
+      metadata: {
+        namespace: 'durable',
+        taskId: 'task-modern',
+        tool: 'slow',
+      },
+    });
+  });
+
   it('attaches an MCP client to AxGen without calling toFunction()', async () => {
     const { client, calls } = createInventoryClient();
     const adapterSpy = vi.spyOn(client, 'toFunction');

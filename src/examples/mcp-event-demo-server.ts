@@ -30,8 +30,13 @@ type DemoTask = {
   statusMessage?: string;
   createdAt: string;
   lastUpdatedAt: string;
-  ttl: null;
-  pollInterval: number;
+  ttl?: null;
+  pollInterval?: number;
+  ttlMs?: number | null;
+  pollIntervalMs?: number;
+  result?: Record<string, unknown>;
+  error?: Record<string, unknown>;
+  inputRequests?: Record<string, unknown>;
 };
 
 type DemoResource = {
@@ -744,6 +749,7 @@ export class AxMCPEventDemoServer {
             tools: { listChanged: true },
             resources: { subscribe: true, listChanged: true },
             logging: {},
+            extensions: { 'io.modelcontextprotocol/tasks': {} },
           },
           instructions: 'Dual-era Ax MCP event demo server',
           ttlMs: 60_000,
@@ -839,6 +845,10 @@ export class AxMCPEventDemoServer {
           }
           this.assertMRTRState(message, 'demo-two-round-state-2', 'roots');
         }
+        if (name === 'start_reindex') {
+          const task = this.createModernTask();
+          return { ...task, resultType: 'task' };
+        }
         return complete({
           content: [{ type: 'text', text: 'Reindexed 42 inventory records' }],
           structuredContent: { indexed: 42 },
@@ -871,6 +881,26 @@ export class AxMCPEventDemoServer {
             },
           ],
         });
+      case 'tasks/get': {
+        const task = this.requireTask(String(message.params?.taskId));
+        if (task.status === 'working') {
+          this.tasks.set(task.taskId, {
+            ...task,
+            status: 'completed',
+            lastUpdatedAt: new Date().toISOString(),
+            result: complete({
+              content: [
+                { type: 'text', text: 'Reindexed 42 inventory records' },
+              ],
+              structuredContent: { indexed: 42 },
+            }),
+          });
+        }
+        return this.requireTask(task.taskId);
+      }
+      case 'tasks/update':
+      case 'tasks/cancel':
+        return {};
       default:
         throw new DemoMethodNotFoundError(message.method);
     }
@@ -906,6 +936,22 @@ export class AxMCPEventDemoServer {
       lastUpdatedAt: now,
       ttl: null,
       pollInterval: 250,
+    };
+    this.tasks.set(task.taskId, task);
+    for (const resolve of this.taskWaiters) resolve(task.taskId);
+    this.taskWaiters.clear();
+    return task;
+  }
+
+  private createModernTask(): DemoTask {
+    const now = new Date().toISOString();
+    const task: DemoTask = {
+      taskId: randomUUID(),
+      status: 'working',
+      createdAt: now,
+      lastUpdatedAt: now,
+      ttlMs: 60_000,
+      pollIntervalMs: 0,
     };
     this.tasks.set(task.taskId, task);
     for (const resolve of this.taskWaiters) resolve(task.taskId);
@@ -983,6 +1029,13 @@ export class AxMCPEventDemoServer {
         typeof params?.uri === 'string' &&
         Array.isArray(filter.resourceSubscriptions) &&
         filter.resourceSubscriptions.includes(params.uri)
+      );
+    }
+    if (method === 'notifications/tasks') {
+      return (
+        typeof params?.taskId === 'string' &&
+        Array.isArray(filter.taskIds) &&
+        filter.taskIds.includes(params.taskId)
       );
     }
     return false;

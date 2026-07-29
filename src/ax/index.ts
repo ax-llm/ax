@@ -1205,6 +1205,7 @@ import {
   type AxMCPJSONRPCResponse,
   type AxMCPJSONRPCSuccessResponse,
   type AxMCPJSONSchema,
+  type AxMCPLegacyCreateTaskResult,
   type AxMCPListRootsResult,
   type AxMCPLoggingLevel,
   type AxMCPMeta,
@@ -1241,6 +1242,7 @@ import {
   type AxMCPTextResourceContents,
   type AxMCPTool,
   type AxMCPToolAnnotations,
+  type AxMCPToolCallOutcome,
   type AxMCPToolCallParams,
   type AxMCPToolCallResult,
   type AxMCPToolsListResult,
@@ -2213,6 +2215,7 @@ export type { AxMCPJSONRPCRequest };
 export type { AxMCPJSONRPCResponse };
 export type { AxMCPJSONRPCSuccessResponse };
 export type { AxMCPJSONSchema };
+export type { AxMCPLegacyCreateTaskResult };
 export type { AxMCPListRootsResult };
 export type { AxMCPListeningHandle };
 export type { AxMCPListeningOptions };
@@ -2267,6 +2270,7 @@ export type { AxMCPTextResourceContents };
 export type { AxMCPTokenSet };
 export type { AxMCPTool };
 export type { AxMCPToolAnnotations };
+export type { AxMCPToolCallOutcome };
 export type { AxMCPToolCallParams };
 export type { AxMCPToolCallResult };
 export type { AxMCPToolsListResult };

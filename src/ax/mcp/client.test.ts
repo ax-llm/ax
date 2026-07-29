@@ -532,7 +532,9 @@ describe('AxMCPClient', () => {
       expect(requests[0]?.params).toMatchObject({
         _meta: {
           'io.modelcontextprotocol/protocolVersion': '2026-07-28',
-          'io.modelcontextprotocol/clientCapabilities': {},
+          'io.modelcontextprotocol/clientCapabilities': {
+            extensions: { 'io.modelcontextprotocol/tasks': {} },
+          },
           'io.modelcontextprotocol/clientInfo': {
             name: 'AxMCPClient',
             version: '1.0.0',
