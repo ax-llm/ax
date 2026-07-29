@@ -889,6 +889,32 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
             if !transport.apply_oauth() || transport.headers.get("Authorization").is_none() { return Err(AxError::new("fixture", "OAuth flow did not set Authorization")); }
             Ok(())
         }
+        "discover" => {
+            let constants = crate::core_value_to_json(&crate::mcp_protocol_constants(&[])?);
+            let version = fixture.get("protocol_version").and_then(Value::as_str).unwrap_or("2026-07-28");
+            let found = constants.get("supportedProtocolVersions").and_then(Value::as_array).map(|values| values.iter().any(|value| value.as_str() == Some(version))).unwrap_or(false);
+            if !found { return Err(AxError::new("fixture", format!("missing supported MCP protocol version {version}"))); }
+            let request_id = fixture.get("request_id").cloned().unwrap_or_else(|| json!("discover-1"));
+            let params = fixture.get("params").cloned().unwrap_or_else(|| json!({}));
+            let request = crate::core_value_to_json(&crate::mcp_jsonrpc_request(&[
+                crate::core_value_from_json(&request_id),
+                crate::CoreValue::from("server/discover"),
+                crate::core_value_from_json(&params),
+            ])?);
+            expect_subset("discover request", &request, fixture.get("expected_request").unwrap_or(&Value::Null))
+        }
+        "modern_headers" => {
+            let method = fixture.get("method").cloned().unwrap_or_else(|| json!("server/discover"));
+            let headers = crate::core_value_to_json(&crate::mcp_modern_request_headers(&[
+                crate::core_value_from_json(&method),
+                crate::core_value_from_json(fixture.get("resource_name").unwrap_or(&Value::Null)),
+            ])?);
+            expect_subset("modern headers", &headers, fixture.get("expected_headers").unwrap_or(&Value::Null))?;
+            for key in fixture.get("forbidden_headers").and_then(Value::as_array).cloned().unwrap_or_default() {
+                if let Some(key) = key.as_str() { if headers.get(key).is_some() { return Err(AxError::new("fixture", format!("modern headers contain forbidden {key}"))); } }
+            }
+            Ok(())
+        }
         "http_session_headers" => {
             let mut transport = AxMCPStreamableHTTPTransport::new(fixture.get("endpoint").and_then(Value::as_str).unwrap_or("https://example.com/mcp"), fixture.get("transport_options").cloned().unwrap_or(Value::Null))?;
             transport.set_session_id(fixture.get("session_id").and_then(Value::as_str).unwrap_or("session-1"));

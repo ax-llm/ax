@@ -340,6 +340,20 @@ public final class AxMCPClient {
         if (!transport.headers().containsKey("Authorization")) throw new AssertionError("OAuth flow did not set Authorization");
         return;
       }
+      if ("discover".equals(operation)) {
+        Map<String, Object> constants = Core.asMap(Core.mcp_protocol_constants());
+        String version = String.valueOf(fixture.getOrDefault("protocol_version", "2026-07-28"));
+        if (!Core.asList(constants.get("supportedProtocolVersions")).stream().map(String::valueOf).toList().contains(version)) throw new AssertionError("missing supported MCP protocol version " + version);
+        Object request = Core.mcp_jsonrpc_request(fixture.getOrDefault("request_id", "discover-1"), "server/discover", fixture.getOrDefault("params", Map.of()));
+        assertSubset(request, fixture.getOrDefault("expected_request", Map.of()), "discover request");
+        return;
+      }
+      if ("modern_headers".equals(operation)) {
+        Map<String, Object> headers = Core.asMap(Core.mcp_modern_request_headers(fixture.getOrDefault("method", "server/discover"), fixture.get("resource_name")));
+        assertSubset(headers, fixture.getOrDefault("expected_headers", Map.of()), "modern headers");
+        for (Object key : Core.asList(fixture.get("forbidden_headers"))) if (headers.containsKey(String.valueOf(key))) throw new AssertionError("modern headers contain forbidden " + key);
+        return;
+      }
       if ("http_session_headers".equals(operation)) {
         AxMCPStreamableHTTPTransport transport = new AxMCPStreamableHTTPTransport(String.valueOf(fixture.getOrDefault("endpoint", "https://example.com/mcp")), Core.asMap(fixture.get("transport_options")));
         transport.setSessionId(String.valueOf(fixture.getOrDefault("session_id", "session-1")));

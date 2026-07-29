@@ -744,10 +744,11 @@ struct Core {
   static Value event_runtime_descriptor(Value routes, Value options);
   static Value mcp_protocol_constants();
   static Value event_route_commands(Value event, Value routes, Value identity_scope, Value trust);
+  static Value mcp_modern_request_headers(Value method, Value name);
   static Value mcp_jsonrpc_request(Value id, Value method, Value params);
   static Value mcp_jsonrpc_notification(Value method, Value params);
-  static Value mcp_normalize_error(Value response);
   static Value event_retry_transition(Value invocation_started, Value retry_safety, Value attempt, Value max_attempts);
+  static Value mcp_normalize_error(Value response);
   static Value event_resolve_path(Value ingress, Value path, Value continuation);
   static Value mcp_resource_subscription_selection(Value resources, Value mode, Value explicit_uris);
   static Value mcp_resource_subscription_plan(Value desired, Value current);

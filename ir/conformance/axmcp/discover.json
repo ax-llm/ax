@@ -1,0 +1,27 @@
+{
+  "name": "mcp modern discovery request boundary",
+  "kind": "mcp",
+  "operation": "discover",
+  "request_id": "discover-1",
+  "protocol_version": "2026-07-28",
+  "params": {
+    "_meta": {
+      "protocolVersion": "2026-07-28",
+      "clientCapabilities": {
+        "extensions": {
+          "io.modelcontextprotocol/tasks": {}
+        }
+      }
+    }
+  },
+  "expected_request": {
+    "jsonrpc": "2.0",
+    "id": "discover-1",
+    "method": "server/discover",
+    "params": {
+      "_meta": {
+        "protocolVersion": "2026-07-28"
+      }
+    }
+  }
+}

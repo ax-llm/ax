@@ -22185,12 +22185,14 @@ Value Core::event_runtime_descriptor(Value routes, Value options) {
 Value Core::mcp_protocol_constants() {
   axir_coverage_mark("mcp_protocol_constants");
   Value versions = Value::array();
+  Core::append(versions, Value("2026-07-28"));
   Core::append(versions, Value("2025-11-25"));
   Core::append(versions, Value("2025-06-18"));
   Core::append(versions, Value("2025-03-26"));
   Core::append(versions, Value("2024-11-05"));
   Value out = Value::object();
   Core::set(out, Value("protocolVersion"), Value("2025-11-25"));
+  Core::set(out, Value("modernProtocolVersion"), Value("2026-07-28"));
   Core::set(out, Value("supportedProtocolVersions"), versions);
   return out;
 }
@@ -22243,6 +22245,21 @@ Value Core::event_route_commands(Value event, Value routes, Value identity_scope
   return commands;
 }
 
+Value Core::mcp_modern_request_headers(Value method, Value name) {
+  axir_coverage_mark("mcp_modern_request_headers");
+  Value out = Value::object();
+  Core::set(out, Value("MCP-Protocol-Version"), Value("2026-07-28"));
+  Core::set(out, Value("Mcp-Method"), method);
+  Value missing = Core::is_none(name);
+  if (Core::truthy(missing)) {
+    // empty
+  }
+  if (!Core::truthy(missing)) {
+    Core::set(out, Value("Mcp-Name"), name);
+  }
+  return out;
+}
+
 Value Core::mcp_jsonrpc_request(Value id, Value method, Value params) {
   axir_coverage_mark("mcp_jsonrpc_request");
   Value out = Value::object();
@@ -22274,6 +22291,28 @@ Value Core::mcp_jsonrpc_notification(Value method, Value params) {
   return out;
 }
 
+Value Core::event_retry_transition(Value invocation_started, Value retry_safety, Value attempt, Value max_attempts) {
+  axir_coverage_mark("event_retry_transition");
+  Value out = Value::object();
+  Value idempotent = Core::eq(retry_safety, Value("idempotent"));
+  Value can_retry = Core::lt(attempt, max_attempts);
+  Value pre_invocation = Core::not_(invocation_started);
+  Value safe = Core::or_(pre_invocation, idempotent);
+  Value retry = Core::and_(safe, can_retry);
+  Core::set(out, Value("retry"), retry);
+  Core::set(out, Value("status"), Value("failed"));
+  if (Core::truthy(invocation_started)) {
+    if (Core::truthy(idempotent)) {
+      // empty
+    }
+    if (!Core::truthy(idempotent)) {
+      Core::set(out, Value("status"), Value("outcome_unknown"));
+      Core::set(out, Value("retry"), Value(false));
+    }
+  }
+  return out;
+}
+
 Value Core::mcp_normalize_error(Value response) {
   axir_coverage_mark("mcp_normalize_error");
   Value err = Core::get(response, Value("error"), Value());
@@ -22298,28 +22337,6 @@ Value Core::mcp_normalize_error(Value response) {
     return out;
   }
   return response;
-}
-
-Value Core::event_retry_transition(Value invocation_started, Value retry_safety, Value attempt, Value max_attempts) {
-  axir_coverage_mark("event_retry_transition");
-  Value out = Value::object();
-  Value idempotent = Core::eq(retry_safety, Value("idempotent"));
-  Value can_retry = Core::lt(attempt, max_attempts);
-  Value pre_invocation = Core::not_(invocation_started);
-  Value safe = Core::or_(pre_invocation, idempotent);
-  Value retry = Core::and_(safe, can_retry);
-  Core::set(out, Value("retry"), retry);
-  Core::set(out, Value("status"), Value("failed"));
-  if (Core::truthy(invocation_started)) {
-    if (Core::truthy(idempotent)) {
-      // empty
-    }
-    if (!Core::truthy(idempotent)) {
-      Core::set(out, Value("status"), Value("outcome_unknown"));
-      Core::set(out, Value("retry"), Value(false));
-    }
-  }
-  return out;
 }
 
 Value Core::event_resolve_path(Value ingress, Value path, Value continuation) {

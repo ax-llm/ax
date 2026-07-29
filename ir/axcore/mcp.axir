@@ -110,13 +110,34 @@ module @ax.mcp version "0.1" {
     type signature = "() -> json"
     body @entry {
       %versions = core.list
+      core.append %versions, "2026-07-28"
       core.append %versions, "2025-11-25"
       core.append %versions, "2025-06-18"
       core.append %versions, "2025-03-26"
       core.append %versions, "2024-11-05"
       %out = core.map
       core.set %out["protocolVersion"] = "2025-11-25"
+      core.set %out["modernProtocolVersion"] = "2026-07-28"
       core.set %out["supportedProtocolVersions"] = %versions
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_modern_request_headers {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp"
+    type signature = "(method:string, name?:string) -> json"
+    body @entry(%method: string, %name: string) {
+      %out = core.map
+      core.set %out["MCP-Protocol-Version"] = "2026-07-28"
+      core.set %out["Mcp-Method"] = %method
+      %missing = core.call intrinsic.is_none(%name)
+      core.if %missing {
+      } else {
+        core.set %out["Mcp-Name"] = %name
+      }
       core.return %out
     }
   }

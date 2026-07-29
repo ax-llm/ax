@@ -21174,12 +21174,14 @@ final class Core {
   static Object mcp_protocol_constants() {
     axirCoverageMark("mcp_protocol_constants");
     Object versions = new java.util.ArrayList<Object>();
+    Core.append(versions, "2026-07-28");
     Core.append(versions, "2025-11-25");
     Core.append(versions, "2025-06-18");
     Core.append(versions, "2025-03-26");
     Core.append(versions, "2024-11-05");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Core.set(out, "protocolVersion", "2025-11-25");
+    Core.set(out, "modernProtocolVersion", "2026-07-28");
     Core.set(out, "supportedProtocolVersions", versions);
     return out;
   }
@@ -21232,6 +21234,21 @@ final class Core {
     return commands;
   }
 
+  static Object mcp_modern_request_headers(Object method, Object name) {
+    axirCoverageMark("mcp_modern_request_headers");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "MCP-Protocol-Version", "2026-07-28");
+    Core.set(out, "Mcp-Method", method);
+    Object missing = Core.isNone(name);
+    if (Core.truthy(missing)) {
+      // empty
+    }
+    if (!Core.truthy(missing)) {
+      Core.set(out, "Mcp-Name", name);
+    }
+    return out;
+  }
+
   static Object mcp_jsonrpc_request(Object id, Object method, Object params) {
     axirCoverageMark("mcp_jsonrpc_request");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -21263,6 +21280,28 @@ final class Core {
     return out;
   }
 
+  static Object event_retry_transition(Object invocation_started, Object retry_safety, Object attempt, Object max_attempts) {
+    axirCoverageMark("event_retry_transition");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object idempotent = Core.eq(retry_safety, "idempotent");
+    Object can_retry = Core.lt(attempt, max_attempts);
+    Object pre_invocation = Core.not(invocation_started);
+    Object safe = Core.or(pre_invocation, idempotent);
+    Object retry = Core.and(safe, can_retry);
+    Core.set(out, "retry", retry);
+    Core.set(out, "status", "failed");
+    if (Core.truthy(invocation_started)) {
+      if (Core.truthy(idempotent)) {
+        // empty
+      }
+      if (!Core.truthy(idempotent)) {
+        Core.set(out, "status", "outcome_unknown");
+        Core.set(out, "retry", Boolean.FALSE);
+      }
+    }
+    return out;
+  }
+
   static Object mcp_normalize_error(Object response) {
     axirCoverageMark("mcp_normalize_error");
     Object err = Core.get(response, "error", null);
@@ -21287,28 +21326,6 @@ final class Core {
       return out;
     }
     return response;
-  }
-
-  static Object event_retry_transition(Object invocation_started, Object retry_safety, Object attempt, Object max_attempts) {
-    axirCoverageMark("event_retry_transition");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Object idempotent = Core.eq(retry_safety, "idempotent");
-    Object can_retry = Core.lt(attempt, max_attempts);
-    Object pre_invocation = Core.not(invocation_started);
-    Object safe = Core.or(pre_invocation, idempotent);
-    Object retry = Core.and(safe, can_retry);
-    Core.set(out, "retry", retry);
-    Core.set(out, "status", "failed");
-    if (Core.truthy(invocation_started)) {
-      if (Core.truthy(idempotent)) {
-        // empty
-      }
-      if (!Core.truthy(idempotent)) {
-        Core.set(out, "status", "outcome_unknown");
-        Core.set(out, "retry", Boolean.FALSE);
-      }
-    }
-    return out;
   }
 
   static Object event_resolve_path(Object ingress, Object path, Object continuation) {

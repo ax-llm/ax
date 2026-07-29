@@ -43335,12 +43335,14 @@ func mcp_protocol_constants(args ...Value) (Value, error) {
 	_ = v_out
 	_ = v_versions
 	v_versions = MutableArray()
+	v_versions = coreAppend(v_versions, "2026-07-28")
 	v_versions = coreAppend(v_versions, "2025-11-25")
 	v_versions = coreAppend(v_versions, "2025-06-18")
 	v_versions = coreAppend(v_versions, "2025-03-26")
 	v_versions = coreAppend(v_versions, "2024-11-05")
 	v_out = Object()
 	if err := coreSet(v_out, "protocolVersion", "2025-11-25"); err != nil { return nil, err }
+	if err := coreSet(v_out, "modernProtocolVersion", "2026-07-28"); err != nil { return nil, err }
 	if err := coreSet(v_out, "supportedProtocolVersions", v_versions); err != nil { return nil, err }
 	return v_out, nil
 }
@@ -43471,6 +43473,30 @@ func event_route_commands(args ...Value) (Value, error) {
 	return v_commands, nil
 }
 
+func mcp_modern_request_headers(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_modern_request_headers")
+	var v_method Value
+	var v_name Value
+	var v_missing Value
+	var v_out Value
+	if len(args) > 0 { v_method = args[0] }
+	_ = v_method
+	if len(args) > 1 { v_name = args[1] }
+	_ = v_name
+	_ = v_missing
+	_ = v_out
+	v_out = Object()
+	if err := coreSet(v_out, "MCP-Protocol-Version", "2026-07-28"); err != nil { return nil, err }
+	if err := coreSet(v_out, "Mcp-Method", v_method); err != nil { return nil, err }
+	v_missing = _core_is_none(v_name)
+	if coreTruthy(v_missing) {
+	// empty
+	} else {
+		if err := coreSet(v_out, "Mcp-Name", v_name); err != nil { return nil, err }
+	}
+	return v_out, nil
+}
+
 func mcp_jsonrpc_request(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_jsonrpc_request")
 	var v_id Value
@@ -43523,49 +43549,6 @@ func mcp_jsonrpc_notification(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func mcp_normalize_error(args ...Value) (Value, error) {
-	axirCoverageMark("mcp_normalize_error")
-	var v_response Value
-	var v_code Value
-	var v_data Value
-	var v_err Value
-	var v_message Value
-	var v_missing Value
-	var v_ok Value
-	var v_out Value
-	var v_result Value
-	if len(args) > 0 { v_response = args[0] }
-	_ = v_response
-	_ = v_code
-	_ = v_data
-	_ = v_err
-	_ = v_message
-	_ = v_missing
-	_ = v_ok
-	_ = v_out
-	_ = v_result
-	v_err = coreGet(v_response, "error", nil)
-	v_missing = _core_is_none(v_err)
-	if coreTruthy(v_missing) {
-		v_ok = Object()
-		v_result = coreGet(v_response, "result", nil)
-		if err := coreSet(v_ok, "ok", true); err != nil { return nil, err }
-		if err := coreSet(v_ok, "result", v_result); err != nil { return nil, err }
-		return v_ok, nil
-	} else {
-		v_code = coreGet(v_err, "code", 0)
-		v_message = coreGet(v_err, "message", "MCP JSON-RPC error")
-		v_data = coreGet(v_err, "data", nil)
-		v_out = Object()
-		if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
-		if err := coreSet(v_out, "category", "mcp"); err != nil { return nil, err }
-		if err := coreSet(v_out, "code", v_code); err != nil { return nil, err }
-		if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
-		if err := coreSet(v_out, "data", v_data); err != nil { return nil, err }
-		return v_out, nil
-	}
-}
-
 func event_retry_transition(args ...Value) (Value, error) {
 	axirCoverageMark("event_retry_transition")
 	var v_invocation_started Value
@@ -43611,6 +43594,49 @@ func event_retry_transition(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_out, nil
+}
+
+func mcp_normalize_error(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_normalize_error")
+	var v_response Value
+	var v_code Value
+	var v_data Value
+	var v_err Value
+	var v_message Value
+	var v_missing Value
+	var v_ok Value
+	var v_out Value
+	var v_result Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	_ = v_code
+	_ = v_data
+	_ = v_err
+	_ = v_message
+	_ = v_missing
+	_ = v_ok
+	_ = v_out
+	_ = v_result
+	v_err = coreGet(v_response, "error", nil)
+	v_missing = _core_is_none(v_err)
+	if coreTruthy(v_missing) {
+		v_ok = Object()
+		v_result = coreGet(v_response, "result", nil)
+		if err := coreSet(v_ok, "ok", true); err != nil { return nil, err }
+		if err := coreSet(v_ok, "result", v_result); err != nil { return nil, err }
+		return v_ok, nil
+	} else {
+		v_code = coreGet(v_err, "code", 0)
+		v_message = coreGet(v_err, "message", "MCP JSON-RPC error")
+		v_data = coreGet(v_err, "data", nil)
+		v_out = Object()
+		if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
+		if err := coreSet(v_out, "category", "mcp"); err != nil { return nil, err }
+		if err := coreSet(v_out, "code", v_code); err != nil { return nil, err }
+		if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+		if err := coreSet(v_out, "data", v_data); err != nil { return nil, err }
+		return v_out, nil
+	}
 }
 
 func event_resolve_path(args ...Value) (Value, error) {

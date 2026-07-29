@@ -141,12 +141,14 @@ def event_runtime_descriptor(routes: list[Any], options: Any) -> Any:
 def mcp_protocol_constants() -> Any:
     _core_coverage_mark("mcp_protocol_constants")
     versions = []
+    versions.append("2026-07-28")
     versions.append("2025-11-25")
     versions.append("2025-06-18")
     versions.append("2025-03-26")
     versions.append("2024-11-05")
     out = {}
     out["protocolVersion"] = "2025-11-25"
+    out["modernProtocolVersion"] = "2026-07-28"
     out["supportedProtocolVersions"] = versions
     return out
 
@@ -200,6 +202,19 @@ def event_route_commands(event: Any, routes: list[Any], identity_scope: str, tru
     return commands
 
 
+def mcp_modern_request_headers(method: str, name: str) -> Any:
+    _core_coverage_mark("mcp_modern_request_headers")
+    out = {}
+    out["MCP-Protocol-Version"] = "2026-07-28"
+    out["Mcp-Method"] = method
+    missing = _core_is_none(name)
+    if missing:
+        pass
+    else:
+        out["Mcp-Name"] = name
+    return out
+
+
 def mcp_jsonrpc_request(id: str, method: str, params: Any) -> Any:
     _core_coverage_mark("mcp_jsonrpc_request")
     out = {}
@@ -227,6 +242,27 @@ def mcp_jsonrpc_notification(method: str, params: Any) -> Any:
     return out
 
 
+def event_retry_transition(invocation_started: bool, retry_safety: str, attempt: int, max_attempts: int) -> Any:
+    _core_coverage_mark("event_retry_transition")
+    out = {}
+    idempotent = _core_eq(retry_safety, "idempotent")
+    can_retry = _core_lt(attempt, max_attempts)
+    pre_invocation = _core_not(invocation_started)
+    safe = _core_or(pre_invocation, idempotent)
+    retry = _core_and(safe, can_retry)
+    out["retry"] = retry
+    out["status"] = "failed"
+    if invocation_started:
+        if idempotent:
+            pass
+        else:
+            out["status"] = "outcome_unknown"
+            out["retry"] = False
+    else:
+        pass
+    return out
+
+
 def mcp_normalize_error(response: Any) -> Any:
     _core_coverage_mark("mcp_normalize_error")
     err = _core_get(response, "error", None)
@@ -249,27 +285,6 @@ def mcp_normalize_error(response: Any) -> Any:
         out["data"] = data
         return out
     return response
-
-
-def event_retry_transition(invocation_started: bool, retry_safety: str, attempt: int, max_attempts: int) -> Any:
-    _core_coverage_mark("event_retry_transition")
-    out = {}
-    idempotent = _core_eq(retry_safety, "idempotent")
-    can_retry = _core_lt(attempt, max_attempts)
-    pre_invocation = _core_not(invocation_started)
-    safe = _core_or(pre_invocation, idempotent)
-    retry = _core_and(safe, can_retry)
-    out["retry"] = retry
-    out["status"] = "failed"
-    if invocation_started:
-        if idempotent:
-            pass
-        else:
-            out["status"] = "outcome_unknown"
-            out["retry"] = False
-    else:
-        pass
-    return out
 
 
 def event_resolve_path(ingress: Any, path: Any, continuation: Any) -> Any:
@@ -2368,6 +2383,28 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
                 raise AssertionError("OAuth flow did not produce a token")
             if "Authorization" not in transport.headers:
                 raise AssertionError("OAuth flow did not set Authorization")
+            return
+        if operation == "discover":
+            constants = mcp_protocol_constants()
+            version = fixture.get("protocol_version", "2026-07-28")
+            if version not in (constants.get("supportedProtocolVersions") or []):
+                raise AssertionError(f"missing supported MCP protocol version {version}")
+            request = mcp_jsonrpc_request(
+                fixture.get("request_id", "discover-1"),
+                "server/discover",
+                fixture.get("params") or {},
+            )
+            _assert_subset(request, fixture.get("expected_request") or {}, "discover request")
+            return
+        if operation == "modern_headers":
+            headers = mcp_modern_request_headers(
+                fixture.get("method", "server/discover"),
+                fixture.get("resource_name"),
+            )
+            _assert_subset(headers, fixture.get("expected_headers") or {}, "modern headers")
+            for key in fixture.get("forbidden_headers") or []:
+                if key in headers:
+                    raise AssertionError(f"modern headers contain forbidden {key}")
             return
         if operation == "http_session_headers":
             transport = AxMCPStreamableHTTPTransport(fixture.get("endpoint", "https://example.com/mcp"), fixture.get("transport_options") or {})

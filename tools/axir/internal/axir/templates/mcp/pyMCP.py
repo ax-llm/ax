@@ -1753,6 +1753,28 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             if "Authorization" not in transport.headers:
                 raise AssertionError("OAuth flow did not set Authorization")
             return
+        if operation == "discover":
+            constants = mcp_protocol_constants()
+            version = fixture.get("protocol_version", "2026-07-28")
+            if version not in (constants.get("supportedProtocolVersions") or []):
+                raise AssertionError(f"missing supported MCP protocol version {version}")
+            request = mcp_jsonrpc_request(
+                fixture.get("request_id", "discover-1"),
+                "server/discover",
+                fixture.get("params") or {},
+            )
+            _assert_subset(request, fixture.get("expected_request") or {}, "discover request")
+            return
+        if operation == "modern_headers":
+            headers = mcp_modern_request_headers(
+                fixture.get("method", "server/discover"),
+                fixture.get("resource_name"),
+            )
+            _assert_subset(headers, fixture.get("expected_headers") or {}, "modern headers")
+            for key in fixture.get("forbidden_headers") or []:
+                if key in headers:
+                    raise AssertionError(f"modern headers contain forbidden {key}")
+            return
         if operation == "http_session_headers":
             transport = AxMCPStreamableHTTPTransport(fixture.get("endpoint", "https://example.com/mcp"), fixture.get("transport_options") or {})
             transport.session_id = fixture.get("session_id", "session-1")

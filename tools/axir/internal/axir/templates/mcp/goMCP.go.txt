@@ -882,6 +882,22 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		if t.Headers["Authorization"] == "" { panic("OAuth flow did not set Authorization") }
 		return
 	}
+	if op == "discover" {
+		constants := asMap(mustCore(mcp_protocol_constants()))
+		version := display(coreGet(fixture, "protocol_version", "2026-07-28"))
+		found := false
+		for _, candidate := range asSlice(coreGet(constants, "supportedProtocolVersions", Array())) { if display(candidate) == version { found = true } }
+		if !found { panic("missing supported MCP protocol version " + version) }
+		request := mustCore(mcp_jsonrpc_request(coreGet(fixture, "request_id", "discover-1"), "server/discover", coreGet(fixture, "params", Object())))
+		assertSubset(request, coreGet(fixture, "expected_request", Object()), "discover request")
+		return
+	}
+	if op == "modern_headers" {
+		headers := asMap(mustCore(mcp_modern_request_headers(coreGet(fixture, "method", "server/discover"), coreGet(fixture, "resource_name", nil))))
+		assertSubset(headers, coreGet(fixture, "expected_headers", Object()), "modern headers")
+		for _, key := range asSlice(coreGet(fixture, "forbidden_headers", Array())) { if _, ok := headers[display(key)]; ok { panic("modern headers contain forbidden " + display(key)) } }
+		return
+	}
 	if op == "http_session_headers" {
 		t, err := NewAxMCPStreamableHTTPTransport(display(coreGet(fixture, "endpoint", "https://example.com/mcp")), asMap(coreGet(fixture, "transport_options", Object()))); if err != nil { panic(err) }
 		t.SessionID = display(coreGet(fixture, "session_id", "session-1"))

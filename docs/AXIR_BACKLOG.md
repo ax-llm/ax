@@ -37,6 +37,54 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/mcp`
   - Impact: TypeScript gains a dual-era MCP client for the stateless 2026-07-28 protocol while generated Python, Java, C++, Go, and Rust clients remain on the 2025-11-25 lifecycle.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-29-port-dual-era-mcp-discovery-and-classification` [axmcp] Port dual-era MCP discovery and classification
+  - Status: open
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/client.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust clients still initialize only the 2025-11-25 stateful lifecycle and do not probe server/discover, classify and cache an endpoint era, retry -32022 with a mutual version, or expose discover and getEra.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-29-port-mcp-2026-07-28-required-http-headers` [axmcp] Port MCP 2026-07-28 required HTTP headers
+  - Status: open
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/transports/httpStreamTransport.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust Streamable HTTP transports still build legacy session headers and do not derive Mcp-Method or Mcp-Name, validate RFC 9110 header values, or omit Mcp-Session-Id for modern requests.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-29-port-mcp-cacheable-result-metadata` [axmcp] Port MCP cacheable result metadata
+  - Status: open
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/cache.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust catalog and resource readers ignore 2026-07-28 ttlMs and cacheScope metadata and lack the CacheableResult refresh and cache-expiry contract.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-29-port-mcp-oauth-rfc-9207-issuer-validation` [axmcp] Port MCP OAuth RFC 9207 issuer validation
+  - Status: open
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/oauth/oauthHelper.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust OAuth surfaces are currently stubs, so the RFC 9207 authorization-response iss check is a near-noop until their OAuth authorization-code flows become functional.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-29-port-mcp-tasks-extension-v2` [axmcp] Port MCP tasks extension v2
+  - Status: open
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/tasksV2.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust clients implement the legacy task draft only and do not negotiate io.modelcontextprotocol/tasks, expose task outcomes and tasks/update input, or consume embedded terminal results and errors.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-29-port-modern-mcp-per-request-metadata` [axmcp] Port modern MCP per-request metadata
+  - Status: open
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/meta.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust clients do not attach 2026-07-28 protocolVersion and clientCapabilities metadata to every request, leaving a zero-footprint modern metadata boundary in the generated ports.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-29-port-modern-mcp-subscriptions-listen` [axmcp] Port modern MCP subscriptions listen
+  - Status: open
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/client.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust event adapters still use legacy resources/subscribe plus GET/SSE and Last-Event-ID; they do not issue or restart subscriptions/listen POST streams with modern interests.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-29-port-roots-first-mcp-multi-round-trip-requests` [axmcp] Port roots-first MCP multi round-trip requests
+  - Status: open
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/mrtr.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust clients cannot fulfill modern input_required rounds. The first portable tranche is roots-only because generated clients do not yet expose sampling or elicitation host handlers.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

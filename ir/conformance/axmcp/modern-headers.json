@@ -1,0 +1,13 @@
+{
+  "name": "mcp modern request header boundary",
+  "kind": "mcp",
+  "operation": "modern_headers",
+  "method": "tools/call",
+  "resource_name": "inventory.lookup",
+  "expected_headers": {
+    "MCP-Protocol-Version": "2026-07-28",
+    "Mcp-Method": "tools/call",
+    "Mcp-Name": "inventory.lookup"
+  },
+  "forbidden_headers": ["Mcp-Session-Id"]
+}

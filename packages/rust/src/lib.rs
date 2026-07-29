@@ -69077,6 +69077,7 @@ fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_out = CoreValue::Null;
     let mut v_versions = CoreValue::Null;
     v_versions = CoreValue::new_list();
+    core_append(&v_versions, CoreValue::from("2026-07-28"))?;
     core_append(&v_versions, CoreValue::from("2025-11-25"))?;
     core_append(&v_versions, CoreValue::from("2025-06-18"))?;
     core_append(&v_versions, CoreValue::from("2025-03-26"))?;
@@ -69086,6 +69087,11 @@ fn mcp_protocol_constants(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         &v_out,
         CoreValue::from("protocolVersion"),
         CoreValue::from("2025-11-25"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("modernProtocolVersion"),
+        CoreValue::from("2026-07-28"),
     )?;
     core_set(
         &v_out,
@@ -69217,6 +69223,34 @@ fn event_route_commands(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn mcp_modern_request_headers(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_modern_request_headers");
+    let mut v_method = core_arg(args, 0);
+    let mut v_name = core_arg(args, 1);
+    let mut v_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("MCP-Protocol-Version"),
+        CoreValue::from("2026-07-28"),
+    )?;
+    core_set(&v_out, CoreValue::from("Mcp-Method"), v_method.clone())?;
+    v_missing = core_is_none(&[v_name.clone()])?;
+    if core_truthy(&v_missing) {
+    } else {
+        core_set(&v_out, CoreValue::from("Mcp-Name"), v_name.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_jsonrpc_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_jsonrpc_request");
     let mut v_id = core_arg(args, 0);
@@ -69267,6 +69301,47 @@ fn mcp_jsonrpc_notification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn event_retry_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("event_retry_transition");
+    let mut v_invocation_started = core_arg(args, 0);
+    let mut v_retry_safety = core_arg(args, 1);
+    let mut v_attempt = core_arg(args, 2);
+    let mut v_max_attempts = core_arg(args, 3);
+    let mut v_can_retry = CoreValue::Null;
+    let mut v_idempotent = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_pre_invocation = CoreValue::Null;
+    let mut v_retry = CoreValue::Null;
+    let mut v_safe = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_idempotent = core_eq(&[v_retry_safety.clone(), CoreValue::from("idempotent")])?;
+    v_can_retry = core_lt(&[v_attempt.clone(), v_max_attempts.clone()])?;
+    v_pre_invocation = core_not(&[v_invocation_started.clone()])?;
+    v_safe = core_or(&[v_pre_invocation.clone(), v_idempotent.clone()])?;
+    v_retry = core_and(&[v_safe.clone(), v_can_retry.clone()])?;
+    core_set(&v_out, CoreValue::from("retry"), v_retry.clone())?;
+    core_set(&v_out, CoreValue::from("status"), CoreValue::from("failed"))?;
+    if core_truthy(&v_invocation_started) {
+        if core_truthy(&v_idempotent) {
+        } else {
+            core_set(
+                &v_out,
+                CoreValue::from("status"),
+                CoreValue::from("outcome_unknown"),
+            )?;
+            core_set(&v_out, CoreValue::from("retry"), CoreValue::Bool(false))?;
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_normalize_error");
     let mut v_response = core_arg(args, 0);
@@ -69303,47 +69378,6 @@ fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         return Ok(v_out.clone());
     }
     return Ok(v_response.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn event_retry_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("event_retry_transition");
-    let mut v_invocation_started = core_arg(args, 0);
-    let mut v_retry_safety = core_arg(args, 1);
-    let mut v_attempt = core_arg(args, 2);
-    let mut v_max_attempts = core_arg(args, 3);
-    let mut v_can_retry = CoreValue::Null;
-    let mut v_idempotent = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_pre_invocation = CoreValue::Null;
-    let mut v_retry = CoreValue::Null;
-    let mut v_safe = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    v_idempotent = core_eq(&[v_retry_safety.clone(), CoreValue::from("idempotent")])?;
-    v_can_retry = core_lt(&[v_attempt.clone(), v_max_attempts.clone()])?;
-    v_pre_invocation = core_not(&[v_invocation_started.clone()])?;
-    v_safe = core_or(&[v_pre_invocation.clone(), v_idempotent.clone()])?;
-    v_retry = core_and(&[v_safe.clone(), v_can_retry.clone()])?;
-    core_set(&v_out, CoreValue::from("retry"), v_retry.clone())?;
-    core_set(&v_out, CoreValue::from("status"), CoreValue::from("failed"))?;
-    if core_truthy(&v_invocation_started) {
-        if core_truthy(&v_idempotent) {
-        } else {
-            core_set(
-                &v_out,
-                CoreValue::from("status"),
-                CoreValue::from("outcome_unknown"),
-            )?;
-            core_set(&v_out, CoreValue::from("retry"), CoreValue::Bool(false))?;
-        }
-    }
-    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -70247,4 +70281,4 @@ fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (521 of 521 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (522 of 522 core functions)

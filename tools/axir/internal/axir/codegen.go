@@ -1738,6 +1738,8 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axoptimize", "optimize", "eval", "semantic"},
 		{"axmcp", "mcp", "initialize", "transport-boundary"},
 		{"axmcp", "mcp", "protocol_negotiation", "semantic"},
+		{"axmcp", "mcp", "discover", "semantic"},
+		{"axmcp", "mcp", "modern_headers", "semantic"},
 		{"axmcp", "mcp", "ping", "transport-boundary"},
 		{"axmcp", "mcp", "tools", "semantic"},
 		{"axmcp", "mcp", "prompts_resources", "semantic"},

@@ -299,6 +299,20 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "discover",
+        "runner": "rust:axmcp.discover",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "modern_headers",
+        "runner": "rust:axmcp.modern_headers",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "ping",
         "runner": "rust:axmcp.ping",
         "category": "transport-boundary"

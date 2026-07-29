@@ -585,6 +585,22 @@ void run_mcp_conformance_fixture(Value fixture) {
       }
       return;
     }
+    if (op == "discover") {
+      Value constants = Core::mcp_protocol_constants();
+      std::string version = display(Core::get(fixture, "protocol_version", "2026-07-28"));
+      bool found = false;
+      for (auto candidate : as_array_local(Core::get(constants, "supportedProtocolVersions", Value::array()))) if (display(candidate) == version) found = true;
+      if (!found) throw AxError("fixture", "missing supported MCP protocol version " + version);
+      Value request = Core::mcp_jsonrpc_request(Core::get(fixture, "request_id", "discover-1"), "server/discover", Core::get(fixture, "params", Value::object()));
+      expect_subset_local(request, Core::get(fixture, "expected_request", Value::object()), "discover request");
+      return;
+    }
+    if (op == "modern_headers") {
+      Value headers = Core::mcp_modern_request_headers(Core::get(fixture, "method", "server/discover"), Core::get(fixture, "resource_name", Value()));
+      expect_subset_local(headers, Core::get(fixture, "expected_headers", Value::object()), "modern headers");
+      for (auto key : as_array_local(Core::get(fixture, "forbidden_headers", Value::array()))) if (!Core::get(headers, display(key), Value()).is_null()) throw AxError("fixture", "modern headers contain forbidden " + display(key));
+      return;
+    }
     if (op == "http_session_headers") {
       AxMCPStreamableHTTPTransport transport(display(Core::get(fixture, "endpoint", "https://example.com/mcp")), Core::get(fixture, "transport_options", Value::object()));
       transport.set_session_id(display(Core::get(fixture, "session_id", "session-1")));
