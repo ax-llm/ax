@@ -60,7 +60,20 @@ describe('AxMCPEventSource over real localhost Streamable HTTP/SSE', () => {
       new AxMCPStreamableHTTPTransport(endpoint, {
         ssrfProtection: { allowHTTP: true, allowLoopback: true },
       }),
-      { namespace: 'inventory-modern', era: 'modern' }
+      {
+        namespace: 'inventory-modern',
+        era: 'modern',
+        roots: [{ uri: 'file:///demo' }],
+        sampling: async () => ({
+          role: 'assistant',
+          content: { type: 'text', text: 'Reindex the inventory safely.' },
+          model: 'demo-model',
+        }),
+        elicitation: async () => ({
+          action: 'accept',
+          content: { confirmed: true },
+        }),
+      }
     );
     try {
       await client.init();
@@ -68,10 +81,20 @@ describe('AxMCPEventSource over real localhost Streamable HTTP/SSE', () => {
       expect(client.getProtocolVersion()).toBe('2026-07-28');
       expect(client.getTools().map(({ name }) => name)).toEqual([
         'start_reindex',
+        'mrtr_one_round',
+        'mrtr_two_round',
       ]);
       await expect(
         client.callTool('start_reindex', { scope: 'inventory' })
       ).resolves.toMatchObject({
+        resultType: 'complete',
+        structuredContent: { indexed: 42 },
+      });
+      await expect(client.callTool('mrtr_one_round')).resolves.toMatchObject({
+        resultType: 'complete',
+        structuredContent: { indexed: 42 },
+      });
+      await expect(client.callTool('mrtr_two_round')).resolves.toMatchObject({
         resultType: 'complete',
         structuredContent: { indexed: 42 },
       });

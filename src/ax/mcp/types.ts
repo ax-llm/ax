@@ -289,14 +289,15 @@ export interface AxMCPToolCallParams {
   name: string;
   arguments?: unknown;
   task?: AxMCPTaskMetadata;
+  inputResponses?: Record<string, AxMCPInputResponse>;
+  requestState?: string;
   _meta?: AxMCPMeta;
 }
 
-export interface AxMCPToolCallResult {
+export interface AxMCPToolCallResult extends AxMCPCacheableResult {
   content?: AxMCPContent[];
   structuredContent?: unknown;
   isError?: boolean;
-  resultType?: AxMCPResultType;
   _meta?: AxMCPMeta;
 }
 
@@ -348,6 +349,11 @@ export interface AxMCPPromptGetResult {
   messages: AxMCPPromptMessage[];
   resultType?: AxMCPResultType;
   _meta?: AxMCPMeta;
+}
+
+export interface AxMCPInputResponseRequestParams {
+  inputResponses?: Record<string, AxMCPInputResponse>;
+  requestState?: string;
 }
 
 export type AxMCPCompletionReference =

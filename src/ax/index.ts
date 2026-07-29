@@ -1118,6 +1118,10 @@ import {
   axMCPServerInfoFromMeta,
 } from './mcp/meta.js';
 import {
+  type AxMCPInputRequestHandlers,
+  axMCPFulfillInputRequests,
+} from './mcp/mrtr.js';
+import {
   type AxMCPDPoPOptions,
   AxMCPDPoPProofFactory,
   type AxMCPDPoPProofRequest,
@@ -1191,6 +1195,7 @@ import {
   type AxMCPInputRequest,
   type AxMCPInputRequiredResult,
   type AxMCPInputResponse,
+  type AxMCPInputResponseRequestParams,
   type AxMCPJSONRPCErrorResponse,
   type AxMCPJSONRPCMessage,
   type AxMCPJSONRPCNotification,
@@ -1547,6 +1552,7 @@ export { axMCPChildExecutionOptions };
 export { axMCPDecodeHeaderValue };
 export { axMCPEncodeHeaderValue };
 export { axMCPEventRoutes };
+export { axMCPFulfillInputRequests };
 export { axMCPHMACAuthentication };
 export { axMCPIsPlainHeaderValue };
 export { axMCPServerInfoFromMeta };
@@ -2189,8 +2195,10 @@ export type { AxMCPInheritance };
 export type { AxMCPInitializeParams };
 export type { AxMCPInitializeResult };
 export type { AxMCPInputRequest };
+export type { AxMCPInputRequestHandlers };
 export type { AxMCPInputRequiredResult };
 export type { AxMCPInputResponse };
+export type { AxMCPInputResponseRequestParams };
 export type { AxMCPJSONRPCErrorResponse };
 export type { AxMCPJSONRPCMessage };
 export type { AxMCPJSONRPCNotification };

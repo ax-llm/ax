@@ -699,13 +699,82 @@ export class AxMCPEventDemoServer {
                 properties: { scope: { type: 'string' } },
               },
             },
+            {
+              name: 'mrtr_one_round',
+              description: 'Exercise one MRTR elicitation round',
+              inputSchema: { type: 'object', properties: {} },
+            },
+            {
+              name: 'mrtr_two_round',
+              description: 'Exercise sampling then roots MRTR rounds',
+              inputSchema: { type: 'object', properties: {} },
+            },
           ],
         });
-      case 'tools/call':
+      case 'tools/call': {
+        const name = String(message.params?.name ?? '');
+        if (name === 'mrtr_one_round') {
+          if (!Object.hasOwn(message.params ?? {}, 'requestState')) {
+            return {
+              resultType: 'input_required',
+              inputRequests: {
+                confirmation: {
+                  method: 'elicitation/create',
+                  params: {
+                    mode: 'form',
+                    message: 'Run the one-round MRTR demo?',
+                    requestedSchema: {
+                      type: 'object',
+                      properties: { confirmed: { type: 'boolean' } },
+                      required: ['confirmed'],
+                    },
+                  },
+                },
+              },
+              requestState: 'demo-one-round-state',
+            };
+          }
+          this.assertMRTRState(message, 'demo-one-round-state', 'confirmation');
+        }
+        if (name === 'mrtr_two_round') {
+          if (!Object.hasOwn(message.params ?? {}, 'requestState')) {
+            return {
+              resultType: 'input_required',
+              inputRequests: {
+                plan: {
+                  method: 'sampling/createMessage',
+                  params: {
+                    messages: [
+                      {
+                        role: 'user',
+                        content: {
+                          type: 'text',
+                          text: 'Plan the demo reindex.',
+                        },
+                      },
+                    ],
+                    maxTokens: 64,
+                  },
+                },
+              },
+              requestState: 'demo-two-round-state-1',
+            };
+          }
+          if (message.params?.requestState === 'demo-two-round-state-1') {
+            this.assertMRTRState(message, 'demo-two-round-state-1', 'plan');
+            return {
+              resultType: 'input_required',
+              inputRequests: { roots: { method: 'roots/list' } },
+              requestState: 'demo-two-round-state-2',
+            };
+          }
+          this.assertMRTRState(message, 'demo-two-round-state-2', 'roots');
+        }
         return complete({
           content: [{ type: 'text', text: 'Reindexed 42 inventory records' }],
           structuredContent: { indexed: 42 },
         });
+      }
       case 'prompts/list':
         return cacheable({ prompts: [] });
       case 'prompts/get':
@@ -735,6 +804,27 @@ export class AxMCPEventDemoServer {
         });
       default:
         throw new DemoMethodNotFoundError(message.method);
+    }
+  }
+
+  private assertMRTRState(
+    message: JsonRpcRequest,
+    expectedState: string,
+    expectedResponse: string
+  ): void {
+    if (message.params?.requestState !== expectedState) {
+      throw new Error(
+        `MRTR requestState mismatch: expected ${expectedState}, received ${String(message.params?.requestState)}`
+      );
+    }
+    const inputResponses = message.params?.inputResponses;
+    if (
+      !inputResponses ||
+      typeof inputResponses !== 'object' ||
+      Array.isArray(inputResponses) ||
+      !Object.hasOwn(inputResponses, expectedResponse)
+    ) {
+      throw new Error(`MRTR response ${expectedResponse} was not echoed`);
     }
   }
 

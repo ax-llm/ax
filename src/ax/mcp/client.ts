@@ -10,6 +10,7 @@ import { randomUUID } from '../util/crypto.js';
 import { AX_MCP_ERROR_CODES, AxMCPProtocolError } from './errors.js';
 import type { AxMCPExtensionCapability } from './extensions.js';
 import { axMCPBuildRequestMeta, axMCPServerInfoFromMeta } from './meta.js';
+import { axMCPFulfillInputRequests } from './mrtr.js';
 import type {
   AxMCPEra,
   AxMCPListeningHandle,
@@ -36,6 +37,8 @@ import {
   type AxMCPImplementationInfo,
   type AxMCPInitializeParams,
   type AxMCPInitializeResult,
+  type AxMCPInputRequiredResult,
+  type AxMCPInputResponseRequestParams,
   type AxMCPJSONRPCMessage,
   type AxMCPJSONRPCNotification,
   type AxMCPJSONRPCRequest,
@@ -147,6 +150,8 @@ export interface AxMCPClientOptions {
   namespace?: string;
   /** Maximum concurrent tool or task-augmented tool calls for this server. */
   maxConcurrency?: number;
+  /** Maximum MCP 2026-07-28 multi round-trip input rounds. Defaults to 5. */
+  maxInputRounds?: number;
   /** Maximum pages accepted from any single catalog listing. */
   maxPaginationPages?: number;
   /** Reinitialize expired HTTP sessions for safe requests. Defaults to safe. */
@@ -263,6 +268,12 @@ export class AxMCPClient {
         options.maxPaginationPages < 1)
     ) {
       throw new Error('MCP maxPaginationPages must be a positive integer');
+    }
+    if (
+      options.maxInputRounds !== undefined &&
+      (!Number.isInteger(options.maxInputRounds) || options.maxInputRounds < 1)
+    ) {
+      throw new Error('MCP maxInputRounds must be a positive integer');
     }
     this.logger =
       options.logger ??
@@ -1052,13 +1063,12 @@ export class AxMCPClient {
     return this.withToolCallSlot(
       options?.signal,
       this.toolConcurrencyLimit(tool),
-      async () => {
-        const { result } = await this.sendRequest<
-          AxMCPToolCallParams,
-          AxMCPToolCallResult
-        >('tools/call', { name, arguments: args }, options);
-        return result;
-      }
+      () =>
+        this.requestWithInputRounds<AxMCPToolCallParams, AxMCPToolCallResult>(
+          'tools/call',
+          { name, arguments: args },
+          options
+        )
     );
   }
 
@@ -1258,18 +1268,20 @@ export class AxMCPClient {
 
   async getPrompt(
     name: string,
-    args?: Record<string, string>
+    args?: Record<string, string>,
+    options?: Readonly<AxMCPRequestOptions>
   ): Promise<AxMCPPromptGetResult> {
     if (!this.hasPromptsCapability()) {
       throw new Error('Prompts are not supported');
     }
 
-    const { result } = await this.sendRequest<
-      { name: string; arguments?: Record<string, string> },
+    return this.requestWithInputRounds<
+      {
+        name: string;
+        arguments?: Record<string, string>;
+      } & AxMCPInputResponseRequestParams,
       AxMCPPromptGetResult
-    >('prompts/get', { name, arguments: args });
-
-    return result;
+    >('prompts/get', { name, arguments: args }, options);
   }
 
   async listResources(cursor?: string): Promise<AxMCPResourcesListResult> {
@@ -1302,17 +1314,18 @@ export class AxMCPClient {
     return result;
   }
 
-  async readResource(uri: string): Promise<AxMCPResourceReadResult> {
+  async readResource(
+    uri: string,
+    options?: Readonly<AxMCPRequestOptions>
+  ): Promise<AxMCPResourceReadResult> {
     if (!this.hasResourcesCapability()) {
       throw new Error('Resources are not supported');
     }
 
-    const { result } = await this.sendRequest<
-      { uri: string },
+    return this.requestWithInputRounds<
+      { uri: string } & AxMCPInputResponseRequestParams,
       AxMCPResourceReadResult
-    >('resources/read', { uri });
-
-    return result;
+    >('resources/read', { uri }, options);
   }
 
   async subscribeResource(uri: string): Promise<void> {
@@ -1705,6 +1718,80 @@ export class AxMCPClient {
       };
       signal.addEventListener('abort', onAbort, { once: true });
     });
+  }
+
+  private async requestWithInputRounds<
+    P extends object,
+    R extends { resultType?: string },
+  >(
+    method: 'tools/call' | 'prompts/get' | 'resources/read',
+    baseParams: Readonly<P>,
+    options?: Readonly<AxMCPRequestOptions>
+  ): Promise<R> {
+    const maxInputRounds = this.options.maxInputRounds ?? 5;
+    let params: P & AxMCPInputResponseRequestParams = { ...baseParams };
+
+    for (let round = 0; ; round++) {
+      const { result } = await this.sendRequest<
+        P & AxMCPInputResponseRequestParams,
+        R | AxMCPInputRequiredResult
+      >(method, params, options);
+      if (result.resultType !== 'input_required') {
+        return result as R;
+      }
+      const inputRequired = result as AxMCPInputRequiredResult;
+      if (this.era !== 'modern') {
+        throw new Error(
+          `MCP protocol violation: legacy server returned input_required for ${method}`
+        );
+      }
+      if (round >= maxInputRounds) {
+        throw new Error(
+          `MCP ${method} exceeded ${maxInputRounds} input rounds`
+        );
+      }
+
+      const hasInputRequests = Object.hasOwn(inputRequired, 'inputRequests');
+      const hasRequestState = Object.hasOwn(inputRequired, 'requestState');
+      if (!hasInputRequests && !hasRequestState) {
+        throw new Error(
+          `MCP protocol violation: input_required result for ${method} omitted both inputRequests and requestState`
+        );
+      }
+      if (hasRequestState && typeof inputRequired.requestState !== 'string') {
+        throw new Error(
+          `MCP protocol violation: input_required requestState for ${method} must be a string`
+        );
+      }
+
+      const inputResponses = inputRequired.inputRequests
+        ? await axMCPFulfillInputRequests(inputRequired.inputRequests, {
+            roots: this.options.roots,
+            sampling: this.options.sampling
+              ? (samplingParams) =>
+                  this.options.sampling!(samplingParams, {
+                    client: this,
+                    namespace: this.getNamespace(),
+                  })
+              : undefined,
+            elicitation: this.options.elicitation
+              ? (elicitationParams) =>
+                  this.options.elicitation!(elicitationParams, {
+                    client: this,
+                    namespace: this.getNamespace(),
+                  })
+              : undefined,
+          })
+        : undefined;
+
+      params = {
+        ...baseParams,
+        ...(inputResponses ? { inputResponses } : {}),
+        ...(hasRequestState
+          ? { requestState: inputRequired.requestState }
+          : {}),
+      } as P & AxMCPInputResponseRequestParams;
+    }
   }
 
   private async sendRequest<T = unknown, R = unknown>(
