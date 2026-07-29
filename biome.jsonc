@@ -14,6 +14,8 @@
     // diffs it), so biome must not reformat it either.
     "includes": [
       "**",
+      "!.claude/**",
+      "!demo/**",
       "!ir/axcore/data/**",
       "!tools/axir/internal/axir/templates/**",
       "!packages/**"
