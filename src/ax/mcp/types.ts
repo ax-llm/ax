@@ -161,6 +161,24 @@ export interface AxMCPDiscoverResult {
   _meta?: AxMCPMeta;
 }
 
+/** Notification selection for MCP 2026-07-28 `subscriptions/listen`. */
+export interface AxMCPSubscriptionFilter {
+  toolsListChanged?: boolean;
+  promptsListChanged?: boolean;
+  resourcesListChanged?: boolean;
+  resourceSubscriptions?: string[];
+}
+
+export interface AxMCPSubscriptionsListenParams {
+  notifications: AxMCPSubscriptionFilter;
+  _meta?: AxMCPMeta;
+}
+
+export interface AxMCPSubscriptionsAcknowledgedParams {
+  notifications: AxMCPSubscriptionFilter;
+  _meta?: AxMCPMeta;
+}
+
 export interface AxMCPAnnotations {
   audience?: ('user' | 'assistant')[];
   priority?: number;
@@ -294,10 +312,11 @@ export interface AxMCPToolCallParams {
   _meta?: AxMCPMeta;
 }
 
-export interface AxMCPToolCallResult extends AxMCPCacheableResult {
+export interface AxMCPToolCallResult {
   content?: AxMCPContent[];
   structuredContent?: unknown;
   isError?: boolean;
+  resultType?: AxMCPResultType;
   _meta?: AxMCPMeta;
 }
 

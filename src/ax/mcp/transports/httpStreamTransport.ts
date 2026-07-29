@@ -209,6 +209,11 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   startListening(
     options: Readonly<AxMCPListeningOptions> = {}
   ): AxMCPListeningHandle {
+    if (this.era === 'modern') {
+      throw new Error(
+        'Modern MCP uses subscriptions/listen via openRequestStream, not HTTP GET'
+      );
+    }
     this.listeningAbort?.abort();
     const controller = new AbortController();
     this.listeningAbort = controller;
@@ -220,8 +225,32 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
       throw error;
     });
     return {
+      ready: Promise.resolve(),
       done,
       close: () => controller.abort('MCP listening stream closed'),
+    };
+  }
+
+  openRequestStream(
+    request: Readonly<AxMCPJSONRPCRequest<unknown>>,
+    options: Readonly<AxMCPListeningOptions> = {}
+  ): AxMCPListeningHandle {
+    if (this.era !== 'modern') {
+      throw new Error('Request streams are only available for modern MCP');
+    }
+    this.listeningAbort?.abort();
+    const controller = new AbortController();
+    this.listeningAbort = controller;
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, controller.signal])
+      : controller.signal;
+    const done = this.consumeRequestStream(request, signal).catch((error) => {
+      if (signal.aborted) return;
+      throw error;
+    });
+    return {
+      done,
+      close: () => controller.abort('MCP request stream closed'),
     };
   }
 
@@ -662,6 +691,28 @@ export class AxMCPStreamableHTTPTransport implements AxMCPTransport {
       if (signal.aborted) return;
       await this.delay(retryMs, signal);
     }
+  }
+
+  private async consumeRequestStream(
+    request: Readonly<AxMCPJSONRPCRequest<unknown>>,
+    signal: AbortSignal
+  ): Promise<void> {
+    const response = await this.postMessage(request, {
+      accept: 'text/event-stream',
+      includeProtocolVersion: true,
+      signal,
+      retryable: false,
+    });
+    const contentType = response.headers.get('Content-Type') ?? '';
+    if (!contentType.includes('text/event-stream')) {
+      throw new Error(
+        `MCP request stream requires text/event-stream, received ${contentType || '<none>'}`
+      );
+    }
+    await this.consumeSSE(response, async (event) => {
+      const message = this.parseJSONRPCEvent(event.data);
+      if (message) await this.messageHandler?.(message);
+    });
   }
 
   private async openGETStream(

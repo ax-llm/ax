@@ -44,6 +44,10 @@ type DemoResource = {
 export class AxMCPEventDemoServer {
   private readonly server: ReturnType<typeof createServer>;
   private readonly listeners = new Set<ServerResponse>();
+  private readonly modernListeners = new Map<
+    ServerResponse,
+    { id: string | number; notifications: Record<string, unknown> }
+  >();
   private readonly history: Array<{ id: number; message: unknown }> = [];
   private readonly tasks = new Map<string, DemoTask>();
   private readonly resources = new Map<string, DemoResource>([
@@ -229,6 +233,7 @@ export class AxMCPEventDemoServer {
   dropListeningConnections(): void {
     for (const response of this.listeners) response.end();
     this.listeners.clear();
+    this.modernListeners.clear();
   }
 
   async close(): Promise<void> {
@@ -403,6 +408,10 @@ export class AxMCPEventDemoServer {
       }
     }
     try {
+      if (message.method === 'subscriptions/listen') {
+        this.listenModern(response, message);
+        return;
+      }
       this.writeRPCResult(
         response,
         message.id!,
@@ -552,6 +561,66 @@ export class AxMCPEventDemoServer {
     for (const resolve of this.listenerWaiters) resolve();
     this.listenerWaiters.clear();
     request.on('close', () => this.listeners.delete(response));
+  }
+
+  private listenModern(
+    response: ServerResponse,
+    message: JsonRpcRequest
+  ): void {
+    const notifications = message.params?.notifications;
+    if (
+      !notifications ||
+      typeof notifications !== 'object' ||
+      Array.isArray(notifications)
+    ) {
+      this.writeRPCError(
+        response,
+        message.id ?? null,
+        -32602,
+        'subscriptions/listen requires a notifications filter'
+      );
+      return;
+    }
+    const filter = notifications as Record<string, unknown>;
+    const uris = Array.isArray(filter.resourceSubscriptions)
+      ? filter.resourceSubscriptions.filter(
+          (uri): uri is string => typeof uri === 'string'
+        )
+      : [];
+    this.subscriptions.clear();
+    for (const uri of uris) {
+      this.subscriptions.add(uri);
+      this.subscriptionCounts.set(
+        uri,
+        (this.subscriptionCounts.get(uri) ?? 0) + 1
+      );
+      for (const resolve of this.subscriptionWaiters.get(uri) ?? []) resolve();
+      this.subscriptionWaiters.get(uri)?.clear();
+    }
+
+    response.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    });
+    response.write(': connected\n\n');
+    const id = message.id!;
+    this.listeners.add(response);
+    this.modernListeners.set(response, { id, notifications: filter });
+    this.writeModernEvent(response, id, {
+      jsonrpc: '2.0',
+      method: 'notifications/subscriptions/acknowledged',
+      params: {
+        _meta: { 'io.modelcontextprotocol/subscriptionId': id },
+        notifications: filter,
+      },
+    });
+    for (const resolve of this.listenerWaiters) resolve();
+    this.listenerWaiters.clear();
+    response.on('close', () => {
+      this.listeners.delete(response);
+      this.modernListeners.delete(response);
+    });
   }
 
   private async dispatch(message: JsonRpcRequest): Promise<unknown> {
@@ -872,7 +941,60 @@ export class AxMCPEventDemoServer {
       message: { jsonrpc: '2.0', method, ...(params ? { params } : {}) },
     };
     this.history.push(event);
-    for (const response of this.listeners) this.writeEvent(response, event);
+    for (const response of this.listeners) {
+      const modern = this.modernListeners.get(response);
+      if (modern) {
+        if (!this.modernFilterAllows(modern.notifications, method, params)) {
+          continue;
+        }
+        this.writeModernEvent(response, modern.id, {
+          jsonrpc: '2.0',
+          method,
+          params: {
+            ...(params ?? {}),
+            _meta: {
+              ...((params?._meta as Record<string, unknown> | undefined) ?? {}),
+              'io.modelcontextprotocol/subscriptionId': modern.id,
+            },
+          },
+        });
+      } else {
+        this.writeEvent(response, event);
+      }
+    }
+  }
+
+  private modernFilterAllows(
+    filter: Readonly<Record<string, unknown>>,
+    method: string,
+    params?: Readonly<Record<string, unknown>>
+  ): boolean {
+    if (method === 'notifications/tools/list_changed') {
+      return filter.toolsListChanged === true;
+    }
+    if (method === 'notifications/prompts/list_changed') {
+      return filter.promptsListChanged === true;
+    }
+    if (method === 'notifications/resources/list_changed') {
+      return filter.resourcesListChanged === true;
+    }
+    if (method === 'notifications/resources/updated') {
+      return (
+        typeof params?.uri === 'string' &&
+        Array.isArray(filter.resourceSubscriptions) &&
+        filter.resourceSubscriptions.includes(params.uri)
+      );
+    }
+    return false;
+  }
+
+  private writeModernEvent(
+    response: ServerResponse,
+    subscriptionId: string | number,
+    message: unknown
+  ): void {
+    void subscriptionId;
+    response.write(`data: ${JSON.stringify(message)}\n\n`);
   }
 
   private writeEvent(

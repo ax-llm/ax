@@ -17,6 +17,8 @@ export interface AxMCPRequestOptions {
 export type AxMCPEra = 'modern' | 'legacy';
 
 export interface AxMCPListeningHandle {
+  /** Resolves when the server acknowledges that the listener is ready. */
+  readonly ready?: Promise<void>;
   /** Resolves when listening stops and rejects when the listener fails. */
   readonly done: Promise<void>;
   close(): void | Promise<void>;

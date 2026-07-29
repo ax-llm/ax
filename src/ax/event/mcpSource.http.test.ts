@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   AxMCPEventDemoServer,
   waitForDemoSignal,
@@ -75,6 +75,13 @@ describe('AxMCPEventSource over real localhost Streamable HTTP/SSE', () => {
         }),
       }
     );
+    const events: string[] = [];
+    client.subscribeEvents((event) => {
+      if (event.type === 'resource_updated') events.push(event.uri);
+    });
+    let listening:
+      | Awaited<ReturnType<AxMCPClient['startListening']>>
+      | undefined;
     try {
       await client.init();
       expect(client.getEra()).toBe('modern');
@@ -98,7 +105,14 @@ describe('AxMCPEventSource over real localhost Streamable HTTP/SSE', () => {
         resultType: 'complete',
         structuredContent: { indexed: 42 },
       });
+      await client.subscribeResource('demo://inventory');
+      listening = await client.startListening({ retryDelayMs: 10 });
+      await listening.ready;
+      await server.waitForSubscription('demo://inventory');
+      server.updateResource('demo://inventory');
+      await vi.waitFor(() => expect(events).toEqual(['demo://inventory']));
     } finally {
+      await listening?.close();
       await client.close();
     }
   });

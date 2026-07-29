@@ -9,7 +9,11 @@ import type {
 import { randomUUID } from '../util/crypto.js';
 import { AX_MCP_ERROR_CODES, AxMCPProtocolError } from './errors.js';
 import type { AxMCPExtensionCapability } from './extensions.js';
-import { axMCPBuildRequestMeta, axMCPServerInfoFromMeta } from './meta.js';
+import {
+  AX_MCP_META_KEYS,
+  axMCPBuildRequestMeta,
+  axMCPServerInfoFromMeta,
+} from './meta.js';
 import { axMCPFulfillInputRequests } from './mrtr.js';
 import type {
   AxMCPEra,
@@ -24,6 +28,7 @@ import {
   type AxMCPBatchRequest,
   type AxMCPBatchResponse,
   type AxMCPBlobResourceContents,
+  type AxMCPCacheableResult,
   type AxMCPClientCapabilities,
   type AxMCPCompletionArgument,
   type AxMCPCompletionReference,
@@ -59,6 +64,9 @@ import {
   type AxMCPSamplingCreateMessageParams,
   type AxMCPSamplingCreateMessageResult,
   type AxMCPServerCapabilities,
+  type AxMCPSubscriptionFilter,
+  type AxMCPSubscriptionsAcknowledgedParams,
+  type AxMCPSubscriptionsListenParams,
   type AxMCPTask,
   type AxMCPTaskMetadata,
   type AxMCPTasksListResult,
@@ -93,6 +101,20 @@ export interface AxMCPCatalogSnapshot {
   resources: readonly AxMCPResource[];
   resourceTemplates: readonly AxMCPResourceTemplate[];
   subscriptions: readonly string[];
+  cache: Readonly<Partial<Record<AxMCPCatalogCacheName, AxMCPCacheInfo>>>;
+}
+
+export type AxMCPCatalogCacheName =
+  | 'tools'
+  | 'prompts'
+  | 'resources'
+  | 'resourceTemplates';
+
+export interface AxMCPCacheInfo {
+  ttlMs?: number;
+  cacheScope?: 'private' | 'public';
+  fetchedAt: number;
+  expiresAt?: number;
 }
 
 export type AxMCPClientEvent =
@@ -152,6 +174,8 @@ export interface AxMCPClientOptions {
   maxConcurrency?: number;
   /** Maximum MCP 2026-07-28 multi round-trip input rounds. Defaults to 5. */
   maxInputRounds?: number;
+  /** Enables TTL-aware caching for modern resources/read results. */
+  readCache?: boolean;
   /** Maximum pages accepted from any single catalog listing. */
   maxPaginationPages?: number;
   /** Reinitialize expired HTTP sessions for safe requests. Defaults to safe. */
@@ -234,6 +258,13 @@ export class AxMCPClient {
   private initPromise?: Promise<void>;
   private initialized = false;
   private refreshPromise?: Promise<void>;
+  private readonly catalogCache: Partial<
+    Record<AxMCPCatalogCacheName, AxMCPCacheInfo>
+  > = {};
+  private readonly resourceReadCache = new Map<
+    string,
+    { result: AxMCPResourceReadResult; cache: AxMCPCacheInfo }
+  >();
   private catalogRevision = 0;
   private negotiatedExtensions: Record<string, AxMCPExtensionCapability> = {};
   private activeToolCalls = 0;
@@ -244,6 +275,10 @@ export class AxMCPClient {
   private readonly tasks = new Map<string, AxMCPTask>();
   private readonly resourceSubscriptionOwners = new Map<string, Set<string>>();
   private resourceSubscriptionTransition = Promise.resolve();
+  private activeModernListening?: AxMCPListeningHandle;
+  private modernListenRestartRequested = false;
+  private activeSubscriptionId?: string;
+  private modernListenReadyResolve?: () => void;
   private readonly taskStatusListeners = new Set<
     (task: Readonly<AxMCPTask>) => void | Promise<void>
   >();
@@ -501,37 +536,56 @@ export class AxMCPClient {
     return structuredClone(result);
   }
 
-  async refresh(): Promise<void> {
+  async refresh(options: Readonly<{ force?: boolean }> = {}): Promise<void> {
     if (this.refreshPromise) return this.refreshPromise;
-    this.refreshPromise = this.refreshCatalog();
+    this.refreshPromise = (async () => {
+      if (await this.refreshCatalog(options.force ?? true)) {
+        this.catalogRevision++;
+      }
+    })();
     try {
       await this.refreshPromise;
-      this.catalogRevision++;
     } finally {
       this.refreshPromise = undefined;
     }
   }
 
-  private async refreshCatalog(): Promise<void> {
-    this.functions = [];
-    this.tools = [];
-    this.prompts = [];
-    this.resources = [];
-    this.resourceTemplates = [];
-    this.promptFunctions = [];
-    this.resourceFunctions = [];
+  private async refreshCatalog(force: boolean): Promise<boolean> {
+    let changed = false;
 
-    if (this.hasToolsCapability()) {
+    if (
+      this.hasToolsCapability() &&
+      (force || !this.isCatalogCacheFresh('tools'))
+    ) {
+      this.functions = [];
+      this.tools = [];
       await this.discoverFunctions();
+      changed = true;
     }
 
-    if (this.hasPromptsCapability()) {
+    if (
+      this.hasPromptsCapability() &&
+      (force || !this.isCatalogCacheFresh('prompts'))
+    ) {
+      this.prompts = [];
+      this.promptFunctions = [];
       await this.discoverPromptFunctions();
+      changed = true;
     }
 
-    if (this.hasResourcesCapability()) {
+    if (
+      this.hasResourcesCapability() &&
+      (force ||
+        !this.isCatalogCacheFresh('resources') ||
+        !this.isCatalogCacheFresh('resourceTemplates'))
+    ) {
+      this.resources = [];
+      this.resourceTemplates = [];
+      this.resourceFunctions = [];
       await this.discoverResourceFunctions();
+      changed = true;
     }
+    return changed;
   }
 
   getProtocolVersion(): string | undefined {
@@ -645,6 +699,7 @@ export class AxMCPClient {
       resources: this.resources,
       resourceTemplates: this.resourceTemplates,
       subscriptions: this.getResourceSubscriptions(),
+      cache: this.catalogCache,
     });
   }
 
@@ -654,6 +709,11 @@ export class AxMCPClient {
     } finally {
       await this.transport.close?.();
       this.resourceSubscriptionOwners.clear();
+      this.resourceReadCache.clear();
+      this.activeModernListening = undefined;
+      this.activeSubscriptionId = undefined;
+      this.modernListenReadyResolve = undefined;
+      this.modernListenRestartRequested = false;
       this.initialized = false;
       this.negotiatedProtocolVersion = undefined;
       this.era = undefined;
@@ -705,47 +765,57 @@ export class AxMCPClient {
   private async discoverFunctions(): Promise<void> {
     let cursor: string | undefined;
     const seen = new Set<string>();
+    const pages: AxMCPCacheableResult[] = [];
     let page = 0;
     do {
       this.assertPaginationPage('tools/list', ++page, cursor, seen);
       const result = await this.listTools(cursor);
+      pages.push(result);
       this.tools.push(...result.tools);
       this.functions.push(...result.tools.map((fn) => this.toolToFunction(fn)));
       cursor = result.nextCursor;
     } while (cursor);
+    this.recordCatalogCache('tools', pages);
   }
 
   private async discoverPromptFunctions(): Promise<void> {
     let cursor: string | undefined;
     const seen = new Set<string>();
+    const pages: AxMCPCacheableResult[] = [];
     let page = 0;
     do {
       this.assertPaginationPage('prompts/list', ++page, cursor, seen);
       const result = await this.listPrompts(cursor);
+      pages.push(result);
       for (const prompt of result.prompts ?? []) {
         this.prompts.push(prompt);
         this.promptFunctions.push(this.promptToFunction(prompt));
       }
       cursor = result.nextCursor;
     } while (cursor);
+    this.recordCatalogCache('prompts', pages);
   }
 
   private async discoverResourceFunctions(): Promise<void> {
     let cursor: string | undefined;
     let seen = new Set<string>();
+    const resourcePages: AxMCPCacheableResult[] = [];
     let page = 0;
     do {
       this.assertPaginationPage('resources/list', ++page, cursor, seen);
       const result = await this.listResources(cursor);
+      resourcePages.push(result);
       for (const resource of result.resources ?? []) {
         this.resources.push(resource);
         this.resourceFunctions.push(this.resourceToFunction(resource));
       }
       cursor = result.nextCursor;
     } while (cursor);
+    this.recordCatalogCache('resources', resourcePages);
 
     cursor = undefined;
     seen = new Set<string>();
+    const templatePages: AxMCPCacheableResult[] = [];
     page = 0;
     do {
       this.assertPaginationPage(
@@ -755,12 +825,50 @@ export class AxMCPClient {
         seen
       );
       const result = await this.listResourceTemplates(cursor);
+      templatePages.push(result);
       for (const template of result.resourceTemplates ?? []) {
         this.resourceTemplates.push(template);
         this.resourceFunctions.push(this.resourceTemplateToFunction(template));
       }
       cursor = result.nextCursor;
     } while (cursor);
+    this.recordCatalogCache('resourceTemplates', templatePages);
+  }
+
+  private recordCatalogCache(
+    name: AxMCPCatalogCacheName,
+    pages: readonly AxMCPCacheableResult[]
+  ): void {
+    this.catalogCache[name] = this.cacheInfo(pages);
+  }
+
+  private cacheInfo(results: readonly AxMCPCacheableResult[]): AxMCPCacheInfo {
+    const fetchedAt = Date.now();
+    const ttlValues = results.map((result) => result.ttlMs);
+    const ttlMs = ttlValues.every(
+      (value): value is number => typeof value === 'number' && value >= 0
+    )
+      ? Math.min(...ttlValues)
+      : undefined;
+    const scopes = results
+      .map((result) => result.cacheScope)
+      .filter((scope): scope is 'private' | 'public' => scope !== undefined);
+    const cacheScope = scopes.includes('private')
+      ? 'private'
+      : scopes.length === results.length && scopes.length > 0
+        ? 'public'
+        : undefined;
+    return {
+      ttlMs,
+      cacheScope,
+      fetchedAt,
+      ...(ttlMs === undefined ? {} : { expiresAt: fetchedAt + ttlMs }),
+    };
+  }
+
+  private isCatalogCacheFresh(name: AxMCPCatalogCacheName): boolean {
+    const expiresAt = this.catalogCache[name]?.expiresAt;
+    return expiresAt !== undefined && Date.now() < expiresAt;
   }
 
   private toolToFunction(tool: Readonly<AxMCPTool>): AxFunction {
@@ -1172,8 +1280,22 @@ export class AxMCPClient {
       ? AbortSignal.any([options.signal, controller.signal])
       : controller.signal;
     let active: AxMCPListeningHandle | undefined;
+    let readyResolved = false;
+    let resolveReady!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      resolveReady = () => {
+        readyResolved = true;
+        resolve();
+      };
+    });
     const done = (async () => {
-      if (!this.transport.startListening) {
+      if (this.era === 'modern' && !this.transport.openRequestStream) {
+        throw new Error(
+          'The configured MCP transport does not support subscriptions/listen request streams'
+        );
+      }
+      if (this.era !== 'modern' && !this.transport.startListening) {
+        resolveReady();
         await new Promise<void>((resolve) => {
           if (signal.aborted) return resolve();
           signal.addEventListener('abort', () => resolve(), { once: true });
@@ -1182,33 +1304,103 @@ export class AxMCPClient {
       }
       while (!signal.aborted) {
         try {
-          active = await this.transport.startListening({ signal });
+          if (this.era === 'modern') {
+            const id = randomUUID();
+            this.activeSubscriptionId = id;
+            this.modernListenReadyResolve = resolveReady;
+            const params =
+              this.buildModernRequestParams<AxMCPSubscriptionsListenParams>(
+                { notifications: this.modernSubscriptionFilter() },
+                undefined,
+                {}
+              );
+            active = await this.transport.openRequestStream!(
+              {
+                jsonrpc: '2.0',
+                id,
+                method: 'subscriptions/listen',
+                params,
+              },
+              { signal }
+            );
+            this.activeModernListening = active;
+          } else {
+            active = await this.transport.startListening!({ signal });
+            await active.ready;
+            resolveReady();
+          }
           await active.done;
+          if (this.activeModernListening === active) {
+            this.activeModernListening = undefined;
+          }
           if (signal.aborted) return;
+          if (this.modernListenRestartRequested) {
+            this.modernListenRestartRequested = false;
+            continue;
+          }
           throw new Error('MCP listening transport ended unexpectedly');
         } catch (error) {
-          if (signal.aborted) return;
-          await options.onError?.(error);
-          try {
-            await this.recoverSession();
-            await this.emitEvent({
-              type: 'lifecycle',
-              state: 'reconnected',
-            });
-          } catch (recoveryError) {
-            await options.onError?.(recoveryError);
+          if (this.activeModernListening === active) {
+            this.activeModernListening = undefined;
           }
+          if (signal.aborted) return;
+          if (this.modernListenRestartRequested) {
+            this.modernListenRestartRequested = false;
+            continue;
+          }
+          await options.onError?.(error);
+          if (this.era === 'legacy') {
+            try {
+              await this.recoverSession();
+            } catch (recoveryError) {
+              await options.onError?.(recoveryError);
+            }
+          }
+          await this.emitEvent({
+            type: 'lifecycle',
+            state: 'reconnected',
+          });
           await this.listeningDelay(options.retryDelayMs ?? 1_000, signal);
         }
       }
     })();
     return {
+      ready,
       done,
       close: async () => {
         controller.abort('MCP client listener closed');
         await active?.close();
         await done;
+        if (!readyResolved) this.modernListenReadyResolve = undefined;
       },
+    };
+  }
+
+  private modernSubscriptionFilter(): AxMCPSubscriptionFilter {
+    const eventInterest = this.eventListeners.size > 0;
+    return {
+      ...(this.hasSubCapability(this.serverCapabilities.tools, 'listChanged') &&
+      (eventInterest || this.options.onToolsChanged)
+        ? { toolsListChanged: true }
+        : {}),
+      ...(this.hasSubCapability(
+        this.serverCapabilities.prompts,
+        'listChanged'
+      ) &&
+      (eventInterest || this.options.onPromptsChanged)
+        ? { promptsListChanged: true }
+        : {}),
+      ...(this.hasSubCapability(
+        this.serverCapabilities.resources,
+        'listChanged'
+      ) &&
+      (eventInterest || this.options.onResourcesChanged)
+        ? { resourcesListChanged: true }
+        : {}),
+      ...(this.hasResourcesCapability() &&
+      this.resourceSubscriptionOwners.size > 0
+        ? { resourceSubscriptions: this.getResourceSubscriptions() as string[] }
+        : {}),
     };
   }
 
@@ -1322,10 +1514,31 @@ export class AxMCPClient {
       throw new Error('Resources are not supported');
     }
 
-    return this.requestWithInputRounds<
+    if (this.era === 'modern' && this.options.readCache) {
+      const cached = this.resourceReadCache.get(uri);
+      if (
+        cached?.cache.expiresAt !== undefined &&
+        Date.now() < cached.cache.expiresAt
+      ) {
+        return structuredClone(cached.result);
+      }
+      this.resourceReadCache.delete(uri);
+    }
+
+    const result = await this.requestWithInputRounds<
       { uri: string } & AxMCPInputResponseRequestParams,
       AxMCPResourceReadResult
     >('resources/read', { uri }, options);
+    if (this.era === 'modern' && this.options.readCache) {
+      const cache = this.cacheInfo([result]);
+      if (cache.expiresAt !== undefined) {
+        this.resourceReadCache.set(uri, {
+          result: structuredClone(result),
+          cache,
+        });
+      }
+    }
+    return result;
   }
 
   async subscribeResource(uri: string): Promise<void> {
@@ -1350,12 +1563,13 @@ export class AxMCPClient {
     await this.withResourceSubscriptionTransition(async () => {
       const owners = this.resourceSubscriptionOwners.get(uri);
       if (owners?.has(owner)) return;
-      if (!owners || owners.size === 0) {
+      if (this.era !== 'modern' && (!owners || owners.size === 0)) {
         await this.sendRequest<{ uri: string }>('resources/subscribe', { uri });
       }
       const nextOwners = owners ?? new Set<string>();
       nextOwners.add(owner);
       this.resourceSubscriptionOwners.set(uri, nextOwners);
+      if (this.era === 'modern') await this.restartModernListener();
     });
   }
 
@@ -1366,13 +1580,17 @@ export class AxMCPClient {
       const owners = this.resourceSubscriptionOwners.get(uri);
       if (!owners?.has(owner)) return;
       if (owners.size === 1) {
-        await this.sendRequest<{ uri: string }>('resources/unsubscribe', {
-          uri,
-        });
+        if (this.era !== 'modern') {
+          await this.sendRequest<{ uri: string }>('resources/unsubscribe', {
+            uri,
+          });
+        }
         this.resourceSubscriptionOwners.delete(uri);
+        if (this.era === 'modern') await this.restartModernListener();
         return;
       }
       owners.delete(owner);
+      if (this.era === 'modern') await this.restartModernListener();
     });
   }
 
@@ -1381,6 +1599,7 @@ export class AxMCPClient {
   }
 
   private async restoreResourceSubscriptions(): Promise<void> {
+    if (this.era === 'modern') return;
     await this.withResourceSubscriptionTransition(async () => {
       for (const uri of this.getResourceSubscriptions()) {
         await this.sendRequest<{ uri: string }>('resources/subscribe', { uri });
@@ -1389,7 +1608,9 @@ export class AxMCPClient {
   }
 
   private async handleTransportLifecycle(state: 'reconnected'): Promise<void> {
-    if (state === 'reconnected') await this.restoreResourceSubscriptions();
+    if (state === 'reconnected' && this.era === 'legacy') {
+      await this.restoreResourceSubscriptions();
+    }
     await this.emitEvent({ type: 'lifecycle', state });
   }
 
@@ -1510,8 +1731,29 @@ export class AxMCPClient {
   private async handleServerNotification(
     notification: Readonly<AxMCPJSONRPCNotification>
   ): Promise<void> {
-    await this.options.onNotification?.(notification);
-    switch (notification.method) {
+    const normalized = this.stripSubscriptionId(notification);
+    if (
+      this.era === 'modern' &&
+      normalized.subscriptionId !== undefined &&
+      normalized.subscriptionId !== this.activeSubscriptionId
+    ) {
+      return;
+    }
+    const current = normalized.notification;
+    await this.options.onNotification?.(current);
+    switch (current.method) {
+      case 'notifications/subscriptions/acknowledged': {
+        const params = current.params as
+          | AxMCPSubscriptionsAcknowledgedParams
+          | undefined;
+        if (
+          normalized.subscriptionId === this.activeSubscriptionId &&
+          params?.notifications
+        ) {
+          this.modernListenReadyResolve?.();
+        }
+        break;
+      }
       case 'notifications/tools/list_changed':
         await this.refresh();
         await this.options.onToolsChanged?.();
@@ -1541,36 +1783,36 @@ export class AxMCPClient {
         break;
       case 'notifications/resources/updated': {
         const uri =
-          notification.params &&
-          typeof notification.params === 'object' &&
-          'uri' in notification.params
-            ? String((notification.params as { uri: unknown }).uri)
+          current.params &&
+          typeof current.params === 'object' &&
+          'uri' in current.params
+            ? String((current.params as { uri: unknown }).uri)
             : undefined;
         if (uri) {
+          this.resourceReadCache.delete(uri);
           await this.options.onResourceUpdated?.(uri);
           await this.emitEvent({ type: 'resource_updated', uri });
         }
         break;
       }
       case 'notifications/message':
-        await this.options.onLoggingMessage?.(notification.params ?? {});
+        await this.options.onLoggingMessage?.(current.params ?? {});
         await this.emitEvent({
           type: 'logging',
-          params: notification.params ?? {},
+          params: current.params ?? {},
         });
         break;
       case 'notifications/progress':
         await this.options.onProgress?.(
-          notification.params as unknown as AxMCPProgressNotificationParams
+          current.params as unknown as AxMCPProgressNotificationParams
         );
         await this.emitEvent({
           type: 'progress',
-          params:
-            notification.params as unknown as AxMCPProgressNotificationParams,
+          params: current.params as unknown as AxMCPProgressNotificationParams,
         });
         break;
       case 'notifications/tasks/status': {
-        const params = notification.params as
+        const params = current.params as
           | AxMCPTask
           | { task?: AxMCPTask }
           | undefined;
@@ -1582,8 +1824,44 @@ export class AxMCPClient {
         break;
       }
       default:
-        await this.emitEvent({ type: 'notification', notification });
+        await this.emitEvent({ type: 'notification', notification: current });
     }
+  }
+
+  private stripSubscriptionId(
+    notification: Readonly<AxMCPJSONRPCNotification>
+  ): {
+    notification: AxMCPJSONRPCNotification;
+    subscriptionId?: string;
+  } {
+    const params =
+      notification.params && typeof notification.params === 'object'
+        ? (notification.params as Record<string, unknown>)
+        : undefined;
+    const meta =
+      params?._meta &&
+      typeof params._meta === 'object' &&
+      !Array.isArray(params._meta)
+        ? (params._meta as Record<string, unknown>)
+        : undefined;
+    const rawSubscriptionId = meta?.[AX_MCP_META_KEYS.SUBSCRIPTION_ID];
+    const subscriptionId =
+      typeof rawSubscriptionId === 'string' ||
+      typeof rawSubscriptionId === 'number'
+        ? String(rawSubscriptionId)
+        : undefined;
+    if (!meta || !Object.hasOwn(meta, AX_MCP_META_KEYS.SUBSCRIPTION_ID)) {
+      return { notification: { ...notification }, subscriptionId };
+    }
+    const nextMeta = { ...meta };
+    delete nextMeta[AX_MCP_META_KEYS.SUBSCRIPTION_ID];
+    const nextParams = { ...params };
+    if (Object.keys(nextMeta).length > 0) nextParams._meta = nextMeta;
+    else delete nextParams._meta;
+    return {
+      notification: { ...notification, params: nextParams },
+      subscriptionId,
+    };
   }
 
   private async recordTask(task: Readonly<AxMCPTask>): Promise<void> {
@@ -2053,10 +2331,17 @@ export class AxMCPClient {
   private assertResourceSubscriptionCapability(): void {
     if (
       !this.hasResourcesCapability() ||
-      !this.hasSubCapability(this.serverCapabilities.resources, 'subscribe')
+      (this.era !== 'modern' &&
+        !this.hasSubCapability(this.serverCapabilities.resources, 'subscribe'))
     ) {
       throw new Error('Resource subscriptions are not supported');
     }
+  }
+
+  private async restartModernListener(): Promise<void> {
+    if (this.era !== 'modern' || !this.activeModernListening) return;
+    this.modernListenRestartRequested = true;
+    await this.activeModernListening.close();
   }
 
   private async withResourceSubscriptionTransition<T>(

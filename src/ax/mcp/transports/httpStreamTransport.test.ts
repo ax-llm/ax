@@ -228,6 +228,61 @@ describe('AxMCPStreamableHTTPTransport', () => {
     expect(secondHeaders['Last-Event-ID']).toBe('event-0');
   });
 
+  it('opens modern subscriptions as one POST stream without resume headers', async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse(
+        [
+          ': keep-alive',
+          '',
+          'data: {"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{"notifications":{"toolsListChanged":true}}}',
+          '',
+          'data: {"jsonrpc":"2.0","method":"notifications/tools/list_changed"}',
+          '',
+        ].join('\n')
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const messages: unknown[] = [];
+    const transport = new AxMCPStreamableHTTPTransport(
+      'https://mcp.example/mcp'
+    );
+    transport.setEra('modern');
+    transport.setMessageHandler((message) => {
+      messages.push(message);
+    });
+
+    const handle = transport.openRequestStream({
+      jsonrpc: '2.0',
+      id: 'listen-1',
+      method: 'subscriptions/listen',
+      params: { notifications: { toolsListChanged: true } },
+    });
+    await handle.done;
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    const headers = init?.headers as Record<string, string>;
+    expect(init?.method).toBe('POST');
+    expect(headers).toMatchObject({
+      Accept: 'text/event-stream',
+      'Mcp-Method': 'subscriptions/listen',
+      'MCP-Protocol-Version': '2026-07-28',
+    });
+    expect(headers['Last-Event-ID']).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(messages).toHaveLength(2);
+  });
+
+  it('refuses the legacy HTTP GET listener in modern era', () => {
+    const transport = new AxMCPStreamableHTTPTransport(
+      'https://mcp.example/mcp'
+    );
+    transport.setEra('modern');
+
+    expect(() => transport.startListening()).toThrow(
+      'Modern MCP uses subscriptions/listen'
+    );
+  });
+
   it('guards configured endpoints by default', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

@@ -1089,6 +1089,8 @@ import {
   axMCPChat,
 } from './mcp/chat.js';
 import {
+  type AxMCPCacheInfo,
+  type AxMCPCatalogCacheName,
   type AxMCPCatalogSnapshot,
   AxMCPClient,
   type AxMCPClientEvent,
@@ -1227,6 +1229,9 @@ import {
   type AxMCPSamplingMessage,
   type AxMCPSamplingToolChoice,
   type AxMCPServerCapabilities,
+  type AxMCPSubscriptionFilter,
+  type AxMCPSubscriptionsAcknowledgedParams,
+  type AxMCPSubscriptionsListenParams,
   type AxMCPTask,
   type AxMCPTaskMetadata,
   type AxMCPTaskResult,
@@ -2153,7 +2158,9 @@ export type { AxMCPBaseAnnotated };
 export type { AxMCPBatchRequest };
 export type { AxMCPBatchResponse };
 export type { AxMCPBlobResourceContents };
+export type { AxMCPCacheInfo };
 export type { AxMCPCacheableResult };
+export type { AxMCPCatalogCacheName };
 export type { AxMCPCatalogSnapshot };
 export type { AxMCPChatOptions };
 export type { AxMCPChatResult };
@@ -2246,6 +2253,9 @@ export type { AxMCPSamplingMessage };
 export type { AxMCPSamplingToolChoice };
 export type { AxMCPServerCapabilities };
 export type { AxMCPStreamableHTTPTransportOptions };
+export type { AxMCPSubscriptionFilter };
+export type { AxMCPSubscriptionsAcknowledgedParams };
+export type { AxMCPSubscriptionsListenParams };
 export type { AxMCPTask };
 export type { AxMCPTaskMetadata };
 export type { AxMCPTaskResult };
