@@ -320,13 +320,14 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
               if (diff) {
                 (delta as any)[key] = diff;
               }
-            } else if (Array.isArray(newVal) && Array.isArray(oldVal)) {
-              if (newVal.length > oldVal.length) {
-                (delta as any)[key] = newVal.slice(oldVal.length);
+            } else if (Array.isArray(newVal)) {
+              // Emit only newly-appended items. Treat a missing previous value as
+              // an empty array so the first items aren't dropped; equal length
+              // means no new complete items, so nothing is re-emitted (#564).
+              const prevLen = Array.isArray(oldVal) ? oldVal.length : 0;
+              if (newVal.length > prevLen) {
+                (delta as any)[key] = newVal.slice(prevLen);
               }
-              // If lengths are equal but contents differ, don't re-emit the entire array
-              // The items were already yielded during streaming (possibly incomplete)
-              // Re-emitting would cause duplication in generate.ts array concatenation
             } else if (JSON.stringify(newVal) !== JSON.stringify(oldVal)) {
               // Only re-emit non-array values when they change
               if (!Array.isArray(newVal)) {
@@ -356,8 +357,10 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
             delta: delta as Partial<OUT>,
           };
         }
-        return;
       }
+      // Complex fields arrive as one JSON object handled above; don't fall through
+      // to the prompt extractor — it re-parses the JSON and duplicates items (#564).
+      return;
     }
 
     const skip = streamingExtractValues(
@@ -527,13 +530,14 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
               if (diff) {
                 (delta as any)[key] = diff;
               }
-            } else if (Array.isArray(newVal) && Array.isArray(oldVal)) {
-              if (newVal.length > oldVal.length) {
-                (delta as any)[key] = newVal.slice(oldVal.length);
+            } else if (Array.isArray(newVal)) {
+              // Emit only newly-appended items. Treat a missing previous value as
+              // an empty array so the first items aren't dropped; equal length
+              // means no new complete items, so nothing is re-emitted (#564).
+              const prevLen = Array.isArray(oldVal) ? oldVal.length : 0;
+              if (newVal.length > prevLen) {
+                (delta as any)[key] = newVal.slice(prevLen);
               }
-              // If lengths are equal but contents differ, don't re-emit the entire array
-              // The items were already yielded during streaming (possibly incomplete)
-              // Re-emitting would cause duplication in generate.ts array concatenation
             } else if (JSON.stringify(newVal) !== JSON.stringify(oldVal)) {
               // Only re-emit non-array values when they change
               if (!Array.isArray(newVal)) {
@@ -695,13 +699,17 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       );
     }
 
-    yield* streamValues<OUT>(
-      signature,
-      state.content,
-      state.values as Record<string, OUT>,
-      state.xstate,
-      state.index
-    );
+    // Skip when the structured-output JSON was already parsed and yielded above;
+    // re-running the prompt extractor would duplicate array items (#564).
+    if (!jsonParsed) {
+      yield* streamValues<OUT>(
+        signature,
+        state.content,
+        state.values as Record<string, OUT>,
+        state.xstate,
+        state.index
+      );
+    }
   }
 }
 
