@@ -298,6 +298,17 @@
       ]
     },
     "mcp": {
+      "era": {
+        "sourcePath": "src/examples/go/mcp/native_mcp_tools.go",
+        "illustrative": true,
+        "notes": [
+          "Current generated-package lifecycle. MCP 2026-07-28 era classification and discovery are tracked for a future port."
+        ],
+        "code": [
+          "mcp := ax.NewAxMCPClient(transport, map[string]ax.Value{\"namespace\": \"inventory\"})",
+          "catalog, err := mcp.InspectCatalog(false)"
+        ]
+      },
       "native": {
         "sourcePath": "src/examples/go/mcp/native_mcp_tools.go",
         "code": [

@@ -10,6 +10,7 @@ import type {
 import { fetchWithSSRFProtection } from '../util/ssrf.js';
 import type { AxMCPStreamableHTTPTransportOptions } from './options.js';
 
+/** @deprecated Use `AxMCPStreamableHTTPTransport`; this transport is for legacy HTTP/SSE servers. */
 export class AxMCPHTTPSSETransport implements AxMCPTransport {
   private endpoint: string | null = null;
   private sseUrl: string;

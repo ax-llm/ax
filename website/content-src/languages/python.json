@@ -330,6 +330,17 @@
       ]
     },
     "mcp": {
+      "era": {
+        "sourcePath": "src/examples/python/mcp/native-mcp-tools.py",
+        "illustrative": true,
+        "notes": [
+          "Current generated-package lifecycle. MCP 2026-07-28 era classification and discovery are tracked for a future port."
+        ],
+        "code": [
+          "mcp = AxMCPClient(AxMCPStreamableHTTPTransport(endpoint), {\"namespace\": \"inventory\"})",
+          "catalog = mcp.inspect_catalog()"
+        ]
+      },
       "native": {
         "sourcePath": "src/examples/python/mcp/native-mcp-tools.py",
         "code": [

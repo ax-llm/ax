@@ -9,6 +9,7 @@ export const mcpUnit = {
   sourceRefs: ['src/ax/skills/ax-mcp.md'],
   examplePaths: [
     'src/examples/typescript/mcp/native-mcp-tools.ts',
+    'src/examples/typescript/mcp/modern-dual-era-client.ts',
     'src/examples/mcp-task-resume-flow.ts',
   ],
   topics: [
@@ -19,17 +20,17 @@ export const mcpUnit = {
       apiLabel: 'AxMCPClient',
       prerequisites: ['typed-tools'],
       summary:
-        'You initialize one negotiated MCP session over the transport that fits your deployment. Streamable HTTP is the normal current choice for a remote server.',
+        'You connect one MCP client over the transport that fits your deployment. Streamable HTTP is the normal remote choice and supports both stateful and stateless servers.',
       example:
-        "const client = new AxMCPClient(new AxMCPStreamableHTTPTransport({ url }), { namespace: 'orders' });",
+        "const client = new AxMCPClient(new AxMCPStreamableHTTPTransport(url), { namespace: 'orders' });",
       exampleSteps: [
         {
           label: 'Create the transport',
           note: 'Streamable HTTP connects the client to the remote URL.',
         },
         {
-          label: 'Create one client session',
-          note: 'AxMCPClient owns negotiation and the protocol lifecycle.',
+          label: 'Create one client',
+          note: 'AxMCPClient owns era classification and the protocol lifecycle.',
         },
         {
           label: 'Use a namespace',
@@ -45,11 +46,43 @@ export const mcpUnit = {
       apiSymbols: ['AxMCPClient', 'AxMCPStreamableHTTPTransport'],
     }),
     topic({
+      id: 'mcp-dual-era-discovery',
+      title: 'Classify stateful and stateless MCP',
+      minutes: 9,
+      apiLabel: 'discover()',
+      prerequisites: ['mcp-lifecycle-transports'],
+      summary:
+        'Automatic era classification keeps one client compatible with stateful 2025-11-25 and stateless 2026-07-28 servers. Modern discovery returns supported versions, capabilities, instructions, cache policy, and server identity.',
+      example:
+        'const discovery = await client.discover();\nconsole.log(client.getEra(), discovery.supportedVersions);',
+      exampleSteps: [
+        {
+          label: 'Keep automatic classification',
+          note: 'Pin an era only when deployment policy already knows the endpoint contract.',
+        },
+        {
+          label: 'Read modern discovery',
+          note: 'server/discover is stateless and is available only after the endpoint classifies as modern.',
+        },
+      ],
+      check: choice(
+        'Which API should era-neutral code use to inspect tools and resources?',
+        [
+          'inspectCatalog()',
+          'Always call server/discover',
+          'Always send initialize manually',
+        ],
+        0,
+        'inspectCatalog() works across both eras; discover() is modern-only.'
+      ),
+      apiSymbols: ['AxMCPClient'],
+    }),
+    topic({
       id: 'mcp-catalog',
       title: 'Discover what an MCP server offers',
       minutes: 7,
       apiLabel: 'inspectCatalog()',
-      prerequisites: ['mcp-lifecycle-transports'],
+      prerequisites: ['mcp-dual-era-discovery'],
       summary:
         'You inspect the negotiated catalog for tools, prompts, resources, templates, and capabilities. Your app uses server-owned identifiers instead of guessing them.',
       example:
@@ -63,6 +96,28 @@ export const mcpUnit = {
         ],
         0,
         'Catalog discovery keeps the integration aligned with the live server.'
+      ),
+      apiSymbols: ['AxMCPClient'],
+    }),
+    topic({
+      id: 'mcp-modern-roundtrips-listening',
+      title: 'Fulfill input rounds and listen statelessly',
+      minutes: 10,
+      apiLabel: 'startListening()',
+      prerequisites: ['mcp-catalog'],
+      summary:
+        'A modern operation may request roots, sampling, or elicitation input before it completes. Modern notifications arrive through a fresh subscriptions/listen POST instead of a resumable session stream.',
+      example:
+        "const listening = await client.startListening();\nawait listening.ready;\nconst result = await client.callTool('review', input);",
+      check: choice(
+        'What should a modern reconnect send after a listen stream ends?',
+        [
+          'A fresh subscriptions/listen request with current interests',
+          'A Last-Event-ID session resume header',
+          'A JSON-RPC batch',
+        ],
+        0,
+        'Modern listening is stateless and reissues the filter with a fresh request ID.'
       ),
       apiSymbols: ['AxMCPClient'],
     }),
@@ -112,11 +167,15 @@ export const mcpUnit = {
       id: 'mcp-tasks-advanced',
       title: 'Handle long-running MCP work',
       minutes: 11,
-      prerequisites: ['mcp-attach', 'mcp-auth-security'],
+      prerequisites: [
+        'mcp-attach',
+        'mcp-auth-security',
+        'mcp-modern-roundtrips-listening',
+      ],
       summary:
-        'You can monitor progress, provide requested input, cancel, or resume work that finishes later. Recording and deterministic replay make the protocol lifecycle testable.',
+        'Modern servers may return a task from an ordinary tool call, which Ax can auto-await or expose for input, cancellation, and observation. Legacy task-draft APIs remain compatibility-only.',
       example:
-        'const task = await client.callTool({ name, arguments: input, task: { ttl: 60_000 } });',
+        "const outcome = await client.callToolOutcome(name, input);\nif (outcome.kind === 'task') await client.waitForTask(outcome.task.taskId);",
       check: choice(
         'Why must task polling remain available even when notifications are supported?',
         [

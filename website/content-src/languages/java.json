@@ -295,6 +295,17 @@
       ]
     },
     "mcp": {
+      "era": {
+        "sourcePath": "src/examples/java/mcp/NativeMCPToolsExample.java",
+        "illustrative": true,
+        "notes": [
+          "Current generated-package lifecycle. MCP 2026-07-28 era classification and discovery are tracked for a future port."
+        ],
+        "code": [
+          "AxMCPClient mcp = new AxMCPClient(new AxMCPStreamableHTTPTransport(endpoint), Map.of(\"namespace\", \"inventory\"));",
+          "AxMCPClient.CatalogSnapshot catalog = mcp.inspectCatalog();"
+        ]
+      },
       "native": {
         "sourcePath": "src/examples/java/mcp/NativeMCPToolsExample.java",
         "code": [

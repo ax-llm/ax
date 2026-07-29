@@ -370,9 +370,9 @@ try {
     collectQualityFailures(rel, html, qualityFailures);
   }
 
-  if (academyHtmlFiles.length !== 414) {
+  if (academyHtmlFiles.length !== 426) {
     qualityFailures.push(
-      `Academy must generate 69 pages for each of 6 languages (414 total; found ${academyHtmlFiles.length})`
+      `Academy must generate 71 pages for each of 6 languages (426 total; found ${academyHtmlFiles.length})`
     );
   }
 

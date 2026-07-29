@@ -291,6 +291,20 @@
       ]
     },
     "mcp": {
+      "era": {
+        "sourcePath": "src/examples/rust/mcp/native_mcp_tools.rs",
+        "illustrative": true,
+        "notes": [
+          "Current generated-package lifecycle. MCP 2026-07-28 era classification and discovery are tracked for a future port."
+        ],
+        "code": [
+          "let mcp = Arc::new(Mutex::new(AxMCPClient::new(",
+          "        Box::new(transport),",
+          "        json!({\"namespace\":\"inventory\"}),",
+          ")));",
+          "let catalog = mcp.lock().unwrap().inspect_catalog(false)?;"
+        ]
+      },
       "native": {
         "sourcePath": "src/examples/rust/mcp/native_mcp_tools.rs",
         "code": [

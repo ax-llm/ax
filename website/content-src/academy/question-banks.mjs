@@ -1017,15 +1017,41 @@ export const academyQuestionBanks = {
     ],
     [
       'What must happen before normal MCP operations?',
-      'The client and server complete protocol initialization and capability negotiation.',
+      'The client classifies the endpoint and establishes the matching protocol lifecycle.',
       'The model invents tool names from memory.',
-      'The app treats any HTTP endpoint as initialized.',
+      'The app treats any HTTP endpoint as classified.',
     ],
     [
       'A local MCP child process communicates over standard input and output. Which transport shape is appropriate?',
       'A stdio transport owned by the host process.',
       'A public browser redirect.',
       'A UCP webhook verifier.',
+    ]
+  ),
+  'mcp-dual-era-discovery': bank(
+    [
+      'A deployment may point at either MCP 2025-11-25 or 2026-07-28. Which era setting is the normal default?',
+      'Automatic classification.',
+      'Always force legacy.',
+      'Always force modern.',
+    ],
+    [
+      'What distinguishes the modern MCP lifecycle?',
+      'It is stateless and carries protocol metadata on every request.',
+      'It requires one permanent session identifier.',
+      'It permits JSON-RPC batching by default.',
+    ],
+    [
+      'When is pinning era: modern appropriate?',
+      'When deployment policy already guarantees the modern endpoint contract.',
+      'Whenever the client has not inspected the endpoint.',
+      'To make a legacy SSE server stateless.',
+    ],
+    [
+      'What does modern server discovery return?',
+      'Supported versions, capabilities, instructions, cache policy, and server metadata.',
+      'An application tenant identity.',
+      'A reusable authorization grant for every tool.',
     ]
   ),
   'mcp-catalog': bank(
@@ -1052,6 +1078,32 @@ export const academyQuestionBanks = {
       'The validated current catalog, with ownership changes handled safely.',
       'The oldest cached name regardless of server state.',
       'A tool name guessed by the UI.',
+    ]
+  ),
+  'mcp-modern-roundtrips-listening': bank(
+    [
+      'A modern tool call returns input_required with an elicitation request. What should the client do?',
+      'Use the configured host handler and retry the operation with that round response.',
+      'Ask the model to invent the user response.',
+      'Convert the response into a legacy batch.',
+    ],
+    [
+      'Why does Ax cap modern input rounds?',
+      'To prevent an unbounded protocol loop.',
+      'To limit the number of discovered tools.',
+      'To create a session identifier.',
+    ],
+    [
+      'What may a modern subscriptions/listen filter contain?',
+      'Advertised catalog interests, concrete resource URIs, and known task IDs.',
+      'Every application OAuth token.',
+      'A Last-Event-ID from a legacy session.',
+    ],
+    [
+      'A resource selection changes during modern listening. What happens?',
+      'The client closes and reissues the listen stream with current interests.',
+      'The client sends resources/subscribe and keeps the old filter forever.',
+      'The server automatically wakes every agent.',
     ]
   ),
   'mcp-attach': bank(

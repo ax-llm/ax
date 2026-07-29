@@ -559,6 +559,29 @@
       ]
     },
     "mcp": {
+      "era": {
+        "sourcePath": "src/examples/typescript/mcp/modern-dual-era-client.ts",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "const mcp = new AxMCPClient(",
+          "  new AxMCPStreamableHTTPTransport(endpoint, {",
+          "    ssrfProtection: { allowHTTP: true, allowLoopback: true },",
+          "  }),",
+          "  {",
+          "    era: 'auto',",
+          "    readCache: true,",
+          "    elicitation: async () => ({",
+          "      action: 'accept',",
+          "      content: { confirmed: true },",
+          "    }),",
+          "  }",
+          ");",
+          "const discovery = await mcp.discover();",
+          "if (mcp.getEra() !== 'modern') throw new Error('Expected modern MCP');",
+          "const mrtr = await mcp.callTool('mrtr_one_round');"
+        ]
+      },
       "native": {
         "sourcePath": "src/examples/typescript/mcp/native-mcp-tools.ts",
         "code": [

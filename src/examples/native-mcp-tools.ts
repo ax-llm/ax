@@ -24,7 +24,7 @@ const llm = ai({
   config: { model: AxAIOpenAIModel.GPT54Mini, temperature: 0 },
 });
 const reindex = ax(
-  'taskRequest:string -> answer:string "Use the inventory MCP tool and report the returned task id."',
+  'taskRequest:string -> answer:string "Use the inventory MCP tool and report the completed indexed count."',
   { mcp: client }
 );
 

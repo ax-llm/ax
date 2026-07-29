@@ -303,6 +303,17 @@
       ]
     },
     "mcp": {
+      "era": {
+        "sourcePath": "src/examples/cpp/mcp/native_mcp_tools.cpp",
+        "illustrative": true,
+        "notes": [
+          "Current generated-package lifecycle. MCP 2026-07-28 era classification and discovery are tracked for a future port."
+        ],
+        "code": [
+          "auto mcp = std::make_shared<axllm::AxMCPClient>(transport, axllm::object({{\"namespace\", \"inventory\"}}));",
+          "auto catalog = mcp->inspect_catalog();"
+        ]
+      },
       "native": {
         "sourcePath": "src/examples/cpp/mcp/native_mcp_tools.cpp",
         "code": [

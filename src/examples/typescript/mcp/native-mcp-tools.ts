@@ -34,7 +34,7 @@ const llm = ai({
   config: { model: AxAIOpenAIModel.GPT54Mini, temperature: 0 },
 });
 const program = ax(
-  'taskRequest:string -> answer:string "Use the inventory MCP tool and report its task id."',
+  'taskRequest:string -> answer:string "Use the inventory MCP tool and report the completed indexed count."',
   { mcp }
 );
 

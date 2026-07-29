@@ -1,21 +1,41 @@
 # MCP
 
-MCP is a native Ax execution surface. Attach a live `AxMCPClient` with `mcp`; AxGen, AxAgent, and AxFlow retain the owning session, qualified tool identity, structured content, tasks, cancellation, and tracing. The compatibility-only function adapter is lossy and is not used by native execution.
+MCP is a native Ax execution surface. Attach a live `AxMCPClient` with `mcp`; AxGen, AxAgent, and AxFlow retain the owning protocol state, qualified tool identity, structured content, tasks, cancellation, and tracing. The compatibility-only function adapter is lossy and is not used by native execution.
 
 {{< svg "mcp-bridge" "MCP bridge" >}}
 
 ```mermaid
 flowchart LR
-  Server["MCP server"] --> Session["AxMCPClient session"]
-  Session --> Program["AxGen, AxAgent, or AxFlow"]
-  Session --> Events["AxMCPEventSource"]
+  Server["MCP server"] --> Client["AxMCPClient"]
+  Client --> Program["AxGen, AxAgent, or AxFlow"]
+  Client --> Events["AxMCPEventSource"]
   Events --> Inbox["AxEventRuntime inbox"]
   Inbox --> Program
 ```
 
+## Stateful And Stateless Eras
+
+The TypeScript client supports both stateful MCP `2025-11-25` and stateless
+MCP `2026-07-28`. Automatic era classification is the default. Legacy servers
+initialize a session; modern servers answer `server/discover` and receive the
+protocol version, method, operation name, client metadata, and tracing context
+on every request.
+
+The generated Python, Java, C++, Go, and Rust packages currently retain their
+legacy lifecycle while modern-era port work is tracked separately. Their
+language-specific snippet below deliberately shows that boundary.
+
+{{mcpEraExample}}
+
+`discover()` performs classification but returns only for a modern endpoint.
+Use `inspectCatalog()` for code that must work in either era.
+
 ## Native Tools
 
-The client negotiates capabilities once and Ax maps native tool definitions at each model step. Catalog-change notifications refresh only the affected definitions.
+The client negotiates capabilities and Ax maps native tool definitions at each
+model step. Modern catalog results carry TTL and cache scope. A tool may map
+schema properties to request headers with `x-mcp-header`; Ax validates those
+annotations and keeps the body and headers synchronized.
 
 {{mcpNativeExample}}
 
@@ -25,7 +45,9 @@ The client negotiates capabilities once and Ax maps native tool definitions at e
 
 The endpoint is only the address. `inspectCatalog()` discovers server-owned
 resource names and URIs, while an explicit none/all/URI/selector policy decides
-what the source maintains. See [MCP Subscriptions]({{langRoot}}/concepts/mcp-subscriptions/) for catalog selection, URI templates, ownership, reconnect, and troubleshooting.
+what the source maintains. Legacy clients use subscription requests and
+resumable GET/SSE; modern clients put their interests in a long-running
+`subscriptions/listen` POST. See [MCP Subscriptions]({{langRoot}}/concepts/mcp-subscriptions/) for catalog selection, URI templates, ownership, reconnect, and troubleshooting.
 
 {{mcpResourceWakeExample}}
 
@@ -33,21 +55,34 @@ MCP sessions do not establish application tenant identity. Supply identity from 
 
 ## Tasks Resume Continuations
 
-Task progress and logs default to `observe`. An `input_required` or terminal task event correlates as `namespace:taskId` and can atomically consume the continuation owned by a prior AxFlow or Agent run. Polling remains available because MCP task notifications are optional.
+Modern Tasks v2 work is server-directed. `callTool()` auto-awaits an unsolicited
+task by default; applications can expose it, submit requested input with
+`provideTaskInput()`, or cancel it. Task progress and logs default to `observe`.
+An `input_required` or terminal task event correlates as `namespace:taskId` and
+can atomically consume the continuation owned by a prior AxFlow or Agent run.
+Polling remains available because MCP task notifications are optional.
 
 {{mcpTaskResumeExample}}
 
 ## Transports, Authentication, And Server Requests
 
-Ax supports stdio, Streamable HTTP, legacy HTTP/SSE, resumable SSE, and custom WebSocket transports. Native clients also expose prompts, resources, templates, subscriptions, completions, roots, sampling, elicitation, progress, cancellation, experimental tasks, OAuth, MCP Apps, client credentials, and enterprise-managed authorization.
+Ax supports stdio, Streamable HTTP, legacy HTTP/SSE, and custom WebSocket
+transports. Native clients also expose prompts, resources, templates,
+subscriptions, completions, roots, sampling, elicitation, multi round-trip
+requests (MRTR), progress, cancellation, Tasks v2, OAuth, MCP Apps, client
+credentials, and enterprise-managed authorization.
 
-Transport listeners are supervised and nonblocking. Reconnect restores logical subscriptions; caller-owned clients remain caller-owned and must be closed.
+Transport listeners are supervised and nonblocking. Legacy reconnect resumes
+with `Last-Event-ID` when available and restores logical subscriptions. Modern
+reconnect issues a fresh `subscriptions/listen` request without session or
+resume headers. Caller-owned clients remain caller-owned and must be closed.
 
 ## Safety
 
 - Treat prompt and resource content as attributed, untrusted context.
 - Require application identity for tenant routes; never derive it from an MCP session id.
 - Authorize side-effecting tools from annotations, arguments, task context, and caller identity.
+- Treat schema-derived request headers as routing data, not authorization.
 - Do not blindly replay an uncertain post-side-effect failure.
 - Use recording/replay or a sandbox for optimization and evaluation.
 

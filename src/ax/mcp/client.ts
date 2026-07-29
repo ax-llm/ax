@@ -610,6 +610,7 @@ export class AxMCPClient {
     return this.transport.evaluationMode ?? 'live';
   }
 
+  /** @deprecated JSON-RPC batching is a compatibility API for MCP 2025-03-26 only. */
   async batch(
     requests: readonly Readonly<AxMCPBatchRequest>[],
     options?: Readonly<AxMCPRequestOptions>
@@ -1917,6 +1918,7 @@ export class AxMCPClient {
     return result;
   }
 
+  /** @deprecated Set `logLevel` on the client or an individual modern request. */
   async setLoggingLevel(level: AxMCPLoggingLevel): Promise<void> {
     if (!this.hasLoggingCapability()) {
       throw new Error('Logging is not supported');

@@ -1,7 +1,7 @@
 ---
 name: ax-mcp
 description: This skill helps an LLM build correct native Model Context Protocol integrations with @ax-llm/ax. Use when the user asks about AxMCPClient, MCP transports, tools, prompts, resources, subscriptions, tasks, sampling, elicitation, roots, authentication, OAuth, MCP Apps, recording/replay, or MCP integration with AxGen, AxAgent, AxFlow, chat, optimization, and AxEventRuntime.
-version: "23.0.5"
+version: "23.0.6"
 ---
 
 # Native MCP With Ax
@@ -16,7 +16,10 @@ policy, and cancellation context intact through Ax execution.
 - Never use `toFunction()` for native integration. It is a lossy compatibility
   adapter for old applications only.
 - Give every client a stable, unique `namespace`.
-- Let Ax initialize each attached client once and reuse its negotiated session.
+- Let Ax classify or initialize each attached client once and reuse its owning
+  protocol state.
+- Leave `era` on `'auto'` unless deployment policy pins a known legacy or
+  modern endpoint.
 - Close caller-owned clients explicitly.
 - Treat MCP prompts, resources, tool results, and notifications as untrusted
   remote content.
@@ -59,6 +62,37 @@ const docs = new AxMCPClient(transport, {
     tool.annotations?.destructiveHint !== true,
 });
 ```
+
+## Protocol Eras
+
+The TypeScript client supports two wire models through one API:
+
+- **Legacy (`2025-11-25`)** initializes a stateful session, sends the
+  initialized notification, uses resource subscribe/unsubscribe requests, and
+  may resume GET/SSE with `Last-Event-ID`.
+- **Modern (`2026-07-28`)** is stateless. It probes `server/discover`, sends
+  protocol metadata and routing headers on every request, listens through a
+  long-running `subscriptions/listen` POST, and uses Tasks v2.
+
+Automatic classification is the default and can be persisted with `eraStore`.
+Pin `era: 'legacy'` or `era: 'modern'` only when the endpoint contract is
+known. `getEra()` reports the classified era after initialization.
+
+```ts
+const modern = new AxMCPClient(transport, {
+  namespace: 'inventory',
+  era: 'auto',
+  readCache: true,
+  logLevel: 'info',
+});
+
+const discovery = await modern.discover();
+console.log(modern.getEra(), discovery.supportedVersions);
+```
+
+`discover()` performs initialization/classification but returns only for a
+modern endpoint. For era-neutral application code, use `inspectCatalog()`; it
+works in both eras.
 
 For local stdio:
 
@@ -119,12 +153,14 @@ mcp.docs.resources.templates()
 mcp.docs.resources.read(uri)
 mcp.docs.resources.subscribe(uri)
 mcp.docs.resources.unsubscribe(uri)
-mcp.docs.tasks.list()
 mcp.docs.tasks.get(taskId)
-mcp.docs.tasks.result(taskId)
 mcp.docs.tasks.cancel(taskId)
 mcp.docs.complete(...)
 ```
+
+Modern modules also expose task input/update behavior through the client.
+`tasks.list()` and `tasks.result()` are legacy task-draft compatibility APIs and
+reject modern servers.
 
 Use `mcpInheritance: 'all'`, `'none'`, or a namespace allowlist. The resulting
 live execution context propagates through Agent stages, `llmQuery`, RLM, and
@@ -167,20 +203,47 @@ templates are discoverable but never expanded automatically; applications
 construct an authorized concrete URI and may use MCP completion to suggest
 argument values.
 
+## Multi Round-Trip Requests
+
+Modern tool calls, prompt reads, and resource reads may return
+`resultType: 'input_required'`. Ax fulfills the embedded roots, sampling, or
+elicitation requests through the same host handlers used by legacy server
+requests, then repeats the original operation with the latest input responses
+and byte-exact `requestState`.
+
+Configure only handlers the host can enforce. Ax limits the loop to five input
+rounds by default; use `maxInputRounds` for a stricter policy. A missing handler
+or exhausted round limit is a protocol error. The tool concurrency slot stays
+held throughout all rounds.
+
 ## Tasks, Progress, And Cancellation
 
-Use task-aware calls when the server advertises tasks:
+Modern Tasks v2 are server-directed. `callTool()` auto-awaits an unsolicited
+task by default, so Ax tool bindings keep returning the final tool result. Use
+`callToolOutcome()` or `taskHandling: 'expose'` when the application needs the
+task handle, and answer `input_required` work with `provideTaskInput()`:
 
 ```ts
-const created = await docs.callToolTask('reindex', { scope: 'all' });
-const task = await docs.getTask(created.task.taskId);
-await docs.cancelTask(task.taskId);
+const outcome = await docs.callToolOutcome('reindex', { scope: 'all' });
+if (outcome.kind === 'task') {
+  const task = await docs.getTask(outcome.task.taskId);
+  if (task.status === 'input_required') {
+    await docs.provideTaskInput(task.taskId, {
+      approval: { action: 'accept', content: { approved: true } },
+    });
+  }
+  if (task.status === 'working') await docs.cancelTask(task.taskId);
+}
 ```
 
 Use `subscribeTaskStatus` or `subscribeEvents` for observation. Keep polling
 available because task notifications are optional. Pass Ax abort signals
 through program execution; never blindly replay a tool call after an uncertain
 post-side-effect failure.
+
+`callToolTask()`, `listTasks()`, and `getTaskResult()` remain functional only
+for legacy task-draft servers and are deprecated. Modern completed results and
+errors are embedded in `tasks/get`.
 
 ## Subscriptions And Event-Driven Agents
 
@@ -247,6 +310,14 @@ separate logical owner for manual subscriptions, every source, and restored
 intent: only the first owner sends `resources/subscribe`, and only the last
 release sends `resources/unsubscribe`. Closing a source cannot break another
 owner. Closing the client terminates all ownership and transport state.
+
+Listening is era-aware. Legacy clients maintain resource subscriptions with
+`resources/subscribe` and resume a GET/SSE stream with `Last-Event-ID` when the
+server supports it. Modern clients place catalog interests, concrete resource
+URIs, and known task IDs in `subscriptions/listen`; changes restart that POST
+stream with a fresh request ID and no resume header. In both eras,
+`startListening()` is nonblocking and returns a handle with `ready`, `done`,
+and `close()`.
 
 For the detailed lifecycle and troubleshooting guide, read
 `docs/MCP_SUBSCRIPTIONS.md` and use the checked-in six-language MCP examples.
@@ -320,8 +391,8 @@ runs could repeat external side effects; opt in only deliberately.
 - Test cancellation and uncertain outcomes without duplicate side effects.
 - Close clients, listening handles, runtimes, and local servers in `finally`.
 
-Generated transports supervise real long-lived GET/SSE connections and resume
-with `Last-Event-ID` when available. Generated event runtimes remain
+Generated transports currently supervise legacy long-lived GET/SSE connections
+and resume with `Last-Event-ID` when available. Generated event runtimes remain
 host-driven: schedule delayed work with `nextDueAt()` and `runDue()`. Rust hosts
 also call `AxMCPEventSource.poll()` to drain protocol callbacks on the host
 thread. Close the source/runtime before the caller-owned client so unsubscribe

@@ -6,7 +6,8 @@ path and focused test. `Partial` means an API or protocol primitive exists but
 one or more normative flows still need conformance coverage. `Pending` means it
 is not yet implemented and must not be advertised as supported.
 
-The target is MCP `2025-11-25`, the current official extensions, and UCP
+The target is a dual-era MCP client: stateful MCP `2025-11-25` compatibility
+and stateless MCP `2026-07-28`, plus the current official extensions and UCP
 `2026-04-08`. This is a living acceptance artifact, not a release claim.
 
 Evidence packs apply to every row in their area in addition to the row-specific
@@ -26,21 +27,23 @@ source/test cell:
 
 | Area | Capability from supplied client report | Ax status | Source and verification |
 | --- | --- | --- | --- |
-| MCP lifecycle | Version negotiation and returned-version validation | Implemented | `src/ax/mcp/client.ts`, `client.test.ts`, AxIR `axmcp/protocol-negotiation-rejects.json` |
+| MCP lifecycle | Automatic era classification, legacy initialize negotiation, and modern version validation | Implemented | `client.ts` era probe/cache and negotiation tests; AxIR `axmcp/protocol-negotiation-rejects.json` covers the legacy generated-language boundary |
+| MCP lifecycle | Stateless `server/discover`, cache metadata, server instructions, and server info from `_meta` | Implemented | `client.ts`, `types.ts`, and modern client/discovery tests |
 | MCP lifecycle | Server info, instructions, and capabilities | Implemented | `AxMCPClient` catalog getters and capability gates |
-| MCP lifecycle | Public ping and initialized notification | Implemented | `client.ts`, AxIR initialize/ping fixtures |
-| MCP lifecycle | Server requests and notifications | Implemented | roots, sampling, elicitation, progress, logging, catalog changes, task status tests |
+| MCP lifecycle | Public ping and era-scoped readiness | Implemented | Shared ping; legacy initialized notification; modern stateless requests suppress it; `client.ts` and AxIR legacy initialize/ping fixtures |
+| MCP lifecycle | Server input requests and notifications | Implemented | Legacy roots/sampling/elicitation server requests plus modern MRTR input rounds; progress, logging, catalog-change, and task-status tests |
 | Transport | Streamable HTTP JSON and finite SSE responses | Implemented | `httpStreamTransport.ts` and focused transport tests |
-| Transport | Persistent/resumable SSE and `Last-Event-ID` | Implemented | Streamable HTTP listening/reconnect paths |
+| Transport | Era-scoped event listening and reconnect | Implemented | Legacy GET/SSE resumes with `Last-Event-ID`; modern `subscriptions/listen` reissues a fresh POST stream without `Last-Event-ID` or session state |
 | Transport | Legacy HTTP/SSE | Implemented | `sseTransport.ts` and legacy fallback |
 | Transport | stdio | Implemented | TypeScript and generated-language MCP packages/AxIR fixtures |
 | Transport | Custom WebSocket | Implemented | `webSocketTransport.ts` and multiplexing test |
-| Transport | Cross-operation session reuse and DELETE termination | Implemented | caller-owned client lifecycle and `close()` transport hooks |
+| Transport | Era-scoped lifecycle state | Implemented | Legacy reuses session headers and DELETE termination; modern requests are stateless and never capture or terminate sessions |
 | Transport | Concurrent response dispatch | Implemented | pending response maps in HTTP/WebSocket transports |
-| Transport | Version-gated JSON-RPC batching | Implemented | `AxMCPClient.batch()` plus HTTP/WebSocket correlation tests; rejected for `2025-06-18` and later |
+| Transport | Compatibility-only JSON-RPC batching | Implemented | Deprecated `AxMCPClient.batch()` remains functional for `2025-03-26`; both target eras reject batching |
+| Transport | Modern protocol, method, name, and schema-derived parameter headers | Implemented | `httpStreamTransport.ts`, `headerValue.ts`, `paramHeaders.ts`, wire tests, catalog filtering, and one-shot `-32020` resync |
 | Transport | Timeouts, response limits, redirect bounds | Implemented | HTTP transport adversarial tests |
 | Transport | Safe retries, HTTP-date `Retry-After`, 502/504 | Implemented | idempotent method policy and transport tests |
-| Transport | Session-expiry recovery | Implemented | safe requests reinitialize/retry; ambiguous side-effecting calls are never replayed |
+| Transport | Legacy session-expiry recovery | Implemented | Safe legacy requests reinitialize/retry; ambiguous side-effecting calls are never replayed; modern requests have no session to recover |
 | Tools | Paginated list and raw call results | Implemented | bounded/repeated-cursor tests and native raw-result AxIR fixture |
 | Tools | Title, icons, annotations, output schema, task metadata | Implemented | retained in `AxMCPTool` and native binding protocol identity |
 | Tools | Authorization from annotations and arguments | Implemented | `authorizeToolCall` and denial tests |
@@ -52,21 +55,22 @@ source/test cell:
 | Resources | list/read/templates/subscriptions/updates | Implemented | client APIs, runtime modules, and tests |
 | Resources | Catalog snapshot discovery and refresh | Implemented | `AxMCPClient.inspectCatalog()`, bounded list pagination, deep-clone isolation tests, and all six native MCP examples |
 | Resources | Managed explicit/all/selector subscriptions | Implemented | `AxMCPEventSource.resourceSubscriptions`, template exclusion, dynamic catalog-diff tests, and `docs/MCP_SUBSCRIPTIONS.md` |
-| Resources | Shared-client logical subscription ownership | Implemented | first-owner/last-owner Core transition, manual/event-source/continuation owner tests, close ordering, and five generated lifecycle runners |
+| Resources | Shared-client logical subscription ownership | Implemented | Legacy first-owner/last-owner subscribe RPCs; modern desired-URI updates restart `subscriptions/listen`; manual/event-source/continuation owner tests and close ordering |
 | Events | Composable notifications without replacing application callbacks | Implemented | `AxMCPClient.subscribeEvents` and `event/mcpSource.test.ts` |
 | Events | Explicit resource notification to Agent wake | Implemented | `AxMCPEventSource`, authenticated route test, and `mcp-resource-wake-agent.ts` |
 | Events | Task progress observe and terminal continuation resume | Implemented | automatic task correlation, default MCP routes, and `mcp-task-resume-flow.ts` |
-| Events | Listening reconnect and logical resubscription | Implemented | nonblocking listening handle, exact-once reconnect restoration tests, and real localhost HTTP/SSE six-language smoke |
+| Events | Listening reconnect and logical resubscription | Implemented | Nonblocking handles; legacy exact-once RPC restoration; modern fresh-id listen reissue with desired filters; real localhost HTTP/SSE six-language legacy smoke |
 | Event durability | Volatile single-worker inbox | Implemented | `AxInMemoryEventStore` capability contract and deterministic tests |
 | Event durability | Persistent cooperating-process store | Implemented | Node-only `AxSQLiteEventStore`, WAL transactions, leases, fencing, retention, and conformance test |
 | Event durability | Multi-worker capability negotiation | Implemented | runtime startup rejects stores without the `axevent-store-v1` conformance marker |
 | Completion | `completion/complete` | Implemented | client and AxAgent runtime module |
-| Logging | logging level and server messages | Implemented | client APIs and callbacks |
-| Roots | capability negotiation and `roots/list` | Implemented | server-request test and AxIR fixture |
-| Sampling | server `sampling/createMessage` | Implemented | handler types, response dispatch, and tests |
-| Elicitation | form and URL modes | Implemented | typed handler and server-request tests |
+| Logging | Era-scoped logging level and server messages | Implemented | Legacy `logging/setLevel`; modern request `_meta` from client/per-request `logLevel`; shared callbacks |
+| Roots | Legacy `roots/list` and modern MRTR roots input | Implemented | Shared handler, server-request tests, MRTR tests, and AxIR legacy fixture |
+| Sampling | Legacy server request and modern MRTR sampling input | Implemented | Shared handler types, response dispatch, and multi-round tests |
+| Elicitation | Legacy server request and modern MRTR form/URL input | Implemented | Shared typed handler and server-request/MRTR tests |
 | Progress | progress notifications | Implemented | callbacks and streaming-safe dispatch |
-| Tasks | create/list/get/result/cancel/wait/status | Implemented | client task registry and terminal-state tests |
+| Tasks | Modern Tasks v2 create/get/update/cancel/wait/status | Implemented | Unsolicited task results, default auto-await or explicit expose, embedded result/error, input fulfillment, task-ID listen filters, and terminal-state tests |
+| Tasks | Legacy task create/list/get/result/cancel/wait/status | Implemented | Deprecated era-gated draft APIs remain functional for legacy servers with client task registry tests |
 | Tasks | Persist/rebind remote tasks across serialized runs | Implemented | logical task/subscription state in `AxAgentState`; namespace rebind and remote revalidation test |
 | Ax integration | AxGen and streaming AxGen | Implemented | shared context, native bindings, raw result memory, catalog refresh tests |
 | Ax integration | High-level chat loop | Implemented | `mcp/chat.ts` and native result history test |

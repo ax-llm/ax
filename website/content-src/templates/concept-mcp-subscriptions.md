@@ -15,10 +15,12 @@ session does not prove application tenant identity.
 
 ## Inspect The Endpoint Catalog
 
-`inspectCatalog()` initializes the client once, follows bounded pagination, and
-returns a deep-cloned snapshot with the namespace, protocol version, revision,
-server capabilities, tools, prompts, concrete resources, URI templates, and
-current logical subscriptions. Use the refresh option for a forced round trip.
+`inspectCatalog()` classifies or initializes the client once, follows bounded
+pagination, and returns a deep-cloned snapshot with the namespace, protocol
+version, revision, server capabilities, tools, prompts, concrete resources,
+URI templates, and current logical subscriptions. Modern snapshots also expose
+catalog TTL and cache scope. Use the refresh option for a forced round trip;
+use `discover()` when modern server-wide discovery metadata is required.
 
 {{mcpNativeExample}}
 
@@ -30,7 +32,8 @@ MCP completion may suggest argument values, but it does not authorize them.
 ## Select What To Subscribe To
 
 Resource subscription policy defaults to **none**. Task, progress, logging, and
-catalog events still work.
+catalog events still work when the server advertises them and the listening
+filter requests them.
 
 - **All:** explicitly select every discovered concrete resource. This is the
   simple endpoint-only shortcut for a trusted server.
@@ -39,7 +42,10 @@ catalog events still work.
 - **URI list:** supply dynamic or application-constructed concrete URIs.
 - **None:** receive non-resource MCP events without resource subscriptions.
 
-Templates are never included by an all or selector policy. If a selector fails
+Templates are never included by an all or selector policy. In the legacy era,
+ownership transitions send `resources/subscribe` and `resources/unsubscribe`.
+In the modern era, the same policy updates the desired URI set and restarts
+`subscriptions/listen`. If a selector fails
 during a catalog change, Ax keeps the prior known-good selection. Partial wire
 failures retain successful transitions and retry incomplete work on the next
 change or reconnect.
@@ -58,9 +64,14 @@ Only the first owner sends `resources/subscribe`; only the final release sends
 `resources/unsubscribe`. Closing a source releases its ownership. Closing the
 client terminates all subscriptions and transport state.
 
-Reconnect restores the currently selected logical subscriptions exactly once.
+Legacy reconnect resumes GET/SSE with `Last-Event-ID` when available and
+restores the currently selected logical subscriptions exactly once. Modern
+reconnect closes the prior response stream and sends a fresh
+`subscriptions/listen` POST with a new request ID, no `Last-Event-ID`, and the
+current catalog, resource, and known-task interests.
+
 Close the runtime or source before closing the caller-owned client so final
-unsubscribe and cancellation requests can still be sent.
+legacy unsubscribe requests or modern listen-filter updates can still be sent.
 
 ## Wake And Resume Stay Explicit
 
@@ -71,8 +82,10 @@ out to multiple Agents with independent authorization, ordering, retries, and
 run records.
 
 Task continuation is independent of resource policy. Progress defaults to
-observe. An input-required or terminal task notification can resume its owning
-Agent or Flow. Keep polling available because task notifications are optional.
+observe. Modern listening adds known task IDs to its filter when task events
+have consumers. An input-required or terminal task notification can resume its
+owning Agent or Flow. Keep polling available because task notifications are
+optional.
 
 {{mcpTaskResumeExample}}
 
@@ -94,9 +107,9 @@ to an arbitrary endpoint.
 - **Templates but no subscriptions:** construct a concrete URI explicitly.
 - **Subscription capability error:** the server lists resources but does not
   advertise resource subscriptions.
-- **No notifications:** verify runtime start, the HTTP/SSE listener, server
-  notification support, the selected policy, route source/type, identity, and
-  localhost policy.
+- **No notifications:** verify runtime start, the era-specific GET/SSE or
+  `subscriptions/listen` path, server notification support, the selected
+  policy, route source/type, identity, and localhost policy.
 - **Notification but no Agent run:** add an explicit wake route; safe defaults
   observe progress/logs, invalidate catalogs, and resume only owned tasks.
 
