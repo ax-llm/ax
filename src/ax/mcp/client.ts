@@ -7,6 +7,7 @@ import type {
   AxLoggerFunction,
 } from '../ai/types.js';
 import { randomUUID } from '../util/crypto.js';
+import { AxMCPProtocolError } from './errors.js';
 import type { AxMCPExtensionCapability } from './extensions.js';
 import type {
   AxMCPListeningHandle,
@@ -1585,15 +1586,17 @@ export class AxMCPClient {
           }
           if (res !== null && typeof res === 'object' && 'error' in res) {
             const errorObj = res as {
-              error: { code: number; message: string };
+              error: { code: number; message: string; data?: unknown };
             };
             protocolSpan?.setAttribute(
               'rpc.jsonrpc.error_code',
               errorObj.error.code
             );
             reject(
-              new Error(
-                `RPC Error ${errorObj.error.code}: ${errorObj.error.message}`
+              new AxMCPProtocolError(
+                errorObj.error.code,
+                errorObj.error.message,
+                errorObj.error.data
               )
             );
           } else if (

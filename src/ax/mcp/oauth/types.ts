@@ -170,7 +170,13 @@ export interface AxMCPOAuthOptions {
   onAuthCode?: (
     authorizationUrl: string,
     context: Readonly<{ state: string; nonce: string; redirectUri: string }>
-  ) => Promise<{ code: string; state: string; redirectUri?: string }>;
+  ) => Promise<{
+    code: string;
+    state: string;
+    redirectUri?: string;
+    /** RFC 9207 authorization-server issuer from the authorization response. */
+    iss?: string;
+  }>;
   tokenStore?: {
     getToken: (key: string) => Promise<TokenSet | null> | TokenSet | null;
     setToken: (key: string, token: TokenSet) => Promise<void> | void;

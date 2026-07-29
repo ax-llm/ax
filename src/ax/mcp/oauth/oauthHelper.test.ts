@@ -4,6 +4,47 @@ import { OAuthHelper } from './oauthHelper.js';
 describe('MCP OAuth helper', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  const runAuthorizationIssuerFlow = async (
+    callback: (state: string) => { code: string; state: string; iss?: string },
+    advertisesIssuerParameter = true
+  ) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('oauth-protected-resource')) {
+          return Response.json({
+            resource: 'https://mcp.example',
+            authorization_servers: ['https://auth.example'],
+          });
+        }
+        if (url.includes('oauth-authorization-server')) {
+          return Response.json({
+            issuer: 'https://auth.example',
+            authorization_endpoint: 'https://auth.example/authorize',
+            token_endpoint: 'https://auth.example/token',
+            code_challenge_methods_supported: ['S256'],
+            authorization_response_iss_parameter_supported:
+              advertisesIssuerParameter,
+          });
+        }
+        if (url === 'https://auth.example/token') {
+          return Response.json({ access_token: 'access-1' });
+        }
+        throw new Error(`Unexpected URL ${url}`);
+      })
+    );
+    const helper = new OAuthHelper({
+      clientId: 'client-1',
+      ssrfProtection: { disabled: true },
+      onAuthCode: async (_url, context) => callback(context.state),
+    });
+    return helper.ensureAccessToken({
+      requestedUrl: 'https://mcp.example/rpc',
+      wwwAuthenticate: null,
+    });
+  };
+
   it('uses CIMD, validates state, challenged scopes, and client_secret_basic', async () => {
     let tokenRequest: RequestInit | undefined;
     vi.stubGlobal(
@@ -99,6 +140,34 @@ describe('MCP OAuth helper', () => {
         wwwAuthenticate: null,
       })
     ).rejects.toThrow('OAuth state mismatch');
+  });
+
+  it('accepts an RFC 9207 authorization response from the selected issuer', async () => {
+    await expect(
+      runAuthorizationIssuerFlow((state) => ({
+        code: 'code-1',
+        state,
+        iss: 'https://auth.example',
+      }))
+    ).resolves.toMatchObject({ issuer: 'https://auth.example' });
+  });
+
+  it('rejects an RFC 9207 authorization response from another issuer', async () => {
+    await expect(
+      runAuthorizationIssuerFlow((state) => ({
+        code: 'code-1',
+        state,
+        iss: 'https://attacker.example',
+      }))
+    ).rejects.toThrow(
+      'OAuth issuer mismatch: expected https://auth.example, received https://attacker.example'
+    );
+  });
+
+  it('requires iss when the authorization server advertises RFC 9207', async () => {
+    await expect(
+      runAuthorizationIssuerFlow((state) => ({ code: 'code-1', state }))
+    ).rejects.toThrow('OAuth authorization response issuer is required');
   });
 
   it('obtains non-interactive client credentials tokens', async () => {

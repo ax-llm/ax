@@ -287,9 +287,21 @@ export class OAuthHelper {
       code,
       state: returnedState,
       redirectUri: maybeRedirect,
+      iss: returnedIssuer,
     } = await this.oauth.onAuthCode(authUrl, { state, nonce, redirectUri });
     if (returnedState !== state) {
       throw new Error('OAuth state mismatch');
+    }
+    if (returnedIssuer !== undefined && returnedIssuer !== issuer) {
+      throw new Error(
+        `OAuth issuer mismatch: expected ${issuer}, received ${returnedIssuer}`
+      );
+    }
+    if (
+      asMeta.authorization_response_iss_parameter_supported === true &&
+      returnedIssuer === undefined
+    ) {
+      throw new Error('OAuth authorization response issuer is required');
     }
     const usedRedirectUri = maybeRedirect ?? redirectUri;
 
