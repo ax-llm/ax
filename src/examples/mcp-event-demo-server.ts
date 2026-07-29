@@ -5,6 +5,17 @@ import {
   type ServerResponse,
 } from 'node:http';
 import { fileURLToPath } from 'node:url';
+import { axMCPDecodeHeaderValue } from '../ax/mcp/util/headerValue.js';
+
+const MODERN_PROTOCOL_VERSION = '2026-07-28';
+const PROTOCOL_VERSION_META_KEY = 'io.modelcontextprotocol/protocolVersion';
+const CLIENT_CAPABILITIES_META_KEY =
+  'io.modelcontextprotocol/clientCapabilities';
+const SERVER_INFO_META_KEY = 'io.modelcontextprotocol/serverInfo';
+
+export interface AxMCPEventDemoServerOptions {
+  era?: 'dual' | 'modern' | 'legacy';
+}
 
 type JsonRpcRequest = {
   jsonrpc: '2.0';
@@ -31,9 +42,7 @@ type DemoResource = {
 };
 
 export class AxMCPEventDemoServer {
-  private readonly server = createServer((request, response) => {
-    void this.handle(request, response);
-  });
+  private readonly server: ReturnType<typeof createServer>;
   private readonly listeners = new Set<ServerResponse>();
   private readonly history: Array<{ id: number; message: unknown }> = [];
   private readonly tasks = new Map<string, DemoTask>();
@@ -65,6 +74,14 @@ export class AxMCPEventDemoServer {
   private sequence = 0;
   private sessionId = randomUUID();
   private endpoint?: string;
+
+  constructor(
+    private readonly options: Readonly<AxMCPEventDemoServerOptions> = {}
+  ) {
+    this.server = createServer((request, response) => {
+      void this.handle(request, response);
+    });
+  }
 
   async start(port = 0): Promise<string> {
     if (this.endpoint) return this.endpoint;
@@ -256,6 +273,26 @@ export class AxMCPEventDemoServer {
         response.writeHead(202).end();
         return;
       }
+      if (this.isModernRequest(request, message)) {
+        await this.handleModern(request, response, message);
+        return;
+      }
+      if ((this.options.era ?? 'dual') === 'modern') {
+        this.writeRPCError(
+          response,
+          message.id,
+          -32022,
+          'Unsupported protocol version',
+          {
+            requested: String(
+              this.requestMeta(message)?.[PROTOCOL_VERSION_META_KEY] ?? ''
+            ),
+            supported: [MODERN_PROTOCOL_VERSION],
+          },
+          400
+        );
+        return;
+      }
       const result = await this.dispatch(message);
       const body = JSON.stringify({ jsonrpc: '2.0', id: message.id, result });
       response.writeHead(200, {
@@ -273,6 +310,159 @@ export class AxMCPEventDemoServer {
       response.writeHead(500, { 'Content-Type': 'application/json' });
       response.end(body);
     }
+  }
+
+  private isModernRequest(
+    request: IncomingMessage,
+    message: JsonRpcRequest
+  ): boolean {
+    if ((this.options.era ?? 'dual') === 'legacy') return false;
+    if ((this.options.era ?? 'dual') === 'modern') return true;
+    return Boolean(
+      this.requestMeta(message)?.[PROTOCOL_VERSION_META_KEY] ??
+        request.headers['mcp-protocol-version'] === MODERN_PROTOCOL_VERSION
+    );
+  }
+
+  private requestMeta(
+    message: JsonRpcRequest
+  ): Record<string, unknown> | undefined {
+    const meta = message.params?._meta;
+    return meta && typeof meta === 'object' && !Array.isArray(meta)
+      ? (meta as Record<string, unknown>)
+      : undefined;
+  }
+
+  private async handleModern(
+    request: IncomingMessage,
+    response: ServerResponse,
+    message: JsonRpcRequest
+  ): Promise<void> {
+    const meta = this.requestMeta(message);
+    const version = meta?.[PROTOCOL_VERSION_META_KEY];
+    const headerVersion = request.headers['mcp-protocol-version'];
+    if (
+      typeof version !== 'string' ||
+      headerVersion !== version ||
+      request.headers['mcp-method'] !== message.method
+    ) {
+      this.writeRPCError(
+        response,
+        message.id!,
+        -32020,
+        'Header mismatch: modern request metadata does not match the body',
+        undefined,
+        400
+      );
+      return;
+    }
+    if (version !== MODERN_PROTOCOL_VERSION) {
+      this.writeRPCError(
+        response,
+        message.id!,
+        -32022,
+        'Unsupported protocol version',
+        { requested: version, supported: [MODERN_PROTOCOL_VERSION] },
+        400
+      );
+      return;
+    }
+    if (!meta || !(CLIENT_CAPABILITIES_META_KEY in meta)) {
+      this.writeRPCError(
+        response,
+        message.id!,
+        -32021,
+        'Missing required client capability metadata',
+        undefined,
+        400
+      );
+      return;
+    }
+    const expectedName = this.modernRequestName(message);
+    if (expectedName !== undefined) {
+      const headerName = request.headers['mcp-name'];
+      let decodedName: string | undefined;
+      try {
+        decodedName =
+          typeof headerName === 'string'
+            ? axMCPDecodeHeaderValue(headerName)
+            : undefined;
+      } catch {
+        decodedName = undefined;
+      }
+      if (decodedName !== expectedName) {
+        this.writeRPCError(
+          response,
+          message.id!,
+          -32020,
+          'Header mismatch: Mcp-Name does not match the request body',
+          undefined,
+          400
+        );
+        return;
+      }
+    }
+    try {
+      this.writeRPCResult(
+        response,
+        message.id!,
+        await this.dispatchModern(message)
+      );
+    } catch (error) {
+      if (error instanceof DemoMethodNotFoundError) {
+        this.writeRPCError(
+          response,
+          message.id!,
+          -32601,
+          error.message,
+          undefined,
+          404
+        );
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private modernRequestName(message: JsonRpcRequest): string | undefined {
+    if (message.method === 'resources/read') {
+      return typeof message.params?.uri === 'string'
+        ? message.params.uri
+        : undefined;
+    }
+    if (message.method === 'tools/call' || message.method === 'prompts/get') {
+      return typeof message.params?.name === 'string'
+        ? message.params.name
+        : undefined;
+    }
+    return;
+  }
+
+  private writeRPCResult(
+    response: ServerResponse,
+    id: string | number,
+    result: unknown
+  ): void {
+    this.writeJSON(response, { jsonrpc: '2.0', id, result });
+  }
+
+  private writeRPCError(
+    response: ServerResponse,
+    id: string | number | null,
+    code: number,
+    message: string,
+    data?: unknown,
+    status = 400
+  ): void {
+    this.writeJSON(
+      response,
+      {
+        jsonrpc: '2.0',
+        id,
+        error: { code, message, ...(data === undefined ? {} : { data }) },
+      },
+      status
+    );
   }
 
   private async control(
@@ -463,6 +653,91 @@ export class AxMCPEventDemoServer {
     }
   }
 
+  private async dispatchModern(message: JsonRpcRequest): Promise<unknown> {
+    const complete = (value: Record<string, unknown> = {}) => ({
+      ...value,
+      resultType: 'complete',
+      _meta: {
+        [SERVER_INFO_META_KEY]: {
+          name: 'ax-event-demo',
+          version: '2.0.0',
+        },
+      },
+    });
+    const cacheable = (value: Record<string, unknown>) =>
+      complete({ ...value, ttlMs: 1_000, cacheScope: 'private' });
+    switch (message.method) {
+      case 'server/discover':
+        return {
+          resultType: 'complete',
+          supportedVersions: [MODERN_PROTOCOL_VERSION],
+          capabilities: {
+            tools: { listChanged: true },
+            resources: { subscribe: true, listChanged: true },
+            logging: {},
+          },
+          instructions: 'Dual-era Ax MCP event demo server',
+          ttlMs: 60_000,
+          cacheScope: 'public',
+          _meta: {
+            [SERVER_INFO_META_KEY]: {
+              name: 'ax-event-demo',
+              version: '2.0.0',
+            },
+          },
+        };
+      case 'ping':
+        return complete();
+      case 'tools/list':
+        return cacheable({
+          tools: [
+            {
+              name: 'start_reindex',
+              description: 'Reindex the demo inventory',
+              inputSchema: {
+                type: 'object',
+                properties: { scope: { type: 'string' } },
+              },
+            },
+          ],
+        });
+      case 'tools/call':
+        return complete({
+          content: [{ type: 'text', text: 'Reindexed 42 inventory records' }],
+          structuredContent: { indexed: 42 },
+        });
+      case 'prompts/list':
+        return cacheable({ prompts: [] });
+      case 'prompts/get':
+        return complete({ messages: [] });
+      case 'resources/list':
+        return cacheable({ resources: [...this.resources.values()] });
+      case 'resources/templates/list':
+        return cacheable({
+          resourceTemplates: [
+            {
+              uriTemplate: 'demo://orders/{orderId}',
+              name: 'Order by ID',
+              description: 'A concrete order resource selected by ID',
+              mimeType: 'application/json',
+            },
+          ],
+        });
+      case 'resources/read':
+        return cacheable({
+          contents: [
+            {
+              uri: String(message.params?.uri ?? 'demo://inventory'),
+              mimeType: 'application/json',
+              text: JSON.stringify({ widgets: 7, updatedAt: Date.now() }),
+            },
+          ],
+        });
+      default:
+        throw new DemoMethodNotFoundError(message.method);
+    }
+  }
+
   private createTask(): DemoTask {
     const now = new Date().toISOString();
     const task: DemoTask = {
@@ -528,6 +803,12 @@ export class AxMCPEventDemoServer {
       chunks.push(value);
     }
     return Buffer.concat(chunks).toString('utf8');
+  }
+}
+
+class DemoMethodNotFoundError extends Error {
+  constructor(method: string) {
+    super(`Unsupported demo MCP method: ${method}`);
   }
 }
 

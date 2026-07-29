@@ -215,7 +215,8 @@ describe('AxMCPClient', () => {
       expect(mockTransport.send).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'initialize',
-        })
+        }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
       const initializeCall = vi
         .mocked(mockTransport.send)
@@ -229,7 +230,8 @@ describe('AxMCPClient', () => {
       expect(mockTransport.send).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'tools/list',
-        })
+        }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
 
       // Verify functions were discovered
@@ -300,7 +302,8 @@ describe('AxMCPClient', () => {
             name: 'function1', // Original name, not the renamed one
             arguments: { param1: 'test' },
           },
-        })
+        }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
     });
 
@@ -314,7 +317,8 @@ describe('AxMCPClient', () => {
       expect(mockTransport.send).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'ping',
-        })
+        }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
     });
 
@@ -340,7 +344,7 @@ describe('AxMCPClient', () => {
         return { jsonrpc: '2.0', id: request.id, result: {} };
       });
 
-      const client = new AxMCPClient(mockTransport);
+      const client = new AxMCPClient(mockTransport, { era: 'legacy' });
       await client.init();
 
       // Client should have no functions since tools are not supported
@@ -361,7 +365,7 @@ describe('AxMCPClient', () => {
         } as AxMCPJSONRPCResponse;
       });
 
-      const client = new AxMCPClient(mockTransport);
+      const client = new AxMCPClient(mockTransport, { era: 'legacy' });
 
       // Expect init to throw an error
       await expect(client.init()).rejects.toThrow('RPC Error 123: Test error');
@@ -377,7 +381,7 @@ describe('AxMCPClient', () => {
         } as AxMCPJSONRPCResponse;
       });
 
-      const client = new AxMCPClient(mockTransport);
+      const client = new AxMCPClient(mockTransport, { era: 'legacy' });
 
       // Expect init to throw an error
       await expect(client.init()).rejects.toThrow(
@@ -474,6 +478,190 @@ describe('AxMCPClient', () => {
           params: { requestId, reason: 'Client cancelled request' },
         })
       );
+    });
+  });
+
+  describe('modern era', () => {
+    const discoveryResult = {
+      resultType: 'complete' as const,
+      supportedVersions: ['2026-07-28'],
+      capabilities: { logging: {} },
+      ttlMs: 60_000,
+      cacheScope: 'private' as const,
+      _meta: {
+        'io.modelcontextprotocol/serverInfo': {
+          name: 'modern-server',
+          version: '2.0.0',
+        },
+      },
+    };
+
+    it('uses discovery, injects per-request metadata, and skips the handshake', async () => {
+      const requests: Array<Readonly<{ method: string; params?: unknown }>> =
+        [];
+      const eras: string[] = [];
+      const transport: AxMCPTransport = {
+        setEra: (era) => eras.push(era),
+        send: async (request) => {
+          requests.push(request);
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: request.method === 'server/discover' ? discoveryResult : {},
+          };
+        },
+        sendNotification: vi.fn(async () => {}),
+      };
+      const client = new AxMCPClient(transport, { era: 'modern' });
+
+      await client.init();
+      await client.setLoggingLevel('warning');
+      await client.ping();
+
+      expect(client.getEra()).toBe('modern');
+      expect(client.getProtocolVersion()).toBe('2026-07-28');
+      expect(client.getServerInfo()).toEqual({
+        name: 'modern-server',
+        version: '2.0.0',
+      });
+      expect(eras).toEqual(['modern']);
+      expect(requests.map((request) => request.method)).toEqual([
+        'server/discover',
+        'ping',
+      ]);
+      expect(requests[0]?.params).toMatchObject({
+        _meta: {
+          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+          'io.modelcontextprotocol/clientCapabilities': {},
+          'io.modelcontextprotocol/clientInfo': {
+            name: 'AxMCPClient',
+            version: '1.0.0',
+          },
+        },
+      });
+      expect(requests[1]?.params).toMatchObject({
+        _meta: { 'io.modelcontextprotocol/logLevel': 'warning' },
+      });
+      expect(transport.sendNotification).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the byte-compatible handshake on an invalid probe shape', async () => {
+      const methods: string[] = [];
+      const transport: AxMCPTransport = {
+        send: async (request) => {
+          methods.push(request.method);
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result:
+              request.method === 'initialize'
+                ? {
+                    protocolVersion: '2025-11-25',
+                    capabilities: { tools: false },
+                  }
+                : {},
+          };
+        },
+        sendNotification: vi.fn(async () => {}),
+      };
+      const client = new AxMCPClient(transport);
+
+      await client.init();
+
+      expect(client.getEra()).toBe('legacy');
+      expect(methods).toEqual(['server/discover', 'initialize']);
+      expect(transport.sendNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'notifications/initialized' })
+      );
+    });
+
+    it('retries unsupported versions once with a mutual version', async () => {
+      const requests: AxMCPJSONRPCMessage[] = [];
+      const versions: string[] = [];
+      const transport: AxMCPTransport = {
+        setProtocolVersion: (version) => versions.push(version),
+        send: async (request) => {
+          requests.push(request);
+          if (requests.length === 1) {
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              error: {
+                code: -32022,
+                message: 'Unsupported protocol version',
+                data: {
+                  requested: '2026-07-28',
+                  supported: ['2026-06-draft'],
+                },
+              },
+            };
+          }
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              ...discoveryResult,
+              supportedVersions: ['2026-06-draft'],
+            },
+          };
+        },
+        sendNotification: async () => {},
+      };
+      const client = new AxMCPClient(transport, {
+        era: 'modern',
+        supportedProtocolVersions: ['2026-06-draft', '2026-07-28'],
+      });
+
+      await client.init();
+
+      expect(requests).toHaveLength(2);
+      expect(requests[0]).toMatchObject({ method: 'server/discover' });
+      expect(requests[1]).toMatchObject({
+        method: 'server/discover',
+        params: {
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': '2026-06-draft',
+          },
+        },
+      });
+      expect(requests[0]).not.toMatchObject({ id: requests[1]?.id });
+      expect(versions).toContain('2026-06-draft');
+    });
+
+    it('cancels modern requests by aborting the response stream', async () => {
+      let requestSignal: AbortSignal | undefined;
+      let pending = false;
+      const sendNotification = vi.fn(async () => {});
+      const transport: AxMCPTransport = {
+        send: async (request, options) => {
+          if (!pending) {
+            return { jsonrpc: '2.0', id: request.id, result: discoveryResult };
+          }
+          requestSignal = options?.signal;
+          return new Promise<never>(() => {});
+        },
+        sendNotification,
+      };
+      const client = new AxMCPClient(transport, { era: 'modern' });
+      await client.init();
+      pending = true;
+
+      const operation = (
+        client as unknown as {
+          sendRequest(method: string): Promise<unknown>;
+        }
+      ).sendRequest('tools/list');
+      const activeRequests = (
+        client as unknown as {
+          activeRequests: Map<string, unknown>;
+        }
+      ).activeRequests;
+      const requestId = [...activeRequests.keys()][0]!;
+      client.cancelRequest(requestId);
+
+      await expect(operation).rejects.toThrow(`Request ${requestId} cancelled`);
+      expect(requestSignal?.aborted).toBe(true);
+      expect(sendNotification).not.toHaveBeenCalled();
     });
   });
 
@@ -1878,7 +2066,10 @@ describe('AxMCPClient full consumer primitives', () => {
       },
       sendNotification: async () => {},
     };
-    const client = new AxMCPClient(transport, { maxConcurrency: 1 });
+    const client = new AxMCPClient(transport, {
+      maxConcurrency: 1,
+      era: 'legacy',
+    });
     await client.init();
 
     const first = client.callTool('work');
@@ -1939,7 +2130,7 @@ describe('AxMCPClient full consumer primitives', () => {
       },
       sendNotification: async () => {},
     };
-    const client = new AxMCPClient(transport);
+    const client = new AxMCPClient(transport, { era: 'legacy' });
     await client.init();
 
     const first = client.callTool('delete_item');

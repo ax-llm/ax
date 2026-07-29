@@ -26,7 +26,7 @@ function localClient(endpoint: string) {
       ssrfProtection: { allowHTTP: true, allowLoopback: true },
       reconnect: { initialDelayMs: 10, maxDelayMs: 20 },
     }),
-    { namespace: 'inventory' }
+    { namespace: 'inventory', era: 'legacy' }
   );
 }
 
@@ -52,6 +52,34 @@ afterEach(async () => {
 });
 
 describe('AxMCPEventSource over real localhost Streamable HTTP/SSE', () => {
+  it('uses the stateless modern flow against the dual-era demo server', async () => {
+    const server = new AxMCPEventDemoServer();
+    servers.push(server);
+    const endpoint = await server.start();
+    const client = new AxMCPClient(
+      new AxMCPStreamableHTTPTransport(endpoint, {
+        ssrfProtection: { allowHTTP: true, allowLoopback: true },
+      }),
+      { namespace: 'inventory-modern', era: 'modern' }
+    );
+    try {
+      await client.init();
+      expect(client.getEra()).toBe('modern');
+      expect(client.getProtocolVersion()).toBe('2026-07-28');
+      expect(client.getTools().map(({ name }) => name)).toEqual([
+        'start_reindex',
+      ]);
+      await expect(
+        client.callTool('start_reindex', { scope: 'inventory' })
+      ).resolves.toMatchObject({
+        resultType: 'complete',
+        structuredContent: { indexed: 42 },
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
   it('discovers resources, reconciles catalog changes, wakes an AxAgent, and restores subscriptions', async () => {
     const server = new AxMCPEventDemoServer();
     servers.push(server);

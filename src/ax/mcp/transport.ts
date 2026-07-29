@@ -3,12 +3,15 @@ import type {
   AxMCPJSONRPCNotification,
   AxMCPJSONRPCRequest,
   AxMCPJSONRPCResponse,
+  AxMCPLoggingLevel,
 } from './types.js';
 
 export interface AxMCPRequestOptions {
   signal?: AbortSignal;
   /** Additional headers for this request when the transport supports them. */
   headers?: Readonly<Record<string, string>>;
+  /** Overrides the desired modern per-request logging level. */
+  logLevel?: AxMCPLoggingLevel;
 }
 
 export type AxMCPEra = 'modern' | 'legacy';

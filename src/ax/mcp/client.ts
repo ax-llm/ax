@@ -1,5 +1,5 @@
 import type { Tracer } from '@opentelemetry/api';
-import { SpanStatusCode } from '@opentelemetry/api';
+import { context, propagation, SpanStatusCode } from '@opentelemetry/api';
 import type {
   AxFunction,
   AxFunctionJSONSchema,
@@ -7,14 +7,17 @@ import type {
   AxLoggerFunction,
 } from '../ai/types.js';
 import { randomUUID } from '../util/crypto.js';
-import { AxMCPProtocolError } from './errors.js';
+import { AX_MCP_ERROR_CODES, AxMCPProtocolError } from './errors.js';
 import type { AxMCPExtensionCapability } from './extensions.js';
+import { axMCPBuildRequestMeta, axMCPServerInfoFromMeta } from './meta.js';
 import type {
+  AxMCPEra,
   AxMCPListeningHandle,
   AxMCPRequestOptions,
   AxMCPTransport,
 } from './transport.js';
 import {
+  AX_MCP_MODERN_PROTOCOL_VERSION,
   AX_MCP_PROTOCOL_VERSION,
   AX_MCP_SUPPORTED_PROTOCOL_VERSIONS,
   type AxMCPBatchRequest,
@@ -27,6 +30,7 @@ import {
   type AxMCPCompletionResult,
   type AxMCPContent,
   type AxMCPCreateTaskResult,
+  type AxMCPDiscoverResult,
   type AxMCPElicitationCreateParams,
   type AxMCPElicitationCreateResult,
   type AxMCPImplementationInfo,
@@ -37,6 +41,7 @@ import {
   type AxMCPJSONRPCRequest,
   type AxMCPListRootsResult,
   type AxMCPLoggingLevel,
+  type AxMCPMeta,
   type AxMCPProgressNotificationParams,
   type AxMCPPrompt,
   type AxMCPPromptGetResult,
@@ -112,6 +117,11 @@ export interface AxMCPClientListeningOptions {
   onError?: (error: unknown) => void | Promise<void>;
 }
 
+export interface AxMCPEraStore {
+  get(key: string): AxMCPEra | undefined | Promise<AxMCPEra | undefined>;
+  set(key: string, era: AxMCPEra): void | Promise<void>;
+}
+
 export interface AxMCPClientOptions {
   /** Enable debug logging */
   debug?: boolean;
@@ -119,6 +129,10 @@ export interface AxMCPClientOptions {
   logger?: AxLoggerFunction;
   /** MCP protocol version to request during initialize. Defaults to latest. */
   protocolVersion?: string;
+  /** Protocol era selection. Auto-detection is the default. */
+  era?: 'auto' | AxMCPEra;
+  /** Optional persistence for origin-scoped automatic era detection. */
+  eraStore?: AxMCPEraStore;
   /** Protocol versions this client can accept during negotiation. */
   supportedProtocolVersions?: readonly string[];
   /** Client metadata sent in initialize. */
@@ -139,6 +153,8 @@ export interface AxMCPClientOptions {
   sessionRecovery?: 'safe' | 'none';
   /** Optional protocol tracer; request spans contain sanitized MCP metadata. */
   tracer?: Tracer;
+  /** Default modern per-request logging level. */
+  logLevel?: AxMCPLoggingLevel;
   /** Host policy hook invoked before an MCP tool is called. */
   authorizeToolCall?: (
     call: Readonly<{
@@ -188,6 +204,7 @@ type CapabilityValue =
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
 const JSON_RPC_INTERNAL_ERROR = -32603;
 const MANUAL_RESOURCE_SUBSCRIPTION_OWNER = 'manual';
+const MCP_ERA_CACHE = new Map<string, AxMCPEra>();
 
 export class AxMCPClient {
   private functions: AxFunction[] = [];
@@ -197,10 +214,15 @@ export class AxMCPClient {
   private resourceTemplates: AxMCPResourceTemplate[] = [];
   private promptFunctions: AxFunction[] = [];
   private resourceFunctions: AxFunction[] = [];
-  private activeRequests: Map<string, { reject: (reason: unknown) => void }> =
-    new Map();
+  private activeRequests: Map<
+    string,
+    { reject: (reason: unknown) => void; controller: AbortController }
+  > = new Map();
   private serverCapabilities: AxMCPServerCapabilities = {};
   private negotiatedProtocolVersion?: string;
+  private era?: AxMCPEra;
+  private discoverResult?: AxMCPDiscoverResult;
+  private logLevel?: AxMCPLoggingLevel;
   private serverInfo?: AxMCPImplementationInfo;
   private serverInstructions?: string;
   private logger: AxLoggerFunction;
@@ -251,6 +273,7 @@ export class AxMCPClient {
           console.log(JSON.stringify(message, null, 2));
         }
       });
+    this.logLevel = options.logLevel;
     this.transport.setMessageHandler?.((message) => {
       return this.handleInboundMessage(message);
     });
@@ -274,6 +297,59 @@ export class AxMCPClient {
   private async initialize(): Promise<void> {
     await this.transport.connect?.();
 
+    const configuredEra = this.options.era ?? 'auto';
+    if (configuredEra !== 'auto') {
+      await this.initializeForEra(configuredEra);
+      await this.rememberEra(configuredEra);
+      return;
+    }
+
+    const knownEra = await this.knownEra();
+    if (knownEra) {
+      await this.initializeForEra(knownEra);
+      await this.rememberEra(knownEra);
+      return;
+    }
+
+    this.applyEra('modern');
+    try {
+      const discovery = await this.requestDiscovery();
+      if (!this.isDiscoverResult(discovery)) {
+        throw new Error('Invalid MCP server/discover result');
+      }
+      this.applyModernDiscovery(discovery);
+    } catch (error) {
+      if (
+        error instanceof AxMCPProtocolError &&
+        error.code === AX_MCP_ERROR_CODES.UNSUPPORTED_PROTOCOL_VERSION
+      ) {
+        throw error;
+      }
+      await this.initializeLegacy();
+      await this.rememberEra('legacy');
+      return;
+    }
+    await this.rememberEra('modern');
+    await this.refresh();
+  }
+
+  private async initializeForEra(era: AxMCPEra): Promise<void> {
+    if (era === 'legacy') {
+      await this.initializeLegacy();
+      return;
+    }
+    this.applyEra('modern');
+    const discovery = await this.requestDiscovery();
+    if (!this.isDiscoverResult(discovery)) {
+      throw new Error('Invalid MCP server/discover result');
+    }
+    this.applyModernDiscovery(discovery);
+    await this.refresh();
+  }
+
+  private async initializeLegacy(): Promise<void> {
+    this.applyEra('legacy');
+
     const protocolVersion =
       this.options.protocolVersion ?? AX_MCP_PROTOCOL_VERSION;
     const { result: res } = await this.sendRequest<
@@ -282,12 +358,7 @@ export class AxMCPClient {
     >('initialize', {
       protocolVersion,
       capabilities: this.buildClientCapabilities(),
-      clientInfo: {
-        name: 'AxMCPClient',
-        title: 'Ax MCP Client',
-        version: '1.0.0',
-        ...this.options.clientInfo,
-      },
+      clientInfo: this.clientInfo(),
     });
 
     const supportedVersions =
@@ -302,6 +373,24 @@ export class AxMCPClient {
     this.negotiatedProtocolVersion = res.protocolVersion;
     this.transport.setProtocolVersion?.(res.protocolVersion);
     this.serverCapabilities = res.capabilities ?? {};
+    this.negotiateExtensions();
+    this.serverInfo = res.serverInfo;
+    this.serverInstructions = res.instructions;
+
+    await this.sendNotification('notifications/initialized');
+    await this.refresh();
+  }
+
+  private clientInfo(): AxMCPImplementationInfo {
+    return {
+      name: 'AxMCPClient',
+      title: 'Ax MCP Client',
+      version: '1.0.0',
+      ...this.options.clientInfo,
+    };
+  }
+
+  private negotiateExtensions(): void {
     const clientExtensions = this.buildClientCapabilities().extensions ?? {};
     const serverExtensions = this.serverCapabilities.extensions ?? {};
     this.negotiatedExtensions = Object.fromEntries(
@@ -312,11 +401,93 @@ export class AxMCPClient {
           { ...capability, ...serverExtensions[name] },
         ])
     );
-    this.serverInfo = res.serverInfo;
-    this.serverInstructions = res.instructions;
+  }
 
-    await this.sendNotification('notifications/initialized');
-    await this.refresh();
+  private applyEra(era: AxMCPEra): void {
+    this.era = era;
+    this.transport.setEra?.(era);
+    if (era === 'modern') {
+      this.negotiatedProtocolVersion = AX_MCP_MODERN_PROTOCOL_VERSION;
+      this.transport.setProtocolVersion?.(AX_MCP_MODERN_PROTOCOL_VERSION);
+    } else {
+      this.negotiatedProtocolVersion = undefined;
+    }
+  }
+
+  private async knownEra(): Promise<AxMCPEra | undefined> {
+    if (this.transport.eraHint) return this.transport.eraHint;
+    const key = this.transport.eraCacheKey;
+    if (!key) return;
+    const cached = MCP_ERA_CACHE.get(key);
+    if (cached) return cached;
+    const stored = await this.options.eraStore?.get(key);
+    if (stored === 'modern' || stored === 'legacy') {
+      MCP_ERA_CACHE.set(key, stored);
+      return stored;
+    }
+    return;
+  }
+
+  private async rememberEra(era: AxMCPEra): Promise<void> {
+    const key = this.transport.eraCacheKey;
+    if (!key) return;
+    MCP_ERA_CACHE.set(key, era);
+    await this.options.eraStore?.set(key, era);
+  }
+
+  private async requestDiscovery(): Promise<AxMCPDiscoverResult> {
+    const { result } = await this.sendRequest<
+      Record<string, never>,
+      AxMCPDiscoverResult
+    >('server/discover', {});
+    return result;
+  }
+
+  private isDiscoverResult(value: unknown): value is AxMCPDiscoverResult {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+    const result = value as Partial<AxMCPDiscoverResult>;
+    return (
+      result.resultType === 'complete' &&
+      Array.isArray(result.supportedVersions) &&
+      result.supportedVersions.every(
+        (version) => typeof version === 'string'
+      ) &&
+      Boolean(
+        result.capabilities &&
+          typeof result.capabilities === 'object' &&
+          !Array.isArray(result.capabilities)
+      ) &&
+      Number.isInteger(result.ttlMs) &&
+      Number(result.ttlMs) >= 0 &&
+      (result.cacheScope === 'private' || result.cacheScope === 'public')
+    );
+  }
+
+  private applyModernDiscovery(result: AxMCPDiscoverResult): void {
+    this.discoverResult = structuredClone(result);
+    this.serverCapabilities = structuredClone(result.capabilities);
+    this.serverInstructions = result.instructions;
+    this.serverInfo = axMCPServerInfoFromMeta(result._meta) ?? this.serverInfo;
+    this.negotiateExtensions();
+  }
+
+  getEra(): AxMCPEra | undefined {
+    return this.era;
+  }
+
+  async discover(): Promise<AxMCPDiscoverResult> {
+    await this.init();
+    if (this.era !== 'modern') {
+      throw new Error('server/discover is only available for modern MCP');
+    }
+    const result = await this.requestDiscovery();
+    if (!this.isDiscoverResult(result)) {
+      throw new Error('Invalid MCP server/discover result');
+    }
+    this.applyModernDiscovery(result);
+    return structuredClone(result);
   }
 
   async refresh(): Promise<void> {
@@ -474,6 +645,8 @@ export class AxMCPClient {
       this.resourceSubscriptionOwners.clear();
       this.initialized = false;
       this.negotiatedProtocolVersion = undefined;
+      this.era = undefined;
+      this.discoverResult = undefined;
     }
   }
 
@@ -1228,6 +1401,8 @@ export class AxMCPClient {
     if (!this.hasLoggingCapability()) {
       throw new Error('Logging is not supported');
     }
+    this.logLevel = level;
+    if (this.era === 'modern') return;
     await this.sendRequest<{ level: AxMCPLoggingLevel }>('logging/setLevel', {
       level,
     });
@@ -1235,12 +1410,15 @@ export class AxMCPClient {
 
   cancelRequest(id: string): void {
     if (this.activeRequests.has(id)) {
-      this.sendNotification('notifications/cancelled', {
-        requestId: id,
-        reason: 'Client cancelled request',
-      });
       const entry = this.activeRequests.get(id);
       if (entry) {
+        entry.controller.abort(`Request ${id} cancelled`);
+        if (this.era !== 'modern') {
+          void this.sendNotification('notifications/cancelled', {
+            requestId: id,
+            reason: 'Client cancelled request',
+          });
+        }
         entry.reject(new Error(`Request ${id} cancelled`));
       }
       this.activeRequests.delete(id);
@@ -1532,15 +1710,10 @@ export class AxMCPClient {
   private async sendRequest<T = unknown, R = unknown>(
     method: string,
     params?: T,
-    options?: Readonly<AxMCPRequestOptions>
+    options?: Readonly<AxMCPRequestOptions>,
+    allowVersionRetry = true
   ): Promise<{ id: string; result: R }> {
     const requestId = randomUUID();
-    const request: AxMCPJSONRPCRequest<T> = {
-      jsonrpc: '2.0',
-      id: requestId,
-      method,
-      ...(params === undefined ? {} : { params }),
-    };
     const taskId =
       params && typeof params === 'object' && 'taskId' in params
         ? String((params as { taskId: unknown }).taskId)
@@ -1557,12 +1730,29 @@ export class AxMCPClient {
         ...(taskId ? { 'mcp.task.id': taskId } : {}),
       },
     });
+    const traceHeaders: Record<string, string> = {};
+    if (this.options.tracer) {
+      propagation.inject(context.active(), traceHeaders);
+    }
+    const requestParams =
+      this.era === 'modern'
+        ? this.buildModernRequestParams(params, options, traceHeaders)
+        : params;
+    const request: AxMCPJSONRPCRequest<unknown> = {
+      jsonrpc: '2.0',
+      id: requestId,
+      method,
+      ...(requestParams === undefined ? {} : { params: requestParams }),
+    };
+    const controller = new AbortController();
+    const signal = options?.signal
+      ? AbortSignal.any([options.signal, controller.signal])
+      : controller.signal;
+    const requestOptions: AxMCPRequestOptions = { ...options, signal };
 
     const responsePromise = new Promise<{ result: R }>((resolve, reject) => {
-      this.activeRequests.set(requestId, { reject });
-      const sendPromise = options
-        ? this.transport.send(request, options)
-        : this.transport.send(request);
+      this.activeRequests.set(requestId, { reject, controller });
+      const sendPromise = this.transport.send(request, requestOptions);
       sendPromise
         .then((res: unknown) => {
           this.activeRequests.delete(requestId);
@@ -1604,7 +1794,19 @@ export class AxMCPClient {
             typeof res === 'object' &&
             'result' in res
           ) {
-            resolve({ result: (res as { result: R }).result });
+            const result = (res as { result: R }).result;
+            if (
+              this.era === 'modern' &&
+              result &&
+              typeof result === 'object' &&
+              '_meta' in result
+            ) {
+              this.serverInfo =
+                axMCPServerInfoFromMeta(
+                  (result as { _meta?: AxMCPMeta })._meta
+                ) ?? this.serverInfo;
+            }
+            resolve({ result });
           } else {
             reject(new Error('Invalid response no result or error'));
           }
@@ -1631,6 +1833,20 @@ export class AxMCPClient {
       });
       protocolSpan?.end();
       if (
+        this.era === 'modern' &&
+        allowVersionRetry &&
+        error instanceof AxMCPProtocolError &&
+        error.code === AX_MCP_ERROR_CODES.UNSUPPORTED_PROTOCOL_VERSION
+      ) {
+        const version = this.mutualVersion(error.data);
+        if (version) {
+          this.negotiatedProtocolVersion = version;
+          this.transport.setProtocolVersion?.(version);
+          return this.sendRequest<T, R>(method, params, options, false);
+        }
+      }
+      if (
+        this.era === 'legacy' &&
         this.options.sessionRecovery !== 'none' &&
         method !== 'initialize' &&
         error instanceof Error &&
@@ -1647,6 +1863,44 @@ export class AxMCPClient {
       }
       throw error;
     }
+  }
+
+  private buildModernRequestParams<T>(
+    params: T | undefined,
+    options: Readonly<AxMCPRequestOptions> | undefined,
+    traceHeaders: Readonly<Record<string, string>>
+  ): Record<string, unknown> {
+    const base =
+      params && typeof params === 'object' && !Array.isArray(params)
+        ? { ...(params as Record<string, unknown>) }
+        : {};
+    const existingMeta =
+      base._meta && typeof base._meta === 'object' && !Array.isArray(base._meta)
+        ? (base._meta as AxMCPMeta)
+        : undefined;
+    return {
+      ...base,
+      _meta: axMCPBuildRequestMeta({
+        protocolVersion:
+          this.negotiatedProtocolVersion ?? AX_MCP_MODERN_PROTOCOL_VERSION,
+        clientCapabilities: this.buildClientCapabilities(),
+        clientInfo: this.clientInfo(),
+        logLevel: options?.logLevel ?? this.logLevel,
+        traceparent: traceHeaders.traceparent,
+        tracestate: traceHeaders.tracestate,
+        existing: existingMeta,
+      }),
+    };
+  }
+
+  private mutualVersion(data: unknown): string | undefined {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return;
+    const supported = (data as { supported?: unknown }).supported;
+    if (!Array.isArray(supported)) return;
+    const clientVersions =
+      this.options.supportedProtocolVersions ??
+      AX_MCP_SUPPORTED_PROTOCOL_VERSIONS;
+    return clientVersions.find((version) => supported.includes(version));
   }
 
   private isSafeSessionRecoveryMethod(method: string): boolean {
@@ -1682,6 +1936,14 @@ export class AxMCPClient {
     method: string,
     params?: Record<string, unknown>
   ): Promise<void> {
+    if (
+      this.era === 'modern' &&
+      (method === 'notifications/initialized' ||
+        method === 'notifications/roots/list_changed' ||
+        method === 'notifications/cancelled')
+    ) {
+      return;
+    }
     const notification: AxMCPJSONRPCNotification = {
       jsonrpc: '2.0',
       method,

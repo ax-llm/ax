@@ -1094,6 +1094,7 @@ import {
   type AxMCPClientEvent,
   type AxMCPClientListeningOptions,
   type AxMCPClientOptions,
+  type AxMCPEraStore,
   type AxMCPFunctionOverride,
 } from './mcp/client.js';
 import { AxMCPHTTPStatusError, AxMCPProtocolError } from './mcp/errors.js';
@@ -1111,6 +1112,11 @@ import type {
   AxMCPExtensionCapability,
   AxMCPOfficialExtension,
 } from './mcp/extensions.js';
+import {
+  type AxMCPRequestMetaOptions,
+  axMCPBuildRequestMeta,
+  axMCPServerInfoFromMeta,
+} from './mcp/meta.js';
 import {
   type AxMCPDPoPOptions,
   AxMCPDPoPProofFactory,
@@ -1133,6 +1139,7 @@ import type {
   AxMCPTokenSet,
 } from './mcp/oauth/types.js';
 import type {
+  AxMCPEra,
   AxMCPListeningHandle,
   AxMCPListeningOptions,
   AxMCPRequestOptions,
@@ -1229,6 +1236,11 @@ import {
   type AxMCPToolsListResult,
   axMCPToolInputSchemaToFunctionSchema,
 } from './mcp/types.js';
+import {
+  axMCPDecodeHeaderValue,
+  axMCPEncodeHeaderValue,
+  axMCPIsPlainHeaderValue,
+} from './mcp/util/headerValue.js';
 import type {
   AxMCPFetchOptions,
   AxMCPSSRFProtectionContext,
@@ -1529,10 +1541,15 @@ export { axMCPAPIKeyAuthentication };
 export { axMCPAppToolMeta };
 export { axMCPBasicAuthentication };
 export { axMCPBearerAuthentication };
+export { axMCPBuildRequestMeta };
 export { axMCPChat };
 export { axMCPChildExecutionOptions };
+export { axMCPDecodeHeaderValue };
+export { axMCPEncodeHeaderValue };
 export { axMCPEventRoutes };
 export { axMCPHMACAuthentication };
+export { axMCPIsPlainHeaderValue };
+export { axMCPServerInfoFromMeta };
 export { axMCPToolInputSchemaToFunctionSchema };
 export { axMCPToolVisibleTo };
 export { axMapGeminiLiveAudioPart };
@@ -2157,6 +2174,8 @@ export type { AxMCPEmbeddedResource };
 export type { AxMCPEnterpriseAuthorizationContext };
 export type { AxMCPEnterpriseIdentityAssertionType };
 export type { AxMCPEnterpriseManagedAuthorizationOptions };
+export type { AxMCPEra };
+export type { AxMCPEraStore };
 export type { AxMCPEventSourceIdentity };
 export type { AxMCPEventSourceOptions };
 export type { AxMCPExtensionCapability };
@@ -2199,6 +2218,7 @@ export type { AxMCPPromptGetResult };
 export type { AxMCPPromptMessage };
 export type { AxMCPPromptsListResult };
 export type { AxMCPProtocolVersion };
+export type { AxMCPRequestMetaOptions };
 export type { AxMCPRequestOptions };
 export type { AxMCPResolvedContext };
 export type { AxMCPResource };

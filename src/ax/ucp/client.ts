@@ -99,7 +99,10 @@ export class AxUCPClient {
         this.options.mcp
       );
       this.mcpTransport = transport;
-      this.mcpClient = new AxMCPClient(transport, { namespace: 'ucp' });
+      this.mcpClient = new AxMCPClient(transport, {
+        namespace: 'ucp',
+        era: 'legacy',
+      });
       if (!this.options.skipMCPInitialization) await this.mcpClient.init();
     }
   }

@@ -137,7 +137,12 @@ describe('native MCP execution', () => {
 
     expect(result.answer).toBe('answer: 7 units');
     expect(adapterSpy).not.toHaveBeenCalled();
-    expect(calls).toEqual(['initialize', 'tools/list', 'tools/call']);
+    expect(calls).toEqual([
+      'server/discover',
+      'initialize',
+      'tools/list',
+      'tools/call',
+    ]);
     expect(traces[0]?.result).toMatchObject({
       structuredContent: { sku: 'sku-1', available: 7 },
       _meta: { source: 'warehouse-a' },
