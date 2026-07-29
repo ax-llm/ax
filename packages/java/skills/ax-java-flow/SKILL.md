@@ -1,7 +1,7 @@
 ---
 name: "ax-java-flow"
 description: "Use when writing Java code with `dev.axllm:ax` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components."
-version: "23.0.5"
+version: "23.0.6"
 ---
 # AxFlow For Java
 

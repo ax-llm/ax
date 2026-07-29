@@ -1,5 +1,18 @@
 # Changelog
 
+## [23.0.6](https://github.com/ax-llm/ax/compare/23.0.4...23.0.5) (2026-07-29)
+
+### Bug Fixes
+
+* **agent:** reject multiple code blocks per turn ([#563](https://github.com/ax-llm/ax/issues/563)) ([1ef0968](https://github.com/ax-llm/ax/commit/1ef0968cc0b7bd26ec6c0506e929834d2ff837af))
+* **ai:** recover from stale context caches ([906d8c5](https://github.com/ax-llm/ax/commit/906d8c5785c4f388c19ae5c3730274a95617753f))
+
+## [23.0.5](https://github.com/ax-llm/ax/compare/23.0.4...23.0.5) (2026-07-24)
+
+### Bug Fixes
+
+* **agent:** preserve usage context in internal summaries ([0d10c43](https://github.com/ax-llm/ax/commit/0d10c4308fc48d8d77e700bc36c649f9cef84b24))
+
 ## [23.0.5](https://github.com/ax-llm/ax/compare/23.0.3...23.0.4) (2026-07-24)
 
 ### Bug Fixes
