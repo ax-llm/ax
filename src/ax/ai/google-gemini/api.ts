@@ -1700,19 +1700,20 @@ class AxAIGoogleGeminiImpl
       ttl: `${ttlSeconds}s`,
     };
 
-    // API path uses the cache name directly
-    let apiPath = `/${cacheName}`;
+    const query = new URLSearchParams({ updateMask: 'ttl' });
     if (!this.isVertex && this.apiKey) {
       const keyValue =
         typeof this.apiKey === 'function' ? 'ASYNC_KEY' : this.apiKey;
-      apiPath += `?key=${keyValue}`;
+      query.set('key', keyValue);
     }
+    const apiPath = `/${cacheName}?${query.toString()}`;
 
     const vertexCtx = this.getVertexCacheContext();
     return {
       type: 'update',
       apiConfig: {
         name: apiPath,
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         ...(vertexCtx ? { url: vertexCtx.baseUrl } : {}),
       },

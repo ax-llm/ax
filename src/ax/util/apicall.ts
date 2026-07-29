@@ -47,6 +47,9 @@ export interface AxAPI {
   name?: string;
   url?: string | URL;
   headers?: Record<string, string>;
+  /** HTTP method for JSON API requests. Defaults to POST. */
+  method?: 'POST' | 'PUT' | 'PATCH';
+  /** @deprecated Use `method: 'PUT'` instead. */
   put?: boolean;
   localCall?: <TRequest, TResponse>(
     data: TRequest,
@@ -596,6 +599,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   // Only verbose flag controls HTTP request/response logging
   const verbose = api.verbose ?? false;
   const includeBodyInErrors = api.includeRequestBodyInErrors ?? true;
+  const method = api.method ?? (api.put ? 'PUT' : 'POST');
   let timeoutId: NodeJS.Timeout | undefined;
 
   const baseUrl = new URL(api.url);
@@ -629,7 +633,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
 
   // Set up telemetry
   api.span?.setAttributes({
-    'http.request.method': api.put ? 'PUT' : 'POST',
+    'http.request.method': method,
     'url.full': apiUrl.href,
     'request.id': requestId,
     'request.startTime': metrics.startTime,
@@ -685,7 +689,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         console.log(
           '\n--- [AxAI API Request] ---\n',
           `URL: ${apiUrl.href}\n`,
-          `Method: ${api.put ? 'PUT' : 'POST'}\n`,
+          `Method: ${method}\n`,
           `Headers:`,
           JSON.stringify(
             {
@@ -704,7 +708,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       }
 
       const res = await (api.fetch ?? fetch)(apiUrl, {
-        method: api.put ? 'PUT' : 'POST',
+        method,
         headers: {
           'Content-Type': 'application/json',
           'X-Request-ID': requestId,
@@ -723,6 +727,9 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         url: apiUrl.href,
         retryCount: metrics.retryCount,
       });
+
+      let errorResponseBody: unknown;
+      let errorResponseBodyRead = false;
 
       if (timeoutId) {
         clearTimeout(timeoutId);
@@ -744,8 +751,9 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
 
       // Handle token limit errors (400 Bad Request)
       if (res.status === 400) {
-        const responseBody = await safeReadResponseBody(res);
-        const error = responseBody as any;
+        errorResponseBody = await safeReadResponseBody(res);
+        errorResponseBodyRead = true;
+        const error = errorResponseBody as any;
         let isTokenLimit = false;
 
         // OpenAI / Azure OpenAI and compatible endpoints
@@ -772,7 +780,9 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
         }
         // Generic check for "token" and "limit" or "context length" in message/body
         else {
-          const bodyString = JSON.stringify(responseBody).toLowerCase();
+          const bodyString = (
+            JSON.stringify(errorResponseBody) ?? ''
+          ).toLowerCase();
           if (
             (bodyString.includes('token') && bodyString.includes('limit')) ||
             bodyString.includes('context length') ||
@@ -788,7 +798,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
             res.statusText,
             apiUrl.href,
             json,
-            responseBody,
+            errorResponseBody,
             {
               metrics,
             },
@@ -831,13 +841,15 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
       }
 
       if (res.status >= 400) {
-        const responseBody = await safeReadResponseBody(res);
+        if (!errorResponseBodyRead) {
+          errorResponseBody = await safeReadResponseBody(res);
+        }
         throw new AxAIServiceStatusError(
           res.status,
           res.statusText,
           apiUrl.href,
           json,
-          responseBody,
+          errorResponseBody,
           { metrics },
           attempt > 0 ? attempt : undefined,
           includeBodyInErrors

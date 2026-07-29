@@ -69,6 +69,8 @@ flowchart TB
 ## Production Notes
 
 - Keep provider keys outside source code.
+- Ax-managed Gemini caches recover from failed TTL refreshes by recreating or going uncached; a provider-rejected stale cache receives one bounded uncached retry.
+- Namespace external context-cache registry keys by a required tenant/account ID when cross-account sharing is unsafe; use the provider expiry for the backing-store TTL.
 - Prefer model aliases like `fast`, `smart`, or `cheap` when app callers should not know provider model IDs.
 - Trace request latency, retries, token usage, cost, route choice, media mode, and model key.
 - Keep public provider examples separate from internal conformance fixtures.

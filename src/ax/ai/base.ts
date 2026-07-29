@@ -9,8 +9,9 @@ import { defaultLogger } from '../dsp/loggers.js';
 import { getModelInfo } from '../dsp/modelinfo.js';
 import { axSpanAttributes, axSpanEvents } from '../trace/trace.js';
 import { mergeAbortSignals } from '../util/abort.js';
-import type { RetryConfig } from '../util/apicall.js';
+import type { AxAPI, RetryConfig } from '../util/apicall.js';
 import {
+  AxAIServiceStatusError,
   AxMediaNotSupportedError,
   apiCall,
   defaultRetryConfig,
@@ -59,6 +60,7 @@ import type {
   AxChatResponse,
   AxContextCacheInfo,
   AxContextCacheOperation,
+  AxContextCacheRegistry,
   AxEmbedRequest,
   AxEmbedResponse,
   AxInternalChatRequest,
@@ -103,6 +105,21 @@ type ContextCacheKey = {
   contentHash: string;
 };
 
+type ManagedContextCache = {
+  key: string;
+  cacheName: string;
+  registry?: AxContextCacheRegistry;
+};
+
+type ContextCacheResult<TChatRequest> = {
+  preparedRequest?: {
+    apiConfig: AxAPI;
+    request: TChatRequest;
+  };
+  managedCache?: ManagedContextCache;
+  cacheInfo?: AxContextCacheInfo;
+};
+
 /**
  * Global context cache registry.
  * Keyed by a composite string of providerName:contentHash.
@@ -115,6 +132,43 @@ const contextCacheRegistry = new Map<string, ContextCacheEntry>();
  */
 function buildCacheKey(key: ContextCacheKey): string {
   return `${key.providerName}:${key.model}:${key.contentHash}`;
+}
+
+function getValidContextCacheExpiry(
+  cacheInfo: Readonly<AxContextCacheInfo> | undefined,
+  now: number
+): number | undefined {
+  if (!cacheInfo?.name || !cacheInfo.expiresAt) {
+    return undefined;
+  }
+  const expiresAt = Date.parse(cacheInfo.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > now ? expiresAt : undefined;
+}
+
+// cspell:ignore cachedcontent cachedcontents
+function isManagedContextCacheRejection(
+  error: unknown
+): error is AxAIServiceStatusError {
+  if (
+    !(error instanceof AxAIServiceStatusError) ||
+    (error.status !== 400 && error.status !== 404)
+  ) {
+    return false;
+  }
+
+  const body = (JSON.stringify(error.responseBody) ?? '').toLowerCase();
+  const namesCachedContent =
+    body.includes('cachedcontent') ||
+    body.includes('cached content') ||
+    body.includes('cachedcontents/');
+  const describesInvalidCache =
+    body.includes('cache') &&
+    (body.includes('expired') ||
+      body.includes('not found') ||
+      body.includes('does not exist') ||
+      body.includes('invalid'));
+
+  return namesCachedContent || describesInvalidCache;
 }
 
 function normalizeForStableStringify(value: unknown): unknown {
@@ -1923,53 +1977,16 @@ export class AxBaseAI<
       );
     };
 
-    const fn = async () => {
-      // If we have a prepared cached request from the provider, use it
-      if (cacheResult?.preparedRequest) {
-        const { apiConfig, request: reqValue } = cacheResult.preparedRequest;
-
-        if (span?.isRecording()) {
-          setChatRequestEvents(chatReq, span, excludeContentFromTrace);
-        }
-
-        const res = await apiCall(
-          {
-            name: apiConfig.name,
-            url: apiConfig.url ?? this.apiURL,
-            localCall: apiConfig.localCall,
-            headers: await this.buildHeaders(apiConfig.headers),
-            stream: modelConfig.stream,
-            timeout: this.timeout,
-            verbose,
-            fetch: this.fetch,
-            span,
-            abortSignal,
-            corsProxy: this.corsProxy,
-            onResponseMetadata,
-            retry: options?.retry ?? this.retry,
-            includeRequestBodyInErrors:
-              options?.includeRequestBodyInErrors ??
-              this.includeRequestBodyInErrors,
-          },
-          reqValue
-        );
-        return res;
-      }
-
-      // Standard path without context caching
-      const [apiConfig, reqValue] = await this.aiImpl.createChatReq(
-        effectiveReq,
-        options
-      );
-
-      if (span?.isRecording()) {
-        setChatRequestEvents(chatReq, span, excludeContentFromTrace);
-      }
-
-      const res = await apiCall(
+    const executeAPIRequest = async (
+      apiConfig: Readonly<AxAPI>,
+      reqValue: TChatRequest
+    ) =>
+      apiCall(
         {
           name: apiConfig.name,
           url: apiConfig.url ?? this.apiURL,
+          method: apiConfig.method,
+          put: apiConfig.put,
           localCall: apiConfig.localCall,
           headers: await this.buildHeaders(apiConfig.headers),
           stream: modelConfig.stream,
@@ -1987,7 +2004,48 @@ export class AxBaseAI<
         },
         reqValue
       );
-      return res;
+
+    const executeStandardRequest = async () => {
+      const [apiConfig, reqValue] = await this.aiImpl.createChatReq(
+        effectiveReq,
+        options
+      );
+      return executeAPIRequest(apiConfig, reqValue);
+    };
+
+    const fn = async () => {
+      if (span?.isRecording()) {
+        setChatRequestEvents(chatReq, span, excludeContentFromTrace);
+      }
+
+      if (!cacheResult?.preparedRequest) {
+        return executeStandardRequest();
+      }
+
+      const { apiConfig, request: reqValue } = cacheResult.preparedRequest;
+      try {
+        return await executeAPIRequest(apiConfig, reqValue);
+      } catch (error) {
+        if (
+          !cacheResult.managedCache ||
+          !isManagedContextCacheRejection(error)
+        ) {
+          throw error;
+        }
+
+        await this.invalidateManagedContextCache(
+          cacheResult.managedCache,
+          'provider_rejected',
+          span,
+          error.status
+        );
+        span?.addEvent('context_cache.fallback', {
+          reason: 'provider_rejected',
+          mode: 'uncached',
+          status: error.status,
+        });
+        return executeStandardRequest();
+      }
     };
 
     const rt = options?.rateLimiter ?? this.rt;
@@ -2472,6 +2530,8 @@ export class AxBaseAI<
         {
           name: apiConfig.name,
           url: apiConfig.url ?? this.apiURL,
+          method: apiConfig.method,
+          put: apiConfig.put,
           localCall: apiConfig.localCall,
           headers: await this.buildHeaders(apiConfig.headers),
           verbose,
@@ -2612,13 +2672,7 @@ export class AxBaseAI<
     req: Readonly<AxInternalChatRequest<TModel>>,
     options?: Readonly<AxAIServiceOptions>,
     span?: Span
-  ): Promise<{
-    preparedRequest?: {
-      apiConfig: import('../util/apicall.js').AxAPI;
-      request: TChatRequest;
-    };
-    cacheInfo?: AxContextCacheInfo;
-  } | null> {
+  ): Promise<ContextCacheResult<TChatRequest> | null> {
     const cacheOptions = options?.contextCache;
 
     // If caching is not configured, skip
@@ -2672,6 +2726,12 @@ export class AxBaseAI<
 
     // Use external registry if provided, otherwise use in-memory registry
     const externalRegistry = cacheOptions.registry;
+    const managedCache = (cacheName: string): ManagedContextCache => ({
+      key: cacheKeyStr,
+      cacheName,
+      registry: externalRegistry,
+    });
+    let refreshFailed = false;
 
     // Look up existing cache entry
     const existingEntry = externalRegistry
@@ -2685,41 +2745,72 @@ export class AxBaseAI<
 
       if (shouldRefresh && this.aiImpl.buildCacheUpdateTTLOp) {
         // Refresh TTL
-        await this.executeCacheOperation(
-          this.aiImpl.buildCacheUpdateTTLOp(
+        let refreshedCache: AxContextCacheInfo | undefined;
+        try {
+          const refreshOp = this.aiImpl.buildCacheUpdateTTLOp(
             existingEntry.cacheName,
             ttlSeconds
-          ),
-          options,
-          span
-        );
-
-        // Update entry with new expiration
-        const updatedEntry = {
-          cacheName: existingEntry.cacheName,
-          expiresAt: now + ttlSeconds * 1000,
-          tokenCount: existingEntry.tokenCount,
-        };
-
-        if (externalRegistry) {
-          await externalRegistry.set(cacheKeyStr, updatedEntry);
-        } else {
-          contextCacheRegistry.set(cacheKeyStr, {
-            ...updatedEntry,
-            contentHash,
-            lastTouchedAt: now,
+          );
+          refreshedCache = await this.executeCacheOperation(
+            refreshOp,
+            options,
+            span
+          );
+        } catch (error) {
+          span?.addEvent('context_cache.error', {
+            type: 'update',
+            error: error instanceof Error ? error.message : String(error),
           });
         }
-      }
+        const refreshedExpiresAt = getValidContextCacheExpiry(
+          refreshedCache,
+          now
+        );
 
-      // Use the existing cache
-      return this.useCacheByName(
-        model,
-        req,
-        existingEntry.cacheName,
-        options,
-        span
-      );
+        if (refreshedCache && refreshedExpiresAt !== undefined) {
+          const updatedEntry = {
+            cacheName: refreshedCache.name,
+            expiresAt: refreshedExpiresAt,
+            tokenCount: refreshedCache.tokenCount ?? existingEntry.tokenCount,
+          };
+
+          if (externalRegistry) {
+            await externalRegistry.set(cacheKeyStr, updatedEntry);
+          } else {
+            contextCacheRegistry.set(cacheKeyStr, {
+              ...updatedEntry,
+              contentHash,
+              lastTouchedAt: now,
+            });
+          }
+
+          return this.useCacheByName(
+            model,
+            req,
+            refreshedCache.name,
+            options,
+            span,
+            managedCache(refreshedCache.name)
+          );
+        }
+
+        await this.invalidateManagedContextCache(
+          managedCache(existingEntry.cacheName),
+          'refresh_failed',
+          span
+        );
+        refreshFailed = true;
+      } else {
+        // No refresh is required or supported, so the entry remains usable.
+        return this.useCacheByName(
+          model,
+          req,
+          existingEntry.cacheName,
+          options,
+          span,
+          managedCache(existingEntry.cacheName)
+        );
+      }
     }
 
     // Cache miss or expired - create a new cache
@@ -2730,11 +2821,25 @@ export class AxBaseAI<
     );
     if (estimatedTokens < minTokens) {
       // Below threshold, don't create explicit cache
+      if (refreshFailed) {
+        span?.addEvent('context_cache.fallback', {
+          reason: 'refresh_failed',
+          mode: 'uncached',
+        });
+      }
       return null;
     }
 
     // Build and execute cache creation operation
-    const createOp = this.aiImpl.buildCacheCreateOp?.(req, options);
+    let createOp: AxContextCacheOperation | undefined;
+    try {
+      createOp = this.aiImpl.buildCacheCreateOp?.(req, options);
+    } catch (error) {
+      span?.addEvent('context_cache.error', {
+        type: 'create',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     if (createOp) {
       const cacheInfo = await this.executeCacheOperation(
         createOp,
@@ -2742,11 +2847,12 @@ export class AxBaseAI<
         span
       );
 
-      if (cacheInfo) {
+      const cacheExpiresAt = getValidContextCacheExpiry(cacheInfo, now);
+      if (cacheInfo && cacheExpiresAt !== undefined) {
         // Store in registry
         const newEntry = {
           cacheName: cacheInfo.name,
-          expiresAt: new Date(cacheInfo.expiresAt).getTime(),
+          expiresAt: cacheExpiresAt,
           tokenCount: cacheInfo.tokenCount,
         };
 
@@ -2760,11 +2866,31 @@ export class AxBaseAI<
           });
         }
 
+        if (refreshFailed) {
+          span?.addEvent('context_cache.fallback', {
+            reason: 'refresh_failed',
+            mode: 'recreate',
+          });
+        }
+
         // Use the newly created cache
-        return this.useCacheByName(model, req, cacheInfo.name, options, span);
+        return this.useCacheByName(
+          model,
+          req,
+          cacheInfo.name,
+          options,
+          span,
+          managedCache(cacheInfo.name)
+        );
       }
     }
 
+    if (refreshFailed) {
+      span?.addEvent('context_cache.fallback', {
+        reason: 'refresh_failed',
+        mode: 'uncached',
+      });
+    }
     return null;
   }
 
@@ -2776,14 +2902,9 @@ export class AxBaseAI<
     req: Readonly<AxInternalChatRequest<TModel>>,
     cacheName: string,
     options?: Readonly<AxAIServiceOptions>,
-    _span?: Span
-  ): Promise<{
-    preparedRequest?: {
-      apiConfig: import('../util/apicall.js').AxAPI;
-      request: TChatRequest;
-    };
-    cacheInfo?: AxContextCacheInfo;
-  } | null> {
+    _span?: Span,
+    managedCache?: ManagedContextCache
+  ): Promise<ContextCacheResult<TChatRequest> | null> {
     // Use the provider's prepareCachedChatReq if available
     if (this.aiImpl.prepareCachedChatReq) {
       const prepared = await this.aiImpl.prepareCachedChatReq(
@@ -2796,11 +2917,51 @@ export class AxBaseAI<
           apiConfig: prepared.apiConfig,
           request: prepared.request,
         },
+        managedCache,
       };
     }
 
     // Fallback: provider doesn't support cached request preparation
     return null;
+  }
+
+  private async invalidateManagedContextCache(
+    managedCache: Readonly<ManagedContextCache>,
+    reason: 'refresh_failed' | 'provider_rejected',
+    span?: Span,
+    status?: number
+  ): Promise<void> {
+    try {
+      let invalidated = false;
+      if (managedCache.registry) {
+        const current = await managedCache.registry.get(managedCache.key);
+        if (current?.cacheName === managedCache.cacheName) {
+          await managedCache.registry.set(managedCache.key, {
+            ...current,
+            expiresAt: 0,
+          });
+          invalidated = true;
+        }
+      } else {
+        const current = contextCacheRegistry.get(managedCache.key);
+        if (current?.cacheName === managedCache.cacheName) {
+          invalidated = contextCacheRegistry.delete(managedCache.key);
+        }
+      }
+
+      span?.addEvent('context_cache.invalidated', {
+        reason,
+        cacheName: managedCache.cacheName,
+        invalidated,
+        ...(status !== undefined ? { status } : {}),
+      });
+    } catch (error) {
+      span?.addEvent('context_cache.error', {
+        type: 'invalidate',
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private getContextCacheToolState(
@@ -2839,6 +3000,8 @@ export class AxBaseAI<
         {
           name: op.apiConfig.name,
           url: op.apiConfig.url ?? this.apiURL,
+          method: op.apiConfig.method,
+          put: op.apiConfig.put,
           localCall: op.apiConfig.localCall,
           headers: await this.buildHeaders(op.apiConfig.headers),
           stream: false,

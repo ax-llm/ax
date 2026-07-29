@@ -2,28 +2,6 @@
   "schemaVersion": 2,
   "entries": [
     {
-      "id": "axir-2026-07-28-port-actor-multi-fence-rejection-before-execution",
-      "status": "open",
-      "title": "Port actor multi-fence rejection before execution",
-      "createdAt": "2026-07-28",
-      "sourcePR": 563,
-      "sourceCommit": "eec609f8789e6fe22956e15006c260dbf634f86c",
-      "tsPaths": [
-        "src/ax/agent/agent.test.ts",
-        "src/ax/agent/agentInternal/actorLoopTurn.ts"
-      ],
-      "portableSurface": "axagent",
-      "impact": "Generated Python, Java, C++, Go, and Rust agents may still normalize malformed multi-block actor responses to the first fenced block and execute a partial program.",
-      "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
-    },
-    {
       "id": "axir-2026-06-07-port-mcp-client-and-transports",
       "status": "done",
       "title": "Port MCP client and transports",
@@ -578,6 +556,51 @@
       "completedAt": "2026-07-24",
       "completedByCommit": "0d10c4308fc48d8d77e700bc36c649f9cef84b24",
       "verification": "npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check"
+    },
+    {
+      "id": "axir-2026-07-28-port-actor-multi-fence-rejection-before-execution",
+      "status": "open",
+      "title": "Port actor multi-fence rejection before execution",
+      "createdAt": "2026-07-28",
+      "sourcePR": 563,
+      "sourceCommit": "eec609f8789e6fe22956e15006c260dbf634f86c",
+      "tsPaths": [
+        "src/ax/agent/agent.test.ts",
+        "src/ax/agent/agentInternal/actorLoopTurn.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "Generated Python, Java, C++, Go, and Rust agents may still normalize malformed multi-block actor responses to the first fenced block and execute a partial program.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-07-28-port-managed-context-cache-refresh-recovery",
+      "status": "open",
+      "title": "Port managed context-cache refresh recovery",
+      "createdAt": "2026-07-28",
+      "sourcePR": null,
+      "sourceCommit": "1ef0968cc0b7bd26ec6c0506e929834d2ff837af",
+      "tsPaths": [
+        "src/ax/ai/base.ts",
+        "src/ax/ai/google-gemini/api.ts",
+        "src/ax/ai/types.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript now sends explicit cache TTL updates with PATCH, invalidates failed refreshes, and retries provider-rejected managed caches once without cachedContent; generated languages still treat explicit Vertex cache-resource lifecycle as host-owned.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

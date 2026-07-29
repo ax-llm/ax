@@ -27,7 +27,7 @@ function createMockFetch(body: unknown, capture: { lastBody?: any }) {
 
 function createSequencedMockFetch(
   bodies: unknown[],
-  capture: { calls: Array<{ url: string; body?: any }> }
+  capture: { calls: Array<{ url: string; body?: any; method?: string }> }
 ) {
   let index = 0;
 
@@ -41,11 +41,14 @@ function createSequencedMockFetch(
         }
       } catch {}
 
-      capture.calls.push({ url: String(url), body });
+      capture.calls.push({ url: String(url), body, method: init?.method });
 
       const responseBody = bodies[Math.min(index, bodies.length - 1)];
       index++;
 
+      if (responseBody instanceof Response) {
+        return responseBody;
+      }
       return new Response(JSON.stringify(responseBody), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -1917,6 +1920,86 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       expect(generateReq.cachedContent).toBe(
         'projects/demo-project/locations/us-central1/cachedContents/abc123'
       );
+    });
+
+    it('refreshes a regional Vertex cache with PATCH and the provider expiry', async () => {
+      const cacheName =
+        'projects/demo-project/locations/us-central1/cachedContents/abc123';
+      const providerExpiry = '2099-02-03T04:05:06Z';
+      const ai = new AxAIGoogleGemini({
+        apiKey: async () => 'vertex-token',
+        projectId: 'demo-project',
+        region: 'us-central1',
+        config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+        models: [],
+      });
+      const capture = {
+        calls: [] as Array<{ url: string; body?: any; method?: string }>,
+      };
+      const fetch = createSequencedMockFetch(
+        [
+          {
+            ...cacheCreateResponse,
+            name: cacheName,
+            expireTime: providerExpiry,
+          },
+          generateResponse,
+        ],
+        capture
+      );
+      let entry = {
+        cacheName,
+        expiresAt: Date.now() + 60_000,
+        tokenCount: 4096,
+      };
+      const registry = {
+        get: vi.fn(async () => entry),
+        set: vi.fn(async (_key: string, value: typeof entry) => {
+          entry = value;
+        }),
+      };
+
+      ai.setOptions({ fetch });
+      await ai.chat(
+        {
+          chatPrompt: [
+            { role: 'system', content: 'You are a router', cache: true },
+            { role: 'user', content: 'route this request' },
+          ],
+        },
+        {
+          stream: false,
+          retry: { maxRetries: 0 },
+          contextCache: { minTokens: 0, registry },
+        }
+      );
+
+      expect(capture.calls).toHaveLength(2);
+      expect(capture.calls[0]).toMatchObject({
+        url: `https://us-central1-aiplatform.googleapis.com/v1/${cacheName}?updateMask=ttl`,
+        method: 'PATCH',
+        body: { ttl: '3600s' },
+      });
+      expect(capture.calls[1]?.body?.cachedContent).toBe(cacheName);
+      expect(entry.expiresAt).toBe(Date.parse(providerExpiry));
+    });
+
+    it('includes the API key and update mask for Gemini cache refreshes', () => {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'gemini-key',
+        config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+        models: [],
+      });
+      const op = (ai as any).aiImpl.buildCacheUpdateTTLOp(
+        'cachedContents/abc123',
+        7200
+      );
+
+      expect(op.apiConfig).toMatchObject({
+        name: '/cachedContents/abc123?updateMask=ttl&key=gemini-key',
+        method: 'PATCH',
+      });
+      expect(op.request).toEqual({ ttl: '7200s' });
     });
 
     it('routes global Vertex cache creation to the v1 endpoint without a region prefix', async () => {

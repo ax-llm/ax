@@ -1,14 +1,53 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  apiCall,
   type AxAIServiceError,
   AxAIServiceNetworkError,
   AxAIServiceStatusError,
   type AxAPIConfig,
+  apiCall,
 } from './apicall.js';
 
 describe('apiCall', () => {
+  describe('HTTP method selection', () => {
+    it.each([
+      [{}, 'POST'],
+      [{ put: true }, 'PUT'],
+      [{ method: 'PATCH', put: true }, 'PATCH'],
+    ] as const)(
+      'uses the configured method for fetch and tracing',
+      async (methodOptions, expectedMethod) => {
+        const mockFetch = vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        );
+        const span = {
+          setAttributes: vi.fn(),
+        };
+
+        await apiCall(
+          {
+            url: 'https://api.example.com/test',
+            fetch: mockFetch,
+            span: span as any,
+            ...methodOptions,
+          },
+          { test: 'data' }
+        );
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.any(URL),
+          expect.objectContaining({ method: expectedMethod })
+        );
+        expect(span.setAttributes).toHaveBeenCalledWith(
+          expect.objectContaining({ 'http.request.method': expectedMethod })
+        );
+      }
+    );
+  });
+
   describe('retry logic for network errors', () => {
     it('should retry on raw TypeError from fetch (e.g., TLS connection errors)', async () => {
       // Simulate TLS connection error like "peer closed connection without sending TLS close_notify"
@@ -218,6 +257,63 @@ describe('apiCall', () => {
   });
 
   describe('includeRequestBodyInErrors', () => {
+    it('preserves a non-token-limit JSON body on 400 errors', async () => {
+      const responseBody = {
+        error: {
+          code: 400,
+          status: 'INVALID_ARGUMENT',
+          message: 'Cached content has expired',
+        },
+      };
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(responseBody), {
+          status: 400,
+          statusText: 'Bad Request',
+          headers: { 'content-type': 'application/json' },
+        })
+      );
+
+      try {
+        await apiCall(
+          {
+            url: 'https://api.example.com/test',
+            fetch: mockFetch,
+            retry: { maxRetries: 0 },
+          },
+          { cachedContent: 'cachedContents/stale' }
+        );
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(AxAIServiceStatusError);
+        expect((error as AxAIServiceStatusError).responseBody).toMatchObject({
+          responseBody,
+        });
+      }
+    });
+
+    it('reads an empty 400 response body only once', async () => {
+      const response = new Response('', {
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { 'content-type': 'application/json' },
+      });
+      const jsonSpy = vi.spyOn(response, 'json');
+      const mockFetch = vi.fn().mockResolvedValue(response);
+
+      await expect(
+        apiCall(
+          {
+            url: 'https://api.example.com/test',
+            fetch: mockFetch,
+            retry: { maxRetries: 0 },
+          },
+          { test: 'data' }
+        )
+      ).rejects.toBeInstanceOf(AxAIServiceStatusError);
+
+      expect(jsonSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('should include request body in error toString by default', async () => {
       const mockFetch = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ error: 'bad request' }), {

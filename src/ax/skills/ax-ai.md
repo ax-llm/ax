@@ -369,17 +369,34 @@ Breakpoint values: `'system'` | `'after-functions'` | `'after-examples'`
 
 Provider behavior:
 
-- Google Gemini: explicit caching with cache resource ID, auto TTL refresh
+- Google Gemini: explicit caching with cache resource ID and auto TTL refresh;
+  failed refreshes recreate or fall back uncached, and rejected Ax-managed
+  caches retry once without the cache
 - Anthropic: implicit via `cache_control` markers
 
 ### External Registry (serverless)
 
 ```typescript
+const accountId = getRequiredAccountId();
 const registry: AxContextCacheRegistry = {
-  get: async (key) => { /* redis.get */ },
-  set: async (key, entry) => { /* redis.set */ },
+  get: async (key) => {
+    const value = await redis.get(`context-cache:${accountId}:${key}`);
+    return value ? JSON.parse(value) : undefined;
+  },
+  set: async (key, entry) => {
+    const ttl = Math.max(1, Math.ceil((entry.expiresAt - Date.now()) / 1000));
+    await redis.set(
+      `context-cache:${accountId}:${key}`,
+      JSON.stringify(entry),
+      { ex: ttl }
+    );
+  },
 };
 ```
+
+Ax registry keys are content-based and are not account-scoped. Require a stable
+tenant/account namespace when cross-account cache sharing is unsafe; do not
+silently fall back to a global namespace.
 
 ## AWS Bedrock
 

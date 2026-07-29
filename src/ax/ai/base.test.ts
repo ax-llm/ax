@@ -33,6 +33,7 @@ const mockSpan = {
   setAttributes: vi.fn((attrs) => {
     Object.assign(mockSpan.attributes, attrs);
   }),
+  setStatus: vi.fn(),
   addEvent: vi.fn((name, attributes) => {
     mockSpan.mockEvents.push({ name, attributes });
   }),
@@ -54,6 +55,7 @@ const mockTracer = {
       mockSpan.mockEvents = [];
       mockSpan.setAttribute.mockClear();
       mockSpan.setAttributes.mockClear();
+      mockSpan.setStatus.mockClear();
       mockSpan.addEvent.mockClear();
       mockSpan.end.mockClear();
       mockSpan.isRecording.mockClear();
@@ -77,7 +79,7 @@ const createMockFetch = (responseFactory: () => Response) => {
 };
 
 const createCapturingFetch = (
-  capture: { calls: Array<{ url: string; body?: any }> },
+  capture: { calls: Array<{ url: string; body?: any; method?: string }> },
   responses: unknown[]
 ) => {
   let index = 0;
@@ -92,10 +94,13 @@ const createCapturingFetch = (
         }
       } catch {}
 
-      capture.calls.push({ url: String(url), body });
+      capture.calls.push({ url: String(url), body, method: init?.method });
       const responseBody = responses[Math.min(index, responses.length - 1)];
       index++;
 
+      if (responseBody instanceof Response) {
+        return responseBody;
+      }
       return new Response(JSON.stringify(responseBody), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -1866,11 +1871,37 @@ describe('AxBaseAI Tracing with Token Usage', () => {
             functions: req.functions,
             functionCall: req.functionCall,
           },
-          parseResponse: () => ({
-            name: `cache-${Math.random()}`,
-            expiresAt: '2099-01-01T00:00:00Z',
-            tokenCount: 4096,
-          }),
+          parseResponse: (response: unknown) => {
+            const value = response as {
+              name?: string;
+              expireTime?: string;
+              tokenCount?: number;
+            };
+            return {
+              name: value.name ?? `cache-${Math.random()}`,
+              expiresAt: value.expireTime ?? '2099-01-01T00:00:00Z',
+              tokenCount: value.tokenCount ?? 4096,
+            };
+          },
+        })),
+        buildCacheUpdateTTLOp: vi.fn((cacheName, ttlSeconds) => ({
+          type: 'update' as const,
+          apiConfig: { name: `/${cacheName}`, headers: {} },
+          request: { ttl: `${ttlSeconds}s` },
+          parseResponse: (response: unknown) => {
+            const value = response as {
+              name?: string;
+              expireTime?: string;
+              tokenCount?: number;
+            };
+            return value.name && value.expireTime
+              ? {
+                  name: value.name,
+                  expiresAt: value.expireTime,
+                  tokenCount: value.tokenCount,
+                }
+              : undefined;
+          },
         })),
         prepareCachedChatReq: vi.fn((_req, _options, cacheName) => ({
           apiConfig: { name: '/chat', headers: {} },
@@ -1932,6 +1963,39 @@ describe('AxBaseAI Tracing with Token Usage', () => {
       return ai;
     };
 
+    const cacheableRequest = {
+      chatPrompt: [
+        { role: 'system' as const, content: 'system', cache: true },
+        { role: 'user' as const, content: 'hello' },
+      ],
+    };
+
+    const createSeededRegistry = (entry: {
+      cacheName: string;
+      expiresAt: number;
+      tokenCount?: number;
+    }) => {
+      const data = new Map<string, typeof entry>();
+      let cacheKey: string | undefined;
+      const registry = {
+        get: vi.fn(async (key: string) => {
+          if (!cacheKey) {
+            cacheKey = key;
+            data.set(key, entry);
+          }
+          return data.get(key);
+        }),
+        set: vi.fn(async (key: string, value: typeof entry) => {
+          cacheKey = key;
+          data.set(key, value);
+        }),
+      };
+      return {
+        registry,
+        current: () => (cacheKey ? data.get(cacheKey) : undefined),
+      };
+    };
+
     it('reuses the same cache when cached tools and function config match', async () => {
       const capture = { calls: [] as Array<{ url: string; body?: any }> };
       const fetch = createCapturingFetch(capture, [
@@ -1978,6 +2042,346 @@ describe('AxBaseAI Tracing with Token Usage', () => {
       expect(impl.prepareCachedChatReq).toHaveBeenCalledTimes(2);
       expect(registry.set).toHaveBeenCalledTimes(1);
       expect(capture.calls).toHaveLength(3);
+    });
+
+    it('stores the provider expiry only after a successful TTL refresh', async () => {
+      const providerExpiry = '2099-02-03T04:05:06Z';
+      const capture = {
+        calls: [] as Array<{ url: string; body?: any; method?: string }>,
+      };
+      const fetch = createCapturingFetch(capture, [
+        { name: 'cache-old', expireTime: providerExpiry, tokenCount: 5000 },
+        {},
+      ]);
+      const impl = createCacheAwareImpl();
+      const ai = createCacheAwareAI(impl, fetch);
+      const { registry, current } = createSeededRegistry({
+        cacheName: 'cache-old',
+        expiresAt: Date.now() + 60_000,
+        tokenCount: 4096,
+      });
+
+      await ai.chat(cacheableRequest, {
+        stream: false,
+        contextCache: { minTokens: 0, registry },
+      });
+
+      expect(impl.buildCacheUpdateTTLOp).toHaveBeenCalledTimes(1);
+      expect(impl.buildCacheCreateOp).not.toHaveBeenCalled();
+      expect(impl.prepareCachedChatReq).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        'cache-old'
+      );
+      expect(current()).toEqual({
+        cacheName: 'cache-old',
+        expiresAt: Date.parse(providerExpiry),
+        tokenCount: 5000,
+      });
+    });
+
+    it('replaces a cache after its TTL refresh returns 404', async () => {
+      const capture = {
+        calls: [] as Array<{ url: string; body?: any; method?: string }>,
+      };
+      const fetch = createCapturingFetch(capture, [
+        new Response(
+          JSON.stringify({ error: { message: 'Cached content not found' } }),
+          {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        ),
+        { name: 'cache-new', expireTime: '2099-01-01T00:00:00Z' },
+        {},
+      ]);
+      const impl = createCacheAwareImpl();
+      const ai = createCacheAwareAI(impl, fetch);
+      const { registry, current } = createSeededRegistry({
+        cacheName: 'cache-old',
+        expiresAt: Date.now() + 60_000,
+      });
+
+      await ai.chat(cacheableRequest, {
+        stream: false,
+        retry: { maxRetries: 0 },
+        contextCache: { minTokens: 0, registry },
+      });
+
+      expect(capture.calls).toHaveLength(3);
+      expect(impl.prepareCachedChatReq).toHaveBeenCalledTimes(1);
+      expect(impl.prepareCachedChatReq).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        'cache-new'
+      );
+      expect(capture.calls[2]?.body).toEqual({
+        cachedContent: 'cache-new',
+      });
+      expect(current()?.cacheName).toBe('cache-new');
+      expect(mockSpan.addEvent).toHaveBeenCalledWith(
+        'context_cache.invalidated',
+        expect.objectContaining({
+          reason: 'refresh_failed',
+          cacheName: 'cache-old',
+          invalidated: true,
+        })
+      );
+      expect(mockSpan.addEvent).toHaveBeenCalledWith(
+        'context_cache.fallback',
+        expect.objectContaining({
+          reason: 'refresh_failed',
+          mode: 'recreate',
+        })
+      );
+    });
+
+    it('falls back uncached when refresh and cache recreation both fail', async () => {
+      const capture = {
+        calls: [] as Array<{ url: string; body?: any; method?: string }>,
+      };
+      const fetch = createCapturingFetch(capture, [
+        new Response(
+          JSON.stringify({ error: { message: 'Cached content not found' } }),
+          {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        ),
+        new Response(JSON.stringify({ error: { message: 'create failed' } }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+        {},
+      ]);
+      const impl = createCacheAwareImpl();
+      const ai = createCacheAwareAI(impl, fetch);
+      const { registry, current } = createSeededRegistry({
+        cacheName: 'cache-old',
+        expiresAt: Date.now() + 60_000,
+      });
+
+      await ai.chat(cacheableRequest, {
+        stream: false,
+        retry: { maxRetries: 0 },
+        contextCache: { minTokens: 0, registry },
+      });
+
+      expect(capture.calls).toHaveLength(3);
+      expect(impl.prepareCachedChatReq).not.toHaveBeenCalled();
+      expect(impl.createChatReq).toHaveBeenCalledTimes(1);
+      expect(capture.calls[2]?.body).not.toHaveProperty('cachedContent');
+      expect(current()?.expiresAt).toBe(0);
+    });
+
+    it.each([400, 404])(
+      'invalidates a provider-rejected managed cache on %i and retries once uncached',
+      async (status) => {
+        const capture = {
+          calls: [] as Array<{ url: string; body?: any; method?: string }>,
+        };
+        const fetch = createCapturingFetch(capture, [
+          new Response(
+            JSON.stringify({
+              error: {
+                code: status,
+                status: status === 400 ? 'INVALID_ARGUMENT' : 'NOT_FOUND',
+                message:
+                  status === 400
+                    ? 'Cached content has expired'
+                    : 'Cached content not found',
+              },
+            }),
+            {
+              status,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          ),
+          {},
+        ]);
+        const impl = createCacheAwareImpl();
+        const ai = createCacheAwareAI(impl, fetch);
+        const { registry, current } = createSeededRegistry({
+          cacheName: 'cache-old',
+          expiresAt: Date.now() + 30 * 60_000,
+        });
+
+        await ai.chat(cacheableRequest, {
+          stream: false,
+          retry: { maxRetries: 0 },
+          contextCache: { minTokens: 0, registry },
+        });
+
+        expect(capture.calls).toHaveLength(2);
+        expect(capture.calls[0]?.body).toEqual({
+          cachedContent: 'cache-old',
+        });
+        expect(capture.calls[1]?.body).not.toHaveProperty('cachedContent');
+        expect(impl.createChatReq).toHaveBeenCalledTimes(1);
+        expect(current()?.expiresAt).toBe(0);
+        expect(mockSpan.addEvent).toHaveBeenCalledWith(
+          'context_cache.invalidated',
+          expect.objectContaining({
+            reason: 'provider_rejected',
+            cacheName: 'cache-old',
+            invalidated: true,
+            status,
+          })
+        );
+        expect(mockSpan.addEvent).toHaveBeenCalledWith(
+          'context_cache.fallback',
+          expect.objectContaining({
+            reason: 'provider_rejected',
+            mode: 'uncached',
+            status,
+          })
+        );
+      }
+    );
+
+    it('does not retry unrelated 400 errors or explicit cache names', async () => {
+      const unrelated400 = () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 400,
+              status: 'INVALID_ARGUMENT',
+              message: 'temperature is invalid',
+            },
+          }),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+
+      const managedCapture = {
+        calls: [] as Array<{ url: string; body?: any; method?: string }>,
+      };
+      const managedImpl = createCacheAwareImpl();
+      const managedAI = createCacheAwareAI(
+        managedImpl,
+        createCapturingFetch(managedCapture, [unrelated400()])
+      );
+      const { registry } = createSeededRegistry({
+        cacheName: 'cache-old',
+        expiresAt: Date.now() + 30 * 60_000,
+      });
+
+      await expect(
+        managedAI.chat(cacheableRequest, {
+          stream: false,
+          retry: { maxRetries: 0 },
+          contextCache: { minTokens: 0, registry },
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      expect(managedCapture.calls).toHaveLength(1);
+      expect(managedImpl.createChatReq).not.toHaveBeenCalled();
+
+      const explicitCapture = {
+        calls: [] as Array<{ url: string; body?: any; method?: string }>,
+      };
+      const explicitImpl = createCacheAwareImpl();
+      const explicitAI = createCacheAwareAI(
+        explicitImpl,
+        createCapturingFetch(explicitCapture, [
+          new Response(
+            JSON.stringify({ error: { message: 'Cached content expired' } }),
+            {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          ),
+        ])
+      );
+
+      await expect(
+        explicitAI.chat(cacheableRequest, {
+          stream: false,
+          retry: { maxRetries: 0 },
+          contextCache: { name: 'cache-explicit' },
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      expect(explicitCapture.calls).toHaveLength(1);
+      expect(explicitImpl.createChatReq).not.toHaveBeenCalled();
+    });
+
+    it('does not loop when the uncached fallback also fails', async () => {
+      const capture = {
+        calls: [] as Array<{ url: string; body?: any; method?: string }>,
+      };
+      const fetch = createCapturingFetch(capture, [
+        new Response(
+          JSON.stringify({ error: { message: 'Cached content expired' } }),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        ),
+        new Response(
+          JSON.stringify({ error: { message: 'request invalid' } }),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        ),
+      ]);
+      const impl = createCacheAwareImpl();
+      const ai = createCacheAwareAI(impl, fetch);
+      const { registry } = createSeededRegistry({
+        cacheName: 'cache-old',
+        expiresAt: Date.now() + 30 * 60_000,
+      });
+
+      await expect(
+        ai.chat(cacheableRequest, {
+          stream: false,
+          retry: { maxRetries: 0 },
+          contextCache: { minTokens: 0, registry },
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      expect(capture.calls).toHaveLength(2);
+      expect(impl.createChatReq).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not invalidate a newer external cache entry', async () => {
+      const capture = {
+        calls: [] as Array<{ url: string; body?: any; method?: string }>,
+      };
+      const fetch = createCapturingFetch(capture, [
+        new Response(
+          JSON.stringify({ error: { message: 'Cached content expired' } }),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        ),
+        {},
+      ]);
+      const impl = createCacheAwareImpl();
+      const ai = createCacheAwareAI(impl, fetch);
+      const registry = {
+        get: vi
+          .fn()
+          .mockResolvedValueOnce({
+            cacheName: 'cache-old',
+            expiresAt: Date.now() + 30 * 60_000,
+          })
+          .mockResolvedValueOnce({
+            cacheName: 'cache-new',
+            expiresAt: Date.now() + 60 * 60_000,
+          }),
+        set: vi.fn(),
+      };
+
+      await ai.chat(cacheableRequest, {
+        stream: false,
+        retry: { maxRetries: 0 },
+        contextCache: { minTokens: 0, registry },
+      });
+
+      expect(registry.set).not.toHaveBeenCalled();
+      expect(capture.calls).toHaveLength(2);
     });
 
     it('creates distinct caches when cached tool state differs', async () => {

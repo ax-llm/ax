@@ -800,16 +800,21 @@ export type AxContextCacheRegistryEntry = {
 /**
  * External registry for persisting context cache metadata.
  * Useful for serverless/short-lived processes where in-memory storage is lost.
+ * Registry keys identify cacheable content, not users or accounts. Applications
+ * that require tenant isolation must add a stable tenant/account namespace and
+ * must not fall back to a shared global namespace.
  *
  * @example
  * // Redis-backed registry
+ * const tenantId = getRequiredTenantId();
  * const registry: AxContextCacheRegistry = {
  *   get: async (key) => {
- *     const data = await redis.get(`cache:${key}`);
+ *     const data = await redis.get(`cache:${tenantId}:${key}`);
  *     return data ? JSON.parse(data) : undefined;
  *   },
  *   set: async (key, entry) => {
- *     await redis.set(`cache:${key}`, JSON.stringify(entry), 'EX', 3600);
+ *     const ttl = Math.max(1, Math.ceil((entry.expiresAt - Date.now()) / 1000));
+ *     await redis.set(`cache:${tenantId}:${key}`, JSON.stringify(entry), 'EX', ttl);
  *   },
  * };
  */
@@ -837,11 +842,14 @@ export type AxContextCacheRegistry = {
  * - Reuse existing caches when content hash matches
  * - Create new caches when content changes
  * - Auto-refresh TTL when cache is near expiration
+ * - Recreate or fall back uncached when an automatic refresh fails
+ * - Retry a provider-rejected automatically managed cache once without it
  */
 export type AxContextCacheOptions = {
   /**
    * Explicit cache resource name/ID.
    * If provided, this cache will be used directly (bypasses auto-creation).
+   * Explicit names are not automatically invalidated or retried without cache.
    * If omitted, a cache will be created/looked up automatically.
    */
   name?: string;
@@ -869,6 +877,7 @@ export type AxContextCacheOptions = {
    * External registry for persisting cache metadata.
    * If provided, cache lookups and storage will use this registry instead of in-memory storage.
    * Useful for serverless/short-lived processes.
+   * Namespace registry operations by tenant/account when caches must not be shared.
    */
   registry?: AxContextCacheRegistry;
 
