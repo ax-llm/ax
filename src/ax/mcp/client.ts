@@ -83,6 +83,11 @@ import {
   type AxMCPToolsListResult,
   axMCPToolInputSchemaToFunctionSchema,
 } from './types.js';
+import {
+  AxMCPParamHeaderSchemaError,
+  axMCPBuildParamHeaders,
+  axMCPParamHeaderBindings,
+} from './util/paramHeaders.js';
 
 export interface AxMCPFunctionOverride {
   /** Original function name to override */
@@ -281,6 +286,7 @@ export class AxMCPClient {
     start: () => void;
   }> = [];
   private readonly tasks = new Map<string, AxMCPTask>();
+  private readonly invalidToolHeaderWarnings = new Set<string>();
   private readonly resourceSubscriptionOwners = new Map<string, Set<string>>();
   private resourceSubscriptionTransition = Promise.resolve();
   private activeModernListening?: AxMCPListeningHandle;
@@ -784,8 +790,12 @@ export class AxMCPClient {
       this.assertPaginationPage('tools/list', ++page, cursor, seen);
       const result = await this.listTools(cursor);
       pages.push(result);
-      this.tools.push(...result.tools);
-      this.functions.push(...result.tools.map((fn) => this.toolToFunction(fn)));
+      const tools =
+        this.era === 'modern'
+          ? result.tools.filter((tool) => this.acceptToolParamHeaders(tool))
+          : result.tools;
+      this.tools.push(...tools);
+      this.functions.push(...tools.map((fn) => this.toolToFunction(fn)));
       cursor = result.nextCursor;
     } while (cursor);
     this.recordCatalogCache('tools', pages);
@@ -1280,10 +1290,29 @@ export class AxMCPClient {
     args: unknown,
     options?: Readonly<AxMCPRequestOptions>
   ): Promise<AxMCPToolCallOutcome> {
-    const result = await this.requestWithInputRounds<
-      AxMCPToolCallParams,
-      AxMCPToolCallResult | AxMCPCreateTaskResult
-    >('tools/call', { name, arguments: args }, options);
+    let result: AxMCPToolCallResult | AxMCPCreateTaskResult;
+    for (let attempt = 0; ; attempt++) {
+      const tool = this.tools.find((candidate) => candidate.name === name);
+      if (!tool) throw new Error(`MCP tool not found: ${name}`);
+      const requestOptions = this.toolRequestOptions(tool, args, options);
+      try {
+        result = await this.requestWithInputRounds<
+          AxMCPToolCallParams,
+          AxMCPToolCallResult | AxMCPCreateTaskResult
+        >('tools/call', { name, arguments: args }, requestOptions);
+        break;
+      } catch (error) {
+        if (
+          this.era !== 'modern' ||
+          attempt > 0 ||
+          !(error instanceof AxMCPProtocolError) ||
+          error.code !== AX_MCP_ERROR_CODES.HEADER_MISMATCH
+        ) {
+          throw error;
+        }
+        await this.refreshToolsAfterHeaderMismatch();
+      }
+    }
     if (result.resultType !== 'task') {
       return { kind: 'complete', result: result as AxMCPToolCallResult };
     }
@@ -1298,6 +1327,56 @@ export class AxMCPClient {
     }
     await this.recordTask(task);
     return { kind: 'task', task };
+  }
+
+  private acceptToolParamHeaders(tool: Readonly<AxMCPTool>): boolean {
+    try {
+      axMCPParamHeaderBindings(tool.inputSchema);
+      return true;
+    } catch (error) {
+      if (!(error instanceof AxMCPParamHeaderSchemaError)) throw error;
+      const warningKey = `${this.catalogRevision}:${tool.name}`;
+      if (!this.invalidToolHeaderWarnings.has(warningKey)) {
+        this.invalidToolHeaderWarnings.add(warningKey);
+        this.logger({
+          name: 'Notification',
+          id: 'mcp_invalid_tool_header_annotation',
+          value: `Warning: excluded MCP tool ${tool.name}: ${error.message}`,
+        });
+      }
+      return false;
+    }
+  }
+
+  private toolRequestOptions(
+    tool: Readonly<AxMCPTool>,
+    args: unknown,
+    options: Readonly<AxMCPRequestOptions> | undefined
+  ): Readonly<AxMCPRequestOptions> | undefined {
+    if (this.era !== 'modern') return options;
+    const generated = axMCPBuildParamHeaders(tool.inputSchema, args);
+    if (Object.keys(generated).length === 0) return options;
+    const generatedNames = new Set(
+      Object.keys(generated).map((name) => name.toLowerCase())
+    );
+    return {
+      ...options,
+      headers: {
+        ...Object.fromEntries(
+          Object.entries(options?.headers ?? {}).filter(
+            ([name]) => !generatedNames.has(name.toLowerCase())
+          )
+        ),
+        ...generated,
+      },
+    };
+  }
+
+  private async refreshToolsAfterHeaderMismatch(): Promise<void> {
+    this.functions = [];
+    this.tools = [];
+    await this.discoverFunctions();
+    this.catalogRevision++;
   }
 
   /** @deprecated The modern Tasks v2 extension does not expose tasks/list. */

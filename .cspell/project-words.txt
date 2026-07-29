@@ -306,3 +306,12 @@ ucpversion
 UCPHTTP
 UCPJWK
 Vjcm
+HTAB
+HTTPJSONRPC
+MCPIs
+MRTR
+mrtr
+octocat
+traceparent
+tracestate
+unnegotiated

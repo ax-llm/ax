@@ -387,7 +387,7 @@ export class AxMCPExecutionContext {
             const outcome = await client.callToolOutcome(
               tool.name,
               args ?? {},
-              { signal: extra?.abortSignal, taskHandling: 'expose' }
+              { signal: extra?.abortSignal }
             );
             if (outcome.kind === 'complete') return outcome.result;
             extra?.eventContext?.registerContinuation({

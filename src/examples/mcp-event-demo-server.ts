@@ -412,6 +412,17 @@ export class AxMCPEventDemoServer {
         return;
       }
     }
+    if (!this.modernParamHeadersMatch(request, message)) {
+      this.writeRPCError(
+        response,
+        message.id!,
+        -32020,
+        'Header mismatch: Mcp-Param value does not match the request body',
+        undefined,
+        400
+      );
+      return;
+    }
     try {
       if (message.method === 'subscriptions/listen') {
         this.listenModern(response, message);
@@ -771,7 +782,9 @@ export class AxMCPEventDemoServer {
               description: 'Reindex the demo inventory',
               inputSchema: {
                 type: 'object',
-                properties: { scope: { type: 'string' } },
+                properties: {
+                  scope: { type: 'string', 'x-mcp-header': 'Scope' },
+                },
               },
             },
             {
@@ -957,6 +970,31 @@ export class AxMCPEventDemoServer {
     for (const resolve of this.taskWaiters) resolve(task.taskId);
     this.taskWaiters.clear();
     return task;
+  }
+
+  private modernParamHeadersMatch(
+    request: IncomingMessage,
+    message: JsonRpcRequest
+  ): boolean {
+    if (
+      message.method !== 'tools/call' ||
+      message.params?.name !== 'start_reindex'
+    ) {
+      return true;
+    }
+    const args = message.params.arguments;
+    const scope =
+      args && typeof args === 'object' && !Array.isArray(args)
+        ? (args as Record<string, unknown>).scope
+        : undefined;
+    const header = request.headers['mcp-param-scope'];
+    if (scope === undefined || scope === null) return header === undefined;
+    if (typeof scope !== 'string' || typeof header !== 'string') return false;
+    try {
+      return axMCPDecodeHeaderValue(header) === scope;
+    } catch {
+      return false;
+    }
   }
 
   private updateTask(

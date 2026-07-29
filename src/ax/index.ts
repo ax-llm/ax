@@ -1253,6 +1253,12 @@ import {
   axMCPEncodeHeaderValue,
   axMCPIsPlainHeaderValue,
 } from './mcp/util/headerValue.js';
+import {
+  type AxMCPParamHeaderBinding,
+  AxMCPParamHeaderSchemaError,
+  axMCPBuildParamHeaders,
+  axMCPParamHeaderBindings,
+} from './mcp/util/paramHeaders.js';
 import type {
   AxMCPFetchOptions,
   AxMCPSSRFProtectionContext,
@@ -1422,6 +1428,7 @@ export { AxMCPExecutionContext };
 export { AxMCPHTTPSSETransport };
 export { AxMCPHTTPStatusError };
 export { AxMCPOAuthJWTVerifier };
+export { AxMCPParamHeaderSchemaError };
 export { AxMCPProtocolError };
 export { AxMCPRecordingTransport };
 export { AxMCPReplayTransport };
@@ -1553,6 +1560,7 @@ export { axMCPAPIKeyAuthentication };
 export { axMCPAppToolMeta };
 export { axMCPBasicAuthentication };
 export { axMCPBearerAuthentication };
+export { axMCPBuildParamHeaders };
 export { axMCPBuildRequestMeta };
 export { axMCPChat };
 export { axMCPChildExecutionOptions };
@@ -1562,6 +1570,7 @@ export { axMCPEventRoutes };
 export { axMCPFulfillInputRequests };
 export { axMCPHMACAuthentication };
 export { axMCPIsPlainHeaderValue };
+export { axMCPParamHeaderBindings };
 export { axMCPServerInfoFromMeta };
 export { axMCPToolInputSchemaToFunctionSchema };
 export { axMCPToolVisibleTo };
@@ -2229,6 +2238,7 @@ export type { AxMCPOAuthTokenEndpointAuthMethod };
 export type { AxMCPOAuthTokenIntrospection };
 export type { AxMCPOfficialExtension };
 export type { AxMCPPaginatedRequest };
+export type { AxMCPParamHeaderBinding };
 export type { AxMCPProgressNotificationParams };
 export type { AxMCPPrompt };
 export type { AxMCPPromptArgument };
