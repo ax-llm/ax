@@ -1,8 +1,10 @@
 import type { AxFunctionJSONSchema } from '../ai/types.js';
 
 export const AX_MCP_PROTOCOL_VERSION = '2025-11-25';
+export const AX_MCP_MODERN_PROTOCOL_VERSION = '2026-07-28';
 
 export const AX_MCP_SUPPORTED_PROTOCOL_VERSIONS = [
+  AX_MCP_MODERN_PROTOCOL_VERSION,
   AX_MCP_PROTOCOL_VERSION,
   '2025-06-18',
   '2025-03-26',
@@ -15,6 +17,21 @@ export type AxMCPProtocolVersion =
 export type AxMCPJSONSchema = Record<string, unknown>;
 
 export type AxMCPMeta = Record<string, unknown>;
+
+/** Result discriminator introduced by MCP 2026-07-28. */
+export type AxMCPResultType =
+  | 'complete'
+  | 'input_required'
+  | 'task'
+  | (string & {});
+
+/** Cache metadata carried by cacheable MCP 2026-07-28 results. */
+export interface AxMCPCacheableResult {
+  resultType?: AxMCPResultType;
+  ttlMs?: number;
+  cacheScope?: 'private' | 'public';
+  _meta?: AxMCPMeta;
+}
 
 export interface AxMCPJSONRPCRequest<T = unknown> {
   jsonrpc: '2.0';
@@ -133,6 +150,17 @@ export interface AxMCPInitializeResult {
   _meta?: AxMCPMeta;
 }
 
+/** Result of the MCP 2026-07-28 `server/discover` method. */
+export interface AxMCPDiscoverResult {
+  resultType: 'complete';
+  supportedVersions: string[];
+  capabilities: AxMCPServerCapabilities;
+  instructions?: string;
+  ttlMs: number;
+  cacheScope: 'private' | 'public';
+  _meta?: AxMCPMeta;
+}
+
 export interface AxMCPAnnotations {
   audience?: ('user' | 'assistant')[];
   priority?: number;
@@ -245,7 +273,7 @@ export interface AxMCPPaginatedRequest {
   _meta?: AxMCPMeta;
 }
 
-export interface AxMCPToolsListResult {
+export interface AxMCPToolsListResult extends AxMCPCacheableResult {
   tools: AxMCPTool[];
   nextCursor?: string;
   _meta?: AxMCPMeta;
@@ -266,24 +294,25 @@ export interface AxMCPToolCallParams {
 
 export interface AxMCPToolCallResult {
   content?: AxMCPContent[];
-  structuredContent?: Record<string, unknown>;
+  structuredContent?: unknown;
   isError?: boolean;
+  resultType?: AxMCPResultType;
   _meta?: AxMCPMeta;
 }
 
-export interface AxMCPResourcesListResult {
+export interface AxMCPResourcesListResult extends AxMCPCacheableResult {
   resources: AxMCPResource[];
   nextCursor?: string;
   _meta?: AxMCPMeta;
 }
 
-export interface AxMCPResourceTemplatesListResult {
+export interface AxMCPResourceTemplatesListResult extends AxMCPCacheableResult {
   resourceTemplates: AxMCPResourceTemplate[];
   nextCursor?: string;
   _meta?: AxMCPMeta;
 }
 
-export interface AxMCPResourceReadResult {
+export interface AxMCPResourceReadResult extends AxMCPCacheableResult {
   contents: (AxMCPTextResourceContents | AxMCPBlobResourceContents)[];
   _meta?: AxMCPMeta;
 }
@@ -308,7 +337,7 @@ export interface AxMCPPromptMessage {
   content: AxMCPContent;
 }
 
-export interface AxMCPPromptsListResult {
+export interface AxMCPPromptsListResult extends AxMCPCacheableResult {
   prompts: AxMCPPrompt[];
   nextCursor?: string;
   _meta?: AxMCPMeta;
@@ -317,6 +346,7 @@ export interface AxMCPPromptsListResult {
 export interface AxMCPPromptGetResult {
   description?: string;
   messages: AxMCPPromptMessage[];
+  resultType?: AxMCPResultType;
   _meta?: AxMCPMeta;
 }
 
@@ -351,6 +381,7 @@ export interface AxMCPCompletionResult {
     total?: number;
     hasMore?: boolean;
   };
+  resultType?: AxMCPResultType;
   _meta?: AxMCPMeta;
 }
 
@@ -393,6 +424,16 @@ export interface AxMCPTask {
   lastUpdatedAt: string;
   ttl: number | null;
   pollInterval?: number;
+  /** MCP Tasks extension v2 time-to-live. */
+  ttlMs?: number | null;
+  /** MCP Tasks extension v2 suggested polling interval. */
+  pollIntervalMs?: number;
+  /** Present when a v2 task is waiting for client input. */
+  inputRequests?: Record<string, AxMCPInputRequest>;
+  /** Present when a v2 task completed successfully. */
+  result?: unknown;
+  /** Present when a v2 task failed with a protocol error. */
+  error?: AxMCPJSONRPCErrorResponse['error'];
 }
 
 export interface AxMCPCreateTaskResult {
@@ -467,6 +508,35 @@ export type AxMCPElicitationCreateParams =
 export interface AxMCPElicitationCreateResult {
   action: AxMCPElicitationAction;
   content?: Record<string, unknown>;
+  _meta?: AxMCPMeta;
+}
+
+/** A server request embedded in an MCP 2026-07-28 MRTR result. */
+export type AxMCPInputRequest =
+  | {
+      method: 'sampling/createMessage';
+      params: AxMCPSamplingCreateMessageParams;
+    }
+  | {
+      method: 'roots/list';
+      params?: { _meta?: AxMCPMeta };
+    }
+  | {
+      method: 'elicitation/create';
+      params: AxMCPElicitationCreateParams;
+    };
+
+/** A bare client result keyed to an embedded MRTR request. */
+export type AxMCPInputResponse =
+  | AxMCPSamplingCreateMessageResult
+  | AxMCPListRootsResult
+  | AxMCPElicitationCreateResult;
+
+/** An intermediate MCP 2026-07-28 result requesting another input round. */
+export interface AxMCPInputRequiredResult {
+  resultType: 'input_required';
+  inputRequests?: Record<string, AxMCPInputRequest>;
+  requestState?: string;
   _meta?: AxMCPMeta;
 }
 

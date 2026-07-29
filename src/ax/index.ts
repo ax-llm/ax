@@ -1096,6 +1096,7 @@ import {
   type AxMCPClientOptions,
   type AxMCPFunctionOverride,
 } from './mcp/client.js';
+import { AxMCPHTTPStatusError, AxMCPProtocolError } from './mcp/errors.js';
 import {
   type AxMCPContextRequest,
   type AxMCPContinuationState,
@@ -1161,6 +1162,7 @@ import {
   type AxMCPBatchRequest,
   type AxMCPBatchResponse,
   type AxMCPBlobResourceContents,
+  type AxMCPCacheableResult,
   type AxMCPClientCapabilities,
   type AxMCPCompletionArgument,
   type AxMCPCompletionReference,
@@ -1168,6 +1170,7 @@ import {
   type AxMCPCompletionResult,
   type AxMCPContent,
   type AxMCPCreateTaskResult,
+  type AxMCPDiscoverResult,
   type AxMCPElicitationAction,
   type AxMCPElicitationCreateParams,
   type AxMCPElicitationCreateResult,
@@ -1178,6 +1181,9 @@ import {
   type AxMCPImplementationInfo,
   type AxMCPInitializeParams,
   type AxMCPInitializeResult,
+  type AxMCPInputRequest,
+  type AxMCPInputRequiredResult,
+  type AxMCPInputResponse,
   type AxMCPJSONRPCErrorResponse,
   type AxMCPJSONRPCMessage,
   type AxMCPJSONRPCNotification,
@@ -1202,6 +1208,7 @@ import {
   type AxMCPResourcesListResult,
   type AxMCPResourceTemplate,
   type AxMCPResourceTemplatesListResult,
+  type AxMCPResultType,
   type AxMCPRoot,
   type AxMCPSamplingCreateMessageParams,
   type AxMCPSamplingCreateMessageResult,
@@ -1389,7 +1396,9 @@ export { AxMCPDPoPProofFactory };
 export { AxMCPEventSource };
 export { AxMCPExecutionContext };
 export { AxMCPHTTPSSETransport };
+export { AxMCPHTTPStatusError };
 export { AxMCPOAuthJWTVerifier };
+export { AxMCPProtocolError };
 export { AxMCPRecordingTransport };
 export { AxMCPReplayTransport };
 export { AxMCPStreamableHTTPTransport };
@@ -2121,6 +2130,7 @@ export type { AxMCPBaseAnnotated };
 export type { AxMCPBatchRequest };
 export type { AxMCPBatchResponse };
 export type { AxMCPBlobResourceContents };
+export type { AxMCPCacheableResult };
 export type { AxMCPCatalogSnapshot };
 export type { AxMCPChatOptions };
 export type { AxMCPChatResult };
@@ -2139,6 +2149,7 @@ export type { AxMCPCreateTaskResult };
 export type { AxMCPDPoPOptions };
 export type { AxMCPDPoPProofRequest };
 export type { AxMCPDefaultEventRoutesOptions };
+export type { AxMCPDiscoverResult };
 export type { AxMCPElicitationAction };
 export type { AxMCPElicitationCreateParams };
 export type { AxMCPElicitationCreateResult };
@@ -2158,6 +2169,9 @@ export type { AxMCPImplementationInfo };
 export type { AxMCPInheritance };
 export type { AxMCPInitializeParams };
 export type { AxMCPInitializeResult };
+export type { AxMCPInputRequest };
+export type { AxMCPInputRequiredResult };
+export type { AxMCPInputResponse };
 export type { AxMCPJSONRPCErrorResponse };
 export type { AxMCPJSONRPCMessage };
 export type { AxMCPJSONRPCNotification };
@@ -2194,6 +2208,7 @@ export type { AxMCPResourceSubscriptionPolicy };
 export type { AxMCPResourceTemplate };
 export type { AxMCPResourceTemplatesListResult };
 export type { AxMCPResourcesListResult };
+export type { AxMCPResultType };
 export type { AxMCPRoot };
 export type { AxMCPSSRFProtectionContext };
 export type { AxMCPSSRFProtectionOptions };

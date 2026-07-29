@@ -702,10 +702,14 @@ export class AxUCPClient {
   }
 
   private async validateOutcome(
-    value: AxUCPValue,
+    value: unknown,
     operation?: string
   ): Promise<AxUCPOutcome> {
-    const ucp = value.ucp;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('Invalid UCP outcome: expected an object');
+    }
+    const outcome = value as AxUCPValue;
+    const ucp = outcome.ucp;
     if (
       !ucp ||
       typeof ucp !== 'object' ||
@@ -737,10 +741,10 @@ export class AxUCPClient {
         }
       }
       for (const schema of schemas) {
-        await this.schemaValidator.validate(value, schema);
+        await this.schemaValidator.validate(outcome, schema);
       }
     }
-    return value as AxUCPOutcome;
+    return outcome as AxUCPOutcome;
   }
 }
 

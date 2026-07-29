@@ -31,6 +31,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/base.ts`, `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/types.ts`
   - Impact: TypeScript now sends explicit cache TTL updates with PATCH, invalidates failed refreshes, and retries provider-rejected managed caches once without cachedContent; generated languages still treat explicit Vertex cache-resource lifecycle as host-owned.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-29-mcp-2026-07-28-modern-era-client` [axmcp] MCP 2026-07-28 modern-era client
+  - Status: open
+  - Source commit: `8b69691ef0fb0d957428f198de38354b46b26069`
+  - TS paths: `src/ax/mcp`
+  - Impact: TypeScript gains a dual-era MCP client for the stateless 2026-07-28 protocol while generated Python, Java, C++, Go, and Rust clients remain on the 2025-11-25 lifecycle.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
