@@ -30,12 +30,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/mcp`
   - Impact: TypeScript gains a dual-era MCP client for the stateless 2026-07-28 protocol while generated Python, Java, C++, Go, and Rust clients remain on the 2025-11-25 lifecycle.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-07-29-port-mcp-oauth-rfc-9207-issuer-validation` [axmcp] Port MCP OAuth RFC 9207 issuer validation
-  - Status: open
-  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
-  - TS paths: `src/ax/mcp/oauth/oauthHelper.ts`
-  - Impact: Generated Python, Java, C++, Go, and Rust OAuth surfaces are currently stubs, so the RFC 9207 authorization-response iss check is a near-noop until their OAuth authorization-code flows become functional.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-07-29-port-modern-mcp-subscriptions-listen` [axmcp] Port modern MCP subscriptions listen
   - Status: open
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
@@ -296,6 +290,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-30
   - Completed by: `2067e579`
   - Verification: `cache-fold.json and read-cache.json pass across Python, Java, C++, Go, and Rust; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check`
+- `axir-2026-07-29-port-mcp-oauth-rfc-9207-issuer-validation` [axmcp] Port MCP OAuth RFC 9207 issuer validation
+  - Status: done
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/oauth/oauthHelper.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust OAuth surfaces are currently stubs, so the RFC 9207 authorization-response iss check is a near-noop until their OAuth authorization-code flows become functional.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-30
+  - Completed by: `82272c59`
+  - Verification: `oauth-issuer.json and existing oauth.json passed in generated Python, Java, C++, Go, and Rust; shared state/issuer validation runs before token fabrication; full authorization-code flow remains a host boundary`
 - `axir-2026-07-29-port-mcp-tasks-extension-v2` [axmcp] Port MCP tasks extension v2
   - Status: done
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`

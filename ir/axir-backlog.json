@@ -680,7 +680,7 @@
     },
     {
       "id": "axir-2026-07-29-port-mcp-oauth-rfc-9207-issuer-validation",
-      "status": "open",
+      "status": "done",
       "title": "Port MCP OAuth RFC 9207 issuer validation",
       "createdAt": "2026-07-29",
       "sourcePR": null,
@@ -693,9 +693,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-30",
+      "completedByCommit": "82272c59",
+      "verification": "oauth-issuer.json and existing oauth.json passed in generated Python, Java, C++, Go, and Rust; shared state/issuer validation runs before token fabrication; full authorization-code flow remains a host boundary"
     },
     {
       "id": "axir-2026-07-29-port-mcp-tasks-extension-v2",
