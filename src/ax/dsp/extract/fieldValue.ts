@@ -177,7 +177,9 @@ export function validateAndParseFieldValue(
 
   const type = field.type;
   if (type && value !== undefined) {
-    if (type.name === 'url') {
+    // validateURL throws on non-strings, so only run it on the whole value for
+    // scalar fields; array fields are validated per-item in the loop below.
+    if (type.name === 'url' && !type.isArray) {
       validateURL(value, field);
     }
 
@@ -192,7 +194,9 @@ export function validateAndParseFieldValue(
     if (type.isArray && Array.isArray(value)) {
       for (const item of value) {
         if (item !== undefined) {
-          if (type.name === 'string' || type.name === 'code') {
+          if (type.name === 'url') {
+            validateURL(item, field);
+          } else if (type.name === 'string' || type.name === 'code') {
             validateStringConstraints(item, field);
           } else if (type.name === 'number') {
             validateNumberConstraints(item, field);
