@@ -699,7 +699,7 @@
     },
     {
       "id": "axir-2026-07-29-port-mcp-tasks-extension-v2",
-      "status": "open",
+      "status": "done",
       "title": "Port MCP tasks extension v2",
       "createdAt": "2026-07-29",
       "sourcePR": null,
@@ -712,9 +712,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-30",
+      "completedByCommit": "bfe2f5ab",
+      "verification": "tasks-v2-modern + tasks-v2-violations across Python/Go/Java/C++/Rust; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check"
     },
     {
       "id": "axir-2026-07-29-port-modern-mcp-per-request-metadata",

@@ -36,12 +36,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/mcp/oauth/oauthHelper.ts`
   - Impact: Generated Python, Java, C++, Go, and Rust OAuth surfaces are currently stubs, so the RFC 9207 authorization-response iss check is a near-noop until their OAuth authorization-code flows become functional.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-07-29-port-mcp-tasks-extension-v2` [axmcp] Port MCP tasks extension v2
-  - Status: open
-  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
-  - TS paths: `src/ax/mcp/tasksV2.ts`
-  - Impact: Generated Python, Java, C++, Go, and Rust clients implement the legacy task draft only and do not negotiate io.modelcontextprotocol/tasks, expose task outcomes and tasks/update input, or consume embedded terminal results and errors.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-07-29-port-modern-mcp-subscriptions-listen` [axmcp] Port modern MCP subscriptions listen
   - Status: open
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
@@ -308,6 +302,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-30
   - Completed by: `2067e579`
   - Verification: `cache-fold.json and read-cache.json pass across Python, Java, C++, Go, and Rust; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check`
+- `axir-2026-07-29-port-mcp-tasks-extension-v2` [axmcp] Port MCP tasks extension v2
+  - Status: done
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/tasksV2.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust clients implement the legacy task draft only and do not negotiate io.modelcontextprotocol/tasks, expose task outcomes and tasks/update input, or consume embedded terminal results and errors.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-30
+  - Completed by: `bfe2f5ab`
+  - Verification: `tasks-v2-modern + tasks-v2-violations across Python/Go/Java/C++/Rust; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check`
 - `axir-2026-07-29-port-modern-mcp-per-request-metadata` [axmcp] Port modern MCP per-request metadata
   - Status: done
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
