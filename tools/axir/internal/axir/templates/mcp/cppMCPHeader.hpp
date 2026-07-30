@@ -51,6 +51,8 @@ class AxMCPTransport {
   virtual std::string era_cache_key() const { return {}; }
   virtual void connect() {}
   virtual void start_listening() {}
+  virtual void open_request_stream(Value) { throw AxError("mcp", "Request streams are only available for modern MCP"); }
+  virtual void close_request_stream() {}
   virtual void close() {}
 };
 
@@ -87,6 +89,7 @@ class AxMCPClient {
   Value acquire_resource_subscription(const std::string& uri,const std::string& owner);
   Value release_resource_subscription(const std::string& uri,const std::string& owner);
   void restore_resource_subscriptions();
+  void start_listening();
   AxMCPCatalogSnapshot inspect_catalog(bool refresh_catalog=false);
   Value get_task(const std::string& task_id);
   Value cancel_task(const std::string& task_id);
@@ -110,7 +113,7 @@ class AxMCPClient {
   void emit_notification(Value message){auto listeners=notification_listeners_;for(auto& item:listeners)item.second(message);}
   int add_lifecycle_listener(std::function<void(std::string)> listener){int id=next_listener_id_++;lifecycle_listeners_[id]=std::move(listener);return id;}
   void remove_lifecycle_listener(int id){lifecycle_listeners_.erase(id);}
-  void emit_lifecycle(const std::string& state){if(state=="reconnected")restore_resource_subscriptions();auto listeners=lifecycle_listeners_;for(auto& item:listeners)item.second(state);}
+  void emit_lifecycle(const std::string& state){if(era_=="modern"&&state=="disconnected"&&!active_subscription_id_.empty())std::thread([this]{try{start_listening();}catch(...){}}).detach();else if(state=="reconnected")restore_resource_subscriptions();auto listeners=lifecycle_listeners_;for(auto& item:listeners)item.second(state);}
 
  private:
   std::shared_ptr<AxMCPTransport> transport_;
@@ -129,6 +132,10 @@ class AxMCPClient {
   Value resource_read_cache_=Value::object();
   long catalog_revision_=0;
   std::map<std::string,std::set<std::string>> subscription_owners_;
+  std::string active_subscription_id_;
+  bool subscription_ready_=false;
+  std::mutex subscription_mutex_;
+  std::condition_variable subscription_condition_;
   int next_id_ = 1;
   int next_listener_id_=1;
   std::map<int,std::function<void(Value)>> notification_listeners_;
@@ -252,7 +259,7 @@ class AxMCPEventSource final:public AxEventSource,public AxScopedEventSource {
   AxMCPEventSource(std::shared_ptr<AxMCPClient> client,std::string namespace_name="",std::string identity_scope="anonymous",std::string trust="untrusted",std::vector<std::string> subscriptions={}):AxMCPEventSource(std::move(client),std::move(namespace_name),std::move(identity_scope),std::move(trust),subscriptions.empty()?AxMCPResourceSubscriptionPolicy{}:AxMCPResourceSubscriptionPolicy::explicit_values(std::move(subscriptions))){}
   AxMCPEventSource(std::shared_ptr<AxMCPClient> client,std::string namespace_name,std::string identity_scope,std::string trust,AxMCPResourceSubscriptionPolicy policy):client_(std::move(client)),namespace_(namespace_name.empty()?client_->namespace_name():std::move(namespace_name)),identity_scope_(std::move(identity_scope)),trust_(std::move(trust)),policy_(std::move(policy)),owner_("event-source:"+std::to_string(reinterpret_cast<std::uintptr_t>(this))){}
   void start(std::function<void(AxEventEnvelope)> publish)override{start_scoped([publish=std::move(publish)](AxEventEnvelope event,std::string,std::string){publish(std::move(event));});}
-  void start_scoped(std::function<void(AxEventEnvelope,std::string,std::string)> publish)override{client_->init();publish_=std::move(publish);listener_id_=client_->add_notification_listener([this](Value message){on_notification(std::move(message));});lifecycle_listener_id_=client_->add_lifecycle_listener([this](const std::string& state){if(state=="reconnected")reconcile();});reconcile();}
+  void start_scoped(std::function<void(AxEventEnvelope,std::string,std::string)> publish)override{client_->init();publish_=std::move(publish);listener_id_=client_->add_notification_listener([this](Value message){on_notification(std::move(message));});lifecycle_listener_id_=client_->add_lifecycle_listener([this](const std::string& state){if(state=="reconnected")reconcile();});if(client_->get_era()=="modern")client_->start_listening();reconcile();}
   void reconnect(){client_->restore_resource_subscriptions();reconcile();}
   void close()override{for(const auto& uri:subscriptions_){try{client_->release_resource_subscription(uri,owner_);}catch(...){}}subscriptions_.clear();if(listener_id_>0)client_->remove_notification_listener(listener_id_);if(lifecycle_listener_id_>0)client_->remove_lifecycle_listener(lifecycle_listener_id_);listener_id_=0;lifecycle_listener_id_=0;publish_={};}
  private:
@@ -323,6 +330,8 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
   void set_era(const std::string& era) override;
   std::string era_cache_key() const override { return era_cache_key_; }
   void start_listening() override;
+  void open_request_stream(Value message) override;
+  void close_request_stream() override;
   void close() override;
   void set_session_id(std::string session_id);
   Value build_headers(Value base = Value::object(), bool include_protocol = true,
@@ -349,6 +358,7 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
   std::string last_event_id_;
   std::string sse_buffer_;
   void listen_loop();
+  void request_stream_loop(Value message);
   void consume_sse_chunk(const char* data,std::size_t size);
 };
 
@@ -367,16 +377,20 @@ class AxMCPScriptedTransport : public AxMCPTransport {
   void send_notification(Value message) override;
   void send_response(Value message) override;
   void set_message_handler(std::function<void(Value)> handler) override {handler_=std::move(handler);}
+  void set_era(const std::string& era) override {era_=era;}
+  void open_request_stream(Value message) override;
   void emit(Value message){if(handler_)handler_(std::move(message));}
   void set_protocol_version(const std::string& protocol_version) override;
   std::vector<Value> requests;
   std::vector<Value> notifications;
   std::vector<Value> sent_responses;
   std::vector<Value> request_headers;
+  std::vector<Value> request_streams;
 
  private:
   std::vector<Value> responses_;
   std::string protocol_version_;
+  std::string era_;
   std::function<void(Value)> handler_;
 };
 

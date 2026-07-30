@@ -404,6 +404,13 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "subscriptions_listen",
+        "runner": "rust:axmcp.subscriptions_listen",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "ping",
         "runner": "rust:axmcp.ping",
         "category": "transport-boundary"

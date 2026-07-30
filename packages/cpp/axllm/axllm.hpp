@@ -781,6 +781,8 @@ struct Core {
   static Value mcp_resource_subscription_selection(Value resources, Value mode, Value explicit_uris);
   static Value mcp_resource_subscription_plan(Value desired, Value current);
   static Value mcp_resource_subscription_ownership(Value owners, Value owner, Value operation);
+  static Value mcp_listen_interests(Value subscribed_uris, Value filters);
+  static Value mcp_notification_subscription_filter(Value message, Value active_subscription_id);
   // END AXIR CORE EMITTED DECLARATIONS
 
 };

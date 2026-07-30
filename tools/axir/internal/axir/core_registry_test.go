@@ -39,43 +39,45 @@ func TestCoreFuncRegistryFromAxCore(t *testing.T) {
 
 	names := CoreFuncNames(specs)
 	for sym, want := range map[string]string{
-		"parse_signature":                     "parse_signature",
-		"agent_factory":                       "_agent_factory",
-		"forward":                             "_forward_impl",
-		"strip_internal_fields":               "strip_internal",
-		"normalize_token_usage":               "normalize_token_usage",
-		"anthropic_build_chat_request":        "_anthropic_build_chat_request",
-		"mcp_protocol_constants":              "mcp_protocol_constants",
-		"mcp_modern_request_headers":          "mcp_modern_request_headers",
-		"mcp_classify_discovery_result":       "mcp_classify_discovery_result",
-		"mcp_resolve_known_era":               "mcp_resolve_known_era",
-		"mcp_select_mutual_version":           "mcp_select_mutual_version",
-		"mcp_build_request_meta":              "mcp_build_request_meta",
-		"mcp_client_capabilities":             "mcp_client_capabilities",
-		"mcp_negotiate_extensions":            "mcp_negotiate_extensions",
-		"mcp_request_name":                    "mcp_request_name",
+		"parse_signature":                      "parse_signature",
+		"agent_factory":                        "_agent_factory",
+		"forward":                              "_forward_impl",
+		"strip_internal_fields":                "strip_internal",
+		"normalize_token_usage":                "normalize_token_usage",
+		"anthropic_build_chat_request":         "_anthropic_build_chat_request",
+		"mcp_protocol_constants":               "mcp_protocol_constants",
+		"mcp_modern_request_headers":           "mcp_modern_request_headers",
+		"mcp_classify_discovery_result":        "mcp_classify_discovery_result",
+		"mcp_resolve_known_era":                "mcp_resolve_known_era",
+		"mcp_select_mutual_version":            "mcp_select_mutual_version",
+		"mcp_build_request_meta":               "mcp_build_request_meta",
+		"mcp_client_capabilities":              "mcp_client_capabilities",
+		"mcp_negotiate_extensions":             "mcp_negotiate_extensions",
+		"mcp_request_name":                     "mcp_request_name",
 		"mcp_header_value_plan":                "mcp_header_value_plan",
 		"mcp_param_header_bindings":            "mcp_param_header_bindings",
 		"mcp_param_header_values":              "mcp_param_header_values",
 		"mcp_fold_cache_info":                  "mcp_fold_cache_info",
 		"mcp_cache_freshness":                  "mcp_cache_freshness",
-		"mcp_validate_modern_task":              "mcp_validate_modern_task",
-		"mcp_task_terminal_outcome":             "mcp_task_terminal_outcome",
-		"mcp_mrtr_plan_round":                   "mcp_mrtr_plan_round",
-		"mcp_mrtr_fulfill_roots":                "mcp_mrtr_fulfill_roots",
-		"mcp_mrtr_next_params":                  "mcp_mrtr_next_params",
-		"event_runtime_descriptor":            "event_runtime_descriptor",
-		"event_retry_transition":              "event_retry_transition",
-		"event_resolve_path":                  "event_resolve_path",
-		"event_map_input":                     "event_map_input",
-		"event_normalize_input":               "event_normalize_input",
-		"event_delivery_due":                  "event_delivery_due",
-		"event_strict_delivery_eligible":      "event_strict_delivery_eligible",
-		"event_capacity_transition":           "event_capacity_transition",
-		"event_debounce_transition":           "event_debounce_transition",
-		"mcp_resource_subscription_selection": "mcp_resource_subscription_selection",
-		"mcp_resource_subscription_plan":      "mcp_resource_subscription_plan",
-		"mcp_resource_subscription_ownership": "mcp_resource_subscription_ownership",
+		"mcp_validate_modern_task":             "mcp_validate_modern_task",
+		"mcp_task_terminal_outcome":            "mcp_task_terminal_outcome",
+		"mcp_mrtr_plan_round":                  "mcp_mrtr_plan_round",
+		"mcp_mrtr_fulfill_roots":               "mcp_mrtr_fulfill_roots",
+		"mcp_mrtr_next_params":                 "mcp_mrtr_next_params",
+		"event_runtime_descriptor":             "event_runtime_descriptor",
+		"event_retry_transition":               "event_retry_transition",
+		"event_resolve_path":                   "event_resolve_path",
+		"event_map_input":                      "event_map_input",
+		"event_normalize_input":                "event_normalize_input",
+		"event_delivery_due":                   "event_delivery_due",
+		"event_strict_delivery_eligible":       "event_strict_delivery_eligible",
+		"event_capacity_transition":            "event_capacity_transition",
+		"event_debounce_transition":            "event_debounce_transition",
+		"mcp_resource_subscription_selection":  "mcp_resource_subscription_selection",
+		"mcp_resource_subscription_plan":       "mcp_resource_subscription_plan",
+		"mcp_resource_subscription_ownership":  "mcp_resource_subscription_ownership",
+		"mcp_listen_interests":                 "mcp_listen_interests",
+		"mcp_notification_subscription_filter": "mcp_notification_subscription_filter",
 	} {
 		if got := names[sym]; got != want {
 			t.Fatalf("registry name for @%s = %q, want %q", sym, got, want)
@@ -86,8 +88,8 @@ func TestCoreFuncRegistryFromAxCore(t *testing.T) {
 	for _, spec := range specs {
 		byModule[spec.Module]++
 	}
-	if byModule["mcp"] != 40 {
-		t.Fatalf("expected the 40 MCP/UCP/event core functions in the registry, got %d", byModule["mcp"])
+	if byModule["mcp"] != 42 {
+		t.Fatalf("expected the 42 MCP/UCP/event core functions in the registry, got %d", byModule["mcp"])
 	}
 	if byModule[""] != 0 {
 		t.Fatal("registry contains specs without emit_module")

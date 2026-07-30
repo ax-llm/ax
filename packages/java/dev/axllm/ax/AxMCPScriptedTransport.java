@@ -12,8 +12,10 @@ public final class AxMCPScriptedTransport implements AxMCPTransport {
   public final List<Map<String, Object>> notifications = new ArrayList<>();
   public final List<Map<String, Object>> sentResponses = new ArrayList<>();
   public final List<Map<String, String>> requestHeaders = new ArrayList<>();
+  public final List<Map<String, Object>> requestStreams = new ArrayList<>();
   private Consumer<Map<String, Object>> handler;
   public String protocolVersion;
+  public String era;
 
   public AxMCPScriptedTransport(List<Object> responses) {
     this.responses = new ArrayList<>(responses == null ? List.of() : responses);
@@ -42,5 +44,7 @@ public final class AxMCPScriptedTransport implements AxMCPTransport {
   public void sendResponse(Map<String, Object> message) { sentResponses.add(new LinkedHashMap<>(message)); }
   public void setMessageHandler(Consumer<Map<String, Object>> handler) { this.handler = handler; }
   public void setProtocolVersion(String protocolVersion) { this.protocolVersion = protocolVersion; }
+  public void setEra(String era) { this.era = era; }
+  public void openRequestStream(Map<String,Object> message){if(!"modern".equals(era))throw new AxMCPError("Request streams are only available for modern MCP");Map<String,Object> request=new LinkedHashMap<>(message);requestStreams.add(request);Map<String,Object> params=Core.asMap(request.get("params"));emit(new LinkedHashMap<>(Map.of("jsonrpc","2.0","method","notifications/subscriptions/acknowledged","params",new LinkedHashMap<>(Map.of("notifications",params.getOrDefault("notifications",Map.of()),"_meta",Map.of("io.modelcontextprotocol/subscriptionId",request.get("id")))))));}
   public void emit(Map<String, Object> message) { if (handler != null) handler.accept(message); }
 }

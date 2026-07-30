@@ -22723,6 +22723,115 @@ final class Core {
     return out;
   }
 
+  static Object mcp_listen_interests(Object subscribed_uris, Object filters) {
+    axirCoverageMark("mcp_listen_interests");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object filters_object = Core.typeIs(filters, "object");
+    if (Core.truthy(filters_object)) {
+      out = Core.mapMerge(out, filters);
+    }
+    Object subscriptions = new java.util.ArrayList<Object>();
+    for (Object uri : Core.iter(subscribed_uris)) {
+      Object uri_string = Core.typeIs(uri, "string");
+      if (Core.truthy(uri_string)) {
+        Object empty = Core.eq(uri, "");
+        Object duplicate = Core.contains(subscriptions, uri);
+        Object skip = Core.or(empty, duplicate);
+        if (Core.truthy(skip)) {
+          // empty
+        }
+        if (!Core.truthy(skip)) {
+          Core.append(subscriptions, uri);
+        }
+      }
+    }
+    Object count = Core.len(subscriptions);
+    Object has_subscriptions = Core.gt(count, 0);
+    if (Core.truthy(has_subscriptions)) {
+      Core.set(out, "resourceSubscriptions", subscriptions);
+    }
+    if (!Core.truthy(has_subscriptions)) {
+      Core.mapDelete(out, "resourceSubscriptions");
+    }
+    return out;
+  }
+
+  static Object mcp_notification_subscription_filter(Object message, Object active_subscription_id) {
+    axirCoverageMark("mcp_notification_subscription_filter");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "deliver", Boolean.TRUE);
+    Core.set(out, "acknowledged", Boolean.FALSE);
+    Object none = Core.none();
+    Core.set(out, "subscriptionId", none);
+    Object message_text = Core.jsonStringify(message);
+    Object clean_message = Core.jsonParse(message_text);
+    Object message_object = Core.typeIs(clean_message, "object");
+    if (Core.truthy(message_object)) {
+      Object params = Core.get(clean_message, "params", null);
+      Object params_object = Core.typeIs(params, "object");
+      if (Core.truthy(params_object)) {
+        Object meta = Core.get(params, "_meta", null);
+        Object meta_object = Core.typeIs(meta, "object");
+        if (Core.truthy(meta_object)) {
+          Object subscription_id = Core.get(meta, "io.modelcontextprotocol/subscriptionId", null);
+          Object subscription_string = Core.typeIs(subscription_id, "string");
+          if (Core.truthy(subscription_string)) {
+            Core.set(out, "subscriptionId", subscription_id);
+            Object active_missing = Core.isNone(active_subscription_id);
+            if (Core.truthy(active_missing)) {
+              // empty
+            }
+            if (!Core.truthy(active_missing)) {
+              Object same_subscription = Core.eq(subscription_id, active_subscription_id);
+              if (Core.truthy(same_subscription)) {
+                // empty
+              }
+              if (!Core.truthy(same_subscription)) {
+                Core.set(out, "deliver", Boolean.FALSE);
+              }
+            }
+          }
+          Core.mapDelete(meta, "io.modelcontextprotocol/subscriptionId");
+          Object meta_keys = Core.mapKeys(meta);
+          Object meta_count = Core.len(meta_keys);
+          Object meta_empty = Core.eq(meta_count, 0);
+          if (Core.truthy(meta_empty)) {
+            Core.mapDelete(params, "_meta");
+          }
+        }
+      }
+      Object method = Core.get(clean_message, "method", "");
+      Object is_ack = Core.eq(method, "notifications/subscriptions/acknowledged");
+      Object delivered = Core.get(out, "deliver", Boolean.FALSE);
+      Object ack_deliver = Core.and(is_ack, delivered);
+      if (Core.truthy(ack_deliver)) {
+        params = Core.get(clean_message, "params", null);
+        params_object = Core.typeIs(params, "object");
+        if (Core.truthy(params_object)) {
+          Object notifications = Core.get(params, "notifications", null);
+          Object notifications_object = Core.typeIs(notifications, "object");
+          if (Core.truthy(notifications_object)) {
+            Object received = Core.get(out, "subscriptionId", null);
+            Object received_string = Core.typeIs(received, "string");
+            Object active_missing = Core.isNone(active_subscription_id);
+            Object matches_active = Boolean.FALSE;
+            if (Core.truthy(active_missing)) {
+              matches_active = received_string;
+            }
+            if (!Core.truthy(active_missing)) {
+              matches_active = Core.eq(received, active_subscription_id);
+            }
+            if (Core.truthy(matches_active)) {
+              Core.set(out, "acknowledged", Boolean.TRUE);
+            }
+          }
+        }
+      }
+    }
+    Core.set(out, "message", clean_message);
+    return out;
+  }
+
   // END AXIR CORE EMITTED FUNCTIONS
 }
 

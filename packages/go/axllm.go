@@ -46504,6 +46504,214 @@ func mcp_resource_subscription_ownership(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func mcp_listen_interests(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_listen_interests")
+	var v_subscribed_uris Value
+	var v_filters Value
+	var v_count Value
+	var v_duplicate Value
+	var v_empty Value
+	var v_filters_object Value
+	var v_has_subscriptions Value
+	var v_out Value
+	var v_skip Value
+	var v_subscriptions Value
+	var v_uri Value
+	var v_uri_string Value
+	if len(args) > 0 { v_subscribed_uris = args[0] }
+	_ = v_subscribed_uris
+	if len(args) > 1 { v_filters = args[1] }
+	_ = v_filters
+	_ = v_count
+	_ = v_duplicate
+	_ = v_empty
+	_ = v_filters_object
+	_ = v_has_subscriptions
+	_ = v_out
+	_ = v_skip
+	_ = v_subscriptions
+	_ = v_uri
+	_ = v_uri_string
+	v_out = Object()
+	v_filters_object = coreTypeIs(v_filters, "object")
+	if coreTruthy(v_filters_object) {
+		v_out = _core_map_merge(v_out, v_filters)
+	} else {
+	// empty
+	}
+	v_subscriptions = MutableArray()
+	for _, v_uri = range coreIter(v_subscribed_uris) {
+		v_uri_string = coreTypeIs(v_uri, "string")
+		if coreTruthy(v_uri_string) {
+			v_empty = _core_eq(v_uri, "")
+			v_duplicate = _core_contains(v_subscriptions, v_uri)
+			v_skip = _core_or(v_empty, v_duplicate)
+			if coreTruthy(v_skip) {
+			// empty
+			} else {
+				v_subscriptions = coreAppend(v_subscriptions, v_uri)
+			}
+		} else {
+		// empty
+		}
+	}
+	v_count = _core_len(v_subscriptions)
+	v_has_subscriptions = _core_gt(v_count, 0)
+	if coreTruthy(v_has_subscriptions) {
+		if err := coreSet(v_out, "resourceSubscriptions", v_subscriptions); err != nil { return nil, err }
+	} else {
+		_core_map_delete(v_out, "resourceSubscriptions")
+	}
+	return v_out, nil
+}
+
+func mcp_notification_subscription_filter(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_notification_subscription_filter")
+	var v_message Value
+	var v_active_subscription_id Value
+	var v_ack_deliver Value
+	var v_active_missing Value
+	var v_clean_message Value
+	var v_delivered Value
+	var v_is_ack Value
+	var v_matches_active Value
+	var v_message_object Value
+	var v_message_text Value
+	var v_meta Value
+	var v_meta_count Value
+	var v_meta_empty Value
+	var v_meta_keys Value
+	var v_meta_object Value
+	var v_method Value
+	var v_none Value
+	var v_notifications Value
+	var v_notifications_object Value
+	var v_out Value
+	var v_params Value
+	var v_params_object Value
+	var v_received Value
+	var v_received_string Value
+	var v_same_subscription Value
+	var v_subscription_id Value
+	var v_subscription_string Value
+	if len(args) > 0 { v_message = args[0] }
+	_ = v_message
+	if len(args) > 1 { v_active_subscription_id = args[1] }
+	_ = v_active_subscription_id
+	_ = v_ack_deliver
+	_ = v_active_missing
+	_ = v_clean_message
+	_ = v_delivered
+	_ = v_is_ack
+	_ = v_matches_active
+	_ = v_message_object
+	_ = v_message_text
+	_ = v_meta
+	_ = v_meta_count
+	_ = v_meta_empty
+	_ = v_meta_keys
+	_ = v_meta_object
+	_ = v_method
+	_ = v_none
+	_ = v_notifications
+	_ = v_notifications_object
+	_ = v_out
+	_ = v_params
+	_ = v_params_object
+	_ = v_received
+	_ = v_received_string
+	_ = v_same_subscription
+	_ = v_subscription_id
+	_ = v_subscription_string
+	v_out = Object()
+	if err := coreSet(v_out, "deliver", true); err != nil { return nil, err }
+	if err := coreSet(v_out, "acknowledged", false); err != nil { return nil, err }
+	v_none = _core_none()
+	if err := coreSet(v_out, "subscriptionId", v_none); err != nil { return nil, err }
+	v_message_text = _core_json_stringify(v_message)
+	{ v, err := _core_json_parse(v_message_text); if err != nil { return nil, err }; v_clean_message = v }
+	v_message_object = coreTypeIs(v_clean_message, "object")
+	if coreTruthy(v_message_object) {
+		v_params = coreGet(v_clean_message, "params", nil)
+		v_params_object = coreTypeIs(v_params, "object")
+		if coreTruthy(v_params_object) {
+			v_meta = coreGet(v_params, "_meta", nil)
+			v_meta_object = coreTypeIs(v_meta, "object")
+			if coreTruthy(v_meta_object) {
+				v_subscription_id = coreGet(v_meta, "io.modelcontextprotocol/subscriptionId", nil)
+				v_subscription_string = coreTypeIs(v_subscription_id, "string")
+				if coreTruthy(v_subscription_string) {
+					if err := coreSet(v_out, "subscriptionId", v_subscription_id); err != nil { return nil, err }
+					v_active_missing = _core_is_none(v_active_subscription_id)
+					if coreTruthy(v_active_missing) {
+					// empty
+					} else {
+						v_same_subscription = _core_eq(v_subscription_id, v_active_subscription_id)
+						if coreTruthy(v_same_subscription) {
+						// empty
+						} else {
+							if err := coreSet(v_out, "deliver", false); err != nil { return nil, err }
+						}
+					}
+				} else {
+				// empty
+				}
+				_core_map_delete(v_meta, "io.modelcontextprotocol/subscriptionId")
+				v_meta_keys = _core_map_keys(v_meta)
+				v_meta_count = _core_len(v_meta_keys)
+				v_meta_empty = _core_eq(v_meta_count, 0)
+				if coreTruthy(v_meta_empty) {
+					_core_map_delete(v_params, "_meta")
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_method = coreGet(v_clean_message, "method", "")
+		v_is_ack = _core_eq(v_method, "notifications/subscriptions/acknowledged")
+		v_delivered = coreGet(v_out, "deliver", false)
+		v_ack_deliver = _core_and(v_is_ack, v_delivered)
+		if coreTruthy(v_ack_deliver) {
+			v_params = coreGet(v_clean_message, "params", nil)
+			v_params_object = coreTypeIs(v_params, "object")
+			if coreTruthy(v_params_object) {
+				v_notifications = coreGet(v_params, "notifications", nil)
+				v_notifications_object = coreTypeIs(v_notifications, "object")
+				if coreTruthy(v_notifications_object) {
+					v_received = coreGet(v_out, "subscriptionId", nil)
+					v_received_string = coreTypeIs(v_received, "string")
+					v_active_missing = _core_is_none(v_active_subscription_id)
+					v_matches_active = false
+					if coreTruthy(v_active_missing) {
+						v_matches_active = v_received_string
+					} else {
+						v_matches_active = _core_eq(v_received, v_active_subscription_id)
+					}
+					if coreTruthy(v_matches_active) {
+						if err := coreSet(v_out, "acknowledged", true); err != nil { return nil, err }
+					} else {
+					// empty
+					}
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	if err := coreSet(v_out, "message", v_clean_message); err != nil { return nil, err }
+	return v_out, nil
+}
+
 // END AXIR CORE EMITTED FUNCTIONS
 
 // Public signature/schema surface.

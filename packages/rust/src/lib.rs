@@ -72117,4 +72117,206 @@ fn mcp_resource_subscription_ownership(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (542 of 542 core functions)
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_listen_interests(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_listen_interests");
+    let mut v_subscribed_uris = core_arg(args, 0);
+    let mut v_filters = core_arg(args, 1);
+    let mut v_count = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_filters_object = CoreValue::Null;
+    let mut v_has_subscriptions = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_skip = CoreValue::Null;
+    let mut v_subscriptions = CoreValue::Null;
+    let mut v_uri = CoreValue::Null;
+    let mut v_uri_string = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_filters_object = core_type_is(&v_filters, CoreValue::from("object"));
+    if core_truthy(&v_filters_object) {
+        v_out = core_map_merge(&[v_out.clone(), v_filters.clone()])?;
+    }
+    v_subscriptions = CoreValue::new_list();
+    for v_uri in core_iter(&v_subscribed_uris)? {
+        let mut v_uri = v_uri;
+        v_uri_string = core_type_is(&v_uri, CoreValue::from("string"));
+        if core_truthy(&v_uri_string) {
+            v_empty = core_eq(&[v_uri.clone(), CoreValue::from("")])?;
+            v_duplicate = core_contains(&[v_subscriptions.clone(), v_uri.clone()])?;
+            v_skip = core_or(&[v_empty.clone(), v_duplicate.clone()])?;
+            if core_truthy(&v_skip) {
+            } else {
+                core_append(&v_subscriptions, v_uri.clone())?;
+            }
+        }
+    }
+    v_count = core_len(&[v_subscriptions.clone()])?;
+    v_has_subscriptions = core_gt(&[v_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_subscriptions) {
+        core_set(
+            &v_out,
+            CoreValue::from("resourceSubscriptions"),
+            v_subscriptions.clone(),
+        )?;
+    } else {
+        core_map_delete(&[v_out.clone(), CoreValue::from("resourceSubscriptions")])?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_notification_subscription_filter(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_notification_subscription_filter");
+    let mut v_message = core_arg(args, 0);
+    let mut v_active_subscription_id = core_arg(args, 1);
+    let mut v_ack_deliver = CoreValue::Null;
+    let mut v_active_missing = CoreValue::Null;
+    let mut v_clean_message = CoreValue::Null;
+    let mut v_delivered = CoreValue::Null;
+    let mut v_is_ack = CoreValue::Null;
+    let mut v_matches_active = CoreValue::Null;
+    let mut v_message_object = CoreValue::Null;
+    let mut v_message_text = CoreValue::Null;
+    let mut v_meta = CoreValue::Null;
+    let mut v_meta_count = CoreValue::Null;
+    let mut v_meta_empty = CoreValue::Null;
+    let mut v_meta_keys = CoreValue::Null;
+    let mut v_meta_object = CoreValue::Null;
+    let mut v_method = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_notifications = CoreValue::Null;
+    let mut v_notifications_object = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_params_object = CoreValue::Null;
+    let mut v_received = CoreValue::Null;
+    let mut v_received_string = CoreValue::Null;
+    let mut v_same_subscription = CoreValue::Null;
+    let mut v_subscription_id = CoreValue::Null;
+    let mut v_subscription_string = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("deliver"), CoreValue::Bool(true))?;
+    core_set(
+        &v_out,
+        CoreValue::from("acknowledged"),
+        CoreValue::Bool(false),
+    )?;
+    v_none = core_none(&[])?;
+    core_set(&v_out, CoreValue::from("subscriptionId"), v_none.clone())?;
+    v_message_text = core_json_stringify(&[v_message.clone()])?;
+    v_clean_message = core_json_parse(&[v_message_text.clone()])?;
+    v_message_object = core_type_is(&v_clean_message, CoreValue::from("object"));
+    if core_truthy(&v_message_object) {
+        v_params = core_get(
+            &v_clean_message,
+            &CoreValue::from("params"),
+            CoreValue::Null,
+        );
+        v_params_object = core_type_is(&v_params, CoreValue::from("object"));
+        if core_truthy(&v_params_object) {
+            v_meta = core_get(&v_params, &CoreValue::from("_meta"), CoreValue::Null);
+            v_meta_object = core_type_is(&v_meta, CoreValue::from("object"));
+            if core_truthy(&v_meta_object) {
+                v_subscription_id = core_get(
+                    &v_meta,
+                    &CoreValue::from("io.modelcontextprotocol/subscriptionId"),
+                    CoreValue::Null,
+                );
+                v_subscription_string = core_type_is(&v_subscription_id, CoreValue::from("string"));
+                if core_truthy(&v_subscription_string) {
+                    core_set(
+                        &v_out,
+                        CoreValue::from("subscriptionId"),
+                        v_subscription_id.clone(),
+                    )?;
+                    v_active_missing = core_is_none(&[v_active_subscription_id.clone()])?;
+                    if core_truthy(&v_active_missing) {
+                    } else {
+                        v_same_subscription = core_eq(&[
+                            v_subscription_id.clone(),
+                            v_active_subscription_id.clone(),
+                        ])?;
+                        if core_truthy(&v_same_subscription) {
+                        } else {
+                            core_set(&v_out, CoreValue::from("deliver"), CoreValue::Bool(false))?;
+                        }
+                    }
+                }
+                core_map_delete(&[
+                    v_meta.clone(),
+                    CoreValue::from("io.modelcontextprotocol/subscriptionId"),
+                ])?;
+                v_meta_keys = core_map_keys(&[v_meta.clone()])?;
+                v_meta_count = core_len(&[v_meta_keys.clone()])?;
+                v_meta_empty = core_eq(&[v_meta_count.clone(), CoreValue::Num(0f64)])?;
+                if core_truthy(&v_meta_empty) {
+                    core_map_delete(&[v_params.clone(), CoreValue::from("_meta")])?;
+                }
+            }
+        }
+        v_method = core_get(
+            &v_clean_message,
+            &CoreValue::from("method"),
+            CoreValue::from(""),
+        );
+        v_is_ack = core_eq(&[
+            v_method.clone(),
+            CoreValue::from("notifications/subscriptions/acknowledged"),
+        ])?;
+        v_delivered = core_get(&v_out, &CoreValue::from("deliver"), CoreValue::Bool(false));
+        v_ack_deliver = core_and(&[v_is_ack.clone(), v_delivered.clone()])?;
+        if core_truthy(&v_ack_deliver) {
+            v_params = core_get(
+                &v_clean_message,
+                &CoreValue::from("params"),
+                CoreValue::Null,
+            );
+            v_params_object = core_type_is(&v_params, CoreValue::from("object"));
+            if core_truthy(&v_params_object) {
+                v_notifications = core_get(
+                    &v_params,
+                    &CoreValue::from("notifications"),
+                    CoreValue::Null,
+                );
+                v_notifications_object = core_type_is(&v_notifications, CoreValue::from("object"));
+                if core_truthy(&v_notifications_object) {
+                    v_received =
+                        core_get(&v_out, &CoreValue::from("subscriptionId"), CoreValue::Null);
+                    v_received_string = core_type_is(&v_received, CoreValue::from("string"));
+                    v_active_missing = core_is_none(&[v_active_subscription_id.clone()])?;
+                    v_matches_active = CoreValue::Bool(false);
+                    if core_truthy(&v_active_missing) {
+                        v_matches_active = v_received_string.clone();
+                    } else {
+                        v_matches_active =
+                            core_eq(&[v_received.clone(), v_active_subscription_id.clone()])?;
+                    }
+                    if core_truthy(&v_matches_active) {
+                        core_set(
+                            &v_out,
+                            CoreValue::from("acknowledged"),
+                            CoreValue::Bool(true),
+                        )?;
+                    }
+                }
+            }
+        }
+    }
+    core_set(&v_out, CoreValue::from("message"), v_clean_message.clone())?;
+    return Ok(v_out.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (544 of 544 core functions)

@@ -1577,6 +1577,115 @@ def mcp_resource_subscription_ownership(owners: list[Any], owner: str, operation
     out["owners"] = out_owners
     return out
 
+
+def mcp_listen_interests(subscribed_uris: list[Any], filters: Any) -> Any:
+    _core_coverage_mark("mcp_listen_interests")
+    out = {}
+    filters_object = _core_type_is(filters, "object")
+    if filters_object:
+        out = _core_map_merge(out, filters)
+    else:
+        pass
+    subscriptions = []
+    for uri in subscribed_uris:
+        uri_string = _core_type_is(uri, "string")
+        if uri_string:
+            empty = _core_eq(uri, "")
+            duplicate = _core_contains(subscriptions, uri)
+            skip = _core_or(empty, duplicate)
+            if skip:
+                pass
+            else:
+                subscriptions.append(uri)
+        else:
+            pass
+    count = _core_len(subscriptions)
+    has_subscriptions = _core_gt(count, 0)
+    if has_subscriptions:
+        out["resourceSubscriptions"] = subscriptions
+    else:
+        _core_map_delete(out, "resourceSubscriptions")
+    return out
+
+
+def mcp_notification_subscription_filter(message: Any, active_subscription_id: str) -> Any:
+    _core_coverage_mark("mcp_notification_subscription_filter")
+    out = {}
+    out["deliver"] = True
+    out["acknowledged"] = False
+    none = _core_none()
+    out["subscriptionId"] = none
+    message_text = _core_json_stringify(message)
+    clean_message = _core_json_parse(message_text)
+    message_object = _core_type_is(clean_message, "object")
+    if message_object:
+        params = _core_get(clean_message, "params", None)
+        params_object = _core_type_is(params, "object")
+        if params_object:
+            meta = _core_get(params, "_meta", None)
+            meta_object = _core_type_is(meta, "object")
+            if meta_object:
+                subscription_id = _core_get(meta, "io.modelcontextprotocol/subscriptionId", None)
+                subscription_string = _core_type_is(subscription_id, "string")
+                if subscription_string:
+                    out["subscriptionId"] = subscription_id
+                    active_missing = _core_is_none(active_subscription_id)
+                    if active_missing:
+                        pass
+                    else:
+                        same_subscription = _core_eq(subscription_id, active_subscription_id)
+                        if same_subscription:
+                            pass
+                        else:
+                            out["deliver"] = False
+                else:
+                    pass
+                _core_map_delete(meta, "io.modelcontextprotocol/subscriptionId")
+                meta_keys = _core_map_keys(meta)
+                meta_count = _core_len(meta_keys)
+                meta_empty = _core_eq(meta_count, 0)
+                if meta_empty:
+                    _core_map_delete(params, "_meta")
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+        method = _core_get(clean_message, "method", "")
+        is_ack = _core_eq(method, "notifications/subscriptions/acknowledged")
+        delivered = _core_get(out, "deliver", False)
+        ack_deliver = _core_and(is_ack, delivered)
+        if ack_deliver:
+            params = _core_get(clean_message, "params", None)
+            params_object = _core_type_is(params, "object")
+            if params_object:
+                notifications = _core_get(params, "notifications", None)
+                notifications_object = _core_type_is(notifications, "object")
+                if notifications_object:
+                    received = _core_get(out, "subscriptionId", None)
+                    received_string = _core_type_is(received, "string")
+                    active_missing = _core_is_none(active_subscription_id)
+                    matches_active = False
+                    if active_missing:
+                        matches_active = received_string
+                    else:
+                        matches_active = _core_eq(received, active_subscription_id)
+                    if matches_active:
+                        out["acknowledged"] = True
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
+    out["message"] = clean_message
+    return out
+
 # END AXIR CORE EMITTED FUNCTIONS
 
 
@@ -2329,6 +2438,12 @@ class AxMCPTransport:
     def start_listening(self) -> None:
         return None
 
+    def open_request_stream(self, message: dict[str, Any]) -> None:
+        raise AxMCPError("Request streams are only available for modern MCP")
+
+    def close_request_stream(self) -> None:
+        return None
+
     def close(self) -> None:
         return None
 
@@ -2340,6 +2455,8 @@ class AxMCPScriptedTransport(AxMCPTransport):
         self.notifications: list[dict[str, Any]] = []
         self.sent_responses: list[dict[str, Any]] = []
         self.request_headers: list[dict[str, str]] = []
+        self.request_streams: list[dict[str, Any]] = []
+        self.era: str | None = None
         self.protocol_version: str | None = None
         self.session_id: str | None = None
         self._message_handler: Callable[[dict[str, Any]], None] | None = None
@@ -2371,12 +2488,29 @@ class AxMCPScriptedTransport(AxMCPTransport):
     def send_notification(self, message: dict[str, Any]) -> None:
         self.notifications.append(json.loads(json.dumps(message)))
 
+    def set_era(self, era: str) -> None:
+        self.era = era
+
     def send_response(self, message: dict[str, Any]) -> None:
         self.sent_responses.append(json.loads(json.dumps(message)))
 
     def emit(self, message: dict[str, Any]) -> None:
         if self._message_handler:
             self._message_handler(message)
+
+    def open_request_stream(self, message: dict[str, Any]) -> None:
+        if self.era != "modern":
+            raise AxMCPError("Request streams are only available for modern MCP")
+        request = json.loads(json.dumps(message))
+        self.request_streams.append(request)
+        self.emit({
+            "jsonrpc": "2.0",
+            "method": "notifications/subscriptions/acknowledged",
+            "params": {
+                "notifications": (request.get("params") or {}).get("notifications") or {},
+                "_meta": {"io.modelcontextprotocol/subscriptionId": request.get("id")},
+            },
+        })
 
 
 _AX_MCP_ERA_CACHE: dict[str, str] = {}
@@ -2401,6 +2535,8 @@ class AxMCPClient:
         self._resource_read_cache: dict[str, dict[str, Any]] = {}
         self.catalog_revision = 0
         self._subscription_owners: dict[str, set[str]] = {}
+        self._active_subscription_id: str | None = None
+        self._subscription_ready = threading.Event()
         self._next_id = 1
         self._notification_listeners: list[Callable[[dict[str, Any]], None]] = []
         self._lifecycle_listeners: list[Callable[[str], None]] = []
@@ -2531,6 +2667,8 @@ class AxMCPClient:
         return json.loads(json.dumps(result))
 
     def close(self) -> None:
+        self._active_subscription_id = None
+        self.transport.close_request_stream()
         self._subscription_owners.clear()
         self.catalog_cache.clear()
         self._resource_read_cache.clear()
@@ -2686,8 +2824,13 @@ class AxMCPClient:
         transition = mcp_resource_subscription_ownership(
             sorted(self._subscription_owners.get(uri, set())), owner, "acquire"
         )
-        result = self._request("resources/subscribe", {"uri": uri}) if transition["wireAction"] == "subscribe" else {}
         self._subscription_owners[uri] = set(transition["owners"])
+        if self.era == "modern":
+            result = {}
+            if transition.get("changed") and self._active_subscription_id is not None:
+                self._restart_modern_listener()
+        else:
+            result = self._request("resources/subscribe", {"uri": uri}) if transition["wireAction"] == "subscribe" else {}
         return result
 
     def release_resource_subscription(self, uri: str, owner: str) -> dict[str, Any]:
@@ -2695,14 +2838,55 @@ class AxMCPClient:
         transition = mcp_resource_subscription_ownership(
             sorted(self._subscription_owners.get(uri, set())), owner, "release"
         )
-        result = self._request("resources/unsubscribe", {"uri": uri}) if transition["wireAction"] == "unsubscribe" else {}
         if transition["owners"]: self._subscription_owners[uri] = set(transition["owners"])
         else: self._subscription_owners.pop(uri, None)
+        if self.era == "modern":
+            result = {}
+            if transition.get("changed") and self._active_subscription_id is not None:
+                self._restart_modern_listener()
+        else:
+            result = self._request("resources/unsubscribe", {"uri": uri}) if transition["wireAction"] == "unsubscribe" else {}
         return result
 
     def restore_resource_subscriptions(self) -> None:
+        if self.era == "modern":
+            if self._active_subscription_id is not None:
+                self._restart_modern_listener()
+            return
         for uri in sorted(self._subscription_owners):
             self._request("resources/subscribe", {"uri": uri})
+
+    def start_listening(self) -> None:
+        self.init()
+        if self.era != "modern":
+            self.transport.start_listening()
+            return
+        self.transport.close_request_stream()
+        subscription_id = str(uuid.uuid4())
+        self._active_subscription_id = subscription_id
+        self._subscription_ready.clear()
+        notifications = mcp_listen_interests(
+            sorted(self._subscription_owners), self.options.get("subscriptionFilters") or {}
+        )
+        params = {"notifications": notifications}
+        params["_meta"] = mcp_build_request_meta(
+            {}, self.negotiated_protocol_version or "2026-07-28",
+            self._client_capabilities(),
+            {"name": "AxMCPClient", "title": "Ax MCP Client", "version": "1.0.0"},
+            self.options.get("logLevel"), None, None,
+        )
+        self.transport.open_request_stream({
+            "jsonrpc": "2.0", "id": subscription_id,
+            "method": "subscriptions/listen", "params": params,
+        })
+        timeout = float(self.options.get("listenAckTimeout", 2))
+        if not self._subscription_ready.wait(timeout):
+            raise AxMCPError("subscriptions/listen acknowledgement timed out")
+
+    def _restart_modern_listener(self) -> None:
+        if self.era != "modern" or self._active_subscription_id is None:
+            return
+        self.start_listening()
 
     def _assert_resource_subscriptions(self) -> None:
         resources = self.server_capabilities.get("resources")
@@ -2803,7 +2987,9 @@ class AxMCPClient:
         return remove
 
     def emit_lifecycle(self, state: str) -> None:
-        if state == "reconnected":
+        if self.era == "modern" and state == "disconnected" and self._active_subscription_id is not None:
+            self._restart_modern_listener()
+        elif state == "reconnected":
             self.restore_resource_subscriptions()
         for listener in list(self._lifecycle_listeners):
             listener(state)
@@ -2894,6 +3080,13 @@ class AxMCPClient:
         return self._capability("tasks")
 
     def _handle_inbound_message(self, message: dict[str, Any]) -> None:
+        if self.era == "modern":
+            filtered = mcp_notification_subscription_filter(message, self._active_subscription_id)
+            if not filtered.get("deliver"):
+                return
+            message = filtered.get("message") or {}
+            if filtered.get("acknowledged"):
+                self._subscription_ready.set()
         method = message.get("method")
         if method == "roots/list" and "id" in message:
             self.transport.send_response({
@@ -2966,6 +3159,8 @@ class AxMCPEventSource(AxEventSource):
         self._remove = self.client.add_notification_listener(self._on_notification)
         self._remove_lifecycle = self.client.add_lifecycle_listener(
             lambda state: self._reconcile() if state == "reconnected" else None)
+        if self.client.get_era() == "modern":
+            self.client.start_listening()
         self._reconcile()
         return self
 
@@ -3228,6 +3423,56 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
         self._listen_stop.clear()
         self._listen_thread = threading.Thread(target=self._listen_loop, name="ax-mcp-sse", daemon=True)
         self._listen_thread.start()
+
+    def open_request_stream(self, message: dict[str, Any]) -> None:
+        if self.era != "modern":
+            raise AxMCPError("Request streams are only available for modern MCP")
+        self.close_request_stream()
+        self._listen_stop.clear()
+        self._listen_thread = threading.Thread(
+            target=self._request_stream_once, args=(json.loads(json.dumps(message)),),
+            name="ax-mcp-request-stream", daemon=True,
+        )
+        self._listen_thread.start()
+
+    def _request_stream_once(self, message: dict[str, Any]) -> None:
+        try:
+            body = json.dumps(message).encode("utf-8")
+            headers = self.build_headers(
+                {"Content-Type": "application/json", "Accept": "text/event-stream"},
+                True, str(message.get("method") or ""),
+                message.get("params") if isinstance(message.get("params"), dict) else {}, {},
+            )
+            request = urllib.request.Request(self.endpoint, data=body, headers=headers, method="POST")
+            response = urllib.request.urlopen(request, timeout=float(self.options.get("listenTimeout", 300)))
+            self._listen_response = response
+            data: list[str] = []
+            while not self._listen_stop.is_set():
+                raw = response.readline()
+                if not raw: break
+                line = raw.decode("utf-8").rstrip("\r\n")
+                if line.startswith("data:"):
+                    data.append(line[5:].lstrip())
+                elif line == "":
+                    if data and self._message_handler:
+                        self._message_handler(json.loads("\n".join(data)))
+                    data = []
+            response.close()
+        except Exception:
+            pass
+        finally:
+            self._listen_response = None
+            if not self._listen_stop.is_set() and self._lifecycle_handler:
+                self._lifecycle_handler("disconnected")
+
+    def close_request_stream(self) -> None:
+        self._listen_stop.set()
+        if self._listen_response is not None:
+            try: self._listen_response.close()
+            except Exception: pass
+        if self._listen_thread and self._listen_thread is not threading.current_thread():
+            self._listen_thread.join(float(self.options.get("closeTimeout", 2)))
+        self._listen_thread = None
 
     def _listen_loop(self) -> None:
         connected_once = False
@@ -3887,6 +4132,41 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
                     raise AssertionError("MRTR request retained stale input responses")
                 if "requestState" not in expected and "requestState" in params:
                     raise AssertionError("MRTR request retained stale requestState")
+            return
+        if operation == "subscriptions_listen":
+            for case in fixture.get("semantic_cases") or []:
+                actual = mcp_listen_interests(case.get("subscribed_uris") or [], case.get("filters") or {})
+                if actual != (case.get("expected") or {}):
+                    raise AssertionError(f"listen interests mismatch: {actual!r}")
+            delivered: list[dict[str, Any]] = []
+            client.add_notification_listener(delivered.append)
+            client.start_listening()
+            if len(transport.request_streams) != 1:
+                raise AssertionError("initial subscriptions/listen stream missing")
+            first = transport.request_streams[0]
+            _assert_subset((first.get("params") or {}).get("notifications") or {}, fixture.get("expected_first_notifications") or {}, "initial listen interests")
+            client.acquire_resource_subscription(fixture.get("uri", ""), "fixture")
+            if len(transport.request_streams) != fixture.get("expected_stream_count"):
+                raise AssertionError("subscription interest change did not restart request stream")
+            second = transport.request_streams[-1]
+            if first.get("id") == second.get("id"):
+                raise AssertionError("subscriptions/listen restart reused its request id")
+            _assert_subset((second.get("params") or {}).get("notifications") or {}, fixture.get("expected_second_notifications") or {}, "updated listen interests")
+            before = len([item for item in delivered if item.get("method") == "notifications/resources/updated"])
+            notification = json.loads(json.dumps(fixture.get("delivered_notification") or {}))
+            notification.setdefault("params", {})["_meta"] = {"io.modelcontextprotocol/subscriptionId": "other"}
+            transport.emit(notification)
+            if len([item for item in delivered if item.get("method") == "notifications/resources/updated"]) != before:
+                raise AssertionError("cross-subscription notification was delivered")
+            notification["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] = second.get("id")
+            transport.emit(notification)
+            updates = [item for item in delivered if item.get("method") == "notifications/resources/updated"]
+            if len(updates) != before + 1 or "_meta" in (updates[-1].get("params") or {}):
+                raise AssertionError("active subscription notification was not delivered cleanly")
+            methods = [request.get("method") for request in transport.requests]
+            for forbidden in fixture.get("expected_forbidden_methods") or []:
+                if forbidden in methods:
+                    raise AssertionError(f"modern subscription emitted legacy method {forbidden}")
             return
         if operation == "initialize":
             _assert_requests(transport.requests, fixture)

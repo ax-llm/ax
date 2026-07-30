@@ -1244,4 +1244,119 @@ module @ax.mcp version "0.1" {
       core.return %out
     }
   }
+
+  op ax.mcp.semantic @mcp_listen_interests {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axmcp-subscriptions-listen"
+    type signature = "(subscribed_uris:list<string>, filters?:json) -> json"
+    body @entry(%subscribed_uris: list<json>, %filters: json) {
+      %out = core.map
+      %filters_object = core.type_is %filters type "object"
+      core.if %filters_object {
+        %out = core.call intrinsic.map.merge(%out, %filters)
+      }
+      %subscriptions = core.list
+      core.for %uri in %subscribed_uris {
+        %uri_string = core.type_is %uri type "string"
+        core.if %uri_string {
+          %empty = core.call intrinsic.eq(%uri, "")
+          %duplicate = core.call intrinsic.contains(%subscriptions, %uri)
+          %skip = core.call intrinsic.or(%empty, %duplicate)
+          core.if %skip {
+          } else {
+            core.append %subscriptions, %uri
+          }
+        }
+      }
+      %count = core.call intrinsic.len(%subscriptions)
+      %has_subscriptions = core.call intrinsic.gt(%count, 0)
+      core.if %has_subscriptions {
+        core.set %out["resourceSubscriptions"] = %subscriptions
+      } else {
+        core.call intrinsic.map.delete(%out, "resourceSubscriptions")
+      }
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_notification_subscription_filter {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axmcp-subscriptions-listen"
+    type signature = "(message:json, active_subscription_id?:string) -> json"
+    body @entry(%message: json, %active_subscription_id: string) {
+      %out = core.map
+      core.set %out["deliver"] = true
+      core.set %out["acknowledged"] = false
+      %none = core.call intrinsic.none()
+      core.set %out["subscriptionId"] = %none
+      %message_text = core.call intrinsic.json.stringify(%message)
+      %clean_message = core.call intrinsic.json.parse(%message_text)
+      %message_object = core.type_is %clean_message type "object"
+      core.if %message_object {
+        %params = core.get %clean_message["params"] default null
+        %params_object = core.type_is %params type "object"
+        core.if %params_object {
+          %meta = core.get %params["_meta"] default null
+          %meta_object = core.type_is %meta type "object"
+          core.if %meta_object {
+            %subscription_id = core.get %meta["io.modelcontextprotocol/subscriptionId"] default null
+            %subscription_string = core.type_is %subscription_id type "string"
+            core.if %subscription_string {
+              core.set %out["subscriptionId"] = %subscription_id
+              %active_missing = core.call intrinsic.is_none(%active_subscription_id)
+              core.if %active_missing {
+              } else {
+                %same_subscription = core.call intrinsic.eq(%subscription_id, %active_subscription_id)
+                core.if %same_subscription {
+                } else {
+                  core.set %out["deliver"] = false
+                }
+              }
+            }
+            core.call intrinsic.map.delete(%meta, "io.modelcontextprotocol/subscriptionId")
+            %meta_keys = core.call intrinsic.map.keys(%meta)
+            %meta_count = core.call intrinsic.len(%meta_keys)
+            %meta_empty = core.call intrinsic.eq(%meta_count, 0)
+            core.if %meta_empty {
+              core.call intrinsic.map.delete(%params, "_meta")
+            }
+          }
+        }
+        %method = core.get %clean_message["method"] default ""
+        %is_ack = core.call intrinsic.eq(%method, "notifications/subscriptions/acknowledged")
+        %delivered = core.get %out["deliver"] default false
+        %ack_deliver = core.call intrinsic.and(%is_ack, %delivered)
+        core.if %ack_deliver {
+          %params = core.get %clean_message["params"] default null
+          %params_object = core.type_is %params type "object"
+          core.if %params_object {
+            %notifications = core.get %params["notifications"] default null
+            %notifications_object = core.type_is %notifications type "object"
+            core.if %notifications_object {
+              %received = core.get %out["subscriptionId"] default null
+              %received_string = core.type_is %received type "string"
+              %active_missing = core.call intrinsic.is_none(%active_subscription_id)
+              %matches_active = core.const false
+              core.if %active_missing {
+                %matches_active = core.let %received_string
+              } else {
+                %matches_active = core.call intrinsic.eq(%received, %active_subscription_id)
+              }
+              core.if %matches_active {
+                core.set %out["acknowledged"] = true
+              }
+            }
+          }
+        }
+      }
+      core.set %out["message"] = %clean_message
+      core.return %out
+    }
+  }
 }

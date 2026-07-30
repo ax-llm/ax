@@ -74,6 +74,15 @@ pub trait AxMCPTransport: Send {
     fn start_listening(&mut self) -> AxResult<()> {
         Ok(())
     }
+    fn open_request_stream(&mut self, _message: Value) -> AxResult<()> {
+        Err(AxError::new(
+            "mcp",
+            "Request streams are only available for modern MCP",
+        ))
+    }
+    fn close_request_stream(&mut self) -> AxResult<()> {
+        Ok(())
+    }
     fn close(&mut self) -> AxResult<()> {
         Ok(())
     }
@@ -84,6 +93,9 @@ pub trait AxMCPTransport: Send {
         Vec::new()
     }
     fn sent_request_headers(&self) -> Vec<Map<String, Value>> {
+        Vec::new()
+    }
+    fn sent_request_streams(&self) -> Vec<Value> {
         Vec::new()
     }
 }
@@ -125,6 +137,8 @@ pub struct AxMCPClient {
     inbound_lifecycle: Arc<Mutex<Vec<String>>>,
     next_listener_id: Arc<Mutex<usize>>,
     subscription_owners: Arc<Mutex<HashMap<String, HashSet<String>>>>,
+    active_subscription_id: Option<String>,
+    subscription_ready: bool,
     catalog_revision: u64,
     initialized: bool,
 }
@@ -153,6 +167,8 @@ impl AxMCPClient {
             inbound_lifecycle: Arc::new(Mutex::new(Vec::new())),
             next_listener_id: Arc::new(Mutex::new(1)),
             subscription_owners: Arc::new(Mutex::new(HashMap::new())),
+            active_subscription_id: None,
+            subscription_ready: false,
             catalog_revision: 0,
             initialized: false,
         }
@@ -408,6 +424,8 @@ impl AxMCPClient {
 
     pub fn close(&mut self) -> AxResult<()> {
         self.initialized = false;
+        self.active_subscription_id = None;
+        let _ = self.transport.lock().unwrap().close_request_stream();
         self.subscription_owners.lock().unwrap().clear();
         self.catalog_cache.clear();
         self.resource_read_cache.clear();
@@ -773,11 +791,6 @@ impl AxMCPClient {
             crate::core_value_from_json(&json!("acquire")),
         ])?;
         let transition = crate::core_value_to_json(&transition);
-        let result = if transition.get("wireAction").and_then(Value::as_str) == Some("subscribe") {
-            self.request("resources/subscribe", json!({"uri":uri}))?
-        } else {
-            json!({})
-        };
         let owners = transition
             .get("owners")
             .and_then(Value::as_array)
@@ -790,7 +803,19 @@ impl AxMCPClient {
             .lock()
             .unwrap()
             .insert(uri.into(), owners);
-        Ok(result)
+        if self.era.as_deref() == Some("modern") {
+            if transition.get("changed").and_then(Value::as_bool) == Some(true)
+                && self.active_subscription_id.is_some()
+            {
+                self.restart_modern_listener()?;
+            }
+            return Ok(json!({}));
+        }
+        if transition.get("wireAction").and_then(Value::as_str) == Some("subscribe") {
+            self.request("resources/subscribe", json!({"uri":uri}))
+        } else {
+            Ok(json!({}))
+        }
     }
     pub fn release_resource_subscription(&mut self, uri: &str, owner: &str) -> AxResult<Value> {
         self.assert_resource_subscriptions()?;
@@ -810,12 +835,6 @@ impl AxMCPClient {
             crate::core_value_from_json(&json!("release")),
         ])?;
         let transition = crate::core_value_to_json(&transition);
-        let result = if transition.get("wireAction").and_then(Value::as_str) == Some("unsubscribe")
-        {
-            self.request("resources/unsubscribe", json!({"uri":uri}))?
-        } else {
-            json!({})
-        };
         let owners = transition
             .get("owners")
             .and_then(Value::as_array)
@@ -832,9 +851,27 @@ impl AxMCPClient {
                 .unwrap()
                 .insert(uri.into(), owners);
         }
-        Ok(result)
+        if self.era.as_deref() == Some("modern") {
+            if transition.get("changed").and_then(Value::as_bool) == Some(true)
+                && self.active_subscription_id.is_some()
+            {
+                self.restart_modern_listener()?;
+            }
+            return Ok(json!({}));
+        }
+        if transition.get("wireAction").and_then(Value::as_str) == Some("unsubscribe") {
+            self.request("resources/unsubscribe", json!({"uri":uri}))
+        } else {
+            Ok(json!({}))
+        }
     }
-    pub fn restore_resource_subscriptions(&self) -> AxResult<()> {
+    pub fn restore_resource_subscriptions(&mut self) -> AxResult<()> {
+        if self.era.as_deref() == Some("modern") {
+            if self.active_subscription_id.is_some() {
+                return self.restart_modern_listener();
+            }
+            return Ok(());
+        }
         let mut uris = self
             .subscription_owners
             .lock()
@@ -847,6 +884,85 @@ impl AxMCPClient {
             self.request("resources/subscribe", json!({"uri":uri}))?;
         }
         Ok(())
+    }
+    pub fn start_listening(&mut self) -> AxResult<()> {
+        self.init()?;
+        if self.era.as_deref() != Some("modern") {
+            return self.transport.lock().unwrap().start_listening();
+        }
+        let _ = self.transport.lock().unwrap().close_request_stream();
+        let id = {
+            let mut next = self.next_id.lock().unwrap();
+            let id = format!("listen-{}", *next);
+            *next += 1;
+            id
+        };
+        let mut uris = self
+            .subscription_owners
+            .lock()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        uris.sort();
+        let notifications = core_mcp(
+            &crate::mcp_listen_interests,
+            &[
+                json!(uris),
+                self.options
+                    .get("subscriptionFilters")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            ],
+        )?;
+        let version = self
+            .negotiated_protocol_version
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| "2026-07-28".into());
+        let meta = core_mcp(
+            &crate::mcp_build_request_meta,
+            &[
+                json!({}),
+                json!(version),
+                self.client_capabilities(),
+                json!({"name":"AxMCPClient","title":"Ax MCP Client","version":"1.0.0"}),
+                self.options.get("logLevel").cloned().unwrap_or(Value::Null),
+                Value::Null,
+                Value::Null,
+            ],
+        )?;
+        self.active_subscription_id = Some(id.clone());
+        self.subscription_ready = false;
+        self.transport.lock().unwrap().open_request_stream(json!({"jsonrpc":"2.0","id":id,"method":"subscriptions/listen","params":{"notifications":notifications,"_meta":meta}}))?;
+        let deadline = std::time::Instant::now()
+            + Duration::from_millis(
+                self.options
+                    .get("listenAckTimeoutMs")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(2000),
+            );
+        while !self.subscription_ready && std::time::Instant::now() < deadline {
+            self.drain_inbound();
+            if !self.subscription_ready {
+                thread::sleep(Duration::from_millis(5))
+            }
+        }
+        if !self.subscription_ready {
+            return Err(AxError::new(
+                "mcp",
+                "subscriptions/listen acknowledgement timed out",
+            ));
+        }
+        Ok(())
+    }
+    fn restart_modern_listener(&mut self) -> AxResult<()> {
+        if self.era.as_deref() == Some("modern") && self.active_subscription_id.is_some() {
+            self.start_listening()
+        } else {
+            Ok(())
+        }
     }
     pub fn subscribe_resource(&mut self, uri: &str) -> AxResult<Value> {
         self.acquire_resource_subscription(uri, "manual")
@@ -992,9 +1108,6 @@ impl AxMCPClient {
         self.lifecycle_listeners.lock().unwrap().remove(&id);
     }
     pub fn emit_lifecycle(&self, state: &str) {
-        if state == "reconnected" {
-            let _ = self.restore_resource_subscriptions();
-        }
         let listeners = self
             .lifecycle_listeners
             .lock()
@@ -1022,12 +1135,34 @@ impl AxMCPClient {
         let messages = std::mem::take(&mut *self.inbound_messages.lock().unwrap());
         let states = std::mem::take(&mut *self.inbound_lifecycle.lock().unwrap());
         let count = messages.len() + states.len();
+        let restart = self.era.as_deref() == Some("modern")
+            && self.active_subscription_id.is_some()
+            && states.iter().any(|state| state == "disconnected");
         for state in states {
             self.emit_lifecycle(&state)
         }
         for message in messages {
+            let message = if self.era.as_deref() == Some("modern") {
+                let filtered = core_mcp(
+                    &crate::mcp_notification_subscription_filter,
+                    &[message.clone(), json!(self.active_subscription_id)],
+                )
+                .unwrap_or_else(|_| json!({"deliver":false}));
+                if filtered.get("deliver").and_then(Value::as_bool) != Some(true) {
+                    continue;
+                }
+                if filtered.get("acknowledged").and_then(Value::as_bool) == Some(true) {
+                    self.subscription_ready = true
+                }
+                filtered.get("message").cloned().unwrap_or(Value::Null)
+            } else {
+                message
+            };
             self.apply_cache_notification(&message);
             self.emit_notification(message)
+        }
+        if restart {
+            let _ = self.restart_modern_listener();
         }
         count
     }
@@ -2882,6 +3017,9 @@ fn reconcile_mcp_subscriptions(
     errors: &Arc<Mutex<Vec<String>>>,
 ) -> AxResult<()> {
     let mut client = client.lock().unwrap();
+    if client.era.as_deref() == Some("modern") && client.active_subscription_id.is_none() {
+        client.start_listening()?;
+    }
     let catalog = client.inspect_catalog(false)?;
     if !matches!(policy, AxMCPResourceSubscriptionPolicy::None)
         && catalog
@@ -3154,12 +3292,38 @@ impl AxMCPEventSource {
     pub fn poll(&mut self) -> usize {
         let (messages, states, notification_listeners, lifecycle_listeners) = {
             let mut client = self.client.lock().unwrap();
-            let messages = {
+            let raw_messages = {
                 let mut queue = client.inbound_messages.lock().unwrap();
                 std::mem::take(&mut *queue)
             };
-            for message in &messages {
-                client.apply_cache_notification(message);
+            let mut messages = Vec::new();
+            for message in raw_messages {
+                let message = if client.era.as_deref() == Some("modern") {
+                    let filtered = core_mcp(
+                        &crate::mcp_notification_subscription_filter,
+                        &[message, json!(client.active_subscription_id)],
+                    )
+                    .unwrap_or_else(|_| json!({"deliver":false}));
+                    if !filtered
+                        .get("deliver")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                    {
+                        continue;
+                    }
+                    if filtered
+                        .get("acknowledged")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                    {
+                        client.subscription_ready = true;
+                    }
+                    filtered.get("message").cloned().unwrap_or(Value::Null)
+                } else {
+                    message
+                };
+                client.apply_cache_notification(&message);
+                messages.push(message);
             }
             if messages.iter().any(|message| {
                 matches!(
@@ -3175,7 +3339,11 @@ impl AxMCPEventSource {
                 let mut queue = client.inbound_lifecycle.lock().unwrap();
                 std::mem::take(&mut *queue)
             };
-            if states.iter().any(|state| state == "reconnected") {
+            if client.era.as_deref() == Some("modern")
+                && states.iter().any(|state| state == "disconnected")
+            {
+                let _ = client.restart_modern_listener();
+            } else if states.iter().any(|state| state == "reconnected") {
                 let _ = client.restore_resource_subscriptions();
             }
             let notification_listeners = client
@@ -3754,6 +3922,77 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
         }));
         Ok(())
     }
+    fn open_request_stream(&mut self, message: Value) -> AxResult<()> {
+        if self.era.as_deref() != Some("modern") {
+            return Err(AxError::new(
+                "mcp",
+                "Request streams are only available for modern MCP",
+            ));
+        }
+        let _ = self.close_request_stream();
+        self.listen_stop.store(false, Ordering::SeqCst);
+        let stop = self.listen_stop.clone();
+        let endpoint = self.endpoint.clone();
+        let client = self.client.clone();
+        let method = message
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let headers = self.build_request_headers(
+            Map::new(),
+            true,
+            &method,
+            message.get("params").unwrap_or(&Value::Null),
+            &Map::new(),
+        );
+        let handler = self.message_handler.clone();
+        let lifecycle = self.lifecycle_handler.clone();
+        self.listen_thread = Some(thread::spawn(move || {
+            let mut request = client.post(endpoint).json(&message);
+            for (key, value) in headers {
+                if let Some(text) = value.as_str() {
+                    request = request.header(key, text)
+                }
+            }
+            if let Ok(response) = request.send() {
+                if response.status().is_success() {
+                    let reader = BufReader::new(response);
+                    let mut data = Vec::<String>::new();
+                    for line in reader.lines() {
+                        if stop.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        let Ok(line) = line else { break };
+                        if line.is_empty() {
+                            if !data.is_empty() {
+                                if let Ok(message) = serde_json::from_str::<Value>(&data.join("\n"))
+                                {
+                                    if let Some(callback) = &handler {
+                                        callback(message)
+                                    }
+                                }
+                                data.clear()
+                            }
+                        } else if let Some(value) = line.strip_prefix("data:") {
+                            data.push(value.trim_start().to_string())
+                        }
+                    }
+                }
+            }
+            if !stop.load(Ordering::SeqCst) {
+                if let Some(callback) = lifecycle {
+                    callback("disconnected".into())
+                }
+            }
+        }));
+        Ok(())
+    }
+    fn close_request_stream(&mut self) -> AxResult<()> {
+        self.listen_stop.store(true, Ordering::SeqCst);
+        let _ = self.listen_thread.take();
+        Ok(())
+    }
     fn close(&mut self) -> AxResult<()> {
         self.listen_stop.store(true, Ordering::SeqCst);
         if let Some(thread) = self.listen_thread.take() {
@@ -3874,7 +4113,10 @@ pub struct AxMCPScriptedTransport {
     pub notifications: Vec<Value>,
     pub sent_responses: Vec<Value>,
     pub request_headers: Vec<Map<String, Value>>,
+    pub request_streams: Vec<Value>,
     protocol_version: Option<String>,
+    era: Option<String>,
+    message_handler: Option<Arc<dyn Fn(Value) + Send + Sync>>,
 }
 
 impl AxMCPScriptedTransport {
@@ -3885,7 +4127,10 @@ impl AxMCPScriptedTransport {
             notifications: Vec::new(),
             sent_responses: Vec::new(),
             request_headers: Vec::new(),
+            request_streams: Vec::new(),
             protocol_version: None,
+            era: None,
+            message_handler: None,
         }
     }
 }
@@ -3934,6 +4179,27 @@ impl AxMCPTransport for AxMCPScriptedTransport {
     fn set_protocol_version(&mut self, protocol_version: &str) {
         self.protocol_version = Some(protocol_version.to_string());
     }
+    fn set_era(&mut self, era: &str) {
+        self.era = Some(era.into())
+    }
+    fn set_message_handler(&mut self, handler: Arc<dyn Fn(Value) + Send + Sync>) {
+        self.message_handler = Some(handler)
+    }
+    fn open_request_stream(&mut self, message: Value) -> AxResult<()> {
+        if self.era.as_deref() != Some("modern") {
+            return Err(AxError::new(
+                "mcp",
+                "Request streams are only available for modern MCP",
+            ));
+        }
+        self.request_streams.push(message.clone());
+        if let Some(handler) = &self.message_handler {
+            handler(
+                json!({"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{"notifications":message.get("params").and_then(|params|params.get("notifications")).cloned().unwrap_or_else(||json!({})),"_meta":{"io.modelcontextprotocol/subscriptionId":message.get("id").cloned().unwrap_or(Value::Null)}}}),
+            )
+        }
+        Ok(())
+    }
     fn sent_notifications(&self) -> Vec<Value> {
         self.notifications.clone()
     }
@@ -3942,6 +4208,9 @@ impl AxMCPTransport for AxMCPScriptedTransport {
     }
     fn sent_request_headers(&self) -> Vec<Map<String, Value>> {
         self.request_headers.clone()
+    }
+    fn sent_request_streams(&self) -> Vec<Value> {
+        self.request_streams.clone()
     }
 }
 
@@ -5309,6 +5578,158 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                             return Err(AxError::new(
                                 "fixture",
                                 "MRTR request retained stale requestState",
+                            ));
+                        }
+                    }
+                    Ok(())
+                }
+                "subscriptions_listen" => {
+                    for item in fixture
+                        .get("semantic_cases")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                    {
+                        let actual = core_mcp(
+                            &crate::mcp_listen_interests,
+                            &[
+                                item.get("subscribed_uris")
+                                    .cloned()
+                                    .unwrap_or_else(|| json!([])),
+                                item.get("filters").cloned().unwrap_or_else(|| json!({})),
+                            ],
+                        )?;
+                        if actual != item.get("expected").cloned().unwrap_or_else(|| json!({})) {
+                            return Err(AxError::new("fixture", "listen interests mismatch"));
+                        }
+                    }
+                    let delivered = Arc::new(Mutex::new(Vec::<Value>::new()));
+                    let captured = delivered.clone();
+                    client.add_notification_listener(move |message| {
+                        captured.lock().unwrap().push(message)
+                    });
+                    client.start_listening()?;
+                    let streams = client.transport.lock().unwrap().sent_request_streams();
+                    if streams.len() != 1 {
+                        return Err(AxError::new(
+                            "fixture",
+                            "initial subscriptions/listen stream missing",
+                        ));
+                    }
+                    let first = streams[0].clone();
+                    expect_subset(
+                        "initial listen interests",
+                        first
+                            .get("params")
+                            .and_then(|params| params.get("notifications"))
+                            .unwrap_or(&Value::Null),
+                        fixture
+                            .get("expected_first_notifications")
+                            .unwrap_or(&Value::Null),
+                    )?;
+                    client.acquire_resource_subscription(
+                        fixture
+                            .get("uri")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                        "fixture",
+                    )?;
+                    let streams = client.transport.lock().unwrap().sent_request_streams();
+                    if streams.len()
+                        != fixture
+                            .get("expected_stream_count")
+                            .and_then(Value::as_u64)
+                            .unwrap_or_default() as usize
+                    {
+                        return Err(AxError::new(
+                            "fixture",
+                            "subscription interest change did not restart request stream",
+                        ));
+                    }
+                    let second = streams.last().cloned().unwrap_or(Value::Null);
+                    if first.get("id") == second.get("id") {
+                        return Err(AxError::new(
+                            "fixture",
+                            "subscriptions/listen restart reused its request id",
+                        ));
+                    }
+                    expect_subset(
+                        "updated listen interests",
+                        second
+                            .get("params")
+                            .and_then(|params| params.get("notifications"))
+                            .unwrap_or(&Value::Null),
+                        fixture
+                            .get("expected_second_notifications")
+                            .unwrap_or(&Value::Null),
+                    )?;
+                    let count_updates = || {
+                        delivered
+                            .lock()
+                            .unwrap()
+                            .iter()
+                            .filter(|item| {
+                                item.get("method").and_then(Value::as_str)
+                                    == Some("notifications/resources/updated")
+                            })
+                            .count()
+                    };
+                    let before = count_updates();
+                    let mut notification = fixture
+                        .get("delivered_notification")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    notification["params"]["_meta"] =
+                        json!({"io.modelcontextprotocol/subscriptionId":"other"});
+                    client
+                        .inbound_messages
+                        .lock()
+                        .unwrap()
+                        .push(notification.clone());
+                    client.drain_inbound();
+                    if count_updates() != before {
+                        return Err(AxError::new(
+                            "fixture",
+                            "cross-subscription notification was delivered",
+                        ));
+                    }
+                    notification["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"] =
+                        second.get("id").cloned().unwrap_or(Value::Null);
+                    client.inbound_messages.lock().unwrap().push(notification);
+                    client.drain_inbound();
+                    if count_updates() != before + 1 {
+                        return Err(AxError::new(
+                            "fixture",
+                            "active subscription notification was not delivered",
+                        ));
+                    }
+                    if delivered
+                        .lock()
+                        .unwrap()
+                        .last()
+                        .and_then(|item| item.get("params"))
+                        .and_then(|params| params.get("_meta"))
+                        .is_some()
+                    {
+                        return Err(AxError::new(
+                            "fixture",
+                            "subscription id leaked to notification consumer",
+                        ));
+                    }
+                    let requests = client.transport.lock().unwrap().sent_requests();
+                    for forbidden in fixture
+                        .get("expected_forbidden_methods")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                    {
+                        if requests
+                            .iter()
+                            .any(|request| request.get("method") == Some(&forbidden))
+                        {
+                            return Err(AxError::new(
+                                "fixture",
+                                "modern subscription emitted legacy method",
                             ));
                         }
                     }

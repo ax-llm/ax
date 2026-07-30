@@ -4,6 +4,8 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -135,6 +137,25 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     listenThread.setDaemon(true);
     listenThread.start();
   }
+
+  public synchronized void openRequestStream(Map<String,Object> message){
+    if(!"modern".equals(era))throw new AxMCPError("Request streams are only available for modern MCP");
+    closeRequestStream();listenStop.set(false);Map<String,Object> request=new LinkedHashMap<>(message);
+    listenThread=new Thread(()->requestStreamOnce(request),"ax-mcp-request-stream");listenThread.setDaemon(true);listenThread.start();
+  }
+
+  private void requestStreamOnce(Map<String,Object> message){
+    try{
+      HttpURLConnection connection=(HttpURLConnection)new URL(endpoint).openConnection();connection.setRequestMethod("POST");connection.setDoOutput(true);
+      String method=String.valueOf(message.getOrDefault("method",""));for(Map.Entry<String,String> entry:buildHeaders(Map.of("Content-Type","application/json","Accept","text/event-stream"),true,method,Core.asMap(message.get("params")),Map.of()).entrySet())connection.setRequestProperty(entry.getKey(),entry.getValue());
+      byte[] body=Json.stringify(message).getBytes(java.nio.charset.StandardCharsets.UTF_8);connection.setFixedLengthStreamingMode(body.length);connection.connect();try(java.io.OutputStream output=connection.getOutputStream()){output.write(body);}
+      if(connection.getResponseCode()<200||connection.getResponseCode()>=300)throw new AxMCPError("HTTP listen error "+connection.getResponseCode());listenBody=connection.getInputStream();consumeRequestSse(listenBody);listenBody.close();connection.disconnect();
+    }catch(Exception ignored){}finally{listenBody=null;if(!listenStop.get()&&lifecycleHandler!=null)new Thread(()->lifecycleHandler.accept("disconnected"),"ax-mcp-listen-lifecycle").start();}
+  }
+
+  private void consumeRequestSse(InputStream body)throws Exception{BufferedReader reader=new BufferedReader(new InputStreamReader(body,java.nio.charset.StandardCharsets.UTF_8));List<String> data=new ArrayList<>();String line;while(!listenStop.get()&&(line=reader.readLine())!=null){if(line.isEmpty()){if(!data.isEmpty()&&handler!=null)handler.accept(Core.asMap(Json.parse(String.join("\n",data))));data.clear();}else if(line.startsWith("data:"))data.add(line.substring(5).stripLeading());}}
+
+  public synchronized void closeRequestStream(){listenStop.set(true);InputStream body=listenBody;if(body!=null)try{body.close();}catch(Exception ignored){}Thread thread=listenThread;if(thread!=null&&thread!=Thread.currentThread()){thread.interrupt();try{thread.join(2000);}catch(InterruptedException ignored){Thread.currentThread().interrupt();}}listenThread=null;listenBody=null;}
 
   private void listenLoop() {
     boolean connectedOnce = false;

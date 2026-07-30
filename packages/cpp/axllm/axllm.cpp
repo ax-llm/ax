@@ -23734,6 +23734,115 @@ Value Core::mcp_resource_subscription_ownership(Value owners, Value owner, Value
   return out;
 }
 
+Value Core::mcp_listen_interests(Value subscribed_uris, Value filters) {
+  axir_coverage_mark("mcp_listen_interests");
+  Value out = Value::object();
+  Value filters_object = Core::type_is(filters, Value("object"));
+  if (Core::truthy(filters_object)) {
+    out = Core::map_merge(out, filters);
+  }
+  Value subscriptions = Value::array();
+  for (auto uri : Core::iter(subscribed_uris)) {
+    Value uri_string = Core::type_is(uri, Value("string"));
+    if (Core::truthy(uri_string)) {
+      Value empty = Core::eq(uri, Value(""));
+      Value duplicate = Core::contains(subscriptions, uri);
+      Value skip = Core::or_(empty, duplicate);
+      if (Core::truthy(skip)) {
+        // empty
+      }
+      if (!Core::truthy(skip)) {
+        Core::append(subscriptions, uri);
+      }
+    }
+  }
+  Value count = Core::len(subscriptions);
+  Value has_subscriptions = Core::gt(count, Value(0));
+  if (Core::truthy(has_subscriptions)) {
+    Core::set(out, Value("resourceSubscriptions"), subscriptions);
+  }
+  if (!Core::truthy(has_subscriptions)) {
+    Core::map_delete(out, Value("resourceSubscriptions"));
+  }
+  return out;
+}
+
+Value Core::mcp_notification_subscription_filter(Value message, Value active_subscription_id) {
+  axir_coverage_mark("mcp_notification_subscription_filter");
+  Value out = Value::object();
+  Core::set(out, Value("deliver"), Value(true));
+  Core::set(out, Value("acknowledged"), Value(false));
+  Value none = Core::none();
+  Core::set(out, Value("subscriptionId"), none);
+  Value message_text = Core::json_stringify(message);
+  Value clean_message = Core::json_parse(message_text);
+  Value message_object = Core::type_is(clean_message, Value("object"));
+  if (Core::truthy(message_object)) {
+    Value params = Core::get(clean_message, Value("params"), Value());
+    Value params_object = Core::type_is(params, Value("object"));
+    if (Core::truthy(params_object)) {
+      Value meta = Core::get(params, Value("_meta"), Value());
+      Value meta_object = Core::type_is(meta, Value("object"));
+      if (Core::truthy(meta_object)) {
+        Value subscription_id = Core::get(meta, Value("io.modelcontextprotocol/subscriptionId"), Value());
+        Value subscription_string = Core::type_is(subscription_id, Value("string"));
+        if (Core::truthy(subscription_string)) {
+          Core::set(out, Value("subscriptionId"), subscription_id);
+          Value active_missing = Core::is_none(active_subscription_id);
+          if (Core::truthy(active_missing)) {
+            // empty
+          }
+          if (!Core::truthy(active_missing)) {
+            Value same_subscription = Core::eq(subscription_id, active_subscription_id);
+            if (Core::truthy(same_subscription)) {
+              // empty
+            }
+            if (!Core::truthy(same_subscription)) {
+              Core::set(out, Value("deliver"), Value(false));
+            }
+          }
+        }
+        Core::map_delete(meta, Value("io.modelcontextprotocol/subscriptionId"));
+        Value meta_keys = Core::map_keys(meta);
+        Value meta_count = Core::len(meta_keys);
+        Value meta_empty = Core::eq(meta_count, Value(0));
+        if (Core::truthy(meta_empty)) {
+          Core::map_delete(params, Value("_meta"));
+        }
+      }
+    }
+    Value method = Core::get(clean_message, Value("method"), Value(""));
+    Value is_ack = Core::eq(method, Value("notifications/subscriptions/acknowledged"));
+    Value delivered = Core::get(out, Value("deliver"), Value(false));
+    Value ack_deliver = Core::and_(is_ack, delivered);
+    if (Core::truthy(ack_deliver)) {
+      params = Core::get(clean_message, Value("params"), Value());
+      params_object = Core::type_is(params, Value("object"));
+      if (Core::truthy(params_object)) {
+        Value notifications = Core::get(params, Value("notifications"), Value());
+        Value notifications_object = Core::type_is(notifications, Value("object"));
+        if (Core::truthy(notifications_object)) {
+          Value received = Core::get(out, Value("subscriptionId"), Value());
+          Value received_string = Core::type_is(received, Value("string"));
+          Value active_missing = Core::is_none(active_subscription_id);
+          Value matches_active = Value(false);
+          if (Core::truthy(active_missing)) {
+            matches_active = received_string;
+          }
+          if (!Core::truthy(active_missing)) {
+            matches_active = Core::eq(received, active_subscription_id);
+          }
+          if (Core::truthy(matches_active)) {
+            Core::set(out, Value("acknowledged"), Value(true));
+          }
+        }
+      }
+    }
+  }
+  Core::set(out, Value("message"), clean_message);
+  return out;
+}
+
 // END AXIR CORE EMITTED FUNCTIONS
 
 Value parse_json(const std::string& source) {

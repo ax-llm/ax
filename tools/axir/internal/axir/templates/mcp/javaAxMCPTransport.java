@@ -15,5 +15,7 @@ public interface AxMCPTransport {
   default String eraCacheKey() { return null; }
   default void connect() {}
   default void startListening() {}
+  default void openRequestStream(Map<String, Object> message) { throw new AxMCPError("Request streams are only available for modern MCP"); }
+  default void closeRequestStream() {}
   default void close() {}
 }

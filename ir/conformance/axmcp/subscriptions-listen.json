@@ -1,0 +1,73 @@
+{
+  "name": "modern MCP subscriptions/listen interests and filtering",
+  "kind": "mcp",
+  "operation": "subscriptions_listen",
+  "client_options": {
+    "era": "modern",
+    "subscriptionFilters": {
+      "toolsListChanged": true,
+      "resourcesListChanged": true
+    }
+  },
+  "responses": [
+    {
+      "method": "server/discover",
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {
+          "tools": { "listChanged": true },
+          "resources": { "listChanged": true, "subscribe": true }
+        },
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "tools/list",
+      "result": { "tools": [], "ttlMs": 60000, "cacheScope": "private" }
+    },
+    {
+      "method": "resources/list",
+      "result": { "resources": [], "ttlMs": 60000, "cacheScope": "private" }
+    },
+    {
+      "method": "resources/templates/list",
+      "result": {
+        "resourceTemplates": [],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    }
+  ],
+  "semantic_cases": [
+    {
+      "subscribed_uris": ["demo://b", "demo://a", "demo://b", ""],
+      "filters": {
+        "toolsListChanged": true,
+        "resourceSubscriptions": ["stale"]
+      },
+      "expected": {
+        "toolsListChanged": true,
+        "resourceSubscriptions": ["demo://b", "demo://a"]
+      }
+    }
+  ],
+  "uri": "demo://resource",
+  "expected_stream_count": 2,
+  "expected_first_notifications": {
+    "toolsListChanged": true,
+    "resourcesListChanged": true
+  },
+  "expected_second_notifications": {
+    "toolsListChanged": true,
+    "resourcesListChanged": true,
+    "resourceSubscriptions": ["demo://resource"]
+  },
+  "delivered_notification": {
+    "jsonrpc": "2.0",
+    "method": "notifications/resources/updated",
+    "params": { "uri": "demo://resource" }
+  },
+  "expected_forbidden_methods": ["resources/subscribe", "resources/unsubscribe"]
+}
