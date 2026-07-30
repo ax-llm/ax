@@ -310,49 +310,112 @@
         "sourcePath": "src/examples/java/mcp/NativeMCPToolsExample.java",
         "code": [
           "AxMCPClient mcp = new AxMCPClient(new AxMCPStreamableHTTPTransport(endpoint), Map.of(\"namespace\", \"inventory\"));",
-          "      AxMCPClient.CatalogSnapshot catalog = mcp.inspectCatalog();",
           "AxGen program = new AxGen(Ax.s(\"request:string -> answer:string\"), Map.of(\"mcp\", mcp));",
-          "      mcp.close();"
+          "OpenAICompatibleClient llm = new OpenAICompatibleClient(Map.of(",
+          "    \"api_key\", key, \"model\", \"gpt-5.4-mini\"));",
+          "try {",
+          "  AxMCPClient.CatalogSnapshot catalog = mcp.inspectCatalog();",
+          "  System.out.println(Json.stringify(Map.of(",
+          "      \"tools\", catalog.tools().stream().map(tool -> tool.get(\"name\")).toList(),",
+          "      \"resources\", catalog.resources(),",
+          "      \"resourceTemplates\", catalog.resourceTemplates())));",
+          "  System.out.println(Json.stringify(program.forward(",
+          "      llm, Map.of(\"request\", \"Reindex inventory.\"))));",
+          "} finally {",
+          "  mcp.close();",
+          "}"
         ]
       },
       "resourceWake": {
-        "sourcePath": "src/examples/java/mcp/ResourceWakeAgentExample.java",
         "code": [
-          "AxMCPEventSource source=new AxMCPEventSource(client,\"inventory\",\"tenant:demo\",\"authenticated\",AxMCPEventSource.all());",
-          "runtime.start();",
-          "if(!completed.await(60,TimeUnit.SECONDS))throw new IllegalStateException(\"Timed out waiting for an MCP resource notification\");"
+          "AxMCPEventSource source = new AxMCPEventSource(",
+          "    client, \"inventory\", \"tenant:demo\", \"authenticated\",",
+          "    AxMCPEventSource.all());",
+          "AxEventRuntime.Target target = new AxEventRuntime.Target(",
+          "    \"inventory-agent\", (input, context) -> agent.forward(",
+          "        llm, castMap(input), Map.of(\"runtime\", js)))",
+          "    .mapInput((event, continuation) -> Map.of(",
+          "        \"uri\", castMap(event.data()).get(\"uri\")))",
+          "    .retrySafety(\"idempotent\");",
+          "AxEventRuntime runtime = new AxEventRuntime(List.of(",
+          "    new AxEventRoute(\"resource-wake\", \"wake\",",
+          "        Map.of(\"types\", List.of(\"mcp.resource.updated\")),",
+          "        \"inventory-agent\", true, \"strict\", 0)))",
+          "    .registerTarget(target)",
+          "    .addSource(source);",
+          "runtime.start();"
         ]
       },
       "taskResume": {
-        "sourcePath": "src/examples/java/mcp/TaskResumeFlowExample.java",
         "code": [
           "client.init();",
-          "String taskId=String.valueOf(castMap(client.callTool(\"start_reindex\",Map.of(\"scope\",\"all\")).get(\"task\")).get(\"taskId\"));",
-          "source.start(event->runtime.publish(event,source.identityScope(),source.trust()));"
+          "String taskId = String.valueOf(castMap(",
+          "    client.callTool(\"start_reindex\", Map.of(\"scope\", \"all\"))",
+          "        .get(\"task\")).get(\"taskId\"));",
+          "AxEventRuntime.Target target = new AxEventRuntime.Target(",
+          "    \"reindex-flow\", invokeFlow)",
+          "    .mapInput((event, continuation) -> Map.of(\"taskId\",",
+          "        continuation == null ? castMap(event.data()).get(\"taskId\")",
+          "            : continuation.metadata.get(\"taskId\")))",
+          "    .waitFor(\"mcp.task\", \"taskKey\", Map.of(\"taskId\", taskId));",
+          "runtime.registerTarget(target);",
+          "runtime.start();",
+          "source.start(event -> runtime.publish(",
+          "    event, source.identityScope(), source.trust()));"
         ]
       }
     },
     "event": {
       "wake": {
-        "sourcePath": "src/examples/java/mcp/ResourceWakeAgentExample.java",
         "code": [
-          "runtime.start();",
-          "if(!completed.await(60,TimeUnit.SECONDS))throw new IllegalStateException(\"Timed out waiting for an MCP resource notification\");"
+          "AxMCPEventSource source = new AxMCPEventSource(",
+          "    client, \"inventory\", \"tenant:demo\", \"authenticated\",",
+          "    AxMCPEventSource.all());",
+          "AxEventRuntime.Target target = new AxEventRuntime.Target(",
+          "    \"inventory-agent\", invokeAgent)",
+          "    .mapInput((event, continuation) -> Map.of(",
+          "        \"uri\", castMap(event.data()).get(\"uri\")));",
+          "AxEventRuntime runtime = new AxEventRuntime(List.of(",
+          "    new AxEventRoute(\"resource-wake\", \"wake\",",
+          "        Map.of(\"types\", List.of(\"mcp.resource.updated\")),",
+          "        \"inventory-agent\", true, \"strict\", 0)))",
+          "    .registerTarget(target)",
+          "    .addSource(source);",
+          "runtime.start();"
         ]
       },
       "resume": {
-        "sourcePath": "src/examples/java/mcp/TaskResumeFlowExample.java",
         "code": [
-          "runtime.start();",
-          "runtime.publish(new AxEventEnvelope(\"task-start\",\"app://tasks\",\"app.task.started\",Map.of(\"taskId\",taskId,\"taskKey\",\"inventory:\"+taskId)),\"tenant:demo\",\"authenticated\");",
-          "source.start(event->runtime.publish(event,source.identityScope(),source.trust()));"
+          "AxEventRuntime.Target target = new AxEventRuntime.Target(",
+          "    \"reindex-flow\", invokeFlow)",
+          "    .mapInput((event, continuation) -> Map.of(\"taskId\",",
+          "        continuation == null ? castMap(event.data()).get(\"taskId\")",
+          "            : continuation.metadata.get(\"taskId\")))",
+          "    .waitFor(\"mcp.task\", \"taskKey\", Map.of(\"taskId\", taskId));",
+          "AxEventRuntime runtime = new AxEventRuntime(List.of(",
+          "    new AxEventRoute(\"task-start\", \"wake\",",
+          "        Map.of(\"types\", List.of(\"app.task.started\")),",
+          "        \"reindex-flow\", false, \"strict\", 0),",
+          "    new AxEventRoute(\"task-resume\", \"resume\",",
+          "        Map.of(\"types\", List.of(\"mcp.task.status\")),",
+          "        \"reindex-flow\", false, \"strict\", 0)))",
+          "    .registerTarget(target);",
+          "runtime.start();"
         ]
       },
       "ucp": {
-        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
         "code": [
-          "  const receipt = await source.ingest(request);",
-          "  if (!receipt.accepted) return new Response(null, { status: 503 });"
+          "Response handleUCPWebhook(Request request) {",
+          "  // Verify signer profile, RFC 9421 signature, digest, freshness,",
+          "  // key rotation, and replay state before publishing.",
+          "  VerifiedOrder order = verifyUCPRequest(request);",
+          "  String identity = lookupBuyerIdentity(order.checkoutId());",
+          "  runtime.publish(",
+          "      new AxEventEnvelope(order.id(), \"ucp://orders\",",
+          "          \"ucp.order.fulfilled\", order.data()),",
+          "      identity, \"authenticated\");",
+          "  return new Response(202);",
+          "}"
         ]
       }
     }

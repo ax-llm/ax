@@ -317,49 +317,122 @@
       "native": {
         "sourcePath": "src/examples/cpp/mcp/native_mcp_tools.cpp",
         "code": [
+          "auto transport = std::make_shared<axllm::AxMCPStreamableHTTPTransport>(endpoint);",
           "auto mcp = std::make_shared<axllm::AxMCPClient>(transport, axllm::object({{\"namespace\", \"inventory\"}}));",
-          "  auto catalog = mcp->inspect_catalog();",
           "axllm::AxExecutionContext context({mcp});",
+          "auto program = axllm::ax(\"request:string -> answer:string\");",
           "context.attach(program);",
-          "  mcp->close();"
+          "axllm::OpenAICompatibleClient llm(axllm::object({",
+          "  {\"api_key\", key}, {\"model\", \"gpt-5.4-mini\"},",
+          "}));",
+          "auto catalog = mcp->inspect_catalog();",
+          "std::cout << \"MCP catalog: \" << axllm::Core::iter(catalog.tools).size()",
+          "          << \" tools, \" << axllm::Core::iter(catalog.resources).size()",
+          "          << \" resources\\n\";",
+          "std::cout << axllm::stringify(program.forward(",
+          "  llm, axllm::object({{\"request\", \"Reindex inventory.\"}})",
+          ")) << \"\\n\";",
+          "mcp->close();"
         ]
       },
       "resourceWake": {
-        "sourcePath": "src/examples/cpp/mcp/resource_wake_agent.cpp",
         "code": [
-          "auto source=std::make_shared<axllm::AxMCPEventSource>(client,\"inventory\",\"tenant:demo\",\"authenticated\",axllm::AxMCPResourceSubscriptionPolicy::all());",
-          "runtime.register_target(std::move(target)).add_source(source).start();",
-          "if(!changed.wait_for(lock,std::chrono::seconds(60),[&]{return complete;}))throw std::runtime_error(\"Timed out waiting for an MCP resource notification\");"
+          "auto source = std::make_shared<axllm::AxMCPEventSource>(",
+          "  client, \"inventory\", \"tenant:demo\", \"authenticated\",",
+          "  axllm::AxMCPResourceSubscriptionPolicy::all());",
+          "axllm::AxEventTarget target;",
+          "target.id = \"inventory-agent\";",
+          "target.retrySafety = \"idempotent\";",
+          "target.mapInput = [](const axllm::AxEventEnvelope& event,",
+          "                     const axllm::AxEventContinuation*) {",
+          "  return axllm::object({{\"uri\", axllm::Core::get(event.data, \"uri\")}});",
+          "};",
+          "target.invoke = invoke_agent;",
+          "axllm::AxEventRuntime runtime({axllm::AxEventRoute{",
+          "  \"resource-wake\", \"wake\",",
+          "  axllm::object({{\"types\", axllm::array({\"mcp.resource.updated\"})}}),",
+          "  \"inventory-agent\", true,",
+          "}});",
+          "runtime.register_target(std::move(target)).add_source(source).start();"
         ]
       },
       "taskResume": {
-        "sourcePath": "src/examples/cpp/mcp/task_resume_flow.cpp",
         "code": [
-          "auto result=client->call_tool(\"start_reindex\",axllm::object({{\"scope\",\"all\"}}));",
-          "source->start_scoped([&](axllm::AxEventEnvelope inbound,std::string scope,std::string trust){runtime.publish(inbound,scope,trust);});"
+          "auto result = client->call_tool(",
+          "  \"start_reindex\", axllm::object({{\"scope\", \"all\"}}));",
+          "auto task_id = axllm::display(axllm::Core::get(",
+          "  axllm::Core::get(result, \"task\", axllm::Value::object()),",
+          "  \"taskId\", \"\"));",
+          "target.waitFor = axllm::array({axllm::object({",
+          "  {\"kind\", \"mcp.task\"}, {\"value\", \"taskKey\"},",
+          "  {\"metadata\", axllm::object({{\"taskId\", task_id}})},",
+          "})});",
+          "runtime.register_target(std::move(target)).start();",
+          "runtime.publish(start_event, \"tenant:demo\", \"authenticated\");",
+          "source->start_scoped([&](axllm::AxEventEnvelope event,",
+          "                            std::string scope, std::string trust) {",
+          "  runtime.publish(event, scope, trust);",
+          "});"
         ]
       }
     },
     "event": {
       "wake": {
-        "sourcePath": "src/examples/cpp/mcp/resource_wake_agent.cpp",
         "code": [
-          "runtime.register_target(std::move(target)).add_source(source).start();",
-          "if(!changed.wait_for(lock,std::chrono::seconds(60),[&]{return complete;}))throw std::runtime_error(\"Timed out waiting for an MCP resource notification\");"
+          "auto source = std::make_shared<axllm::AxMCPEventSource>(",
+          "  client, \"inventory\", \"tenant:demo\", \"authenticated\",",
+          "  axllm::AxMCPResourceSubscriptionPolicy::all());",
+          "axllm::AxEventTarget target;",
+          "target.id = \"inventory-agent\";",
+          "target.mapInput = [](const axllm::AxEventEnvelope& event,",
+          "                     const axllm::AxEventContinuation*) {",
+          "  return axllm::object({{\"uri\", axllm::Core::get(event.data, \"uri\")}});",
+          "};",
+          "target.invoke = invoke_agent;",
+          "axllm::AxEventRuntime runtime({axllm::AxEventRoute{",
+          "  \"resource-wake\", \"wake\",",
+          "  axllm::object({{\"types\", axllm::array({\"mcp.resource.updated\"})}}),",
+          "  \"inventory-agent\", true,",
+          "}});",
+          "runtime.register_target(std::move(target)).add_source(source).start();"
         ]
       },
       "resume": {
-        "sourcePath": "src/examples/cpp/mcp/task_resume_flow.cpp",
         "code": [
-          "runtime.publish(event,\"tenant:demo\",\"authenticated\");",
-          "source->start_scoped([&](axllm::AxEventEnvelope inbound,std::string scope,std::string trust){runtime.publish(inbound,scope,trust);});"
+          "axllm::AxEventTarget target;",
+          "target.id = \"reindex-flow\";",
+          "target.waitFor = axllm::array({axllm::object({",
+          "  {\"kind\", \"mcp.task\"}, {\"value\", \"taskKey\"},",
+          "  {\"metadata\", axllm::object({{\"taskId\", task_id}})},",
+          "})});",
+          "target.mapInput = [](const axllm::AxEventEnvelope& event,",
+          "                     const axllm::AxEventContinuation* continuation) {",
+          "  return axllm::object({{\"taskId\", continuation",
+          "    ? axllm::Core::get(continuation->metadata, \"taskId\")",
+          "    : axllm::Core::get(event.data, \"taskId\")}});",
+          "};",
+          "target.invoke = invoke_flow;",
+          "axllm::AxEventRuntime runtime({",
+          "  axllm::AxEventRoute{\"task-start\", \"wake\", start_match, \"reindex-flow\"},",
+          "  axllm::AxEventRoute{\"task-resume\", \"resume\", resume_match, \"reindex-flow\"},",
+          "});",
+          "runtime.register_target(std::move(target)).start();"
         ]
       },
       "ucp": {
-        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
         "code": [
-          "  const receipt = await source.ingest(request);",
-          "  if (!receipt.accepted) return new Response(null, { status: 503 });"
+          "void handle_ucp_webhook(const HttpRequest& request) {",
+          "  // Verify signer profile, RFC 9421 signature, digest, freshness,",
+          "  // key rotation, and replay state before publishing.",
+          "  auto order = verify_ucp_request(request);",
+          "  auto identity = lookup_buyer_identity(order.checkout_id);",
+          "  axllm::AxEventEnvelope event;",
+          "  event.id = order.id;",
+          "  event.source = \"ucp://orders\";",
+          "  event.type = \"ucp.order.fulfilled\";",
+          "  event.data = order.data;",
+          "  runtime.publish(event, identity, \"authenticated\");",
+          "}"
         ]
       }
     }

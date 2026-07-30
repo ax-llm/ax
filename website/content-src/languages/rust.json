@@ -308,45 +308,129 @@
       "native": {
         "sourcePath": "src/examples/rust/mcp/native_mcp_tools.rs",
         "code": [
+          "let transport = AxMCPStreamableHTTPTransport::new(endpoint, json!({}))?;",
+          "let mcp = Arc::new(Mutex::new(AxMCPClient::new(",
+          "    Box::new(transport),",
+          "    json!({\"namespace\":\"inventory\"}),",
+          ")));",
           "let context = AxExecutionContext::new(vec![mcp.clone()], vec![])?;",
-          "    let catalog = mcp.lock().unwrap().inspect_catalog(false)?;",
+          "let catalog = mcp.lock().unwrap().inspect_catalog(false)?;",
+          "println!(\"MCP catalog: {} tools, {} resources, {} templates\",",
+          "    catalog.tools.len(), catalog.resources.len(),",
+          "    catalog.resource_templates.len());",
           "let mut program = ax(\"request:string -> answer:string\")?.with_execution_context(context)?;",
+          "let mut llm = OpenAICompatibleClient::new(key, \"gpt-5.4-mini\");",
+          "println!(\"{}\", program.forward(",
+          "    &mut llm, json!({\"request\":\"Reindex inventory.\"}),",
+          ")?);",
           "mcp.lock().unwrap().close()?;"
         ]
       },
       "resourceWake": {
-        "sourcePath": "src/examples/rust/mcp/resource_wake_agent.rs",
         "code": [
-          "let transport = AxMCPStreamableHTTPTransport::new(",
-          "    let mut source = AxMCPEventSource::with_policy(",
-          "        AxMCPResourceSubscriptionPolicy::All,",
+          "let route = AxEventRoute {",
+          "    id: \"resource-wake\".into(),",
+          "    action: \"wake\".into(),",
+          "    r#match: json!({\"types\":[\"mcp.resource.updated\"]}),",
+          "    target_id: Some(\"inventory-agent\".into()),",
+          "    require_authenticated: true,",
+          "    ordering: \"strict\".into(), debounce_ms: 0, instance_key: None,",
+          "};",
+          "let mut runtime = AxEventRuntime::new(vec![route], json!({}))?;",
+          "runtime.register_target(target);",
+          "runtime.start()?;",
+          "let runtime = Arc::new(Mutex::new(runtime));",
+          "let mut source = AxMCPEventSource::with_policy(",
+          "    client.clone(), runtime.clone(), \"inventory\",",
+          "    \"tenant:demo\", \"authenticated\",",
+          "    AxMCPResourceSubscriptionPolicy::All,",
+          ");",
           "source.start()?;",
-          "source.poll();"
+          "source.poll(); // Drain protocol callbacks on the host thread."
         ]
       },
       "taskResume": {
-        "sourcePath": "src/examples/rust/mcp/task_resume_flow.rs",
         "code": [
-          ".call_tool(\"start_reindex\", json!({\"scope\":\"all\"}))?;",
+          "let task = client.lock().unwrap()",
+          "    .call_tool(\"start_reindex\", json!({\"scope\":\"all\"}))?;",
+          "let task_id = task[\"task\"][\"taskId\"].as_str().unwrap().to_string();",
+          "target.wait_for = vec![json!({",
+          "    \"kind\":\"mcp.task\", \"value\":\"taskKey\",",
+          "    \"metadata\":{\"taskId\":task_id},",
+          "})];",
+          "runtime.register_target(target);",
+          "runtime.start()?;",
+          "runtime.publish(start_event, \"tenant:demo\", \"authenticated\")?;",
+          "let runtime = Arc::new(Mutex::new(runtime));",
+          "let mut source = AxMCPEventSource::new(",
+          "    client.clone(), runtime.clone(), \"inventory\",",
+          "    \"tenant:demo\", \"authenticated\", vec![],",
+          ");",
           "source.start()?;",
-          "source.poll();"
+          "source.poll(); // Terminal task status resumes the owner."
         ]
       }
     },
     "event": {
       "wake": {
-        "sourcePath": "src/examples/rust/mcp/resource_wake_agent.rs",
-        "code": ["source.start()?;", "source.poll();", "source.close()?;"]
+        "code": [
+          "let mut target = AxEventTarget::new(\"inventory-agent\", invoke_agent);",
+          "target.map_input = Some(Arc::new(|event, _|",
+          "    Ok(json!({\"uri\": event.data[\"uri\"]}))",
+          "));",
+          "let route = AxEventRoute {",
+          "    id: \"resource-wake\".into(), action: \"wake\".into(),",
+          "    r#match: json!({\"types\":[\"mcp.resource.updated\"]}),",
+          "    target_id: Some(\"inventory-agent\".into()),",
+          "    require_authenticated: true, ordering: \"strict\".into(),",
+          "    debounce_ms: 0, instance_key: None,",
+          "};",
+          "let mut runtime = AxEventRuntime::new(vec![route], json!({}))?;",
+          "runtime.register_target(target);",
+          "runtime.start()?;"
+        ]
       },
       "resume": {
-        "sourcePath": "src/examples/rust/mcp/task_resume_flow.rs",
-        "code": ["source.start()?;", "source.poll();", "source.close()?;"]
+        "code": [
+          "let mut target = AxEventTarget::new(\"reindex-flow\", invoke_flow);",
+          "target.wait_for = vec![json!({",
+          "    \"kind\":\"mcp.task\", \"value\":\"taskKey\",",
+          "    \"metadata\":{\"taskId\":task_id},",
+          "})];",
+          "target.map_input = Some(Arc::new(|event, continuation| Ok(json!({",
+          "    \"taskId\": continuation",
+          "        .map(|value| value.metadata[\"taskId\"].clone())",
+          "        .unwrap_or_else(|| event.data[\"taskId\"].clone()),",
+          "}))));",
+          "let routes = vec![",
+          "    route(\"task-start\", \"wake\", \"app.task.started\", \"reindex-flow\"),",
+          "    route(\"task-resume\", \"resume\", \"mcp.task.status\", \"reindex-flow\"),",
+          "];",
+          "let mut runtime = AxEventRuntime::new(routes, json!({}))?;",
+          "runtime.register_target(target);",
+          "runtime.start()?;"
+        ]
       },
       "ucp": {
-        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
         "code": [
-          "  const receipt = await source.ingest(request);",
-          "  if (!receipt.accepted) return new Response(null, { status: 503 });"
+          "fn handle_ucp_webhook(request: Request) -> AxResult<()> {",
+          "    // Verify signer profile, RFC 9421 signature, digest, freshness,",
+          "    // key rotation, and replay state before publishing.",
+          "    let order = verify_ucp_request(request)?;",
+          "    let identity = lookup_buyer_identity(&order.checkout_id)?;",
+          "    runtime.lock().unwrap().publish(",
+          "        AxEventEnvelope {",
+          "            specversion: \"1.0\".into(),",
+          "            id: order.id, source: \"ucp://orders\".into(),",
+          "            r#type: \"ucp.order.fulfilled\".into(),",
+          "            subject: Some(order.checkout_id),",
+          "            data: order.data,",
+          "            extensions: serde_json::Map::new(), correlation: vec![],",
+          "        },",
+          "        &identity, \"authenticated\",",
+          "    )?;",
+          "    Ok(())",
+          "}"
         ]
       }
     }

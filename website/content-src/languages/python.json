@@ -345,27 +345,69 @@
         "sourcePath": "src/examples/python/mcp/native-mcp-tools.py",
         "code": [
           "mcp = AxMCPClient(AxMCPStreamableHTTPTransport(endpoint), {\"namespace\": \"inventory\"})",
-          "    catalog = mcp.inspect_catalog()",
+          "llm = OpenAICompatibleClient(api_key=api_key, model=\"gpt-5.4-mini\")",
+          "program = ax(",
+          "    'request:string -> answer:string \"Use the inventory MCP tool.\"',",
           "    {\"mcp\": mcp},",
+          ")",
+          "try:",
+          "    catalog = mcp.inspect_catalog()",
+          "    print({",
+          "        \"tools\": [tool[\"name\"] for tool in catalog[\"tools\"]],",
+          "        \"resources\": catalog[\"resources\"],",
+          "        \"resourceTemplates\": catalog[\"resourceTemplates\"],",
+          "    })",
+          "    print(program.forward(llm, {\"request\": \"Reindex inventory.\"}))",
+          "finally:",
           "    mcp.close()"
         ]
       },
       "resourceWake": {
         "sourcePath": "src/examples/python/mcp/resource-wake-agent.py",
         "code": [
-          "transport = AxMCPStreamableHTTPTransport(",
           "source = AxMCPEventSource(",
+          "    client,",
+          "    \"inventory\",",
+          "    identity_scope=\"tenant:demo\",",
+          "    trust=\"authenticated\",",
           "    resource_subscriptions=\"all\",",
-          "runtime.start()",
-          "if not completed.wait(60):"
+          ")",
+          "target = AxEventTarget(",
+          "    \"inventory-agent\",",
+          "    invoke,",
+          "    mapInput=lambda event, _: {\"uri\": event.data[\"uri\"]},",
+          "    retrySafety=\"idempotent\",",
+          ")",
+          "runtime = AxEventRuntime(",
+          "    [AxEventRoute(\"resource-wake\", \"wake\",",
+          "        {\"types\": [\"mcp.resource.updated\"]},",
+          "        \"inventory-agent\", True)],",
+          "    {\"targets\": [target], \"sources\": [source]},",
+          ")",
+          "runtime.start()"
         ]
       },
       "taskResume": {
-        "sourcePath": "src/examples/python/mcp/task-resume-flow.py",
         "code": [
+          "target = AxEventTarget(",
+          "    \"reindex-flow\", invoke,",
+          "    mapInput=lambda event, continuation: {",
+          "        \"taskId\": continuation.metadata[\"taskId\"]",
+          "        if continuation else event.data[\"taskId\"]",
+          "    },",
+          "    waitFor=[{\"kind\": \"mcp.task\", \"value\": \"taskKey\", \"metadata\": {}}],",
+          ")",
+          "runtime = AxEventRuntime([",
+          "    AxEventRoute(\"task-start\", \"wake\",",
+          "        {\"types\": [\"app.task.started\"]}, \"reindex-flow\"),",
+          "    AxEventRoute(\"task-progress\", \"observe\",",
+          "        {\"types\": [\"mcp.progress\"]}),",
+          "    AxEventRoute(\"task-resume\", \"resume\",",
+          "        {\"types\": [\"mcp.task.status\"]}, \"reindex-flow\"),",
+          "], {\"targets\": [target], \"sources\": [started, mcp]})",
+          "runtime.start()",
           "task_id = client.call_tool(\"start_reindex\", {\"scope\": \"all\"})[\"task\"][\"taskId\"]",
-          "started.publish(",
-          "if not completed.wait(60):"
+          "target.waitFor[0][\"metadata\"] = {\"taskId\": task_id}"
         ]
       }
     },
@@ -373,24 +415,64 @@
       "wake": {
         "sourcePath": "src/examples/python/mcp/resource-wake-agent.py",
         "code": [
-          "runtime.start()",
-          "if not completed.wait(60):",
-          "runtime.close()"
+          "source = AxMCPEventSource(",
+          "    client, \"inventory\",",
+          "    identity_scope=\"tenant:demo\",",
+          "    trust=\"authenticated\",",
+          "    resource_subscriptions=\"all\",",
+          ")",
+          "target = AxEventTarget(",
+          "    \"inventory-agent\", invoke,",
+          "    mapInput=lambda event, _: {\"uri\": event.data[\"uri\"]},",
+          ")",
+          "runtime = AxEventRuntime(",
+          "    [AxEventRoute(\"resource-wake\", \"wake\",",
+          "        {\"types\": [\"mcp.resource.updated\"]},",
+          "        \"inventory-agent\", True)],",
+          "    {\"targets\": [target], \"sources\": [source]},",
+          ")",
+          "runtime.start()"
         ]
       },
       "resume": {
-        "sourcePath": "src/examples/python/mcp/task-resume-flow.py",
         "code": [
-          "runtime.start()",
-          "started.publish(",
-          "if not completed.wait(60):"
+          "target = AxEventTarget(",
+          "    \"reindex-flow\", invoke,",
+          "    mapInput=lambda event, continuation: {",
+          "        \"taskId\": continuation.metadata[\"taskId\"]",
+          "        if continuation else event.data[\"taskId\"]",
+          "    },",
+          "    waitFor=[{",
+          "        \"kind\": \"mcp.task\", \"value\": \"taskKey\",",
+          "        \"metadata\": {\"taskId\": task_id},",
+          "    }],",
+          ")",
+          "routes = [",
+          "    AxEventRoute(\"task-start\", \"wake\",",
+          "        {\"types\": [\"app.task.started\"]}, \"reindex-flow\"),",
+          "    AxEventRoute(\"task-resume\", \"resume\",",
+          "        {\"types\": [\"mcp.task.status\"]}, \"reindex-flow\"),",
+          "]",
+          "runtime = AxEventRuntime(routes, {\"targets\": [target]})",
+          "runtime.start()"
         ]
       },
       "ucp": {
-        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
         "code": [
-          "  const receipt = await source.ingest(request);",
-          "  if (!receipt.accepted) return new Response(null, { status: 503 });"
+          "def handle_ucp_webhook(request):",
+          "    # Verify signer profile, RFC 9421 signature, digest, freshness,",
+          "    # key rotation, and replay state before publishing.",
+          "    order = verify_ucp_request(request)",
+          "    identity_scope = lookup_buyer_identity(order[\"checkout_id\"])",
+          "    runtime.publish(",
+          "        AxEventEnvelope(",
+          "            order[\"id\"], \"ucp://orders\",",
+          "            \"ucp.order.fulfilled\", order,",
+          "        ),",
+          "        identity_scope=identity_scope,",
+          "        trust=\"authenticated\",",
+          "    )",
+          "    return Response(status=202)"
         ]
       }
     }

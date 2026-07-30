@@ -312,54 +312,129 @@
       "native": {
         "sourcePath": "src/examples/go/mcp/native_mcp_tools.go",
         "code": [
+          "transport, err := ax.NewAxMCPStreamableHTTPTransport(endpoint, nil)",
+          "if err != nil { panic(err) }",
           "mcp := ax.NewAxMCPClient(transport, map[string]ax.Value{\"namespace\": \"inventory\"})",
-          "catalog, err := mcp.InspectCatalog(false)",
           "defer func() { _ = mcp.Close() }()",
-          "program := ax.NewAx(\"request:string -> answer:string\", map[string]ax.Value{\"mcp\": mcp})"
+          "catalog, err := mcp.InspectCatalog(false)",
+          "if err != nil { panic(err) }",
+          "fmt.Printf(\"MCP catalog: %d tools, %d resources, %d templates\\n\",",
+          "    len(catalog.Tools), len(catalog.Resources), len(catalog.ResourceTemplates))",
+          "program := ax.NewAx(\"request:string -> answer:string\", map[string]ax.Value{\"mcp\": mcp})",
+          "llm := ax.NewOpenAICompatibleClient(map[string]ax.Value{",
+          "    \"api_key\": key, \"model\": \"gpt-5.4-mini\",",
+          "})",
+          "output, err := program.Forward(context.Background(), llm,",
+          "    map[string]ax.Value{\"request\": \"Reindex inventory.\"}, nil)",
+          "if err != nil { panic(err) }",
+          "fmt.Println(output)"
         ]
       },
       "resourceWake": {
-        "sourcePath": "src/examples/go/mcp/resource_wake_agent.go",
         "code": [
           "source := ax.NewAxMCPEventSourceWithPolicy(client, \"inventory\", \"tenant:demo\", \"authenticated\", ax.AxMCPSubscribeAll())",
+          "routes := []ax.AxEventRoute{{",
+          "    ID: \"resource-wake\", Action: \"wake\",",
+          "    TargetID: \"inventory-agent\", RequireAuthenticated: true,",
+          "    Match: map[string]ax.Value{\"types\": ax.Array(\"mcp.resource.updated\")},",
+          "}}",
+          "runtime, err := ax.NewAxEventRuntime(routes, nil)",
+          "if err != nil { panic(err) }",
+          "runtime.RegisterTarget(ax.AxEventTarget{",
+          "    ID: \"inventory-agent\", RetrySafety: \"idempotent\",",
+          "    MapInput: func(event ax.AxEventEnvelope, _ *ax.AxEventContinuation) (ax.Value, error) {",
+          "        return map[string]ax.Value{\"uri\": event.Data.(map[string]ax.Value)[\"uri\"]}, nil",
+          "    },",
+          "    Invoke: invokeAgent,",
+          "})",
           "runtime.AddSource(source)",
-          "if err := runtime.Start(); err != nil {",
-          "case <-time.After(60 * time.Second):"
+          "if err := runtime.Start(); err != nil { panic(err) }"
         ]
       },
       "taskResume": {
-        "sourcePath": "src/examples/go/mcp/task_resume_flow.go",
         "code": [
+          "taskResult, err := client.CallTool(\"start_reindex\", map[string]ax.Value{\"scope\": \"all\"})",
+          "if err != nil { panic(err) }",
+          "taskID := taskResult[\"task\"].(map[string]ax.Value)[\"taskId\"].(string)",
+          "target.WaitFor = []map[string]ax.Value{{",
+          "    \"kind\": \"mcp.task\", \"value\": \"taskKey\",",
+          "    \"metadata\": map[string]ax.Value{\"taskId\": taskID},",
+          "}}",
           "runtime.RegisterTarget(target)",
           "runtime.AddSource(started)",
           "runtime.AddSource(mcp)",
-          "taskResult, err := client.CallTool(\"start_reindex\", map[string]ax.Value{\"scope\": \"all\"})"
+          "if err := runtime.Start(); err != nil { panic(err) }",
+          "err = started.Publish(ax.AxEventEnvelope{",
+          "    SpecVersion: \"1.0\", ID: \"task-start\", Source: \"app://tasks\",",
+          "    Type: \"app.task.started\",",
+          "    Data: map[string]ax.Value{",
+          "        \"taskId\": taskID, \"taskKey\": \"inventory:\" + taskID,",
+          "    },",
+          "})",
+          "if err != nil { panic(err) }"
         ]
       }
     },
     "event": {
       "wake": {
-        "sourcePath": "src/examples/go/mcp/resource_wake_agent.go",
         "code": [
+          "source := ax.NewAxMCPEventSourceWithPolicy(",
+          "    client, \"inventory\", \"tenant:demo\", \"authenticated\",",
+          "    ax.AxMCPSubscribeAll(),",
+          ")",
+          "runtime, err := ax.NewAxEventRuntime([]ax.AxEventRoute{{",
+          "    ID: \"resource-wake\", Action: \"wake\",",
+          "    TargetID: \"inventory-agent\", RequireAuthenticated: true,",
+          "    Match: map[string]ax.Value{\"types\": ax.Array(\"mcp.resource.updated\")},",
+          "}}, nil)",
+          "if err != nil { panic(err) }",
+          "runtime.RegisterTarget(ax.AxEventTarget{",
+          "    ID: \"inventory-agent\",",
+          "    MapInput: func(event ax.AxEventEnvelope, _ *ax.AxEventContinuation) (ax.Value, error) {",
+          "        return map[string]ax.Value{\"uri\": event.Data.(map[string]ax.Value)[\"uri\"]}, nil",
+          "    },",
+          "    Invoke: invokeAgent,",
+          "})",
           "runtime.AddSource(source)",
-          "if err := runtime.Start(); err != nil {",
-          "case <-time.After(60 * time.Second):"
+          "if err := runtime.Start(); err != nil { panic(err) }"
         ]
       },
       "resume": {
-        "sourcePath": "src/examples/go/mcp/task_resume_flow.go",
         "code": [
-          "runtime.RegisterTarget(target)",
-          "runtime.AddSource(started)",
-          "runtime.AddSource(mcp)",
-          "if err := started.Publish(ax.AxEventEnvelope{"
+          "target := ax.AxEventTarget{",
+          "    ID: \"reindex-flow\", RetrySafety: \"idempotent\",",
+          "    WaitFor: []map[string]ax.Value{{",
+          "        \"kind\": \"mcp.task\", \"value\": \"taskKey\",",
+          "        \"metadata\": map[string]ax.Value{\"taskId\": taskID},",
+          "    }},",
+          "    MapInput: func(event ax.AxEventEnvelope, continuation *ax.AxEventContinuation) (ax.Value, error) {",
+          "        if continuation != nil {",
+          "            return map[string]ax.Value{\"taskId\": continuation.Metadata[\"taskId\"]}, nil",
+          "        }",
+          "        return map[string]ax.Value{\"taskId\": event.Data.(map[string]ax.Value)[\"taskId\"]}, nil",
+          "    },",
+          "    Invoke: invokeFlow,",
+          "}",
+          "routes := []ax.AxEventRoute{",
+          "    {ID: \"task-start\", Action: \"wake\", TargetID: \"reindex-flow\", Match: map[string]ax.Value{\"types\": ax.Array(\"app.task.started\")}},",
+          "    {ID: \"task-resume\", Action: \"resume\", TargetID: \"reindex-flow\", Match: map[string]ax.Value{\"types\": ax.Array(\"mcp.task.status\")}},",
+          "}"
         ]
       },
       "ucp": {
-        "sourcePath": "src/examples/ucp-webhook-wake-agent.ts",
         "code": [
-          "  const receipt = await source.ingest(request);",
-          "  if (!receipt.accepted) return new Response(null, { status: 503 });"
+          "func handleUCPWebhook(request *http.Request) error {",
+          "    // Verify signer profile, RFC 9421 signature, digest, freshness,",
+          "    // key rotation, and replay state before publishing.",
+          "    order, err := verifyUCPRequest(request)",
+          "    if err != nil { return err }",
+          "    identityScope := lookupBuyerIdentity(order.CheckoutID)",
+          "    _, err = runtime.Publish(ax.AxEventEnvelope{",
+          "        SpecVersion: \"1.0\", ID: order.ID, Source: \"ucp://orders\",",
+          "        Type: \"ucp.order.fulfilled\", Data: order.Data,",
+          "    }, identityScope, \"authenticated\")",
+          "    return err",
+          "}"
         ]
       }
     }

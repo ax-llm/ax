@@ -1,116 +1,170 @@
 # MCP Catalog Discovery And Subscriptions
 
-An MCP endpoint is only the server address. The server owns its tool names,
-prompt names, concrete resource URIs, and URI templates. Ax discovers those
-values after connecting, so an application does not need to hard-code names
-that the server can list.
+Suppose an MCP server owns a changing inventory resource and your Agent should
+react when that resource changes. The endpoint URL alone does not tell the
+application which resources exist, which ones this tenant may follow, or which
+notification is allowed to start the Agent. Ax keeps those as three visible
+decisions: discover the catalog, choose subscriptions, then route events.
 
-```text
-endpoint → catalog → explicit subscription policy → maintained subscriptions
-         → event inbox → explicit wake or resume route
+`endpoint → catalog → subscription policy → maintained subscriptions → event runtime → explicit route`
+
+```mermaid
+flowchart LR
+  Endpoint["MCP endpoint"] --> Catalog["Discover catalog"]
+  Catalog --> Policy["Choose concrete resource policy"]
+  Policy --> Listen["Maintain subscriptions"]
+  Listen --> Inbox["Publish attributed events"]
+  Inbox --> Route["Observe, invalidate, wake, or resume"]
+  Route --> Agent["Agent or Flow"]
 ```
 
-Discovery does not subscribe. Subscription does not wake a model. An MCP
-session does not prove application tenant identity.
+The separation is deliberate: discovery does not subscribe, subscription does
+not wake a model, and an MCP session does not prove application tenant
+identity.
 
-## Inspect The Endpoint Catalog
+## Discover The Catalog
 
-`inspectCatalog()` classifies or initializes the client once, follows bounded
-pagination, and returns a deep-cloned snapshot with the namespace, protocol
-version, revision, server capabilities, tools, prompts, concrete resources,
-URI templates, and current logical subscriptions. Modern snapshots also expose
-catalog TTL and cache scope. Use the refresh option for a forced round trip;
-use `discover()` when modern server-wide discovery metadata is required.
+`inspectCatalog()` initializes or classifies the client once, follows bounded
+pagination, and returns a deep-cloned snapshot. The snapshot includes the
+namespace, protocol version, revision, server identity and capabilities, tools,
+prompts, concrete resources, URI templates, and current logical subscriptions.
+Modern snapshots also include catalog TTL and cache scope. Pass
+`{ refresh: true }` (or the language equivalent) to force a round trip; use
+`discover()` when TypeScript code specifically needs modern server-wide
+discovery metadata.
 
 {{mcpNativeExample}}
 
-Concrete resources can be selected immediately. A URI template describes a
-family such as `orders://{orderId}`. Ax never expands templates automatically;
-the application chooses authorized arguments and supplies the resulting URI.
-MCP completion may suggest argument values, but it does not authorize them.
+A **concrete resource** has a URI that can be selected immediately, such as
+`inventory://warehouse/current`. A **URI template** describes a family, such
+as `inventory://warehouse/{warehouseId}`. Ax never expands templates
+automatically: application code must choose authorized arguments and construct
+the concrete URI. MCP completion can suggest an argument value, but a
+suggestion is not authorization to read or subscribe.
 
-## Select What To Subscribe To
+## Choose A Subscription Policy
 
-Resource subscription policy defaults to **none**. Task, progress, logging, and
-catalog events still work when the server advertises them and the listening
-filter requests them.
+Resource subscription policy defaults to **none**. That least-privilege default
+avoids unexpected notification volume and prevents newly discovered resources
+from silently entering the application. Task, progress, logging, and catalog
+events can still flow when the server and listener support them.
 
-- **All:** explicitly select every discovered concrete resource. This is the
-  simple endpoint-only shortcut for a trusted server.
-- **Selector:** select concrete resources by name, URI, description, MIME type,
-  annotations, or the full catalog. This is the normal production choice.
-- **URI list:** supply dynamic or application-constructed concrete URIs.
-- **None:** receive non-resource MCP events without resource subscriptions.
+- **All** selects every discovered concrete resource. Use it only when the
+  endpoint is trusted and its entire concrete catalog is appropriate for the
+  current application identity.
+- **Selector** evaluates resource name, URI, description, MIME type,
+  annotations, and the surrounding catalog. This is the normal production
+  choice for a stable policy that follows catalog changes.
+- **URI list** supplies dynamic or application-constructed concrete URIs. Use
+  it when authorization has already selected exact resource instances.
+- **None** receives non-resource MCP events without owning resource
+  subscriptions.
 
-Templates are never included by an all or selector policy. In the legacy era,
-ownership transitions send `resources/subscribe` and `resources/unsubscribe`.
-In the modern era, the same policy updates the desired URI set and restarts
-`subscriptions/listen`. If a selector fails
-during a catalog change, Ax keeps the prior known-good selection. Partial wire
-failures retain successful transitions and retry incomplete work on the next
-change or reconnect.
+Neither all nor selector policies expand URI templates. If a selector throws
+during a catalog change, Ax reports the error and keeps the prior known-good
+selection. If only part of a wire update succeeds, Ax retains those successful
+transitions and retries the incomplete work on the next change or reconnect.
 
 {{mcpResourceWakeExample}}
 
-## Catalog Changes, Ownership, And Reconnect
+## Route Notifications To Your Agent
 
-After `notifications/resources/list_changed`, Ax refreshes the catalog,
-recomputes selection, subscribes to additions, unsubscribes from removals, and
-then publishes the catalog-change event.
+`AxMCPEventSource` publishes attributed but untrusted envelopes into
+`AxEventRuntime`; it never invokes a model or turns a notification into a user
+message. In TypeScript, `axMCPEventRoutes({ client })` supplies safe defaults:
+progress and logs are observed, catalog changes invalidate the cached catalog,
+and task events resume only a continuation owned by that task. Generated
+packages express the same actions with explicit route records.
 
-Logical ownership prevents shared clients from breaking each other. Manual
-subscriptions, every event source, and restored intent are separate owners.
-Only the first owner sends `resources/subscribe`; only the final release sends
-`resources/unsubscribe`. Closing a source releases its ownership. Closing the
-client terminates all subscriptions and transport state.
+Resource updates intentionally have no default wake. Add an authenticated
+`mcp.resource.updated` route and a signature-aware input plan for every Agent
+that should run. The [Event Runtime]({{langRoot}}/concepts/event-runtime/) page
+explains route matching, input validation, identity-scoped continuations,
+ordering, retries, and sinks.
 
-Legacy reconnect resumes GET/SSE with `Last-Event-ID` when available and
-restores the currently selected logical subscriptions exactly once. Modern
-reconnect closes the prior response stream and sends a fresh
-`subscriptions/listen` POST with a new request ID, no `Last-Event-ID`, and the
+## Subscription Lifecycle
+
+Each manual subscription, event source, and restored intent is a separate
+**logical owner** of a resource URI. Ownership lets several components share
+one client safely: the first acquisition adds the URI to the wire selection,
+and the final release removes it. In the legacy era those transitions send
+`resources/subscribe` and `resources/unsubscribe`; in the modern era they
+update the desired `subscriptions/listen` filter. Closing one source releases
+only its ownership and cannot break another source or manual subscriber.
+
+After `notifications/resources/list_changed`, a managed source:
+
+1. refreshes the catalog;
+2. recomputes its concrete resource selection;
+3. subscribes to additions and unsubscribes from removals;
+4. publishes the catalog-change event to the runtime.
+
+Reconnect preserves intent. A legacy GET/SSE listener resumes with
+`Last-Event-ID` when available and restores currently owned URIs exactly once.
+A modern client closes the previous response stream and starts a fresh
+`subscriptions/listen` POST with a new request ID, no `Last-Event-ID`, and its
 current catalog, resource, and known-task interests.
 
-Close the runtime or source before closing the caller-owned client so final
-legacy unsubscribe requests or modern listen-filter updates can still be sent.
+Close the runtime or source before the caller-owned client. That order leaves
+the connection available for final legacy unsubscribe requests or modern
+listen-filter updates. The [MCP concept page]({{langRoot}}/concepts/mcp/)
+explains the legacy and modern protocol eras in detail.
 
-## Wake And Resume Stay Explicit
+## Tasks Are Independent Of Resource Policy
 
-`AxMCPEventSource` publishes attributed, untrusted envelopes into
-`AxEventRuntime`. A resource update needs an explicit authenticated `wake`
-route and a signature-aware input mapping. Multiple routes can fan one update
-out to multiple Agents with independent authorization, ordering, retries, and
-run records.
-
-Task continuation is independent of resource policy. Progress defaults to
-observe. Modern listening adds known task IDs to its filter when task events
-have consumers. An input-required or terminal task notification can resume its
-owning Agent or Flow. Keep polling available because task notifications are
-optional.
+Resource policy does not control MCP task notifications. When an event-driven
+tool call creates a task, Ax qualifies it as `namespace:taskId` and records the
+continuation that owns it. Progress is observed without a model call;
+`input_required` and terminal task states can resume that owner.
 
 {{mcpTaskResumeExample}}
 
+Keep polling with the MCP task APIs as a fallback. Task notifications are
+optional, so a server may require `tasks/get` until the task reaches a terminal
+state.
+
 ## Identity And Network Safety
 
-Map tenant/account identity from verified application authentication state,
-not from an MCP session ID. Unmapped notifications remain anonymous and cannot
-match authenticated routes. Treat catalog metadata, resources, and
-notifications as untrusted remote content.
+Derive event identity from verified application authentication, such as an
+OAuth token-to-account mapping, not from the MCP session ID. Without that
+mapping, notifications stay anonymous and cannot match authenticated routes.
+Treat catalog metadata, resource contents, annotations, and notifications as
+untrusted remote content even after subscription.
 
-Secure HTTP and SSRF defaults stay enabled for remote endpoints. Controlled
-localhost demos must explicitly allow loopback HTTP; never copy that relaxation
+Secure HTTP and SSRF defaults remain enabled for remote endpoints. A controlled
+localhost demo may explicitly allow loopback HTTP; never copy that relaxation
 to an arbitrary endpoint.
 
 ## Troubleshooting
 
-- **Empty catalog:** force a refresh, inspect negotiated capabilities and auth
-  scopes, and check whether the server exposes templates only.
-- **Templates but no subscriptions:** construct a concrete URI explicitly.
-- **Subscription capability error:** the server lists resources but does not
-  advertise resource subscriptions.
-- **No notifications:** verify runtime start, the era-specific GET/SSE or
-  `subscriptions/listen` path, server notification support, the selected
-  policy, route source/type, identity, and localhost policy.
-- **Notification but no Agent run:** add an explicit wake route; safe defaults
-  observe progress/logs, invalidate catalogs, and resume only owned tasks.
+### The Catalog Is Empty
+
+Force a refresh, inspect the negotiated capabilities and authentication scopes,
+and check whether the server exposes URI templates but no concrete resources.
+
+### Templates Exist But No Subscription Starts
+
+Templates are never auto-expanded. Construct an authorized concrete URI and
+pass it through a URI-list policy.
+
+### Ax Reports That Resource Subscriptions Are Unsupported
+
+The server lists resources but does not advertise resource subscription
+support. Ax rejects the explicit policy instead of pretending notifications
+will arrive; catalog, task, logging, and progress events may still work.
+
+### Notifications Never Arrive
+
+Confirm that runtime startup completed, the legacy GET/SSE or modern
+`subscriptions/listen` path is connected, the server emits notifications, the
+resource policy selected the expected URI, and the route source, type, identity,
+and localhost network policy all match. On shutdown, close the runtime or
+source before the client.
+
+### A Notification Arrives But No Agent Runs
+
+That is the safe default. Add an explicit authenticated wake route and input
+plan. Progress and logs default to observe, catalog changes to invalidate, and
+only task events with a matching owned continuation to resume.
 
 See [MCP]({{langRoot}}/concepts/mcp/), [Event Runtime]({{langRoot}}/concepts/event-runtime/), and the [complete maintainer guide](https://github.com/ax-llm/ax/blob/main/docs/MCP_SUBSCRIPTIONS.md).
