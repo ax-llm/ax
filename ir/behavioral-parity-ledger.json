@@ -523,6 +523,42 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES. Shared fixtures cover canonical parse-render-reparse behavior, builder rendering, branches, feedback, while bindings, fan-out and fan-in, supported shapes, and deterministic validation errors."
+    },
+    {
+      "capability": "mcp.modern_era.live_roundtrip",
+      "summary": "Generated MCP clients classify and cache the stateless 2026-07-28 era, attach modern request metadata and headers, reuse cacheable catalogs, complete Tasks v2 and roots MRTR rounds, and restore subscriptions/listen after a dropped stream.",
+      "ir_ops": [
+        "@mcp_classify_discovery_result",
+        "@mcp_resolve_known_era",
+        "@mcp_select_mutual_version",
+        "@mcp_build_request_meta",
+        "@mcp_modern_request_headers",
+        "@mcp_param_header_bindings",
+        "@mcp_param_header_values",
+        "@mcp_fold_cache_info",
+        "@mcp_cache_freshness",
+        "@mcp_validate_modern_task",
+        "@mcp_task_terminal_outcome",
+        "@mcp_mrtr_plan_round",
+        "@mcp_mrtr_fulfill_roots",
+        "@mcp_mrtr_next_params",
+        "@mcp_listen_interests",
+        "@mcp_notification_subscription_filter"
+      ],
+      "fixtures": [
+        "axmcp/discover-modern.json",
+        "axmcp/modern-transport-headers.json",
+        "axmcp/param-headers.json",
+        "axmcp/cache-fold.json",
+        "axmcp/read-cache.json",
+        "axmcp/tasks-v2-modern.json",
+        "axmcp/mrtr-roots.json",
+        "axmcp/subscriptions-listen.json"
+      ],
+      "gate": "AxIR conformance plus five-language localhost legacy/modern harness and generated modern roundtrip examples",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. scripts/test-generated-mcp-events.ts runs Python, Java, C++, Go, and Rust once per era against the real localhost demo server. The modern run proves auto discovery without initialize, per-request _meta and serverInfo refresh, cacheable catalog reuse, schema-derived Mcp-Param-Scope, flattened Tasks v2 completion, roots MRTR fulfillment, fresh subscriptions/listen reconnect after a dropped stream, resource updates, and clean shutdown. Each generated package also runs its in-process mcp_modern_roundtrip example during release verification."
     }
   ]
 }
