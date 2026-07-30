@@ -42,12 +42,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/mcp/client.ts`
   - Impact: Generated Python, Java, C++, Go, and Rust event adapters still use legacy resources/subscribe plus GET/SSE and Last-Event-ID; they do not issue or restart subscriptions/listen POST streams with modern interests.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-07-29-port-roots-first-mcp-multi-round-trip-requests` [axmcp] Port roots-first MCP multi round-trip requests
-  - Status: open
-  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
-  - TS paths: `src/ax/mcp/mrtr.ts`
-  - Impact: Generated Python, Java, C++, Go, and Rust clients cannot fulfill modern input_required rounds. The first portable tranche is roots-only because generated clients do not yet expose sampling or elicitation host handlers.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -320,3 +314,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-30
   - Completed by: `e43afb35854c370a637f13acf416668f263c7efb`
   - Verification: `Five-port discover-modern conformance covers required _meta, bounded -32022 version retry, Mcp-Param headers, and one-shot -32020 catalog refresh; npm run test:axir`
+- `axir-2026-07-29-port-roots-first-mcp-multi-round-trip-requests` [axmcp] Port roots-first MCP multi round-trip requests
+  - Status: done
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/mrtr.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust clients cannot fulfill modern input_required rounds. The first portable tranche is roots-only because generated clients do not yet expose sampling or elicitation host handlers.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-30
+  - Completed by: `09354114`
+  - Verification: `mrtr-roots + mrtr-violations across Python/Go/Java/C++/Rust; fresh IDs, byte-exact requestState, current-round-only inputs; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check`

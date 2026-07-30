@@ -756,7 +756,7 @@
     },
     {
       "id": "axir-2026-07-29-port-roots-first-mcp-multi-round-trip-requests",
-      "status": "open",
+      "status": "done",
       "title": "Port roots-first MCP multi round-trip requests",
       "createdAt": "2026-07-29",
       "sourcePR": null,
@@ -769,9 +769,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-30",
+      "completedByCommit": "09354114",
+      "verification": "mrtr-roots + mrtr-violations across Python/Go/Java/C++/Rust; fresh IDs, byte-exact requestState, current-round-only inputs; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check"
     }
   ],
   "nonPortableExemptions": [
