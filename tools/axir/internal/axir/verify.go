@@ -465,6 +465,7 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 		"ace_playbook",
 		"agent_playbook",
 		"mcp_scripted_tools",
+		"mcp_modern_roundtrip",
 		"mcp_sse_roundtrip",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, report.OutDir, env, goTool, "run", "./examples/"+example); err != nil {
@@ -557,6 +558,7 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"ace_playbook",
 		"agent_playbook",
 		"mcp_scripted_tools",
+		"mcp_modern_roundtrip",
 		"mcp_sse_roundtrip",
 	} {
 		if err := runCargoVerifyCommand(&report, "example "+example, report.OutDir, env, cargo, "run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--example", example); err != nil {
@@ -700,6 +702,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"ace_playbook.py",
 		"agent_playbook.py",
 		"mcp_scripted_tools.py",
+		"mcp_modern_roundtrip.py",
 		"mcp_sse_roundtrip.py",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, "", env, python, filepath.Join(report.OutDir, "examples", example)); err != nil {
@@ -837,6 +840,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"ACEPlaybookExample",
 		"AgentPlaybookExample",
 		"AxMCPScriptedToolsExample",
+		"AxMCPModernRoundtripExample",
 		"AxMCPSseRoundtripExample",
 	} {
 		if err := runVerifyCommand(&report, "example "+className, "", env, java, "-cp", report.OutDir, className); err != nil {
@@ -1216,11 +1220,11 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 			return report, err
 		}
 	}
-	// audio_http_roundtrip, stream_http_roundtrip, and mcp_sse_roundtrip drive
+	// audio_http_roundtrip, stream_http_roundtrip, mcp_modern_roundtrip, and mcp_sse_roundtrip drive
 	// the real libcurl transport against a loopback server, so they need a
 	// curl-enabled axllm.o + libcurl (mcp_sse_roundtrip also links mcp.o). Skip
 	// them when libcurl is unavailable rather than failing the whole target.
-	curlExamples := []string{"audio_http_roundtrip", "stream_http_roundtrip", "mcp_sse_roundtrip"}
+	curlExamples := []string{"audio_http_roundtrip", "stream_http_roundtrip", "mcp_modern_roundtrip", "mcp_sse_roundtrip"}
 	if cppLibcurlAvailable(cpp) {
 		curlObj := filepath.Join(buildDir, "axllm_curl.o")
 		if err := runVerifyCommand(&report, "compile axllm.cpp (curl)", "", nil, cpp, "-std=c++17", "-DAXLLM_ENABLE_CURL=1", "-I", report.OutDir, "-c", axSource, "-o", curlObj); err != nil {
@@ -1230,7 +1234,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 			source := filepath.Join(report.OutDir, "examples", example+".cpp")
 			bin := filepath.Join(report.OutDir, example)
 			compileArgs := []string{"-std=c++17", "-I", report.OutDir, source, curlObj}
-			if example == "mcp_sse_roundtrip" {
+			if example == "mcp_modern_roundtrip" || example == "mcp_sse_roundtrip" {
 				compileArgs = append(compileArgs, mcpObj)
 			}
 			compileArgs = append(compileArgs, "-lcurl", "-o", bin)

@@ -67,6 +67,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/ace_playbook.cpp`: grow an evolving context playbook with `playbook()` (offline, scripted client)
 - `examples/agent_playbook.cpp`: attach a seeded agent playbook, exercise stage instructions and citations, learn from run-end failures, and verify accept/rollback evolution (offline, scripted client)
 - `examples/mcp_scripted_tools.cpp`: MCP tool discovery and invocation through a scripted transport
+- `examples/mcp_modern_roundtrip.cpp`: modern MCP discovery, cache, task, and roots MRTR over an in-process HTTP loopback
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 

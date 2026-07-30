@@ -945,7 +945,15 @@ impl AxMCPClient {
                     .unwrap_or(2000),
             );
         while !self.subscription_ready && std::time::Instant::now() < deadline {
-            self.drain_inbound();
+            self.subscription_ready = self.inbound_messages.lock().unwrap().iter().any(|message| {
+                core_mcp(
+                    &crate::mcp_notification_subscription_filter,
+                    &[message.clone(), json!(self.active_subscription_id)],
+                )
+                .ok()
+                .and_then(|value| value.get("acknowledged").and_then(Value::as_bool))
+                    == Some(true)
+            });
             if !self.subscription_ready {
                 thread::sleep(Duration::from_millis(5))
             }
@@ -3018,9 +3026,6 @@ fn reconcile_mcp_subscriptions(
     errors: &Arc<Mutex<Vec<String>>>,
 ) -> AxResult<()> {
     let mut client = client.lock().unwrap();
-    if client.era.as_deref() == Some("modern") && client.active_subscription_id.is_none() {
-        client.start_listening()?;
-    }
     let catalog = client.inspect_catalog(false)?;
     if !matches!(policy, AxMCPResourceSubscriptionPolicy::None)
         && catalog
@@ -3275,7 +3280,12 @@ impl AxMCPEventSource {
             &self.subscriptions,
             &self.owner,
             &self.errors,
-        )
+        )?;
+        let mut client = self.client.lock().unwrap();
+        if client.era.as_deref() == Some("modern") && client.active_subscription_id.is_none() {
+            client.start_listening()?
+        }
+        Ok(())
     }
     pub fn reconnect(&mut self) -> AxResult<()> {
         self.client
@@ -3855,8 +3865,8 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
         {
             return Ok(());
         }
-        self.listen_stop.store(false, Ordering::SeqCst);
-        let stop = self.listen_stop.clone();
+        let stop = Arc::new(AtomicBool::new(false));
+        self.listen_stop = stop.clone();
         let endpoint = self.endpoint.clone();
         let headers = self.build_headers(Map::new(), true);
         let handler = self.message_handler.clone();
@@ -3950,8 +3960,8 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
             ));
         }
         let _ = self.close_request_stream();
-        self.listen_stop.store(false, Ordering::SeqCst);
-        let stop = self.listen_stop.clone();
+        let stop = Arc::new(AtomicBool::new(false));
+        self.listen_stop = stop.clone();
         let endpoint = self.endpoint.clone();
         let client = self.client.clone();
         let method = message
@@ -4015,7 +4025,9 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
     }
     fn close(&mut self) -> AxResult<()> {
         self.listen_stop.store(true, Ordering::SeqCst);
-        if let Some(thread) = self.listen_thread.take() {
+        if self.era.as_deref() == Some("modern") {
+            let _ = self.listen_thread.take();
+        } else if let Some(thread) = self.listen_thread.take() {
             let _ = thread.join();
         }
         Ok(())

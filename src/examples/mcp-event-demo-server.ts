@@ -80,7 +80,9 @@ export class AxMCPEventDemoServer {
   private readonly subscriptionWaiters = new Map<string, Set<() => void>>();
   private readonly taskWaiters = new Set<(taskId: string) => void>();
   private readonly listenerWaiters = new Set<() => void>();
+  private readonly methodCounts = new Map<string, number>();
   private sequence = 0;
+  private serverInfoSequence = 0;
   private sessionId = randomUUID();
   private endpoint?: string;
 
@@ -156,6 +158,10 @@ export class AxMCPEventDemoServer {
 
   getSubscriptionCount(uri = 'demo://inventory'): number {
     return this.subscriptionCounts.get(uri) ?? 0;
+  }
+
+  getMethodCount(method: string): number {
+    return this.methodCounts.get(method) ?? 0;
   }
 
   async waitForSubscriptionCount(
@@ -279,6 +285,10 @@ export class AxMCPEventDemoServer {
       const message = JSON.parse(
         await this.readBody(request)
       ) as JsonRpcRequest;
+      this.methodCounts.set(
+        message.method,
+        (this.methodCounts.get(message.method) ?? 0) + 1
+      );
       if (message.id === undefined) {
         response.writeHead(202).end();
         return;
@@ -739,16 +749,19 @@ export class AxMCPEventDemoServer {
   }
 
   private async dispatchModern(message: JsonRpcRequest): Promise<unknown> {
-    const complete = (value: Record<string, unknown> = {}) => ({
-      ...value,
-      resultType: 'complete',
-      _meta: {
-        [SERVER_INFO_META_KEY]: {
-          name: 'ax-event-demo',
-          version: '2.0.0',
+    const complete = (value: Record<string, unknown> = {}) => {
+      this.serverInfoSequence += 1;
+      return {
+        ...value,
+        resultType: 'complete',
+        _meta: {
+          [SERVER_INFO_META_KEY]: {
+            name: 'ax-event-demo',
+            version: `2.0.${this.serverInfoSequence}`,
+          },
         },
-      },
-    });
+      };
+    };
     const cacheable = (value: Record<string, unknown>) =>
       complete({ ...value, ttlMs: 1_000, cacheScope: 'private' });
     switch (message.method) {
@@ -758,6 +771,7 @@ export class AxMCPEventDemoServer {
           supportedVersions: [MODERN_PROTOCOL_VERSION],
           capabilities: {
             tools: { listChanged: true },
+            prompts: { listChanged: true },
             resources: { subscribe: true, listChanged: true },
             logging: {},
             extensions: { 'io.modelcontextprotocol/tasks': {} },
@@ -795,6 +809,11 @@ export class AxMCPEventDemoServer {
             {
               name: 'mrtr_two_round',
               description: 'Exercise sampling then roots MRTR rounds',
+              inputSchema: { type: 'object', properties: {} },
+            },
+            {
+              name: 'mrtr_roots_round',
+              description: 'Exercise a roots-only MRTR round',
               inputSchema: { type: 'object', properties: {} },
             },
           ],
@@ -857,6 +876,16 @@ export class AxMCPEventDemoServer {
             };
           }
           this.assertMRTRState(message, 'demo-two-round-state-2', 'roots');
+        }
+        if (name === 'mrtr_roots_round') {
+          if (!Object.hasOwn(message.params ?? {}, 'requestState')) {
+            return {
+              resultType: 'input_required',
+              inputRequests: { roots: { method: 'roots/list' } },
+              requestState: 'demo-roots-state',
+            };
+          }
+          this.assertMRTRState(message, 'demo-roots-state', 'roots');
         }
         if (name === 'start_reindex') {
           const task = this.createModernTask();

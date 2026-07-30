@@ -282,6 +282,9 @@ var goMCP string
 //go:embed templates/mcp/goMCPScriptedToolsExample.go.txt
 var goMCPScriptedToolsExample string
 
+//go:embed templates/mcp/goMCPModernRoundtripExample.go.txt
+var goMCPModernRoundtripExample string
+
 //go:embed templates/mcp/goMCPSseRoundtripExample.go.txt
 var goMCPSseRoundtripExample string
 
@@ -359,6 +362,9 @@ var rustMCP string
 
 //go:embed templates/mcp/rustMCPScriptedToolsExample.rs
 var rustMCPScriptedToolsExample string
+
+//go:embed templates/mcp/rustMCPModernRoundtripExample.rs
+var rustMCPModernRoundtripExample string
 
 //go:embed templates/mcp/rustMCPSseRoundtripExample.rs
 var rustMCPSseRoundtripExample string

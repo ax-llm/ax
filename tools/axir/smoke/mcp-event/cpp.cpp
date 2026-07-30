@@ -11,11 +11,17 @@ using namespace axllm;
 int main() {
   const char* raw_endpoint = std::getenv("AX_MCP_ENDPOINT");
   if (!raw_endpoint) throw std::runtime_error("AX_MCP_ENDPOINT is required");
+  const char* raw_era = std::getenv("AX_MCP_SMOKE_ERA");
+  std::string era = raw_era ? raw_era : "legacy";
+  std::string client_era = era == "modern" ? "auto" : "legacy";
   auto transport = std::make_shared<AxMCPStreamableHTTPTransport>(
       raw_endpoint,
       object({{"ssrfProtection", object({{"requireHttps", false}, {"allowLocalhost", true}, {"allowPrivateNetworks", true}})},
               {"reconnectDelayMs", 50}}));
-  auto client = std::make_shared<AxMCPClient>(transport, object({{"namespace", "inventory"}, {"era", "legacy"}}));
+  auto client = std::make_shared<AxMCPClient>(transport, object({
+      {"namespace", "inventory"}, {"era", client_era},
+      {"roots", array({object({{"uri", "file:///workspace"}, {"name", "workspace"}})})},
+      {"subscriptionFilters", object({{"resourcesListChanged", true}})}}));
 
   std::mutex mutex;
   std::condition_variable changed;
@@ -33,8 +39,19 @@ int main() {
   if (Core::iter(catalog.resources).size() != 2 || Core::iter(catalog.resource_templates).size() != 1) {
     throw std::runtime_error("MCP catalog discovery failed");
   }
-  auto task_result = client->call_tool("start_reindex", object({{"scope", "all"}}));
-  auto task_id = display(Core::get(Core::get(task_result, "task", Value::object()), "taskId", ""));
+  std::string task_id;
+  if (era == "modern") {
+    auto task_result = client->call_tool("start_reindex", object({{"scope", "all"}}));
+    if (display(Core::get(Core::get(task_result, "structuredContent", Value::object()), "indexed", "")) != "42") throw std::runtime_error("modern task result was not flattened");
+    auto roots_result = client->call_tool("mrtr_roots_round", Value::object());
+    if (display(Core::get(Core::get(roots_result, "structuredContent", Value::object()), "indexed", "")) != "42") throw std::runtime_error("modern roots MRTR failed");
+    auto refreshed = client->inspect_catalog();
+    auto version = display(Core::get(refreshed.server_info, "version", ""));
+    if (version.empty() || version == "2.0.0") throw std::runtime_error("modern serverInfo was not refreshed");
+  } else {
+    auto task_result = client->call_tool("start_reindex", object({{"scope", "all"}}));
+    task_id = display(Core::get(Core::get(task_result, "task", Value::object()), "taskId", ""));
+  }
 
   AxEventTarget resource_target;
   resource_target.id = "resource-target";
@@ -64,11 +81,11 @@ int main() {
   started.source = "app://smoke";
   started.type = "app.task.started";
   started.data = object({{"taskId", task_id}, {"taskKey", "inventory:" + task_id}});
-  runtime.publish(started, "tenant:smoke", "authenticated");
+  if (era == "legacy") runtime.publish(started, "tenant:smoke", "authenticated");
   std::cout << "AX_MCP_SMOKE_READY" << std::endl;
 
   std::unique_lock<std::mutex> lock(mutex);
-  if (!changed.wait_for(lock, std::chrono::seconds(20), [&] { return resources >= 1 && tasks >= 2 && progress >= 1; })) {
+  if (!changed.wait_for(lock, std::chrono::seconds(20), [&] { return resources >= 1 && (era == "modern" || tasks >= 2) && (era == "modern" || progress >= 1); })) {
     throw std::runtime_error("MCP event smoke timed out");
   }
   auto result = "AX_MCP_SMOKE_OK resource=" + std::to_string(resources) + " task=" + std::to_string(tasks) + " progress=" + std::to_string(progress);

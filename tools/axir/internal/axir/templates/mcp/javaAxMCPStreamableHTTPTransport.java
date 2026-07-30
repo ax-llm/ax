@@ -33,6 +33,10 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   private final AtomicBoolean listenStop = new AtomicBoolean(true);
   private volatile Thread listenThread;
   private volatile InputStream listenBody;
+  private volatile AtomicBoolean requestStreamStop;
+  private volatile Thread requestStreamThread;
+  private volatile InputStream requestStreamBody;
+  private volatile HttpURLConnection requestStreamConnection;
   private volatile String lastEventId;
 
   public AxMCPStreamableHTTPTransport(String endpoint) {
@@ -140,22 +144,23 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
 
   public synchronized void openRequestStream(Map<String,Object> message){
     if(!"modern".equals(era))throw new AxMCPError("Request streams are only available for modern MCP");
-    closeRequestStream();listenStop.set(false);Map<String,Object> request=new LinkedHashMap<>(message);
-    listenThread=new Thread(()->requestStreamOnce(request),"ax-mcp-request-stream");listenThread.setDaemon(true);listenThread.start();
+    closeRequestStream();Map<String,Object> request=new LinkedHashMap<>(message);AtomicBoolean stop=new AtomicBoolean(false);requestStreamStop=stop;
+    Thread thread=new Thread(()->requestStreamOnce(request,stop),"ax-mcp-request-stream");requestStreamThread=thread;thread.setDaemon(true);thread.start();
   }
 
-  private void requestStreamOnce(Map<String,Object> message){
+  private void requestStreamOnce(Map<String,Object> message,AtomicBoolean stop){
+    HttpURLConnection connection=null;
     try{
-      HttpURLConnection connection=(HttpURLConnection)new URL(endpoint).openConnection();connection.setRequestMethod("POST");connection.setDoOutput(true);
+      connection=(HttpURLConnection)new URL(endpoint).openConnection();synchronized(this){if(stop.get()||requestStreamStop!=stop)return;requestStreamConnection=connection;}connection.setRequestMethod("POST");connection.setDoOutput(true);
       String method=String.valueOf(message.getOrDefault("method",""));for(Map.Entry<String,String> entry:buildHeaders(Map.of("Content-Type","application/json","Accept","text/event-stream"),true,method,Core.asMap(message.get("params")),Map.of()).entrySet())connection.setRequestProperty(entry.getKey(),entry.getValue());
       byte[] body=Json.stringify(message).getBytes(java.nio.charset.StandardCharsets.UTF_8);connection.setFixedLengthStreamingMode(body.length);connection.connect();try(java.io.OutputStream output=connection.getOutputStream()){output.write(body);}
-      if(connection.getResponseCode()<200||connection.getResponseCode()>=300)throw new AxMCPError("HTTP listen error "+connection.getResponseCode());listenBody=connection.getInputStream();consumeRequestSse(listenBody);listenBody.close();connection.disconnect();
-    }catch(Exception ignored){}finally{listenBody=null;if(!listenStop.get()&&lifecycleHandler!=null)new Thread(()->lifecycleHandler.accept("disconnected"),"ax-mcp-listen-lifecycle").start();}
+      if(connection.getResponseCode()<200||connection.getResponseCode()>=300)throw new AxMCPError("HTTP listen error "+connection.getResponseCode());InputStream streamBody=connection.getInputStream();synchronized(this){if(requestStreamStop==stop)requestStreamBody=streamBody;}consumeRequestSse(streamBody,stop);streamBody.close();connection.disconnect();
+    }catch(Exception ignored){}finally{if(connection!=null)connection.disconnect();if(requestStreamStop==stop){requestStreamBody=null;requestStreamConnection=null;requestStreamThread=null;}if(!stop.get()&&lifecycleHandler!=null)new Thread(()->lifecycleHandler.accept("disconnected"),"ax-mcp-listen-lifecycle").start();}
   }
 
-  private void consumeRequestSse(InputStream body)throws Exception{BufferedReader reader=new BufferedReader(new InputStreamReader(body,java.nio.charset.StandardCharsets.UTF_8));List<String> data=new ArrayList<>();String line;while(!listenStop.get()&&(line=reader.readLine())!=null){if(line.isEmpty()){if(!data.isEmpty()&&handler!=null)handler.accept(Core.asMap(Json.parse(String.join("\n",data))));data.clear();}else if(line.startsWith("data:"))data.add(line.substring(5).stripLeading());}}
+  private void consumeRequestSse(InputStream body,AtomicBoolean stop)throws Exception{BufferedReader reader=new BufferedReader(new InputStreamReader(body,java.nio.charset.StandardCharsets.UTF_8));List<String> data=new ArrayList<>();String line;while(!stop.get()&&(line=reader.readLine())!=null){if(line.isEmpty()){if(!data.isEmpty()&&handler!=null)handler.accept(Core.asMap(Json.parse(String.join("\n",data))));data.clear();}else if(line.startsWith("data:"))data.add(line.substring(5).stripLeading());}}
 
-  public synchronized void closeRequestStream(){listenStop.set(true);InputStream body=listenBody;if(body!=null)try{body.close();}catch(Exception ignored){}Thread thread=listenThread;if(thread!=null&&thread!=Thread.currentThread()){thread.interrupt();try{thread.join(2000);}catch(InterruptedException ignored){Thread.currentThread().interrupt();}}listenThread=null;listenBody=null;}
+  public synchronized void closeRequestStream(){AtomicBoolean stop=requestStreamStop;Thread thread=requestStreamThread;InputStream body=requestStreamBody;HttpURLConnection connection=requestStreamConnection;requestStreamStop=null;requestStreamThread=null;requestStreamBody=null;requestStreamConnection=null;if(stop!=null)stop.set(true);if(thread!=null)thread.interrupt();if(connection!=null||body!=null){Thread cleanup=new Thread(()->{if(connection!=null)connection.disconnect();if(body!=null)try{body.close();}catch(Exception ignored){}},"ax-mcp-request-stream-close");cleanup.setDaemon(true);cleanup.start();}}
 
   private void listenLoop() {
     boolean connectedOnce = false;

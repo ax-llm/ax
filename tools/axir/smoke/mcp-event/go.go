@@ -11,6 +11,10 @@ import (
 
 func main() {
 	endpoint := os.Getenv("AX_MCP_ENDPOINT")
+	era := os.Getenv("AX_MCP_SMOKE_ERA")
+	if era == "" { era = "legacy" }
+	clientEra := era
+	if era == "modern" { clientEra = "auto" }
 	transport, err := ax.NewAxMCPStreamableHTTPTransport(endpoint, map[string]ax.Value{
 		"ssrfProtection":   map[string]ax.Value{"requireHttps": false, "allowLocalhost": true, "allowPrivateNetworks": true},
 		"reconnectDelayMs": 50,
@@ -18,7 +22,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	client := ax.NewAxMCPClient(transport, map[string]ax.Value{"namespace": "inventory", "era": "legacy"})
+	client := ax.NewAxMCPClient(transport, map[string]ax.Value{
+		"namespace": "inventory", "era": clientEra,
+		"roots": ax.Array(map[string]ax.Value{"uri":"file:///workspace", "name":"workspace"}),
+		"subscriptionFilters": map[string]ax.Value{"resourcesListChanged":true},
+	})
 
 	var mu sync.Mutex
 	changed := sync.NewCond(&mu)
@@ -44,12 +52,17 @@ func main() {
 	if len(catalog.Resources) != 2 || len(catalog.ResourceTemplates) != 1 {
 		panic(fmt.Sprintf("MCP catalog discovery failed: %#v", catalog))
 	}
-	result, err := client.CallTool("start_reindex", map[string]ax.Value{"scope": "all"})
-	if err != nil {
-		panic(err)
+	taskID := ""
+	if era == "modern" {
+		result, err := client.CallTool("start_reindex", map[string]ax.Value{"scope":"all"}); if err != nil { panic(err) }
+		structured, _ := result["structuredContent"].(map[string]ax.Value); if fmt.Sprint(structured["indexed"]) != "42" { panic(fmt.Sprintf("modern task result was not flattened: %#v", result)) }
+		rootsResult, err := client.CallTool("mrtr_roots_round", map[string]ax.Value{}); if err != nil { panic(err) }
+		rootsStructured, _ := rootsResult["structuredContent"].(map[string]ax.Value); if fmt.Sprint(rootsStructured["indexed"]) != "42" { panic(fmt.Sprintf("modern roots MRTR failed: %#v", rootsResult)) }
+		refreshed, err := client.InspectCatalog(false); if err != nil { panic(err) }; version := fmt.Sprint(refreshed.ServerInfo["version"]); if version == "" || version == "2.0.0" { panic(fmt.Sprintf("modern serverInfo was not refreshed: %#v", refreshed.ServerInfo)) }
+	} else {
+		result, err := client.CallTool("start_reindex", map[string]ax.Value{"scope": "all"}); if err != nil { panic(err) }
+		task := result["task"].(map[string]ax.Value); taskID = task["taskId"].(string)
 	}
-	task := result["task"].(map[string]ax.Value)
-	taskID := task["taskId"].(string)
 
 	resourceTarget := ax.AxEventTarget{ID: "resource-target", RetrySafety: "idempotent",
 		Invoke: func(input ax.Value, _ map[string]ax.Value) (ax.Value, error) { mark("resource"); return input, nil },
@@ -80,15 +93,15 @@ func main() {
 	if err := runtime.Start(); err != nil {
 		panic(err)
 	}
-	_, err = runtime.Publish(ax.AxEventEnvelope{SpecVersion: "1.0", ID: "task-start", Source: "app://smoke", Type: "app.task.started", Data: map[string]ax.Value{"taskId": taskID, "taskKey": "inventory:" + taskID}}, "tenant:smoke", "authenticated")
-	if err != nil {
-		panic(err)
+	if era == "legacy" {
+		_, err = runtime.Publish(ax.AxEventEnvelope{SpecVersion: "1.0", ID: "task-start", Source: "app://smoke", Type: "app.task.started", Data: map[string]ax.Value{"taskId": taskID, "taskKey": "inventory:" + taskID}}, "tenant:smoke", "authenticated")
+		if err != nil { panic(err) }
 	}
 	fmt.Println("AX_MCP_SMOKE_READY")
 
 	deadline := time.Now().Add(20 * time.Second)
 	mu.Lock()
-	for !(state["resource"] >= 1 && state["task"] >= 2 && state["progress"] >= 1) {
+	for !(state["resource"] >= 1 && (era == "modern" || state["task"] >= 2) && (era == "modern" || state["progress"] >= 1)) {
 		if time.Now().After(deadline) {
 			mu.Unlock()
 			panic(fmt.Sprintf("MCP event smoke timed out: %#v", state))

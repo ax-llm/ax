@@ -16,6 +16,8 @@ struct State {
 
 fn main() -> AxResult<()> {
     let endpoint = env::var("AX_MCP_ENDPOINT").expect("AX_MCP_ENDPOINT is required");
+    let era = env::var("AX_MCP_SMOKE_ERA").unwrap_or_else(|_| "legacy".into());
+    let client_era = if era == "modern" { "auto" } else { "legacy" };
     let transport = AxMCPStreamableHTTPTransport::new(
         endpoint,
         json!({
@@ -26,7 +28,12 @@ fn main() -> AxResult<()> {
     )?;
     let client = Arc::new(Mutex::new(AxMCPClient::new(
         Box::new(transport),
-        json!({"namespace": "inventory", "era": "legacy"}),
+        json!({
+            "namespace": "inventory",
+            "era": client_era,
+            "roots": [{"uri":"file:///workspace","name":"workspace"}],
+            "subscriptionFilters": {"resourcesListChanged":true}
+        }),
     )));
     let state = Arc::new((Mutex::new(State::default()), Condvar::new()));
     let progress_state = state.clone();
@@ -45,11 +52,19 @@ fn main() -> AxResult<()> {
     if catalog.resources.len() != 2 || catalog.resource_templates.len() != 1 {
         panic!("MCP catalog discovery failed");
     }
-    let task = client
-        .lock()
-        .unwrap()
-        .call_tool("start_reindex", json!({"scope": "all"}))?;
-    let task_id = task["task"]["taskId"].as_str().unwrap().to_string();
+    let task_id = if era == "modern" {
+        let result = client.lock().unwrap().call_tool("start_reindex", json!({"scope":"all"}))?;
+        if result["structuredContent"]["indexed"] != json!(42) { panic!("modern task result was not flattened: {result}"); }
+        let roots_result = client.lock().unwrap().call_tool("mrtr_roots_round", json!({}))?;
+        if roots_result["structuredContent"]["indexed"] != json!(42) { panic!("modern roots MRTR failed: {roots_result}"); }
+        let refreshed = client.lock().unwrap().inspect_catalog(false)?;
+        let version = refreshed.server_info.get("version").and_then(Value::as_str).unwrap_or_default();
+        if version.is_empty() || version == "2.0.0" { panic!("modern serverInfo was not refreshed: {}", refreshed.server_info); }
+        String::new()
+    } else {
+        let task = client.lock().unwrap().call_tool("start_reindex", json!({"scope":"all"}))?;
+        task["task"]["taskId"].as_str().unwrap().to_string()
+    };
 
     let resource_state = state.clone();
     let resource_target = AxEventTarget::new("resource-target", move |input, _| {
@@ -133,27 +148,29 @@ fn main() -> AxResult<()> {
         AxMCPResourceSubscriptionPolicy::All,
     );
     source.start()?;
-    runtime.lock().unwrap().publish(
-        AxEventEnvelope {
-            specversion: "1.0".into(),
-            id: "task-start".into(),
-            source: "app://smoke".into(),
-            r#type: "app.task.started".into(),
-            subject: None,
-            data: json!({"taskId": task_id, "taskKey": format!("inventory:{task_id}")}),
-            extensions: Map::new(),
-            correlation: vec![],
-        },
-        "tenant:smoke",
-        "authenticated",
-    )?;
+    if era == "legacy" {
+        runtime.lock().unwrap().publish(
+            AxEventEnvelope {
+                specversion: "1.0".into(),
+                id: "task-start".into(),
+                source: "app://smoke".into(),
+                r#type: "app.task.started".into(),
+                subject: None,
+                data: json!({"taskId": task_id, "taskKey": format!("inventory:{task_id}")}),
+                extensions: Map::new(),
+                correlation: vec![],
+            },
+            "tenant:smoke",
+            "authenticated",
+        )?;
+    }
     println!("AX_MCP_SMOKE_READY");
 
     let deadline = Instant::now() + Duration::from_secs(20);
     let result = loop {
         source.poll();
         let current = state.0.lock().unwrap();
-        if current.resource >= 1 && current.task >= 2 && current.progress >= 1 {
+        if current.resource >= 1 && (era == "modern" || current.task >= 2) && (era == "modern" || current.progress >= 1) {
             break format!(
                 "AX_MCP_SMOKE_OK resource={} task={} progress={}",
                 current.resource, current.task, current.progress

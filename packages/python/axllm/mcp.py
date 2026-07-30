@@ -2575,6 +2575,7 @@ class AxMCPClient:
         self._subscription_owners: dict[str, set[str]] = {}
         self._active_subscription_id: str | None = None
         self._subscription_ready = threading.Event()
+        self._subscription_restart_lock = threading.Lock()
         self._next_id = 1
         self._notification_listeners: list[Callable[[dict[str, Any]], None]] = []
         self._lifecycle_listeners: list[Callable[[str], None]] = []
@@ -2924,7 +2925,14 @@ class AxMCPClient:
     def _restart_modern_listener(self) -> None:
         if self.era != "modern" or self._active_subscription_id is None:
             return
-        self.start_listening()
+        def restart() -> None:
+            with self._subscription_restart_lock:
+                if self.era == "modern" and self._active_subscription_id is not None:
+                    self.start_listening()
+        if threading.current_thread() is getattr(self.transport, "_listen_thread", None):
+            threading.Thread(target=restart, daemon=True).start()
+        else:
+            restart()
 
     def _assert_resource_subscriptions(self) -> None:
         resources = self.server_capabilities.get("resources")
@@ -3506,8 +3514,15 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
     def close_request_stream(self) -> None:
         self._listen_stop.set()
         if self._listen_response is not None:
-            try: self._listen_response.close()
-            except Exception: pass
+            try:
+                raw = getattr(getattr(self._listen_response, "fp", None), "raw", None)
+                connection = getattr(raw, "_sock", None)
+                if connection is not None:
+                    connection.shutdown(socket.SHUT_RDWR)
+                else:
+                    self._listen_response.close()
+            except Exception:
+                pass
         if self._listen_thread and self._listen_thread is not threading.current_thread():
             self._listen_thread.join(float(self.options.get("closeTimeout", 2)))
         self._listen_thread = None

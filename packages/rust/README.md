@@ -74,6 +74,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `cargo run --example ace_playbook`: grow an evolving context playbook with `playbook()` (offline, scripted client)
 - `cargo run --example agent_playbook`: attach a seeded agent playbook, exercise stage instructions and citations, learn from run-end failures, and verify accept/rollback evolution (offline, scripted client)
 - `cargo run --example mcp_scripted_tools`: MCP tool discovery and invocation through a scripted transport
+- `cargo run --example mcp_modern_roundtrip`: modern MCP discovery, cache, task, and roots MRTR over an in-process HTTP loopback
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 

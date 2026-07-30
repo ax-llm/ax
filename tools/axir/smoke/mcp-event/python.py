@@ -14,6 +14,7 @@ from axllm import (
 
 
 endpoint = os.environ["AX_MCP_ENDPOINT"]
+era = os.environ.get("AX_MCP_SMOKE_ERA", "legacy")
 transport = AxMCPStreamableHTTPTransport(
     endpoint,
     {
@@ -25,7 +26,15 @@ transport = AxMCPStreamableHTTPTransport(
         "reconnectDelay": 0.05,
     },
 )
-client = AxMCPClient(transport, {"namespace": "inventory", "era": "legacy"})
+client = AxMCPClient(
+    transport,
+    {
+        "namespace": "inventory",
+        "era": "auto" if era == "modern" else "legacy",
+        "roots": [{"uri": "file:///workspace", "name": "workspace"}],
+        "subscriptionFilters": {"resourcesListChanged": True},
+    },
+)
 catalog = client.inspect_catalog()
 if len(catalog["resources"]) != 2 or len(catalog["resourceTemplates"]) != 1:
     raise RuntimeError(f"MCP catalog discovery failed: {catalog}")
@@ -90,30 +99,43 @@ runtime = AxEventRuntime(
 )
 
 runtime.start()
-task = client.call_tool("start_reindex", {"scope": "all"})["task"]
-task_id = task["taskId"]
-task_target.waitFor[0]["metadata"] = {"taskId": task_id}
-runtime.publish(
-    AxEventEnvelope(
-        "task-start",
-        "app://smoke",
-        "app.task.started",
-        {"taskId": task_id, "taskKey": f"inventory:{task_id}"},
-    ),
-    identity_scope="tenant:smoke",
-    trust="authenticated",
-)
+if era == "modern":
+    result = client.call_tool("start_reindex", {"scope": "all"})
+    if result.get("structuredContent", {}).get("indexed") != 42:
+        raise RuntimeError(f"modern task result was not flattened: {result}")
+    roots_result = client.call_tool("mrtr_roots_round", {})
+    if roots_result.get("structuredContent", {}).get("indexed") != 42:
+        raise RuntimeError(f"modern roots MRTR failed: {roots_result}")
+    refreshed = client.inspect_catalog()
+    if refreshed.get("serverInfo", {}).get("version") in (None, "2.0.0"):
+        raise RuntimeError(f"modern serverInfo was not refreshed: {refreshed}")
+else:
+    task = client.call_tool("start_reindex", {"scope": "all"})["task"]
+    task_id = task["taskId"]
+    task_target.waitFor[0]["metadata"] = {"taskId": task_id}
+    runtime.publish(
+        AxEventEnvelope(
+            "task-start",
+            "app://smoke",
+            "app.task.started",
+            {"taskId": task_id, "taskKey": f"inventory:{task_id}"},
+        ),
+        identity_scope="tenant:smoke",
+        trust="authenticated",
+    )
 print("AX_MCP_SMOKE_READY", flush=True)
 
 deadline = time.monotonic() + 20
 with condition:
     while not (
-        state["resource"] >= 1 and state["task"] >= 2 and state["progress"] >= 1
+        state["resource"] >= 1
+        and (era == "modern" or state["task"] >= 2)
+        and (era == "modern" or state["progress"] >= 1)
     ):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise RuntimeError(f"MCP event smoke timed out: {state}")
-        condition.wait(remaining)
+        condition.wait(min(remaining, 0.1))
 
 source.close()
 client.close()

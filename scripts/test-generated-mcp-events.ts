@@ -12,10 +12,11 @@ const requested = process.argv
   .split(',')
   .filter(Boolean);
 const languages = requested ?? ['python', 'java', 'cpp', 'go', 'rust'];
+const eras = ['legacy', 'modern'] as const;
 
 for (const language of languages) {
   const command = await build(language);
-  await runSmoke(language, command);
+  for (const era of eras) await runSmoke(language, era, command);
 }
 
 async function build(language: string): Promise<{
@@ -94,6 +95,7 @@ async function build(language: string): Promise<{
 
 async function runSmoke(
   language: string,
+  era: (typeof eras)[number],
   spec: {
     command: string;
     args: string[];
@@ -101,11 +103,16 @@ async function runSmoke(
     env?: NodeJS.ProcessEnv;
   }
 ): Promise<void> {
-  const server = new AxMCPEventDemoServer();
+  const server = new AxMCPEventDemoServer({ era });
   const endpoint = await server.start();
   const child = spawn(spec.command, spec.args, {
     cwd: spec.cwd ?? root,
-    env: { ...process.env, ...spec.env, AX_MCP_ENDPOINT: endpoint },
+    env: {
+      ...process.env,
+      ...spec.env,
+      AX_MCP_ENDPOINT: endpoint,
+      AX_MCP_SMOKE_ERA: era,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
@@ -123,6 +130,29 @@ async function runSmoke(
       server.waitForSubscription('demo://orders'),
       server.waitForListeningConnection(),
     ]);
+    if (era === 'modern') {
+      if (server.getMethodCount('initialize') !== 0)
+        throw new Error('modern smoke sent legacy initialize');
+      if (server.getMethodCount('server/discover') !== 1)
+        throw new Error('modern smoke did not use one server/discover request');
+      for (const method of [
+        'tools/list',
+        'prompts/list',
+        'resources/list',
+        'resources/templates/list',
+      ]) {
+        if (server.getMethodCount(method) !== 1)
+          throw new Error(
+            `modern cacheable catalog did not reuse ${method}: ${server.getMethodCount(method)} requests`
+          );
+      }
+      if (server.getMethodCount('tasks/get') < 1)
+        throw new Error(
+          'modern task result was not flattened through tasks/get'
+        );
+      if (server.getMethodCount('tools/call') < 3)
+        throw new Error('modern roots-only MRTR round did not complete');
+    }
     server.addResource();
     await server.waitForSubscription('demo://alerts');
     server.removeResource('demo://orders');
@@ -144,17 +174,19 @@ async function runSmoke(
       ),
     ]);
     server.updateResource();
-    const taskId = await server.waitForTask();
-    server.completeTask(taskId);
+    if (era === 'legacy') {
+      const taskId = await server.waitForTask();
+      server.completeTask(taskId);
+    }
     await waitForExit(child, 25_000);
     if (!stdout.includes('AX_MCP_SMOKE_OK')) {
       throw new Error(`${language} smoke did not report success`);
     }
-    console.log(`[generated-mcp-event] ${language}: pass`);
+    console.log(`[generated-mcp-event] ${language}/${era}: pass`);
   } catch (error) {
     if (child.exitCode === null) child.kill('SIGKILL');
     throw new Error(
-      `${language} generated MCP event smoke failed: ${String(error)}\nstdout:\n${stdout}\nstderr:\n${stderr}`
+      `${language}/${era} generated MCP event smoke failed: ${String(error)}\nsubscriptions/listen=${server.getMethodCount('subscriptions/listen')}\nstdout:\n${stdout}\nstderr:\n${stderr}`
     );
   } finally {
     await server.close();

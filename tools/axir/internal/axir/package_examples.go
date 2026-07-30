@@ -1222,6 +1222,93 @@ finally:
 print("audio-http-roundtrip-ok")
 `
 
+const pyMCPModernRoundtripExample = `"""Exercise the modern MCP client through a real in-process HTTP loopback."""
+
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from axllm import AxMCPClient, AxMCPStreamableHTTPTransport
+
+
+class Handler(BaseHTTPRequestHandler):
+    calls = 0
+    tool_lists = 0
+    failures = []
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        request = json.loads(self.rfile.read(length) or b"{}")
+        method = request.get("method")
+        params = request.get("params") or {}
+        if method == "initialize":
+            self.failures.append("modern client sent initialize")
+        if method != "server/discover" and "_meta" not in params:
+            self.failures.append(f"{method} omitted request _meta")
+        Handler.calls += 1
+        meta = {"io.modelcontextprotocol/serverInfo": {"name": "modern-loopback", "version": f"1.0.{self.calls}"}}
+        result = {"resultType": "complete", "_meta": meta}
+        if method == "server/discover":
+            result = {"resultType": "complete", "supportedVersions": ["2026-07-28"], "capabilities": {"tools": {}, "extensions": {"io.modelcontextprotocol/tasks": {}}}, "ttlMs": 60000, "cacheScope": "public", "_meta": meta}
+        elif method == "tools/list":
+            Handler.tool_lists += 1
+            result.update({
+                "tools": [
+                    {"name": "start_reindex", "inputSchema": {"type": "object", "properties": {"scope": {"type": "string", "x-mcp-header": "Scope"}}}},
+                    {"name": "mrtr_roots_round", "inputSchema": {"type": "object", "properties": {}}},
+                ],
+                "ttlMs": 60000,
+                "cacheScope": "public",
+            })
+        elif method == "tools/call" and params.get("name") == "start_reindex":
+            if self.headers.get("Mcp-Param-Scope") != "all":
+                self.failures.append("Mcp-Param-Scope was not propagated")
+            result = {"resultType": "task", "taskId": "task-1", "status": "working", "createdAt": "2026-07-29T00:00:00Z", "lastUpdatedAt": "2026-07-29T00:00:00Z", "ttlMs": None, "_meta": meta}
+        elif method == "tasks/get":
+            result = {"taskId": "task-1", "status": "completed", "createdAt": "2026-07-29T00:00:00Z", "lastUpdatedAt": "2026-07-29T00:00:01Z", "ttlMs": None, "result": {"resultType": "complete", "structuredContent": {"indexed": 42}, "_meta": meta}, "_meta": meta}
+        elif method == "tools/call" and "requestState" not in params:
+            result = {"resultType": "input_required", "inputRequests": {"roots": {"method": "roots/list"}}, "requestState": "opaque-roots-state", "_meta": meta}
+        elif method == "tools/call":
+            if params.get("requestState") != "opaque-roots-state" or params.get("inputResponses", {}).get("roots", {}).get("roots", [{}])[0].get("uri") != "file:///workspace":
+                self.failures.append("roots MRTR response was not echoed")
+            result.update({"structuredContent": {"roots": 1}})
+        payload = json.dumps({"jsonrpc": "2.0", "id": request.get("id"), "result": result}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+try:
+    transport = AxMCPStreamableHTTPTransport(
+        f"http://127.0.0.1:{server.server_address[1]}/mcp",
+        {"ssrfProtection": {"requireHttps": False, "allowLocalhost": True, "allowPrivateNetworks": True}},
+    )
+    client = AxMCPClient(transport, {"era": "modern", "roots": [{"uri": "file:///workspace", "name": "workspace"}]})
+    client.init()
+    assert client.get_era() == "modern"
+    client.refresh(force=False)
+    task = client.call_tool("start_reindex", {"scope": "all"})
+    assert task.get("structuredContent", {}).get("indexed") == 42, task
+    roots = client.call_tool("mrtr_roots_round", {})
+    assert roots.get("structuredContent", {}).get("roots") == 1, roots
+    catalog = client.inspect_catalog()
+    assert Handler.tool_lists == 1, "cacheable tools/list was fetched again"
+    assert not Handler.failures, Handler.failures
+    assert catalog.get("serverInfo", {}).get("version") != "1.0.1", catalog.get("serverInfo")
+    client.close()
+finally:
+    server.shutdown()
+
+print("mcp-modern-roundtrip-ok")
+`
+
 const pyMCPSseRoundtripExample = `"""Drive AxMCPStreamableHTTPTransport.send() through the REAL urllib transport
 against an in-process loopback server that answers the JSON-RPC POST with
 Content-Type: text/event-stream -- the MCP Streamable HTTP SSE path the
@@ -1745,6 +1832,85 @@ public final class AudioHTTPRoundtripExample {
       return true;
     }
     return false;
+  }
+}
+`
+
+const javaMCPModernRoundtripExample = `import com.sun.net.httpserver.HttpServer;
+import dev.axllm.ax.*;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.*;
+
+public final class AxMCPModernRoundtripExample {
+  @SuppressWarnings("unchecked")
+  private static Map<String,Object> object(Object value) { return (Map<String,Object>) value; }
+
+  public static void main(String[] args) throws Exception {
+    AtomicInteger calls = new AtomicInteger();
+    AtomicInteger toolLists = new AtomicInteger();
+    List<String> failures = Collections.synchronizedList(new ArrayList<>());
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext("/mcp", exchange -> {
+      String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      int call = calls.incrementAndGet();
+      Matcher matcher = Pattern.compile("\\\"id\\\"\\s*:\\s*(\\\"[^\\\"]*\\\"|[0-9]+)").matcher(body);
+      String id = matcher.find() ? matcher.group(1) : "null";
+      String method;
+      if (body.contains("server/discover")) method = "server/discover";
+      else if (body.contains("tools/list")) method = "tools/list";
+      else if (body.contains("tasks/get")) method = "tasks/get";
+      else if (body.contains("start_reindex")) method = "start_reindex";
+      else if (body.contains("mrtr_roots_round")) method = "mrtr_roots_round";
+      else if (body.contains("initialize")) method = "initialize";
+      else method = "unknown";
+      if (method.equals("initialize")) failures.add("modern client sent initialize");
+      if (!method.equals("server/discover") && !body.contains("io.modelcontextprotocol")) failures.add(method + " omitted request _meta");
+      String meta = "\\\"_meta\\\":{\\\"io.modelcontextprotocol/serverInfo\\\":{\\\"name\\\":\\\"modern-loopback\\\",\\\"version\\\":\\\"1.0." + call + "\\\"}}";
+      String result;
+      if (method.equals("server/discover")) {
+        result = "{\\\"resultType\\\":\\\"complete\\\",\\\"supportedVersions\\\":[\\\"2026-07-28\\\"],\\\"capabilities\\\":{\\\"tools\\\":{},\\\"extensions\\\":{\\\"io.modelcontextprotocol/tasks\\\":{}}},\\\"ttlMs\\\":60000,\\\"cacheScope\\\":\\\"public\\\"," + meta + "}";
+      } else if (method.equals("tools/list")) {
+        toolLists.incrementAndGet();
+        result = "{\\\"resultType\\\":\\\"complete\\\",\\\"tools\\\":[{\\\"name\\\":\\\"start_reindex\\\",\\\"inputSchema\\\":{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\\\"scope\\\":{\\\"type\\\":\\\"string\\\",\\\"x-mcp-header\\\":\\\"Scope\\\"}}}},{\\\"name\\\":\\\"mrtr_roots_round\\\",\\\"inputSchema\\\":{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{}}}],\\\"ttlMs\\\":60000,\\\"cacheScope\\\":\\\"public\\\"," + meta + "}";
+      } else if (method.equals("start_reindex")) {
+        if (!"all".equals(exchange.getRequestHeaders().getFirst("Mcp-Param-Scope"))) failures.add("Mcp-Param-Scope was not propagated");
+        result = "{\\\"resultType\\\":\\\"task\\\",\\\"taskId\\\":\\\"task-1\\\",\\\"status\\\":\\\"working\\\",\\\"createdAt\\\":\\\"2026-07-29T00:00:00Z\\\",\\\"lastUpdatedAt\\\":\\\"2026-07-29T00:00:00Z\\\",\\\"ttlMs\\\":null," + meta + "}";
+      } else if (method.equals("tasks/get")) {
+        result = "{\\\"taskId\\\":\\\"task-1\\\",\\\"status\\\":\\\"completed\\\",\\\"createdAt\\\":\\\"2026-07-29T00:00:00Z\\\",\\\"lastUpdatedAt\\\":\\\"2026-07-29T00:00:01Z\\\",\\\"ttlMs\\\":null,\\\"result\\\":{\\\"resultType\\\":\\\"complete\\\",\\\"structuredContent\\\":{\\\"indexed\\\":42}," + meta + "}," + meta + "}";
+      } else if (!body.contains("requestState")) {
+        result = "{\\\"resultType\\\":\\\"input_required\\\",\\\"inputRequests\\\":{\\\"roots\\\":{\\\"method\\\":\\\"roots/list\\\"}},\\\"requestState\\\":\\\"opaque-roots-state\\\"," + meta + "}";
+      } else {
+        if (!body.contains("opaque-roots-state") || !body.contains("file:///workspace")) failures.add("roots MRTR response was not echoed");
+        result = "{\\\"resultType\\\":\\\"complete\\\",\\\"structuredContent\\\":{\\\"roots\\\":1}," + meta + "}";
+      }
+      result = result.replace("\\\"", "\"");
+      byte[] response = ("{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":" + result + "}").getBytes(StandardCharsets.UTF_8);
+      exchange.getResponseHeaders().set("Content-Type", "application/json");
+      exchange.sendResponseHeaders(200, response.length);
+      try (OutputStream output = exchange.getResponseBody()) { output.write(response); }
+    });
+    server.start();
+    try {
+      AxMCPStreamableHTTPTransport transport = new AxMCPStreamableHTTPTransport(
+          "http://127.0.0.1:" + server.getAddress().getPort() + "/mcp",
+          Map.of("ssrfProtection", Map.of("requireHttps", false, "allowLocalhost", true, "allowPrivateNetworks", true)));
+      AxMCPClient client = new AxMCPClient(transport, Map.of("era", "modern", "roots", List.of(Map.of("uri", "file:///workspace", "name", "workspace"))));
+      client.init();
+      if (!"modern".equals(client.getEra())) throw new IllegalStateException("modern discovery failed");
+      client.refresh(false);
+      Map<String,Object> task = client.callTool("start_reindex", Map.of("scope", "all"));
+      if (((Number)object(task.get("structuredContent")).get("indexed")).intValue() != 42) throw new IllegalStateException("task was not flattened: " + task);
+      Map<String,Object> roots = client.callTool("mrtr_roots_round", Map.of());
+      if (((Number)object(roots.get("structuredContent")).get("roots")).intValue() != 1) throw new IllegalStateException("roots MRTR failed: " + roots);
+      AxMCPClient.CatalogSnapshot catalog = client.inspectCatalog();
+      if (toolLists.get() != 1 || !failures.isEmpty() || "1.0.1".equals(catalog.serverInfo().get("version"))) throw new IllegalStateException("modern roundtrip failed: toolLists=" + toolLists + " failures=" + failures + " serverInfo=" + catalog.serverInfo());
+      client.close();
+    } finally { server.stop(0); }
+    System.out.println("mcp-modern-roundtrip-ok");
   }
 }
 `
@@ -2473,6 +2639,67 @@ int main() {
   }
   std::cout << "audio-http-roundtrip-ok\n";
   return 0;
+}
+`
+
+const cppMCPModernRoundtripExample = `#include "axllm/axllm.hpp"
+#include "axllm/mcp.hpp"
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <cctype>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace {
+std::string read_request(int fd) {
+  std::string buf; char tmp[4096]; size_t end=std::string::npos, length=0;
+  while (true) {
+    if (end==std::string::npos) { auto pos=buf.find("\r\n\r\n"); if(pos!=std::string::npos){end=pos+4;std::string headers=buf.substr(0,end);std::string lower=headers;for(char& c:lower)c=static_cast<char>(std::tolower(static_cast<unsigned char>(c)));auto at=lower.find("content-length:");if(at!=std::string::npos)length=std::stoul(lower.substr(at+15));} }
+    if(end!=std::string::npos&&buf.size()>=end+length)break;
+    auto count=recv(fd,tmp,sizeof(tmp),0);if(count<=0)break;buf.append(tmp,static_cast<size_t>(count));
+  }
+  return buf;
+}
+void respond(int fd,const std::string& body){std::string out="HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "+std::to_string(body.size())+"\r\nConnection: close\r\n\r\n"+body;size_t offset=0;while(offset<out.size()){auto count=send(fd,out.data()+offset,out.size()-offset,0);if(count<=0)break;offset+=static_cast<size_t>(count);}}
+}
+
+int main() {
+  int server_fd=socket(AF_INET,SOCK_STREAM,0);int opt=1;setsockopt(server_fd,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof(opt));
+  sockaddr_in address{};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);address.sin_port=0;
+  if(bind(server_fd,reinterpret_cast<sockaddr*>(&address),sizeof(address))<0||listen(server_fd,8)<0)return 1;
+  socklen_t size=sizeof(address);getsockname(server_fd,reinterpret_cast<sockaddr*>(&address),&size);int port=ntohs(address.sin_port);
+  int calls=0,tool_lists=0;std::vector<std::string> failures;
+  std::thread server([&]{
+    bool done=false;while(!done){int fd=accept(server_fd,nullptr,nullptr);if(fd<0)return;std::string request=read_request(fd);++calls;
+      std::string method=request.find("server/discover")!=std::string::npos?"server/discover":request.find("tools/list")!=std::string::npos?"tools/list":request.find("tasks/get")!=std::string::npos?"tasks/get":request.find("start_reindex")!=std::string::npos?"start_reindex":request.find("mrtr_roots_round")!=std::string::npos?"mrtr_roots_round":request.find("initialize")!=std::string::npos?"initialize":"unknown";
+      if(method=="initialize")failures.push_back("modern client sent initialize");if(method!="server/discover"&&request.find("io.modelcontextprotocol")==std::string::npos)failures.push_back(method+" omitted request _meta");
+      std::string meta="\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"modern-loopback\",\"version\":\"1.0."+std::to_string(calls)+"\"}}";
+      std::string result;
+      if(method=="server/discover")result="{\"resultType\":\"complete\",\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"tools\":{},\"extensions\":{\"io.modelcontextprotocol/tasks\":{}}},\"ttlMs\":60000,\"cacheScope\":\"public\","+meta+"}";
+      else if(method=="tools/list"){++tool_lists;result="{\"resultType\":\"complete\",\"tools\":[{\"name\":\"start_reindex\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"scope\":{\"type\":\"string\",\"x-mcp-header\":\"Scope\"}}}},{\"name\":\"mrtr_roots_round\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}],\"ttlMs\":60000,\"cacheScope\":\"public\","+meta+"}";}
+      else if(method=="start_reindex"){std::string lower=request;for(char& c:lower)c=static_cast<char>(std::tolower(static_cast<unsigned char>(c)));if(lower.find("mcp-param-scope: all")==std::string::npos)failures.push_back("Mcp-Param-Scope was not propagated");result="{\"resultType\":\"task\",\"taskId\":\"task-1\",\"status\":\"working\",\"createdAt\":\"2026-07-29T00:00:00Z\",\"lastUpdatedAt\":\"2026-07-29T00:00:00Z\",\"ttlMs\":null,"+meta+"}";}
+      else if(method=="tasks/get")result="{\"taskId\":\"task-1\",\"status\":\"completed\",\"createdAt\":\"2026-07-29T00:00:00Z\",\"lastUpdatedAt\":\"2026-07-29T00:00:01Z\",\"ttlMs\":null,\"result\":{\"resultType\":\"complete\",\"structuredContent\":{\"indexed\":42},"+meta+"},"+meta+"}";
+      else if(request.find("requestState")==std::string::npos)result="{\"resultType\":\"input_required\",\"inputRequests\":{\"roots\":{\"method\":\"roots/list\"}},\"requestState\":\"opaque-roots-state\","+meta+"}";
+      else {if(request.find("opaque-roots-state")==std::string::npos||request.find("file:///workspace")==std::string::npos)failures.push_back("roots MRTR response was not echoed");result="{\"resultType\":\"complete\",\"structuredContent\":{\"roots\":1},"+meta+"}";done=true;}
+      respond(fd,"{\"jsonrpc\":\"2.0\",\"id\":"+std::to_string(calls)+",\"result\":"+result+"}");close(fd);
+    }
+  });
+
+  auto transport=std::make_shared<axllm::AxMCPStreamableHTTPTransport>("http://127.0.0.1:"+std::to_string(port)+"/mcp",axllm::object({{"ssrfProtection",axllm::object({{"requireHttps",false},{"allowLocalhost",true},{"allowPrivateNetworks",true}})}}));
+  axllm::AxMCPClient client(transport,axllm::object({{"era","modern"},{"roots",axllm::array({axllm::object({{"uri","file:///workspace"},{"name","workspace"}})})}}));
+  client.init();if(client.get_era()!="modern")return 1;client.refresh(false);
+  auto task=client.call_tool("start_reindex",axllm::object({{"scope","all"}}));if(axllm::Core::number(axllm::Core::get(axllm::Core::get(task,"structuredContent",axllm::Value::object()),"indexed",0))!=42)return 1;
+  auto roots=client.call_tool("mrtr_roots_round",axllm::Value::object());if(axllm::Core::number(axllm::Core::get(axllm::Core::get(roots,"structuredContent",axllm::Value::object()),"roots",0))!=1)return 1;
+  auto catalog=client.inspect_catalog(false);client.close();server.join();close(server_fd);
+  if(tool_lists!=1||!failures.empty()||axllm::display(axllm::Core::get(catalog.server_info,"version",""))=="1.0.1"){std::cerr<<"modern roundtrip failed\n";return 1;}
+  std::cout<<"mcp-modern-roundtrip-ok\n";return 0;
 }
 `
 
