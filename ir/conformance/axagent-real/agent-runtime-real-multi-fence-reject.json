@@ -1,0 +1,39 @@
+{
+  "kind": "agent_runtime_real",
+  "name": "agent-runtime-real-multi-fence-reject",
+  "runtime_engine": "javascript",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Reject every block in a multi-fence actor turn"
+  },
+  "options": {
+    "runtime": {
+      "language": "JavaScript"
+    },
+    "contextPolicy": {
+      "preset": "lean",
+      "budget": "balanced"
+    }
+  },
+  "responses": [
+    {
+      "content": "{\"javascriptCode\":\"final(\\\"Inspect the executor policy\\\", { evidence: 'multi-fence-antidote' })\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"First attempt:\\n```javascript\\nglobalThis.axRejectedFenceOne = 'executed';\\n```\\nSecond attempt:\\n```javascript\\nglobalThis.axRejectedFenceTwo = 'executed';\\n```\"}"
+    },
+    {
+      "content": "{\"javascriptCode\":\"if (typeof globalThis.axRejectedFenceOne !== 'undefined' || typeof globalThis.axRejectedFenceTwo !== 'undefined') { throw new Error('a rejected fenced block executed'); }\\nfinal(\\\"done\\\", { answer: 'both blocks rejected' })\"}"
+    },
+    {
+      "content": "{\"answer\":\"both blocks rejected\"}"
+    }
+  ],
+  "expected_output": {
+    "answer": "both blocks rejected"
+  },
+  "expected_request_count": 4,
+  "expected_request_contains": [
+    "Your previous Javascript Code value contained multiple fenced code blocks, so none of them were executed. On this turn, put every executable statement in one Javascript Code value with at most one fence."
+  ]
+}

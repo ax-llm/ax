@@ -2098,6 +2098,10 @@ def _core_string_replace(value, old, new):
     return str(value).replace(str(old), str(new))
 
 
+def _core_string_split(value, sep):
+    return str(value).split(str(sep))
+
+
 def _core_string_split_once(value, sep):
     text = str(value)
     if sep in text:

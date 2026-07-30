@@ -61920,6 +61920,249 @@ fn _agent_stage_options(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _agent_runtime_code_fence_violation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_runtime_code_fence_violation");
+    let mut v_code = core_arg(args, 0);
+    let mut v_bare_fence = CoreValue::Null;
+    let mut v_block_count = CoreValue::Null;
+    let mut v_has_language = CoreValue::Null;
+    let mut v_inside_fence = CoreValue::Null;
+    let mut v_is_closing = CoreValue::Null;
+    let mut v_is_fence = CoreValue::Null;
+    let mut v_line = CoreValue::Null;
+    let mut v_lines = CoreValue::Null;
+    let mut v_multiple = CoreValue::Null;
+    let mut v_normalized_newlines = CoreValue::Null;
+    v_normalized_newlines = core_string_replace(&[
+        v_code.clone(),
+        CoreValue::from("r\n"),
+        CoreValue::from("\n"),
+    ])?;
+    v_lines = core_string_split(&[v_normalized_newlines.clone(), CoreValue::from("\n")])?;
+    v_inside_fence = CoreValue::Bool(false);
+    v_block_count = CoreValue::Num(0f64);
+    for v_line in core_iter(&v_lines)? {
+        let mut v_line = v_line;
+        v_is_fence = core_regex_match(CoreValue::from("```([A-Za-z0-9_-]+)?[ \t]*$"), &v_line)?;
+        if core_truthy(&v_is_fence) {
+            v_has_language =
+                core_regex_match(CoreValue::from("```[A-Za-z0-9_-]+[ \t]*$"), &v_line)?;
+            v_bare_fence = core_not(&[v_has_language.clone()])?;
+            v_is_closing = core_and(&[v_inside_fence.clone(), v_bare_fence.clone()])?;
+            if core_truthy(&v_is_closing) {
+                v_inside_fence = CoreValue::Bool(false);
+            } else {
+                v_block_count = core_add(&[v_block_count.clone(), CoreValue::Num(1f64)])?;
+                v_multiple = core_gt(&[v_block_count.clone(), CoreValue::Num(1f64)])?;
+                if core_truthy(&v_multiple) {
+                    return Ok(CoreValue::Bool(true));
+                }
+                v_inside_fence = CoreValue::Bool(true);
+            }
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _normalize_agent_runtime_code(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_normalize_agent_runtime_code");
+    let mut v_code = core_arg(args, 0);
+    let mut v_after_marker = CoreValue::Null;
+    let mut v_before = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
+    let mut v_closing = CoreValue::Null;
+    let mut v_extracted = CoreValue::Null;
+    let mut v_has_closing = CoreValue::Null;
+    let mut v_has_extracted = CoreValue::Null;
+    let mut v_has_marker = CoreValue::Null;
+    let mut v_has_opener_line = CoreValue::Null;
+    let mut v_marker = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_opener = CoreValue::Null;
+    let mut v_opener_suffix = CoreValue::Null;
+    let mut v_search = CoreValue::Null;
+    let mut v_unchanged = CoreValue::Null;
+    let mut v_valid_opener = CoreValue::Null;
+    v_normalized = core_string_trim(&v_code);
+    v_normalized = core_regex_replace(&[
+        CoreValue::from("<think>[\\s\\S]*?</think>"),
+        CoreValue::from(""),
+        v_normalized.clone(),
+    ])?;
+    v_normalized = core_string_trim(&v_normalized);
+    v_normalized = core_regex_replace(&[
+        CoreValue::from("[^\\n]*</think>"),
+        CoreValue::from(""),
+        v_normalized.clone(),
+    ])?;
+    v_normalized = core_string_trim(&v_normalized);
+    v_normalized = core_string_replace(&[
+        v_normalized.clone(),
+        CoreValue::from("r\n"),
+        CoreValue::from("\n"),
+    ])?;
+    v_search = v_normalized.clone();
+    v_extracted = CoreValue::from("");
+    v_has_extracted = CoreValue::Bool(false);
+    loop {
+        v_marker = core_string_split_once(&[v_search.clone(), CoreValue::from("```")])?;
+        v_has_marker = core_get(&v_marker, &CoreValue::from("found"), CoreValue::Bool(false));
+        if core_truthy(&v_has_marker) {
+        } else {
+            break;
+        }
+        v_after_marker = core_get(&v_marker, &CoreValue::from("right"), CoreValue::from(""));
+        v_opener = core_string_split_once(&[v_after_marker.clone(), CoreValue::from("\n")])?;
+        v_has_opener_line = core_get(&v_opener, &CoreValue::from("found"), CoreValue::Bool(false));
+        if core_truthy(&v_has_opener_line) {
+            v_opener_suffix = core_get(&v_opener, &CoreValue::from("left"), CoreValue::from(""));
+            v_valid_opener =
+                core_regex_match(CoreValue::from("^[A-Za-z0-9_-]*[ \t]*$"), &v_opener_suffix)?;
+            if core_truthy(&v_valid_opener) {
+                v_body = core_get(&v_opener, &CoreValue::from("right"), CoreValue::from(""));
+                v_closing = core_string_split_once(&[v_body.clone(), CoreValue::from("```")])?;
+                v_has_closing = core_get(
+                    &v_closing,
+                    &CoreValue::from("found"),
+                    CoreValue::Bool(false),
+                );
+                if core_truthy(&v_has_closing) {
+                    v_extracted =
+                        core_get(&v_closing, &CoreValue::from("left"), CoreValue::from(""));
+                    v_has_extracted = CoreValue::Bool(true);
+                    break;
+                }
+            }
+        }
+        v_search = v_after_marker.clone();
+    }
+    if core_truthy(&v_has_extracted) {
+        v_normalized = core_string_trim(&v_extracted);
+    } else {
+        loop {
+            v_before = v_normalized.clone();
+            v_normalized = core_regex_replace(&[
+                CoreValue::from("^```([A-Za-z0-9_-]+)?[ \\t]*\\n"),
+                CoreValue::from(""),
+                v_normalized.clone(),
+            ])?;
+            v_normalized = core_regex_replace(&[
+                CoreValue::from("\\n?```[ \\t]*$"),
+                CoreValue::from(""),
+                v_normalized.clone(),
+            ])?;
+            v_normalized = core_string_trim(&v_normalized);
+            v_unchanged = core_eq(&[v_normalized.clone(), v_before.clone()])?;
+            if core_truthy(&v_unchanged) {
+                break;
+            }
+        }
+    }
+    return Ok(v_normalized.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _agent_record_runtime_code_fence_violation(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_agent_record_runtime_code_fence_violation");
+    let mut v_state = core_arg(args, 0);
+    let mut v_code = core_arg(args, 1);
+    let mut v_action = CoreValue::Null;
+    let mut v_action_count = CoreValue::Null;
+    let mut v_action_log = CoreValue::Null;
+    let mut v_code_field_title = CoreValue::Null;
+    let mut v_empty_list = CoreValue::Null;
+    let mut v_guidance = CoreValue::Null;
+    let mut v_guidance_entry = CoreValue::Null;
+    let mut v_guidance_log = CoreValue::Null;
+    let mut v_output = CoreValue::Null;
+    let mut v_runtime_contract = CoreValue::Null;
+    let mut v_tags = CoreValue::Null;
+    let mut v_turn = CoreValue::Null;
+    v_empty_list = CoreValue::new_list();
+    v_runtime_contract = core_get(
+        &v_state,
+        &CoreValue::from("runtime_contract"),
+        CoreValue::Null,
+    );
+    v_code_field_title = core_get(
+        &v_runtime_contract,
+        &CoreValue::from("code_field_title"),
+        CoreValue::from("Javascript Code"),
+    );
+    v_output = core_string_format(&[CoreValue::from("[POLICY] {} must contain at most one fenced code block. No code from the previous turn was executed."), v_code_field_title.clone()])?;
+    v_guidance = core_string_format(&[CoreValue::from("Your previous {} value contained multiple fenced code blocks, so none of them were executed. On this turn, put every executable statement in one {} value with at most one fence."), v_code_field_title.clone(), v_code_field_title.clone()])?;
+    v_action_log = core_get(
+        &v_state,
+        &CoreValue::from("action_log"),
+        v_empty_list.clone(),
+    );
+    v_action_count = core_len(&[v_action_log.clone()])?;
+    v_turn = core_add(&[v_action_count.clone(), CoreValue::Num(1f64)])?;
+    v_tags = CoreValue::new_list();
+    core_append(&v_tags, CoreValue::from("error"))?;
+    v_action = CoreValue::new_map();
+    core_set(&v_action, CoreValue::from("turn"), v_turn.clone())?;
+    core_set(&v_action, CoreValue::from("code"), v_code.clone())?;
+    core_set(&v_action, CoreValue::from("output"), v_output.clone())?;
+    core_set(
+        &v_action,
+        CoreValue::from("is_error"),
+        CoreValue::Bool(true),
+    )?;
+    core_set(&v_action, CoreValue::from("tags"), v_tags.clone())?;
+    core_append(&v_action_log, v_action.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("action_log"),
+        v_action_log.clone(),
+    )?;
+    v_guidance_log = core_get(
+        &v_state,
+        &CoreValue::from("guidance_log"),
+        v_empty_list.clone(),
+    );
+    v_guidance_entry = CoreValue::new_map();
+    core_set(&v_guidance_entry, CoreValue::from("turn"), v_turn.clone())?;
+    core_set(
+        &v_guidance_entry,
+        CoreValue::from("guidance"),
+        v_guidance.clone(),
+    )?;
+    core_set(
+        &v_guidance_entry,
+        CoreValue::from("triggeredBy"),
+        CoreValue::from("runtime policy"),
+    )?;
+    core_append(&v_guidance_log, v_guidance_entry.clone())?;
+    core_set(
+        &v_state,
+        CoreValue::from("guidance_log"),
+        v_guidance_log.clone(),
+    )?;
+    _agent_record_trace_event(&[v_state.clone(), CoreValue::from("error"), v_action.clone()])?;
+    return Ok(v_action.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _extract_agent_runtime_code(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_extract_agent_runtime_code");
     let mut v_state = core_arg(args, 0);
@@ -63066,10 +63309,12 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_completion_payload = CoreValue::Null;
     let mut v_direct_respond_only = CoreValue::Null;
     let mut v_distiller_code = CoreValue::Null;
+    let mut v_distiller_code_raw = CoreValue::Null;
     let mut v_distiller_completion = CoreValue::Null;
     let mut v_distiller_empty_log = CoreValue::Null;
     let mut v_distiller_error = CoreValue::Null;
     let mut v_distiller_error_event = CoreValue::Null;
+    let mut v_distiller_fence_violation = CoreValue::Null;
     let mut v_distiller_globals = CoreValue::Null;
     let mut v_distiller_has_completion = CoreValue::Null;
     let mut v_distiller_is_respond = CoreValue::Null;
@@ -63122,6 +63367,7 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_executor_response_event = CoreValue::Null;
     let mut v_executor_skills_after = CoreValue::Null;
     let mut v_executor_values = CoreValue::Null;
+    let mut v_fence_violation = CoreValue::Null;
     let mut v_flags = CoreValue::Null;
     let mut v_forward_skills = CoreValue::Null;
     let mut v_forward_used_memories = CoreValue::Null;
@@ -63149,6 +63395,7 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_previous_runtime_session_state = CoreValue::Null;
     let mut v_previous_runtime_session_state_is_map = CoreValue::Null;
     let mut v_previous_runtime_state_has_bindings = CoreValue::Null;
+    let mut v_raw_code = CoreValue::Null;
     let mut v_relevance_hints_for_turn = CoreValue::Null;
     let mut v_responder_options = CoreValue::Null;
     let mut v_responder_output = CoreValue::Null;
@@ -63481,8 +63728,19 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 CoreValue::from("stage_response"),
                 v_distiller_response_event.clone(),
             ])?;
-            v_distiller_code =
+            v_distiller_code_raw =
                 _extract_agent_runtime_code(&[v_state.clone(), v_distiller_output.clone()])?;
+            v_distiller_fence_violation =
+                _agent_runtime_code_fence_violation(&[v_distiller_code_raw.clone()])?;
+            if core_truthy(&v_distiller_fence_violation) {
+                _agent_record_runtime_code_fence_violation(&[
+                    v_state.clone(),
+                    v_distiller_code_raw.clone(),
+                ])?;
+                v_distiller_step = core_add(&[v_distiller_step.clone(), CoreValue::Num(1f64)])?;
+                continue;
+            }
+            v_distiller_code = _normalize_agent_runtime_code(&[v_distiller_code_raw.clone()])?;
             v_distiller_runtime_step = _agent_runtime_execute_step(&[
                 v_state.clone(),
                 v_runtime_from_options.clone(),
@@ -63861,7 +64119,15 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
                 CoreValue::from("stage_response"),
                 v_executor_response_event.clone(),
             ])?;
-            v_code = _extract_agent_runtime_code(&[v_state.clone(), v_executor_output.clone()])?;
+            v_raw_code =
+                _extract_agent_runtime_code(&[v_state.clone(), v_executor_output.clone()])?;
+            v_fence_violation = _agent_runtime_code_fence_violation(&[v_raw_code.clone()])?;
+            if core_truthy(&v_fence_violation) {
+                _agent_record_runtime_code_fence_violation(&[v_state.clone(), v_raw_code.clone()])?;
+                v_step = core_add(&[v_step.clone(), CoreValue::Num(1f64)])?;
+                continue;
+            }
+            v_code = _normalize_agent_runtime_code(&[v_raw_code.clone()])?;
             v_runtime_step = _agent_runtime_execute_step(&[
                 v_state.clone(),
                 v_runtime_from_options.clone(),
@@ -70281,4 +70547,4 @@ fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (522 of 522 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (525 of 525 core functions)

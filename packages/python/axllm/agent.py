@@ -2100,6 +2100,10 @@ def _core_string_replace(value, old, new):
     return str(value).replace(str(old), str(new))
 
 
+def _core_string_split(value, sep):
+    return str(value).split(str(sep))
+
+
 def _core_string_split_once(value, sep):
     text = str(value)
     if sep in text:
@@ -9656,6 +9660,119 @@ def _agent_stage_options(state: Any, stage: str, forward_options: Any) -> Any:
     return out
 
 
+def _agent_runtime_code_fence_violation(code: str) -> bool:
+    _core_coverage_mark("_agent_runtime_code_fence_violation")
+    normalized_newlines = _core_string_replace(code, "r\n", "\n")
+    lines = _core_string_split(normalized_newlines, "\n")
+    inside_fence = False
+    block_count = 0
+    for line in lines:
+        is_fence = _core_regex_match("```([A-Za-z0-9_-]+)?[ \t]*$", line)
+        if is_fence:
+            has_language = _core_regex_match("```[A-Za-z0-9_-]+[ \t]*$", line)
+            bare_fence = _core_not(has_language)
+            is_closing = _core_and(inside_fence, bare_fence)
+            if is_closing:
+                inside_fence = False
+            else:
+                block_count = _core_add(block_count, 1)
+                multiple = _core_gt(block_count, 1)
+                if multiple:
+                    return True
+                else:
+                    pass
+                inside_fence = True
+        else:
+            pass
+    return False
+
+
+def _normalize_agent_runtime_code(code: str) -> str:
+    _core_coverage_mark("_normalize_agent_runtime_code")
+    normalized = str(code).strip()
+    normalized = _core_regex_replace("<think>[\\s\\S]*?</think>", "", normalized)
+    normalized = str(normalized).strip()
+    normalized = _core_regex_replace("[^\\n]*</think>", "", normalized)
+    normalized = str(normalized).strip()
+    normalized = _core_string_replace(normalized, "r\n", "\n")
+    search = normalized
+    extracted = ""
+    has_extracted = False
+    while True:
+        marker = _core_string_split_once(search, "```")
+        has_marker = _core_get(marker, "found", False)
+        if has_marker:
+            pass
+        else:
+            break
+        after_marker = _core_get(marker, "right", "")
+        opener = _core_string_split_once(after_marker, "\n")
+        has_opener_line = _core_get(opener, "found", False)
+        if has_opener_line:
+            opener_suffix = _core_get(opener, "left", "")
+            valid_opener = _core_regex_match("^[A-Za-z0-9_-]*[ \t]*$", opener_suffix)
+            if valid_opener:
+                body = _core_get(opener, "right", "")
+                closing = _core_string_split_once(body, "```")
+                has_closing = _core_get(closing, "found", False)
+                if has_closing:
+                    extracted = _core_get(closing, "left", "")
+                    has_extracted = True
+                    break
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+        search = after_marker
+    if has_extracted:
+        normalized = str(extracted).strip()
+    else:
+        while True:
+            before = normalized
+            normalized = _core_regex_replace("^```([A-Za-z0-9_-]+)?[ \\t]*\\n", "", normalized)
+            normalized = _core_regex_replace("\\n?```[ \\t]*$", "", normalized)
+            normalized = str(normalized).strip()
+            unchanged = _core_eq(normalized, before)
+            if unchanged:
+                break
+            else:
+                pass
+    return normalized
+
+
+def _agent_record_runtime_code_fence_violation(state: Any, code: str) -> Any:
+    _core_coverage_mark("_agent_record_runtime_code_fence_violation")
+    empty_list = []
+    runtime_contract = _core_get(state, "runtime_contract", None)
+    code_field_title = _core_get(runtime_contract, "code_field_title", "Javascript Code")
+    output = _core_string_format("[POLICY] {} must contain at most one fenced code block. No code from the previous turn was executed.", code_field_title)
+    guidance = _core_string_format("Your previous {} value contained multiple fenced code blocks, so none of them were executed. On this turn, put every executable statement in one {} value with at most one fence.", code_field_title, code_field_title)
+    action_log = _core_get(state, "action_log", empty_list)
+    action_count = _core_len(action_log)
+    turn = _core_add(action_count, 1)
+    tags = []
+    tags.append("error")
+    action = {}
+    action["turn"] = turn
+    action["code"] = code
+    action["output"] = output
+    action["is_error"] = True
+    action["tags"] = tags
+    action_log.append(action)
+    state["action_log"] = action_log
+    guidance_log = _core_get(state, "guidance_log", empty_list)
+    guidance_entry = {}
+    guidance_entry["turn"] = turn
+    guidance_entry["guidance"] = guidance
+    guidance_entry["triggeredBy"] = "runtime policy"
+    guidance_log.append(guidance_entry)
+    state["guidance_log"] = guidance_log
+    _agent_record_trace_event(state, "error", action)
+    return action
+
+
 def _extract_agent_runtime_code(state: Any, executor_output: Any) -> str:
     _core_coverage_mark("_extract_agent_runtime_code")
     runtime_contract = _core_get(state, "runtime_contract", None)
@@ -10283,7 +10400,15 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
             distiller_response_event["output"] = distiller_output
             distiller_response_event["component_id"] = "agent.stage.distiller"
             _agent_record_trace_event(state, "stage_response", distiller_response_event)
-            distiller_code = _extract_agent_runtime_code(state, distiller_output)
+            distiller_code_raw = _extract_agent_runtime_code(state, distiller_output)
+            distiller_fence_violation = _agent_runtime_code_fence_violation(distiller_code_raw)
+            if distiller_fence_violation:
+                _agent_record_runtime_code_fence_violation(state, distiller_code_raw)
+                distiller_step = _core_add(distiller_step, 1)
+                continue
+            else:
+                pass
+            distiller_code = _normalize_agent_runtime_code(distiller_code_raw)
             distiller_runtime_step = _agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options)
             distiller_session = _core_get(state, "runtime_session", distiller_session)
             distiller_step_error = _core_get(distiller_runtime_step, "is_error", False)
@@ -10414,7 +10539,15 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
             executor_response_event["output"] = executor_output
             executor_response_event["component_id"] = "agent.stage.executor"
             _agent_record_trace_event(state, "stage_response", executor_response_event)
-            code = _extract_agent_runtime_code(state, executor_output)
+            raw_code = _extract_agent_runtime_code(state, executor_output)
+            fence_violation = _agent_runtime_code_fence_violation(raw_code)
+            if fence_violation:
+                _agent_record_runtime_code_fence_violation(state, raw_code)
+                step = _core_add(step, 1)
+                continue
+            else:
+                pass
+            code = _normalize_agent_runtime_code(raw_code)
             runtime_step = _agent_runtime_execute_step(state, runtime_from_options, session, code, options)
             session = _core_get(state, "runtime_session", session)
             exec_step_error = _core_get(runtime_step, "is_error", False)

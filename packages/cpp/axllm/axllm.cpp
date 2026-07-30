@@ -18999,6 +18999,122 @@ Value Core::_agent_stage_options(Value state, Value stage, Value forward_options
   return out;
 }
 
+Value Core::_agent_runtime_code_fence_violation(Value code) {
+  axir_coverage_mark("_agent_runtime_code_fence_violation");
+  Value normalized_newlines = Core::string_replace(code, Value("r\n"), Value("\n"));
+  Value lines = Core::string_split(normalized_newlines, Value("\n"));
+  Value inside_fence = Value(false);
+  Value block_count = Value(0);
+  for (auto line : Core::iter(lines)) {
+    Value is_fence = Core::regex_match(Value("```([A-Za-z0-9_-]+)?[ \t]*$"), line);
+    if (Core::truthy(is_fence)) {
+      Value has_language = Core::regex_match(Value("```[A-Za-z0-9_-]+[ \t]*$"), line);
+      Value bare_fence = Core::not_(has_language);
+      Value is_closing = Core::and_(inside_fence, bare_fence);
+      if (Core::truthy(is_closing)) {
+        inside_fence = Value(false);
+      }
+      if (!Core::truthy(is_closing)) {
+        block_count = Core::add(block_count, Value(1));
+        Value multiple = Core::gt(block_count, Value(1));
+        if (Core::truthy(multiple)) {
+          return Value(true);
+        }
+        inside_fence = Value(true);
+      }
+    }
+  }
+  return Value(false);
+}
+
+Value Core::_normalize_agent_runtime_code(Value code) {
+  axir_coverage_mark("_normalize_agent_runtime_code");
+  Value normalized = Core::string_trim(code);
+  normalized = Core::regex_replace(Value("<think>[\\s\\S]*?</think>"), Value(""), normalized);
+  normalized = Core::string_trim(normalized);
+  normalized = Core::regex_replace(Value("[^\\n]*</think>"), Value(""), normalized);
+  normalized = Core::string_trim(normalized);
+  normalized = Core::string_replace(normalized, Value("r\n"), Value("\n"));
+  Value search = normalized;
+  Value extracted = Value("");
+  Value has_extracted = Value(false);
+  while (true) {
+    Value marker = Core::string_split_once(search, Value("```"));
+    Value has_marker = Core::get(marker, Value("found"), Value(false));
+    if (Core::truthy(has_marker)) {
+      // empty
+    }
+    if (!Core::truthy(has_marker)) {
+      break;
+    }
+    Value after_marker = Core::get(marker, Value("right"), Value(""));
+    Value opener = Core::string_split_once(after_marker, Value("\n"));
+    Value has_opener_line = Core::get(opener, Value("found"), Value(false));
+    if (Core::truthy(has_opener_line)) {
+      Value opener_suffix = Core::get(opener, Value("left"), Value(""));
+      Value valid_opener = Core::regex_match(Value("^[A-Za-z0-9_-]*[ \t]*$"), opener_suffix);
+      if (Core::truthy(valid_opener)) {
+        Value body = Core::get(opener, Value("right"), Value(""));
+        Value closing = Core::string_split_once(body, Value("```"));
+        Value has_closing = Core::get(closing, Value("found"), Value(false));
+        if (Core::truthy(has_closing)) {
+          extracted = Core::get(closing, Value("left"), Value(""));
+          has_extracted = Value(true);
+          break;
+        }
+      }
+    }
+    search = after_marker;
+  }
+  if (Core::truthy(has_extracted)) {
+    normalized = Core::string_trim(extracted);
+  }
+  if (!Core::truthy(has_extracted)) {
+    while (true) {
+      Value before = normalized;
+      normalized = Core::regex_replace(Value("^```([A-Za-z0-9_-]+)?[ \\t]*\\n"), Value(""), normalized);
+      normalized = Core::regex_replace(Value("\\n?```[ \\t]*$"), Value(""), normalized);
+      normalized = Core::string_trim(normalized);
+      Value unchanged = Core::eq(normalized, before);
+      if (Core::truthy(unchanged)) {
+        break;
+      }
+    }
+  }
+  return normalized;
+}
+
+Value Core::_agent_record_runtime_code_fence_violation(Value state, Value code) {
+  axir_coverage_mark("_agent_record_runtime_code_fence_violation");
+  Value empty_list = Value::array();
+  Value runtime_contract = Core::get(state, Value("runtime_contract"), Value());
+  Value code_field_title = Core::get(runtime_contract, Value("code_field_title"), Value("Javascript Code"));
+  Value output = Core::string_format(Value("[POLICY] {} must contain at most one fenced code block. No code from the previous turn was executed."), code_field_title);
+  Value guidance = Core::string_format(Value("Your previous {} value contained multiple fenced code blocks, so none of them were executed. On this turn, put every executable statement in one {} value with at most one fence."), code_field_title, code_field_title);
+  Value action_log = Core::get(state, Value("action_log"), empty_list);
+  Value action_count = Core::len(action_log);
+  Value turn = Core::add(action_count, Value(1));
+  Value tags = Value::array();
+  Core::append(tags, Value("error"));
+  Value action = Value::object();
+  Core::set(action, Value("turn"), turn);
+  Core::set(action, Value("code"), code);
+  Core::set(action, Value("output"), output);
+  Core::set(action, Value("is_error"), Value(true));
+  Core::set(action, Value("tags"), tags);
+  Core::append(action_log, action);
+  Core::set(state, Value("action_log"), action_log);
+  Value guidance_log = Core::get(state, Value("guidance_log"), empty_list);
+  Value guidance_entry = Value::object();
+  Core::set(guidance_entry, Value("turn"), turn);
+  Core::set(guidance_entry, Value("guidance"), guidance);
+  Core::set(guidance_entry, Value("triggeredBy"), Value("runtime policy"));
+  Core::append(guidance_log, guidance_entry);
+  Core::set(state, Value("guidance_log"), guidance_log);
+  Core::_agent_record_trace_event(state, Value("error"), action);
+  return action;
+}
+
 Value Core::_extract_agent_runtime_code(Value state, Value executor_output) {
   axir_coverage_mark("_extract_agent_runtime_code");
   Value runtime_contract = Core::get(state, Value("runtime_contract"), Value());
@@ -19612,7 +19728,14 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
       Core::set(distiller_response_event, Value("output"), distiller_output);
       Core::set(distiller_response_event, Value("component_id"), Value("agent.stage.distiller"));
       Core::_agent_record_trace_event(state, Value("stage_response"), distiller_response_event);
-      Value distiller_code = Core::_extract_agent_runtime_code(state, distiller_output);
+      Value distiller_code_raw = Core::_extract_agent_runtime_code(state, distiller_output);
+      Value distiller_fence_violation = Core::_agent_runtime_code_fence_violation(distiller_code_raw);
+      if (Core::truthy(distiller_fence_violation)) {
+        Core::_agent_record_runtime_code_fence_violation(state, distiller_code_raw);
+        distiller_step = Core::add(distiller_step, Value(1));
+        continue;
+      }
+      Value distiller_code = Core::_normalize_agent_runtime_code(distiller_code_raw);
       Value distiller_runtime_step = Core::_agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options);
       distiller_session = Core::get(state, Value("runtime_session"), distiller_session);
       Value distiller_step_error = Core::get(distiller_runtime_step, Value("is_error"), Value(false));
@@ -19744,7 +19867,14 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
       Core::set(executor_response_event, Value("output"), executor_output);
       Core::set(executor_response_event, Value("component_id"), Value("agent.stage.executor"));
       Core::_agent_record_trace_event(state, Value("stage_response"), executor_response_event);
-      Value code = Core::_extract_agent_runtime_code(state, executor_output);
+      Value raw_code = Core::_extract_agent_runtime_code(state, executor_output);
+      Value fence_violation = Core::_agent_runtime_code_fence_violation(raw_code);
+      if (Core::truthy(fence_violation)) {
+        Core::_agent_record_runtime_code_fence_violation(state, raw_code);
+        step = Core::add(step, Value(1));
+        continue;
+      }
+      Value code = Core::_normalize_agent_runtime_code(raw_code);
       Value runtime_step = Core::_agent_runtime_execute_step(state, runtime_from_options, session, code, options);
       session = Core::get(state, Value("runtime_session"), session);
       Value exec_step_error = Core::get(runtime_step, Value("is_error"), Value(false));

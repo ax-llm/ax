@@ -17990,6 +17990,122 @@ final class Core {
     return out;
   }
 
+  static Object _agent_runtime_code_fence_violation(Object code) {
+    axirCoverageMark("_agent_runtime_code_fence_violation");
+    Object normalized_newlines = Core.stringReplace(code, "r\n", "\n");
+    Object lines = Core.stringSplit(normalized_newlines, "\n");
+    Object inside_fence = Boolean.FALSE;
+    Object block_count = 0;
+    for (Object line : Core.iter(lines)) {
+      Object is_fence = Core.regexMatch("```([A-Za-z0-9_-]+)?[ \t]*$", line);
+      if (Core.truthy(is_fence)) {
+        Object has_language = Core.regexMatch("```[A-Za-z0-9_-]+[ \t]*$", line);
+        Object bare_fence = Core.not(has_language);
+        Object is_closing = Core.and(inside_fence, bare_fence);
+        if (Core.truthy(is_closing)) {
+          inside_fence = Boolean.FALSE;
+        }
+        if (!Core.truthy(is_closing)) {
+          block_count = Core.add(block_count, 1);
+          Object multiple = Core.gt(block_count, 1);
+          if (Core.truthy(multiple)) {
+            return Boolean.TRUE;
+          }
+          inside_fence = Boolean.TRUE;
+        }
+      }
+    }
+    return Boolean.FALSE;
+  }
+
+  static Object _normalize_agent_runtime_code(Object code) {
+    axirCoverageMark("_normalize_agent_runtime_code");
+    Object normalized = Core.stringTrim(code);
+    normalized = Core.regexReplace("<think>[\\s\\S]*?</think>", "", normalized);
+    normalized = Core.stringTrim(normalized);
+    normalized = Core.regexReplace("[^\\n]*</think>", "", normalized);
+    normalized = Core.stringTrim(normalized);
+    normalized = Core.stringReplace(normalized, "r\n", "\n");
+    Object search = normalized;
+    Object extracted = "";
+    Object has_extracted = Boolean.FALSE;
+    while (Core.truthy(Boolean.TRUE)) {
+      Object marker = Core.stringSplitOnce(search, "```");
+      Object has_marker = Core.get(marker, "found", Boolean.FALSE);
+      if (Core.truthy(has_marker)) {
+        // empty
+      }
+      if (!Core.truthy(has_marker)) {
+        break;
+      }
+      Object after_marker = Core.get(marker, "right", "");
+      Object opener = Core.stringSplitOnce(after_marker, "\n");
+      Object has_opener_line = Core.get(opener, "found", Boolean.FALSE);
+      if (Core.truthy(has_opener_line)) {
+        Object opener_suffix = Core.get(opener, "left", "");
+        Object valid_opener = Core.regexMatch("^[A-Za-z0-9_-]*[ \t]*$", opener_suffix);
+        if (Core.truthy(valid_opener)) {
+          Object body = Core.get(opener, "right", "");
+          Object closing = Core.stringSplitOnce(body, "```");
+          Object has_closing = Core.get(closing, "found", Boolean.FALSE);
+          if (Core.truthy(has_closing)) {
+            extracted = Core.get(closing, "left", "");
+            has_extracted = Boolean.TRUE;
+            break;
+          }
+        }
+      }
+      search = after_marker;
+    }
+    if (Core.truthy(has_extracted)) {
+      normalized = Core.stringTrim(extracted);
+    }
+    if (!Core.truthy(has_extracted)) {
+      while (Core.truthy(Boolean.TRUE)) {
+        Object before = normalized;
+        normalized = Core.regexReplace("^```([A-Za-z0-9_-]+)?[ \\t]*\\n", "", normalized);
+        normalized = Core.regexReplace("\\n?```[ \\t]*$", "", normalized);
+        normalized = Core.stringTrim(normalized);
+        Object unchanged = Core.eq(normalized, before);
+        if (Core.truthy(unchanged)) {
+          break;
+        }
+      }
+    }
+    return normalized;
+  }
+
+  static Object _agent_record_runtime_code_fence_violation(Object state, Object code) {
+    axirCoverageMark("_agent_record_runtime_code_fence_violation");
+    Object empty_list = new java.util.ArrayList<Object>();
+    Object runtime_contract = Core.get(state, "runtime_contract", null);
+    Object code_field_title = Core.get(runtime_contract, "code_field_title", "Javascript Code");
+    Object output = Core.stringFormat("[POLICY] {} must contain at most one fenced code block. No code from the previous turn was executed.", code_field_title);
+    Object guidance = Core.stringFormat("Your previous {} value contained multiple fenced code blocks, so none of them were executed. On this turn, put every executable statement in one {} value with at most one fence.", code_field_title, code_field_title);
+    Object action_log = Core.get(state, "action_log", empty_list);
+    Object action_count = Core.len(action_log);
+    Object turn = Core.add(action_count, 1);
+    Object tags = new java.util.ArrayList<Object>();
+    Core.append(tags, "error");
+    Object action = new java.util.LinkedHashMap<String, Object>();
+    Core.set(action, "turn", turn);
+    Core.set(action, "code", code);
+    Core.set(action, "output", output);
+    Core.set(action, "is_error", Boolean.TRUE);
+    Core.set(action, "tags", tags);
+    Core.append(action_log, action);
+    Core.set(state, "action_log", action_log);
+    Object guidance_log = Core.get(state, "guidance_log", empty_list);
+    Object guidance_entry = new java.util.LinkedHashMap<String, Object>();
+    Core.set(guidance_entry, "turn", turn);
+    Core.set(guidance_entry, "guidance", guidance);
+    Core.set(guidance_entry, "triggeredBy", "runtime policy");
+    Core.append(guidance_log, guidance_entry);
+    Core.set(state, "guidance_log", guidance_log);
+    Core._agent_record_trace_event(state, "error", action);
+    return action;
+  }
+
   static Object _extract_agent_runtime_code(Object state, Object executor_output) {
     axirCoverageMark("_extract_agent_runtime_code");
     Object runtime_contract = Core.get(state, "runtime_contract", null);
@@ -18603,7 +18719,14 @@ final class Core {
         Core.set(distiller_response_event, "output", distiller_output);
         Core.set(distiller_response_event, "component_id", "agent.stage.distiller");
         Core._agent_record_trace_event(state, "stage_response", distiller_response_event);
-        Object distiller_code = Core._extract_agent_runtime_code(state, distiller_output);
+        Object distiller_code_raw = Core._extract_agent_runtime_code(state, distiller_output);
+        Object distiller_fence_violation = Core._agent_runtime_code_fence_violation(distiller_code_raw);
+        if (Core.truthy(distiller_fence_violation)) {
+          Core._agent_record_runtime_code_fence_violation(state, distiller_code_raw);
+          distiller_step = Core.add(distiller_step, 1);
+          continue;
+        }
+        Object distiller_code = Core._normalize_agent_runtime_code(distiller_code_raw);
         Object distiller_runtime_step = Core._agent_runtime_execute_step(state, runtime_from_options, distiller_session, distiller_code, options);
         distiller_session = Core.get(state, "runtime_session", distiller_session);
         Object distiller_step_error = Core.get(distiller_runtime_step, "is_error", Boolean.FALSE);
@@ -18735,7 +18858,14 @@ final class Core {
         Core.set(executor_response_event, "output", executor_output);
         Core.set(executor_response_event, "component_id", "agent.stage.executor");
         Core._agent_record_trace_event(state, "stage_response", executor_response_event);
-        Object code = Core._extract_agent_runtime_code(state, executor_output);
+        Object raw_code = Core._extract_agent_runtime_code(state, executor_output);
+        Object fence_violation = Core._agent_runtime_code_fence_violation(raw_code);
+        if (Core.truthy(fence_violation)) {
+          Core._agent_record_runtime_code_fence_violation(state, raw_code);
+          step = Core.add(step, 1);
+          continue;
+        }
+        Object code = Core._normalize_agent_runtime_code(raw_code);
         Object runtime_step = Core._agent_runtime_execute_step(state, runtime_from_options, session, code, options);
         session = Core.get(state, "runtime_session", session);
         Object exec_step_error = Core.get(runtime_step, "is_error", Boolean.FALSE);

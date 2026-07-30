@@ -7850,6 +7850,137 @@ module @ax.agent version "0.1" {
     }
   }
 
+  op ax.agent.semantic @agent_runtime_code_fence_violation {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string) -> bool"
+    body @entry(%code: string) {
+      %normalized_newlines = core.call intrinsic.string.replace(%code, "\r\n", "\n")
+      %lines = core.call intrinsic.string.split(%normalized_newlines, "\n")
+      %inside_fence = core.let false
+      %block_count = core.let 0
+      core.for %line in %lines {
+        %is_fence = core.regex_match %line pattern "```([A-Za-z0-9_-]+)?[ \t]*$"
+        core.if %is_fence {
+          %has_language = core.regex_match %line pattern "```[A-Za-z0-9_-]+[ \t]*$"
+          %bare_fence = core.call intrinsic.not(%has_language)
+          %is_closing = core.call intrinsic.and(%inside_fence, %bare_fence)
+          core.if %is_closing {
+            %inside_fence = core.let false
+          } else {
+            %block_count = core.call intrinsic.add(%block_count, 1)
+            %multiple = core.call intrinsic.gt(%block_count, 1)
+            core.if %multiple {
+              core.return true
+            }
+            %inside_fence = core.let true
+          }
+        }
+      }
+      core.return false
+    }
+  }
+
+  op ax.agent.semantic @normalize_agent_runtime_code {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(string) -> string"
+    body @entry(%code: string) {
+      %normalized = core.string_trim %code
+      %normalized = core.call intrinsic.regex.replace("<think>[\\s\\S]*?</think>", "", %normalized)
+      %normalized = core.string_trim %normalized
+      %normalized = core.call intrinsic.regex.replace("[^\\n]*</think>", "", %normalized)
+      %normalized = core.string_trim %normalized
+      %normalized = core.call intrinsic.string.replace(%normalized, "\r\n", "\n")
+
+      %search = core.let %normalized
+      %extracted = core.let ""
+      %has_extracted = core.let false
+      core.loop {
+        %marker = core.call intrinsic.string.split_once(%search, "```")
+        %has_marker = core.get %marker["found"] default false
+        core.if %has_marker {
+        } else {
+          core.break
+        }
+        %after_marker = core.get %marker["right"] default ""
+        %opener = core.call intrinsic.string.split_once(%after_marker, "\n")
+        %has_opener_line = core.get %opener["found"] default false
+        core.if %has_opener_line {
+          %opener_suffix = core.get %opener["left"] default ""
+          %valid_opener = core.regex_match %opener_suffix pattern "^[A-Za-z0-9_-]*[ \t]*$"
+          core.if %valid_opener {
+            %body = core.get %opener["right"] default ""
+            %closing = core.call intrinsic.string.split_once(%body, "```")
+            %has_closing = core.get %closing["found"] default false
+            core.if %has_closing {
+              %extracted = core.get %closing["left"] default ""
+              %has_extracted = core.let true
+              core.break
+            }
+          }
+        }
+        %search = core.let %after_marker
+      }
+
+      core.if %has_extracted {
+        %normalized = core.string_trim %extracted
+      } else {
+        core.loop {
+          %before = core.let %normalized
+          %normalized = core.call intrinsic.regex.replace("^```([A-Za-z0-9_-]+)?[ \\t]*\\n", "", %normalized)
+          %normalized = core.call intrinsic.regex.replace("\\n?```[ \\t]*$", "", %normalized)
+          %normalized = core.string_trim %normalized
+          %unchanged = core.call intrinsic.eq(%normalized, %before)
+          core.if %unchanged {
+            core.break
+          }
+        }
+      }
+      core.return %normalized
+    }
+  }
+
+  op ax.agent.semantic @agent_record_runtime_code_fence_violation {
+    attr core_kind = "func"
+    attr emit_module = "agent"
+    attr private = true
+    type signature = "(json, string) -> json"
+    body @entry(%state: json, %code: string) {
+      %empty_list = core.list
+      %runtime_contract = core.get %state["runtime_contract"] default null
+      %code_field_title = core.get %runtime_contract["code_field_title"] default "Javascript Code"
+      %output = core.call intrinsic.string.format("[POLICY] {} must contain at most one fenced code block. No code from the previous turn was executed.", %code_field_title)
+      %guidance = core.call intrinsic.string.format("Your previous {} value contained multiple fenced code blocks, so none of them were executed. On this turn, put every executable statement in one {} value with at most one fence.", %code_field_title, %code_field_title)
+
+      %action_log = core.get %state["action_log"] default %empty_list
+      %action_count = core.call intrinsic.len(%action_log)
+      %turn = core.call intrinsic.add(%action_count, 1)
+      %tags = core.list
+      core.append %tags, "error"
+      %action = core.map
+      core.set %action["turn"] = %turn
+      core.set %action["code"] = %code
+      core.set %action["output"] = %output
+      core.set %action["is_error"] = true
+      core.set %action["tags"] = %tags
+      core.append %action_log, %action
+      core.set %state["action_log"] = %action_log
+
+      %guidance_log = core.get %state["guidance_log"] default %empty_list
+      %guidance_entry = core.map
+      core.set %guidance_entry["turn"] = %turn
+      core.set %guidance_entry["guidance"] = %guidance
+      core.set %guidance_entry["triggeredBy"] = "runtime policy"
+      core.append %guidance_log, %guidance_entry
+      core.set %state["guidance_log"] = %guidance_log
+      core.call @agent_record_trace_event(%state, "error", %action)
+      core.return %action
+    }
+  }
+
   op ax.agent.semantic @extract_agent_runtime_code {
     attr core_kind = "func"
     attr emit_module = "agent"
@@ -8543,7 +8674,14 @@ module @ax.agent version "0.1" {
           core.set %distiller_response_event["output"] = %distiller_output
           core.set %distiller_response_event["component_id"] = "agent.stage.distiller"
           core.call @agent_record_trace_event(%state, "stage_response", %distiller_response_event)
-          %distiller_code = core.call @extract_agent_runtime_code(%state, %distiller_output)
+          %distiller_code_raw = core.call @extract_agent_runtime_code(%state, %distiller_output)
+          %distiller_fence_violation = core.call @agent_runtime_code_fence_violation(%distiller_code_raw)
+          core.if %distiller_fence_violation {
+            core.call @agent_record_runtime_code_fence_violation(%state, %distiller_code_raw)
+            %distiller_step = core.call intrinsic.add(%distiller_step, 1)
+            core.continue
+          }
+          %distiller_code = core.call @normalize_agent_runtime_code(%distiller_code_raw)
           %distiller_runtime_step = core.call @agent_runtime_execute_step(%state, %runtime_from_options, %distiller_session, %distiller_code, %options)
           %distiller_session = core.get %state["runtime_session"] default %distiller_session
           %distiller_step_error = core.get %distiller_runtime_step["is_error"] default false
@@ -8671,7 +8809,14 @@ module @ax.agent version "0.1" {
           core.set %executor_response_event["output"] = %executor_output
           core.set %executor_response_event["component_id"] = "agent.stage.executor"
           core.call @agent_record_trace_event(%state, "stage_response", %executor_response_event)
-          %code = core.call @extract_agent_runtime_code(%state, %executor_output)
+          %raw_code = core.call @extract_agent_runtime_code(%state, %executor_output)
+          %fence_violation = core.call @agent_runtime_code_fence_violation(%raw_code)
+          core.if %fence_violation {
+            core.call @agent_record_runtime_code_fence_violation(%state, %raw_code)
+            %step = core.call intrinsic.add(%step, 1)
+            core.continue
+          }
+          %code = core.call @normalize_agent_runtime_code(%raw_code)
           %runtime_step = core.call @agent_runtime_execute_step(%state, %runtime_from_options, %session, %code, %options)
           %session = core.get %state["runtime_session"] default %session
           %exec_step_error = core.get %runtime_step["is_error"] default false

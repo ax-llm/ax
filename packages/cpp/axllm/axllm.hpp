@@ -672,6 +672,9 @@ struct Core {
   static Value _agent_get_state(Value state);
   static Value _agent_set_state(Value state, Value runtime_state);
   static Value _agent_stage_options(Value state, Value stage, Value forward_options);
+  static Value _agent_runtime_code_fence_violation(Value code);
+  static Value _normalize_agent_runtime_code(Value code);
+  static Value _agent_record_runtime_code_fence_violation(Value state, Value code);
   static Value _extract_agent_runtime_code(Value state, Value executor_output);
   static Value _agent_apply_llm_checkpoint_summary(Value state, Value client, Value options);
   static Value _context_map_sections();

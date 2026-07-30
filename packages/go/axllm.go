@@ -36654,6 +36654,219 @@ func _agent_stage_options(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func _agent_runtime_code_fence_violation(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_runtime_code_fence_violation")
+	var v_code Value
+	var v_bare_fence Value
+	var v_block_count Value
+	var v_has_language Value
+	var v_inside_fence Value
+	var v_is_closing Value
+	var v_is_fence Value
+	var v_line Value
+	var v_lines Value
+	var v_multiple Value
+	var v_normalized_newlines Value
+	if len(args) > 0 { v_code = args[0] }
+	_ = v_code
+	_ = v_bare_fence
+	_ = v_block_count
+	_ = v_has_language
+	_ = v_inside_fence
+	_ = v_is_closing
+	_ = v_is_fence
+	_ = v_line
+	_ = v_lines
+	_ = v_multiple
+	_ = v_normalized_newlines
+	v_normalized_newlines = _core_string_replace(v_code, "r\n", "\n")
+	v_lines = _core_string_split(v_normalized_newlines, "\n")
+	v_inside_fence = false
+	v_block_count = 0
+	for _, v_line = range coreIter(v_lines) {
+		v_is_fence = coreRegexMatch("```([A-Za-z0-9_-]+)?[ \t]*$", v_line)
+		if coreTruthy(v_is_fence) {
+			v_has_language = coreRegexMatch("```[A-Za-z0-9_-]+[ \t]*$", v_line)
+			v_bare_fence = _core_not(v_has_language)
+			v_is_closing = _core_and(v_inside_fence, v_bare_fence)
+			if coreTruthy(v_is_closing) {
+				v_inside_fence = false
+			} else {
+				v_block_count = _core_add(v_block_count, 1)
+				v_multiple = _core_gt(v_block_count, 1)
+				if coreTruthy(v_multiple) {
+					return true, nil
+				} else {
+				// empty
+				}
+				v_inside_fence = true
+			}
+		} else {
+		// empty
+		}
+	}
+	return false, nil
+}
+
+func _normalize_agent_runtime_code(args ...Value) (Value, error) {
+	axirCoverageMark("_normalize_agent_runtime_code")
+	var v_code Value
+	var v_after_marker Value
+	var v_before Value
+	var v_body Value
+	var v_closing Value
+	var v_extracted Value
+	var v_has_closing Value
+	var v_has_extracted Value
+	var v_has_marker Value
+	var v_has_opener_line Value
+	var v_marker Value
+	var v_normalized Value
+	var v_opener Value
+	var v_opener_suffix Value
+	var v_search Value
+	var v_unchanged Value
+	var v_valid_opener Value
+	if len(args) > 0 { v_code = args[0] }
+	_ = v_code
+	_ = v_after_marker
+	_ = v_before
+	_ = v_body
+	_ = v_closing
+	_ = v_extracted
+	_ = v_has_closing
+	_ = v_has_extracted
+	_ = v_has_marker
+	_ = v_has_opener_line
+	_ = v_marker
+	_ = v_normalized
+	_ = v_opener
+	_ = v_opener_suffix
+	_ = v_search
+	_ = v_unchanged
+	_ = v_valid_opener
+	v_normalized = coreStringTrim(v_code)
+	v_normalized = _core_regex_replace("<think>[\\s\\S]*?</think>", "", v_normalized)
+	v_normalized = coreStringTrim(v_normalized)
+	v_normalized = _core_regex_replace("[^\\n]*</think>", "", v_normalized)
+	v_normalized = coreStringTrim(v_normalized)
+	v_normalized = _core_string_replace(v_normalized, "r\n", "\n")
+	v_search = v_normalized
+	v_extracted = ""
+	v_has_extracted = false
+	for {
+		v_marker = _core_string_split_once(v_search, "```")
+		v_has_marker = coreGet(v_marker, "found", false)
+		if coreTruthy(v_has_marker) {
+		// empty
+		} else {
+			break
+		}
+		v_after_marker = coreGet(v_marker, "right", "")
+		v_opener = _core_string_split_once(v_after_marker, "\n")
+		v_has_opener_line = coreGet(v_opener, "found", false)
+		if coreTruthy(v_has_opener_line) {
+			v_opener_suffix = coreGet(v_opener, "left", "")
+			v_valid_opener = coreRegexMatch("^[A-Za-z0-9_-]*[ \t]*$", v_opener_suffix)
+			if coreTruthy(v_valid_opener) {
+				v_body = coreGet(v_opener, "right", "")
+				v_closing = _core_string_split_once(v_body, "```")
+				v_has_closing = coreGet(v_closing, "found", false)
+				if coreTruthy(v_has_closing) {
+					v_extracted = coreGet(v_closing, "left", "")
+					v_has_extracted = true
+					break
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		v_search = v_after_marker
+	}
+	if coreTruthy(v_has_extracted) {
+		v_normalized = coreStringTrim(v_extracted)
+	} else {
+		for {
+			v_before = v_normalized
+			v_normalized = _core_regex_replace("^```([A-Za-z0-9_-]+)?[ \\t]*\\n", "", v_normalized)
+			v_normalized = _core_regex_replace("\\n?```[ \\t]*$", "", v_normalized)
+			v_normalized = coreStringTrim(v_normalized)
+			v_unchanged = _core_eq(v_normalized, v_before)
+			if coreTruthy(v_unchanged) {
+				break
+			} else {
+			// empty
+			}
+		}
+	}
+	return v_normalized, nil
+}
+
+func _agent_record_runtime_code_fence_violation(args ...Value) (Value, error) {
+	axirCoverageMark("_agent_record_runtime_code_fence_violation")
+	var v_state Value
+	var v_code Value
+	var v_action Value
+	var v_action_count Value
+	var v_action_log Value
+	var v_code_field_title Value
+	var v_empty_list Value
+	var v_guidance Value
+	var v_guidance_entry Value
+	var v_guidance_log Value
+	var v_output Value
+	var v_runtime_contract Value
+	var v_tags Value
+	var v_turn Value
+	if len(args) > 0 { v_state = args[0] }
+	_ = v_state
+	if len(args) > 1 { v_code = args[1] }
+	_ = v_code
+	_ = v_action
+	_ = v_action_count
+	_ = v_action_log
+	_ = v_code_field_title
+	_ = v_empty_list
+	_ = v_guidance
+	_ = v_guidance_entry
+	_ = v_guidance_log
+	_ = v_output
+	_ = v_runtime_contract
+	_ = v_tags
+	_ = v_turn
+	v_empty_list = MutableArray()
+	v_runtime_contract = coreGet(v_state, "runtime_contract", nil)
+	v_code_field_title = coreGet(v_runtime_contract, "code_field_title", "Javascript Code")
+	v_output = _core_string_format("[POLICY] {} must contain at most one fenced code block. No code from the previous turn was executed.", v_code_field_title)
+	v_guidance = _core_string_format("Your previous {} value contained multiple fenced code blocks, so none of them were executed. On this turn, put every executable statement in one {} value with at most one fence.", v_code_field_title, v_code_field_title)
+	v_action_log = coreGet(v_state, "action_log", v_empty_list)
+	v_action_count = _core_len(v_action_log)
+	v_turn = _core_add(v_action_count, 1)
+	v_tags = MutableArray()
+	v_tags = coreAppend(v_tags, "error")
+	v_action = Object()
+	if err := coreSet(v_action, "turn", v_turn); err != nil { return nil, err }
+	if err := coreSet(v_action, "code", v_code); err != nil { return nil, err }
+	if err := coreSet(v_action, "output", v_output); err != nil { return nil, err }
+	if err := coreSet(v_action, "is_error", true); err != nil { return nil, err }
+	if err := coreSet(v_action, "tags", v_tags); err != nil { return nil, err }
+	v_action_log = coreAppend(v_action_log, v_action)
+	if err := coreSet(v_state, "action_log", v_action_log); err != nil { return nil, err }
+	v_guidance_log = coreGet(v_state, "guidance_log", v_empty_list)
+	v_guidance_entry = Object()
+	if err := coreSet(v_guidance_entry, "turn", v_turn); err != nil { return nil, err }
+	if err := coreSet(v_guidance_entry, "guidance", v_guidance); err != nil { return nil, err }
+	if err := coreSet(v_guidance_entry, "triggeredBy", "runtime policy"); err != nil { return nil, err }
+	v_guidance_log = coreAppend(v_guidance_log, v_guidance_entry)
+	if err := coreSet(v_state, "guidance_log", v_guidance_log); err != nil { return nil, err }
+	if _, err := _agent_record_trace_event(v_state, "error", v_action); err != nil { return nil, err }
+	return v_action, nil
+}
+
 func _extract_agent_runtime_code(args ...Value) (Value, error) {
 	axirCoverageMark("_extract_agent_runtime_code")
 	var v_state Value
@@ -37830,10 +38043,12 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_completion_payload Value
 	var v_direct_respond_only Value
 	var v_distiller_code Value
+	var v_distiller_code_raw Value
 	var v_distiller_completion Value
 	var v_distiller_empty_log Value
 	var v_distiller_error Value
 	var v_distiller_error_event Value
+	var v_distiller_fence_violation Value
 	var v_distiller_globals Value
 	var v_distiller_has_completion Value
 	var v_distiller_is_respond Value
@@ -37886,6 +38101,7 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_executor_response_event Value
 	var v_executor_skills_after Value
 	var v_executor_values Value
+	var v_fence_violation Value
 	var v_flags Value
 	var v_forward_skills Value
 	var v_forward_used_memories Value
@@ -37913,6 +38129,7 @@ func _agent_forward(args ...Value) (Value, error) {
 	var v_previous_runtime_session_state Value
 	var v_previous_runtime_session_state_is_map Value
 	var v_previous_runtime_state_has_bindings Value
+	var v_raw_code Value
 	var v_relevance_hints_for_turn Value
 	var v_responder_options Value
 	var v_responder_output Value
@@ -37970,10 +38187,12 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_completion_payload
 	_ = v_direct_respond_only
 	_ = v_distiller_code
+	_ = v_distiller_code_raw
 	_ = v_distiller_completion
 	_ = v_distiller_empty_log
 	_ = v_distiller_error
 	_ = v_distiller_error_event
+	_ = v_distiller_fence_violation
 	_ = v_distiller_globals
 	_ = v_distiller_has_completion
 	_ = v_distiller_is_respond
@@ -38026,6 +38245,7 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_executor_response_event
 	_ = v_executor_skills_after
 	_ = v_executor_values
+	_ = v_fence_violation
 	_ = v_flags
 	_ = v_forward_skills
 	_ = v_forward_used_memories
@@ -38053,6 +38273,7 @@ func _agent_forward(args ...Value) (Value, error) {
 	_ = v_previous_runtime_session_state
 	_ = v_previous_runtime_session_state_is_map
 	_ = v_previous_runtime_state_has_bindings
+	_ = v_raw_code
 	_ = v_relevance_hints_for_turn
 	_ = v_responder_options
 	_ = v_responder_output
@@ -38194,7 +38415,16 @@ func _agent_forward(args ...Value) (Value, error) {
 			if err := coreSet(v_distiller_response_event, "output", v_distiller_output); err != nil { return nil, err }
 			if err := coreSet(v_distiller_response_event, "component_id", "agent.stage.distiller"); err != nil { return nil, err }
 			if _, err := _agent_record_trace_event(v_state, "stage_response", v_distiller_response_event); err != nil { return nil, err }
-			{ v, err := _extract_agent_runtime_code(v_state, v_distiller_output); if err != nil { return nil, err }; v_distiller_code = v }
+			{ v, err := _extract_agent_runtime_code(v_state, v_distiller_output); if err != nil { return nil, err }; v_distiller_code_raw = v }
+			{ v, err := _agent_runtime_code_fence_violation(v_distiller_code_raw); if err != nil { return nil, err }; v_distiller_fence_violation = v }
+			if coreTruthy(v_distiller_fence_violation) {
+				if _, err := _agent_record_runtime_code_fence_violation(v_state, v_distiller_code_raw); err != nil { return nil, err }
+				v_distiller_step = _core_add(v_distiller_step, 1)
+				continue
+			} else {
+			// empty
+			}
+			{ v, err := _normalize_agent_runtime_code(v_distiller_code_raw); if err != nil { return nil, err }; v_distiller_code = v }
 			{ v, err := _agent_runtime_execute_step(v_state, v_runtime_from_options, v_distiller_session, v_distiller_code, v_options); if err != nil { return nil, err }; v_distiller_runtime_step = v }
 			v_distiller_session = coreGet(v_state, "runtime_session", v_distiller_session)
 			v_distiller_step_error = coreGet(v_distiller_runtime_step, "is_error", false)
@@ -38335,7 +38565,16 @@ func _agent_forward(args ...Value) (Value, error) {
 			if err := coreSet(v_executor_response_event, "output", v_executor_output); err != nil { return nil, err }
 			if err := coreSet(v_executor_response_event, "component_id", "agent.stage.executor"); err != nil { return nil, err }
 			if _, err := _agent_record_trace_event(v_state, "stage_response", v_executor_response_event); err != nil { return nil, err }
-			{ v, err := _extract_agent_runtime_code(v_state, v_executor_output); if err != nil { return nil, err }; v_code = v }
+			{ v, err := _extract_agent_runtime_code(v_state, v_executor_output); if err != nil { return nil, err }; v_raw_code = v }
+			{ v, err := _agent_runtime_code_fence_violation(v_raw_code); if err != nil { return nil, err }; v_fence_violation = v }
+			if coreTruthy(v_fence_violation) {
+				if _, err := _agent_record_runtime_code_fence_violation(v_state, v_raw_code); err != nil { return nil, err }
+				v_step = _core_add(v_step, 1)
+				continue
+			} else {
+			// empty
+			}
+			{ v, err := _normalize_agent_runtime_code(v_raw_code); if err != nil { return nil, err }; v_code = v }
 			{ v, err := _agent_runtime_execute_step(v_state, v_runtime_from_options, v_session, v_code, v_options); if err != nil { return nil, err }; v_runtime_step = v }
 			v_session = coreGet(v_state, "runtime_session", v_session)
 			v_exec_step_error = coreGet(v_runtime_step, "is_error", false)
