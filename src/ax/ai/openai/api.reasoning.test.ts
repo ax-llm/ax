@@ -106,6 +106,53 @@ describe('OpenAI Responses: thinkingTokenBudget=highest → reasoning.effort=xhi
   });
 });
 
+describe('OpenAI GPT-5.6 reasoning effort', () => {
+  const budgets = [
+    ['none', 'none'],
+    ['highest', 'max'],
+  ] as const;
+
+  it('maps Chat budgets', async () => {
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: { model: AxAIOpenAIModel.GPT56 },
+    });
+    const capture: { lastBody?: any } = {};
+    ai.setOptions({ fetch: captureFetch(capture) });
+
+    for (const [budget, effort] of budgets) {
+      await ai.chat(
+        {
+          model: AxAIOpenAIModel.GPT56,
+          chatPrompt: [{ role: 'user', content: 'hi' }],
+        },
+        { stream: false, thinkingTokenBudget: budget }
+      );
+      expect(capture.lastBody?.reasoning_effort).toBe(effort);
+    }
+  });
+
+  it('maps Responses budgets', () => {
+    const impl = new AxAIOpenAIResponsesImpl(
+      { model: AxAIOpenAIResponsesModel.GPT56 } as any,
+      false
+    );
+
+    for (const [budget, effort] of budgets) {
+      const [, req] = impl.createChatReq(
+        {
+          model: AxAIOpenAIResponsesModel.GPT56,
+          chatPrompt: [{ role: 'user', content: 'hi' }],
+        } as any,
+        { thinkingTokenBudget: budget } as any
+      );
+      expect((req as AxAIOpenAIResponsesRequest<any>).reasoning?.effort).toBe(
+        effort
+      );
+    }
+  });
+});
+
 describe('OpenAI model catalog: new 2026 entries are registered', () => {
   it('has gpt-5.5 in chat catalog with 1M context window and thinkingBudget', () => {
     const entry = axModelInfoOpenAI.find(

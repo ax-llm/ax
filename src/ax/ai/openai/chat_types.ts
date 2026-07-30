@@ -46,6 +46,11 @@ export enum AxAIOpenAIModel {
   // GPT-5.5 models
   GPT55 = 'gpt-5.5',
   GPT55Pro = 'gpt-5.5-pro',
+  // GPT-5.6 models. `gpt-5.6` is an alias OpenAI routes to `gpt-5.6-sol`.
+  GPT56 = 'gpt-5.6',
+  GPT56Sol = 'gpt-5.6-sol',
+  GPT56Terra = 'gpt-5.6-terra',
+  GPT56Luna = 'gpt-5.6-luna',
   // Reasoning models
   O1 = 'o1',
   O1Mini = 'o1-mini',
@@ -87,7 +92,14 @@ export type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<
   logprobs?: number;
   echo?: boolean;
   dimensions?: number;
-  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  reasoningEffort?:
+    | 'none'
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'xhigh'
+    | 'max';
   store?: boolean;
   serviceTier?: 'auto' | 'default' | 'flex';
   webSearchOptions?: {
@@ -139,7 +151,14 @@ export interface AxAIOpenAIResponseDelta<T> {
 
 export type AxAIOpenAIChatRequest<TModel> = {
   model: TModel;
-  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  reasoning_effort?:
+    | 'none'
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'xhigh'
+    | 'max';
   store?: boolean;
   modalities?: readonly ('text' | 'audio')[];
   audio?: {

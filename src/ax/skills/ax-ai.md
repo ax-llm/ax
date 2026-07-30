@@ -293,6 +293,9 @@ console.log(res.results[0]?.content);
 | `'high'` | 20,000 | 10,000 |
 | `'highest'` | 32,000 | 24,500 |
 
+For GPT-5.6, these map to `none`, `low`, `low`, `medium`, `high`, and `max`
+respectively. Earlier OpenAI models retain their existing mapping.
+
 ### Anthropic Model-Specific Behavior
 
 - Opus 4.8, 4.7, and 4.6 plus Sonnet 5: adaptive thinking, no manual

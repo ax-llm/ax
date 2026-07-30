@@ -386,22 +386,25 @@ export class AxAIOpenAIResponsesImpl<
 
     // Handle thinkingTokenBudget config parameter
     if (config?.thinkingTokenBudget) {
+      const isGPT56 = /^gpt-5\.6($|-)/.test(String(model));
       switch (config.thinkingTokenBudget) {
         case 'none':
-          reasoningEffort = undefined;
+          reasoningEffort = isGPT56 ? 'none' : undefined;
           break;
         case 'minimal':
-          reasoningEffort = 'minimal';
+          reasoningEffort = isGPT56 ? 'low' : 'minimal';
           break;
         case 'low':
-          reasoningEffort = 'medium';
+          reasoningEffort = isGPT56 ? 'low' : 'medium';
           break;
         case 'medium':
+          reasoningEffort = isGPT56 ? 'medium' : 'high';
+          break;
         case 'high':
           reasoningEffort = 'high';
           break;
         case 'highest':
-          reasoningEffort = 'xhigh';
+          reasoningEffort = isGPT56 ? 'max' : 'xhigh';
           break;
       }
     }
@@ -525,24 +528,31 @@ export class AxAIOpenAIResponsesImpl<
 
     // Handle thinkingTokenBudget config parameter
     if (config?.thinkingTokenBudget) {
+      const isGPT56 = /^gpt-5\.6($|-)/.test(String(model));
       switch (config.thinkingTokenBudget) {
         case 'none':
-          // When thinkingTokenBudget is 'none', remove reasoning entirely
-          currentReasoning = {};
+          currentReasoning = isGPT56
+            ? { ...currentReasoning, effort: 'none' }
+            : {};
           break;
         case 'minimal':
           currentReasoning = {
             ...currentReasoning,
-            effort: 'minimal',
+            effort: isGPT56 ? 'low' : 'minimal',
           };
           break;
         case 'low':
           currentReasoning = {
             ...currentReasoning,
-            effort: 'medium',
+            effort: isGPT56 ? 'low' : 'medium',
           };
           break;
         case 'medium':
+          currentReasoning = {
+            ...currentReasoning,
+            effort: isGPT56 ? 'medium' : 'high',
+          };
+          break;
         case 'high':
           currentReasoning = {
             ...currentReasoning,
@@ -552,7 +562,7 @@ export class AxAIOpenAIResponsesImpl<
         case 'highest':
           currentReasoning = {
             ...currentReasoning,
-            effort: 'xhigh',
+            effort: isGPT56 ? 'max' : 'xhigh',
           };
           break;
       }
