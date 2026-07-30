@@ -18,13 +18,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-07-28-port-actor-multi-fence-rejection-before-execution` [axagent] Port actor multi-fence rejection before execution
-  - Status: open
-  - Source PR: #563
-  - Source commit: `eec609f8789e6fe22956e15006c260dbf634f86c`
-  - TS paths: `src/ax/agent/agent.test.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`
-  - Impact: Generated Python, Java, C++, Go, and Rust agents may still normalize malformed multi-block actor responses to the first fenced block and execute a partial program.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-07-28-port-managed-context-cache-refresh-recovery` [axai] Port managed context-cache refresh recovery
   - Status: open
   - Source commit: `1ef0968cc0b7bd26ec6c0506e929834d2ff837af`
@@ -302,3 +295,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-24
   - Completed by: `0d10c4308fc48d8d77e700bc36c649f9cef84b24`
   - Verification: `npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check`
+- `axir-2026-07-28-port-actor-multi-fence-rejection-before-execution` [axagent] Port actor multi-fence rejection before execution
+  - Status: done
+  - Source PR: #563
+  - Source commit: `eec609f8789e6fe22956e15006c260dbf634f86c`
+  - TS paths: `src/ax/agent/agent.test.ts`, `src/ax/agent/agentInternal/actorLoopTurn.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust agents may still normalize malformed multi-block actor responses to the first fenced block and execute a partial program.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-30
+  - Completed by: `e872fbb9`
+  - Verification: `npm run test:axir; agent-runtime-real-multi-fence-reject passed with real engines on Python, Java, C++, Go, and Rust; npm run axir:check-packages; npm run axir:conformance:check`

@@ -559,7 +559,7 @@
     },
     {
       "id": "axir-2026-07-28-port-actor-multi-fence-rejection-before-execution",
-      "status": "open",
+      "status": "done",
       "title": "Port actor multi-fence rejection before execution",
       "createdAt": "2026-07-28",
       "sourcePR": 563,
@@ -575,9 +575,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-30",
+      "completedByCommit": "e872fbb9",
+      "verification": "npm run test:axir; agent-runtime-real-multi-fence-reject passed with real engines on Python, Java, C++, Go, and Rust; npm run axir:check-packages; npm run axir:conformance:check"
     },
     {
       "id": "axir-2026-07-28-port-managed-context-cache-refresh-recovery",
