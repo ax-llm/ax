@@ -47,6 +47,7 @@ import {
   type AxAIOpenAIEmbedResponse,
   AxAIOpenAIModel,
 } from './chat_types.js';
+import { axResolveOpenAIReasoningEffort } from './effort.js';
 import { axModelInfoOpenAI } from './info.js';
 import {
   axAIOpenAIRealtimeDefaultConfig,
@@ -422,27 +423,10 @@ class AxAIOpenAIImpl<
 
     // Then, override based on prompt-specific config
     if (config?.thinkingTokenBudget) {
-      const isGPT56 = /^gpt-5\.6($|-)/.test(String(model));
-      switch (config.thinkingTokenBudget) {
-        case 'none':
-          reqValue.reasoning_effort = isGPT56 ? 'none' : undefined;
-          break;
-        case 'minimal':
-          reqValue.reasoning_effort = isGPT56 ? 'low' : 'minimal';
-          break;
-        case 'low':
-          reqValue.reasoning_effort = isGPT56 ? 'low' : 'medium';
-          break;
-        case 'medium':
-          reqValue.reasoning_effort = isGPT56 ? 'medium' : 'high';
-          break;
-        case 'high':
-          reqValue.reasoning_effort = 'high';
-          break;
-        case 'highest':
-          reqValue.reasoning_effort = isGPT56 ? 'max' : 'xhigh';
-          break;
-      }
+      reqValue.reasoning_effort = axResolveOpenAIReasoningEffort(
+        model,
+        config.thinkingTokenBudget
+      );
     }
 
     if (this.chatReqUpdater) {

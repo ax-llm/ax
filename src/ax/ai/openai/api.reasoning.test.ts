@@ -62,16 +62,12 @@ function responsesReasoning(
   return (req as AxAIOpenAIResponsesRequest<any>).reasoning;
 }
 
-// GPT-5.6 serves none/low/medium/high/xhigh/max and retired 'minimal', so the
-// ladder maps straight through. Every other model keeps the historical
-// mapping, which is shifted and collapses medium/high onto one wire value.
+// effort.test.ts is the exhaustive spec for the ladders themselves. These cases
+// only prove both request builders route through the resolver and hand it the
+// model, so they cover the rungs where the two ladders disagree.
 describe('OpenAI reasoning effort ladder', () => {
   const budgets = [
-    { budget: 'none', legacy: undefined, gpt56: 'none' },
-    { budget: 'minimal', legacy: 'minimal', gpt56: 'low' },
-    { budget: 'low', legacy: 'medium', gpt56: 'low' },
     { budget: 'medium', legacy: 'high', gpt56: 'medium' },
-    { budget: 'high', legacy: 'high', gpt56: 'high' },
     { budget: 'highest', legacy: 'xhigh', gpt56: 'max' },
   ] as const;
 

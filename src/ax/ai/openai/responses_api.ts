@@ -16,6 +16,7 @@ import type {
   AxModelConfig,
   AxTokenUsage,
 } from '../types.js';
+import { axResolveOpenAIReasoningEffort } from './effort.js';
 import type {
   AxAIOpenAIResponsesCodeInterpreterToolCall,
   AxAIOpenAIResponsesComputerToolCall,
@@ -386,27 +387,10 @@ export class AxAIOpenAIResponsesImpl<
 
     // Handle thinkingTokenBudget config parameter
     if (config?.thinkingTokenBudget) {
-      const isGPT56 = /^gpt-5\.6($|-)/.test(String(model));
-      switch (config.thinkingTokenBudget) {
-        case 'none':
-          reasoningEffort = isGPT56 ? 'none' : undefined;
-          break;
-        case 'minimal':
-          reasoningEffort = isGPT56 ? 'low' : 'minimal';
-          break;
-        case 'low':
-          reasoningEffort = isGPT56 ? 'low' : 'medium';
-          break;
-        case 'medium':
-          reasoningEffort = isGPT56 ? 'medium' : 'high';
-          break;
-        case 'high':
-          reasoningEffort = 'high';
-          break;
-        case 'highest':
-          reasoningEffort = isGPT56 ? 'max' : 'xhigh';
-          break;
-      }
+      reasoningEffort = axResolveOpenAIReasoningEffort(
+        model,
+        config.thinkingTokenBudget
+      );
     }
 
     const mutableReq: Mutable<AxAIOpenAIResponsesRequest<TModel>> = {
@@ -522,61 +506,10 @@ export class AxAIOpenAIResponsesImpl<
       throw new Error('Responses API request must have input or instructions.');
     }
 
-    let currentReasoning = mutableReq.reasoning ?? {};
-    if (this.config.reasoningEffort) {
-      currentReasoning = {
-        ...currentReasoning,
-        effort: this.config.reasoningEffort,
-      };
-    }
-
-    // Handle thinkingTokenBudget config parameter
-    if (config?.thinkingTokenBudget) {
-      const isGPT56 = /^gpt-5\.6($|-)/.test(String(model));
-      switch (config.thinkingTokenBudget) {
-        case 'none':
-          // GPT-5.6 defaults an omitted effort to 'medium', so disabling
-          // reasoning needs an explicit 'none' rather than a dropped field.
-          // Any summary carried over from above goes with it.
-          currentReasoning = isGPT56 ? { effort: 'none' } : {};
-          break;
-        case 'minimal':
-          currentReasoning = {
-            ...currentReasoning,
-            effort: isGPT56 ? 'low' : 'minimal',
-          };
-          break;
-        case 'low':
-          currentReasoning = {
-            ...currentReasoning,
-            effort: isGPT56 ? 'low' : 'medium',
-          };
-          break;
-        case 'medium':
-          currentReasoning = {
-            ...currentReasoning,
-            effort: isGPT56 ? 'medium' : 'high',
-          };
-          break;
-        case 'high':
-          currentReasoning = {
-            ...currentReasoning,
-            effort: 'high',
-          };
-          break;
-        case 'highest':
-          currentReasoning = {
-            ...currentReasoning,
-            effort: isGPT56 ? 'max' : 'xhigh',
-          };
-          break;
-      }
-    }
-
-    if (Object.keys(currentReasoning).length > 0 && currentReasoning.effort) {
-      mutableReq.reasoning = currentReasoning;
-    } else {
-      mutableReq.reasoning = undefined; // Ensure reasoning is not sent if empty or only has non-effort keys by mistake
+    // The effort was resolved once above; drop the object outright when none
+    // survived so an effortless `reasoning` never reaches the wire.
+    if (!mutableReq.reasoning?.effort) {
+      mutableReq.reasoning = undefined;
     }
 
     let finalReqToProcess: Readonly<AxAIOpenAIResponsesRequest<TModel>> =
