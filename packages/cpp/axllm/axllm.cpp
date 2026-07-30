@@ -23308,6 +23308,105 @@ Value Core::mcp_cache_freshness(Value cache_info, Value now) {
   return Value(false);
 }
 
+Value Core::mcp_validate_modern_task(Value task) {
+  axir_coverage_mark("mcp_validate_modern_task");
+  Value is_object = Core::type_is(task, Value("object"));
+  if (Core::truthy(is_object)) {
+    Value task_id = Core::get(task, Value("taskId"), Value());
+    Value status = Core::get(task, Value("status"), Value());
+    Value created_at = Core::get(task, Value("createdAt"), Value());
+    Value updated_at = Core::get(task, Value("lastUpdatedAt"), Value());
+    Value task_id_string = Core::type_is(task_id, Value("string"));
+    Value created_string = Core::type_is(created_at, Value("string"));
+    Value updated_string = Core::type_is(updated_at, Value("string"));
+    Value working = Core::eq(status, Value("working"));
+    Value input_required = Core::eq(status, Value("input_required"));
+    Value completed = Core::eq(status, Value("completed"));
+    Value failed = Core::eq(status, Value("failed"));
+    Value cancelled = Core::eq(status, Value("cancelled"));
+    Value status_a = Core::or_(working, input_required);
+    Value status_b = Core::or_(completed, failed);
+    Value status_c = Core::or_(status_a, status_b);
+    Value status_valid = Core::or_(status_c, cancelled);
+    Value has_ttl = Core::map_contains(task, Value("ttlMs"));
+    Value ttl = Core::get(task, Value("ttlMs"), Value());
+    Value ttl_null = Core::eq(ttl, Value());
+    Value ttl_number = Core::type_is(ttl, Value("number"));
+    Value ttl_type = Core::or_(ttl_null, ttl_number);
+    Value ttl_valid = Core::and_(has_ttl, ttl_type);
+    Value has_poll = Core::map_contains(task, Value("pollIntervalMs"));
+    Value poll = Core::get(task, Value("pollIntervalMs"), Value());
+    Value poll_number = Core::type_is(poll, Value("number"));
+    Value no_poll = Core::not_(has_poll);
+    Value poll_valid = Core::or_(no_poll, poll_number);
+    Value identity_valid = Core::and_(task_id_string, status_valid);
+    Value dates_valid = Core::and_(created_string, updated_string);
+    Value base_valid = Core::and_(identity_valid, dates_valid);
+    Value cache_valid = Core::and_(ttl_valid, poll_valid);
+    Value valid = Core::and_(base_valid, cache_valid);
+    return valid;
+  }
+  return Value(false);
+}
+
+Value Core::mcp_task_terminal_outcome(Value task) {
+  axir_coverage_mark("mcp_task_terminal_outcome");
+  Value out = Value::object();
+  Value task_id = Core::get(task, Value("taskId"), Value(""));
+  Value status = Core::get(task, Value("status"), Value(""));
+  Value completed = Core::eq(status, Value("completed"));
+  if (Core::truthy(completed)) {
+    Value has_result = Core::map_contains(task, Value("result"));
+    if (Core::truthy(has_result)) {
+      Core::set(out, Value("kind"), Value("result"));
+      Value result = Core::get(task, Value("result"), Value());
+      Core::set(out, Value("result"), result);
+    }
+    if (!Core::truthy(has_result)) {
+      Core::set(out, Value("kind"), Value("violation"));
+      Value message = Core::string_format(Value("MCP protocol violation: completed task {} omitted result"), task_id);
+      Core::set(out, Value("message"), message);
+    }
+    return out;
+  }
+  Value failed = Core::eq(status, Value("failed"));
+  if (Core::truthy(failed)) {
+    Value error = Core::get(task, Value("error"), Value());
+    Value error_object = Core::type_is(error, Value("object"));
+    if (Core::truthy(error_object)) {
+      Value code = Core::get(error, Value("code"), Value());
+      Value error_message = Core::get(error, Value("message"), Value());
+      Value code_number = Core::type_is(code, Value("number"));
+      Value message_string = Core::type_is(error_message, Value("string"));
+      Value typed_error = Core::and_(code_number, message_string);
+      if (Core::truthy(typed_error)) {
+        Core::set(out, Value("kind"), Value("protocol_error"));
+        Core::set(out, Value("code"), code);
+        Core::set(out, Value("message"), error_message);
+        Value has_data = Core::map_contains(error, Value("data"));
+        if (Core::truthy(has_data)) {
+          Value data = Core::get(error, Value("data"), Value());
+          Core::set(out, Value("data"), data);
+        }
+        return out;
+      }
+    }
+    Core::set(out, Value("kind"), Value("failure"));
+    Value message = Core::string_format(Value("MCP task {} failed"), task_id);
+    Core::set(out, Value("message"), message);
+    return out;
+  }
+  Value cancelled = Core::eq(status, Value("cancelled"));
+  if (Core::truthy(cancelled)) {
+    Core::set(out, Value("kind"), Value("cancelled"));
+    Value message = Core::string_format(Value("MCP task {} cancelled"), task_id);
+    Core::set(out, Value("message"), message);
+    return out;
+  }
+  Core::set(out, Value("kind"), Value("pending"));
+  return out;
+}
+
 Value Core::mcp_jsonrpc_request(Value id, Value method, Value params) {
   axir_coverage_mark("mcp_jsonrpc_request");
   Value out = Value::object();

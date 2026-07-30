@@ -376,6 +376,20 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "tasks_v2_modern",
+        "runner": "cpp:axmcp.tasks_v2_modern",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "tasks_v2_violations",
+        "runner": "cpp:axmcp.tasks_v2_violations",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "ping",
         "runner": "cpp:axmcp.ping",
         "category": "transport-boundary"

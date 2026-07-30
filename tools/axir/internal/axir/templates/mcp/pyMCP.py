@@ -1142,7 +1142,7 @@ class AxMCPClient:
                 bindings = mcp_param_header_bindings(tool.get("inputSchema") or {})
                 headers = {str(key): str(value) for key, value in mcp_param_header_values(bindings, args).items()}
         try:
-            return self._request("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
+            result = self._request("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
         except AxMCPError as error:
             if self.era != "modern" or error.code != -32020:
                 raise
@@ -1157,7 +1157,28 @@ class AxMCPClient:
             tool = next((item for item in self.tools if item.get("name") == name), None)
             bindings = mcp_param_header_bindings((tool or {}).get("inputSchema") or {})
             headers = {str(key): str(value) for key, value in mcp_param_header_values(bindings, args).items()}
-            return self._request("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
+            result = self._request("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
+        if result.get("resultType") != "task":
+            return result
+        if not self._has_tasks_capability():
+            raise AxMCPError("MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks")
+        if not mcp_validate_modern_task(result):
+            raise AxMCPError("MCP protocol violation: invalid CreateTaskResult")
+        return self._await_modern_task(str(result["taskId"]))
+
+    def _await_modern_task(self, task_id: str) -> dict[str, Any]:
+        max_polls = int(self.options.get("maxTaskPolls", 1000))
+        for _ in range(max_polls):
+            task = self.get_task(task_id)
+            outcome = mcp_task_terminal_outcome(task)
+            kind = outcome.get("kind")
+            if kind == "result":
+                return json.loads(json.dumps(outcome.get("result")))
+            if kind == "protocol_error":
+                raise AxMCPError(str(outcome.get("message", "MCP task failed")), code=int(outcome.get("code", 0)), data=outcome.get("data"))
+            if kind in {"violation", "failure", "cancelled"}:
+                raise AxMCPError(str(outcome.get("message", "MCP task failed")))
+        raise AxMCPError(f"MCP task {task_id} exceeded {max_polls} polls")
 
     def list_prompts(self, cursor: str | None = None) -> dict[str, Any]:
         return self._request("prompts/list", {"cursor": cursor} if cursor else {})
@@ -1216,10 +1237,37 @@ class AxMCPClient:
             raise AxMCPError("Resource subscriptions are not supported")
 
     def get_task(self, task_id: str) -> dict[str, Any]:
-        return self._request("tasks/get", {"taskId": task_id})
+        if not self._has_tasks_capability():
+            raise AxMCPError("Tasks are not supported")
+        result = self._request("tasks/get", {"taskId": task_id})
+        if self.era == "modern" and not mcp_validate_modern_task(result):
+            raise AxMCPError("MCP protocol violation: invalid tasks/get result")
+        return result
 
     def cancel_task(self, task_id: str) -> dict[str, Any]:
-        return self._request("tasks/cancel", {"taskId": task_id})
+        if not self._has_tasks_capability():
+            raise AxMCPError("Tasks are not supported")
+        result = self._request("tasks/cancel", {"taskId": task_id})
+        return {} if self.era == "modern" else result
+
+    def list_tasks(self, cursor: str | None = None) -> dict[str, Any]:
+        if self.era == "modern":
+            raise AxMCPError("tasks/list is only available for legacy MCP tasks")
+        if not self._has_tasks_capability():
+            raise AxMCPError("Tasks are not supported")
+        return self._request("tasks/list", {"cursor": cursor} if cursor else {})
+
+    def get_task_result(self, task_id: str) -> dict[str, Any]:
+        if self.era == "modern":
+            raise AxMCPError("tasks/result is only available for legacy MCP tasks; modern results are embedded in tasks/get")
+        if not self._has_tasks_capability():
+            raise AxMCPError("Tasks are not supported")
+        return self._request("tasks/result", {"taskId": task_id})
+
+    def provide_task_input(self, task_id: str, input_responses: dict[str, Any]) -> None:
+        if self.era != "modern" or not self._has_tasks_capability():
+            raise AxMCPError("tasks/update is only available for modern MCP Tasks v2")
+        self._request("tasks/update", {"taskId": task_id, "inputResponses": input_responses})
 
     def list_resource_templates(self, cursor: str | None = None) -> dict[str, Any]:
         return self._request("resources/templates/list", {"cursor": cursor} if cursor else {})
@@ -1334,7 +1382,7 @@ class AxMCPClient:
 
     def _client_capabilities(self) -> dict[str, Any]:
         capabilities = dict(self.options.get("capabilities") or {})
-        derived = mcp_client_capabilities(bool(self.options.get("roots")), bool(self.options.get("sampling")), bool(self.options.get("elicitation")), self.era or "legacy", bool(self.options.get("tasksExtension")))
+        derived = mcp_client_capabilities(bool(self.options.get("roots")), bool(self.options.get("sampling")), bool(self.options.get("elicitation")), self.era or "legacy", self.options.get("tasksExtension") is not False)
         for key, value in derived.items():
             capabilities.setdefault(key, value)
         return capabilities
@@ -1342,6 +1390,11 @@ class AxMCPClient:
     def _capability(self, name: str) -> bool:
         value = self.server_capabilities.get(name)
         return value is not None and value is not False
+
+    def _has_tasks_capability(self) -> bool:
+        if self.era == "modern":
+            return "io.modelcontextprotocol/tasks" in self.negotiated_extensions
+        return self._capability("tasks")
 
     def _handle_inbound_message(self, message: dict[str, Any]) -> None:
         method = message.get("method")
@@ -2159,6 +2212,24 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
                 if fresh is not case.get("expected_fresh"):
                     raise AssertionError(f"cache freshness mismatch: {fresh!r}")
             return
+        if operation == "tasks_v2_violations":
+            for case in fixture.get("validation_cases") or []:
+                if mcp_validate_modern_task(case.get("task")) is not case.get("expected_valid"):
+                    raise AssertionError("modern task validation mismatch")
+            for case in fixture.get("terminal_cases") or []:
+                _assert_subset(mcp_task_terminal_outcome(case.get("task") or {}), case.get("expected") or {}, "task terminal outcome")
+            for scenario in fixture.get("scenarios") or []:
+                transport = AxMCPScriptedTransport(scenario.get("responses") or [])
+                client = AxMCPClient(transport, scenario.get("client_options") or {})
+                client.init()
+                try:
+                    client.call_tool("slow", {})
+                except Exception as error:
+                    if scenario.get("expected_error", "") not in str(error):
+                        raise
+                else:
+                    raise AssertionError("expected Tasks v2 protocol violation")
+            return
         if operation == "http_session_headers":
             transport = AxMCPStreamableHTTPTransport(fixture.get("endpoint", "https://example.com/mcp"), fixture.get("transport_options") or {})
             transport.session_id = fixture.get("session_id", "session-1")
@@ -2267,6 +2338,23 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             reads = sum(1 for request in transport.requests if request.get("method") == "resources/read")
             if reads != fixture.get("expected_read_requests"):
                 raise AssertionError(f"resource read request count mismatch: {reads}")
+            return
+        if operation == "tasks_v2_modern":
+            result = client.call_tool("slow", {})
+            _assert_subset(result, fixture.get("expected_call_result") or {}, "task call result")
+            client.provide_task_input("task-1", {})
+            client.cancel_task("task-1")
+            for call, expected in ((client.list_tasks, fixture.get("expected_list_error", "")), (lambda: client.get_task_result("task-1"), fixture.get("expected_result_error", ""))):
+                try:
+                    call()
+                except Exception as error:
+                    if expected not in str(error):
+                        raise
+                else:
+                    raise AssertionError("expected modern task legacy-method rejection")
+            methods = [request.get("method") for request in transport.requests]
+            if methods != (fixture.get("expected_methods") or []):
+                raise AssertionError(f"task request methods mismatch: {methods!r}")
             return
         if operation == "initialize":
             _assert_requests(transport.requests, fixture)

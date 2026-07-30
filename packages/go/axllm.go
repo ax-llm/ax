@@ -45740,6 +45740,226 @@ func mcp_cache_freshness(args ...Value) (Value, error) {
 	return false, nil
 }
 
+func mcp_validate_modern_task(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_validate_modern_task")
+	var v_task Value
+	var v_base_valid Value
+	var v_cache_valid Value
+	var v_cancelled Value
+	var v_completed Value
+	var v_created_at Value
+	var v_created_string Value
+	var v_dates_valid Value
+	var v_failed Value
+	var v_has_poll Value
+	var v_has_ttl Value
+	var v_identity_valid Value
+	var v_input_required Value
+	var v_is_object Value
+	var v_no_poll Value
+	var v_poll Value
+	var v_poll_number Value
+	var v_poll_valid Value
+	var v_status Value
+	var v_status_a Value
+	var v_status_b Value
+	var v_status_c Value
+	var v_status_valid Value
+	var v_task_id Value
+	var v_task_id_string Value
+	var v_ttl Value
+	var v_ttl_null Value
+	var v_ttl_number Value
+	var v_ttl_type Value
+	var v_ttl_valid Value
+	var v_updated_at Value
+	var v_updated_string Value
+	var v_valid Value
+	var v_working Value
+	if len(args) > 0 { v_task = args[0] }
+	_ = v_task
+	_ = v_base_valid
+	_ = v_cache_valid
+	_ = v_cancelled
+	_ = v_completed
+	_ = v_created_at
+	_ = v_created_string
+	_ = v_dates_valid
+	_ = v_failed
+	_ = v_has_poll
+	_ = v_has_ttl
+	_ = v_identity_valid
+	_ = v_input_required
+	_ = v_is_object
+	_ = v_no_poll
+	_ = v_poll
+	_ = v_poll_number
+	_ = v_poll_valid
+	_ = v_status
+	_ = v_status_a
+	_ = v_status_b
+	_ = v_status_c
+	_ = v_status_valid
+	_ = v_task_id
+	_ = v_task_id_string
+	_ = v_ttl
+	_ = v_ttl_null
+	_ = v_ttl_number
+	_ = v_ttl_type
+	_ = v_ttl_valid
+	_ = v_updated_at
+	_ = v_updated_string
+	_ = v_valid
+	_ = v_working
+	v_is_object = coreTypeIs(v_task, "object")
+	if coreTruthy(v_is_object) {
+		v_task_id = coreGet(v_task, "taskId", nil)
+		v_status = coreGet(v_task, "status", nil)
+		v_created_at = coreGet(v_task, "createdAt", nil)
+		v_updated_at = coreGet(v_task, "lastUpdatedAt", nil)
+		v_task_id_string = coreTypeIs(v_task_id, "string")
+		v_created_string = coreTypeIs(v_created_at, "string")
+		v_updated_string = coreTypeIs(v_updated_at, "string")
+		v_working = _core_eq(v_status, "working")
+		v_input_required = _core_eq(v_status, "input_required")
+		v_completed = _core_eq(v_status, "completed")
+		v_failed = _core_eq(v_status, "failed")
+		v_cancelled = _core_eq(v_status, "cancelled")
+		v_status_a = _core_or(v_working, v_input_required)
+		v_status_b = _core_or(v_completed, v_failed)
+		v_status_c = _core_or(v_status_a, v_status_b)
+		v_status_valid = _core_or(v_status_c, v_cancelled)
+		v_has_ttl = _core_map_contains(v_task, "ttlMs")
+		v_ttl = coreGet(v_task, "ttlMs", nil)
+		v_ttl_null = _core_eq(v_ttl, nil)
+		v_ttl_number = coreTypeIs(v_ttl, "number")
+		v_ttl_type = _core_or(v_ttl_null, v_ttl_number)
+		v_ttl_valid = _core_and(v_has_ttl, v_ttl_type)
+		v_has_poll = _core_map_contains(v_task, "pollIntervalMs")
+		v_poll = coreGet(v_task, "pollIntervalMs", nil)
+		v_poll_number = coreTypeIs(v_poll, "number")
+		v_no_poll = _core_not(v_has_poll)
+		v_poll_valid = _core_or(v_no_poll, v_poll_number)
+		v_identity_valid = _core_and(v_task_id_string, v_status_valid)
+		v_dates_valid = _core_and(v_created_string, v_updated_string)
+		v_base_valid = _core_and(v_identity_valid, v_dates_valid)
+		v_cache_valid = _core_and(v_ttl_valid, v_poll_valid)
+		v_valid = _core_and(v_base_valid, v_cache_valid)
+		return v_valid, nil
+	} else {
+	// empty
+	}
+	return false, nil
+}
+
+func mcp_task_terminal_outcome(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_task_terminal_outcome")
+	var v_task Value
+	var v_cancelled Value
+	var v_code Value
+	var v_code_number Value
+	var v_completed Value
+	var v_data Value
+	var v_error Value
+	var v_error_message Value
+	var v_error_object Value
+	var v_failed Value
+	var v_has_data Value
+	var v_has_result Value
+	var v_message Value
+	var v_message_string Value
+	var v_out Value
+	var v_result Value
+	var v_status Value
+	var v_task_id Value
+	var v_typed_error Value
+	if len(args) > 0 { v_task = args[0] }
+	_ = v_task
+	_ = v_cancelled
+	_ = v_code
+	_ = v_code_number
+	_ = v_completed
+	_ = v_data
+	_ = v_error
+	_ = v_error_message
+	_ = v_error_object
+	_ = v_failed
+	_ = v_has_data
+	_ = v_has_result
+	_ = v_message
+	_ = v_message_string
+	_ = v_out
+	_ = v_result
+	_ = v_status
+	_ = v_task_id
+	_ = v_typed_error
+	v_out = Object()
+	v_task_id = coreGet(v_task, "taskId", "")
+	v_status = coreGet(v_task, "status", "")
+	v_completed = _core_eq(v_status, "completed")
+	if coreTruthy(v_completed) {
+		v_has_result = _core_map_contains(v_task, "result")
+		if coreTruthy(v_has_result) {
+			if err := coreSet(v_out, "kind", "result"); err != nil { return nil, err }
+			v_result = coreGet(v_task, "result", nil)
+			if err := coreSet(v_out, "result", v_result); err != nil { return nil, err }
+		} else {
+			if err := coreSet(v_out, "kind", "violation"); err != nil { return nil, err }
+			v_message = _core_string_format("MCP protocol violation: completed task {} omitted result", v_task_id)
+			if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+		}
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_failed = _core_eq(v_status, "failed")
+	if coreTruthy(v_failed) {
+		v_error = coreGet(v_task, "error", nil)
+		v_error_object = coreTypeIs(v_error, "object")
+		if coreTruthy(v_error_object) {
+			v_code = coreGet(v_error, "code", nil)
+			v_error_message = coreGet(v_error, "message", nil)
+			v_code_number = coreTypeIs(v_code, "number")
+			v_message_string = coreTypeIs(v_error_message, "string")
+			v_typed_error = _core_and(v_code_number, v_message_string)
+			if coreTruthy(v_typed_error) {
+				if err := coreSet(v_out, "kind", "protocol_error"); err != nil { return nil, err }
+				if err := coreSet(v_out, "code", v_code); err != nil { return nil, err }
+				if err := coreSet(v_out, "message", v_error_message); err != nil { return nil, err }
+				v_has_data = _core_map_contains(v_error, "data")
+				if coreTruthy(v_has_data) {
+					v_data = coreGet(v_error, "data", nil)
+					if err := coreSet(v_out, "data", v_data); err != nil { return nil, err }
+				} else {
+				// empty
+				}
+				return v_out, nil
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+		if err := coreSet(v_out, "kind", "failure"); err != nil { return nil, err }
+		v_message = _core_string_format("MCP task {} failed", v_task_id)
+		if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_cancelled = _core_eq(v_status, "cancelled")
+	if coreTruthy(v_cancelled) {
+		if err := coreSet(v_out, "kind", "cancelled"); err != nil { return nil, err }
+		v_message = _core_string_format("MCP task {} cancelled", v_task_id)
+		if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	if err := coreSet(v_out, "kind", "pending"); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func mcp_jsonrpc_request(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_jsonrpc_request")
 	var v_id Value

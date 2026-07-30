@@ -571,8 +571,8 @@ impl AxMCPClient {
         };
         let params = json!({"name":name,"arguments":args});
         let headers = self.tool_headers(name, &args)?;
-        match self.request_with_headers("tools/call", params.clone(), headers, true) {
-            Ok(value) => Ok(value),
+        let result = match self.request_with_headers("tools/call", params.clone(), headers, true) {
+            Ok(value) => value,
             Err(error)
                 if self.era.as_deref() == Some("modern")
                     && error.code.as_deref() == Some("-32020") =>
@@ -596,10 +596,76 @@ impl AxMCPClient {
                     params,
                     self.tool_headers(name, &args)?,
                     true,
-                )
+                )?
             }
-            Err(error) => Err(error),
+            Err(error) => return Err(error),
+        };
+        if result.get("resultType").and_then(Value::as_str) != Some("task") {
+            return Ok(result);
         }
+        if !self.has_tasks_capability() {
+            return Err(AxError::new("mcp","MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"));
+        }
+        if core_mcp(&crate::mcp_validate_modern_task, &[result.clone()])?.as_bool() != Some(true) {
+            return Err(AxError::new(
+                "mcp",
+                "MCP protocol violation: invalid CreateTaskResult",
+            ));
+        }
+        self.await_modern_task(
+            result
+                .get("taskId")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        )
+    }
+    fn await_modern_task(&mut self, task_id: &str) -> AxResult<Value> {
+        let max = self
+            .options
+            .get("maxTaskPolls")
+            .and_then(Value::as_u64)
+            .unwrap_or(1000);
+        for _ in 0..max {
+            let task = self.get_task(task_id)?;
+            let outcome = core_mcp(&crate::mcp_task_terminal_outcome, &[task])?;
+            match outcome
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+            {
+                "result" => return Ok(outcome.get("result").cloned().unwrap_or(Value::Null)),
+                "protocol_error" => {
+                    let mut error = AxError::new(
+                        "mcp",
+                        outcome
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("MCP task failed"),
+                    );
+                    error.code = Some(
+                        outcome
+                            .get("code")
+                            .map(ToString::to_string)
+                            .unwrap_or_default(),
+                    );
+                    return Err(error);
+                }
+                "violation" | "failure" | "cancelled" => {
+                    return Err(AxError::new(
+                        "mcp",
+                        outcome
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("MCP task failed"),
+                    ))
+                }
+                _ => {}
+            }
+        }
+        Err(AxError::new(
+            "mcp",
+            format!("MCP task {task_id} exceeded {max} polls"),
+        ))
     }
     fn tool_headers(&self, name: &str, args: &Value) -> AxResult<Map<String, Value>> {
         let mut out = Map::new();
@@ -788,11 +854,75 @@ impl AxMCPClient {
     pub fn unsubscribe_resource(&mut self, uri: &str) -> AxResult<Value> {
         self.release_resource_subscription(uri, "manual")
     }
+    fn has_tasks_capability(&self) -> bool {
+        if self.era.as_deref() == Some("modern") {
+            self.negotiated_extensions
+                .get("io.modelcontextprotocol/tasks")
+                .is_some()
+        } else {
+            self.capability("tasks")
+        }
+    }
     pub fn get_task(&mut self, task_id: &str) -> AxResult<Value> {
-        self.request("tasks/get", json!({"taskId":task_id}))
+        if !self.has_tasks_capability() {
+            return Err(AxError::new("mcp", "Tasks are not supported"));
+        }
+        let result = self.request("tasks/get", json!({"taskId":task_id}))?;
+        if self.era.as_deref() == Some("modern")
+            && core_mcp(&crate::mcp_validate_modern_task, &[result.clone()])?.as_bool()
+                != Some(true)
+        {
+            return Err(AxError::new(
+                "mcp",
+                "MCP protocol violation: invalid tasks/get result",
+            ));
+        }
+        Ok(result)
     }
     pub fn cancel_task(&mut self, task_id: &str) -> AxResult<Value> {
-        self.request("tasks/cancel", json!({"taskId":task_id}))
+        if !self.has_tasks_capability() {
+            return Err(AxError::new("mcp", "Tasks are not supported"));
+        }
+        let result = self.request("tasks/cancel", json!({"taskId":task_id}))?;
+        Ok(if self.era.as_deref() == Some("modern") {
+            json!({})
+        } else {
+            result
+        })
+    }
+    pub fn list_tasks(&mut self, cursor: Option<&str>) -> AxResult<Value> {
+        if self.era.as_deref() == Some("modern") {
+            return Err(AxError::new(
+                "mcp",
+                "tasks/list is only available for legacy MCP tasks",
+            ));
+        }
+        if !self.has_tasks_capability() {
+            return Err(AxError::new("mcp", "Tasks are not supported"));
+        }
+        self.request("tasks/list", cursor_params(cursor))
+    }
+    pub fn get_task_result(&mut self, task_id: &str) -> AxResult<Value> {
+        if self.era.as_deref() == Some("modern") {
+            return Err(AxError::new("mcp","tasks/result is only available for legacy MCP tasks; modern results are embedded in tasks/get"));
+        }
+        if !self.has_tasks_capability() {
+            return Err(AxError::new("mcp", "Tasks are not supported"));
+        }
+        self.request("tasks/result", json!({"taskId":task_id}))
+    }
+    pub fn provide_task_input(&mut self, task_id: &str, input_responses: Value) -> AxResult<()> {
+        if self.era.as_deref() != Some("modern") || !self.has_tasks_capability() {
+            return Err(AxError::new(
+                "mcp",
+                "tasks/update is only available for modern MCP Tasks v2",
+            ));
+        }
+        self.request(
+            "tasks/update",
+            json!({"taskId":task_id,"inputResponses":input_responses}),
+        )
+        .map(|_| ())
     }
     pub fn list_resource_templates(&mut self, cursor: Option<&str>) -> AxResult<Value> {
         self.request("resources/templates/list", cursor_params(cursor))
@@ -1071,7 +1201,7 @@ impl AxMCPClient {
                     .options
                     .get("tasksExtension")
                     .and_then(Value::as_bool)
-                    .unwrap_or(false)),
+                    .unwrap_or(true)),
             ],
         )
         .unwrap_or_else(|_| json!({}));
@@ -4423,6 +4553,76 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
             }
             Ok(())
         }
+        "tasks_v2_violations" => {
+            for case in fixture
+                .get("validation_cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = core_mcp(
+                    &crate::mcp_validate_modern_task,
+                    &[case.get("task").cloned().unwrap_or(Value::Null)],
+                )?
+                .as_bool()
+                    == Some(true);
+                if actual != (case.get("expected_valid").and_then(Value::as_bool) == Some(true)) {
+                    return Err(AxError::new("fixture", "modern task validation mismatch"));
+                }
+            }
+            for case in fixture
+                .get("terminal_cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = core_mcp(
+                    &crate::mcp_task_terminal_outcome,
+                    &[case.get("task").cloned().unwrap_or_else(|| json!({}))],
+                )?;
+                expect_subset(
+                    "task terminal outcome",
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            for scenario in fixture
+                .get("scenarios")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let responses = scenario
+                    .get("responses")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut client = AxMCPClient::new(
+                    Box::new(AxMCPScriptedTransport::new(responses)),
+                    scenario
+                        .get("client_options")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                );
+                client.init()?;
+                match client.call_tool("slow", json!({})) {
+                    Err(error)
+                        if error.to_string().contains(
+                            scenario
+                                .get("expected_error")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default(),
+                        ) => {}
+                    _ => {
+                        return Err(AxError::new(
+                            "fixture",
+                            "expected Tasks v2 protocol violation",
+                        ))
+                    }
+                }
+            }
+            Ok(())
+        }
         "http_session_headers" => {
             let mut transport = AxMCPStreamableHTTPTransport::new(
                 fixture
@@ -4808,6 +5008,60 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                             "fixture",
                             "resource read request count mismatch",
                         ));
+                    }
+                    Ok(())
+                }
+                "tasks_v2_modern" => {
+                    let result = client.call_tool("slow", json!({}))?;
+                    expect_subset(
+                        "task call result",
+                        &result,
+                        fixture.get("expected_call_result").unwrap_or(&Value::Null),
+                    )?;
+                    client.provide_task_input("task-1", json!({}))?;
+                    client.cancel_task("task-1")?;
+                    match client.list_tasks(None) {
+                        Err(error)
+                            if error.to_string().contains(
+                                fixture
+                                    .get("expected_list_error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default(),
+                            ) => {}
+                        _ => {
+                            return Err(AxError::new(
+                                "fixture",
+                                "missing modern tasks/list rejection",
+                            ))
+                        }
+                    }
+                    match client.get_task_result("task-1") {
+                        Err(error)
+                            if error.to_string().contains(
+                                fixture
+                                    .get("expected_result_error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default(),
+                            ) => {}
+                        _ => {
+                            return Err(AxError::new(
+                                "fixture",
+                                "missing modern tasks/result rejection",
+                            ))
+                        }
+                    }
+                    let methods = Value::Array(
+                        client
+                            .transport
+                            .lock()
+                            .unwrap()
+                            .sent_requests()
+                            .into_iter()
+                            .map(|request| request.get("method").cloned().unwrap_or(Value::Null))
+                            .collect(),
+                    );
+                    if &methods != fixture.get("expected_methods").unwrap_or(&Value::Null) {
+                        return Err(AxError::new("fixture", "task request methods mismatch"));
                     }
                     Ok(())
                 }

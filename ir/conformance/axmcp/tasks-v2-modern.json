@@ -1,0 +1,70 @@
+{
+  "name": "modern MCP Tasks v2 flattened lifecycle",
+  "kind": "mcp",
+  "operation": "tasks_v2_modern",
+  "client_options": { "era": "modern" },
+  "responses": [
+    {
+      "method": "server/discover",
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {
+          "tools": {},
+          "extensions": { "io.modelcontextprotocol/tasks": {} }
+        },
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "tools/list",
+      "result": {
+        "tools": [{ "name": "slow", "inputSchema": { "type": "object" } }],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "task",
+        "taskId": "task-1",
+        "status": "working",
+        "createdAt": "2026-07-28T00:00:00Z",
+        "lastUpdatedAt": "2026-07-28T00:00:01Z",
+        "ttlMs": 60000,
+        "pollIntervalMs": 0
+      }
+    },
+    {
+      "method": "tasks/get",
+      "result": {
+        "taskId": "task-1",
+        "status": "completed",
+        "createdAt": "2026-07-28T00:00:00Z",
+        "lastUpdatedAt": "2026-07-28T00:00:02Z",
+        "ttlMs": 60000,
+        "pollIntervalMs": 0,
+        "result": {
+          "resultType": "complete",
+          "content": [{ "type": "text", "text": "done" }],
+          "structuredContent": { "done": true }
+        }
+      }
+    },
+    { "method": "tasks/update", "result": {} },
+    { "method": "tasks/cancel", "result": {} }
+  ],
+  "expected_call_result": { "structuredContent": { "done": true } },
+  "expected_methods": [
+    "server/discover",
+    "tools/list",
+    "tools/call",
+    "tasks/get",
+    "tasks/update",
+    "tasks/cancel"
+  ],
+  "expected_list_error": "tasks/list is only available for legacy MCP tasks",
+  "expected_result_error": "tasks/result is only available for legacy MCP tasks; modern results are embedded in tasks/get"
+}

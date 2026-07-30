@@ -90,6 +90,9 @@ class AxMCPClient {
   AxMCPCatalogSnapshot inspect_catalog(bool refresh_catalog=false);
   Value get_task(const std::string& task_id);
   Value cancel_task(const std::string& task_id);
+  Value list_tasks(const std::string& cursor="");
+  Value get_task_result(const std::string& task_id);
+  void provide_task_input(const std::string& task_id,Value input_responses=Value::object());
   Value list_resource_templates(const std::string& cursor = "");
   void notify(const std::string& method, Value params = Value());
   void cancel_request(Value request_id, const std::string& reason = "");
@@ -144,6 +147,8 @@ class AxMCPClient {
   Value tool_headers(const std::string& name, Value arguments) const;
   std::vector<Value> collect_catalog(const std::string& method,const std::string& field);
   bool catalog_cache_fresh(const std::string& name) const;
+  bool has_tasks_capability() const;
+  Value await_modern_task(const std::string& task_id);
   Tool tool_to_function(Value spec);
   Tool prompt_to_function(Value spec);
   Tool resource_to_function(Value spec);

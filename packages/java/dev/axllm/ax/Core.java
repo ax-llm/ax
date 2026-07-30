@@ -22297,6 +22297,105 @@ final class Core {
     return Boolean.FALSE;
   }
 
+  static Object mcp_validate_modern_task(Object task) {
+    axirCoverageMark("mcp_validate_modern_task");
+    Object is_object = Core.typeIs(task, "object");
+    if (Core.truthy(is_object)) {
+      Object task_id = Core.get(task, "taskId", null);
+      Object status = Core.get(task, "status", null);
+      Object created_at = Core.get(task, "createdAt", null);
+      Object updated_at = Core.get(task, "lastUpdatedAt", null);
+      Object task_id_string = Core.typeIs(task_id, "string");
+      Object created_string = Core.typeIs(created_at, "string");
+      Object updated_string = Core.typeIs(updated_at, "string");
+      Object working = Core.eq(status, "working");
+      Object input_required = Core.eq(status, "input_required");
+      Object completed = Core.eq(status, "completed");
+      Object failed = Core.eq(status, "failed");
+      Object cancelled = Core.eq(status, "cancelled");
+      Object status_a = Core.or(working, input_required);
+      Object status_b = Core.or(completed, failed);
+      Object status_c = Core.or(status_a, status_b);
+      Object status_valid = Core.or(status_c, cancelled);
+      Object has_ttl = Core.mapContains(task, "ttlMs");
+      Object ttl = Core.get(task, "ttlMs", null);
+      Object ttl_null = Core.eq(ttl, null);
+      Object ttl_number = Core.typeIs(ttl, "number");
+      Object ttl_type = Core.or(ttl_null, ttl_number);
+      Object ttl_valid = Core.and(has_ttl, ttl_type);
+      Object has_poll = Core.mapContains(task, "pollIntervalMs");
+      Object poll = Core.get(task, "pollIntervalMs", null);
+      Object poll_number = Core.typeIs(poll, "number");
+      Object no_poll = Core.not(has_poll);
+      Object poll_valid = Core.or(no_poll, poll_number);
+      Object identity_valid = Core.and(task_id_string, status_valid);
+      Object dates_valid = Core.and(created_string, updated_string);
+      Object base_valid = Core.and(identity_valid, dates_valid);
+      Object cache_valid = Core.and(ttl_valid, poll_valid);
+      Object valid = Core.and(base_valid, cache_valid);
+      return valid;
+    }
+    return Boolean.FALSE;
+  }
+
+  static Object mcp_task_terminal_outcome(Object task) {
+    axirCoverageMark("mcp_task_terminal_outcome");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object task_id = Core.get(task, "taskId", "");
+    Object status = Core.get(task, "status", "");
+    Object completed = Core.eq(status, "completed");
+    if (Core.truthy(completed)) {
+      Object has_result = Core.mapContains(task, "result");
+      if (Core.truthy(has_result)) {
+        Core.set(out, "kind", "result");
+        Object result = Core.get(task, "result", null);
+        Core.set(out, "result", result);
+      }
+      if (!Core.truthy(has_result)) {
+        Core.set(out, "kind", "violation");
+        Object message = Core.stringFormat("MCP protocol violation: completed task {} omitted result", task_id);
+        Core.set(out, "message", message);
+      }
+      return out;
+    }
+    Object failed = Core.eq(status, "failed");
+    if (Core.truthy(failed)) {
+      Object error = Core.get(task, "error", null);
+      Object error_object = Core.typeIs(error, "object");
+      if (Core.truthy(error_object)) {
+        Object code = Core.get(error, "code", null);
+        Object error_message = Core.get(error, "message", null);
+        Object code_number = Core.typeIs(code, "number");
+        Object message_string = Core.typeIs(error_message, "string");
+        Object typed_error = Core.and(code_number, message_string);
+        if (Core.truthy(typed_error)) {
+          Core.set(out, "kind", "protocol_error");
+          Core.set(out, "code", code);
+          Core.set(out, "message", error_message);
+          Object has_data = Core.mapContains(error, "data");
+          if (Core.truthy(has_data)) {
+            Object data = Core.get(error, "data", null);
+            Core.set(out, "data", data);
+          }
+          return out;
+        }
+      }
+      Core.set(out, "kind", "failure");
+      Object message = Core.stringFormat("MCP task {} failed", task_id);
+      Core.set(out, "message", message);
+      return out;
+    }
+    Object cancelled = Core.eq(status, "cancelled");
+    if (Core.truthy(cancelled)) {
+      Core.set(out, "kind", "cancelled");
+      Object message = Core.stringFormat("MCP task {} cancelled", task_id);
+      Core.set(out, "message", message);
+      return out;
+    }
+    Core.set(out, "kind", "pending");
+    return out;
+  }
+
   static Object mcp_jsonrpc_request(Object id, Object method, Object params) {
     axirCoverageMark("mcp_jsonrpc_request");
     Object out = new java.util.LinkedHashMap<String, Object>();

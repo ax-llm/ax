@@ -1,0 +1,150 @@
+{
+  "name": "modern MCP Tasks v2 validation and protocol violations",
+  "kind": "mcp",
+  "operation": "tasks_v2_violations",
+  "validation_cases": [
+    {
+      "task": {
+        "taskId": "valid",
+        "status": "working",
+        "createdAt": "2026-07-28T00:00:00Z",
+        "lastUpdatedAt": "2026-07-28T00:00:01Z",
+        "ttlMs": null
+      },
+      "expected_valid": true
+    },
+    {
+      "task": {
+        "taskId": "missing-ttl",
+        "status": "working",
+        "createdAt": "2026-07-28T00:00:00Z",
+        "lastUpdatedAt": "2026-07-28T00:00:01Z"
+      },
+      "expected_valid": false
+    },
+    {
+      "task": {
+        "taskId": "bad-status",
+        "status": "queued",
+        "createdAt": "2026-07-28T00:00:00Z",
+        "lastUpdatedAt": "2026-07-28T00:00:01Z",
+        "ttlMs": 1000
+      },
+      "expected_valid": false
+    },
+    {
+      "task": {
+        "taskId": "bad-poll",
+        "status": "working",
+        "createdAt": "2026-07-28T00:00:00Z",
+        "lastUpdatedAt": "2026-07-28T00:00:01Z",
+        "ttlMs": 1000,
+        "pollIntervalMs": "soon"
+      },
+      "expected_valid": false
+    }
+  ],
+  "terminal_cases": [
+    {
+      "task": {
+        "taskId": "complete",
+        "status": "completed",
+        "result": { "ok": true }
+      },
+      "expected": { "kind": "result", "result": { "ok": true } }
+    },
+    {
+      "task": { "taskId": "missing", "status": "completed" },
+      "expected": {
+        "kind": "violation",
+        "message": "MCP protocol violation: completed task missing omitted result"
+      }
+    },
+    {
+      "task": {
+        "taskId": "failed",
+        "status": "failed",
+        "error": {
+          "code": -32091,
+          "message": "index failed",
+          "data": { "shard": 3 }
+        }
+      },
+      "expected": {
+        "kind": "protocol_error",
+        "code": -32091,
+        "message": "index failed",
+        "data": { "shard": 3 }
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "client_options": { "era": "modern", "tasksExtension": false },
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "capabilities": {
+              "tools": {},
+              "extensions": { "io.modelcontextprotocol/tasks": {} }
+            },
+            "ttlMs": 60000,
+            "cacheScope": "private"
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": { "tools": [{ "name": "slow", "inputSchema": {} }] }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-1",
+            "status": "working",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000
+          }
+        }
+      ],
+      "expected_error": "MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"
+    },
+    {
+      "client_options": { "era": "modern" },
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "capabilities": {
+              "tools": {},
+              "extensions": { "io.modelcontextprotocol/tasks": {} }
+            },
+            "ttlMs": 60000,
+            "cacheScope": "private"
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": { "tools": [{ "name": "slow", "inputSchema": {} }] }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-2",
+            "status": "working",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z"
+          }
+        }
+      ],
+      "expected_error": "MCP protocol violation: invalid CreateTaskResult"
+    }
+  ]
+}

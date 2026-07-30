@@ -770,6 +770,8 @@ struct Core {
   static Value mcp_param_header_values(Value bindings, Value arguments);
   static Value mcp_fold_cache_info(Value pages, Value fetched_at);
   static Value mcp_cache_freshness(Value cache_info, Value now);
+  static Value mcp_validate_modern_task(Value task);
+  static Value mcp_task_terminal_outcome(Value task);
   static Value mcp_jsonrpc_request(Value id, Value method, Value params);
   static Value mcp_jsonrpc_notification(Value method, Value params);
   static Value mcp_normalize_error(Value response);

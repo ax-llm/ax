@@ -781,6 +781,116 @@ module @ax.mcp version "0.1" {
     }
   }
 
+  op ax.mcp.semantic @mcp_validate_modern_task {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-tasks-v2"
+    type signature = "(task:json) -> bool"
+    body @entry(%task: json) {
+      %is_object = core.type_is %task type "object"
+      core.if %is_object {
+        %task_id = core.get %task["taskId"] default null
+        %status = core.get %task["status"] default null
+        %created_at = core.get %task["createdAt"] default null
+        %updated_at = core.get %task["lastUpdatedAt"] default null
+        %task_id_string = core.type_is %task_id type "string"
+        %created_string = core.type_is %created_at type "string"
+        %updated_string = core.type_is %updated_at type "string"
+        %working = core.call intrinsic.eq(%status, "working")
+        %input_required = core.call intrinsic.eq(%status, "input_required")
+        %completed = core.call intrinsic.eq(%status, "completed")
+        %failed = core.call intrinsic.eq(%status, "failed")
+        %cancelled = core.call intrinsic.eq(%status, "cancelled")
+        %status_a = core.call intrinsic.or(%working, %input_required)
+        %status_b = core.call intrinsic.or(%completed, %failed)
+        %status_c = core.call intrinsic.or(%status_a, %status_b)
+        %status_valid = core.call intrinsic.or(%status_c, %cancelled)
+        %has_ttl = core.call intrinsic.map.contains(%task, "ttlMs")
+        %ttl = core.get %task["ttlMs"] default null
+        %ttl_null = core.call intrinsic.eq(%ttl, null)
+        %ttl_number = core.type_is %ttl type "number"
+        %ttl_type = core.call intrinsic.or(%ttl_null, %ttl_number)
+        %ttl_valid = core.call intrinsic.and(%has_ttl, %ttl_type)
+        %has_poll = core.call intrinsic.map.contains(%task, "pollIntervalMs")
+        %poll = core.get %task["pollIntervalMs"] default null
+        %poll_number = core.type_is %poll type "number"
+        %no_poll = core.call intrinsic.not(%has_poll)
+        %poll_valid = core.call intrinsic.or(%no_poll, %poll_number)
+        %identity_valid = core.call intrinsic.and(%task_id_string, %status_valid)
+        %dates_valid = core.call intrinsic.and(%created_string, %updated_string)
+        %base_valid = core.call intrinsic.and(%identity_valid, %dates_valid)
+        %cache_valid = core.call intrinsic.and(%ttl_valid, %poll_valid)
+        %valid = core.call intrinsic.and(%base_valid, %cache_valid)
+        core.return %valid
+      }
+      core.return false
+    }
+  }
+
+  op ax.mcp.semantic @mcp_task_terminal_outcome {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-tasks-v2"
+    type signature = "(task:json) -> json"
+    body @entry(%task: json) {
+      %out = core.map
+      %task_id = core.get %task["taskId"] default ""
+      %status = core.get %task["status"] default ""
+      %completed = core.call intrinsic.eq(%status, "completed")
+      core.if %completed {
+        %has_result = core.call intrinsic.map.contains(%task, "result")
+        core.if %has_result {
+          core.set %out["kind"] = "result"
+          %result = core.get %task["result"] default null
+          core.set %out["result"] = %result
+        } else {
+          core.set %out["kind"] = "violation"
+          %message = core.call intrinsic.string.format("MCP protocol violation: completed task {} omitted result", %task_id)
+          core.set %out["message"] = %message
+        }
+        core.return %out
+      }
+      %failed = core.call intrinsic.eq(%status, "failed")
+      core.if %failed {
+        %error = core.get %task["error"] default null
+        %error_object = core.type_is %error type "object"
+        core.if %error_object {
+          %code = core.get %error["code"] default null
+          %error_message = core.get %error["message"] default null
+          %code_number = core.type_is %code type "number"
+          %message_string = core.type_is %error_message type "string"
+          %typed_error = core.call intrinsic.and(%code_number, %message_string)
+          core.if %typed_error {
+            core.set %out["kind"] = "protocol_error"
+            core.set %out["code"] = %code
+            core.set %out["message"] = %error_message
+            %has_data = core.call intrinsic.map.contains(%error, "data")
+            core.if %has_data {
+              %data = core.get %error["data"] default null
+              core.set %out["data"] = %data
+            }
+            core.return %out
+          }
+        }
+        core.set %out["kind"] = "failure"
+        %message = core.call intrinsic.string.format("MCP task {} failed", %task_id)
+        core.set %out["message"] = %message
+        core.return %out
+      }
+      %cancelled = core.call intrinsic.eq(%status, "cancelled")
+      core.if %cancelled {
+        core.set %out["kind"] = "cancelled"
+        %message = core.call intrinsic.string.format("MCP task {} cancelled", %task_id)
+        core.set %out["message"] = %message
+        core.return %out
+      }
+      core.set %out["kind"] = "pending"
+      core.return %out
+    }
+  }
+
   op ax.mcp.semantic @mcp_jsonrpc_request {
     attr body_source = "core"
     attr core_kind = "func"

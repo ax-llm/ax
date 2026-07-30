@@ -71395,6 +71395,188 @@ fn mcp_cache_freshness(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn mcp_validate_modern_task(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_validate_modern_task");
+    let mut v_task = core_arg(args, 0);
+    let mut v_base_valid = CoreValue::Null;
+    let mut v_cache_valid = CoreValue::Null;
+    let mut v_cancelled = CoreValue::Null;
+    let mut v_completed = CoreValue::Null;
+    let mut v_created_at = CoreValue::Null;
+    let mut v_created_string = CoreValue::Null;
+    let mut v_dates_valid = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_has_poll = CoreValue::Null;
+    let mut v_has_ttl = CoreValue::Null;
+    let mut v_identity_valid = CoreValue::Null;
+    let mut v_input_required = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_no_poll = CoreValue::Null;
+    let mut v_poll = CoreValue::Null;
+    let mut v_poll_number = CoreValue::Null;
+    let mut v_poll_valid = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_status_a = CoreValue::Null;
+    let mut v_status_b = CoreValue::Null;
+    let mut v_status_c = CoreValue::Null;
+    let mut v_status_valid = CoreValue::Null;
+    let mut v_task_id = CoreValue::Null;
+    let mut v_task_id_string = CoreValue::Null;
+    let mut v_ttl = CoreValue::Null;
+    let mut v_ttl_null = CoreValue::Null;
+    let mut v_ttl_number = CoreValue::Null;
+    let mut v_ttl_type = CoreValue::Null;
+    let mut v_ttl_valid = CoreValue::Null;
+    let mut v_updated_at = CoreValue::Null;
+    let mut v_updated_string = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    let mut v_working = CoreValue::Null;
+    v_is_object = core_type_is(&v_task, CoreValue::from("object"));
+    if core_truthy(&v_is_object) {
+        v_task_id = core_get(&v_task, &CoreValue::from("taskId"), CoreValue::Null);
+        v_status = core_get(&v_task, &CoreValue::from("status"), CoreValue::Null);
+        v_created_at = core_get(&v_task, &CoreValue::from("createdAt"), CoreValue::Null);
+        v_updated_at = core_get(&v_task, &CoreValue::from("lastUpdatedAt"), CoreValue::Null);
+        v_task_id_string = core_type_is(&v_task_id, CoreValue::from("string"));
+        v_created_string = core_type_is(&v_created_at, CoreValue::from("string"));
+        v_updated_string = core_type_is(&v_updated_at, CoreValue::from("string"));
+        v_working = core_eq(&[v_status.clone(), CoreValue::from("working")])?;
+        v_input_required = core_eq(&[v_status.clone(), CoreValue::from("input_required")])?;
+        v_completed = core_eq(&[v_status.clone(), CoreValue::from("completed")])?;
+        v_failed = core_eq(&[v_status.clone(), CoreValue::from("failed")])?;
+        v_cancelled = core_eq(&[v_status.clone(), CoreValue::from("cancelled")])?;
+        v_status_a = core_or(&[v_working.clone(), v_input_required.clone()])?;
+        v_status_b = core_or(&[v_completed.clone(), v_failed.clone()])?;
+        v_status_c = core_or(&[v_status_a.clone(), v_status_b.clone()])?;
+        v_status_valid = core_or(&[v_status_c.clone(), v_cancelled.clone()])?;
+        v_has_ttl = core_map_contains(&[v_task.clone(), CoreValue::from("ttlMs")])?;
+        v_ttl = core_get(&v_task, &CoreValue::from("ttlMs"), CoreValue::Null);
+        v_ttl_null = core_eq(&[v_ttl.clone(), CoreValue::Null])?;
+        v_ttl_number = core_type_is(&v_ttl, CoreValue::from("number"));
+        v_ttl_type = core_or(&[v_ttl_null.clone(), v_ttl_number.clone()])?;
+        v_ttl_valid = core_and(&[v_has_ttl.clone(), v_ttl_type.clone()])?;
+        v_has_poll = core_map_contains(&[v_task.clone(), CoreValue::from("pollIntervalMs")])?;
+        v_poll = core_get(&v_task, &CoreValue::from("pollIntervalMs"), CoreValue::Null);
+        v_poll_number = core_type_is(&v_poll, CoreValue::from("number"));
+        v_no_poll = core_not(&[v_has_poll.clone()])?;
+        v_poll_valid = core_or(&[v_no_poll.clone(), v_poll_number.clone()])?;
+        v_identity_valid = core_and(&[v_task_id_string.clone(), v_status_valid.clone()])?;
+        v_dates_valid = core_and(&[v_created_string.clone(), v_updated_string.clone()])?;
+        v_base_valid = core_and(&[v_identity_valid.clone(), v_dates_valid.clone()])?;
+        v_cache_valid = core_and(&[v_ttl_valid.clone(), v_poll_valid.clone()])?;
+        v_valid = core_and(&[v_base_valid.clone(), v_cache_valid.clone()])?;
+        return Ok(v_valid.clone());
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_task_terminal_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_task_terminal_outcome");
+    let mut v_task = core_arg(args, 0);
+    let mut v_cancelled = CoreValue::Null;
+    let mut v_code = CoreValue::Null;
+    let mut v_code_number = CoreValue::Null;
+    let mut v_completed = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_error_message = CoreValue::Null;
+    let mut v_error_object = CoreValue::Null;
+    let mut v_failed = CoreValue::Null;
+    let mut v_has_data = CoreValue::Null;
+    let mut v_has_result = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_message_string = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_status = CoreValue::Null;
+    let mut v_task_id = CoreValue::Null;
+    let mut v_typed_error = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_task_id = core_get(&v_task, &CoreValue::from("taskId"), CoreValue::from(""));
+    v_status = core_get(&v_task, &CoreValue::from("status"), CoreValue::from(""));
+    v_completed = core_eq(&[v_status.clone(), CoreValue::from("completed")])?;
+    if core_truthy(&v_completed) {
+        v_has_result = core_map_contains(&[v_task.clone(), CoreValue::from("result")])?;
+        if core_truthy(&v_has_result) {
+            core_set(&v_out, CoreValue::from("kind"), CoreValue::from("result"))?;
+            v_result = core_get(&v_task, &CoreValue::from("result"), CoreValue::Null);
+            core_set(&v_out, CoreValue::from("result"), v_result.clone())?;
+        } else {
+            core_set(
+                &v_out,
+                CoreValue::from("kind"),
+                CoreValue::from("violation"),
+            )?;
+            v_message = core_string_format(&[
+                CoreValue::from("MCP protocol violation: completed task {} omitted result"),
+                v_task_id.clone(),
+            ])?;
+            core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        }
+        return Ok(v_out.clone());
+    }
+    v_failed = core_eq(&[v_status.clone(), CoreValue::from("failed")])?;
+    if core_truthy(&v_failed) {
+        v_error = core_get(&v_task, &CoreValue::from("error"), CoreValue::Null);
+        v_error_object = core_type_is(&v_error, CoreValue::from("object"));
+        if core_truthy(&v_error_object) {
+            v_code = core_get(&v_error, &CoreValue::from("code"), CoreValue::Null);
+            v_error_message = core_get(&v_error, &CoreValue::from("message"), CoreValue::Null);
+            v_code_number = core_type_is(&v_code, CoreValue::from("number"));
+            v_message_string = core_type_is(&v_error_message, CoreValue::from("string"));
+            v_typed_error = core_and(&[v_code_number.clone(), v_message_string.clone()])?;
+            if core_truthy(&v_typed_error) {
+                core_set(
+                    &v_out,
+                    CoreValue::from("kind"),
+                    CoreValue::from("protocol_error"),
+                )?;
+                core_set(&v_out, CoreValue::from("code"), v_code.clone())?;
+                core_set(&v_out, CoreValue::from("message"), v_error_message.clone())?;
+                v_has_data = core_map_contains(&[v_error.clone(), CoreValue::from("data")])?;
+                if core_truthy(&v_has_data) {
+                    v_data = core_get(&v_error, &CoreValue::from("data"), CoreValue::Null);
+                    core_set(&v_out, CoreValue::from("data"), v_data.clone())?;
+                }
+                return Ok(v_out.clone());
+            }
+        }
+        core_set(&v_out, CoreValue::from("kind"), CoreValue::from("failure"))?;
+        v_message =
+            core_string_format(&[CoreValue::from("MCP task {} failed"), v_task_id.clone()])?;
+        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_cancelled = core_eq(&[v_status.clone(), CoreValue::from("cancelled")])?;
+    if core_truthy(&v_cancelled) {
+        core_set(
+            &v_out,
+            CoreValue::from("kind"),
+            CoreValue::from("cancelled"),
+        )?;
+        v_message =
+            core_string_format(&[CoreValue::from("MCP task {} cancelled"), v_task_id.clone()])?;
+        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        return Ok(v_out.clone());
+    }
+    core_set(&v_out, CoreValue::from("kind"), CoreValue::from("pending"))?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_jsonrpc_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_jsonrpc_request");
     let mut v_id = core_arg(args, 0);
@@ -71669,4 +71851,4 @@ fn mcp_resource_subscription_ownership(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (537 of 537 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (539 of 539 core functions)
