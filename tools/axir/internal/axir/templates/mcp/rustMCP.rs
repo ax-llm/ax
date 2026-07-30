@@ -677,7 +677,11 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
         self.send_with_headers(message,Map::new())
     }
     fn send_with_headers(&mut self, message: Value, extra_headers:Map<String,Value>) -> AxResult<Value> {
-        let mut request = self.client.post(&self.endpoint).json(&message);
+        let mut request = self
+            .client
+            .post(&self.endpoint)
+            .header("Accept", "application/json, text/event-stream")
+            .json(&message);
         let method=message.get("method").and_then(Value::as_str).unwrap_or_default();
         for (key, value) in self.build_request_headers(Map::new(), method != "initialize",method,message.get("params").unwrap_or(&Value::Null),&extra_headers) {
             if let Some(text) = value.as_str() { request = request.header(key, text); }

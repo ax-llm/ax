@@ -3767,7 +3767,11 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
         message: Value,
         extra_headers: Map<String, Value>,
     ) -> AxResult<Value> {
-        let mut request = self.client.post(&self.endpoint).json(&message);
+        let mut request = self
+            .client
+            .post(&self.endpoint)
+            .header("Accept", "application/json, text/event-stream")
+            .json(&message);
         let method = message
             .get("method")
             .and_then(Value::as_str)

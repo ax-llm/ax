@@ -44,5 +44,8 @@
     "url": "https://github.com/@ax-llm/ax/issues"
   },
   "homepage": "https://github.com/ax-llm/ax#readme",
-  "author": "Vikram <https://twitter.com/dosco>"
+  "author": "Vikram <https://twitter.com/dosco>",
+  "devDependencies": {
+    "@modelcontextprotocol/server-everything": "2026.7.4"
+  }
 }
