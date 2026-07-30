@@ -441,7 +441,7 @@ export class AxAIOpenAIResponsesImpl<
         ? {
             reasoning: {
               effort: reasoningEffort,
-              // Summarising reasoning that was explicitly disabled is
+              // Summarizing reasoning that was explicitly disabled is
               // contradictory, so 'none' carries no summary.
               ...(reasoningEffort === 'none'
                 ? {}
