@@ -604,7 +604,7 @@
     },
     {
       "id": "axir-2026-07-29-mcp-2026-07-28-modern-era-client",
-      "status": "open",
+      "status": "done",
       "title": "MCP 2026-07-28 modern-era client",
       "createdAt": "2026-07-29",
       "sourcePR": null,
@@ -617,9 +617,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-30",
+      "completedByCommit": "c32c41a8",
+      "verification": "npm run test:axir; npm run axir:gate:ledger; all D-K tranches closed; legacy and modern localhost harness plus mcp_modern_roundtrip examples passed in Python, Java, C++, Go, and Rust"
     },
     {
       "id": "axir-2026-07-29-port-dual-era-mcp-discovery-and-classification",
