@@ -81,33 +81,44 @@ static void expect_subset_local(Value actual, Value expected, const std::string&
   if (!equal(actual, expected)) throw AxError("fixture", label + " mismatch");
 }
 
+static std::map<std::string,std::string>& ax_mcp_client_era_cache(){static std::map<std::string,std::string> cache;return cache;}
+
 AxMCPClient::AxMCPClient(std::shared_ptr<AxMCPTransport> transport, Value options)
     : transport_(std::move(transport)), options_(std::move(options)) { transport_->set_message_handler([this](Value message){auto method=display(Core::get(message,"method",""));if(method=="notifications/tools/list_changed"||method=="notifications/prompts/list_changed"||method=="notifications/resources/list_changed")refresh();emit_notification(std::move(message));});transport_->set_lifecycle_handler([this](std::string state){emit_lifecycle(state);}); }
 
 void AxMCPClient::init() {
   if(initialized_)return;
   transport_->connect();
-  Value capabilities = Core::get(options_, "capabilities", Value::object());
-  if (!Core::get(options_, "roots", Value()).is_null() && Core::get(capabilities, "roots", Value()).is_null()) {
-    Core::set(capabilities, "roots", object({{"listChanged", true}}));
-  }
+  auto& era_cache=ax_mcp_client_era_cache();auto configured=display(Core::get(options_,"era","auto"));auto key=transport_->era_cache_key();auto cached=era_cache[key];auto stored=Core::get(Core::get(options_,"eraStore",Value::object()),key,"");auto resolution=Core::mcp_resolve_known_era(configured,transport_->era_hint(),cached,stored);auto resolved=display(Core::get(resolution,"era","modern"));
+  if(!Core::truthy(Core::get(resolution,"probe",false))){if(resolved=="legacy")initialize_legacy();else{apply_era("modern");apply_discovery(request_discovery());refresh();}remember_era(resolved);initialized_=true;if(resolved=="legacy")transport_->start_listening();return;}
+  apply_era("modern");try{apply_discovery(request_discovery());}catch(const AxError& error){if(error.code=="-32022")throw;initialize_legacy();remember_era("legacy");initialized_=true;transport_->start_listening();return;}remember_era("modern");refresh();initialized_=true;
+}
+
+void AxMCPClient::initialize_legacy(){
+  apply_era("legacy");
   Value result = request("initialize", object({
       {"protocolVersion", display(Core::get(options_, "protocolVersion", AX_MCP_PROTOCOL_VERSION))},
-      {"capabilities", capabilities},
+      {"capabilities", client_capabilities()},
       {"clientInfo", object({{"name", "AxMCPClient"}, {"title", "Ax MCP Client"}, {"version", "1.0.0"}})},
   }));
   negotiated_protocol_version_ = display(Core::get(result, "protocolVersion", ""));
-  bool supported = negotiated_protocol_version_ == "2025-11-25" || negotiated_protocol_version_ == "2025-06-18" ||
+  bool supported = negotiated_protocol_version_ == "2026-07-28" || negotiated_protocol_version_ == "2025-11-25" || negotiated_protocol_version_ == "2025-06-18" ||
                    negotiated_protocol_version_ == "2025-03-26" || negotiated_protocol_version_ == "2024-11-05";
   if (!supported) throw AxError("mcp", "Unsupported MCP protocol version " + negotiated_protocol_version_);
   transport_->set_protocol_version(negotiated_protocol_version_);
   server_capabilities_ = Core::get(result, "capabilities", Value::object());
   server_info_ = Core::get(result, "serverInfo", Value::object());
+  negotiate_extensions();
   notify("notifications/initialized");
   refresh();
-  initialized_=true;
-  transport_->start_listening();
 }
+
+void AxMCPClient::apply_era(const std::string& era){era_=era;transport_->set_era(era);if(era=="modern"){negotiated_protocol_version_="2026-07-28";transport_->set_protocol_version(negotiated_protocol_version_);}else negotiated_protocol_version_.clear();}
+void AxMCPClient::remember_era(const std::string& era){auto key=transport_->era_cache_key();if(!key.empty())ax_mcp_client_era_cache()[key]=era;}
+Value AxMCPClient::request_discovery(){return request("server/discover",Value::object());}
+void AxMCPClient::apply_discovery(Value result){auto classified=Core::mcp_classify_discovery_result(result);if(!Core::truthy(Core::get(classified,"valid",false)))throw AxError("mcp","Invalid MCP server/discover result");discover_result_=result;server_capabilities_=Core::get(classified,"capabilities",Value::object());auto info=Core::get(classified,"serverInfo",Value());if(!info.is_null())server_info_=info;negotiate_extensions();}
+void AxMCPClient::negotiate_extensions(){negotiated_extensions_=Core::mcp_negotiate_extensions(Core::get(client_capabilities(),"extensions",Value::object()),Core::get(server_capabilities_,"extensions",Value::object()));}
+Value AxMCPClient::discover(){init();if(era_!="modern")throw AxError("mcp","server/discover is only available for modern MCP");auto result=request_discovery();apply_discovery(result);return result;}
 
 void AxMCPClient::close(){initialized_=false;subscription_owners_.clear();transport_->close();}
 
@@ -116,7 +127,7 @@ void AxMCPClient::refresh() {
   prompts_.clear();
   resources_.clear();
   resource_templates_.clear();
-  if (capability("tools")) tools_ = collect_catalog("tools/list","tools");
+  if (capability("tools")) {for(auto tool:collect_catalog("tools/list","tools")){try{Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));tools_.push_back(tool);}catch(const std::exception&){}}}
   if (capability("prompts")) prompts_ = collect_catalog("prompts/list","prompts");
   if (capability("resources")) {
     resources_ = collect_catalog("resources/list","resources");
@@ -132,7 +143,8 @@ AxMCPCatalogSnapshot AxMCPClient::inspect_catalog(bool refresh_catalog){init();i
 std::string AxMCPClient::protocol_version() const { return negotiated_protocol_version_; }
 Value AxMCPClient::ping() { return request("ping"); }
 Value AxMCPClient::list_tools(const std::string& cursor) { return request("tools/list", cursor_params(cursor)); }
-Value AxMCPClient::call_tool(const std::string& name, Value arguments) { return request("tools/call", object({{"name", name}, {"arguments", arguments}})); }
+Value AxMCPClient::call_tool(const std::string& name, Value arguments) {auto params=object({{"name",name},{"arguments",arguments}});try{return request_with_headers("tools/call",params,tool_headers(name,arguments),true);}catch(const AxError& error){if(era_!="modern"||error.code!="-32020")throw;tools_.clear();for(auto tool:collect_catalog("tools/list","tools")){try{Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));tools_.push_back(tool);}catch(const std::exception&){}}return request_with_headers("tools/call",params,tool_headers(name,arguments),true);}}
+Value AxMCPClient::tool_headers(const std::string& name,Value arguments)const{if(era_!="modern")return Value::object();for(auto tool:tools_)if(display(Core::get(tool,"name",""))==name){auto bindings=Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));return Core::mcp_param_header_values(bindings,arguments);}return Value::object();}
 Value AxMCPClient::list_prompts(const std::string& cursor) { return request("prompts/list", cursor_params(cursor)); }
 Value AxMCPClient::get_prompt(const std::string& name, Value arguments) { return request("prompts/get", object({{"name", name}, {"arguments", arguments}})); }
 Value AxMCPClient::list_resources(const std::string& cursor) { return request("resources/list", cursor_params(cursor)); }
@@ -147,6 +159,7 @@ Value AxMCPClient::cancel_task(const std::string& task_id) { return request("tas
 Value AxMCPClient::list_resource_templates(const std::string& cursor) { return request("resources/templates/list", cursor_params(cursor)); }
 
 void AxMCPClient::notify(const std::string& method, Value params) {
+  if(era_=="modern"&&(method=="notifications/initialized"||method=="notifications/roots/list_changed"||method=="notifications/cancelled"))return;
   Value message = object({{"jsonrpc", "2.0"}, {"method", method}});
   if (!params.is_null()) Core::set(message, "params", params);
   transport_->send_notification(message);
@@ -159,13 +172,20 @@ void AxMCPClient::cancel_request(Value request_id, const std::string& reason) {
 }
 
 Value AxMCPClient::request(const std::string& method, Value params) {
-  Value message = object({{"jsonrpc", "2.0"}, {"id", std::to_string(next_id_++)}, {"method", method}});
-  if (!params.is_null()) Core::set(message, "params", params);
-  Value response = transport_->send(message);
-  Value error = Core::get(response, "error", Value());
-  if (!error.is_null()) throw AxError("mcp", display(Core::get(error, "message", "MCP JSON-RPC error")));
-  return Core::get(response, "result", Value::object());
+  return request_with_headers(method,params,Value::object(),true);
 }
+
+Value AxMCPClient::request_with_headers(const std::string& method,Value params,Value headers,bool allow_version_retry){
+  Value message = object({{"jsonrpc", "2.0"}, {"id", std::to_string(next_id_++)}, {"method", method}});
+  Value request_params=parse_json(stringify(params));if(era_=="modern"){if(!request_params.is_object())request_params=Value::object();auto meta=Core::mcp_build_request_meta(Core::get(request_params,"_meta",Value::object()),negotiated_protocol_version_,client_capabilities(),object({{"name","AxMCPClient"},{"title","Ax MCP Client"},{"version","1.0.0"}}),Core::get(options_,"logLevel",Value()),Value(),Value());Core::set(request_params,"_meta",meta);}
+  if (!params.is_null()) Core::set(message, "params", request_params);
+  Value response = transport_->send_with_headers(message,headers);
+  Value error = Core::get(response, "error", Value());
+  if (!error.is_null()){auto code=display(Core::get(error,"code",0));if(era_=="modern"&&allow_version_retry&&code=="-32022"){auto supported=array({"2026-07-28","2025-11-25","2025-06-18","2025-03-26","2024-11-05"});auto version=display(Core::mcp_select_mutual_version(Core::get(error,"data",Value()),supported));if(!version.empty()){negotiated_protocol_version_=version;transport_->set_protocol_version(version);return request_with_headers(method,params,headers,false);}}throw AxError("mcp",display(Core::get(error,"message","MCP JSON-RPC error")),"",0,code,false);}
+  auto result=Core::get(response,"result",Value::object());if(era_=="modern"){auto info=Core::get(Core::get(result,"_meta",Value::object()),"io.modelcontextprotocol/serverInfo",Value());if(!info.is_null()&&!display(Core::get(info,"name","")).empty()&&!display(Core::get(info,"version","")).empty())server_info_=info;}return result;
+}
+
+Value AxMCPClient::client_capabilities()const{Value out=Core::get(options_,"capabilities",Value::object());auto derived=Core::mcp_client_capabilities(!Core::get(options_,"roots",Value()).is_null(),!Core::get(options_,"sampling",Value()).is_null(),!Core::get(options_,"elicitation",Value()).is_null(),era_.empty()?"legacy":era_,Core::truthy(Core::get(options_,"tasksExtension",false)));for(auto entry:as_object_local(derived))if(!value_has(out,entry.first))Core::set(out,entry.first,entry.second);return out;}
 
 bool AxMCPClient::capability(const std::string& name) const {
   Value value = Core::get(server_capabilities_, name, Value());
@@ -578,6 +598,8 @@ Value AxMCPScriptedTransport::send(Value message) {
   return out;
 }
 
+Value AxMCPScriptedTransport::send_with_headers(Value message,Value headers){request_headers.push_back(headers);return send(std::move(message));}
+
 void AxMCPScriptedTransport::send_notification(Value message) { notifications.push_back(message); }
 void AxMCPScriptedTransport::send_response(Value message) { sent_responses.push_back(message); }
 void AxMCPScriptedTransport::set_protocol_version(const std::string& protocol_version) { protocol_version_ = protocol_version; }
@@ -775,11 +797,17 @@ void run_mcp_conformance_fixture(Value fixture) {
     auto transport = std::make_shared<AxMCPScriptedTransport>(Core::get(fixture, "responses", Core::get(fixture, "transport_responses", Value::array())));
     AxMCPClient client(transport, Core::get(fixture, "client_options", Value::object()));
     client.init();
-    if (!Core::get(fixture, "expected_protocol_version", Value()).is_null() &&
+    if (op!="client_discovery" && !Core::get(fixture, "expected_protocol_version", Value()).is_null() &&
         client.protocol_version() != display(Core::get(fixture, "expected_protocol_version"))) {
       throw AxError("fixture", "protocol version mismatch");
     }
-    if (op == "ping") {
+    if(op=="client_discovery"){
+      auto call=Core::get(fixture,"call_tool",Value());if(!call.is_null())expect_subset_local(client.call_tool(display(Core::get(call,"name","")),Core::get(call,"arguments",Value::object())),Core::get(fixture,"expected_call_result",Value::object()),"tool result");
+      if(client.get_era()!=display(Core::get(fixture,"expected_era","")))throw AxError("fixture","era mismatch");if(!Core::get(fixture,"expected_protocol_version",Value()).is_null()&&client.protocol_version()!=display(Core::get(fixture,"expected_protocol_version")))throw AxError("fixture","protocol version mismatch");
+      Array names;for(auto tool:as_array_local(client.inspect_catalog(false).tools))names.push_back(display(Core::get(tool,"name","")));expect_subset_local(Value(names),Core::get(fixture,"expected_tool_names",Value::array()),"tool names");expect_subset_local(client.inspect_catalog(false).server_info,Core::get(fixture,"expected_server_info",Value::object()),"server info");
+      auto expected=as_array_local(Core::get(fixture,"expected_requests",Value::array()));if(transport->requests.size()<expected.size())throw AxError("fixture","not enough MCP requests");for(size_t index=0;index<expected.size();++index)expect_subset_local(transport->requests[index],expected[index],"request");auto expected_headers=as_array_local(Core::get(fixture,"expected_request_headers",Value::array()));for(size_t index=0;index<expected_headers.size();++index)expect_subset_local(transport->request_headers[index],expected_headers[index],"request headers");
+      for(auto forbidden:as_array_local(Core::get(fixture,"forbidden_methods",Value::array()))){auto method=display(forbidden);for(auto item:transport->requests)if(display(Core::get(item,"method",""))==method)throw AxError("fixture","forbidden modern method emitted");for(auto item:transport->notifications)if(display(Core::get(item,"method",""))==method)throw AxError("fixture","forbidden modern method emitted");}auto expected_notifications=Core::get(fixture,"expected_notification_methods",Value());if(!expected_notifications.is_null()){Array methods;for(auto item:transport->notifications)methods.push_back(display(Core::get(item,"method","")));expect_subset_local(Value(methods),expected_notifications,"notification methods");}
+    } else if (op == "ping") {
       client.ping();
     } else if (op == "tools") {
       auto functions = client.native_tools();

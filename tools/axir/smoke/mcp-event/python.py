@@ -25,7 +25,7 @@ transport = AxMCPStreamableHTTPTransport(
         "reconnectDelay": 0.05,
     },
 )
-client = AxMCPClient(transport, {"namespace": "inventory"})
+client = AxMCPClient(transport, {"namespace": "inventory", "era": "legacy"})
 catalog = client.inspect_catalog()
 if len(catalog["resources"]) != 2 or len(catalog["resourceTemplates"]) != 1:
     raise RuntimeError(f"MCP catalog discovery failed: {catalog}")

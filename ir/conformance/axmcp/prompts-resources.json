@@ -2,6 +2,7 @@
   "name": "mcp prompts resources and templates remain native catalogs",
   "kind": "mcp",
   "operation": "prompts_resources",
+  "client_options": { "era": "legacy" },
   "responses": [
     {
       "method": "initialize",

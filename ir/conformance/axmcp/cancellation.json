@@ -2,6 +2,7 @@
   "name": "mcp cancellation notification",
   "kind": "mcp",
   "operation": "cancellation",
+  "client_options": { "era": "legacy" },
   "request_id": "abc",
   "reason": "user cancelled",
   "responses": [

@@ -17,7 +17,7 @@ int main() {
       object({{"method", "tools/call"},
               {"result", object({{"structuredContent", object({{"echo", "hello"}})}})}}),
   }));
-  AxMCPClient client(transport);
+  AxMCPClient client(transport, object({{"era", "legacy"}}));
   client.init();
   Value result = client.native_tools().front().handler(object({{"text", "hello"}}));
   if (display(Core::get(Core::get(result, "structuredContent"), "echo", "")) != "hello") return 1;

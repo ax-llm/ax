@@ -7,7 +7,7 @@ fn main() -> AxResult<()> {
         json!({"method":"tools/list","result":{"tools":[{"name":"echo","description":"Echo text","inputSchema":{"type":"object"}}]}}),
         json!({"method":"tools/call","result":{"structuredContent":{"echo":"hello"}}}),
     ];
-    let mut client = AxMCPClient::new(Box::new(AxMCPScriptedTransport::new(responses)), json!({}));
+    let mut client = AxMCPClient::new(Box::new(AxMCPScriptedTransport::new(responses)), json!({"era":"legacy"}));
     client.init()?;
     let result = client.native_tools()[0].call(json!({"text":"hello"}))?;
     assert_eq!(result["structuredContent"]["echo"], "hello");

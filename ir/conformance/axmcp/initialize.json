@@ -2,6 +2,7 @@
   "name": "mcp initialize sends protocol and initialized notification",
   "kind": "mcp",
   "operation": "initialize",
+  "client_options": { "era": "legacy" },
   "responses": [
     {
       "method": "initialize",

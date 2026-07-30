@@ -28,9 +28,26 @@ public final class AxMCPSseRoundtripExample {
     server.createContext(
         "/",
         exchange -> {
-          exchange.getRequestBody().readAllBytes();
-          byte[] resp = sseBody.getBytes(StandardCharsets.UTF_8);
-          exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+          if ("GET".equals(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(405, -1);
+            exchange.close();
+            return;
+          }
+          String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+          String responseBody;
+          String contentType = "application/json";
+          if (requestBody.contains("server/discover")) {
+            responseBody = "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}";
+          } else if (requestBody.contains("\"method\":\"initialize\"")) {
+            responseBody = "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"serverInfo\":{\"name\":\"legacy-loopback\",\"version\":\"1.0.0\"}}}";
+          } else if (requestBody.contains("notifications/initialized")) {
+            responseBody = "";
+          } else {
+            responseBody = sseBody.replace("\"ax-sse-1\"", "3");
+            contentType = "text/event-stream";
+          }
+          byte[] resp = responseBody.getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", contentType);
           exchange.sendResponseHeaders(200, resp.length);
           try (OutputStream os = exchange.getResponseBody()) {
             os.write(resp);
@@ -47,18 +64,16 @@ public final class AxMCPSseRoundtripExample {
                   "ssrfProtection",
                   Map.of(
                       "requireHttps", false, "allowLocalhost", true, "allowPrivateNetworks", true)));
-      Map<String, Object> response =
-          transport.send(
-              Map.of(
-                  "jsonrpc", "2.0", "id", "ax-sse-1", "method", "tools/call", "params",
-                  Map.of("name", "noop")));
-      if (!"ax-sse-1".equals(response.get("id")))
-        throw new RuntimeException("SSE selector returned wrong message: " + response);
-      Object result = response.get("result");
-      boolean ok = result instanceof Map && Boolean.TRUE.equals(((Map<?, ?>) result).get("ok"));
+      AxMCPClient client = new AxMCPClient(transport);
+      client.init();
+      if (!"legacy".equals(client.getEra()))
+        throw new RuntimeException("auto discovery did not fall back to legacy");
+      Map<String, Object> result = client.callTool("noop", Map.of());
+      boolean ok = Boolean.TRUE.equals(result.get("ok"));
       if (!ok)
         throw new RuntimeException(
-            "SSE result not decoded from text/event-stream body: " + response);
+            "SSE result not decoded from text/event-stream body: " + result);
+      client.close();
     } finally {
       server.stop(0);
     }

@@ -18,7 +18,7 @@ func main() {
 		}}},
 		map[string]ax.Value{"method":"tools/call", "result":map[string]ax.Value{"structuredContent":map[string]ax.Value{"echo":"hello"}}},
 	})
-	client := ax.NewAxMCPClient(transport, nil)
+	client := ax.NewAxMCPClient(transport, map[string]ax.Value{"era": "legacy"})
 	if err := client.Init(); err != nil { panic(err) }
 	result := client.NativeTools()[0].Call(map[string]ax.Value{"text":"hello"})
 	structured := result.(map[string]ax.Value)["structuredContent"].(map[string]ax.Value)

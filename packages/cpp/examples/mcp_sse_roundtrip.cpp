@@ -8,6 +8,7 @@
 
 #include <cctype>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -23,7 +24,7 @@
 
 namespace {
 
-void drain_request(int fd) {
+std::string drain_request(int fd) {
   std::string buf;
   char tmp[4096];
   size_t header_end = std::string::npos;
@@ -35,7 +36,7 @@ void drain_request(int fd) {
       break;
     }
     ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
-    if (n <= 0) return;
+    if (n <= 0) return buf;
     buf.append(tmp, static_cast<size_t>(n));
   }
   std::string lower = buf.substr(0, header_end);
@@ -47,6 +48,7 @@ void drain_request(int fd) {
     if (n <= 0) break;
     buf.append(tmp, static_cast<size_t>(n));
   }
+  return buf;
 }
 
 void write_response(int fd, const std::string& content_type, const std::string& body) {
@@ -97,30 +99,45 @@ int main() {
   int port = ntohs(addr.sin_port);
 
   std::thread server([&]() {
-    int fd = accept(server_fd, nullptr, nullptr);
-    if (fd < 0) return;
-    drain_request(fd);
-    write_response(fd, "text/event-stream", sse_body);
-    close(fd);
+    bool done = false;
+    while (!done) {
+      int fd = accept(server_fd, nullptr, nullptr);
+      if (fd < 0) return;
+      std::string request = drain_request(fd);
+      if (request.find("server/discover") != std::string::npos) {
+        write_response(fd, "application/json", "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}");
+      } else if (request.find("\"method\":\"initialize\"") != std::string::npos) {
+        write_response(fd, "application/json", "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"serverInfo\":{\"name\":\"legacy-loopback\",\"version\":\"1.0.0\"}}}");
+      } else if (request.find("notifications/initialized") != std::string::npos || request.rfind("GET ", 0) == 0) {
+        write_response(fd, "application/json", "");
+      } else {
+        std::string response = sse_body;
+        size_t id = response.find("\"ax-sse-1\"");
+        if (id != std::string::npos) response.replace(id, 10, "3");
+        write_response(fd, "text/event-stream", response);
+        done = true;
+      }
+      close(fd);
+    }
   });
 
-  axllm::AxMCPStreamableHTTPTransport transport(
+  auto transport = std::make_shared<axllm::AxMCPStreamableHTTPTransport>(
       std::string("http://127.0.0.1:") + std::to_string(port) + "/mcp",
       axllm::object({{"ssrfProtection", axllm::object({{"requireHttps", false}, {"allowLocalhost", true}, {"allowPrivateNetworks", true}})}}));
-  axllm::Value response = transport.send(axllm::object({{"jsonrpc", "2.0"},
-                                                        {"id", "ax-sse-1"},
-                                                        {"method", "tools/call"},
-                                                        {"params", axllm::object({{"name", "noop"}})}}));
+  axllm::AxMCPClient client(transport);
+  client.init();
+  if (client.get_era() != "legacy") {
+    std::cerr << "auto discovery did not fall back to legacy\n";
+    return 1;
+  }
+  axllm::Value result = client.call_tool("noop", axllm::Value::object());
+  client.close();
 
   server.join();
   close(server_fd);
 
-  if (!axllm::equal(axllm::Core::get(response, "id"), std::string("ax-sse-1"))) {
-    std::cerr << "SSE selector returned wrong message: " << axllm::stringify(response) << "\n";
-    return 1;
-  }
-  if (!axllm::Core::truthy(axllm::Core::get(axllm::Core::get(response, "result"), "ok"))) {
-    std::cerr << "SSE result not decoded from text/event-stream body: " << axllm::stringify(response)
+  if (!axllm::Core::truthy(axllm::Core::get(result, "ok"))) {
+    std::cerr << "SSE result not decoded from text/event-stream body: " << axllm::stringify(result)
               << "\n";
     return 1;
   }

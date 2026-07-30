@@ -99,6 +99,8 @@ class AxMCPClient {
   Value resource_templates() const;
   std::string namespace_name() const;
   Value request(const std::string& method, Value params = Value::object());
+  std::string get_era() const { return era_; }
+  Value discover();
   int add_notification_listener(std::function<void(Value)> listener){int id=next_listener_id_++;notification_listeners_[id]=std::move(listener);return id;}
   void remove_notification_listener(int id){notification_listeners_.erase(id);}
   void emit_notification(Value message){auto listeners=notification_listeners_;for(auto& item:listeners)item.second(message);}
@@ -112,6 +114,9 @@ class AxMCPClient {
   Value server_capabilities_ = Value::object();
   Value server_info_ = Value::object();
   std::string negotiated_protocol_version_;
+  std::string era_;
+  Value discover_result_ = Value::object();
+  Value negotiated_extensions_ = Value::object();
   std::vector<Value> tools_;
   std::vector<Value> prompts_;
   std::vector<Value> resources_;
@@ -125,6 +130,15 @@ class AxMCPClient {
   bool initialized_=false;
 
   bool capability(const std::string& name) const;
+  void initialize_legacy();
+  void apply_era(const std::string& era);
+  void remember_era(const std::string& era);
+  Value request_discovery();
+  void apply_discovery(Value result);
+  void negotiate_extensions();
+  Value client_capabilities() const;
+  Value request_with_headers(const std::string& method, Value params, Value headers, bool allow_version_retry);
+  Value tool_headers(const std::string& name, Value arguments) const;
   std::vector<Value> collect_catalog(const std::string& method,const std::string& field);
   Tool tool_to_function(Value spec);
   Tool prompt_to_function(Value spec);
@@ -339,6 +353,7 @@ class AxMCPScriptedTransport : public AxMCPTransport {
  public:
   explicit AxMCPScriptedTransport(Value responses = Value::array());
   Value send(Value message) override;
+  Value send_with_headers(Value message,Value headers) override;
   void send_notification(Value message) override;
   void send_response(Value message) override;
   void set_message_handler(std::function<void(Value)> handler) override {handler_=std::move(handler);}
@@ -347,6 +362,7 @@ class AxMCPScriptedTransport : public AxMCPTransport {
   std::vector<Value> requests;
   std::vector<Value> notifications;
   std::vector<Value> sent_responses;
+  std::vector<Value> request_headers;
 
  private:
   std::vector<Value> responses_;

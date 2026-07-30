@@ -18,7 +18,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	client := ax.NewAxMCPClient(transport, map[string]ax.Value{"namespace": "inventory"})
+	client := ax.NewAxMCPClient(transport, map[string]ax.Value{"namespace": "inventory", "era": "legacy"})
 
 	var mu sync.Mutex
 	changed := sync.NewCond(&mu)

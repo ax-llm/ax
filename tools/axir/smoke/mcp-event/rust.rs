@@ -26,7 +26,7 @@ fn main() -> AxResult<()> {
     )?;
     let client = Arc::new(Mutex::new(AxMCPClient::new(
         Box::new(transport),
-        json!({"namespace": "inventory"}),
+        json!({"namespace": "inventory", "era": "legacy"}),
     )));
     let state = Arc::new((Mutex::new(State::default()), Condvar::new()));
     let progress_state = state.clone();

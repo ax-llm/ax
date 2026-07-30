@@ -2,6 +2,7 @@
   "name": "mcp tools list and native raw-result call",
   "kind": "mcp",
   "operation": "tools",
+  "client_options": { "era": "legacy" },
   "responses": [
     {
       "method": "initialize",

@@ -15,7 +15,7 @@ public final class AxMCPScriptedToolsExample {
       ))),
       Map.of("method", "tools/call", "result", Map.of("structuredContent", Map.of("echo", "hello")))
     ));
-    AxMCPClient client = new AxMCPClient(transport);
+    AxMCPClient client = new AxMCPClient(transport, Map.of("era", "legacy"));
     client.init();
     Object result = client.nativeTools().get(0).call(Map.of("text", "hello"));
     Object structured = ((Map<?, ?>) result).get("structuredContent");

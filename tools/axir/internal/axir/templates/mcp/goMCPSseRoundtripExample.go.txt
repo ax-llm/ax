@@ -30,9 +30,23 @@ const sseBody = ": keepalive\n" +
 
 func main() {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.ReadAll(r.Body)
-		w.Header().Set("Content-Type", "text/event-stream")
-		io.WriteString(w, sseBody)
+		if r.Method == http.MethodGet { w.WriteHeader(http.StatusMethodNotAllowed); return }
+		var request map[string]any
+		json.NewDecoder(r.Body).Decode(&request)
+		switch request["method"] {
+		case "server/discover":
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"jsonrpc":"2.0", "id":request["id"], "error":map[string]any{"code":-32601, "message":"Method not found"}})
+		case "initialize":
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"jsonrpc":"2.0", "id":request["id"], "result":map[string]any{"protocolVersion":"2025-11-25", "capabilities":map[string]any{}, "serverInfo":map[string]any{"name":"legacy-loopback", "version":"1.0.0"}}})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			w.Header().Set("Content-Type", "text/event-stream")
+			requestID, _ := json.Marshal(request["id"])
+			io.WriteString(w, strings.Replace(sseBody, `"ax-sse-1"`, string(requestID), 1))
+		}
 	}))
 	defer server.Close()
 
@@ -42,10 +56,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	response, err := transport.Send(map[string]ax.Value{
-		"jsonrpc": "2.0", "id": "ax-sse-1", "method": "tools/call",
-		"params": map[string]ax.Value{"name": "noop"},
-	})
+	client := ax.NewAxMCPClient(transport, nil)
+	if err := client.Init(); err != nil { panic(err) }
+	if client.GetEra() != "legacy" { panic("auto discovery did not fall back to legacy") }
+	response, err := client.CallTool("noop", map[string]ax.Value{})
 	if err != nil {
 		panic(err)
 	}
@@ -53,8 +67,6 @@ func main() {
 	if !strings.Contains(string(data), `"ok":true`) {
 		panic("SSE response not decoded from text/event-stream body: " + string(data))
 	}
-	if !strings.Contains(string(data), `"id":"ax-sse-1"`) {
-		panic("SSE selector did not return the id-matched JSON-RPC response: " + string(data))
-	}
+	client.Close()
 	fmt.Println("mcp-sse-roundtrip-ok")
 }

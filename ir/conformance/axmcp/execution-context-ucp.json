@@ -24,7 +24,7 @@
       }
     }
   ],
-  "client_options": { "namespace": "inventory" },
+  "client_options": { "namespace": "inventory", "era": "legacy" },
   "ucp_profile": {
     "name": "merchant",
     "version": "2026-04-08",

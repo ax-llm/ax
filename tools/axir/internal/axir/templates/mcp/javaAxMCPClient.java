@@ -15,6 +15,7 @@ import java.util.function.Consumer;
 public final class AxMCPClient {
   public static final String AX_MCP_PROTOCOL_VERSION = "2025-11-25";
   public static final List<String> AX_MCP_SUPPORTED_PROTOCOL_VERSIONS = List.of(
+    "2026-07-28",
     AX_MCP_PROTOCOL_VERSION,
     "2025-06-18",
     "2025-03-26",
@@ -33,6 +34,10 @@ public final class AxMCPClient {
   private Map<String, Object> serverInfo = new LinkedHashMap<>();
   private String serverInstructions;
   private String negotiatedProtocolVersion;
+  private String era;
+  private Map<String,Object> discoverResult = new LinkedHashMap<>();
+  private Map<String,Object> negotiatedExtensions = new LinkedHashMap<>();
+  private static final Map<String,String> ERA_CACHE = new LinkedHashMap<>();
   private int nextId = 1;
   private int nextListenerId = 1;
   private final Map<Integer,Consumer<Map<String,Object>>> notificationListeners = new LinkedHashMap<>();
@@ -53,6 +58,13 @@ public final class AxMCPClient {
   public synchronized void init() {
     if (initialized) return;
     transport.connect();
+    String configured=String.valueOf(options.getOrDefault("era","auto"));String key=transport.eraCacheKey();String cached=key==null?null:ERA_CACHE.get(key);String stored=null;Object rawStore=options.get("eraStore");if(rawStore instanceof Map<?,?> map&&key!=null)stored=String.valueOf(map.get(key));Map<String,Object> resolution=Core.asMap(Core.mcp_resolve_known_era(configured,transport.eraHint(),cached,stored));String resolved=String.valueOf(resolution.getOrDefault("era","modern"));
+    if(!Boolean.TRUE.equals(resolution.get("probe"))){if("legacy".equals(resolved))initializeLegacy();else{applyEra("modern");applyDiscovery(requestDiscovery());refresh();}rememberEra(resolved);initialized=true;if("legacy".equals(resolved))transport.startListening();return;}
+    applyEra("modern");try{applyDiscovery(requestDiscovery());}catch(AxMCPError error){if(error.code==-32022)throw error;initializeLegacy();rememberEra("legacy");initialized=true;transport.startListening();return;}catch(RuntimeException error){initializeLegacy();rememberEra("legacy");initialized=true;transport.startListening();return;}rememberEra("modern");refresh();initialized=true;
+  }
+
+  private void initializeLegacy(){
+    applyEra("legacy");
     Map<String, Object> params = new LinkedHashMap<>();
     params.put("protocolVersion", options.getOrDefault("protocolVersion", AX_MCP_PROTOCOL_VERSION));
     params.put("capabilities", clientCapabilities());
@@ -72,11 +84,18 @@ public final class AxMCPClient {
     serverCapabilities = Core.asMap(result.getOrDefault("capabilities", Map.of()));
     serverInfo = Core.asMap(result.getOrDefault("serverInfo", Map.of()));
     if (result.get("instructions") != null) serverInstructions = String.valueOf(result.get("instructions"));
+    negotiateExtensions();
     notify("notifications/initialized", null);
     refresh();
-    initialized = true;
-    transport.startListening();
   }
+
+  private void applyEra(String value){era=value;transport.setEra(value);if("modern".equals(value)){negotiatedProtocolVersion="2026-07-28";transport.setProtocolVersion(negotiatedProtocolVersion);}else negotiatedProtocolVersion=null;}
+  @SuppressWarnings("unchecked") private void rememberEra(String value){String key=transport.eraCacheKey();if(key==null||key.isBlank())return;ERA_CACHE.put(key,value);Object store=options.get("eraStore");if(store instanceof Map<?,?> map)((Map<String,Object>)map).put(key,value);}
+  private Map<String,Object> requestDiscovery(){return request("server/discover",Map.of());}
+  private void applyDiscovery(Map<String,Object> result){Map<String,Object> classified=Core.asMap(Core.mcp_classify_discovery_result(result));if(!Boolean.TRUE.equals(classified.get("valid")))throw new AxMCPError("Invalid MCP server/discover result");discoverResult=cloneMap(result);serverCapabilities=cloneMap(Core.asMap(classified.get("capabilities")));if(result.get("instructions")!=null)serverInstructions=String.valueOf(result.get("instructions"));Map<String,Object> info=Core.asMap(classified.get("serverInfo"));if(!info.isEmpty())serverInfo=cloneMap(info);negotiateExtensions();}
+  private void negotiateExtensions(){negotiatedExtensions=Core.asMap(Core.mcp_negotiate_extensions(Core.asMap(clientCapabilities().get("extensions")),Core.asMap(serverCapabilities.get("extensions"))));}
+  public String getEra(){return era;}
+  public Map<String,Object> discover(){init();if(!"modern".equals(era))throw new AxMCPError("server/discover is only available for modern MCP");Map<String,Object> result=requestDiscovery();applyDiscovery(result);return cloneMap(result);}
 
   public synchronized void close() { initialized = false;subscriptionOwners.clear();transport.close(); }
 
@@ -85,7 +104,7 @@ public final class AxMCPClient {
     prompts.clear();
     resources.clear();
     resourceTemplates.clear();
-    if (capability("tools")) tools.addAll(collectCatalog("tools/list","tools"));
+    if (capability("tools")) for(Map<String,Object> tool:collectCatalog("tools/list","tools")){try{Core.mcp_param_header_bindings(tool.getOrDefault("inputSchema",Map.of()));tools.add(tool);}catch(RuntimeException ignored){}}
     if (capability("prompts")) prompts.addAll(collectCatalog("prompts/list","prompts"));
     if (capability("resources")) {
       resources.addAll(collectCatalog("resources/list","resources"));
@@ -111,7 +130,8 @@ public final class AxMCPClient {
 
   public Map<String, Object> ping() { return request("ping", Map.of()); }
   public Map<String, Object> listTools(String cursor) { return request("tools/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
-  public Map<String, Object> callTool(String name, Map<String, Object> arguments) { return request("tools/call", Map.of("name", name, "arguments", arguments == null ? Map.of() : arguments)); }
+  public Map<String, Object> callTool(String name, Map<String, Object> arguments) {Map<String,Object> args=arguments==null?Map.of():arguments;Map<String,String> headers=toolHeaders(name,args);try{return requestWithHeaders("tools/call",Map.of("name",name,"arguments",args),headers,true);}catch(AxMCPError error){if(!"modern".equals(era)||error.code!=-32020)throw error;tools.clear();for(Map<String,Object> tool:collectCatalog("tools/list","tools")){try{Core.mcp_param_header_bindings(tool.getOrDefault("inputSchema",Map.of()));tools.add(tool);}catch(RuntimeException ignored){}}return requestWithHeaders("tools/call",Map.of("name",name,"arguments",args),toolHeaders(name,args),true);}}
+  private Map<String,String> toolHeaders(String name,Map<String,Object> args){Map<String,String> out=new LinkedHashMap<>();if(!"modern".equals(era))return out;for(Map<String,Object> tool:tools)if(name.equals(String.valueOf(tool.get("name")))){Object bindings=Core.mcp_param_header_bindings(tool.getOrDefault("inputSchema",Map.of()));for(Map.Entry<String,Object> entry:Core.asMap(Core.mcp_param_header_values(bindings,args)).entrySet())out.put(entry.getKey(),String.valueOf(entry.getValue()));break;}return out;}
   public Map<String, Object> listPrompts(String cursor) { return request("prompts/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
   public Map<String, Object> getPrompt(String name, Map<String, Object> arguments) { return request("prompts/get", Map.of("name", name, "arguments", arguments == null ? Map.of() : arguments)); }
   public Map<String, Object> listResources(String cursor) { return request("resources/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
@@ -168,20 +188,26 @@ public final class AxMCPClient {
   }
 
   public Map<String, Object> request(String method, Map<String, Object> params) {
+    return requestWithHeaders(method,params,Map.of(),true);
+  }
+
+  private Map<String,Object> requestWithHeaders(String method,Map<String,Object> params,Map<String,String> headers,boolean allowVersionRetry){
     Map<String, Object> message = new LinkedHashMap<>();
     message.put("jsonrpc", "2.0");
     message.put("id", String.valueOf(nextId++));
     message.put("method", method);
-    if (params != null) message.put("params", params);
-    Map<String, Object> response = transport.send(message);
+    Map<String,Object> requestParams=new LinkedHashMap<>(params==null?Map.of():params);if("modern".equals(era)){Map<String,Object> info=new LinkedHashMap<>(Map.of("name","AxMCPClient","title","Ax MCP Client","version","1.0.0"));info.putAll(Core.asMap(options.get("clientInfo")));requestParams.put("_meta",Core.mcp_build_request_meta(Core.asMap(requestParams.get("_meta")),negotiatedProtocolVersion,clientCapabilities(),info,options.get("logLevel"),null,null));}
+    if (params != null) message.put("params", requestParams);
+    Map<String, Object> response = transport.sendWithHeaders(message,headers);
     if (response.containsKey("error")) {
       Map<String, Object> error = Core.asMap(response.get("error"));
-      throw new AxMCPError(String.valueOf(error.getOrDefault("message", "MCP JSON-RPC error")));
+      int code=error.get("code") instanceof Number number?number.intValue():0;AxMCPError protocol=new AxMCPError(String.valueOf(error.getOrDefault("message","MCP JSON-RPC error")),code,error.get("data"));if("modern".equals(era)&&allowVersionRetry&&code==-32022){String version=String.valueOf(Core.mcp_select_mutual_version(error.get("data"),AX_MCP_SUPPORTED_PROTOCOL_VERSIONS));if(!version.isBlank()){negotiatedProtocolVersion=version;transport.setProtocolVersion(version);return requestWithHeaders(method,params,headers,false);}}throw protocol;
     }
-    return Core.asMap(response.getOrDefault("result", Map.of()));
+    Map<String,Object> result=Core.asMap(response.getOrDefault("result",Map.of()));if("modern".equals(era)){Map<String,Object> info=Core.asMap(Core.asMap(result.get("_meta")).get("io.modelcontextprotocol/serverInfo"));if(info.get("name") instanceof String&&info.get("version") instanceof String)serverInfo=cloneMap(info);}return result;
   }
 
   void notify(String method, Map<String, Object> params) {
+    if("modern".equals(era)&&(method.equals("notifications/initialized")||method.equals("notifications/roots/list_changed")||method.equals("notifications/cancelled")))return;
     Map<String, Object> message = new LinkedHashMap<>();
     message.put("jsonrpc", "2.0");
     message.put("method", method);
@@ -191,7 +217,7 @@ public final class AxMCPClient {
 
   private Map<String, Object> clientCapabilities() {
     Map<String, Object> capabilities = new LinkedHashMap<>(Core.asMap(options.get("capabilities")));
-    if (options.containsKey("roots") && !capabilities.containsKey("roots")) capabilities.put("roots", Map.of("listChanged", true));
+    Map<String,Object> derived=Core.asMap(Core.mcp_client_capabilities(options.containsKey("roots"),options.containsKey("sampling"),options.containsKey("elicitation"),era==null?"legacy":era,Boolean.TRUE.equals(options.get("tasksExtension"))));for(Map.Entry<String,Object> entry:derived.entrySet())capabilities.putIfAbsent(entry.getKey(),entry.getValue());
     return capabilities;
   }
 
@@ -470,8 +496,15 @@ public final class AxMCPClient {
       AxMCPScriptedTransport transport = new AxMCPScriptedTransport(Core.asList(fixture.getOrDefault("responses", fixture.getOrDefault("transport_responses", List.of()))));
       AxMCPClient client = new AxMCPClient(transport, Core.asMap(fixture.get("client_options")));
       client.init();
-      if (fixture.get("expected_protocol_version") != null && !String.valueOf(fixture.get("expected_protocol_version")).equals(client.getProtocolVersion())) throw new AssertionError("protocol version mismatch");
-      if ("initialize".equals(operation)) {
+      if (!"client_discovery".equals(operation) && fixture.get("expected_protocol_version") != null && !String.valueOf(fixture.get("expected_protocol_version")).equals(client.getProtocolVersion())) throw new AssertionError("protocol version mismatch");
+      if ("client_discovery".equals(operation)) {
+        if(fixture.get("call_tool")!=null){Map<String,Object> call=Core.asMap(fixture.get("call_tool"));Map<String,Object> result=client.callTool(String.valueOf(call.get("name")),Core.asMap(call.get("arguments")));assertSubset(result,fixture.getOrDefault("expected_call_result",Map.of()),"tool result");}
+        if(!String.valueOf(fixture.get("expected_era")).equals(client.getEra()))throw new AssertionError("era mismatch");if(fixture.get("expected_protocol_version")!=null&&!String.valueOf(fixture.get("expected_protocol_version")).equals(client.getProtocolVersion()))throw new AssertionError("protocol version mismatch");
+        List<String> names=client.getTools().stream().map(tool->String.valueOf(tool.get("name"))).toList();if(fixture.get("expected_tool_names")!=null&&!names.equals(Core.asList(fixture.get("expected_tool_names")).stream().map(String::valueOf).toList()))throw new AssertionError("tool names mismatch");assertSubset(client.getServerInfo(),fixture.getOrDefault("expected_server_info",Map.of()),"server info");assertRequests(transport.requests,fixture);
+        List<Object> expectedHeaders=Core.asList(fixture.get("expected_request_headers"));for(int i=0;i<expectedHeaders.size();i++)assertSubset(transport.requestHeaders.get(i),expectedHeaders.get(i),"request headers "+i);
+        for(Object forbidden:Core.asList(fixture.get("forbidden_methods"))){String method=String.valueOf(forbidden);if(transport.requests.stream().anyMatch(request->method.equals(request.get("method")))||transport.notifications.stream().anyMatch(item->method.equals(item.get("method"))))throw new AssertionError("forbidden modern method emitted: "+method);}
+        if(fixture.get("expected_notification_methods")!=null){List<String> methods=transport.notifications.stream().map(item->String.valueOf(item.get("method"))).toList();if(!methods.equals(Core.asList(fixture.get("expected_notification_methods")).stream().map(String::valueOf).toList()))throw new AssertionError("notification methods mismatch");}
+      } else if ("initialize".equals(operation)) {
         assertRequests(transport.requests, fixture);
       } else if ("protocol_negotiation".equals(operation)) {
         return;
@@ -546,5 +579,7 @@ public final class AxMCPClient {
 }
 
 final class AxMCPError extends RuntimeException {
-  AxMCPError(String message) { super(message); }
+  final int code;final Object data;
+  AxMCPError(String message) { this(message,0,null); }
+  AxMCPError(String message,int code,Object data) { super(message);this.code=code;this.data=data; }
 }

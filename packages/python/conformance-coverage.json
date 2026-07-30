@@ -306,6 +306,13 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "client_discovery",
+        "runner": "python:axmcp.client_discovery",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "modern_headers",
         "runner": "python:axmcp.modern_headers",
         "category": "semantic"

@@ -1,0 +1,165 @@
+{
+  "name": "mcp modern discovery metadata and bounded retries",
+  "kind": "mcp",
+  "operation": "client_discovery",
+  "client_options": {
+    "era": "modern",
+    "capabilities": {
+      "extensions": { "example.extension": { "client": true } }
+    }
+  },
+  "responses": [
+    {
+      "method": "server/discover",
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28", "2025-11-25"],
+        "capabilities": {
+          "tools": {},
+          "extensions": { "example.extension": { "server": true } }
+        },
+        "ttlMs": 60000,
+        "cacheScope": "private",
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "discover-server",
+            "version": "1.0.0"
+          }
+        }
+      }
+    },
+    {
+      "method": "tools/list",
+      "result": {
+        "tools": [
+          {
+            "name": "echo",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "region": { "type": "string", "x-mcp-header": "Region" },
+                "zone": { "type": "string" }
+              }
+            }
+          },
+          {
+            "name": "invalid",
+            "inputSchema": { "type": "object", "x-mcp-header": "Invalid" }
+          }
+        ],
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "catalog-server",
+            "version": "1.1.0"
+          }
+        }
+      }
+    },
+    {
+      "method": "tools/call",
+      "error": {
+        "code": -32022,
+        "message": "Unsupported protocol version",
+        "data": { "supported": ["2025-11-25"] }
+      }
+    },
+    {
+      "method": "tools/call",
+      "error": { "code": -32020, "message": "Header mismatch" }
+    },
+    {
+      "method": "tools/list",
+      "result": {
+        "tools": [
+          {
+            "name": "echo",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "region": { "type": "string" },
+                "zone": { "type": "string", "x-mcp-header": "Zone" }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "complete",
+        "structuredContent": { "ok": true },
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "result-server",
+            "version": "2.0.0"
+          }
+        }
+      }
+    }
+  ],
+  "call_tool": {
+    "name": "echo",
+    "arguments": { "region": "west", "zone": "blue" }
+  },
+  "expected_call_result": { "structuredContent": { "ok": true } },
+  "expected_era": "modern",
+  "expected_protocol_version": "2025-11-25",
+  "expected_tool_names": ["echo"],
+  "expected_server_info": { "name": "result-server", "version": "2.0.0" },
+  "expected_requests": [
+    {
+      "method": "server/discover",
+      "params": {
+        "_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28" }
+      }
+    },
+    {
+      "method": "tools/list",
+      "params": {
+        "_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28" }
+      }
+    },
+    {
+      "method": "tools/call",
+      "params": {
+        "name": "echo",
+        "_meta": { "io.modelcontextprotocol/protocolVersion": "2026-07-28" }
+      }
+    },
+    {
+      "method": "tools/call",
+      "params": {
+        "name": "echo",
+        "_meta": { "io.modelcontextprotocol/protocolVersion": "2025-11-25" }
+      }
+    },
+    {
+      "method": "tools/list",
+      "params": {
+        "_meta": { "io.modelcontextprotocol/protocolVersion": "2025-11-25" }
+      }
+    },
+    {
+      "method": "tools/call",
+      "params": {
+        "name": "echo",
+        "_meta": { "io.modelcontextprotocol/protocolVersion": "2025-11-25" }
+      }
+    }
+  ],
+  "expected_request_headers": [
+    {},
+    {},
+    { "Mcp-Param-Region": "west" },
+    { "Mcp-Param-Region": "west" },
+    {},
+    { "Mcp-Param-Zone": "blue" }
+  ],
+  "forbidden_methods": [
+    "initialize",
+    "notifications/initialized",
+    "notifications/roots/list_changed",
+    "notifications/cancelled"
+  ]
+}

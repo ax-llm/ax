@@ -15,7 +15,7 @@ int main() {
       raw_endpoint,
       object({{"ssrfProtection", object({{"requireHttps", false}, {"allowLocalhost", true}, {"allowPrivateNetworks", true}})},
               {"reconnectDelayMs", 50}}));
-  auto client = std::make_shared<AxMCPClient>(transport, object({{"namespace", "inventory"}}));
+  auto client = std::make_shared<AxMCPClient>(transport, object({{"namespace", "inventory"}, {"era", "legacy"}}));
 
   std::mutex mutex;
   std::condition_variable changed;

@@ -1,0 +1,35 @@
+{
+  "name": "mcp auto discovery falls back to legacy lifecycle",
+  "kind": "mcp",
+  "operation": "client_discovery",
+  "client_options": { "era": "auto" },
+  "responses": [
+    {
+      "method": "server/discover",
+      "error": { "code": -32601, "message": "Method not found" }
+    },
+    {
+      "method": "initialize",
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {},
+        "serverInfo": { "name": "legacy-server", "version": "1.0.0" }
+      }
+    }
+  ],
+  "expected_era": "legacy",
+  "expected_protocol_version": "2025-11-25",
+  "expected_requests": [
+    {
+      "method": "server/discover",
+      "params": {
+        "_meta": {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { "name": "AxMCPClient" }
+        }
+      }
+    },
+    { "method": "initialize", "params": { "protocolVersion": "2025-11-25" } }
+  ],
+  "expected_notification_methods": ["notifications/initialized"]
+}

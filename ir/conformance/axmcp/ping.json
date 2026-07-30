@@ -2,6 +2,7 @@
   "name": "mcp ping request",
   "kind": "mcp",
   "operation": "ping",
+  "client_options": { "era": "legacy" },
   "responses": [
     {
       "method": "initialize",

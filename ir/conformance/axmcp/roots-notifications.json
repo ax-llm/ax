@@ -3,6 +3,7 @@
   "kind": "mcp",
   "operation": "roots_notifications",
   "client_options": {
+    "era": "legacy",
     "roots": [
       {
         "uri": "file:///workspace",

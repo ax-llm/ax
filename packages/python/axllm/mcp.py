@@ -1265,6 +1265,7 @@ def mcp_resource_subscription_ownership(owners: list[Any], owner: str, operation
 
 AX_MCP_PROTOCOL_VERSION = "2025-11-25"
 AX_MCP_SUPPORTED_PROTOCOL_VERSIONS = [
+    "2026-07-28",
     AX_MCP_PROTOCOL_VERSION,
     "2025-06-18",
     "2025-03-26",
@@ -2021,6 +2022,7 @@ class AxMCPScriptedTransport(AxMCPTransport):
         self.requests: list[dict[str, Any]] = []
         self.notifications: list[dict[str, Any]] = []
         self.sent_responses: list[dict[str, Any]] = []
+        self.request_headers: list[dict[str, str]] = []
         self.protocol_version: str | None = None
         self.session_id: str | None = None
         self._message_handler: Callable[[dict[str, Any]], None] | None = None
@@ -2045,6 +2047,10 @@ class AxMCPScriptedTransport(AxMCPTransport):
             "result": raw.get("result", {}),
         }
 
+    def send_with_headers(self, message: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
+        self.request_headers.append(dict(headers or {}))
+        return self.send(message)
+
     def send_notification(self, message: dict[str, Any]) -> None:
         self.notifications.append(json.loads(json.dumps(message)))
 
@@ -2056,6 +2062,9 @@ class AxMCPScriptedTransport(AxMCPTransport):
             self._message_handler(message)
 
 
+_AX_MCP_ERA_CACHE: dict[str, str] = {}
+
+
 class AxMCPClient:
     def __init__(self, transport: AxMCPTransport, options: dict[str, Any] | None = None):
         self.transport = transport
@@ -2064,6 +2073,9 @@ class AxMCPClient:
         self.server_info: dict[str, Any] | None = None
         self.server_instructions: str | None = None
         self.negotiated_protocol_version: str | None = None
+        self.era: str | None = None
+        self.discover_result: dict[str, Any] | None = None
+        self.negotiated_extensions: dict[str, Any] = {}
         self.tools: list[dict[str, Any]] = []
         self.prompts: list[dict[str, Any]] = []
         self.resources: list[dict[str, Any]] = []
@@ -2081,6 +2093,49 @@ class AxMCPClient:
         if self._initialized:
             return
         self.transport.connect()
+        configured = str(self.options.get("era", "auto"))
+        key = self.transport.era_cache_key
+        stored = None
+        era_store = self.options.get("eraStore")
+        if isinstance(era_store, dict) and key:
+            stored = era_store.get(key)
+        resolution = mcp_resolve_known_era(configured, self.transport.era_hint, _AX_MCP_ERA_CACHE.get(key or ""), stored)
+        resolved = str(resolution.get("era", "modern"))
+        if not resolution.get("probe"):
+            if resolved == "legacy":
+                self._initialize_legacy()
+            else:
+                self._apply_era("modern")
+                self._apply_discovery(self._request_discovery())
+                self.refresh()
+            self._remember_era(resolved)
+            self._initialized = True
+            if resolved == "legacy":
+                self.transport.start_listening()
+            return
+        self._apply_era("modern")
+        try:
+            self._apply_discovery(self._request_discovery())
+        except AxMCPError as error:
+            if error.code == -32022:
+                raise
+            self._initialize_legacy()
+            self._remember_era("legacy")
+            self._initialized = True
+            self.transport.start_listening()
+            return
+        except Exception:
+            self._initialize_legacy()
+            self._remember_era("legacy")
+            self._initialized = True
+            self.transport.start_listening()
+            return
+        self._remember_era("modern")
+        self.refresh()
+        self._initialized = True
+
+    def _initialize_legacy(self) -> None:
+        self._apply_era("legacy")
         protocol_version = self.options.get("protocolVersion", AX_MCP_PROTOCOL_VERSION)
         result = self._request(
             "initialize",
@@ -2104,10 +2159,57 @@ class AxMCPClient:
         self.server_capabilities = result.get("capabilities") or {}
         self.server_info = result.get("serverInfo") or {}
         self.server_instructions = result.get("instructions")
+        self._negotiate_extensions()
         self.notify("notifications/initialized")
         self.refresh()
-        self._initialized = True
-        self.transport.start_listening()
+
+    def _apply_era(self, era: str) -> None:
+        self.era = era
+        self.transport.set_era(era)
+        if era == "modern":
+            self.negotiated_protocol_version = "2026-07-28"
+            self.transport.set_protocol_version("2026-07-28")
+        else:
+            self.negotiated_protocol_version = None
+
+    def _remember_era(self, era: str) -> None:
+        key = self.transport.era_cache_key
+        if not key:
+            return
+        _AX_MCP_ERA_CACHE[key] = era
+        era_store = self.options.get("eraStore")
+        if isinstance(era_store, dict):
+            era_store[key] = era
+
+    def _request_discovery(self) -> dict[str, Any]:
+        return self._request("server/discover", {})
+
+    def _apply_discovery(self, result: dict[str, Any]) -> None:
+        classified = mcp_classify_discovery_result(result)
+        if not classified.get("valid"):
+            raise AxMCPError("Invalid MCP server/discover result")
+        self.discover_result = json.loads(json.dumps(result))
+        self.server_capabilities = json.loads(json.dumps(classified.get("capabilities") or {}))
+        self.server_instructions = result.get("instructions")
+        if isinstance(classified.get("serverInfo"), dict):
+            self.server_info = dict(classified["serverInfo"])
+        self._negotiate_extensions()
+
+    def _negotiate_extensions(self) -> None:
+        client_ext = (self._client_capabilities().get("extensions") or {})
+        server_ext = (self.server_capabilities.get("extensions") or {})
+        self.negotiated_extensions = mcp_negotiate_extensions(client_ext, server_ext)
+
+    def get_era(self) -> str | None:
+        return self.era
+
+    def discover(self) -> dict[str, Any]:
+        self.init()
+        if self.era != "modern":
+            raise AxMCPError("server/discover is only available for modern MCP")
+        result = self._request_discovery()
+        self._apply_discovery(result)
+        return json.loads(json.dumps(result))
 
     def close(self) -> None:
         self._subscription_owners.clear()
@@ -2115,7 +2217,16 @@ class AxMCPClient:
         self.transport.close()
 
     def refresh(self) -> None:
-        self.tools = self._collect_catalog("tools/list", "tools") if self._capability("tools") else []
+        raw_tools = self._collect_catalog("tools/list", "tools") if self._capability("tools") else []
+        self.tools = []
+        for tool in raw_tools:
+            try:
+                mcp_param_header_bindings(tool.get("inputSchema") or {})
+                self.tools.append(tool)
+            except Exception:
+                logger = self.options.get("logger")
+                if callable(logger):
+                    logger(f"Warning: excluded MCP tool {tool.get('name', '')}: invalid x-mcp-header annotation")
         self.prompts = self._collect_catalog("prompts/list", "prompts") if self._capability("prompts") else []
         if self._capability("resources"):
             self.resources = self._collect_catalog("resources/list", "resources")
@@ -2159,7 +2270,30 @@ class AxMCPClient:
         return self._request("tools/list", params)
 
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self._request("tools/call", {"name": name, "arguments": arguments or {}})
+        args = arguments or {}
+        headers: dict[str, str] = {}
+        if self.era == "modern":
+            tool = next((item for item in self.tools if item.get("name") == name), None)
+            if tool:
+                bindings = mcp_param_header_bindings(tool.get("inputSchema") or {})
+                headers = {str(key): str(value) for key, value in mcp_param_header_values(bindings, args).items()}
+        try:
+            return self._request("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
+        except AxMCPError as error:
+            if self.era != "modern" or error.code != -32020:
+                raise
+            raw_tools = self._collect_catalog("tools/list", "tools")
+            self.tools = []
+            for tool in raw_tools:
+                try:
+                    mcp_param_header_bindings(tool.get("inputSchema") or {})
+                    self.tools.append(tool)
+                except Exception:
+                    pass
+            tool = next((item for item in self.tools if item.get("name") == name), None)
+            bindings = mcp_param_header_bindings((tool or {}).get("inputSchema") or {})
+            headers = {str(key): str(value) for key, value in mcp_param_header_values(bindings, args).items()}
+            return self._request("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
 
     def list_prompts(self, cursor: str | None = None) -> dict[str, Any]:
         return self._request("prompts/list", {"cursor": cursor} if cursor else {})
@@ -2217,6 +2351,8 @@ class AxMCPClient:
         return self._request("resources/templates/list", {"cursor": cursor} if cursor else {})
 
     def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
+        if self.era == "modern" and method in {"notifications/initialized", "notifications/roots/list_changed", "notifications/cancelled"}:
+            return
         message = {"jsonrpc": "2.0", "method": method}
         if params is not None:
             message["params"] = params
@@ -2280,22 +2416,53 @@ class AxMCPClient:
     def namespace(self) -> str:
         return str(self.options.get("namespace") or (self.server_info or {}).get("name") or "mcp")
 
-    def _request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request(self, method: str, params: dict[str, Any] | None = None, *, extra_headers: dict[str, str] | None = None, allow_version_retry: bool = True) -> dict[str, Any]:
         request_id = str(self._next_id)
         self._next_id += 1
         message: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id, "method": method}
+        request_params = dict(params or {})
+        if self.era == "modern":
+            existing = request_params.get("_meta") if isinstance(request_params.get("_meta"), dict) else {}
+            request_params["_meta"] = mcp_build_request_meta(
+                existing,
+                self.negotiated_protocol_version or "2026-07-28",
+                self._client_capabilities(),
+                {"name": "AxMCPClient", "title": "Ax MCP Client", "version": "1.0.0", **(self.options.get("clientInfo") or {})},
+                self.options.get("logLevel"),
+                None,
+                None,
+            )
         if params is not None:
-            message["params"] = params
-        response = self.transport.send(message)
+            message["params"] = request_params
+        response = self.transport.send_with_headers(message, extra_headers or {})
         if "error" in response:
             error = response["error"] or {}
-            raise AxMCPError(str(error.get("message", "MCP JSON-RPC error")), code=error.get("code"), data=error.get("data"))
-        return response.get("result") or {}
+            protocol_error = AxMCPError(str(error.get("message", "MCP JSON-RPC error")), code=error.get("code"), data=error.get("data"))
+            if self.era == "modern" and allow_version_retry and protocol_error.code == -32022:
+                version = mcp_select_mutual_version(protocol_error.data or {}, self.options.get("supportedProtocolVersions") or AX_MCP_SUPPORTED_PROTOCOL_VERSIONS)
+                if version:
+                    self.negotiated_protocol_version = version
+                    self.transport.set_protocol_version(version)
+                    return self._request(method, params, extra_headers=extra_headers, allow_version_retry=False)
+            raise protocol_error
+        result = response.get("result") or {}
+        if self.era == "modern" and isinstance(result, dict):
+            classified = mcp_classify_discovery_result(result)
+            meta = result.get("_meta") if isinstance(result.get("_meta"), dict) else {}
+            server_info = classified.get("serverInfo")
+            if not isinstance(server_info, dict):
+                candidate = meta.get("io.modelcontextprotocol/serverInfo")
+                if isinstance(candidate, dict) and isinstance(candidate.get("name"), str) and isinstance(candidate.get("version"), str):
+                    server_info = candidate
+            if isinstance(server_info, dict):
+                self.server_info = dict(server_info)
+        return result
 
     def _client_capabilities(self) -> dict[str, Any]:
         capabilities = dict(self.options.get("capabilities") or {})
-        if self.options.get("roots") and "roots" not in capabilities:
-            capabilities["roots"] = {"listChanged": True}
+        derived = mcp_client_capabilities(bool(self.options.get("roots")), bool(self.options.get("sampling")), bool(self.options.get("elicitation")), self.era or "legacy", bool(self.options.get("tasksExtension")))
+        for key, value in derived.items():
+            capabilities.setdefault(key, value)
         return capabilities
 
     def _capability(self, name: str) -> bool:
@@ -3169,8 +3336,32 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
                 raise AssertionError("protocol version mismatch")
             return
         client.init()
-        if fixture.get("expected_protocol_version") and client.negotiated_protocol_version != fixture["expected_protocol_version"]:
+        if operation != "client_discovery" and fixture.get("expected_protocol_version") and client.negotiated_protocol_version != fixture["expected_protocol_version"]:
             raise AssertionError("protocol version mismatch")
+        if operation == "client_discovery":
+            if fixture.get("call_tool"):
+                call = fixture["call_tool"]
+                result = client.call_tool(call["name"], call.get("arguments") or {})
+                _assert_subset(result, fixture.get("expected_call_result") or {}, "tool result")
+            if client.get_era() != fixture.get("expected_era"):
+                raise AssertionError(f"era mismatch: {client.get_era()!r}")
+            if fixture.get("expected_protocol_version") and client.negotiated_protocol_version != fixture["expected_protocol_version"]:
+                raise AssertionError("protocol version mismatch")
+            _assert_catalog_names(client.tools, fixture.get("expected_tool_names"), "tool names")
+            if fixture.get("expected_server_info"):
+                _assert_subset(client.server_info or {}, fixture["expected_server_info"], "server info")
+            _assert_requests(transport.requests, fixture)
+            expected_headers = fixture.get("expected_request_headers") or []
+            for index, subset in enumerate(expected_headers):
+                _assert_subset(transport.request_headers[index], subset, f"request headers {index}")
+            forbidden = set(fixture.get("forbidden_methods") or [])
+            methods = [request.get("method") for request in transport.requests] + [item.get("method") for item in transport.notifications]
+            if forbidden.intersection(methods):
+                raise AssertionError(f"forbidden modern method emitted: {forbidden.intersection(methods)!r}")
+            expected_notifications = fixture.get("expected_notification_methods")
+            if expected_notifications is not None and [item.get("method") for item in transport.notifications] != expected_notifications:
+                raise AssertionError("notification methods mismatch")
+            return
         if operation == "initialize":
             _assert_requests(transport.requests, fixture)
             return

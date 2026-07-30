@@ -11,7 +11,7 @@ public final class GeneratedMcpEventSmoke {
     AxMCPStreamableHTTPTransport transport = new AxMCPStreamableHTTPTransport(endpoint, Map.of(
         "ssrfProtection", Map.of("requireHttps", false, "allowLocalhost", true, "allowPrivateNetworks", true),
         "reconnectDelayMs", 50));
-    AxMCPClient client = new AxMCPClient(transport, Map.of("namespace", "inventory"));
+    AxMCPClient client = new AxMCPClient(transport, Map.of("namespace", "inventory", "era", "legacy"));
     AtomicInteger resources = new AtomicInteger();
     AtomicInteger tasks = new AtomicInteger();
     AtomicInteger progress = new AtomicInteger();

@@ -5,12 +5,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const AX_MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 pub const AX_MCP_SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
+    "2026-07-28",
     AX_MCP_PROTOCOL_VERSION,
     "2025-06-18",
     "2025-03-26",
@@ -79,6 +80,12 @@ pub trait AxMCPTransport: Send {
     fn sent_notifications(&self) -> Vec<Value> {
         Vec::new()
     }
+    fn sent_requests(&self) -> Vec<Value> {
+        Vec::new()
+    }
+    fn sent_request_headers(&self) -> Vec<Map<String, Value>> {
+        Vec::new()
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -100,8 +107,11 @@ pub struct AxMCPClient {
     transport: Arc<Mutex<Box<dyn AxMCPTransport>>>,
     options: Value,
     server_capabilities: Value,
-    server_info: Value,
-    negotiated_protocol_version: Option<String>,
+    server_info: Arc<Mutex<Value>>,
+    negotiated_protocol_version: Arc<Mutex<Option<String>>>,
+    era: Option<String>,
+    discover_result: Value,
+    negotiated_extensions: Value,
     tools: Vec<Value>,
     prompts: Vec<Value>,
     resources: Vec<Value>,
@@ -123,8 +133,11 @@ impl AxMCPClient {
             transport: Arc::new(Mutex::new(transport)),
             options,
             server_capabilities: json!({}),
-            server_info: json!({}),
-            negotiated_protocol_version: None,
+            server_info: Arc::new(Mutex::new(json!({}))),
+            negotiated_protocol_version: Arc::new(Mutex::new(None)),
+            era: None,
+            discover_result: json!({}),
+            negotiated_extensions: json!({}),
             tools: Vec::new(),
             prompts: Vec::new(),
             resources: Vec::new(),
@@ -146,6 +159,83 @@ impl AxMCPClient {
             return Ok(());
         }
         self.transport.lock().unwrap().connect()?;
+        let configured = self
+            .options
+            .get("era")
+            .and_then(Value::as_str)
+            .unwrap_or("auto");
+        let key = self
+            .transport
+            .lock()
+            .unwrap()
+            .era_cache_key()
+            .unwrap_or_default();
+        let cache = ax_mcp_era_cache();
+        let cached = cache.lock().unwrap().get(&key).cloned();
+        let stored = self
+            .options
+            .get("eraStore")
+            .and_then(Value::as_object)
+            .and_then(|store| store.get(&key))
+            .and_then(Value::as_str);
+        let resolution = core_mcp(
+            &crate::mcp_resolve_known_era,
+            &[
+                json!(configured),
+                json!(self.transport.lock().unwrap().era_hint()),
+                json!(cached),
+                json!(stored),
+            ],
+        )?;
+        let resolved = resolution
+            .get("era")
+            .and_then(Value::as_str)
+            .unwrap_or("modern");
+        if !resolution
+            .get("probe")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            if resolved == "legacy" {
+                self.initialize_legacy()?
+            } else {
+                self.apply_era("modern");
+                let discovery = self.request_discovery()?;
+                self.apply_discovery(discovery)?;
+                self.refresh()?
+            }
+            self.remember_era(resolved);
+            self.initialized = true;
+            if resolved == "legacy" {
+                return self.transport.lock().unwrap().start_listening();
+            }
+            return Ok(());
+        }
+        self.apply_era("modern");
+        match self.request_discovery().and_then(|value| {
+            self.apply_discovery(value.clone())?;
+            Ok(value)
+        }) {
+            Ok(_) => {
+                self.remember_era("modern");
+                self.refresh()?;
+                self.initialized = true;
+                Ok(())
+            }
+            Err(error) => {
+                if error.code.as_deref() == Some("-32022") {
+                    return Err(error);
+                }
+                self.initialize_legacy()?;
+                self.remember_era("legacy");
+                self.initialized = true;
+                self.transport.lock().unwrap().start_listening()
+            }
+        }
+    }
+
+    fn initialize_legacy(&mut self) -> AxResult<()> {
+        self.apply_era("legacy");
         let protocol = self
             .options
             .get("protocolVersion")
@@ -187,7 +277,7 @@ impl AxMCPClient {
                 format!("Unsupported MCP protocol version {negotiated}"),
             ));
         }
-        self.negotiated_protocol_version = Some(negotiated.clone());
+        *self.negotiated_protocol_version.lock().unwrap() = Some(negotiated.clone());
         self.transport
             .lock()
             .unwrap()
@@ -196,10 +286,11 @@ impl AxMCPClient {
             .get("capabilities")
             .cloned()
             .unwrap_or_else(|| json!({}));
-        self.server_info = result
+        *self.server_info.lock().unwrap() = result
             .get("serverInfo")
             .cloned()
             .unwrap_or_else(|| json!({}));
+        self.negotiate_extensions()?;
         self.notify("notifications/initialized", Value::Null)?;
         self.refresh()?;
         let inbound_messages = self.inbound_messages.clone();
@@ -216,8 +307,85 @@ impl AxMCPClient {
             .set_lifecycle_handler(Arc::new(move |state| {
                 inbound_lifecycle.lock().unwrap().push(state)
             }));
-        self.initialized = true;
-        self.transport.lock().unwrap().start_listening()
+        Ok(())
+    }
+
+    fn apply_era(&mut self, era: &str) {
+        self.era = Some(era.into());
+        self.transport.lock().unwrap().set_era(era);
+        if era == "modern" {
+            *self.negotiated_protocol_version.lock().unwrap() = Some("2026-07-28".into());
+            self.transport
+                .lock()
+                .unwrap()
+                .set_protocol_version("2026-07-28")
+        } else {
+            *self.negotiated_protocol_version.lock().unwrap() = None
+        }
+    }
+    fn remember_era(&self, era: &str) {
+        let key = self
+            .transport
+            .lock()
+            .unwrap()
+            .era_cache_key()
+            .unwrap_or_default();
+        if !key.is_empty() {
+            ax_mcp_era_cache().lock().unwrap().insert(key, era.into());
+        }
+    }
+    fn request_discovery(&self) -> AxResult<Value> {
+        self.request("server/discover", json!({}))
+    }
+    fn apply_discovery(&mut self, result: Value) -> AxResult<()> {
+        let classified = core_mcp(&crate::mcp_classify_discovery_result, &[result.clone()])?;
+        if classified.get("valid").and_then(Value::as_bool) != Some(true) {
+            return Err(AxError::new("mcp", "Invalid MCP server/discover result"));
+        }
+        self.discover_result = result.clone();
+        self.server_capabilities = classified
+            .get("capabilities")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        if let Some(info) = classified
+            .get("serverInfo")
+            .filter(|v| v.is_object() && !v.as_object().unwrap().is_empty())
+        {
+            *self.server_info.lock().unwrap() = info.clone()
+        }
+        self.negotiate_extensions()
+    }
+    fn negotiate_extensions(&mut self) -> AxResult<()> {
+        let client = self.client_capabilities();
+        self.negotiated_extensions = core_mcp(
+            &crate::mcp_negotiate_extensions,
+            &[
+                client
+                    .get("extensions")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+                self.server_capabilities
+                    .get("extensions")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            ],
+        )?;
+        Ok(())
+    }
+    pub fn get_era(&self) -> Option<&str> {
+        self.era.as_deref()
+    }
+    pub fn discover(&mut self) -> AxResult<Value> {
+        self.init()?;
+        if self.era.as_deref() != Some("modern") {
+            return Err(AxError::new(
+                "mcp",
+                "server/discover is only available for modern MCP",
+            ));
+        }
+        let result = self.request_discovery()?;
+        self.apply_discovery(result.clone())?;
+        Ok(result)
     }
 
     pub fn close(&mut self) -> AxResult<()> {
@@ -232,7 +400,20 @@ impl AxMCPClient {
         self.resources.clear();
         self.resource_templates.clear();
         if self.capability("tools") {
-            self.tools = self.collect_catalog("tools/list", "tools")?;
+            self.tools = self
+                .collect_catalog("tools/list", "tools")?
+                .into_iter()
+                .filter(|tool| {
+                    core_mcp(
+                        &crate::mcp_param_header_bindings,
+                        &[tool
+                            .get("inputSchema")
+                            .cloned()
+                            .unwrap_or_else(|| json!({}))],
+                    )
+                    .is_ok()
+                })
+                .collect();
         }
         if self.capability("prompts") {
             self.prompts = self.collect_catalog("prompts/list", "prompts")?;
@@ -305,9 +486,9 @@ impl AxMCPClient {
         subscriptions.sort();
         Ok(AxMCPCatalogSnapshot {
             namespace: self.namespace(),
-            protocol_version: self.negotiated_protocol_version.clone(),
+            protocol_version: self.negotiated_protocol_version.lock().unwrap().clone(),
             revision: self.catalog_revision,
-            server_info: self.server_info.clone(),
+            server_info: self.server_info.lock().unwrap().clone(),
             server_capabilities: self.server_capabilities.clone(),
             tools: self.tools.clone(),
             prompts: self.prompts.clone(),
@@ -317,8 +498,8 @@ impl AxMCPClient {
         })
     }
 
-    pub fn protocol_version(&self) -> Option<&str> {
-        self.negotiated_protocol_version.as_deref()
+    pub fn protocol_version(&self) -> Option<String> {
+        self.negotiated_protocol_version.lock().unwrap().clone()
     }
     pub fn ping(&mut self) -> AxResult<Value> {
         self.request("ping", json!({}))
@@ -327,7 +508,67 @@ impl AxMCPClient {
         self.request("tools/list", cursor_params(cursor))
     }
     pub fn call_tool(&mut self, name: &str, arguments: Value) -> AxResult<Value> {
-        self.request("tools/call", json!({"name": name, "arguments": if arguments.is_null() { json!({}) } else { arguments }}))
+        let args = if arguments.is_null() {
+            json!({})
+        } else {
+            arguments
+        };
+        let params = json!({"name":name,"arguments":args});
+        let headers = self.tool_headers(name, &args)?;
+        match self.request_with_headers("tools/call", params.clone(), headers, true) {
+            Ok(value) => Ok(value),
+            Err(error)
+                if self.era.as_deref() == Some("modern")
+                    && error.code.as_deref() == Some("-32020") =>
+            {
+                self.tools = self
+                    .collect_catalog("tools/list", "tools")?
+                    .into_iter()
+                    .filter(|tool| {
+                        core_mcp(
+                            &crate::mcp_param_header_bindings,
+                            &[tool
+                                .get("inputSchema")
+                                .cloned()
+                                .unwrap_or_else(|| json!({}))],
+                        )
+                        .is_ok()
+                    })
+                    .collect();
+                self.request_with_headers(
+                    "tools/call",
+                    params,
+                    self.tool_headers(name, &args)?,
+                    true,
+                )
+            }
+            Err(error) => Err(error),
+        }
+    }
+    fn tool_headers(&self, name: &str, args: &Value) -> AxResult<Map<String, Value>> {
+        let mut out = Map::new();
+        if self.era.as_deref() != Some("modern") {
+            return Ok(out);
+        }
+        if let Some(tool) = self
+            .tools
+            .iter()
+            .find(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
+        {
+            let bindings = core_mcp(
+                &crate::mcp_param_header_bindings,
+                &[tool
+                    .get("inputSchema")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}))],
+            )?;
+            if let Some(values) =
+                core_mcp(&crate::mcp_param_header_values, &[bindings, args.clone()])?.as_object()
+            {
+                out = values.clone()
+            }
+        }
+        Ok(out)
     }
     pub fn list_prompts(&mut self, cursor: Option<&str>) -> AxResult<Value> {
         self.request("prompts/list", cursor_params(cursor))
@@ -466,6 +707,16 @@ impl AxMCPClient {
     }
 
     pub fn notify(&self, method: &str, params: Value) -> AxResult<()> {
+        if self.era.as_deref() == Some("modern")
+            && matches!(
+                method,
+                "notifications/initialized"
+                    | "notifications/roots/list_changed"
+                    | "notifications/cancelled"
+            )
+        {
+            return Ok(());
+        }
         let mut message = json!({"jsonrpc":"2.0", "method": method});
         if !params.is_null() {
             message["params"] = params;
@@ -598,16 +849,104 @@ impl AxMCPClient {
     }
 
     pub fn namespace(&self) -> String {
-        self.options
-            .get("namespace")
+        if let Some(value) = self.options.get("namespace").and_then(Value::as_str) {
+            return value.into();
+        }
+        self.server_info
+            .lock()
+            .unwrap()
+            .get("name")
             .and_then(Value::as_str)
-            .or_else(|| self.server_info.get("name").and_then(Value::as_str))
             .unwrap_or("mcp")
             .to_string()
     }
 
     pub fn request(&self, method: &str, params: Value) -> AxResult<Value> {
-        mcp_transport_request(&self.transport, &self.next_id, method, params)
+        self.request_with_headers(method, params, Map::new(), true)
+    }
+
+    fn request_with_headers(
+        &self,
+        method: &str,
+        params: Value,
+        headers: Map<String, Value>,
+        allow_version_retry: bool,
+    ) -> AxResult<Value> {
+        let mut next = self.next_id.lock().unwrap();
+        let id = next.to_string();
+        *next += 1;
+        drop(next);
+        let mut request_params = params.clone();
+        if self.era.as_deref() == Some("modern") {
+            let version = self
+                .negotiated_protocol_version
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(|| "2026-07-28".into());
+            let meta = core_mcp(
+                &crate::mcp_build_request_meta,
+                &[
+                    request_params
+                        .get("_meta")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                    json!(version),
+                    self.client_capabilities(),
+                    json!({"name":"AxMCPClient","title":"Ax MCP Client","version":"1.0.0"}),
+                    self.options.get("logLevel").cloned().unwrap_or(Value::Null),
+                    Value::Null,
+                    Value::Null,
+                ],
+            )?;
+            if !request_params.is_object() {
+                request_params = json!({})
+            }
+            request_params["_meta"] = meta
+        }
+        let response = self.transport.lock().unwrap().send_with_headers(
+            json!({"jsonrpc":"2.0","id":id,"method":method,"params":request_params}),
+            headers.clone(),
+        )?;
+        if let Some(raw) = response.get("error") {
+            let code = raw.get("code").and_then(Value::as_i64).unwrap_or_default();
+            if self.era.as_deref() == Some("modern") && allow_version_retry && code == -32022 {
+                let version = core_mcp(
+                    &crate::mcp_select_mutual_version,
+                    &[
+                        raw.get("data").cloned().unwrap_or(Value::Null),
+                        json!(AX_MCP_SUPPORTED_PROTOCOL_VERSIONS),
+                    ],
+                )?;
+                if let Some(version) = version.as_str().filter(|value| !value.is_empty()) {
+                    *self.negotiated_protocol_version.lock().unwrap() = Some(version.into());
+                    self.transport.lock().unwrap().set_protocol_version(version);
+                    return self.request_with_headers(method, params, headers, false);
+                }
+            }
+            let mut error = AxError::new(
+                "mcp",
+                raw.get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("MCP JSON-RPC error"),
+            );
+            error.code = Some(code.to_string());
+            return Err(error);
+        }
+        let result = response.get("result").cloned().unwrap_or_else(|| json!({}));
+        if self.era.as_deref() == Some("modern") {
+            if let Some(info) = result
+                .get("_meta")
+                .and_then(|meta| meta.get("io.modelcontextprotocol/serverInfo"))
+                .filter(|info| {
+                    info.get("name").and_then(Value::as_str).is_some()
+                        && info.get("version").and_then(Value::as_str).is_some()
+                })
+            {
+                *self.server_info.lock().unwrap() = info.clone()
+            }
+        }
+        Ok(result)
     }
 
     fn client_capabilities(&self) -> Value {
@@ -616,8 +955,25 @@ impl AxMCPClient {
             .get("capabilities")
             .cloned()
             .unwrap_or_else(|| json!({}));
-        if self.options.get("roots").is_some() && out.get("roots").is_none() {
-            out["roots"] = json!({"listChanged": true});
+        let derived = core_mcp(
+            &crate::mcp_client_capabilities,
+            &[
+                json!(self.options.get("roots").is_some()),
+                json!(self.options.get("sampling").is_some()),
+                json!(self.options.get("elicitation").is_some()),
+                json!(self.era.as_deref().unwrap_or("legacy")),
+                json!(self
+                    .options
+                    .get("tasksExtension")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)),
+            ],
+        )
+        .unwrap_or_else(|_| json!({}));
+        if let (Some(target), Some(source)) = (out.as_object_mut(), derived.as_object()) {
+            for (key, value) in source {
+                target.entry(key.clone()).or_insert_with(|| value.clone());
+            }
         }
         out
     }
@@ -2676,6 +3032,21 @@ impl AxExecutionContext {
     }
 }
 
+fn ax_mcp_era_cache() -> &'static Mutex<HashMap<String, String>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+fn core_mcp(
+    function: &dyn Fn(&[crate::CoreValue]) -> AxResult<crate::CoreValue>,
+    values: &[Value],
+) -> AxResult<Value> {
+    let args = values
+        .iter()
+        .map(crate::core_value_from_json)
+        .collect::<Vec<_>>();
+    function(&args).map(|value| crate::core_value_to_json(&value))
+}
+
 fn mcp_transport_request(
     transport: &Arc<Mutex<Box<dyn AxMCPTransport>>>,
     next_id: &Arc<Mutex<u64>>,
@@ -3182,6 +3553,7 @@ pub struct AxMCPScriptedTransport {
     pub requests: Vec<Value>,
     pub notifications: Vec<Value>,
     pub sent_responses: Vec<Value>,
+    pub request_headers: Vec<Map<String, Value>>,
     protocol_version: Option<String>,
 }
 
@@ -3192,6 +3564,7 @@ impl AxMCPScriptedTransport {
             requests: Vec::new(),
             notifications: Vec::new(),
             sent_responses: Vec::new(),
+            request_headers: Vec::new(),
             protocol_version: None,
         }
     }
@@ -3221,6 +3594,15 @@ impl AxMCPTransport for AxMCPScriptedTransport {
         }
     }
 
+    fn send_with_headers(
+        &mut self,
+        message: Value,
+        headers: Map<String, Value>,
+    ) -> AxResult<Value> {
+        self.request_headers.push(headers);
+        self.send(message)
+    }
+
     fn send_notification(&mut self, message: Value) -> AxResult<()> {
         self.notifications.push(message);
         Ok(())
@@ -3234,6 +3616,12 @@ impl AxMCPTransport for AxMCPScriptedTransport {
     }
     fn sent_notifications(&self) -> Vec<Value> {
         self.notifications.clone()
+    }
+    fn sent_requests(&self) -> Vec<Value> {
+        self.requests.clone()
+    }
+    fn sent_request_headers(&self) -> Vec<Map<String, Value>> {
+        self.request_headers.clone()
     }
 }
 
@@ -4087,11 +4475,106 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                 .get("expected_protocol_version")
                 .and_then(Value::as_str)
             {
-                if client.protocol_version() != Some(expected) {
+                if operation != "client_discovery"
+                    && client.protocol_version().as_deref() != Some(expected)
+                {
                     return Err(AxError::new("fixture", "protocol version mismatch"));
                 }
             }
             match operation {
+                "client_discovery" => {
+                    if let Some(call) = fixture.get("call_tool") {
+                        let result = client.call_tool(
+                            call.get("name").and_then(Value::as_str).unwrap_or_default(),
+                            call.get("arguments").cloned().unwrap_or_else(|| json!({})),
+                        )?;
+                        expect_subset(
+                            "tool result",
+                            &result,
+                            fixture.get("expected_call_result").unwrap_or(&Value::Null),
+                        )?;
+                    }
+                    if client.get_era() != fixture.get("expected_era").and_then(Value::as_str) {
+                        return Err(AxError::new("fixture", "era mismatch"));
+                    }
+                    if let Some(expected) = fixture
+                        .get("expected_protocol_version")
+                        .and_then(Value::as_str)
+                    {
+                        if client.protocol_version().as_deref() != Some(expected) {
+                            return Err(AxError::new("fixture", "protocol version mismatch"));
+                        }
+                    }
+                    if let Some(expected) = fixture.get("expected_tool_names") {
+                        let names = Value::Array(
+                            client
+                                .tools
+                                .iter()
+                                .map(|tool| tool.get("name").cloned().unwrap_or(Value::Null))
+                                .collect(),
+                        );
+                        expect_subset("tool names", &names, expected)?
+                    }
+                    expect_subset(
+                        "server info",
+                        &client.server_info.lock().unwrap(),
+                        fixture.get("expected_server_info").unwrap_or(&Value::Null),
+                    )?;
+                    let transport = client.transport.lock().unwrap();
+                    let requests = transport.sent_requests();
+                    let expected = fixture
+                        .get("expected_requests")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    if requests.len() < expected.len() {
+                        return Err(AxError::new("fixture", "not enough MCP requests"));
+                    }
+                    for (index, want) in expected.iter().enumerate() {
+                        expect_subset("request", &requests[index], want)?
+                    }
+                    let request_headers = transport.sent_request_headers();
+                    for (index, want) in fixture
+                        .get("expected_request_headers")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                        .iter()
+                        .enumerate()
+                    {
+                        expect_subset(
+                            "request headers",
+                            &Value::Object(request_headers[index].clone()),
+                            want,
+                        )?
+                    }
+                    let notifications = transport.sent_notifications();
+                    for forbidden in fixture
+                        .get("forbidden_methods")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                    {
+                        let method = forbidden.as_str().unwrap_or_default();
+                        if requests
+                            .iter()
+                            .chain(notifications.iter())
+                            .any(|item| item.get("method").and_then(Value::as_str) == Some(method))
+                        {
+                            return Err(AxError::new("fixture", "forbidden modern method emitted"));
+                        }
+                    }
+                    if let Some(expected) = fixture.get("expected_notification_methods") {
+                        let methods = Value::Array(
+                            notifications
+                                .iter()
+                                .map(|item| item.get("method").cloned().unwrap_or(Value::Null))
+                                .collect(),
+                        );
+                        expect_subset("notification methods", &methods, expected)?
+                    }
+                    Ok(())
+                }
                 "initialize" | "protocol_negotiation" => Ok(()),
                 "ping" => client.ping().map(|_| ()),
                 "tools" => {

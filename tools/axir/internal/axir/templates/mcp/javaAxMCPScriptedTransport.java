@@ -11,6 +11,7 @@ public final class AxMCPScriptedTransport implements AxMCPTransport {
   public final List<Map<String, Object>> requests = new ArrayList<>();
   public final List<Map<String, Object>> notifications = new ArrayList<>();
   public final List<Map<String, Object>> sentResponses = new ArrayList<>();
+  public final List<Map<String, String>> requestHeaders = new ArrayList<>();
   private Consumer<Map<String, Object>> handler;
   public String protocolVersion;
 
@@ -34,6 +35,8 @@ public final class AxMCPScriptedTransport implements AxMCPTransport {
     else out.put("result", raw.getOrDefault("result", Map.of()));
     return out;
   }
+
+  public Map<String,Object> sendWithHeaders(Map<String,Object> message,Map<String,String> headers){requestHeaders.add(new LinkedHashMap<>(headers));return send(message);}
 
   public void sendNotification(Map<String, Object> message) { notifications.add(new LinkedHashMap<>(message)); }
   public void sendResponse(Map<String, Object> message) { sentResponses.add(new LinkedHashMap<>(message)); }

@@ -29,7 +29,7 @@ responses = [
     {"method": "tools/call", "result": {"structuredContent": {"echo": "hello"}}},
 ]
 
-client = AxMCPClient(AxMCPScriptedTransport(responses))
+client = AxMCPClient(AxMCPScriptedTransport(responses), {"era": "legacy"})
 client.init()
 result = client.native_tools()[0].call({"text": "hello"})
 assert result["structuredContent"]["echo"] == "hello"
