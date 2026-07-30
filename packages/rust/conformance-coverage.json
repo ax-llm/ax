@@ -397,6 +397,13 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "modern_transport_headers",
+        "runner": "rust:axmcp.modern_transport_headers",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "stdio_framing",
         "runner": "rust:axmcp.stdio_framing",
         "category": "transport-boundary"

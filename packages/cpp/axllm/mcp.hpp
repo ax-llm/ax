@@ -40,11 +40,15 @@ class AxMCPTransport {
  public:
   virtual ~AxMCPTransport() = default;
   virtual Value send(Value message) = 0;
+  virtual Value send_with_headers(Value message, Value headers) { (void)headers; return send(std::move(message)); }
   virtual void send_notification(Value message) = 0;
   virtual void send_response(Value message) { send_notification(std::move(message)); }
   virtual void set_message_handler(std::function<void(Value)>) {}
   virtual void set_lifecycle_handler(std::function<void(std::string)>) {}
   virtual void set_protocol_version(const std::string&) {}
+  virtual void set_era(const std::string&) {}
+  virtual std::string era_hint() const { return {}; }
+  virtual std::string era_cache_key() const { return {}; }
   virtual void connect() {}
   virtual void start_listening() {}
   virtual void close() {}
@@ -287,14 +291,20 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
  public:
   explicit AxMCPStreamableHTTPTransport(std::string endpoint, Value options = Value::object());
   Value send(Value message) override;
+  Value send_with_headers(Value message, Value headers) override;
   void send_notification(Value message) override;
   void set_message_handler(std::function<void(Value)> handler) override {message_handler_=std::move(handler);}
   void set_lifecycle_handler(std::function<void(std::string)> handler) override {lifecycle_handler_=std::move(handler);}
   void set_protocol_version(const std::string& protocol_version) override;
+  void set_era(const std::string& era) override;
+  std::string era_cache_key() const override { return era_cache_key_; }
   void start_listening() override;
   void close() override;
   void set_session_id(std::string session_id);
-  Value build_headers(Value base = Value::object(), bool include_protocol = true) const;
+  Value build_headers(Value base = Value::object(), bool include_protocol = true,
+                      const std::string& method = "", Value params = Value::object(),
+                      Value extra_headers = Value::object()) const;
+  void terminate_session();
   bool apply_oauth();
   AxMCPOAuthOptions oauth;
 
@@ -304,6 +314,8 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
   Value headers_ = Value::object();
   std::string session_id_;
   std::string protocol_version_;
+  std::string era_;
+  std::string era_cache_key_;
   HttpTransport http_;
   std::function<void(Value)> message_handler_;
   std::function<void(std::string)> lifecycle_handler_;

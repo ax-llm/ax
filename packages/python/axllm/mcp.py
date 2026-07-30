@@ -1979,6 +1979,9 @@ class AxMCPTransport:
     def send_notification(self, message: dict[str, Any]) -> None:
         raise NotImplementedError
 
+    def send_with_headers(self, message: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
+        return self.send(message)
+
     def send_response(self, message: dict[str, Any]) -> None:
         self.send_notification(message)
 
@@ -1987,6 +1990,17 @@ class AxMCPTransport:
 
     def set_protocol_version(self, protocol_version: str) -> None:
         self.protocol_version = protocol_version
+
+    def set_era(self, era: str) -> None:
+        return None
+
+    @property
+    def era_hint(self) -> str | None:
+        return None
+
+    @property
+    def era_cache_key(self) -> str | None:
+        return None
 
     def connect(self) -> None:
         return None
@@ -2564,6 +2578,13 @@ def resolve_execution_context(options: dict[str, Any] | None, parent: AxExecutio
     return parent.derive(opts.get("mcpInheritance", "all")) if parent else None
 
 
+def _ax_mcp_encode_header_value(value: str) -> str:
+    if mcp_header_value_plan(value).get("mode") == "plain":
+        return value
+    encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
+    return f"=?base64?{encoded}?="
+
+
 class AxMCPStreamableHTTPTransport(AxMCPTransport):
     def __init__(self, endpoint: str, options: dict[str, Any] | None = None):
         self.endpoint = ax_mcp_validate_endpoint(endpoint, (options or {}).get("ssrfProtection"))
@@ -2573,6 +2594,9 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
             self.headers["Authorization"] = self.options["authorization"]
         self.protocol_version: str | None = None
         self.session_id: str | None = None
+        self.era: str | None = None
+        parsed_endpoint = urllib.parse.urlsplit(self.endpoint)
+        self._era_cache_key = f"{parsed_endpoint.scheme}://{parsed_endpoint.netloc}"
         self.last_headers: dict[str, str] = {}
         self._message_handler: Callable[[dict[str, Any]], None] | None = None
         self._lifecycle_handler: Callable[[str], None] | None = None
@@ -2587,10 +2611,24 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
     def set_authorization(self, authorization: str) -> None:
         self.headers["Authorization"] = authorization
 
+    @property
+    def era_cache_key(self) -> str:
+        return self._era_cache_key
+
+    def set_era(self, era: str) -> None:
+        self.era = era
+        if era == "modern":
+            self.session_id = None
+            self.protocol_version = "2026-07-28"
+        elif self.protocol_version == "2026-07-28":
+            self.protocol_version = None
+
     def set_lifecycle_handler(self, handler: Callable[[str], None]) -> None:
         self._lifecycle_handler = handler
 
     def start_listening(self) -> None:
+        if self.era == "modern":
+            raise AxMCPError("Modern MCP uses subscriptions/listen via openRequestStream, not HTTP GET")
         if self._listen_thread and self._listen_thread.is_alive(): return
         self._listen_stop.clear()
         self._listen_thread = threading.Thread(target=self._listen_loop, name="ax-mcp-sse", daemon=True)
@@ -2645,8 +2683,17 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
         self._listen_thread = None
 
     def send(self, message: dict[str, Any]) -> dict[str, Any]:
+        return self.send_with_headers(message)
+
+    def send_with_headers(self, message: dict[str, Any], extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
         body = json.dumps(message).encode("utf-8")
-        headers = self.build_headers({"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}, message.get("method") != "initialize")
+        headers = self.build_headers(
+            {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
+            message.get("method") != "initialize",
+            str(message.get("method") or ""),
+            message.get("params") if isinstance(message.get("params"), dict) else {},
+            extra_headers,
+        )
         request = urllib.request.Request(self.endpoint, data=body, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=float(self.options.get("timeout", 30))) as response:
@@ -2667,7 +2714,7 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
                 return json.loads(text)
         except urllib.error.HTTPError as error:
             if error.code == 401 and self._apply_oauth():
-                return self.send(message)
+                return self.send_with_headers(message, extra_headers)
             raise AxMCPError(f"HTTP error {error.code}: {error.reason}")
 
     def _select_sse_response(self, messages: list[dict[str, Any]], request_id: Any) -> dict[str, Any]:
@@ -2691,16 +2738,37 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
             error = response["error"]
             raise AxMCPError(str(error.get("message", "MCP notification failed")), code=error.get("code"))
 
-    def build_headers(self, base: dict[str, str] | None = None, include_protocol_version: bool = True) -> dict[str, str]:
+    def build_headers(
+        self,
+        base: dict[str, str] | None = None,
+        include_protocol_version: bool = True,
+        method: str | None = None,
+        params: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, str]:
         headers = {**self.headers, **(base or {})}
-        if self.session_id:
+        for key, value in (extra_headers or {}).items():
+            headers[key] = _ax_mcp_encode_header_value(str(value)) if self.era == "modern" and key.lower().startswith("mcp-param-") else str(value)
+        if self.era != "modern" and self.session_id:
             headers["MCP-Session-Id"] = self.session_id
-        if include_protocol_version and self.protocol_version:
+        if (self.era == "modern" or include_protocol_version) and self.protocol_version:
             headers["MCP-Protocol-Version"] = self.protocol_version
+        if self.era == "modern" and method:
+            headers["Mcp-Method"] = method
+            name = mcp_request_name(method, params or {})
+            if name:
+                headers["Mcp-Name"] = _ax_mcp_encode_header_value(name)
         self.last_headers = dict(headers)
         return headers
 
+    def terminate_session(self) -> None:
+        if self.era == "modern" or not self.session_id:
+            return
+        self.session_id = None
+
     def _capture_session(self, headers: Any) -> None:
+        if self.era == "modern":
+            return
         session_id = headers.get("MCP-Session-Id") if hasattr(headers, "get") else None
         if session_id:
             self.session_id = session_id
@@ -3041,6 +3109,32 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             transport.set_protocol_version(fixture.get("protocol_version", AX_MCP_PROTOCOL_VERSION))
             headers = transport.build_headers({"Accept": "application/json"})
             _assert_subset(headers, fixture.get("expected_headers") or {}, "headers")
+            return
+        if operation == "modern_transport_headers":
+            transport = AxMCPStreamableHTTPTransport(fixture.get("endpoint", "https://example.com/mcp"))
+            transport.session_id = fixture.get("session_id", "legacy-session")
+            transport.set_era(fixture.get("era", "modern"))
+            transport.set_protocol_version(fixture.get("protocol_version", "2026-07-28"))
+            headers = transport.build_headers(
+                {"Accept": "application/json"},
+                True,
+                fixture.get("method", ""),
+                fixture.get("params") or {},
+                fixture.get("extra_headers") or {},
+            )
+            _assert_subset(headers, fixture.get("expected_headers") or {}, "modern headers")
+            for name in fixture.get("forbidden_headers") or []:
+                if name in headers:
+                    raise AssertionError(f"forbidden modern header present: {name}")
+            if transport.era_cache_key != fixture.get("expected_era_cache_key"):
+                raise AssertionError(f"era cache key mismatch: {transport.era_cache_key!r}")
+            try:
+                transport.start_listening()
+            except Exception as error:
+                if fixture.get("expected_listen_error_contains", "") not in str(error):
+                    raise
+            else:
+                raise AssertionError("modern transport allowed legacy HTTP GET listening")
             return
 
         if operation == "execution_context_ucp":

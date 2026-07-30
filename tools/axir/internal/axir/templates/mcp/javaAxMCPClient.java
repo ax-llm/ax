@@ -436,6 +436,21 @@ public final class AxMCPClient {
         assertSubset(transport.buildHeaders(Map.of("Accept", "application/json"), true), fixture.getOrDefault("expected_headers", Map.of()), "headers");
         return;
       }
+      if ("modern_transport_headers".equals(operation)) {
+        AxMCPStreamableHTTPTransport transport = new AxMCPStreamableHTTPTransport(String.valueOf(fixture.getOrDefault("endpoint", "https://example.com/mcp")));
+        transport.setSessionId(String.valueOf(fixture.getOrDefault("session_id", "legacy-session")));
+        transport.setEra(String.valueOf(fixture.getOrDefault("era", "modern")));
+        transport.setProtocolVersion(String.valueOf(fixture.getOrDefault("protocol_version", "2026-07-28")));
+        Map<String, String> extraHeaders = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : Core.asMap(fixture.get("extra_headers")).entrySet()) extraHeaders.put(entry.getKey(), String.valueOf(entry.getValue()));
+        Map<String, String> headers = transport.buildHeaders(Map.of("Accept", "application/json"), true, String.valueOf(fixture.getOrDefault("method", "")), Core.asMap(fixture.get("params")), extraHeaders);
+        assertSubset(headers, fixture.getOrDefault("expected_headers", Map.of()), "modern headers");
+        for (Object name : Core.asList(fixture.get("forbidden_headers"))) if (headers.containsKey(String.valueOf(name))) throw new AssertionError("forbidden modern header present: " + name);
+        if (!transport.eraCacheKey().equals(String.valueOf(fixture.get("expected_era_cache_key")))) throw new AssertionError("era cache key mismatch: " + transport.eraCacheKey());
+        try { transport.startListening(); throw new AssertionError("modern transport allowed legacy HTTP GET listening"); }
+        catch (AxMCPError error) { if (!error.getMessage().contains(String.valueOf(fixture.get("expected_listen_error_contains")))) throw error; }
+        return;
+      }
       if ("execution_context_ucp".equals(operation)) {
         AxMCPScriptedTransport transport = new AxMCPScriptedTransport(Core.asList(fixture.getOrDefault("responses", List.of())));
         AxMCPClient mcp = new AxMCPClient(transport, Core.asMap(fixture.get("client_options")));

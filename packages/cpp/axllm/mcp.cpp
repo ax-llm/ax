@@ -342,8 +342,38 @@ Tool AxMCPClient::resource_template_to_function(Value spec) {
               Value::object(), [self](Value args) { return self->read_resource(display(Core::get(args, "uri", ""))); });
 }
 
+static std::string ax_mcp_origin(const std::string& endpoint) {
+  auto scheme = endpoint.find("://");
+  if (scheme == std::string::npos) return endpoint;
+  auto end = endpoint.find_first_of("/?#", scheme + 3);
+  return endpoint.substr(0, end);
+}
+
+static std::string ax_mcp_base64_encode(const std::string& input) {
+  static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out;
+  out.reserve(((input.size() + 2) / 3) * 4);
+  for (std::size_t i = 0; i < input.size(); i += 3) {
+    const auto a = static_cast<unsigned char>(input[i]);
+    const auto b = i + 1 < input.size() ? static_cast<unsigned char>(input[i + 1]) : 0;
+    const auto c = i + 2 < input.size() ? static_cast<unsigned char>(input[i + 2]) : 0;
+    out.push_back(table[a >> 2]);
+    out.push_back(table[((a & 0x03) << 4) | (b >> 4)]);
+    out.push_back(i + 1 < input.size() ? table[((b & 0x0f) << 2) | (c >> 6)] : '=');
+    out.push_back(i + 2 < input.size() ? table[c & 0x3f] : '=');
+  }
+  return out;
+}
+
+static std::string ax_mcp_encode_header_value(const std::string& value) {
+  auto plan = Core::mcp_header_value_plan(value);
+  if (display(Core::get(plan, "mode", "plain")) == "plain") return value;
+  return "=?base64?" + ax_mcp_base64_encode(value) + "?=";
+}
+
 AxMCPStreamableHTTPTransport::AxMCPStreamableHTTPTransport(std::string endpoint, Value options)
-    : endpoint_(ax_mcp_validate_endpoint(endpoint, Core::get(options, "ssrfProtection", Value::object()))), options_(std::move(options)) {}
+    : endpoint_(ax_mcp_validate_endpoint(endpoint, Core::get(options, "ssrfProtection", Value::object()))),
+      options_(std::move(options)), era_cache_key_(ax_mcp_origin(endpoint_)) {}
 
 static std::vector<Value> ax_mcp_parse_sse(const std::string& body) {
   // Extract JSON-RPC messages from the `data:` frames of an SSE body.
@@ -381,8 +411,13 @@ static Value ax_mcp_select_sse_response(const std::vector<Value>& messages, cons
 }
 
 Value AxMCPStreamableHTTPTransport::send(Value message) {
+  return send_with_headers(std::move(message), Value::object());
+}
+
+Value AxMCPStreamableHTTPTransport::send_with_headers(Value message, Value extra_headers) {
+  auto method = display(Core::get(message, "method", ""));
   Value headers = build_headers(object({{"Content-Type", "application/json"}, {"Accept", "application/json, text/event-stream"}}),
-                                display(Core::get(message, "method", "")) != "initialize");
+                                method != "initialize", method, Core::get(message, "params", Value::object()), extra_headers);
   // Request the raw body (stream:true) so we can branch on the response
   // Content-Type: a spec-compliant MCP server may answer a JSON-RPC POST with an
   // SSE stream (text/event-stream) carrying the response — and any interleaved
@@ -392,7 +427,7 @@ Value AxMCPStreamableHTTPTransport::send(Value message) {
   Value response = http_.call(object({{"url", endpoint_}, {"method", "POST"}, {"headers", headers}, {"json", message}, {"stream", true}}));
   auto response_headers=Core::get(response,"headers",Value::object());
   auto session=display(Core::get(response_headers,"MCP-Session-Id",Core::get(response_headers,"mcp-session-id","")));
-  if(!session.empty())session_id_=session;
+  if(era_ != "modern" && !session.empty())session_id_=session;
   Value request_id = Core::get(message, "id", Value());
   std::string body = display(Core::get(response, "body", ""));
   if (body.empty()) return object({{"jsonrpc", "2.0"}, {"id", request_id}, {"result", Value::object()}});
@@ -406,9 +441,15 @@ Value AxMCPStreamableHTTPTransport::send(Value message) {
 
 void AxMCPStreamableHTTPTransport::send_notification(Value message) { (void)send(std::move(message)); }
 void AxMCPStreamableHTTPTransport::set_protocol_version(const std::string& protocol_version) { protocol_version_ = protocol_version; }
+void AxMCPStreamableHTTPTransport::set_era(const std::string& era) {
+  era_ = era;
+  if (era_ == "modern") { session_id_.clear(); protocol_version_ = "2026-07-28"; }
+  else if (protocol_version_ == "2026-07-28") protocol_version_.clear();
+}
 void AxMCPStreamableHTTPTransport::set_session_id(std::string session_id) { session_id_ = std::move(session_id); }
 
 void AxMCPStreamableHTTPTransport::start_listening(){
+  if (era_ == "modern") throw AxError("mcp", "Modern MCP uses subscriptions/listen via openRequestStream, not HTTP GET");
   std::lock_guard<std::mutex> lock(listen_mutex_);
   if(listen_thread_.joinable())return;
   listen_stop_=false;
@@ -457,7 +498,7 @@ void AxMCPStreamableHTTPTransport::listen_loop(){
     curl_easy_setopt(curl,CURLOPT_URL,endpoint_.c_str());curl_easy_setopt(curl,CURLOPT_HTTPGET,1L);curl_easy_setopt(curl,CURLOPT_HTTPHEADER,headers);
     curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,+[](char* ptr,size_t size,size_t nmemb,void* raw)->size_t{auto* ctx=static_cast<ListenContext*>(raw);if(ctx->self->listen_stop_)return 0;if(!ctx->announced){if(*ctx->connected_once&&ctx->self->lifecycle_handler_)ctx->self->lifecycle_handler_("reconnected");*ctx->connected_once=true;ctx->announced=true;}auto count=size*nmemb;ctx->self->consume_sse_chunk(ptr,count);return count;});
     curl_easy_setopt(curl,CURLOPT_WRITEDATA,&context);
-    curl_easy_setopt(curl,CURLOPT_HEADERFUNCTION,+[](char* ptr,size_t size,size_t nmemb,void* raw)->size_t{auto* self=static_cast<AxMCPStreamableHTTPTransport*>(raw);std::string line(ptr,size*nmemb);auto colon=line.find(':');if(colon!=std::string::npos){auto name=line.substr(0,colon);std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});if(name=="mcp-session-id"){auto value=line.substr(colon+1);auto begin=value.find_first_not_of(" \t");auto end=value.find_last_not_of(" \t\r\n");if(begin!=std::string::npos)self->session_id_=value.substr(begin,end-begin+1);}}return size*nmemb;});
+    curl_easy_setopt(curl,CURLOPT_HEADERFUNCTION,+[](char* ptr,size_t size,size_t nmemb,void* raw)->size_t{auto* self=static_cast<AxMCPStreamableHTTPTransport*>(raw);if(self->era_=="modern")return size*nmemb;std::string line(ptr,size*nmemb);auto colon=line.find(':');if(colon!=std::string::npos){auto name=line.substr(0,colon);std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});if(name=="mcp-session-id"){auto value=line.substr(colon+1);auto begin=value.find_first_not_of(" \t");auto end=value.find_last_not_of(" \t\r\n");if(begin!=std::string::npos)self->session_id_=value.substr(begin,end-begin+1);}}return size*nmemb;});
     curl_easy_setopt(curl,CURLOPT_HEADERDATA,this);curl_easy_setopt(curl,CURLOPT_NOPROGRESS,0L);
     curl_easy_setopt(curl,CURLOPT_XFERINFOFUNCTION,+[](void* raw,curl_off_t,curl_off_t,curl_off_t,curl_off_t)->int{return static_cast<AxMCPStreamableHTTPTransport*>(raw)->listen_stop_?1:0;});curl_easy_setopt(curl,CURLOPT_XFERINFODATA,this);
     auto result=curl_easy_perform(curl);curl_slist_free_all(headers);curl_easy_cleanup(curl);
@@ -468,12 +509,27 @@ void AxMCPStreamableHTTPTransport::listen_loop(){
 #endif
 }
 
-Value AxMCPStreamableHTTPTransport::build_headers(Value base, bool include_protocol) const {
-  Value out = Core::map_merge(headers_, base);
-  if (!session_id_.empty()) Core::set(out, "MCP-Session-Id", session_id_);
-  if (include_protocol && !protocol_version_.empty()) Core::set(out, "MCP-Protocol-Version", protocol_version_);
+Value AxMCPStreamableHTTPTransport::build_headers(Value base, bool include_protocol, const std::string& method,
+                                                  Value params, Value extra_headers) const {
+  Value out = Core::map_merge(Core::map_merge(headers_, base), extra_headers);
+  if (era_ == "modern") {
+    for (const auto& entry : as_object_local(extra_headers)) {
+      std::string lower = entry.first;
+      std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char ch){return static_cast<char>(std::tolower(ch));});
+      if (lower.rfind("mcp-param-", 0) == 0) Core::set(out, entry.first, ax_mcp_encode_header_value(display(entry.second)));
+    }
+  }
+  if (era_ != "modern" && !session_id_.empty()) Core::set(out, "MCP-Session-Id", session_id_);
+  if ((era_ == "modern" || include_protocol) && !protocol_version_.empty()) Core::set(out, "MCP-Protocol-Version", protocol_version_);
+  if (era_ == "modern" && !method.empty()) {
+    Core::set(out, "Mcp-Method", method);
+    auto name = display(Core::mcp_request_name(method, params));
+    if (!name.empty()) Core::set(out, "Mcp-Name", ax_mcp_encode_header_value(name));
+  }
   return out;
 }
+
+void AxMCPStreamableHTTPTransport::terminate_session() { if (era_ != "modern") session_id_.clear(); }
 
 bool AxMCPStreamableHTTPTransport::apply_oauth() {
   if (!oauth.onAuthCode) return false;
@@ -684,6 +740,18 @@ void run_mcp_conformance_fixture(Value fixture) {
       transport.set_session_id(display(Core::get(fixture, "session_id", "session-1")));
       transport.set_protocol_version(display(Core::get(fixture, "protocol_version", AX_MCP_PROTOCOL_VERSION)));
       expect_subset_local(transport.build_headers(object({{"Accept", "application/json"}})), Core::get(fixture, "expected_headers", Value::object()), "headers");
+      return;
+    }
+    if (op == "modern_transport_headers") {
+      AxMCPStreamableHTTPTransport transport(display(Core::get(fixture, "endpoint", "https://example.com/mcp")));
+      transport.set_session_id(display(Core::get(fixture, "session_id", "legacy-session")));
+      transport.set_era(display(Core::get(fixture, "era", "modern")));
+      transport.set_protocol_version(display(Core::get(fixture, "protocol_version", "2026-07-28")));
+      Value headers=transport.build_headers(object({{"Accept","application/json"}}),true,display(Core::get(fixture,"method","")),Core::get(fixture,"params",Value::object()),Core::get(fixture,"extra_headers",Value::object()));
+      expect_subset_local(headers,Core::get(fixture,"expected_headers",Value::object()),"modern headers");
+      for(auto name:as_array_local(Core::get(fixture,"forbidden_headers",Value::array())))if(value_has(headers,display(name)))throw AxError("fixture","forbidden modern header present: "+display(name));
+      if(transport.era_cache_key()!=display(Core::get(fixture,"expected_era_cache_key","")))throw AxError("fixture","era cache key mismatch");
+      try{transport.start_listening();throw AxError("fixture","modern transport allowed legacy HTTP GET listening");}catch(const AxError& error){if(std::string(error.what()).find(display(Core::get(fixture,"expected_listen_error_contains","")))==std::string::npos)throw;}
       return;
     }
     if (op == "execution_context_ucp") {

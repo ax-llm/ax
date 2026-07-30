@@ -8,6 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,8 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   private final HttpClient client = HttpClient.newHttpClient();
   private String sessionId;
   private String protocolVersion;
+  private String era;
+  private final String eraCacheKey;
   private java.util.function.Consumer<Map<String, Object>> handler;
   private Consumer<String> lifecycleHandler;
   private final Map<String, String> headers = new LinkedHashMap<>();
@@ -37,17 +40,24 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   public AxMCPStreamableHTTPTransport(String endpoint, Map<String, Object> options) {
     this.options = options == null ? Map.of() : new LinkedHashMap<>(options);
     this.endpoint = AxMCPClient.validateEndpoint(endpoint, Core.asMap(this.options.get("ssrfProtection")));
+    URI parsedEndpoint = URI.create(this.endpoint);
+    this.eraCacheKey = parsedEndpoint.getScheme() + "://" + parsedEndpoint.getAuthority();
     for (Map.Entry<String, Object> entry : Core.asMap(this.options.get("headers")).entrySet()) headers.put(entry.getKey(), String.valueOf(entry.getValue()));
     if (this.options.get("authorization") != null) headers.put("Authorization", String.valueOf(this.options.get("authorization")));
   }
 
   public Map<String, Object> send(Map<String, Object> message) {
+    return sendWithHeaders(message, Map.of());
+  }
+
+  public Map<String, Object> sendWithHeaders(Map<String, Object> message, Map<String, String> extraHeaders) {
     try {
       HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(endpoint)).POST(HttpRequest.BodyPublishers.ofString(Json.stringify(message)));
-      for (Map.Entry<String, String> entry : buildHeaders(Map.of("Content-Type", "application/json", "Accept", "application/json, text/event-stream"), !"initialize".equals(message.get("method"))).entrySet()) builder.header(entry.getKey(), entry.getValue());
+      String method = String.valueOf(message.getOrDefault("method", ""));
+      for (Map.Entry<String, String> entry : buildHeaders(Map.of("Content-Type", "application/json", "Accept", "application/json, text/event-stream"), !"initialize".equals(method), method, Core.asMap(message.get("params")), extraHeaders).entrySet()) builder.header(entry.getKey(), entry.getValue());
       HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-      response.headers().firstValue("MCP-Session-Id").ifPresent(value -> sessionId = value);
-      if (response.statusCode() == 401 && applyOAuth()) return send(message);
+      if (!"modern".equals(era)) response.headers().firstValue("MCP-Session-Id").ifPresent(value -> sessionId = value);
+      if (response.statusCode() == 401 && applyOAuth()) return sendWithHeaders(message, extraHeaders);
       if (response.statusCode() < 200 || response.statusCode() >= 300) throw new AxMCPError("HTTP error " + response.statusCode());
       String bodyText = response.body();
       Object requestId = message.get("id");
@@ -111,11 +121,14 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   public void setMessageHandler(java.util.function.Consumer<Map<String, Object>> handler) { this.handler = handler; }
   public void setLifecycleHandler(Consumer<String> handler) { this.lifecycleHandler = handler; }
   public void setProtocolVersion(String protocolVersion) { this.protocolVersion = protocolVersion; }
+  public void setEra(String era) { this.era = era; if ("modern".equals(era)) { sessionId = null; protocolVersion = "2026-07-28"; } else if ("2026-07-28".equals(protocolVersion)) protocolVersion = null; }
+  public String eraCacheKey() { return eraCacheKey; }
   public void setSessionId(String sessionId) { this.sessionId = sessionId; }
   public Map<String, String> headers() { return headers; }
   public Map<String, String> lastHeaders() { return lastHeaders; }
 
   public synchronized void startListening() {
+    if ("modern".equals(era)) throw new AxMCPError("Modern MCP uses subscriptions/listen via openRequestStream, not HTTP GET");
     if (listenThread != null && listenThread.isAlive()) return;
     listenStop.set(false);
     listenThread = new Thread(this::listenLoop, "ax-mcp-sse");
@@ -137,7 +150,7 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
           response.body().close();
           throw new AxMCPError("HTTP listen error " + response.statusCode());
         }
-        response.headers().firstValue("MCP-Session-Id").ifPresent(value -> sessionId = value);
+        if (!"modern".equals(era)) response.headers().firstValue("MCP-Session-Id").ifPresent(value -> sessionId = value);
         listenBody = response.body();
         if (connectedOnce && lifecycleHandler != null) lifecycleHandler.accept("reconnected");
         connectedOnce = true;
@@ -183,12 +196,30 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   }
 
   public Map<String, String> buildHeaders(Map<String, String> base, boolean includeProtocolVersion) {
+    return buildHeaders(base, includeProtocolVersion, null, Map.of(), Map.of());
+  }
+
+  public Map<String, String> buildHeaders(Map<String, String> base, boolean includeProtocolVersion, String method, Map<String, Object> params, Map<String, String> extraHeaders) {
     Map<String, String> out = new LinkedHashMap<>(headers);
     out.putAll(base == null ? Map.of() : base);
-    if (sessionId != null) out.put("MCP-Session-Id", sessionId);
-    if (includeProtocolVersion && protocolVersion != null) out.put("MCP-Protocol-Version", protocolVersion);
+    for (Map.Entry<String, String> entry : (extraHeaders == null ? Map.<String, String>of() : extraHeaders).entrySet()) out.put(entry.getKey(), "modern".equals(era) && entry.getKey().toLowerCase().startsWith("mcp-param-") ? encodeHeaderValue(entry.getValue()) : entry.getValue());
+    if (!"modern".equals(era) && sessionId != null) out.put("MCP-Session-Id", sessionId);
+    if (("modern".equals(era) || includeProtocolVersion) && protocolVersion != null) out.put("MCP-Protocol-Version", protocolVersion);
+    if ("modern".equals(era) && method != null && !method.isBlank()) {
+      out.put("Mcp-Method", method);
+      String name = String.valueOf(Core.mcp_request_name(method, params == null ? Map.of() : params));
+      if (!name.isBlank()) out.put("Mcp-Name", encodeHeaderValue(name));
+    }
     lastHeaders = new LinkedHashMap<>(out);
     return out;
+  }
+
+  public void terminateSession() { if (!"modern".equals(era)) sessionId = null; }
+
+  private static String encodeHeaderValue(String value) {
+    Map<String, Object> plan = Core.asMap(Core.mcp_header_value_plan(value));
+    if ("plain".equals(plan.get("mode"))) return value;
+    return "=?base64?" + Base64.getEncoder().encodeToString(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)) + "?=";
   }
 
   boolean applyOAuth() {

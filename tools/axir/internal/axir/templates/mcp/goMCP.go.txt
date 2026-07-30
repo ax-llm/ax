@@ -53,11 +53,15 @@ type AxMCPTokenStore interface {
 
 type AxMCPTransport interface {
 	Send(message map[string]Value) (map[string]Value, error)
+	SendWithHeaders(message map[string]Value, headers map[string]string) (map[string]Value, error)
 	SendNotification(message map[string]Value) error
 	SendResponse(message map[string]Value) error
 	SetMessageHandler(handler func(map[string]Value))
 	SetLifecycleHandler(handler func(string))
 	SetProtocolVersion(protocolVersion string)
+	SetEra(era string)
+	EraHint() string
+	EraCacheKey() string
 	Connect() error
 	StartListening() error
 	Close() error
@@ -579,6 +583,8 @@ type AxMCPStreamableHTTPTransport struct {
 	Headers map[string]string
 	SessionID string
 	ProtocolVersion string
+	Era string
+	eraCacheKey string
 	LastHeaders map[string]string
 	handler func(map[string]Value)
 	lifecycleHandler func(string)
@@ -595,22 +601,29 @@ func NewAxMCPStreamableHTTPTransport(endpoint string, options map[string]Value) 
 	if options == nil { options = map[string]Value{} }
 	checked, err := AxMCPValidateEndpoint(endpoint, asMap(coreGet(options, "ssrfProtection", Object())))
 	if err != nil { return nil, err }
-	t := &AxMCPStreamableHTTPTransport{Endpoint:checked, Options:options, Headers:map[string]string{}, client:&http.Client{Timeout:30*time.Second}}
+	parsed, _ := url.Parse(checked)
+	t := &AxMCPStreamableHTTPTransport{Endpoint:checked, Options:options, Headers:map[string]string{}, eraCacheKey:parsed.Scheme+"://"+parsed.Host, client:&http.Client{Timeout:30*time.Second}}
 	for key, value := range asMap(coreGet(options, "headers", Object())) { t.Headers[key] = display(value) }
 	if auth := display(coreGet(options, "authorization", "")); auth != "" { t.Headers["Authorization"] = auth }
 	return t, nil
 }
 
 func (t *AxMCPStreamableHTTPTransport) Send(message map[string]Value) (map[string]Value, error) {
+	return t.SendWithHeaders(message, nil)
+}
+
+func (t *AxMCPStreamableHTTPTransport) SendWithHeaders(message map[string]Value, extraHeaders map[string]string) (map[string]Value, error) {
 	body, _ := json.Marshal(message)
 	req, err := http.NewRequest("POST", t.Endpoint, bytes.NewReader(body))
 	if err != nil { return nil, err }
-	for key, value := range t.BuildHeaders(map[string]string{"Content-Type":"application/json", "Accept":"application/json, text/event-stream"}, display(coreGet(message, "method", "")) != "initialize") { req.Header.Set(key, value) }
+	method := display(coreGet(message, "method", ""))
+	extra := map[string]Value{}; for key, value := range extraHeaders { extra[key] = value }
+	for key, value := range t.BuildHeaders(map[string]string{"Content-Type":"application/json", "Accept":"application/json, text/event-stream"}, method != "initialize", method, coreGet(message, "params", Object()), extra) { req.Header.Set(key, value) }
 	res, err := t.client.Do(req)
 	if err != nil { return nil, err }
 	defer res.Body.Close()
-	if sid := res.Header.Get("MCP-Session-Id"); sid != "" { t.SessionID = sid }
-	if res.StatusCode == 401 && t.ApplyOAuth() { return t.Send(message) }
+	if sid := res.Header.Get("MCP-Session-Id"); t.Era != "modern" && sid != "" { t.SessionID = sid }
+	if res.StatusCode == 401 && t.ApplyOAuth() { return t.SendWithHeaders(message, extraHeaders) }
 	if res.StatusCode < 200 || res.StatusCode >= 300 { return nil, AxError{Category:"mcp", Message:fmt.Sprintf("HTTP error %d", res.StatusCode)} }
 	data, _ := io.ReadAll(res.Body)
 	if len(strings.TrimSpace(string(data))) == 0 { return map[string]Value{"jsonrpc":"2.0", "id":coreGet(message, "id", nil), "result":map[string]Value{}}, nil }
@@ -649,9 +662,13 @@ func (t *AxMCPStreamableHTTPTransport) SendResponse(message map[string]Value) er
 func (t *AxMCPStreamableHTTPTransport) SetMessageHandler(handler func(map[string]Value)) { t.handler = handler }
 func (t *AxMCPStreamableHTTPTransport) SetLifecycleHandler(handler func(string)) { t.lifecycleHandler = handler }
 func (t *AxMCPStreamableHTTPTransport) SetProtocolVersion(protocolVersion string) { t.ProtocolVersion = protocolVersion }
+func (t *AxMCPStreamableHTTPTransport) SetEra(era string) { t.Era = era; if era == "modern" { t.SessionID = ""; t.ProtocolVersion = "2026-07-28" } else if t.ProtocolVersion == "2026-07-28" { t.ProtocolVersion = "" } }
+func (t *AxMCPStreamableHTTPTransport) EraHint() string { return "" }
+func (t *AxMCPStreamableHTTPTransport) EraCacheKey() string { return t.eraCacheKey }
 func (t *AxMCPStreamableHTTPTransport) Connect() error { return nil }
 
 func (t *AxMCPStreamableHTTPTransport) StartListening() error {
+	if t.Era == "modern" { return AxError{Category:"mcp", Message:"Modern MCP uses subscriptions/listen via openRequestStream, not HTTP GET"} }
 	t.listenMu.Lock()
 	defer t.listenMu.Unlock()
 	if t.listenCancel != nil { return nil }
@@ -674,7 +691,7 @@ func (t *AxMCPStreamableHTTPTransport) listenLoop(ctx context.Context, done chan
 			if t.lastEventID != "" { req.Header.Set("Last-Event-ID", t.lastEventID) }
 			res, requestErr := t.client.Do(req)
 			if requestErr == nil && res.StatusCode >= 200 && res.StatusCode < 300 {
-				if sid := res.Header.Get("MCP-Session-Id"); sid != "" { t.SessionID = sid }
+				if sid := res.Header.Get("MCP-Session-Id"); t.Era != "modern" && sid != "" { t.SessionID = sid }
 				t.listenMu.Lock(); t.listenBody = res.Body; t.listenMu.Unlock()
 				if connectedOnce && t.lifecycleHandler != nil { t.lifecycleHandler("reconnected") }
 				connectedOnce = true
@@ -726,15 +743,24 @@ func (t *AxMCPStreamableHTTPTransport) Close() error {
 	return nil
 }
 
-func (t *AxMCPStreamableHTTPTransport) BuildHeaders(base map[string]string, includeProtocol bool) map[string]string {
+func (t *AxMCPStreamableHTTPTransport) BuildHeaders(base map[string]string, includeProtocol bool, context ...Value) map[string]string {
 	out := map[string]string{}
 	for key, value := range t.Headers { out[key] = value }
 	for key, value := range base { out[key] = value }
-	if t.SessionID != "" { out["MCP-Session-Id"] = t.SessionID }
-	if includeProtocol && t.ProtocolVersion != "" { out["MCP-Protocol-Version"] = t.ProtocolVersion }
+	method := ""; params := Value(Object()); extraHeaders := map[string]string{}
+	if len(context) > 0 { method = display(context[0]) }
+	if len(context) > 1 { params = context[1] }
+	if len(context) > 2 { for key, value := range asMap(context[2]) { extraHeaders[key] = display(value) } }
+	for key, value := range extraHeaders { if t.Era == "modern" && strings.HasPrefix(strings.ToLower(key), "mcp-param-") { value = axMCPEncodeHeaderValue(value) }; out[key] = value }
+	if t.Era != "modern" && t.SessionID != "" { out["MCP-Session-Id"] = t.SessionID }
+	if (t.Era == "modern" || includeProtocol) && t.ProtocolVersion != "" { out["MCP-Protocol-Version"] = t.ProtocolVersion }
+	if t.Era == "modern" && method != "" { out["Mcp-Method"] = method; if name := display(mustCore(mcp_request_name(method, params))); name != "" { out["Mcp-Name"] = axMCPEncodeHeaderValue(name) } }
 	t.LastHeaders = out
 	return out
 }
+
+func axMCPEncodeHeaderValue(value string) string { plan := asMap(mustCore(mcp_header_value_plan(value))); if display(coreGet(plan, "mode", "plain")) == "plain" { return value }; return "=?base64?"+base64.StdEncoding.EncodeToString([]byte(value))+"?=" }
+func (t *AxMCPStreamableHTTPTransport) TerminateSession() error { if t.Era == "modern" || t.SessionID == "" { return nil }; t.SessionID = ""; return nil }
 
 func (t *AxMCPStreamableHTTPTransport) ApplyOAuth() bool {
 	if t.OAuth == nil { return false }
@@ -786,11 +812,16 @@ func (t *AxMCPStdioTransport) Send(message map[string]Value) (map[string]Value, 
 	}
 }
 
+func (t *AxMCPStdioTransport) SendWithHeaders(message map[string]Value, headers map[string]string) (map[string]Value, error) { return t.Send(message) }
+
 func (t *AxMCPStdioTransport) SendNotification(message map[string]Value) error { _, err := io.WriteString(t.stdin, AxMCPStdioEncode(message)); return err }
 func (t *AxMCPStdioTransport) SendResponse(message map[string]Value) error { return t.SendNotification(message) }
 func (t *AxMCPStdioTransport) SetMessageHandler(handler func(map[string]Value)) { t.handler = handler }
 func (t *AxMCPStdioTransport) SetLifecycleHandler(handler func(string)) {}
 func (t *AxMCPStdioTransport) SetProtocolVersion(protocolVersion string) { t.protocolVersion = protocolVersion }
+func (t *AxMCPStdioTransport) SetEra(era string) {}
+func (t *AxMCPStdioTransport) EraHint() string { return "" }
+func (t *AxMCPStdioTransport) EraCacheKey() string { return "" }
 func (t *AxMCPStdioTransport) Connect() error { return nil }
 func (t *AxMCPStdioTransport) StartListening() error { return nil }
 func (t *AxMCPStdioTransport) Close() error { return t.cmd.Process.Kill() }
@@ -801,12 +832,17 @@ type AxMCPScriptedTransport struct {
 	Notifications []map[string]Value
 	SentResponses []map[string]Value
 	ProtocolVersion string
+	Era string
+	RequestHeaders []map[string]string
 	handler func(map[string]Value)
 }
 
 func NewAxMCPScriptedTransport(responses []Value) *AxMCPScriptedTransport { return &AxMCPScriptedTransport{Responses:append([]Value(nil), responses...)} }
 func (t *AxMCPScriptedTransport) Connect() error { return nil }
 func (t *AxMCPScriptedTransport) SetProtocolVersion(protocolVersion string) { t.ProtocolVersion = protocolVersion }
+func (t *AxMCPScriptedTransport) SetEra(era string) { t.Era = era }
+func (t *AxMCPScriptedTransport) EraHint() string { return "" }
+func (t *AxMCPScriptedTransport) EraCacheKey() string { return "" }
 func (t *AxMCPScriptedTransport) SetMessageHandler(handler func(map[string]Value)) { t.handler = handler }
 func (t *AxMCPScriptedTransport) SetLifecycleHandler(handler func(string)) {}
 func (t *AxMCPScriptedTransport) StartListening() error { return nil }
@@ -824,6 +860,7 @@ func (t *AxMCPScriptedTransport) Send(message map[string]Value) (map[string]Valu
 	if errValue := coreGet(raw, "error", nil); errValue != nil { out["error"] = errValue } else { out["result"] = coreGet(raw, "result", Object()) }
 	return out, nil
 }
+func (t *AxMCPScriptedTransport) SendWithHeaders(message map[string]Value, headers map[string]string) (map[string]Value, error) { copied := map[string]string{}; for key, value := range headers { copied[key] = value }; t.RequestHeaders = append(t.RequestHeaders, copied); return t.Send(message) }
 func (t *AxMCPScriptedTransport) SendNotification(message map[string]Value) error { t.Notifications = append(t.Notifications, cloneMCPMap(message)); return nil }
 func (t *AxMCPScriptedTransport) SendResponse(message map[string]Value) error { t.SentResponses = append(t.SentResponses, cloneMCPMap(message)); return nil }
 func (t *AxMCPScriptedTransport) Emit(message map[string]Value) { if t.handler != nil { t.handler(message) } }
@@ -970,6 +1007,18 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		t.SessionID = display(coreGet(fixture, "session_id", "session-1"))
 		t.SetProtocolVersion(display(coreGet(fixture, "protocol_version", AX_MCP_PROTOCOL_VERSION)))
 		assertSubset(mcpHeaderValues(t.BuildHeaders(map[string]string{"Accept":"application/json"}, true)), coreGet(fixture, "expected_headers", Object()), "headers")
+		return
+	}
+	if op == "modern_transport_headers" {
+		t, err := NewAxMCPStreamableHTTPTransport(display(coreGet(fixture, "endpoint", "https://example.com/mcp")), nil); if err != nil { panic(err) }
+		t.SessionID = display(coreGet(fixture, "session_id", "legacy-session"))
+		t.SetEra(display(coreGet(fixture, "era", "modern")))
+		t.SetProtocolVersion(display(coreGet(fixture, "protocol_version", "2026-07-28")))
+		headers := t.BuildHeaders(map[string]string{"Accept":"application/json"}, true, coreGet(fixture,"method",""), coreGet(fixture,"params",Object()), coreGet(fixture,"extra_headers",Object()))
+		assertSubset(mcpHeaderValues(headers), coreGet(fixture, "expected_headers", Object()), "modern headers")
+		for _, name := range asSlice(coreGet(fixture,"forbidden_headers",Array())) { if _, ok := headers[display(name)]; ok { panic("forbidden modern header present: "+display(name)) } }
+		if t.EraCacheKey() != display(coreGet(fixture,"expected_era_cache_key","")) { panic("era cache key mismatch: "+t.EraCacheKey()) }
+		if err := t.StartListening(); err == nil || !strings.Contains(err.Error(), display(coreGet(fixture,"expected_listen_error_contains",""))) { panic("modern transport did not reject legacy HTTP GET listening") }
 		return
 	}
 	if op == "execution_context_ucp" {

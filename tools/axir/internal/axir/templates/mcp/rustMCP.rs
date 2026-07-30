@@ -44,9 +44,13 @@ pub trait AxMCPTokenStore {
 
 pub trait AxMCPTransport: Send {
     fn send(&mut self, message: Value) -> AxResult<Value>;
+    fn send_with_headers(&mut self, message: Value, _headers: Map<String, Value>) -> AxResult<Value> { self.send(message) }
     fn send_notification(&mut self, message: Value) -> AxResult<()>;
     fn send_response(&mut self, message: Value) -> AxResult<()> { self.send_notification(message) }
     fn set_protocol_version(&mut self, _protocol_version: &str) {}
+    fn set_era(&mut self, _era: &str) {}
+    fn era_hint(&self) -> Option<String> { None }
+    fn era_cache_key(&self) -> Option<String> { None }
     fn set_message_handler(&mut self, _handler: Arc<dyn Fn(Value) + Send + Sync>) {}
     fn set_lifecycle_handler(&mut self, _handler: Arc<dyn Fn(String) + Send + Sync>) {}
     fn connect(&mut self) -> AxResult<()> { Ok(()) }
@@ -523,6 +527,8 @@ pub struct AxMCPStreamableHTTPTransport {
     headers: Map<String, Value>,
     session_id: Option<String>,
     protocol_version: Option<String>,
+    era: Option<String>,
+    era_cache_key: String,
     pub oauth: Option<AxMCPOAuthOptions>,
     client: reqwest::blocking::Client,
     message_handler:Option<Arc<dyn Fn(Value)+Send+Sync>>,
@@ -534,17 +540,24 @@ pub struct AxMCPStreamableHTTPTransport {
 impl AxMCPStreamableHTTPTransport {
     pub fn new(endpoint: impl Into<String>, options: Value) -> AxResult<Self> {
         let endpoint = ax_mcp_validate_endpoint(&endpoint.into(), options.get("ssrfProtection").unwrap_or(&Value::Null))?;
-        Ok(Self { endpoint, options, headers: Map::new(), session_id: None, protocol_version: None, oauth: None, client: reqwest::blocking::Client::builder().timeout(Duration::from_secs(30)).build()?,message_handler:None,lifecycle_handler:None,listen_stop:Arc::new(AtomicBool::new(true)),listen_thread:None })
+        let parsed=reqwest::Url::parse(&endpoint).map_err(|error|AxError::new("mcp",error.to_string()))?;
+        let era_cache_key=format!("{}://{}",parsed.scheme(),parsed.host_str().unwrap_or_default())+&parsed.port().map(|port|format!(":{port}")).unwrap_or_default();
+        Ok(Self { endpoint, options, headers: Map::new(), session_id: None, protocol_version: None, era:None, era_cache_key, oauth: None, client: reqwest::blocking::Client::builder().timeout(Duration::from_secs(30)).build()?,message_handler:None,lifecycle_handler:None,listen_stop:Arc::new(AtomicBool::new(true)),listen_thread:None })
     }
 
     pub fn set_session_id(&mut self, value: impl Into<String>) { self.session_id = Some(value.into()); }
     pub fn build_headers(&self, base: Map<String, Value>, include_protocol: bool) -> Map<String, Value> {
+        self.build_request_headers(base,include_protocol,"",&Value::Null,&Map::new())
+    }
+    pub fn build_request_headers(&self, base: Map<String, Value>, include_protocol: bool, method:&str, params:&Value, extra:&Map<String,Value>) -> Map<String, Value> {
         let mut out = self.headers.clone();
         for (key, value) in base { out.insert(key, value); }
-        if let Some(session) = &self.session_id { out.insert("MCP-Session-Id".to_string(), json!(session)); }
-        if include_protocol {
+        for(key,value)in extra{let encoded=if self.era.as_deref()==Some("modern")&&key.to_ascii_lowercase().starts_with("mcp-param-"){value.as_str().map(ax_mcp_encode_header_value).map(Value::String).unwrap_or_else(||value.clone())}else{value.clone()};out.insert(key.clone(),encoded);}
+        if self.era.as_deref()!=Some("modern"){if let Some(session) = &self.session_id { out.insert("MCP-Session-Id".to_string(), json!(session)); }}
+        if self.era.as_deref()==Some("modern")||include_protocol {
             if let Some(version) = &self.protocol_version { out.insert("MCP-Protocol-Version".to_string(), json!(version)); }
         }
+        if self.era.as_deref()==Some("modern")&&!method.is_empty(){out.insert("Mcp-Method".into(),json!(method));let name=crate::core_value_to_json(&crate::mcp_request_name(&[crate::CoreValue::from(method),crate::core_value_from_json(params)]).unwrap_or(crate::CoreValue::Null));if let Some(name)=name.as_str().filter(|name|!name.is_empty()){out.insert("Mcp-Name".into(),json!(ax_mcp_encode_header_value(name)));}}
         out
     }
 
@@ -566,18 +579,24 @@ impl AxMCPStreamableHTTPTransport {
         self.headers.insert("Authorization".to_string(), json!(format!("Bearer {}", token.access_token)));
         true
     }
+
+    pub fn terminate_session(&mut self) { if self.era.as_deref()!=Some("modern") { self.session_id=None; } }
 }
 
 impl AxMCPTransport for AxMCPStreamableHTTPTransport {
     fn send(&mut self, message: Value) -> AxResult<Value> {
+        self.send_with_headers(message,Map::new())
+    }
+    fn send_with_headers(&mut self, message: Value, extra_headers:Map<String,Value>) -> AxResult<Value> {
         let mut request = self.client.post(&self.endpoint).json(&message);
-        for (key, value) in self.build_headers(Map::new(), message.get("method").and_then(Value::as_str) != Some("initialize")) {
+        let method=message.get("method").and_then(Value::as_str).unwrap_or_default();
+        for (key, value) in self.build_request_headers(Map::new(), method != "initialize",method,message.get("params").unwrap_or(&Value::Null),&extra_headers) {
             if let Some(text) = value.as_str() { request = request.header(key, text); }
         }
         let response = request.send()?;
-        if response.status().as_u16() == 401 && self.apply_oauth() { return self.send(message); }
+        if response.status().as_u16() == 401 && self.apply_oauth() { return self.send_with_headers(message,extra_headers); }
         if !response.status().is_success() { return Err(AxError::new("mcp", format!("HTTP error {}", response.status().as_u16()))); }
-        if let Some(session)=response.headers().get("mcp-session-id").and_then(|value|value.to_str().ok()){self.session_id=Some(session.to_string());}
+        if self.era.as_deref()!=Some("modern"){if let Some(session)=response.headers().get("mcp-session-id").and_then(|value|value.to_str().ok()){self.session_id=Some(session.to_string());}}
         // A spec-compliant MCP server may answer a JSON-RPC POST with an SSE stream
         // (Content-Type: text/event-stream) carrying the response — and any
         // interleaved notifications/keepalives — in `data:` frames; parse those
@@ -601,9 +620,12 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
 
     fn send_notification(&mut self, message: Value) -> AxResult<()> { self.send(message).map(|_| ()) }
     fn set_protocol_version(&mut self, protocol_version: &str) { self.protocol_version = Some(protocol_version.to_string()); }
+    fn set_era(&mut self,era:&str){self.era=Some(era.into());if era=="modern"{self.session_id=None;self.protocol_version=Some("2026-07-28".into())}else if self.protocol_version.as_deref()==Some("2026-07-28"){self.protocol_version=None}}
+    fn era_cache_key(&self)->Option<String>{Some(self.era_cache_key.clone())}
     fn set_message_handler(&mut self,handler:Arc<dyn Fn(Value)+Send+Sync>){self.message_handler=Some(handler)}
     fn set_lifecycle_handler(&mut self,handler:Arc<dyn Fn(String)+Send+Sync>){self.lifecycle_handler=Some(handler)}
     fn start_listening(&mut self)->AxResult<()>{
+        if self.era.as_deref()==Some("modern"){return Err(AxError::new("mcp","Modern MCP uses subscriptions/listen via openRequestStream, not HTTP GET"))}
         if self.listen_thread.as_ref().is_some_and(|thread|!thread.is_finished()){return Ok(())}
         self.listen_stop.store(false,Ordering::SeqCst);
         let stop=self.listen_stop.clone();let endpoint=self.endpoint.clone();let headers=self.build_headers(Map::new(),true);let handler=self.message_handler.clone();let lifecycle=self.lifecycle_handler.clone();
@@ -627,6 +649,8 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
     }
     fn close(&mut self)->AxResult<()>{self.listen_stop.store(true,Ordering::SeqCst);if let Some(thread)=self.listen_thread.take(){let _=thread.join();}Ok(())}
 }
+
+fn ax_mcp_encode_header_value(value:&str)->String{let plan=crate::core_value_to_json(&crate::mcp_header_value_plan(&[crate::CoreValue::from(value)]).unwrap_or(crate::CoreValue::Null));if plan.get("mode").and_then(Value::as_str)==Some("plain"){value.into()}else{format!("=?base64?{}?=",crate::encode_base64(value.as_bytes()))}}
 
 // Return the JSON-RPC response whose id matches the request from the `data:`
 // frames of an SSE answer. Interleaved server->client notifications on the POST
@@ -1032,6 +1056,17 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
             let mut base = Map::new();
             base.insert("Accept".to_string(), json!("application/json"));
             expect_subset("headers", &Value::Object(transport.build_headers(base, true)), fixture.get("expected_headers").unwrap_or(&Value::Null))
+        }
+        "modern_transport_headers" => {
+            let mut transport=AxMCPStreamableHTTPTransport::new(fixture.get("endpoint").and_then(Value::as_str).unwrap_or("https://example.com/mcp"),Value::Null)?;
+            transport.set_session_id(fixture.get("session_id").and_then(Value::as_str).unwrap_or("legacy-session"));
+            transport.set_era(fixture.get("era").and_then(Value::as_str).unwrap_or("modern"));
+            transport.set_protocol_version(fixture.get("protocol_version").and_then(Value::as_str).unwrap_or("2026-07-28"));
+            let headers=transport.build_request_headers(Map::new(),true,fixture.get("method").and_then(Value::as_str).unwrap_or(""),fixture.get("params").unwrap_or(&Value::Null),fixture.get("extra_headers").and_then(Value::as_object).unwrap_or(&Map::new()));
+            expect_subset("modern headers",&Value::Object(headers.clone()),fixture.get("expected_headers").unwrap_or(&Value::Null))?;
+            for name in fixture.get("forbidden_headers").and_then(Value::as_array).cloned().unwrap_or_default(){if headers.contains_key(name.as_str().unwrap_or_default()){return Err(AxError::new("fixture","forbidden modern header present"));}}
+            if transport.era_cache_key()!=fixture.get("expected_era_cache_key").and_then(Value::as_str).map(str::to_string){return Err(AxError::new("fixture","era cache key mismatch"));}
+            match transport.start_listening(){Err(error) if error.to_string().contains(fixture.get("expected_listen_error_contains").and_then(Value::as_str).unwrap_or(""))=>Ok(()),_=>Err(AxError::new("fixture","modern transport did not reject legacy HTTP GET listening"))}
         }
         "execution_context_ucp" => {
             let responses=fixture.get("responses").and_then(Value::as_array).cloned().unwrap_or_default();

@@ -1,0 +1,25 @@
+{
+  "name": "modern MCP transport headers and era isolation",
+  "kind": "mcp",
+  "operation": "modern_transport_headers",
+  "endpoint": "https://example.com/mcp/path?tenant=one",
+  "era": "modern",
+  "session_id": "legacy-session",
+  "protocol_version": "2026-07-28",
+  "method": "tools/call",
+  "params": {
+    "name": "Hello, 世界"
+  },
+  "extra_headers": {
+    "Mcp-Param-Region": " padded "
+  },
+  "expected_era_cache_key": "https://example.com",
+  "expected_headers": {
+    "MCP-Protocol-Version": "2026-07-28",
+    "Mcp-Method": "tools/call",
+    "Mcp-Name": "=?base64?SGVsbG8sIOS4lueVjA==?=",
+    "Mcp-Param-Region": "=?base64?IHBhZGRlZCA=?="
+  },
+  "forbidden_headers": ["MCP-Session-Id"],
+  "expected_listen_error_contains": "Modern MCP uses subscriptions/listen via openRequestStream, not HTTP GET"
+}

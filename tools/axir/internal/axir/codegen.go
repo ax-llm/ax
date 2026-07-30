@@ -1754,6 +1754,7 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axmcp", "mcp", "roots_notifications", "semantic"},
 		{"axmcp", "mcp", "cancellation", "transport-boundary"},
 		{"axmcp", "mcp", "http_session_headers", "transport-boundary"},
+		{"axmcp", "mcp", "modern_transport_headers", "transport-boundary"},
 		{"axmcp", "mcp", "stdio_framing", "transport-boundary"},
 		{"axmcp", "mcp", "oauth", "transport-boundary"},
 		{"axmcp", "mcp", "ssrf", "validation-error"},
