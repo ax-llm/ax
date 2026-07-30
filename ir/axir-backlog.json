@@ -661,7 +661,7 @@
     },
     {
       "id": "axir-2026-07-29-port-mcp-cacheable-result-metadata",
-      "status": "open",
+      "status": "done",
       "title": "Port MCP cacheable result metadata",
       "createdAt": "2026-07-29",
       "sourcePR": null,
@@ -674,9 +674,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-30",
+      "completedByCommit": "2067e579",
+      "verification": "cache-fold.json and read-cache.json pass across Python, Java, C++, Go, and Rust; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check"
     },
     {
       "id": "axir-2026-07-29-port-mcp-oauth-rfc-9207-issuer-validation",

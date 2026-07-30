@@ -30,12 +30,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/mcp`
   - Impact: TypeScript gains a dual-era MCP client for the stateless 2026-07-28 protocol while generated Python, Java, C++, Go, and Rust clients remain on the 2025-11-25 lifecycle.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-07-29-port-mcp-cacheable-result-metadata` [axmcp] Port MCP cacheable result metadata
-  - Status: open
-  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
-  - TS paths: `src/ax/mcp/cache.ts`
-  - Impact: Generated Python, Java, C++, Go, and Rust catalog and resource readers ignore 2026-07-28 ttlMs and cacheScope metadata and lack the CacheableResult refresh and cache-expiry contract.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-07-29-port-mcp-oauth-rfc-9207-issuer-validation` [axmcp] Port MCP OAuth RFC 9207 issuer validation
   - Status: open
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
@@ -305,6 +299,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-30
   - Completed by: `afaae693`
   - Verification: `npm run test:axir; npm run axir:check-packages; modern-transport-headers fixture across python, java, cpp, go, rust`
+- `axir-2026-07-29-port-mcp-cacheable-result-metadata` [axmcp] Port MCP cacheable result metadata
+  - Status: done
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/cache.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust catalog and resource readers ignore 2026-07-28 ttlMs and cacheScope metadata and lack the CacheableResult refresh and cache-expiry contract.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-30
+  - Completed by: `2067e579`
+  - Verification: `cache-fold.json and read-cache.json pass across Python, Java, C++, Go, and Rust; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check`
 - `axir-2026-07-29-port-modern-mcp-per-request-metadata` [axmcp] Port modern MCP per-request metadata
   - Status: done
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
