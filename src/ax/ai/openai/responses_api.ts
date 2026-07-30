@@ -457,7 +457,11 @@ export class AxAIOpenAIResponsesImpl<
         ? {
             reasoning: {
               effort: reasoningEffort,
-              summary: reasoningSummary,
+              // Summarising reasoning that was explicitly disabled is
+              // contradictory, so 'none' carries no summary.
+              ...(reasoningEffort === 'none'
+                ? {}
+                : { summary: reasoningSummary }),
             },
           }
         : {}),
@@ -531,9 +535,10 @@ export class AxAIOpenAIResponsesImpl<
       const isGPT56 = /^gpt-5\.6($|-)/.test(String(model));
       switch (config.thinkingTokenBudget) {
         case 'none':
-          currentReasoning = isGPT56
-            ? { ...currentReasoning, effort: 'none' }
-            : {};
+          // GPT-5.6 defaults an omitted effort to 'medium', so disabling
+          // reasoning needs an explicit 'none' rather than a dropped field.
+          // Any summary carried over from above goes with it.
+          currentReasoning = isGPT56 ? { effort: 'none' } : {};
           break;
         case 'minimal':
           currentReasoning = {

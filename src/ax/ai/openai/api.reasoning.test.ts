@@ -30,126 +30,187 @@ function captureFetch(capture: { lastBody?: any }) {
   });
 }
 
-describe('OpenAI Chat: thinkingTokenBudget=highest → reasoning_effort=xhigh', () => {
-  it('maps thinkingTokenBudget "highest" to reasoning_effort "xhigh"', async () => {
-    const ai = new AxAIOpenAI({
-      apiKey: 'key',
-      config: { model: AxAIOpenAIModel.GPT55 },
-    });
-    const capture: { lastBody?: any } = {};
-    ai.setOptions({ fetch: captureFetch(capture) });
+async function chatEffort(
+  model: AxAIOpenAIModel,
+  options: Record<string, unknown>,
+  config: Record<string, unknown> = {}
+) {
+  const ai = new AxAIOpenAI({ apiKey: 'key', config: { model, ...config } });
+  const capture: { lastBody?: any } = {};
+  ai.setOptions({ fetch: captureFetch(capture) });
 
-    await ai.chat(
-      {
-        model: AxAIOpenAIModel.GPT55,
-        chatPrompt: [{ role: 'user', content: 'hi' }],
-      },
-      { stream: false, thinkingTokenBudget: 'highest' }
-    );
+  await ai.chat(
+    { model, chatPrompt: [{ role: 'user', content: 'hi' }] },
+    { stream: false, ...options }
+  );
 
-    expect(capture.lastBody?.reasoning_effort).toBe('xhigh');
-  });
+  return capture.lastBody?.reasoning_effort;
+}
 
-  it('still maps "high" to "high" (no regression)', async () => {
-    const ai = new AxAIOpenAI({
-      apiKey: 'key',
-      config: { model: AxAIOpenAIModel.GPT55 },
-    });
-    const capture: { lastBody?: any } = {};
-    ai.setOptions({ fetch: captureFetch(capture) });
+function responsesReasoning(
+  model: AxAIOpenAIResponsesModel,
+  options: Record<string, unknown>,
+  config: Record<string, unknown> = {}
+) {
+  const impl = new AxAIOpenAIResponsesImpl({ model, ...config } as any, false);
 
-    await ai.chat(
-      {
-        model: AxAIOpenAIModel.GPT55,
-        chatPrompt: [{ role: 'user', content: 'hi' }],
-      },
-      { stream: false, thinkingTokenBudget: 'high' }
-    );
+  const [, req] = impl.createChatReq(
+    { model, chatPrompt: [{ role: 'user', content: 'hi' }] } as any,
+    options as any
+  );
 
-    expect(capture.lastBody?.reasoning_effort).toBe('high');
-  });
-});
+  return (req as AxAIOpenAIResponsesRequest<any>).reasoning;
+}
 
-describe('OpenAI Responses: thinkingTokenBudget=highest → reasoning.effort=xhigh', () => {
-  const baseConfig = { model: AxAIOpenAIResponsesModel.GPT55 } as any;
-
-  it('maps highest → xhigh through createChatReq', () => {
-    const impl = new AxAIOpenAIResponsesImpl(baseConfig, false);
-
-    const [, req] = impl.createChatReq(
-      {
-        model: AxAIOpenAIResponsesModel.GPT55,
-        chatPrompt: [{ role: 'user', content: 'hi' }],
-      } as any,
-      { thinkingTokenBudget: 'highest' } as any
-    );
-
-    expect((req as AxAIOpenAIResponsesRequest<any>).reasoning?.effort).toBe(
-      'xhigh'
-    );
-  });
-
-  it('still maps high → high (no regression)', () => {
-    const impl = new AxAIOpenAIResponsesImpl(baseConfig, false);
-
-    const [, req] = impl.createChatReq(
-      {
-        model: AxAIOpenAIResponsesModel.GPT55,
-        chatPrompt: [{ role: 'user', content: 'hi' }],
-      } as any,
-      { thinkingTokenBudget: 'high' } as any
-    );
-
-    expect((req as AxAIOpenAIResponsesRequest<any>).reasoning?.effort).toBe(
-      'high'
-    );
-  });
-});
-
-describe('OpenAI GPT-5.6 reasoning effort', () => {
+// GPT-5.6 serves none/low/medium/high/xhigh/max and retired 'minimal', so the
+// ladder maps straight through. Every other model keeps the historical
+// mapping, which is shifted and collapses medium/high onto one wire value.
+describe('OpenAI reasoning effort ladder', () => {
   const budgets = [
-    ['none', 'none'],
-    ['highest', 'max'],
+    { budget: 'none', legacy: undefined, gpt56: 'none' },
+    { budget: 'minimal', legacy: 'minimal', gpt56: 'low' },
+    { budget: 'low', legacy: 'medium', gpt56: 'low' },
+    { budget: 'medium', legacy: 'high', gpt56: 'medium' },
+    { budget: 'high', legacy: 'high', gpt56: 'high' },
+    { budget: 'highest', legacy: 'xhigh', gpt56: 'max' },
   ] as const;
 
-  it('maps Chat budgets', async () => {
-    const ai = new AxAIOpenAI({
-      apiKey: 'key',
-      config: { model: AxAIOpenAIModel.GPT56 },
-    });
-    const capture: { lastBody?: any } = {};
-    ai.setOptions({ fetch: captureFetch(capture) });
-
-    for (const [budget, effort] of budgets) {
-      await ai.chat(
-        {
-          model: AxAIOpenAIModel.GPT56,
-          chatPrompt: [{ role: 'user', content: 'hi' }],
-        },
-        { stream: false, thinkingTokenBudget: budget }
-      );
-      expect(capture.lastBody?.reasoning_effort).toBe(effort);
+  it.each(budgets)(
+    'Chat maps $budget to $legacy on gpt-5.5 and $gpt56 on gpt-5.6',
+    async ({ budget, legacy, gpt56 }) => {
+      await expect(
+        chatEffort(AxAIOpenAIModel.GPT55, { thinkingTokenBudget: budget })
+      ).resolves.toBe(legacy);
+      await expect(
+        chatEffort(AxAIOpenAIModel.GPT56, { thinkingTokenBudget: budget })
+      ).resolves.toBe(gpt56);
     }
+  );
+
+  it.each(budgets)(
+    'Responses maps $budget to $legacy on gpt-5.5 and $gpt56 on gpt-5.6',
+    ({ budget, legacy, gpt56 }) => {
+      expect(
+        responsesReasoning(AxAIOpenAIResponsesModel.GPT55, {
+          thinkingTokenBudget: budget,
+        })?.effort
+      ).toBe(legacy);
+      expect(
+        responsesReasoning(AxAIOpenAIResponsesModel.GPT56, {
+          thinkingTokenBudget: budget,
+        })?.effort
+      ).toBe(gpt56);
+    }
+  );
+
+  // The 5.6 branch keys off the model name, so the suffixed variants must land
+  // on the same ladder as the `gpt-5.6` alias.
+  it.each([
+    AxAIOpenAIModel.GPT56Sol,
+    AxAIOpenAIModel.GPT56Terra,
+    AxAIOpenAIModel.GPT56Luna,
+  ])('Chat applies the 5.6 ladder to %s', async (model) => {
+    await expect(
+      chatEffort(model, { thinkingTokenBudget: 'highest' })
+    ).resolves.toBe('max');
   });
 
-  it('maps Responses budgets', () => {
-    const impl = new AxAIOpenAIResponsesImpl(
-      { model: AxAIOpenAIResponsesModel.GPT56 } as any,
-      false
-    );
+  it.each([
+    AxAIOpenAIResponsesModel.GPT56Sol,
+    AxAIOpenAIResponsesModel.GPT56Terra,
+    AxAIOpenAIResponsesModel.GPT56Luna,
+  ])('Responses applies the 5.6 ladder to %s', (model) => {
+    expect(
+      responsesReasoning(model, { thinkingTokenBudget: 'highest' })?.effort
+    ).toBe('max');
+    expect(
+      responsesReasoning(model, {
+        thinkingTokenBudget: 'none',
+        showThoughts: true,
+      })
+    ).toEqual({ effort: 'none' });
+  });
+});
 
-    for (const [budget, effort] of budgets) {
-      const [, req] = impl.createChatReq(
-        {
-          model: AxAIOpenAIResponsesModel.GPT56,
-          chatPrompt: [{ role: 'user', content: 'hi' }],
-        } as any,
-        { thinkingTokenBudget: budget } as any
-      );
-      expect((req as AxAIOpenAIResponsesRequest<any>).reasoning?.effort).toBe(
-        effort
-      );
+// GPT-5.6 defaults an omitted effort to 'medium', so 'none' has to travel as an
+// explicit value rather than a dropped field.
+describe('OpenAI thinkingTokenBudget=none', () => {
+  it('sends an explicit none for gpt-5.6 and omits the field otherwise', async () => {
+    await expect(
+      chatEffort(AxAIOpenAIModel.GPT56, { thinkingTokenBudget: 'none' })
+    ).resolves.toBe('none');
+    await expect(
+      chatEffort(AxAIOpenAIModel.GPT55, { thinkingTokenBudget: 'none' })
+    ).resolves.toBeUndefined();
+  });
+
+  it('drops the reasoning summary when reasoning is disabled', () => {
+    expect(
+      responsesReasoning(AxAIOpenAIResponsesModel.GPT56, {
+        thinkingTokenBudget: 'none',
+        showThoughts: true,
+      })
+    ).toEqual({ effort: 'none' });
+  });
+
+  // Without a budget to override it the effort comes straight from config, so
+  // this pins the summary down where the request object is first built.
+  it('drops the summary for a configured none effort', () => {
+    expect(
+      responsesReasoning(
+        AxAIOpenAIResponsesModel.GPT56,
+        { showThoughts: true },
+        { reasoningEffort: 'none' }
+      )
+    ).toEqual({ effort: 'none' });
+  });
+
+  it('still requests a summary when reasoning is enabled', () => {
+    expect(
+      responsesReasoning(AxAIOpenAIResponsesModel.GPT56, {
+        thinkingTokenBudget: 'high',
+        showThoughts: true,
+      })
+    ).toEqual({ effort: 'high', summary: 'auto' });
+  });
+
+  it('drops the reasoning object entirely for non-5.6 models', () => {
+    expect(
+      responsesReasoning(AxAIOpenAIResponsesModel.GPT55, {
+        thinkingTokenBudget: 'none',
+        showThoughts: true,
+      })
+    ).toBeUndefined();
+  });
+});
+
+// `reasoningEffort` is the provider-native escape hatch and is forwarded
+// verbatim — including the rungs the budget ladder cannot reach.
+describe('OpenAI explicit reasoningEffort', () => {
+  it.each(['xhigh', 'max'] as const)(
+    'forwards %s unchanged on gpt-5.6',
+    async (effort) => {
+      await expect(
+        chatEffort(AxAIOpenAIModel.GPT56, {}, { reasoningEffort: effort })
+      ).resolves.toBe(effort);
+      expect(
+        responsesReasoning(
+          AxAIOpenAIResponsesModel.GPT56,
+          {},
+          { reasoningEffort: effort }
+        )?.effort
+      ).toBe(effort);
     }
+  );
+
+  it('is overridden by an explicit thinkingTokenBudget', async () => {
+    await expect(
+      chatEffort(
+        AxAIOpenAIModel.GPT56,
+        { thinkingTokenBudget: 'low' },
+        { reasoningEffort: 'max' }
+      )
+    ).resolves.toBe('low');
   });
 });
 
@@ -181,6 +242,52 @@ describe('OpenAI model catalog: new 2026 entries are registered', () => {
     );
     expect(gpt55?.supported?.thinkingBudget).toBe(true);
     expect(gpt55Pro?.isExpensive).toBe(true);
+  });
+
+  // Rates as published by OpenAI; the long-context tier bills the whole
+  // request at 2x input / 1.5x output above the 272K threshold.
+  it.each([
+    {
+      name: AxAIOpenAIModel.GPT56Sol,
+      rates: [5, 30, 0.5],
+      longRates: [10, 45, 1],
+    },
+    {
+      name: AxAIOpenAIModel.GPT56Terra,
+      rates: [2, 12, 0.2],
+      longRates: [4, 18, 0.4],
+    },
+    {
+      name: AxAIOpenAIModel.GPT56Luna,
+      rates: [0.2, 1.2, 0.02],
+      longRates: [0.4, 1.8, 0.04],
+    },
+  ])('has $name in both catalogs with published rates', (expected) => {
+    for (const catalog of [axModelInfoOpenAI, axModelInfoOpenAIResponses]) {
+      const entry = catalog.find((m) => m.name === expected.name);
+      expect(entry).toBeDefined();
+      expect([
+        entry?.promptTokenCostPer1M,
+        entry?.completionTokenCostPer1M,
+        entry?.cacheReadTokenCostPer1M,
+      ]).toEqual(expected.rates);
+      expect([
+        entry?.longContextPromptTokenCostPer1M,
+        entry?.longContextCompletionTokenCostPer1M,
+        entry?.longContextCacheReadTokenCostPer1M,
+      ]).toEqual(expected.longRates);
+      expect(entry?.longContextThreshold).toBe(272_000);
+      expect(entry?.contextWindow).toBe(1_050_000);
+      expect(entry?.maxTokens).toBe(128_000);
+      expect(entry?.supported?.thinkingBudget).toBe(true);
+    }
+  });
+
+  it('routes the gpt-5.6 alias to the sol entry in both catalogs', () => {
+    for (const catalog of [axModelInfoOpenAI, axModelInfoOpenAIResponses]) {
+      const entry = catalog.find((m) => m.name === AxAIOpenAIModel.GPT56Sol);
+      expect(entry?.aliases).toContain(AxAIOpenAIModel.GPT56);
+    }
   });
 
   it('has new audio/realtime models in chat catalog', () => {
