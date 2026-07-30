@@ -90,6 +90,7 @@ describe('AxMCPEventSource over real localhost Streamable HTTP/SSE', () => {
         'start_reindex',
         'mrtr_one_round',
         'mrtr_two_round',
+        'mrtr_roots_round',
       ]);
       await expect(
         client.callTool('start_reindex', { scope: 'inventory' })
