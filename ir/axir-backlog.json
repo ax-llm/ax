@@ -737,7 +737,7 @@
     },
     {
       "id": "axir-2026-07-29-port-modern-mcp-subscriptions-listen",
-      "status": "open",
+      "status": "done",
       "title": "Port modern MCP subscriptions listen",
       "createdAt": "2026-07-29",
       "sourcePR": null,
@@ -750,9 +750,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-30",
+      "completedByCommit": "c6253f57",
+      "verification": "npm run test:axir; legacy and modern MCP event harness across Python, Java, C++, Go, and Rust; mcp_modern_roundtrip examples"
     },
     {
       "id": "axir-2026-07-29-port-roots-first-mcp-multi-round-trip-requests",

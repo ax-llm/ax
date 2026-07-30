@@ -30,12 +30,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/mcp`
   - Impact: TypeScript gains a dual-era MCP client for the stateless 2026-07-28 protocol while generated Python, Java, C++, Go, and Rust clients remain on the 2025-11-25 lifecycle.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-07-29-port-modern-mcp-subscriptions-listen` [axmcp] Port modern MCP subscriptions listen
-  - Status: open
-  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
-  - TS paths: `src/ax/mcp/client.ts`
-  - Impact: Generated Python, Java, C++, Go, and Rust event adapters still use legacy resources/subscribe plus GET/SSE and Last-Event-ID; they do not issue or restart subscriptions/listen POST streams with modern interests.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -317,6 +311,15 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-30
   - Completed by: `e43afb35854c370a637f13acf416668f263c7efb`
   - Verification: `Five-port discover-modern conformance covers required _meta, bounded -32022 version retry, Mcp-Param headers, and one-shot -32020 catalog refresh; npm run test:axir`
+- `axir-2026-07-29-port-modern-mcp-subscriptions-listen` [axmcp] Port modern MCP subscriptions listen
+  - Status: done
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/client.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust event adapters still use legacy resources/subscribe plus GET/SSE and Last-Event-ID; they do not issue or restart subscriptions/listen POST streams with modern interests.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-30
+  - Completed by: `c6253f57`
+  - Verification: `npm run test:axir; legacy and modern MCP event harness across Python, Java, C++, Go, and Rust; mcp_modern_roundtrip examples`
 - `axir-2026-07-29-port-roots-first-mcp-multi-round-trip-requests` [axmcp] Port roots-first MCP multi round-trip requests
   - Status: done
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
