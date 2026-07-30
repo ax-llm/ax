@@ -70,7 +70,6 @@ import {
   type AxMCPSamplingCreateMessageResult,
   type AxMCPServerCapabilities,
   type AxMCPSubscriptionFilter,
-  type AxMCPSubscriptionsAcknowledgedParams,
   type AxMCPSubscriptionsListenParams,
   type AxMCPTask,
   type AxMCPTaskMetadata,
@@ -2031,12 +2030,12 @@ export class AxMCPClient {
     await this.options.onNotification?.(current);
     switch (current.method) {
       case 'notifications/subscriptions/acknowledged': {
-        const params = current.params as
-          | AxMCPSubscriptionsAcknowledgedParams
-          | undefined;
+        const notifications = current.params?.notifications;
         if (
           normalized.subscriptionId === this.activeSubscriptionId &&
-          params?.notifications
+          notifications !== null &&
+          typeof notifications === 'object' &&
+          !Array.isArray(notifications)
         ) {
           this.modernListenReadyResolve?.();
         }
