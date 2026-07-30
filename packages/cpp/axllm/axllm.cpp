@@ -23407,6 +23407,150 @@ Value Core::mcp_task_terminal_outcome(Value task) {
   return out;
 }
 
+Value Core::mcp_mrtr_plan_round(Value result, Value era, Value method, Value round, Value max_rounds) {
+  axir_coverage_mark("mcp_mrtr_plan_round");
+  Value out = Value::object();
+  Value result_type = Core::get(result, Value("resultType"), Value(""));
+  Value input_required = Core::eq(result_type, Value("input_required"));
+  if (Core::truthy(input_required)) {
+    // empty
+  }
+  if (!Core::truthy(input_required)) {
+    Core::set(out, Value("action"), Value("complete"));
+    return out;
+  }
+  Value modern = Core::eq(era, Value("modern"));
+  if (Core::truthy(modern)) {
+    // empty
+  }
+  if (!Core::truthy(modern)) {
+    Core::set(out, Value("action"), Value("violation"));
+    Value message = Core::string_format(Value("MCP protocol violation: legacy server returned input_required for {}"), method);
+    Core::set(out, Value("message"), message);
+    return out;
+  }
+  Value limit_missing = Core::is_none(max_rounds);
+  if (Core::truthy(limit_missing)) {
+    Value at_default_limit = Core::gte(round, Value(5));
+    if (Core::truthy(at_default_limit)) {
+      Core::set(out, Value("action"), Value("violation"));
+      Value message = Core::string_format(Value("MCP {} exceeded {} input rounds"), method, Value(5));
+      Core::set(out, Value("message"), message);
+      return out;
+    }
+  }
+  if (!Core::truthy(limit_missing)) {
+    Value at_configured_limit = Core::gte(round, max_rounds);
+    if (Core::truthy(at_configured_limit)) {
+      Core::set(out, Value("action"), Value("violation"));
+      Value message = Core::string_format(Value("MCP {} exceeded {} input rounds"), method, max_rounds);
+      Core::set(out, Value("message"), message);
+      return out;
+    }
+  }
+  Value has_requests = Core::map_contains(result, Value("inputRequests"));
+  Value has_state = Core::map_contains(result, Value("requestState"));
+  Value has_either = Core::or_(has_requests, has_state);
+  if (Core::truthy(has_either)) {
+    // empty
+  }
+  if (!Core::truthy(has_either)) {
+    Core::set(out, Value("action"), Value("violation"));
+    Value message = Core::string_format(Value("MCP protocol violation: input_required result for {} omitted both inputRequests and requestState"), method);
+    Core::set(out, Value("message"), message);
+    return out;
+  }
+  if (Core::truthy(has_state)) {
+    Value state = Core::get(result, Value("requestState"), Value());
+    Value state_string = Core::type_is(state, Value("string"));
+    if (Core::truthy(state_string)) {
+      // empty
+    }
+    if (!Core::truthy(state_string)) {
+      Core::set(out, Value("action"), Value("violation"));
+      Value message = Core::string_format(Value("MCP protocol violation: input_required requestState for {} must be a string"), method);
+      Core::set(out, Value("message"), message);
+      return out;
+    }
+    Core::set(out, Value("requestState"), state);
+  }
+  Core::set(out, Value("action"), Value("continue"));
+  Core::set(out, Value("hasInputRequests"), has_requests);
+  Core::set(out, Value("hasRequestState"), has_state);
+  if (Core::truthy(has_requests)) {
+    Value requests = Core::get(result, Value("inputRequests"), Value());
+    Core::set(out, Value("inputRequests"), requests);
+  }
+  return out;
+}
+
+Value Core::mcp_mrtr_fulfill_roots(Value input_requests, Value roots) {
+  axir_coverage_mark("mcp_mrtr_fulfill_roots");
+  Value out = Value::object();
+  Value responses = Value::object();
+  Value keys = Core::map_keys(input_requests);
+  for (auto key : Core::iter(keys)) {
+    Value request = Core::get(input_requests, key, Value());
+    Value method = Core::get(request, Value("method"), Value(""));
+    Value is_roots = Core::eq(method, Value("roots/list"));
+    if (Core::truthy(is_roots)) {
+      Value roots_missing = Core::is_none(roots);
+      if (Core::truthy(roots_missing)) {
+        Core::set(out, Value("ok"), Value(false));
+        Core::set(out, Value("message"), Value("MCP protocol violation: server requested roots/list without a matching client handler"));
+        return out;
+      }
+      Value roots_text = Core::json_stringify(roots);
+      Value roots_copy = Core::json_parse(roots_text);
+      Value response = Value::object();
+      Core::set(response, Value("roots"), roots_copy);
+      Core::set(responses, key, response);
+    }
+    if (!Core::truthy(is_roots)) {
+      Value is_sampling = Core::eq(method, Value("sampling/createMessage"));
+      if (Core::truthy(is_sampling)) {
+        Core::set(out, Value("ok"), Value(false));
+        Core::set(out, Value("message"), Value("MCP protocol violation: server requested sampling/createMessage without a matching client handler"));
+        return out;
+      }
+      Value is_elicitation = Core::eq(method, Value("elicitation/create"));
+      if (Core::truthy(is_elicitation)) {
+        Core::set(out, Value("ok"), Value(false));
+        Core::set(out, Value("message"), Value("MCP protocol violation: server requested elicitation/create without a matching client handler"));
+        return out;
+      }
+      Core::set(out, Value("ok"), Value(false));
+      Value message = Core::string_format(Value("MCP protocol violation: unsupported MRTR input request method {}"), method);
+      Core::set(out, Value("message"), message);
+      return out;
+    }
+  }
+  Core::set(out, Value("ok"), Value(true));
+  Core::set(out, Value("responses"), responses);
+  return out;
+}
+
+Value Core::mcp_mrtr_next_params(Value base_params, Value input_responses, Value request_state) {
+  axir_coverage_mark("mcp_mrtr_next_params");
+  Value base_text = Core::json_stringify(base_params);
+  Value out = Core::json_parse(base_text);
+  Value responses_missing = Core::is_none(input_responses);
+  if (Core::truthy(responses_missing)) {
+    // empty
+  }
+  if (!Core::truthy(responses_missing)) {
+    Core::set(out, Value("inputResponses"), input_responses);
+  }
+  Value state_missing = Core::is_none(request_state);
+  if (Core::truthy(state_missing)) {
+    // empty
+  }
+  if (!Core::truthy(state_missing)) {
+    Core::set(out, Value("requestState"), request_state);
+  }
+  return out;
+}
+
 Value Core::mcp_jsonrpc_request(Value id, Value method, Value params) {
   axir_coverage_mark("mcp_jsonrpc_request");
   Value out = Value::object();

@@ -143,6 +143,7 @@ class AxMCPClient {
   void apply_discovery(Value result);
   void negotiate_extensions();
   Value client_capabilities() const;
+  Value request_with_input_rounds(const std::string& method, Value base_params, Value headers);
   Value request_with_headers(const std::string& method, Value params, Value headers, bool allow_version_retry);
   Value tool_headers(const std::string& name, Value arguments) const;
   std::vector<Value> collect_catalog(const std::string& method,const std::string& field);

@@ -571,7 +571,7 @@ impl AxMCPClient {
         };
         let params = json!({"name":name,"arguments":args});
         let headers = self.tool_headers(name, &args)?;
-        let result = match self.request_with_headers("tools/call", params.clone(), headers, true) {
+        let result = match self.request_with_input_rounds("tools/call", params.clone(), headers) {
             Ok(value) => value,
             Err(error)
                 if self.era.as_deref() == Some("modern")
@@ -591,11 +591,10 @@ impl AxMCPClient {
                         .is_ok()
                     })
                     .collect();
-                self.request_with_headers(
+                self.request_with_input_rounds(
                     "tools/call",
                     params,
                     self.tool_headers(name, &args)?,
-                    true,
                 )?
             }
             Err(error) => return Err(error),
@@ -696,7 +695,7 @@ impl AxMCPClient {
         self.request("prompts/list", cursor_params(cursor))
     }
     pub fn get_prompt(&mut self, name: &str, arguments: Value) -> AxResult<Value> {
-        self.request("prompts/get", json!({"name": name, "arguments": if arguments.is_null() { json!({}) } else { arguments }}))
+        self.request_with_input_rounds("prompts/get", json!({"name": name, "arguments": if arguments.is_null() { json!({}) } else { arguments }}),Map::new())
     }
     pub fn list_resources(&mut self, cursor: Option<&str>) -> AxResult<Value> {
         self.request("resources/list", cursor_params(cursor))
@@ -721,7 +720,8 @@ impl AxMCPClient {
             }
             self.resource_read_cache.remove(uri);
         }
-        let result = self.request("resources/read", json!({"uri":uri}))?;
+        let result =
+            self.request_with_input_rounds("resources/read", json!({"uri":uri}), Map::new())?;
         if enabled {
             let cache = core_mcp(
                 &crate::mcp_fold_cache_info,
@@ -1098,6 +1098,82 @@ impl AxMCPClient {
 
     pub fn request(&self, method: &str, params: Value) -> AxResult<Value> {
         self.request_with_headers(method, params, Map::new(), true)
+    }
+
+    fn request_with_input_rounds(
+        &self,
+        method: &str,
+        base_params: Value,
+        headers: Map<String, Value>,
+    ) -> AxResult<Value> {
+        let mut params = base_params.clone();
+        let max_rounds = self
+            .options
+            .get("maxInputRounds")
+            .cloned()
+            .unwrap_or(Value::Null);
+        for round in 0usize.. {
+            let result = self.request_with_headers(method, params, headers.clone(), true)?;
+            let plan = core_mcp(
+                &crate::mcp_mrtr_plan_round,
+                &[
+                    result.clone(),
+                    json!(self.era.as_deref().unwrap_or("legacy")),
+                    json!(method),
+                    json!(round),
+                    max_rounds.clone(),
+                ],
+            )?;
+            match plan
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+            {
+                "complete" => return Ok(result),
+                "violation" => {
+                    return Err(AxError::new(
+                        "mcp",
+                        plan.get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("MCP protocol violation"),
+                    ))
+                }
+                _ => {}
+            }
+            let mut input_responses = Value::Null;
+            if plan.get("hasInputRequests").and_then(Value::as_bool) == Some(true) {
+                if let Some(requests) = plan.get("inputRequests").filter(|value| value.is_object())
+                {
+                    let roots = self.options.get("roots").cloned().unwrap_or(Value::Null);
+                    let fulfillment =
+                        core_mcp(&crate::mcp_mrtr_fulfill_roots, &[requests.clone(), roots])?;
+                    if fulfillment.get("ok").and_then(Value::as_bool) != Some(true) {
+                        return Err(AxError::new(
+                            "mcp",
+                            fulfillment
+                                .get("message")
+                                .and_then(Value::as_str)
+                                .unwrap_or("MCP protocol violation"),
+                        ));
+                    }
+                    input_responses = fulfillment
+                        .get("responses")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                }
+            }
+            let request_state =
+                if plan.get("hasRequestState").and_then(Value::as_bool) == Some(true) {
+                    plan.get("requestState").cloned().unwrap_or(Value::Null)
+                } else {
+                    Value::Null
+                };
+            params = core_mcp(
+                &crate::mcp_mrtr_next_params,
+                &[base_params.clone(), input_responses, request_state],
+            )?;
+        }
+        unreachable!()
     }
 
     fn request_with_headers(
@@ -4623,6 +4699,74 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
             }
             Ok(())
         }
+        "mrtr_violations" => {
+            for case in fixture
+                .get("plan_cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = core_mcp(
+                    &crate::mcp_mrtr_plan_round,
+                    &[
+                        case.get("result").cloned().unwrap_or_else(|| json!({})),
+                        case.get("era").cloned().unwrap_or_else(|| json!("legacy")),
+                        case.get("method")
+                            .cloned()
+                            .unwrap_or_else(|| json!("tools/call")),
+                        case.get("round").cloned().unwrap_or_else(|| json!(0)),
+                        case.get("max_rounds").cloned().unwrap_or(Value::Null),
+                    ],
+                )?;
+                expect_subset(
+                    "MRTR round plan",
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            for case in fixture
+                .get("fulfill_cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = core_mcp(
+                    &crate::mcp_mrtr_fulfill_roots,
+                    &[
+                        case.get("input_requests")
+                            .cloned()
+                            .unwrap_or_else(|| json!({})),
+                        case.get("roots").cloned().unwrap_or(Value::Null),
+                    ],
+                )?;
+                expect_subset(
+                    "MRTR roots fulfillment",
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            for case in fixture
+                .get("next_params_cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = core_mcp(
+                    &crate::mcp_mrtr_next_params,
+                    &[
+                        case.get("base_params")
+                            .cloned()
+                            .unwrap_or_else(|| json!({})),
+                        case.get("input_responses").cloned().unwrap_or(Value::Null),
+                        case.get("request_state").cloned().unwrap_or(Value::Null),
+                    ],
+                )?;
+                if &actual != case.get("expected").unwrap_or(&Value::Null) {
+                    return Err(AxError::new("fixture", "MRTR next params mismatch"));
+                }
+            }
+            Ok(())
+        }
         "http_session_headers" => {
             let mut transport = AxMCPStreamableHTTPTransport::new(
                 fixture
@@ -5062,6 +5206,111 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                     );
                     if &methods != fixture.get("expected_methods").unwrap_or(&Value::Null) {
                         return Err(AxError::new("fixture", "task request methods mismatch"));
+                    }
+                    Ok(())
+                }
+                "mrtr_roots" => {
+                    let result = client.call_tool("work", json!({"value":1}))?;
+                    expect_subset(
+                        "MRTR tool result",
+                        &result,
+                        fixture.get("expected_call_result").unwrap_or(&Value::Null),
+                    )?;
+                    let prompt = client.get_prompt("ask", json!({}))?;
+                    expect_subset(
+                        "MRTR prompt result",
+                        &prompt,
+                        fixture
+                            .get("expected_prompt_result")
+                            .unwrap_or(&Value::Null),
+                    )?;
+                    let resource = client.read_resource("file:///resource")?;
+                    expect_subset(
+                        "MRTR resource result",
+                        &resource,
+                        fixture
+                            .get("expected_resource_result")
+                            .unwrap_or(&Value::Null),
+                    )?;
+                    let requests = client.transport.lock().unwrap().sent_requests();
+                    let methods = Value::Array(
+                        requests
+                            .iter()
+                            .map(|request| request.get("method").cloned().unwrap_or(Value::Null))
+                            .collect(),
+                    );
+                    if &methods != fixture.get("expected_methods").unwrap_or(&Value::Null) {
+                        return Err(AxError::new("fixture", "MRTR request methods mismatch"));
+                    }
+                    let tool_calls = requests
+                        .iter()
+                        .filter(|request| {
+                            request.get("method").and_then(Value::as_str) == Some("tools/call")
+                        })
+                        .collect::<Vec<_>>();
+                    let mut ids = tool_calls
+                        .iter()
+                        .map(|request| {
+                            request
+                                .get("id")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string()
+                        })
+                        .collect::<Vec<_>>();
+                    let id_count = ids.len();
+                    ids.sort();
+                    ids.dedup();
+                    if ids.len() != id_count {
+                        return Err(AxError::new("fixture", "MRTR rounds reused a request id"));
+                    }
+                    for (index, expected) in fixture
+                        .get("expected_tool_call_params")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                        .iter()
+                        .enumerate()
+                    {
+                        let params = tool_calls[index].get("params").unwrap_or(&Value::Null);
+                        expect_subset("MRTR tool params", params, expected)?;
+                        if expected.get("inputResponses").is_none() {
+                            if params.get("inputResponses").is_some()
+                                || params.get("requestState").is_some()
+                            {
+                                return Err(AxError::new(
+                                    "fixture",
+                                    "initial MRTR request included round state",
+                                ));
+                            }
+                        } else {
+                            let actual = params
+                                .get("inputResponses")
+                                .and_then(Value::as_object)
+                                .cloned()
+                                .unwrap_or_default();
+                            let wanted = expected
+                                .get("inputResponses")
+                                .and_then(Value::as_object)
+                                .cloned()
+                                .unwrap_or_default();
+                            if actual.len() != wanted.len()
+                                || wanted.keys().any(|key| !actual.contains_key(key))
+                            {
+                                return Err(AxError::new(
+                                    "fixture",
+                                    "MRTR request retained stale input responses",
+                                ));
+                            }
+                        }
+                        if expected.get("requestState").is_none()
+                            && params.get("requestState").is_some()
+                        {
+                            return Err(AxError::new(
+                                "fixture",
+                                "MRTR request retained stale requestState",
+                            ));
+                        }
                     }
                     Ok(())
                 }

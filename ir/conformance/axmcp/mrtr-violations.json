@@ -1,0 +1,153 @@
+{
+  "name": "modern MCP MRTR planning and roots-only violations",
+  "kind": "mcp",
+  "operation": "mrtr_violations",
+  "plan_cases": [
+    {
+      "result": { "resultType": "complete" },
+      "era": "modern",
+      "method": "tools/call",
+      "round": 0,
+      "max_rounds": null,
+      "expected": { "action": "complete" }
+    },
+    {
+      "result": { "resultType": "input_required", "requestState": "again" },
+      "era": "legacy",
+      "method": "tools/call",
+      "round": 0,
+      "max_rounds": 5,
+      "expected": {
+        "action": "violation",
+        "message": "MCP protocol violation: legacy server returned input_required for tools/call"
+      }
+    },
+    {
+      "result": { "resultType": "input_required", "requestState": "again" },
+      "era": "modern",
+      "method": "tools/call",
+      "round": 1,
+      "max_rounds": 1,
+      "expected": {
+        "action": "violation",
+        "message": "MCP tools/call exceeded 1 input rounds"
+      }
+    },
+    {
+      "result": { "resultType": "input_required" },
+      "era": "modern",
+      "method": "prompts/get",
+      "round": 0,
+      "max_rounds": 5,
+      "expected": {
+        "action": "violation",
+        "message": "MCP protocol violation: input_required result for prompts/get omitted both inputRequests and requestState"
+      }
+    },
+    {
+      "result": { "resultType": "input_required", "requestState": 7 },
+      "era": "modern",
+      "method": "resources/read",
+      "round": 0,
+      "max_rounds": 5,
+      "expected": {
+        "action": "violation",
+        "message": "MCP protocol violation: input_required requestState for resources/read must be a string"
+      }
+    },
+    {
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": {},
+        "requestState": ""
+      },
+      "era": "modern",
+      "method": "tools/call",
+      "round": 0,
+      "max_rounds": null,
+      "expected": {
+        "action": "continue",
+        "hasInputRequests": true,
+        "hasRequestState": true,
+        "inputRequests": {},
+        "requestState": ""
+      }
+    }
+  ],
+  "fulfill_cases": [
+    {
+      "input_requests": { "workspace": { "method": "roots/list" } },
+      "roots": [{ "uri": "file:///workspace", "_meta": { "nested": true } }],
+      "expected": {
+        "ok": true,
+        "responses": {
+          "workspace": {
+            "roots": [
+              { "uri": "file:///workspace", "_meta": { "nested": true } }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "input_requests": { "workspace": { "method": "roots/list" } },
+      "roots": null,
+      "expected": {
+        "ok": false,
+        "message": "MCP protocol violation: server requested roots/list without a matching client handler"
+      }
+    },
+    {
+      "input_requests": {
+        "sample": { "method": "sampling/createMessage", "params": {} }
+      },
+      "roots": [],
+      "expected": {
+        "ok": false,
+        "message": "MCP protocol violation: server requested sampling/createMessage without a matching client handler"
+      }
+    },
+    {
+      "input_requests": {
+        "answer": { "method": "elicitation/create", "params": {} }
+      },
+      "roots": [],
+      "expected": {
+        "ok": false,
+        "message": "MCP protocol violation: server requested elicitation/create without a matching client handler"
+      }
+    },
+    {
+      "input_requests": { "future": { "method": "future/request" } },
+      "roots": [],
+      "expected": {
+        "ok": false,
+        "message": "MCP protocol violation: unsupported MRTR input request method future/request"
+      }
+    }
+  ],
+  "next_params_cases": [
+    {
+      "base_params": {
+        "name": "work",
+        "arguments": { "value": 1 },
+        "inputResponses": { "stale": true },
+        "requestState": "stale"
+      },
+      "input_responses": { "fresh": { "roots": [] } },
+      "request_state": "\u0000opaque-state-🔥",
+      "expected": {
+        "name": "work",
+        "arguments": { "value": 1 },
+        "inputResponses": { "fresh": { "roots": [] } },
+        "requestState": "\u0000opaque-state-🔥"
+      }
+    },
+    {
+      "base_params": { "uri": "file:///resource" },
+      "input_responses": null,
+      "request_state": null,
+      "expected": { "uri": "file:///resource" }
+    }
+  ]
+}

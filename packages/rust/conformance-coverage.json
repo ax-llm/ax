@@ -390,6 +390,20 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "mrtr_roots",
+        "runner": "rust:axmcp.mrtr_roots",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "mrtr_violations",
+        "runner": "rust:axmcp.mrtr_violations",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "ping",
         "runner": "rust:axmcp.ping",
         "category": "transport-boundary"

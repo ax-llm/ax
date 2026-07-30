@@ -1142,7 +1142,7 @@ class AxMCPClient:
                 bindings = mcp_param_header_bindings(tool.get("inputSchema") or {})
                 headers = {str(key): str(value) for key, value in mcp_param_header_values(bindings, args).items()}
         try:
-            result = self._request("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
+            result = self._request_with_input_rounds("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
         except AxMCPError as error:
             if self.era != "modern" or error.code != -32020:
                 raise
@@ -1157,7 +1157,7 @@ class AxMCPClient:
             tool = next((item for item in self.tools if item.get("name") == name), None)
             bindings = mcp_param_header_bindings((tool or {}).get("inputSchema") or {})
             headers = {str(key): str(value) for key, value in mcp_param_header_values(bindings, args).items()}
-            result = self._request("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
+            result = self._request_with_input_rounds("tools/call", {"name": name, "arguments": args}, extra_headers=headers)
         if result.get("resultType") != "task":
             return result
         if not self._has_tasks_capability():
@@ -1184,7 +1184,7 @@ class AxMCPClient:
         return self._request("prompts/list", {"cursor": cursor} if cursor else {})
 
     def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self._request("prompts/get", {"name": name, "arguments": arguments or {}})
+        return self._request_with_input_rounds("prompts/get", {"name": name, "arguments": arguments or {}})
 
     def list_resources(self, cursor: str | None = None) -> dict[str, Any]:
         return self._request("resources/list", {"cursor": cursor} if cursor else {})
@@ -1195,7 +1195,7 @@ class AxMCPClient:
             if cached and mcp_cache_freshness(cached.get("cache"), int(time.time() * 1000)):
                 return json.loads(json.dumps(cached["result"]))
             self._resource_read_cache.pop(uri, None)
-        result = self._request("resources/read", {"uri": uri})
+        result = self._request_with_input_rounds("resources/read", {"uri": uri})
         if self.era == "modern" and self.options.get("readCache"):
             cache = mcp_fold_cache_info([result], int(time.time() * 1000))
             if mcp_cache_freshness(cache, int(time.time() * 1000)):
@@ -1337,6 +1337,30 @@ class AxMCPClient:
 
     def namespace(self) -> str:
         return str(self.options.get("namespace") or (self.server_info or {}).get("name") or "mcp")
+
+    def _request_with_input_rounds(self, method: str, base_params: dict[str, Any], *, extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
+        params = json.loads(json.dumps(base_params))
+        max_rounds = self.options.get("maxInputRounds")
+        round_index = 0
+        while True:
+            result = self._request(method, params, extra_headers=extra_headers)
+            plan = mcp_mrtr_plan_round(result, self.era or "legacy", method, round_index, max_rounds)
+            action = plan.get("action")
+            if action == "complete":
+                return result
+            if action == "violation":
+                raise AxMCPError(str(plan.get("message", "MCP protocol violation")))
+            input_responses = None
+            requests = plan.get("inputRequests")
+            if plan.get("hasInputRequests") and isinstance(requests, dict):
+                roots = self.options.get("roots") if "roots" in self.options else None
+                fulfillment = mcp_mrtr_fulfill_roots(requests, roots)
+                if not fulfillment.get("ok"):
+                    raise AxMCPError(str(fulfillment.get("message", "MCP protocol violation")))
+                input_responses = fulfillment.get("responses")
+            request_state = plan.get("requestState") if plan.get("hasRequestState") else None
+            params = mcp_mrtr_next_params(base_params, input_responses, request_state)
+            round_index += 1
 
     def _request(self, method: str, params: dict[str, Any] | None = None, *, extra_headers: dict[str, str] | None = None, allow_version_retry: bool = True) -> dict[str, Any]:
         request_id = str(self._next_id)
@@ -2230,6 +2254,18 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
                 else:
                     raise AssertionError("expected Tasks v2 protocol violation")
             return
+        if operation == "mrtr_violations":
+            for case in fixture.get("plan_cases") or []:
+                actual = mcp_mrtr_plan_round(case.get("result") or {}, case.get("era", "legacy"), case.get("method", "tools/call"), case.get("round", 0), case.get("max_rounds"))
+                _assert_subset(actual, case.get("expected") or {}, "MRTR round plan")
+            for case in fixture.get("fulfill_cases") or []:
+                actual = mcp_mrtr_fulfill_roots(case.get("input_requests") or {}, case.get("roots"))
+                _assert_subset(actual, case.get("expected") or {}, "MRTR roots fulfillment")
+            for case in fixture.get("next_params_cases") or []:
+                actual = mcp_mrtr_next_params(case.get("base_params") or {}, case.get("input_responses"), case.get("request_state"))
+                if actual != (case.get("expected") or {}):
+                    raise AssertionError(f"MRTR next params mismatch: {actual!r}")
+            return
         if operation == "http_session_headers":
             transport = AxMCPStreamableHTTPTransport(fixture.get("endpoint", "https://example.com/mcp"), fixture.get("transport_options") or {})
             transport.session_id = fixture.get("session_id", "session-1")
@@ -2355,6 +2391,29 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             methods = [request.get("method") for request in transport.requests]
             if methods != (fixture.get("expected_methods") or []):
                 raise AssertionError(f"task request methods mismatch: {methods!r}")
+            return
+        if operation == "mrtr_roots":
+            result = client.call_tool("work", {"value": 1})
+            _assert_subset(result, fixture.get("expected_call_result") or {}, "MRTR tool result")
+            _assert_subset(client.get_prompt("ask", {}), fixture.get("expected_prompt_result") or {}, "MRTR prompt result")
+            _assert_subset(client.read_resource("file:///resource"), fixture.get("expected_resource_result") or {}, "MRTR resource result")
+            methods = [request.get("method") for request in transport.requests]
+            if methods != (fixture.get("expected_methods") or []):
+                raise AssertionError(f"MRTR request methods mismatch: {methods!r}")
+            tool_calls = [request for request in transport.requests if request.get("method") == "tools/call"]
+            if len({request.get("id") for request in tool_calls}) != len(tool_calls):
+                raise AssertionError("MRTR rounds reused a request id")
+            for index, expected in enumerate(fixture.get("expected_tool_call_params") or []):
+                params = tool_calls[index].get("params") or {}
+                _assert_subset(params, expected, f"MRTR tool params {index}")
+                expected_responses = expected.get("inputResponses")
+                if expected_responses is None:
+                    if "inputResponses" in params or "requestState" in params:
+                        raise AssertionError("initial MRTR request included round state")
+                elif set((params.get("inputResponses") or {}).keys()) != set(expected_responses.keys()):
+                    raise AssertionError("MRTR request retained stale input responses")
+                if "requestState" not in expected and "requestState" in params:
+                    raise AssertionError("MRTR request retained stale requestState")
             return
         if operation == "initialize":
             _assert_requests(transport.requests, fixture)

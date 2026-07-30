@@ -891,6 +891,159 @@ module @ax.mcp version "0.1" {
     }
   }
 
+  op ax.mcp.semantic @mcp_mrtr_plan_round {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-mrtr-roots"
+    type signature = "(result:json, era:string, method:string, round:number, max_rounds?:number) -> json"
+    body @entry(%result: json, %era: string, %method: string, %round: number, %max_rounds: number) {
+      %out = core.map
+      %result_type = core.get %result["resultType"] default ""
+      %input_required = core.call intrinsic.eq(%result_type, "input_required")
+      core.if %input_required {
+      } else {
+        core.set %out["action"] = "complete"
+        core.return %out
+      }
+
+      %modern = core.call intrinsic.eq(%era, "modern")
+      core.if %modern {
+      } else {
+        core.set %out["action"] = "violation"
+        %message = core.call intrinsic.string.format("MCP protocol violation: legacy server returned input_required for {}", %method)
+        core.set %out["message"] = %message
+        core.return %out
+      }
+
+      %limit_missing = core.call intrinsic.is_none(%max_rounds)
+      core.if %limit_missing {
+        %at_default_limit = core.call intrinsic.gte(%round, 5)
+        core.if %at_default_limit {
+          core.set %out["action"] = "violation"
+          %message = core.call intrinsic.string.format("MCP {} exceeded {} input rounds", %method, 5)
+          core.set %out["message"] = %message
+          core.return %out
+        }
+      } else {
+        %at_configured_limit = core.call intrinsic.gte(%round, %max_rounds)
+        core.if %at_configured_limit {
+          core.set %out["action"] = "violation"
+          %message = core.call intrinsic.string.format("MCP {} exceeded {} input rounds", %method, %max_rounds)
+          core.set %out["message"] = %message
+          core.return %out
+        }
+      }
+
+      %has_requests = core.call intrinsic.map.contains(%result, "inputRequests")
+      %has_state = core.call intrinsic.map.contains(%result, "requestState")
+      %has_either = core.call intrinsic.or(%has_requests, %has_state)
+      core.if %has_either {
+      } else {
+        core.set %out["action"] = "violation"
+        %message = core.call intrinsic.string.format("MCP protocol violation: input_required result for {} omitted both inputRequests and requestState", %method)
+        core.set %out["message"] = %message
+        core.return %out
+      }
+
+      core.if %has_state {
+        %state = core.get %result["requestState"] default null
+        %state_string = core.type_is %state type "string"
+        core.if %state_string {
+        } else {
+          core.set %out["action"] = "violation"
+          %message = core.call intrinsic.string.format("MCP protocol violation: input_required requestState for {} must be a string", %method)
+          core.set %out["message"] = %message
+          core.return %out
+        }
+        core.set %out["requestState"] = %state
+      }
+
+      core.set %out["action"] = "continue"
+      core.set %out["hasInputRequests"] = %has_requests
+      core.set %out["hasRequestState"] = %has_state
+      core.if %has_requests {
+        %requests = core.get %result["inputRequests"] default null
+        core.set %out["inputRequests"] = %requests
+      }
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_mrtr_fulfill_roots {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-mrtr-roots"
+    type signature = "(input_requests:json, roots:json) -> json"
+    body @entry(%input_requests: json, %roots: json) {
+      %out = core.map
+      %responses = core.map
+      %keys = core.call intrinsic.map.keys(%input_requests)
+      core.for %key in %keys {
+        %request = core.get %input_requests[%key] default null
+        %method = core.get %request["method"] default ""
+        %is_roots = core.call intrinsic.eq(%method, "roots/list")
+        core.if %is_roots {
+          %roots_missing = core.call intrinsic.is_none(%roots)
+          core.if %roots_missing {
+            core.set %out["ok"] = false
+            core.set %out["message"] = "MCP protocol violation: server requested roots/list without a matching client handler"
+            core.return %out
+          }
+          %roots_text = core.call intrinsic.json.stringify(%roots)
+          %roots_copy = core.call intrinsic.json.parse(%roots_text)
+          %response = core.map
+          core.set %response["roots"] = %roots_copy
+          core.set %responses[%key] = %response
+        } else {
+          %is_sampling = core.call intrinsic.eq(%method, "sampling/createMessage")
+          core.if %is_sampling {
+            core.set %out["ok"] = false
+            core.set %out["message"] = "MCP protocol violation: server requested sampling/createMessage without a matching client handler"
+            core.return %out
+          }
+          %is_elicitation = core.call intrinsic.eq(%method, "elicitation/create")
+          core.if %is_elicitation {
+            core.set %out["ok"] = false
+            core.set %out["message"] = "MCP protocol violation: server requested elicitation/create without a matching client handler"
+            core.return %out
+          }
+          core.set %out["ok"] = false
+          %message = core.call intrinsic.string.format("MCP protocol violation: unsupported MRTR input request method {}", %method)
+          core.set %out["message"] = %message
+          core.return %out
+        }
+      }
+      core.set %out["ok"] = true
+      core.set %out["responses"] = %responses
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_mrtr_next_params {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-mrtr-roots"
+    type signature = "(base_params:json, input_responses?:json, request_state?:string) -> json"
+    body @entry(%base_params: json, %input_responses: json, %request_state: string) {
+      %base_text = core.call intrinsic.json.stringify(%base_params)
+      %out = core.call intrinsic.json.parse(%base_text)
+      %responses_missing = core.call intrinsic.is_none(%input_responses)
+      core.if %responses_missing {
+      } else {
+        core.set %out["inputResponses"] = %input_responses
+      }
+      %state_missing = core.call intrinsic.is_none(%request_state)
+      core.if %state_missing {
+      } else {
+        core.set %out["requestState"] = %request_state
+      }
+      core.return %out
+    }
+  }
+
   op ax.mcp.semantic @mcp_jsonrpc_request {
     attr body_source = "core"
     attr core_kind = "func"

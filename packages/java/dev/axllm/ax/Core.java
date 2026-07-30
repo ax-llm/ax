@@ -22396,6 +22396,150 @@ final class Core {
     return out;
   }
 
+  static Object mcp_mrtr_plan_round(Object result, Object era, Object method, Object round, Object max_rounds) {
+    axirCoverageMark("mcp_mrtr_plan_round");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object result_type = Core.get(result, "resultType", "");
+    Object input_required = Core.eq(result_type, "input_required");
+    if (Core.truthy(input_required)) {
+      // empty
+    }
+    if (!Core.truthy(input_required)) {
+      Core.set(out, "action", "complete");
+      return out;
+    }
+    Object modern = Core.eq(era, "modern");
+    if (Core.truthy(modern)) {
+      // empty
+    }
+    if (!Core.truthy(modern)) {
+      Core.set(out, "action", "violation");
+      Object message = Core.stringFormat("MCP protocol violation: legacy server returned input_required for {}", method);
+      Core.set(out, "message", message);
+      return out;
+    }
+    Object limit_missing = Core.isNone(max_rounds);
+    if (Core.truthy(limit_missing)) {
+      Object at_default_limit = Core.gte(round, 5);
+      if (Core.truthy(at_default_limit)) {
+        Core.set(out, "action", "violation");
+        Object message = Core.stringFormat("MCP {} exceeded {} input rounds", method, 5);
+        Core.set(out, "message", message);
+        return out;
+      }
+    }
+    if (!Core.truthy(limit_missing)) {
+      Object at_configured_limit = Core.gte(round, max_rounds);
+      if (Core.truthy(at_configured_limit)) {
+        Core.set(out, "action", "violation");
+        Object message = Core.stringFormat("MCP {} exceeded {} input rounds", method, max_rounds);
+        Core.set(out, "message", message);
+        return out;
+      }
+    }
+    Object has_requests = Core.mapContains(result, "inputRequests");
+    Object has_state = Core.mapContains(result, "requestState");
+    Object has_either = Core.or(has_requests, has_state);
+    if (Core.truthy(has_either)) {
+      // empty
+    }
+    if (!Core.truthy(has_either)) {
+      Core.set(out, "action", "violation");
+      Object message = Core.stringFormat("MCP protocol violation: input_required result for {} omitted both inputRequests and requestState", method);
+      Core.set(out, "message", message);
+      return out;
+    }
+    if (Core.truthy(has_state)) {
+      Object state = Core.get(result, "requestState", null);
+      Object state_string = Core.typeIs(state, "string");
+      if (Core.truthy(state_string)) {
+        // empty
+      }
+      if (!Core.truthy(state_string)) {
+        Core.set(out, "action", "violation");
+        Object message = Core.stringFormat("MCP protocol violation: input_required requestState for {} must be a string", method);
+        Core.set(out, "message", message);
+        return out;
+      }
+      Core.set(out, "requestState", state);
+    }
+    Core.set(out, "action", "continue");
+    Core.set(out, "hasInputRequests", has_requests);
+    Core.set(out, "hasRequestState", has_state);
+    if (Core.truthy(has_requests)) {
+      Object requests = Core.get(result, "inputRequests", null);
+      Core.set(out, "inputRequests", requests);
+    }
+    return out;
+  }
+
+  static Object mcp_mrtr_fulfill_roots(Object input_requests, Object roots) {
+    axirCoverageMark("mcp_mrtr_fulfill_roots");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object responses = new java.util.LinkedHashMap<String, Object>();
+    Object keys = Core.mapKeys(input_requests);
+    for (Object key : Core.iter(keys)) {
+      Object request = Core.get(input_requests, key, null);
+      Object method = Core.get(request, "method", "");
+      Object is_roots = Core.eq(method, "roots/list");
+      if (Core.truthy(is_roots)) {
+        Object roots_missing = Core.isNone(roots);
+        if (Core.truthy(roots_missing)) {
+          Core.set(out, "ok", Boolean.FALSE);
+          Core.set(out, "message", "MCP protocol violation: server requested roots/list without a matching client handler");
+          return out;
+        }
+        Object roots_text = Core.jsonStringify(roots);
+        Object roots_copy = Core.jsonParse(roots_text);
+        Object response = new java.util.LinkedHashMap<String, Object>();
+        Core.set(response, "roots", roots_copy);
+        Core.set(responses, key, response);
+      }
+      if (!Core.truthy(is_roots)) {
+        Object is_sampling = Core.eq(method, "sampling/createMessage");
+        if (Core.truthy(is_sampling)) {
+          Core.set(out, "ok", Boolean.FALSE);
+          Core.set(out, "message", "MCP protocol violation: server requested sampling/createMessage without a matching client handler");
+          return out;
+        }
+        Object is_elicitation = Core.eq(method, "elicitation/create");
+        if (Core.truthy(is_elicitation)) {
+          Core.set(out, "ok", Boolean.FALSE);
+          Core.set(out, "message", "MCP protocol violation: server requested elicitation/create without a matching client handler");
+          return out;
+        }
+        Core.set(out, "ok", Boolean.FALSE);
+        Object message = Core.stringFormat("MCP protocol violation: unsupported MRTR input request method {}", method);
+        Core.set(out, "message", message);
+        return out;
+      }
+    }
+    Core.set(out, "ok", Boolean.TRUE);
+    Core.set(out, "responses", responses);
+    return out;
+  }
+
+  static Object mcp_mrtr_next_params(Object base_params, Object input_responses, Object request_state) {
+    axirCoverageMark("mcp_mrtr_next_params");
+    Object base_text = Core.jsonStringify(base_params);
+    Object out = Core.jsonParse(base_text);
+    Object responses_missing = Core.isNone(input_responses);
+    if (Core.truthy(responses_missing)) {
+      // empty
+    }
+    if (!Core.truthy(responses_missing)) {
+      Core.set(out, "inputResponses", input_responses);
+    }
+    Object state_missing = Core.isNone(request_state);
+    if (Core.truthy(state_missing)) {
+      // empty
+    }
+    if (!Core.truthy(state_missing)) {
+      Core.set(out, "requestState", request_state);
+    }
+    return out;
+  }
+
   static Object mcp_jsonrpc_request(Object id, Object method, Object params) {
     axirCoverageMark("mcp_jsonrpc_request");
     Object out = new java.util.LinkedHashMap<String, Object>();

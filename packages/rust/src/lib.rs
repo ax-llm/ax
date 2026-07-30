@@ -71577,6 +71577,272 @@ fn mcp_task_terminal_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn mcp_mrtr_plan_round(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_mrtr_plan_round");
+    let mut v_result = core_arg(args, 0);
+    let mut v_era = core_arg(args, 1);
+    let mut v_method = core_arg(args, 2);
+    let mut v_round = core_arg(args, 3);
+    let mut v_max_rounds = core_arg(args, 4);
+    let mut v_at_configured_limit = CoreValue::Null;
+    let mut v_at_default_limit = CoreValue::Null;
+    let mut v_has_either = CoreValue::Null;
+    let mut v_has_requests = CoreValue::Null;
+    let mut v_has_state = CoreValue::Null;
+    let mut v_input_required = CoreValue::Null;
+    let mut v_limit_missing = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_modern = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_requests = CoreValue::Null;
+    let mut v_result_type = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_state_string = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_result_type = core_get(
+        &v_result,
+        &CoreValue::from("resultType"),
+        CoreValue::from(""),
+    );
+    v_input_required = core_eq(&[v_result_type.clone(), CoreValue::from("input_required")])?;
+    if core_truthy(&v_input_required) {
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("action"),
+            CoreValue::from("complete"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_modern = core_eq(&[v_era.clone(), CoreValue::from("modern")])?;
+    if core_truthy(&v_modern) {
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("action"),
+            CoreValue::from("violation"),
+        )?;
+        v_message = core_string_format(&[
+            CoreValue::from("MCP protocol violation: legacy server returned input_required for {}"),
+            v_method.clone(),
+        ])?;
+        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_limit_missing = core_is_none(&[v_max_rounds.clone()])?;
+    if core_truthy(&v_limit_missing) {
+        v_at_default_limit = core_gte(&[v_round.clone(), CoreValue::Num(5f64)])?;
+        if core_truthy(&v_at_default_limit) {
+            core_set(
+                &v_out,
+                CoreValue::from("action"),
+                CoreValue::from("violation"),
+            )?;
+            v_message = core_string_format(&[
+                CoreValue::from("MCP {} exceeded {} input rounds"),
+                v_method.clone(),
+                CoreValue::Num(5f64),
+            ])?;
+            core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+            return Ok(v_out.clone());
+        }
+    } else {
+        v_at_configured_limit = core_gte(&[v_round.clone(), v_max_rounds.clone()])?;
+        if core_truthy(&v_at_configured_limit) {
+            core_set(
+                &v_out,
+                CoreValue::from("action"),
+                CoreValue::from("violation"),
+            )?;
+            v_message = core_string_format(&[
+                CoreValue::from("MCP {} exceeded {} input rounds"),
+                v_method.clone(),
+                v_max_rounds.clone(),
+            ])?;
+            core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+            return Ok(v_out.clone());
+        }
+    }
+    v_has_requests = core_map_contains(&[v_result.clone(), CoreValue::from("inputRequests")])?;
+    v_has_state = core_map_contains(&[v_result.clone(), CoreValue::from("requestState")])?;
+    v_has_either = core_or(&[v_has_requests.clone(), v_has_state.clone()])?;
+    if core_truthy(&v_has_either) {
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("action"),
+            CoreValue::from("violation"),
+        )?;
+        v_message = core_string_format(&[CoreValue::from("MCP protocol violation: input_required result for {} omitted both inputRequests and requestState"), v_method.clone()])?;
+        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        return Ok(v_out.clone());
+    }
+    if core_truthy(&v_has_state) {
+        v_state = core_get(&v_result, &CoreValue::from("requestState"), CoreValue::Null);
+        v_state_string = core_type_is(&v_state, CoreValue::from("string"));
+        if core_truthy(&v_state_string) {
+        } else {
+            core_set(
+                &v_out,
+                CoreValue::from("action"),
+                CoreValue::from("violation"),
+            )?;
+            v_message = core_string_format(&[
+                CoreValue::from(
+                    "MCP protocol violation: input_required requestState for {} must be a string",
+                ),
+                v_method.clone(),
+            ])?;
+            core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+            return Ok(v_out.clone());
+        }
+        core_set(&v_out, CoreValue::from("requestState"), v_state.clone())?;
+    }
+    core_set(
+        &v_out,
+        CoreValue::from("action"),
+        CoreValue::from("continue"),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("hasInputRequests"),
+        v_has_requests.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("hasRequestState"),
+        v_has_state.clone(),
+    )?;
+    if core_truthy(&v_has_requests) {
+        v_requests = core_get(
+            &v_result,
+            &CoreValue::from("inputRequests"),
+            CoreValue::Null,
+        );
+        core_set(&v_out, CoreValue::from("inputRequests"), v_requests.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_mrtr_fulfill_roots(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_mrtr_fulfill_roots");
+    let mut v_input_requests = core_arg(args, 0);
+    let mut v_roots = core_arg(args, 1);
+    let mut v_is_elicitation = CoreValue::Null;
+    let mut v_is_roots = CoreValue::Null;
+    let mut v_is_sampling = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_keys = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_method = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_request = CoreValue::Null;
+    let mut v_response = CoreValue::Null;
+    let mut v_responses = CoreValue::Null;
+    let mut v_roots_copy = CoreValue::Null;
+    let mut v_roots_missing = CoreValue::Null;
+    let mut v_roots_text = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_responses = CoreValue::new_map();
+    v_keys = core_map_keys(&[v_input_requests.clone()])?;
+    for v_key in core_iter(&v_keys)? {
+        let mut v_key = v_key;
+        v_request = core_get(&v_input_requests, &v_key.clone(), CoreValue::Null);
+        v_method = core_get(&v_request, &CoreValue::from("method"), CoreValue::from(""));
+        v_is_roots = core_eq(&[v_method.clone(), CoreValue::from("roots/list")])?;
+        if core_truthy(&v_is_roots) {
+            v_roots_missing = core_is_none(&[v_roots.clone()])?;
+            if core_truthy(&v_roots_missing) {
+                core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+                core_set(&v_out, CoreValue::from("message"), CoreValue::from("MCP protocol violation: server requested roots/list without a matching client handler"))?;
+                return Ok(v_out.clone());
+            }
+            v_roots_text = core_json_stringify(&[v_roots.clone()])?;
+            v_roots_copy = core_json_parse(&[v_roots_text.clone()])?;
+            v_response = CoreValue::new_map();
+            core_set(&v_response, CoreValue::from("roots"), v_roots_copy.clone())?;
+            core_set(&v_responses, v_key.clone(), v_response.clone())?;
+        } else {
+            v_is_sampling =
+                core_eq(&[v_method.clone(), CoreValue::from("sampling/createMessage")])?;
+            if core_truthy(&v_is_sampling) {
+                core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+                core_set(&v_out, CoreValue::from("message"), CoreValue::from("MCP protocol violation: server requested sampling/createMessage without a matching client handler"))?;
+                return Ok(v_out.clone());
+            }
+            v_is_elicitation = core_eq(&[v_method.clone(), CoreValue::from("elicitation/create")])?;
+            if core_truthy(&v_is_elicitation) {
+                core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+                core_set(&v_out, CoreValue::from("message"), CoreValue::from("MCP protocol violation: server requested elicitation/create without a matching client handler"))?;
+                return Ok(v_out.clone());
+            }
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+            v_message = core_string_format(&[
+                CoreValue::from("MCP protocol violation: unsupported MRTR input request method {}"),
+                v_method.clone(),
+            ])?;
+            core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+            return Ok(v_out.clone());
+        }
+    }
+    core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+    core_set(&v_out, CoreValue::from("responses"), v_responses.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_mrtr_next_params(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_mrtr_next_params");
+    let mut v_base_params = core_arg(args, 0);
+    let mut v_input_responses = core_arg(args, 1);
+    let mut v_request_state = core_arg(args, 2);
+    let mut v_base_text = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_responses_missing = CoreValue::Null;
+    let mut v_state_missing = CoreValue::Null;
+    v_base_text = core_json_stringify(&[v_base_params.clone()])?;
+    v_out = core_json_parse(&[v_base_text.clone()])?;
+    v_responses_missing = core_is_none(&[v_input_responses.clone()])?;
+    if core_truthy(&v_responses_missing) {
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("inputResponses"),
+            v_input_responses.clone(),
+        )?;
+    }
+    v_state_missing = core_is_none(&[v_request_state.clone()])?;
+    if core_truthy(&v_state_missing) {
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("requestState"),
+            v_request_state.clone(),
+        )?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_jsonrpc_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_jsonrpc_request");
     let mut v_id = core_arg(args, 0);
@@ -71851,4 +72117,4 @@ fn mcp_resource_subscription_ownership(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (539 of 539 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (542 of 542 core functions)

@@ -1,0 +1,159 @@
+{
+  "name": "modern MCP roots-only multi round-trip requests",
+  "kind": "mcp",
+  "operation": "mrtr_roots",
+  "client_options": {
+    "era": "modern",
+    "roots": [
+      {
+        "uri": "file:///workspace",
+        "name": "workspace",
+        "_meta": { "tenant": { "id": "tenant-1" } }
+      }
+    ]
+  },
+  "responses": [
+    {
+      "method": "server/discover",
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": { "tools": {}, "prompts": {}, "resources": {} },
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "tools/list",
+      "result": {
+        "resultType": "complete",
+        "tools": [{ "name": "work", "inputSchema": { "type": "object" } }],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "prompts/list",
+      "result": {
+        "resultType": "complete",
+        "prompts": [{ "name": "ask" }],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "resources/list",
+      "result": {
+        "resultType": "complete",
+        "resources": [{ "uri": "file:///resource" }],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "resources/templates/list",
+      "result": {
+        "resultType": "complete",
+        "resourceTemplates": [],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": { "workspace": { "method": "roots/list" } },
+        "requestState": "\u0000opaque-state-🔥"
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": { "current": { "method": "roots/list" } }
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "complete",
+        "content": [{ "type": "text", "text": "done" }],
+        "structuredContent": { "done": true }
+      }
+    },
+    {
+      "method": "prompts/get",
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": { "promptRoots": { "method": "roots/list" } }
+      }
+    },
+    {
+      "method": "prompts/get",
+      "result": { "resultType": "complete", "messages": [] }
+    },
+    {
+      "method": "resources/read",
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": { "resourceRoots": { "method": "roots/list" } }
+      }
+    },
+    {
+      "method": "resources/read",
+      "result": { "resultType": "complete", "contents": [] }
+    }
+  ],
+  "expected_call_result": { "structuredContent": { "done": true } },
+  "expected_prompt_result": { "resultType": "complete", "messages": [] },
+  "expected_resource_result": { "resultType": "complete", "contents": [] },
+  "expected_methods": [
+    "server/discover",
+    "tools/list",
+    "prompts/list",
+    "resources/list",
+    "resources/templates/list",
+    "tools/call",
+    "tools/call",
+    "tools/call",
+    "prompts/get",
+    "prompts/get",
+    "resources/read",
+    "resources/read"
+  ],
+  "expected_tool_call_params": [
+    { "name": "work", "arguments": { "value": 1 } },
+    {
+      "name": "work",
+      "arguments": { "value": 1 },
+      "inputResponses": {
+        "workspace": {
+          "roots": [
+            {
+              "uri": "file:///workspace",
+              "name": "workspace",
+              "_meta": { "tenant": { "id": "tenant-1" } }
+            }
+          ]
+        }
+      },
+      "requestState": "\u0000opaque-state-🔥"
+    },
+    {
+      "name": "work",
+      "arguments": { "value": 1 },
+      "inputResponses": {
+        "current": {
+          "roots": [
+            {
+              "uri": "file:///workspace",
+              "name": "workspace",
+              "_meta": { "tenant": { "id": "tenant-1" } }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

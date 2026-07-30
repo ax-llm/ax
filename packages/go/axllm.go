@@ -45960,6 +45960,250 @@ func mcp_task_terminal_outcome(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func mcp_mrtr_plan_round(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_mrtr_plan_round")
+	var v_result Value
+	var v_era Value
+	var v_method Value
+	var v_round Value
+	var v_max_rounds Value
+	var v_at_configured_limit Value
+	var v_at_default_limit Value
+	var v_has_either Value
+	var v_has_requests Value
+	var v_has_state Value
+	var v_input_required Value
+	var v_limit_missing Value
+	var v_message Value
+	var v_modern Value
+	var v_out Value
+	var v_requests Value
+	var v_result_type Value
+	var v_state Value
+	var v_state_string Value
+	if len(args) > 0 { v_result = args[0] }
+	_ = v_result
+	if len(args) > 1 { v_era = args[1] }
+	_ = v_era
+	if len(args) > 2 { v_method = args[2] }
+	_ = v_method
+	if len(args) > 3 { v_round = args[3] }
+	_ = v_round
+	if len(args) > 4 { v_max_rounds = args[4] }
+	_ = v_max_rounds
+	_ = v_at_configured_limit
+	_ = v_at_default_limit
+	_ = v_has_either
+	_ = v_has_requests
+	_ = v_has_state
+	_ = v_input_required
+	_ = v_limit_missing
+	_ = v_message
+	_ = v_modern
+	_ = v_out
+	_ = v_requests
+	_ = v_result_type
+	_ = v_state
+	_ = v_state_string
+	v_out = Object()
+	v_result_type = coreGet(v_result, "resultType", "")
+	v_input_required = _core_eq(v_result_type, "input_required")
+	if coreTruthy(v_input_required) {
+	// empty
+	} else {
+		if err := coreSet(v_out, "action", "complete"); err != nil { return nil, err }
+		return v_out, nil
+	}
+	v_modern = _core_eq(v_era, "modern")
+	if coreTruthy(v_modern) {
+	// empty
+	} else {
+		if err := coreSet(v_out, "action", "violation"); err != nil { return nil, err }
+		v_message = _core_string_format("MCP protocol violation: legacy server returned input_required for {}", v_method)
+		if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+		return v_out, nil
+	}
+	v_limit_missing = _core_is_none(v_max_rounds)
+	if coreTruthy(v_limit_missing) {
+		v_at_default_limit = _core_gte(v_round, 5)
+		if coreTruthy(v_at_default_limit) {
+			if err := coreSet(v_out, "action", "violation"); err != nil { return nil, err }
+			v_message = _core_string_format("MCP {} exceeded {} input rounds", v_method, 5)
+			if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+			return v_out, nil
+		} else {
+		// empty
+		}
+	} else {
+		v_at_configured_limit = _core_gte(v_round, v_max_rounds)
+		if coreTruthy(v_at_configured_limit) {
+			if err := coreSet(v_out, "action", "violation"); err != nil { return nil, err }
+			v_message = _core_string_format("MCP {} exceeded {} input rounds", v_method, v_max_rounds)
+			if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+			return v_out, nil
+		} else {
+		// empty
+		}
+	}
+	v_has_requests = _core_map_contains(v_result, "inputRequests")
+	v_has_state = _core_map_contains(v_result, "requestState")
+	v_has_either = _core_or(v_has_requests, v_has_state)
+	if coreTruthy(v_has_either) {
+	// empty
+	} else {
+		if err := coreSet(v_out, "action", "violation"); err != nil { return nil, err }
+		v_message = _core_string_format("MCP protocol violation: input_required result for {} omitted both inputRequests and requestState", v_method)
+		if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+		return v_out, nil
+	}
+	if coreTruthy(v_has_state) {
+		v_state = coreGet(v_result, "requestState", nil)
+		v_state_string = coreTypeIs(v_state, "string")
+		if coreTruthy(v_state_string) {
+		// empty
+		} else {
+			if err := coreSet(v_out, "action", "violation"); err != nil { return nil, err }
+			v_message = _core_string_format("MCP protocol violation: input_required requestState for {} must be a string", v_method)
+			if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+			return v_out, nil
+		}
+		if err := coreSet(v_out, "requestState", v_state); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if err := coreSet(v_out, "action", "continue"); err != nil { return nil, err }
+	if err := coreSet(v_out, "hasInputRequests", v_has_requests); err != nil { return nil, err }
+	if err := coreSet(v_out, "hasRequestState", v_has_state); err != nil { return nil, err }
+	if coreTruthy(v_has_requests) {
+		v_requests = coreGet(v_result, "inputRequests", nil)
+		if err := coreSet(v_out, "inputRequests", v_requests); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
+func mcp_mrtr_fulfill_roots(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_mrtr_fulfill_roots")
+	var v_input_requests Value
+	var v_roots Value
+	var v_is_elicitation Value
+	var v_is_roots Value
+	var v_is_sampling Value
+	var v_key Value
+	var v_keys Value
+	var v_message Value
+	var v_method Value
+	var v_out Value
+	var v_request Value
+	var v_response Value
+	var v_responses Value
+	var v_roots_copy Value
+	var v_roots_missing Value
+	var v_roots_text Value
+	if len(args) > 0 { v_input_requests = args[0] }
+	_ = v_input_requests
+	if len(args) > 1 { v_roots = args[1] }
+	_ = v_roots
+	_ = v_is_elicitation
+	_ = v_is_roots
+	_ = v_is_sampling
+	_ = v_key
+	_ = v_keys
+	_ = v_message
+	_ = v_method
+	_ = v_out
+	_ = v_request
+	_ = v_response
+	_ = v_responses
+	_ = v_roots_copy
+	_ = v_roots_missing
+	_ = v_roots_text
+	v_out = Object()
+	v_responses = Object()
+	v_keys = _core_map_keys(v_input_requests)
+	for _, v_key = range coreIter(v_keys) {
+		v_request = coreGet(v_input_requests, v_key, nil)
+		v_method = coreGet(v_request, "method", "")
+		v_is_roots = _core_eq(v_method, "roots/list")
+		if coreTruthy(v_is_roots) {
+			v_roots_missing = _core_is_none(v_roots)
+			if coreTruthy(v_roots_missing) {
+				if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
+				if err := coreSet(v_out, "message", "MCP protocol violation: server requested roots/list without a matching client handler"); err != nil { return nil, err }
+				return v_out, nil
+			} else {
+			// empty
+			}
+			v_roots_text = _core_json_stringify(v_roots)
+			{ v, err := _core_json_parse(v_roots_text); if err != nil { return nil, err }; v_roots_copy = v }
+			v_response = Object()
+			if err := coreSet(v_response, "roots", v_roots_copy); err != nil { return nil, err }
+			if err := coreSet(v_responses, v_key, v_response); err != nil { return nil, err }
+		} else {
+			v_is_sampling = _core_eq(v_method, "sampling/createMessage")
+			if coreTruthy(v_is_sampling) {
+				if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
+				if err := coreSet(v_out, "message", "MCP protocol violation: server requested sampling/createMessage without a matching client handler"); err != nil { return nil, err }
+				return v_out, nil
+			} else {
+			// empty
+			}
+			v_is_elicitation = _core_eq(v_method, "elicitation/create")
+			if coreTruthy(v_is_elicitation) {
+				if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
+				if err := coreSet(v_out, "message", "MCP protocol violation: server requested elicitation/create without a matching client handler"); err != nil { return nil, err }
+				return v_out, nil
+			} else {
+			// empty
+			}
+			if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
+			v_message = _core_string_format("MCP protocol violation: unsupported MRTR input request method {}", v_method)
+			if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+			return v_out, nil
+		}
+	}
+	if err := coreSet(v_out, "ok", true); err != nil { return nil, err }
+	if err := coreSet(v_out, "responses", v_responses); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func mcp_mrtr_next_params(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_mrtr_next_params")
+	var v_base_params Value
+	var v_input_responses Value
+	var v_request_state Value
+	var v_base_text Value
+	var v_out Value
+	var v_responses_missing Value
+	var v_state_missing Value
+	if len(args) > 0 { v_base_params = args[0] }
+	_ = v_base_params
+	if len(args) > 1 { v_input_responses = args[1] }
+	_ = v_input_responses
+	if len(args) > 2 { v_request_state = args[2] }
+	_ = v_request_state
+	_ = v_base_text
+	_ = v_out
+	_ = v_responses_missing
+	_ = v_state_missing
+	v_base_text = _core_json_stringify(v_base_params)
+	{ v, err := _core_json_parse(v_base_text); if err != nil { return nil, err }; v_out = v }
+	v_responses_missing = _core_is_none(v_input_responses)
+	if coreTruthy(v_responses_missing) {
+	// empty
+	} else {
+		if err := coreSet(v_out, "inputResponses", v_input_responses); err != nil { return nil, err }
+	}
+	v_state_missing = _core_is_none(v_request_state)
+	if coreTruthy(v_state_missing) {
+	// empty
+	} else {
+		if err := coreSet(v_out, "requestState", v_request_state); err != nil { return nil, err }
+	}
+	return v_out, nil
+}
+
 func mcp_jsonrpc_request(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_jsonrpc_request")
 	var v_id Value

@@ -194,6 +194,7 @@
     "axmcp-param-headers",
     "axmcp-cacheable-results",
     "axmcp-tasks-v2",
+    "axmcp-mrtr-roots",
     "axmcp-json-rpc-lifecycle",
     "axmcp-protocol-negotiation",
     "axmcp-tools-prompts-resources",
