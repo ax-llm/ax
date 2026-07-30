@@ -36,12 +36,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/mcp/client.ts`
   - Impact: Generated Python, Java, C++, Go, and Rust clients still initialize only the 2025-11-25 stateful lifecycle and do not probe server/discover, classify and cache an endpoint era, retry -32022 with a mutual version, or expose discover and getEra.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-07-29-port-mcp-2026-07-28-required-http-headers` [axmcp] Port MCP 2026-07-28 required HTTP headers
-  - Status: open
-  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
-  - TS paths: `src/ax/mcp/transports/httpStreamTransport.ts`
-  - Impact: Generated Python, Java, C++, Go, and Rust Streamable HTTP transports still build legacy session headers and do not derive Mcp-Method or Mcp-Name, validate RFC 9110 header values, or omit Mcp-Session-Id for modern requests.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-07-29-port-mcp-cacheable-result-metadata` [axmcp] Port MCP cacheable result metadata
   - Status: open
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
@@ -305,3 +299,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-30
   - Completed by: `e872fbb9`
   - Verification: `npm run test:axir; agent-runtime-real-multi-fence-reject passed with real engines on Python, Java, C++, Go, and Rust; npm run axir:check-packages; npm run axir:conformance:check`
+- `axir-2026-07-29-port-mcp-2026-07-28-required-http-headers` [axmcp] Port MCP 2026-07-28 required HTTP headers
+  - Status: done
+  - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
+  - TS paths: `src/ax/mcp/transports/httpStreamTransport.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust Streamable HTTP transports still build legacy session headers and do not derive Mcp-Method or Mcp-Name, validate RFC 9110 header values, or omit Mcp-Session-Id for modern requests.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-30
+  - Completed by: `afaae693`
+  - Verification: `npm run test:axir; npm run axir:check-packages; modern-transport-headers fixture across python, java, cpp, go, rust`

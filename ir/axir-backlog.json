@@ -642,7 +642,7 @@
     },
     {
       "id": "axir-2026-07-29-port-mcp-2026-07-28-required-http-headers",
-      "status": "open",
+      "status": "done",
       "title": "Port MCP 2026-07-28 required HTTP headers",
       "createdAt": "2026-07-29",
       "sourcePR": null,
@@ -655,9 +655,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-30",
+      "completedByCommit": "afaae693",
+      "verification": "npm run test:axir; npm run axir:check-packages; modern-transport-headers fixture across python, java, cpp, go, rust"
     },
     {
       "id": "axir-2026-07-29-port-mcp-cacheable-result-metadata",
