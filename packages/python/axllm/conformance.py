@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .ai import AnthropicClient, AzureOpenAIClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, RekaClient, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, set_usage_observer
-from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl
+from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
     ax,
@@ -516,6 +516,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_speak(fixture)
         elif kind == "ai_realtime":
             _run_ai_realtime(fixture)
+        elif kind == "ai_context_cache":
+            _run_ai_context_cache(fixture)
         elif kind == "agent_forward":
             _run_agent_forward(fixture)
         elif kind == "agent_playbook_coverage":
@@ -553,6 +555,23 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             raise
         raise FixtureError(f"{name}: {type(exc).__name__}: {exc}") from exc
     return {"name": name, "ok": True}
+
+
+def _run_ai_context_cache(fixture):
+    operations = {
+        "rejection": ai_context_cache_rejection,
+        "expiry": ai_context_cache_expiry,
+        "plan": ai_context_cache_plan,
+        "recovery": ai_context_cache_recovery,
+        "gemini_ops": ai_gemini_cache_ops,
+    }
+    operation = fixture.get("operation")
+    fn_impl = operations.get(operation)
+    if fn_impl is None:
+        raise FixtureError(f"unsupported AI context-cache operation {operation!r}")
+    cases = fixture.get("cases") or [{"args": fixture.get("args", []), "expected": fixture.get("expected")}]
+    for index, case in enumerate(cases):
+        _assert_equal(fn_impl(*case.get("args", [])), case.get("expected"), f"AI context-cache {operation} case {index}")
 
 
 def _run_event(fixture):

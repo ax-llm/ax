@@ -20,7 +20,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 - `axir-2026-07-28-port-managed-context-cache-refresh-recovery` [axai] Port managed context-cache refresh recovery
   - Status: open
-  - Source commit: `1ef0968cc0b7bd26ec6c0506e929834d2ff837af`
+  - Source commit: `906d8c57`
   - TS paths: `src/ax/ai/base.ts`, `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/types.ts`
   - Impact: TypeScript now sends explicit cache TTL updates with PATCH, invalidates failed refreshes, and retries provider-rejected managed caches once without cachedContent; generated languages still treat explicit Vertex cache-resource lifecycle as host-owned.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.

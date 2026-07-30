@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {
+      "args": [1500, 1000],
+      "expected": 1500
+    },
+    {
+      "args": [1000, 1000],
+      "expected": 0
+    },
+    {
+      "args": ["2099-01-01T00:00:00Z", 1000],
+      "expected": 0
+    },
+    {
+      "args": [null, 1000],
+      "expected": 0
+    }
+  ],
+  "kind": "ai_context_cache",
+  "name": "context-cache-expiry",
+  "operation": "expiry"
+}

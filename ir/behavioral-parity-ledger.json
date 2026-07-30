@@ -559,6 +559,28 @@
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
       "state": "VERIFIED IN ALL FIVE LANGUAGES. scripts/test-generated-mcp-events.ts runs Python, Java, C++, Go, and Rust once per era against the real localhost demo server. The modern run proves auto discovery without initialize, per-request _meta and serverInfo refresh, cacheable catalog reuse, schema-derived Mcp-Param-Scope, flattened Tasks v2 completion, roots MRTR fulfillment, fresh subscriptions/listen reconnect after a dropped stream, resource updates, and clean shutdown. Each generated package also runs its in-process mcp_modern_roundtrip example during release verification."
+    },
+    {
+      "capability": "ai.context_cache.managed_recovery",
+      "summary": "Generated Gemini clients create and refresh managed context caches, invalidate only the matching registry entry after a provider cache rejection, and retry uncached exactly once.",
+      "ir_ops": [
+        "@ai_context_cache_rejection",
+        "@ai_context_cache_expiry",
+        "@ai_context_cache_plan",
+        "@ai_context_cache_recovery",
+        "@ai_gemini_cache_ops"
+      ],
+      "fixtures": [
+        "axai/context-cache-rejection.json",
+        "axai/context-cache-expiry.json",
+        "axai/context-cache-plan.json",
+        "axai/context-cache-recovery.json",
+        "axai/http-method-descriptor.json"
+      ],
+      "gate": "AxIR conformance plus generated context_cache_recovery examples in all five languages and an opt-in live Gemini Python exercise",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Scripted package examples prove create-use-rejection-invalidate-one-uncached-retry, PATCH-refresh failure followed by recreate, and refresh-plus-recreate failure followed by uncached fallback. The Python example also exposes the documented non-CI live create/PATCH/expiry exercise."
     }
   ]
 }

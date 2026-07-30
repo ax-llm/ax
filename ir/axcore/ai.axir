@@ -451,6 +451,195 @@ module @ax.ai version "0.1" {
     }
   }
 
+  op ax.ai.semantic @ai_context_cache_rejection {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/base.ts"
+    tag "axai-context-cache-recovery"
+    type signature = "(status:number, body_json:json) -> bool"
+    body @entry(%status: number, %body_json: json) {
+      %status_400_min = core.call intrinsic.gte(%status, 400)
+      %status_400_max = core.call intrinsic.lte(%status, 400)
+      %is_400 = core.call intrinsic.and(%status_400_min, %status_400_max)
+      %status_404_min = core.call intrinsic.gte(%status, 404)
+      %status_404_max = core.call intrinsic.lte(%status, 404)
+      %is_404 = core.call intrinsic.and(%status_404_min, %status_404_max)
+      %valid_status = core.call intrinsic.or(%is_400, %is_404)
+      %body_text = core.call intrinsic.json.stringify(%body_json)
+      %body_lower = core.call intrinsic.string.lower(%body_text)
+      %names_compact = core.call intrinsic.contains(%body_lower, "cachedcontent")
+      %names_spaced = core.call intrinsic.contains(%body_lower, "cached content")
+      %names_resource = core.call intrinsic.contains(%body_lower, "cachedcontents/")
+      %names_left = core.call intrinsic.or(%names_compact, %names_spaced)
+      %names_cache = core.call intrinsic.or(%names_left, %names_resource)
+      %has_cache = core.call intrinsic.contains(%body_lower, "cache")
+      %expired = core.call intrinsic.contains(%body_lower, "expired")
+      %not_found = core.call intrinsic.contains(%body_lower, "not found")
+      %missing = core.call intrinsic.contains(%body_lower, "does not exist")
+      %invalid = core.call intrinsic.contains(%body_lower, "invalid")
+      %invalid_left = core.call intrinsic.or(%expired, %not_found)
+      %invalid_right = core.call intrinsic.or(%missing, %invalid)
+      %invalid_reason = core.call intrinsic.or(%invalid_left, %invalid_right)
+      %invalid_cache = core.call intrinsic.and(%has_cache, %invalid_reason)
+      %cache_rejection = core.call intrinsic.or(%names_cache, %invalid_cache)
+      %out = core.call intrinsic.and(%valid_status, %cache_rejection)
+      core.return %out
+    }
+  }
+
+  op ax.ai.semantic @ai_context_cache_expiry {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/base.ts"
+    tag "axai-context-cache-recovery"
+    type signature = "(provider_expire_time:json, now:number) -> number"
+    body @entry(%provider_expire_time: json, %now: number) {
+      %is_number = core.type_is %provider_expire_time type "number"
+      core.if %is_number {
+        %future = core.call intrinsic.gt(%provider_expire_time, %now)
+        core.if %future {
+          core.return %provider_expire_time
+        }
+      }
+      core.return 0
+    }
+  }
+
+  op ax.ai.semantic @ai_context_cache_plan {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/base.ts"
+    tag "axai-context-cache-recovery"
+    type signature = "(configured:bool, supported:bool, explicit_name:string, existing:json, now:number, refresh_window_ms:number, create_eligible:bool) -> json"
+    body @entry(%configured: bool, %supported: bool, %explicit_name: string, %existing: json, %now: number, %refresh_window_ms: number, %create_eligible: bool) {
+      %out = core.map
+      core.set %out["action"] = "none"
+      core.set %out["managed"] = false
+      %enabled = core.call intrinsic.and(%configured, %supported)
+      %disabled = core.call intrinsic.not(%enabled)
+      core.if %disabled {
+        core.return %out
+      }
+      %explicit_length = core.call intrinsic.len(%explicit_name)
+      %has_explicit = core.call intrinsic.gt(%explicit_length, 0)
+      core.if %has_explicit {
+        core.set %out["action"] = "use"
+        core.set %out["cacheName"] = %explicit_name
+        core.return %out
+      }
+      %existing_object = core.type_is %existing type "object"
+      core.if %existing_object {
+        %cache_name = core.get %existing["cacheName"] default ""
+        %expires_at = core.get %existing["expiresAt"] default 0
+        %cache_name_length = core.call intrinsic.len(%cache_name)
+        %has_name = core.call intrinsic.gt(%cache_name_length, 0)
+        %future = core.call intrinsic.gt(%expires_at, %now)
+        %valid = core.call intrinsic.and(%has_name, %future)
+        core.if %valid {
+          %refresh_at = core.call intrinsic.add(%now, %refresh_window_ms)
+          %needs_refresh = core.call intrinsic.lt(%expires_at, %refresh_at)
+          core.set %out["managed"] = true
+          core.set %out["cacheName"] = %cache_name
+          core.if %needs_refresh {
+            core.set %out["action"] = "refresh"
+          } else {
+            core.set %out["action"] = "use"
+          }
+          core.return %out
+        }
+      }
+      core.if %create_eligible {
+        core.set %out["action"] = "create"
+        core.set %out["managed"] = true
+      }
+      core.return %out
+    }
+  }
+
+  op ax.ai.semantic @ai_context_cache_recovery {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/base.ts"
+    tag "axai-context-cache-recovery"
+    type signature = "(current_entry:json, cache_name:string, external_registry:bool) -> json"
+    body @entry(%current_entry: json, %cache_name: string, %external_registry: bool) {
+      %out = core.map
+      core.set %out["invalidated"] = false
+      core.set %out["deleteInMemory"] = false
+      %entry_object = core.type_is %current_entry type "object"
+      core.if %entry_object {
+        %current_name = core.get %current_entry["cacheName"] default ""
+        %matches = core.call intrinsic.eq(%current_name, %cache_name)
+        core.if %matches {
+          core.set %out["invalidated"] = true
+          core.if %external_registry {
+            %empty = core.map
+            %tombstone = core.call intrinsic.map.merge(%current_entry, %empty)
+            core.set %tombstone["expiresAt"] = 0
+            core.set %out["externalEntry"] = %tombstone
+          } else {
+            core.set %out["deleteInMemory"] = true
+          }
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.ai.semantic @ai_gemini_cache_ops {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "src/ax/ai/google-gemini/api.ts"
+    tag "axai-context-cache-recovery"
+    type signature = "(cache_name:string, ttl_seconds:number, api_key:string, model:string, create_body:json) -> json"
+    body @entry(%cache_name: string, %ttl_seconds: number, %api_key: string, %model: string, %create_body: json) {
+      %ttl = core.call intrinsic.string.format("{}s", %ttl_seconds)
+      %api_key_length = core.call intrinsic.len(%api_key)
+      %has_key = core.call intrinsic.gt(%api_key_length, 0)
+      %create_path = core.let "/cachedContents"
+      %update_path = core.call intrinsic.string.format("/{}?updateMask=ttl", %cache_name)
+      %delete_path = core.call intrinsic.string.format("/{}", %cache_name)
+      core.if %has_key {
+        %create_with_key = core.call intrinsic.string.format("/cachedContents?key={}", %api_key)
+        %update_with_key = core.call intrinsic.string.format("/{}?updateMask=ttl&key={}", %cache_name, %api_key)
+        %delete_with_key = core.call intrinsic.string.format("/{}?key={}", %cache_name, %api_key)
+        %create_path = core.let %create_with_key
+        %update_path = core.let %update_with_key
+        %delete_path = core.let %delete_with_key
+      }
+      %create_request = core.map
+      %create_is_object = core.type_is %create_body type "object"
+      core.if %create_is_object {
+        %empty = core.map
+        %create_copy = core.call intrinsic.map.merge(%create_body, %empty)
+        %create_request = core.let %create_copy
+      }
+      %model_resource = core.call intrinsic.string.format("models/{}", %model)
+      core.set %create_request["model"] = %model_resource
+      core.set %create_request["ttl"] = %ttl
+      %update_request = core.map
+      core.set %update_request["ttl"] = %ttl
+      %empty_request = core.map
+      %create = core.map
+      core.set %create["method"] = "POST"
+      core.set %create["path"] = %create_path
+      core.set %create["request"] = %create_request
+      %update = core.map
+      core.set %update["method"] = "PATCH"
+      core.set %update["path"] = %update_path
+      core.set %update["request"] = %update_request
+      %delete_op = core.map
+      core.set %delete_op["method"] = "DELETE"
+      core.set %delete_op["path"] = %delete_path
+      core.set %delete_op["request"] = %empty_request
+      %out = core.map
+      core.set %out["create"] = %create
+      core.set %out["update"] = %update
+      core.set %out["delete"] = %delete_op
+      core.return %out
+    }
+  }
+
   op ax.ai.semantic @record_ai_metrics {
     attr core_kind = "func"
     tag "src/ax/ai/base.ts"

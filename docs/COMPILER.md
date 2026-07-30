@@ -233,6 +233,33 @@ scripted-transport conformance. Targets own real HTTP/SSE/WebSocket transport,
 media devices, auth, reconnect policy, and binary audio IO. See
 [`docs/AUDIO.md`](./AUDIO.md) for user-facing audio usage.
 
+## Gemini Managed Context Caches
+
+The five generated runtimes implement Gemini managed context caching at the
+HTTP boundary while Core owns the portable plan, rejection, expiry, recovery,
+and operation descriptors. Caching is enabled with `contextCache` (or
+`context_cache`), is gated by the provider caching descriptor, and never
+manages an explicitly supplied cache name. Managed entries use the stable key
+`provider:model:contentHash`.
+
+Hosts may provide registry callbacks to share entries across processes. The
+runtime passes the configured tenant `namespace` separately from the stable
+key; host registries must isolate that namespace and make matching-name
+tombstone updates atomic. Without a host registry, each client uses its local
+in-memory registry.
+
+Every generated package includes the scripted `context_cache_recovery`
+example. The Python example also has an opt-in live exercise (not run in CI)
+that performs real Gemini create, PATCH refresh, and provider-expiry handling:
+
+```bash
+set -a; source .env; set +a
+AX_CONTEXT_CACHE_LIVE=1 python3 packages/python/examples/context_cache_recovery.py
+```
+
+The live path reads `GOOGLE_APIKEY` or `GOOGLE_API_KEY` and defaults to the
+current `gemini-3.5-flash` model.
+
 ## Optimizer And GEPA
 
 The optimizer contract is engine-agnostic: programs expose components,

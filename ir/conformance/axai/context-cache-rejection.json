@@ -1,0 +1,51 @@
+{
+  "cases": [
+    {
+      "args": [
+        400,
+        {
+          "error": {
+            "message": "cachedContent is invalid"
+          }
+        }
+      ],
+      "expected": true
+    },
+    {
+      "args": [
+        404,
+        {
+          "error": {
+            "message": "cache does not exist"
+          }
+        }
+      ],
+      "expected": true
+    },
+    {
+      "args": [
+        500,
+        {
+          "error": {
+            "message": "cachedContents/cache-1 expired"
+          }
+        }
+      ],
+      "expected": false
+    },
+    {
+      "args": [
+        400,
+        {
+          "error": {
+            "message": "ordinary validation failure"
+          }
+        }
+      ],
+      "expected": false
+    }
+  ],
+  "kind": "ai_context_cache",
+  "name": "context-cache-rejection",
+  "operation": "rejection"
+}

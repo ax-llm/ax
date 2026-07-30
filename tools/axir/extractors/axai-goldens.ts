@@ -4001,3 +4001,163 @@ writeFixture('gemini-embeddings', {
     },
   },
 });
+
+writeFixture('context-cache-rejection', {
+  kind: 'ai_context_cache',
+  operation: 'rejection',
+  cases: [
+    {
+      args: [400, { error: { message: 'cachedContent is invalid' } }],
+      expected: true,
+    },
+    {
+      args: [404, { error: { message: 'cache does not exist' } }],
+      expected: true,
+    },
+    {
+      args: [500, { error: { message: 'cachedContents/cache-1 expired' } }],
+      expected: false,
+    },
+    {
+      args: [400, { error: { message: 'ordinary validation failure' } }],
+      expected: false,
+    },
+  ],
+});
+
+writeFixture('context-cache-expiry', {
+  kind: 'ai_context_cache',
+  operation: 'expiry',
+  cases: [
+    { args: [1500, 1000], expected: 1500 },
+    { args: [1000, 1000], expected: 0 },
+    { args: ['2099-01-01T00:00:00Z', 1000], expected: 0 },
+    { args: [null, 1000], expected: 0 },
+  ],
+});
+
+writeFixture('context-cache-plan', {
+  kind: 'ai_context_cache',
+  operation: 'plan',
+  cases: [
+    {
+      args: [false, true, '', {}, 1000, 300, true],
+      expected: { action: 'none', managed: false },
+    },
+    {
+      args: [true, true, 'cachedContents/explicit', {}, 1000, 300, true],
+      expected: {
+        action: 'use',
+        cacheName: 'cachedContents/explicit',
+        managed: false,
+      },
+    },
+    {
+      args: [
+        true,
+        true,
+        '',
+        { cacheName: 'cachedContents/fresh', expiresAt: 5000 },
+        1000,
+        300,
+        true,
+      ],
+      expected: {
+        action: 'use',
+        cacheName: 'cachedContents/fresh',
+        managed: true,
+      },
+    },
+    {
+      args: [
+        true,
+        true,
+        '',
+        { cacheName: 'cachedContents/near-expiry', expiresAt: 1200 },
+        1000,
+        300,
+        true,
+      ],
+      expected: {
+        action: 'refresh',
+        cacheName: 'cachedContents/near-expiry',
+        managed: true,
+      },
+    },
+    {
+      args: [true, true, '', {}, 1000, 300, true],
+      expected: { action: 'create', managed: true },
+    },
+  ],
+});
+
+writeFixture('context-cache-recovery', {
+  kind: 'ai_context_cache',
+  operation: 'recovery',
+  cases: [
+    {
+      args: [
+        { cacheName: 'cachedContents/current', expiresAt: 5000 },
+        'cachedContents/current',
+        true,
+      ],
+      expected: {
+        deleteInMemory: false,
+        externalEntry: {
+          cacheName: 'cachedContents/current',
+          expiresAt: 0,
+        },
+        invalidated: true,
+      },
+    },
+    {
+      args: [
+        { cacheName: 'cachedContents/current', expiresAt: 5000 },
+        'cachedContents/current',
+        false,
+      ],
+      expected: { deleteInMemory: true, invalidated: true },
+    },
+    {
+      args: [
+        { cacheName: 'cachedContents/replaced', expiresAt: 5000 },
+        'cachedContents/stale',
+        true,
+      ],
+      expected: { deleteInMemory: false, invalidated: false },
+    },
+  ],
+});
+
+writeFixture('http-method-descriptor', {
+  kind: 'ai_context_cache',
+  operation: 'gemini_ops',
+  args: [
+    'cachedContents/cache-1',
+    3600,
+    'gemini-key',
+    'gemini-3.5-flash',
+    { systemInstruction: { parts: [{ text: 'stable context' }] } },
+  ],
+  expected: {
+    create: {
+      method: 'POST',
+      path: '/cachedContents?key=gemini-key',
+      request: {
+        model: 'models/gemini-3.5-flash',
+        systemInstruction: { parts: [{ text: 'stable context' }] },
+        ttl: '3600s',
+      },
+    },
+    update: {
+      method: 'PATCH',
+      path: '/cachedContents/cache-1?updateMask=ttl&key=gemini-key',
+      request: { ttl: '3600s' },
+    },
+    delete: {
+      method: 'DELETE',
+      path: '/cachedContents/cache-1?key=gemini-key',
+      request: {},
+    },
+  },
+});

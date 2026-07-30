@@ -585,7 +585,7 @@
       "title": "Port managed context-cache refresh recovery",
       "createdAt": "2026-07-28",
       "sourcePR": null,
-      "sourceCommit": "1ef0968cc0b7bd26ec6c0506e929834d2ff837af",
+      "sourceCommit": "906d8c57",
       "tsPaths": [
         "src/ax/ai/base.ts",
         "src/ax/ai/google-gemini/api.ts",

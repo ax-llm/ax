@@ -96,6 +96,8 @@ pub struct AxError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     pub retryable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_body: Option<Value>,
 }
 
 impl AxError {
@@ -107,6 +109,7 @@ impl AxError {
             status: None,
             code: None,
             retryable: false,
+            response_body: None,
         }
     }
 
@@ -875,6 +878,13 @@ pub trait AxTransport: Send {
     fn send(&mut self, request: Value) -> AxResult<Value>;
 }
 
+// Hosts can provide a tenant-aware registry; keys remain the stable
+// provider:model:contentHash tuple used by the in-process registry.
+pub trait AxContextCacheRegistry: Send {
+    fn get(&mut self, namespace: &str, key: &str) -> Option<Value>;
+    fn set(&mut self, namespace: &str, key: &str, entry: Value);
+}
+
 pub type RuntimeTransport = dyn AxTransport;
 
 pub struct ScriptedTransport {
@@ -911,6 +921,8 @@ pub struct OpenAICompatibleClient {
     pub model_config: Value,
     pub options: Value,
     pub transport: Option<Box<dyn AxTransport>>,
+    pub context_cache_registry: Option<Box<dyn AxContextCacheRegistry>>,
+    context_cache_entries: BTreeMap<String, Value>,
 }
 
 impl OpenAICompatibleClient {
@@ -926,11 +938,18 @@ impl OpenAICompatibleClient {
             model_config: json!({}),
             options: json!({}),
             transport: None,
+            context_cache_registry: None,
+            context_cache_entries: BTreeMap::new(),
         }
     }
 
     pub fn with_transport(mut self, transport: impl AxTransport + 'static) -> Self {
         self.transport = Some(Box::new(transport));
+        self
+    }
+
+    pub fn with_context_cache_registry(mut self, registry: impl AxContextCacheRegistry + 'static) -> Self {
+        self.context_cache_registry = Some(Box::new(registry));
         self
     }
 
@@ -1057,7 +1076,8 @@ impl OpenAICompatibleClient {
         } else {
             "json"
         };
-        let mut out = json!({"method": "POST", "url": url, "headers": Value::Object(headers), "stream": stream});
+        let method = operation_descriptor.get("method").and_then(Value::as_str).unwrap_or("POST").to_ascii_uppercase();
+        let mut out = json!({"method": method, "url": url, "headers": Value::Object(headers), "stream": stream});
         out[body_key] = payload.clone();
         Ok(out)
     }
@@ -1067,10 +1087,12 @@ impl OpenAICompatibleClient {
             return transport.send(call);
         }
         let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
+        let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
+            .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
         let mut builder = HttpClient::builder()
             .timeout(Duration::from_secs(60))
             .build()?
-            .post(url);
+            .request(method, url);
         if let Some(headers) = call.get("headers").and_then(Value::as_object) {
             for (key, value) in headers {
                 builder = builder.header(key.as_str(), value.as_str().unwrap_or_default());
@@ -1079,23 +1101,140 @@ impl OpenAICompatibleClient {
         // A `data` body marks a multipart/form-data operation (e.g. /audio/transcriptions):
         // encode it as a binary multipart body and override Content-Type. A `json` body is
         // serialized as JSON as usual.
-        let response: Value = if let Some(data) = call.get("data") {
+        let response = if let Some(data) = call.get("data") {
             let (body, content_type) = encode_multipart(data);
             builder
                 .header("Content-Type", content_type)
                 .body(body)
                 .send()?
-                .error_for_status()?
-                .json()?
         } else {
             let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
             builder
                 .json(&body)
                 .send()?
-                .error_for_status()?
-                .json()?
         };
-        Ok(json!({"status": 200, "json": response}))
+        let status = response.status().as_u16();
+        let bytes = response.bytes()?;
+        let body = if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
+        };
+        normalize_passthrough_response(json!({"status": status, "json": body}))
+    }
+
+    fn send_json_call(&mut self, call: Value) -> AxResult<Value> {
+        normalize_passthrough_response(self.dispatch_transport_request(call)?)
+    }
+
+    fn context_cache_get(&mut self, namespace: &str, key: &str) -> Value {
+        if let Some(registry) = self.context_cache_registry.as_mut() {
+            registry.get(namespace, key).unwrap_or_else(|| json!({}))
+        } else {
+            self.context_cache_entries.get(key).cloned().unwrap_or_else(|| json!({}))
+        }
+    }
+
+    fn context_cache_set(&mut self, namespace: &str, key: &str, value: Value) {
+        if let Some(registry) = self.context_cache_registry.as_mut() {
+            registry.set(namespace, key, value);
+        } else {
+            self.context_cache_entries.insert(key.to_string(), value);
+        }
+    }
+
+    fn gemini_cache_call(&mut self, operation: &Value, model: &str) -> AxResult<Value> {
+        let descriptor = core_value_to_json(&provider_descriptor(&[CoreValue::from(self.profile.as_str())])?);
+        let base = self.base_url_override.clone().unwrap_or_else(|| descriptor.get("baseUrl").and_then(Value::as_str).unwrap_or("https://generativelanguage.googleapis.com/v1beta").to_string());
+        let headers_call = self.provider_transport_request("chat", &json!({}), model, false)?;
+        let call = json!({
+            "method": operation.get("method").and_then(Value::as_str).unwrap_or("POST"),
+            "url": format!("{}{}", base.trim_end_matches('/'), operation.get("path").and_then(Value::as_str).unwrap_or_default()),
+            "headers": headers_call.get("headers").cloned().unwrap_or_else(|| json!({})),
+            "json": operation.get("request").cloned().unwrap_or_else(|| json!({})),
+            "stream": false,
+        });
+        self.send_json_call(call)
+    }
+
+    fn context_cache_chat(&mut self, request: &Value, payload: &Value, model: &str, full_call: &Value) -> AxResult<Option<Value>> {
+        let cfg_value = self.options.get("contextCache").or_else(|| self.options.get("context_cache")).cloned().unwrap_or(Value::Null);
+        if self.profile != "google-gemini" || cfg_value.is_null() || cfg_value == Value::Bool(false) { return Ok(None); }
+        let descriptor = core_value_to_json(&provider_descriptor(&[CoreValue::from(self.profile.as_str())])?);
+        if !descriptor.pointer("/features/caching/supported").and_then(Value::as_bool).unwrap_or(false) { return Ok(None); }
+        let cfg = cfg_value.as_object().cloned().unwrap_or_default();
+        let explicit = cfg.get("name").or_else(|| cfg.get("cacheName")).or_else(|| cfg.get("cache_name")).and_then(Value::as_str).unwrap_or_default();
+        if !explicit.is_empty() {
+            let mut cached = payload.clone(); cached["cachedContent"] = json!(explicit);
+            let mut call = full_call.clone(); call["json"] = cached;
+            return self.send_json_call(call).map(Some);
+        }
+        let prompts = request.get("chat_prompt").or_else(|| request.get("chatPrompt")).or_else(|| request.get("messages")).and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut non_system = 0usize; let mut cached_count = 0usize;
+        for prompt in prompts {
+            if prompt.get("role").and_then(Value::as_str) == Some("system") { continue; }
+            non_system += 1;
+            if prompt.get("cache").and_then(Value::as_bool).unwrap_or(false) { cached_count = non_system; }
+        }
+        let mut cache_body = json!({});
+        for key in ["systemInstruction", "tools", "toolConfig"] { if let Some(value) = payload.get(key) { cache_body[key] = value.clone(); } }
+        let contents = payload.get("contents").and_then(Value::as_array).cloned().unwrap_or_default();
+        if cached_count > 0 { cache_body["contents"] = Value::Array(contents[..cached_count.min(contents.len())].to_vec()); }
+        if cache_body.get("systemInstruction").is_none() && cache_body.get("contents").and_then(Value::as_array).map(Vec::is_empty).unwrap_or(true) { return Ok(None); }
+        let encoded = stable_stringify(&cache_body);
+        let min_tokens = cfg.get("minTokens").or_else(|| cfg.get("min_tokens")).and_then(Value::as_u64).unwrap_or(2048) as usize;
+        let eligible = encoded.len().div_ceil(4) >= min_tokens;
+        let ttl_seconds = cfg.get("ttlSeconds").or_else(|| cfg.get("ttl_seconds")).and_then(Value::as_u64).unwrap_or(3600);
+        let refresh_window = (cfg.get("refreshWindowSeconds").or_else(|| cfg.get("refresh_window_seconds")).and_then(Value::as_f64).unwrap_or(300.0) * 1000.0) as u64;
+        let content_hash = stable_content_hash(encoded.as_bytes());
+        let cache_key = format!("{}:{}:{content_hash}", self.profile, model);
+        let namespace = cfg.get("namespace").and_then(Value::as_str).unwrap_or("default").to_string();
+        let external = self.context_cache_registry.is_some();
+        let now = epoch_millis();
+        let entry = self.context_cache_get(&namespace, &cache_key);
+        let plan = core_value_to_json(&ai_context_cache_plan(&[
+            CoreValue::Bool(true), CoreValue::Bool(true), CoreValue::from(""), core_value_from_json(&entry), CoreValue::Num(now as f64), CoreValue::Num(refresh_window as f64), CoreValue::Bool(eligible)
+        ])?);
+        let mut cache_name = plan.get("cacheName").and_then(Value::as_str).unwrap_or_default().to_string();
+        let action = plan.get("action").and_then(Value::as_str).unwrap_or("none");
+        if action == "refresh" {
+            let ops = core_value_to_json(&ai_gemini_cache_ops(&[CoreValue::from(cache_name.as_str()), CoreValue::Num(ttl_seconds as f64), CoreValue::from(self.api_key.as_str()), CoreValue::from(model), core_value_from_json(&cache_body)])?);
+            let refreshed = self.gemini_cache_call(&ops["update"], model);
+            let expires_at = refreshed.as_ref().ok().and_then(cache_expiry_millis).filter(|value| *value > epoch_millis());
+            if let Some(expires_at) = expires_at { self.context_cache_set(&namespace, &cache_key, json!({"cacheName":cache_name,"expiresAt":expires_at})); }
+            else { cache_name.clear(); }
+        }
+        if action == "create" || (action == "refresh" && cache_name.is_empty()) {
+            let ops = core_value_to_json(&ai_gemini_cache_ops(&[CoreValue::from(""), CoreValue::Num(ttl_seconds as f64), CoreValue::from(self.api_key.as_str()), CoreValue::from(model), core_value_from_json(&cache_body)])?);
+            match self.gemini_cache_call(&ops["create"], model) {
+                Ok(created) => {
+                    cache_name = created.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let expires_at = cache_expiry_millis(&created).filter(|value| *value > epoch_millis()).unwrap_or(0);
+                    if cache_name.is_empty() || expires_at == 0 { return self.send_json_call(full_call.clone()).map(Some); }
+                    self.context_cache_set(&namespace, &cache_key, json!({"cacheName":cache_name,"expiresAt":expires_at}));
+                }
+                Err(_) => return self.send_json_call(full_call.clone()).map(Some),
+            }
+        }
+        if action == "none" || cache_name.is_empty() { return Ok(None); }
+        let mut cached = payload.clone();
+        if let Some(map) = cached.as_object_mut() { map.remove("systemInstruction"); map.remove("tools"); map.remove("toolConfig"); }
+        cached["contents"] = Value::Array(contents[cached_count.min(contents.len())..].to_vec()); cached["cachedContent"] = json!(cache_name);
+        let mut cached_call = full_call.clone(); cached_call["json"] = cached;
+        match self.send_json_call(cached_call) {
+            Ok(value) => Ok(Some(value)),
+            Err(error) => {
+                let rejected = core_value_to_json(&ai_context_cache_rejection(&[CoreValue::Num(error.status.unwrap_or(0) as f64), core_value_from_json(error.response_body.as_ref().unwrap_or(&Value::Null))])?).as_bool().unwrap_or(false);
+                if !rejected { return Err(error); }
+                let current = self.context_cache_get(&namespace, &cache_key);
+                let recovery = core_value_to_json(&ai_context_cache_recovery(&[core_value_from_json(&current), CoreValue::from(cache_name.as_str()), CoreValue::Bool(external)])?);
+                if recovery.get("invalidated").and_then(Value::as_bool).unwrap_or(false) {
+                    if external { self.context_cache_set(&namespace, &cache_key, recovery.get("externalEntry").cloned().unwrap_or_else(|| json!({}))); }
+                    else if recovery.get("deleteInMemory").and_then(Value::as_bool).unwrap_or(false) { self.context_cache_entries.remove(&cache_key); }
+                }
+                self.send_json_call(full_call.clone()).map(Some)
+            }
+        }
     }
 
     fn request_body(&self, request: &Value) -> Value {
@@ -1275,6 +1414,7 @@ impl OpenAICompatibleClient {
                 status: None,
                 code: None,
                 retryable: false,
+                response_body: None,
             });
         }
         let embed_model = string_at(&request, "embed_model")
@@ -1288,6 +1428,7 @@ impl OpenAICompatibleClient {
                 status: None,
                 code: None,
                 retryable: false,
+                response_body: None,
             });
         }
         let mut req = if request.is_object() { request.clone() } else { json!({}) };
@@ -1775,7 +1916,10 @@ impl AxAIClient for OpenAICompatibleClient {
             .or_else(|| payload.get("model").and_then(Value::as_str).map(ToString::to_string))
             .unwrap_or_else(|| self.model.clone());
         let call = self.provider_transport_request("chat", &payload, &model, false)?;
-        let raw = self.dispatch_transport_request(call)?;
+        let raw = match self.context_cache_chat(&req, &payload, &model, &call)? {
+            Some(value) => value,
+            None => self.dispatch_transport_request(call)?,
+        };
         let profile = self.profile.clone();
         let response = normalize_openai_response(&profile, &model, raw);
         if let Ok(value) = &response {
@@ -6274,6 +6418,42 @@ pub fn stable_stringify(value: &Value) -> String {
     }
 }
 
+fn stable_content_hash(bytes: &[u8]) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes { hash ^= *byte as u64; hash = hash.wrapping_mul(0x100000001b3); }
+    format!("{hash:016x}")
+}
+
+fn epoch_millis() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+}
+
+fn parse_rfc3339_millis(text: &str) -> Option<u64> {
+    if text.len() < 20 || !text.ends_with('Z') { return None; }
+    let number = |range: std::ops::Range<usize>| text.get(range)?.parse::<i64>().ok();
+    let year=number(0..4)?; let month=number(5..7)?; let day=number(8..10)?;
+    let hour=number(11..13)?; let minute=number(14..16)?; let second=number(17..19)?;
+    let adjusted_year = year - if month <= 2 { 1 } else { 0 };
+    let era = adjusted_year.div_euclid(400);
+    let yoe = adjusted_year - era * 400;
+    let shifted_month = month + if month > 2 { -3 } else { 9 };
+    let doy = (153 * shifted_month + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    let mut millis = (days * 86400 + hour * 3600 + minute * 60 + second) * 1000;
+    if let Some(dot) = text.find('.') {
+        let fraction = &text[dot + 1..text.len() - 1];
+        let digits = &fraction[..fraction.len().min(3)];
+        millis += format!("{digits:0<3}").parse::<i64>().ok()?;
+    }
+    u64::try_from(millis).ok()
+}
+
+fn cache_expiry_millis(value: &Value) -> Option<u64> {
+    let raw = value.get("expireTime").or_else(|| value.get("expire_time"))?;
+    raw.as_u64().or_else(|| raw.as_f64().map(|value| value as u64)).or_else(|| raw.as_str().and_then(parse_rfc3339_millis))
+}
+
 pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
     let kind = fixture
         .get("kind")
@@ -6299,6 +6479,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "ai_transcribe" => run_ai_transcribe_fixture(&fixture)?,
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
         "ai_realtime" => run_ai_realtime_fixture(&fixture)?,
+        "ai_context_cache" => run_ai_context_cache_fixture(&fixture)?,
         "ai_provider_descriptor"
         | "ai_provider_registry"
         | "ai_model_catalog_audit"
@@ -6324,6 +6505,31 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "mcp" => mcp::run_mcp_conformance_fixture(&fixture)?,
         "event" => run_event_fixture(&fixture)?,
         _ => run_explicit_non_ai_conformance_fixture(kind, &fixture)?,
+    }
+    Ok(())
+}
+
+fn run_ai_context_cache_fixture(fixture: &Value) -> AxResult<()> {
+    let operation = fixture.get("operation").and_then(Value::as_str).unwrap_or_default();
+    let cases = fixture.get("cases").and_then(Value::as_array).cloned().unwrap_or_else(|| vec![json!({
+        "args": fixture.get("args").cloned().unwrap_or_else(|| json!([])),
+        "expected": fixture.get("expected").cloned().unwrap_or(Value::Null),
+    })]);
+    for (index, case) in cases.iter().enumerate() {
+        let args = case.get("args").and_then(Value::as_array).cloned().unwrap_or_default().iter().map(core_value_from_json).collect::<Vec<_>>();
+        let actual = match operation {
+            "rejection" => ai_context_cache_rejection(&args),
+            "expiry" => ai_context_cache_expiry(&args),
+            "plan" => ai_context_cache_plan(&args),
+            "recovery" => ai_context_cache_recovery(&args),
+            "gemini_ops" => ai_gemini_cache_ops(&args),
+            _ => return Err(AxError::new("fixture", format!("unsupported AI context-cache operation {operation}"))),
+        }?;
+        let actual = core_value_to_json(&actual);
+        let expected = case.get("expected").unwrap_or(&Value::Null);
+        if &actual != expected {
+            return Err(AxError::new("fixture", format!("AI context-cache {operation} case {index} mismatch: expected {expected}, got {actual}")));
+        }
     }
     Ok(())
 }
@@ -14640,6 +14846,7 @@ fn core_ai_error(class_name: &str, args: &[CoreValue], default_retryable: bool, 
         status,
         code: code.as_str().map(str::to_string),
         retryable,
+        response_body: match core_arg(args, 3) { CoreValue::Null => None, value => Some(core_value_to_json(&value)) },
     })))
 }
 

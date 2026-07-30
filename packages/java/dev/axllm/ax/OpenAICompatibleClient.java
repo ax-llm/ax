@@ -8,17 +8,28 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
 public class OpenAICompatibleClient extends AxBaseAI {
   public interface Transport {
     Object call(Map<String, Object> request) throws Exception;
+  }
+
+  // Host registries receive a tenant namespace separately from the stable
+  // provider:model:contentHash key.
+  public interface ContextCacheRegistry {
+    Map<String,Object> get(String namespace, String key);
+    void set(String namespace, String key, Map<String,Object> entry);
   }
 
   private static final String MULTIPART_BOUNDARY = "----axllmFormBoundary" + UUID.randomUUID().toString().replace("-", "");
@@ -31,6 +42,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
   private final double timeoutSeconds;
   private final Transport transport;
   private final HttpClient http = HttpClient.newHttpClient();
+  private final Map<String, Map<String,Object>> contextCacheEntries = new LinkedHashMap<>();
 
   public OpenAICompatibleClient(String model) {
     this(Map.of("model", model));
@@ -71,15 +83,115 @@ public class OpenAICompatibleClient extends AxBaseAI {
       return Map.of("results", streamEvents(payload, modelName));
     }
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
-    Object raw = requestJson(operationPath("chat", modelName), payload, false);
+    Object raw = contextCacheChat(request, options, payload, modelName);
+    if (raw == null) raw = requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"));
     return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName));
   }
 
   protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) throws Exception {
     Map<String, Object> payload = Core.asMap(Core.provider_build_embed_request(profile, request));
     Object modelName = request.getOrDefault("embed_model", request.getOrDefault("embedModel", payload.getOrDefault("model", embedModel)));
-    Object raw = requestJson(operationPath("embed", modelName), payload, false);
+    Object raw = requestJson(operationPath("embed", modelName), payload, false, "json", false, operationMethod("embed"));
     return Core.asMap(Core.provider_normalize_embed_response(profile, raw, name, modelName));
+  }
+
+  @SuppressWarnings("unchecked")
+  private Object contextCacheChat(Map<String,Object> request, Map<String,Object> options, Map<String,Object> payload, Object modelName) throws Exception {
+    Object rawCfg = options.getOrDefault("contextCache", options.get("context_cache"));
+    boolean supported = Core.truthy(Core.asMap(Core.asMap(descriptor.get("features")).get("caching")).get("supported"));
+    if (!"google-gemini".equals(profile) || !supported || !Core.truthy(rawCfg)) return null;
+    Map<String,Object> cfg = rawCfg instanceof Map<?,?> ? Core.asMap(rawCfg) : new LinkedHashMap<>();
+    String explicit = String.valueOf(cfg.getOrDefault("name", cfg.getOrDefault("cacheName", cfg.getOrDefault("cache_name", ""))));
+    if (!explicit.isBlank()) {
+      Map<String,Object> cached = new LinkedHashMap<>(payload);
+      cached.put("cachedContent", explicit);
+      return requestJson(operationPath("chat", modelName), cached, false, "json", false, operationMethod("chat"));
+    }
+    List<Object> prompts = Core.asList(request.getOrDefault("chat_prompt", request.getOrDefault("chatPrompt", request.getOrDefault("messages", List.of()))));
+    int nonSystem = 0, cachedCount = 0;
+    for (Object raw : prompts) {
+      Map<String,Object> prompt = Core.asMap(raw);
+      if ("system".equals(String.valueOf(prompt.getOrDefault("role", "")))) continue;
+      nonSystem++;
+      if (Core.truthy(prompt.get("cache"))) cachedCount = nonSystem;
+    }
+    Map<String,Object> cacheBody = new LinkedHashMap<>();
+    for (String key : List.of("systemInstruction", "tools", "toolConfig")) if (payload.containsKey(key)) cacheBody.put(key, payload.get(key));
+    List<Object> contents = Core.asList(payload.getOrDefault("contents", List.of()));
+    if (cachedCount > 0) cacheBody.put("contents", new ArrayList<>(contents.subList(0, Math.min(cachedCount, contents.size()))));
+    if (!cacheBody.containsKey("systemInstruction") && Core.asList(cacheBody.get("contents")).isEmpty()) return null;
+    String encoded = String.valueOf(Core.jsonStableStringify(cacheBody));
+    int minTokens = Core.asInt(cfg.getOrDefault("minTokens", cfg.getOrDefault("min_tokens", 2048)));
+    boolean eligible = Math.ceil(encoded.length() / 4.0) >= minTokens;
+    int ttlSeconds = Core.asInt(cfg.getOrDefault("ttlSeconds", cfg.getOrDefault("ttl_seconds", 3600)));
+    long refreshWindow = (long)(Core.asDouble(cfg.getOrDefault("refreshWindowSeconds", cfg.getOrDefault("refresh_window_seconds", 300))) * 1000);
+    String contentHash;
+    try { contentHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(encoded.getBytes(StandardCharsets.UTF_8))); }
+    catch (Exception error) { throw new AxAIServiceError("Unable to hash context cache content: " + error.getMessage()); }
+    String cacheKey = profile + ":" + modelName + ":" + contentHash;
+    String namespace = String.valueOf(cfg.getOrDefault("namespace", "default"));
+    ContextCacheRegistry registry = cfg.get("registry") instanceof ContextCacheRegistry value ? value : null;
+    java.util.function.Supplier<Map<String,Object>> getEntry = () -> {
+      Map<String,Object> value = registry == null ? contextCacheEntries.get(cacheKey) : registry.get(namespace, cacheKey);
+      return value == null ? new LinkedHashMap<>() : new LinkedHashMap<>(value);
+    };
+    java.util.function.Consumer<Map<String,Object>> setEntry = value -> {
+      if (registry == null) contextCacheEntries.put(cacheKey, new LinkedHashMap<>(value)); else registry.set(namespace, cacheKey, new LinkedHashMap<>(value));
+    };
+    Map<String,Object> plan = Core.asMap(Core.ai_context_cache_plan(true, true, "", getEntry.get(), System.currentTimeMillis(), refreshWindow, eligible));
+    String[] cacheName = {String.valueOf(plan.getOrDefault("cacheName", ""))};
+    java.util.function.Function<Object,Long> expiry = value -> {
+      Object raw = Core.asMap(value).getOrDefault("expireTime", Core.asMap(value).get("expire_time"));
+      long millis = raw instanceof Number n ? n.longValue() : 0;
+      if (raw instanceof String text) try { millis = Instant.parse(text).toEpochMilli(); } catch (RuntimeException ignored) {}
+      return (long)Core.asDouble(Core.ai_context_cache_expiry(millis, System.currentTimeMillis()));
+    };
+    java.util.function.Function<Object,Object> callOp = value -> {
+      Map<String,Object> op = Core.asMap(value);
+      try { return requestJson(String.valueOf(op.get("path")), Core.asMap(op.get("request")), false, "json", false, String.valueOf(op.getOrDefault("method", "POST"))); }
+      catch (Exception error) { if (error instanceof RuntimeException runtime) throw runtime; throw new RuntimeException(error); }
+    };
+    java.util.function.BooleanSupplier create = () -> {
+      try {
+        Map<String,Object> ops = Core.asMap(Core.ai_gemini_cache_ops("", ttlSeconds, apiKey, String.valueOf(modelName), cacheBody));
+        Object created = callOp.apply(ops.get("create"));
+        cacheName[0] = String.valueOf(Core.asMap(created).getOrDefault("name", ""));
+        long expiresAt = expiry.apply(created);
+        if (cacheName[0].isBlank() || expiresAt == 0) return false;
+        setEntry.accept(new LinkedHashMap<>(Map.of("cacheName", cacheName[0], "expiresAt", expiresAt)));
+        return true;
+      } catch (AxAIServiceError error) { return false; }
+    };
+    String action = String.valueOf(plan.getOrDefault("action", "none"));
+    if ("refresh".equals(action)) {
+      try {
+        Map<String,Object> ops = Core.asMap(Core.ai_gemini_cache_ops(cacheName[0], ttlSeconds, apiKey, String.valueOf(modelName), cacheBody));
+        Object refreshed = callOp.apply(ops.get("update"));
+        long expiresAt = expiry.apply(refreshed);
+        if (expiresAt == 0) throw new AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", refreshed);
+        setEntry.accept(new LinkedHashMap<>(Map.of("cacheName", cacheName[0], "expiresAt", expiresAt)));
+      } catch (AxAIServiceError error) {
+        if (!create.getAsBoolean()) return requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"));
+      }
+    } else if ("create".equals(action)) {
+      if (!create.getAsBoolean()) return requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"));
+    } else if ("none".equals(action)) return null;
+    if (cacheName[0].isBlank()) return null;
+    Map<String,Object> cached = new LinkedHashMap<>(payload);
+    cached.remove("systemInstruction"); cached.remove("tools"); cached.remove("toolConfig");
+    cached.put("contents", new ArrayList<>(contents.subList(Math.min(cachedCount, contents.size()), contents.size())));
+    cached.put("cachedContent", cacheName[0]);
+    try {
+      return requestJson(operationPath("chat", modelName), cached, false, "json", false, operationMethod("chat"));
+    } catch (AxAIServiceError error) {
+      if (!Core.truthy(Core.ai_context_cache_rejection(error.status == null ? 0 : error.status, error.responseBody))) throw error;
+      Map<String,Object> recovery = Core.asMap(Core.ai_context_cache_recovery(getEntry.get(), cacheName[0], registry != null));
+      if (Core.truthy(recovery.get("invalidated"))) {
+        if (registry != null) registry.set(namespace, cacheKey, Core.asMap(recovery.get("externalEntry")));
+        else if (Core.truthy(recovery.get("deleteInMemory"))) contextCacheEntries.remove(cacheKey);
+      }
+      return requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"));
+    }
   }
 
   protected List<Map<String, Object>> streamEvents(Map<String, Object> payload, Object modelName) throws Exception {
@@ -91,7 +203,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     int attempt = 0;
     while (true) {
       List<Object> events = new ArrayList<>();
-      for (Object event : iterSseJson(requestJson(operationPath("stream_chat", modelName), payload, true))) events.add(event);
+      for (Object event : iterSseJson(requestJson(operationPath("stream_chat", modelName), payload, true, "json", false, operationMethod("stream_chat")))) events.add(event);
       // Pre-content streaming retry: peek the first raw SSE event before any stateful normalize
       // runs (so peeking has no side effects); if the provider classifies it as a retryable
       // transient status (e.g. Anthropic's HTTP-200 overloaded_error event), re-issue with the
@@ -132,7 +244,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Object modelName = request.getOrDefault("model", model);
     Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "transcribe"));
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
-    Object raw = requestJson(operationPath("transcribe", modelName), payload, false, bodyKey);
+    Object raw = requestJson(operationPath("transcribe", modelName), payload, false, bodyKey, false, operationMethod("transcribe"));
     return Core.asMap(Core.provider_normalize_transcribe_response(profile, raw));
   }
 
@@ -142,7 +254,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "speak"));
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
     boolean binary = "binary".equals(String.valueOf(descriptor.get("response")));
-    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary);
+    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary, operationMethod("speak"));
     return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request));
   }
 
@@ -342,8 +454,17 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey, boolean binaryResponse) throws Exception {
+    return requestJson(endpoint, payload, stream, bodyKey, binaryResponse, "POST");
+  }
+
+  private String operationMethod(String operation) {
+    return String.valueOf(Core.asMap(Core.provider_operation_descriptor(profile, operation)).getOrDefault("method", "POST")).toUpperCase(Locale.ROOT);
+  }
+
+  private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey, boolean binaryResponse, String method) throws Exception {
     Map<String, Object> call = new LinkedHashMap<>();
-    call.put("method", "POST");
+    method = method == null || method.isBlank() ? "POST" : method.toUpperCase(Locale.ROOT);
+    call.put("method", method);
     call.put("url", baseUrl + endpoint);
     call.put("headers", headers());
     String resolvedBodyKey = bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey;
@@ -364,7 +485,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
       bodyPublisher = HttpRequest.BodyPublishers.ofString(Json.stringify(payload));
     }
     for (Map.Entry<String, Object> header : requestHeaders.entrySet()) builder.header(header.getKey(), String.valueOf(header.getValue()));
-    HttpRequest req = builder.POST(bodyPublisher).build();
+    HttpRequest req = builder.method(method, bodyPublisher).build();
     if (binaryResponse) {
       // Binary operations (e.g. OpenAI /audio/speech returns raw mp3) must not be UTF-8
       // decoded; read the response as bytes and return them as a base64 String.

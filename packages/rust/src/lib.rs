@@ -108,6 +108,8 @@ pub struct AxError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     pub retryable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_body: Option<Value>,
 }
 
 impl AxError {
@@ -119,6 +121,7 @@ impl AxError {
             status: None,
             code: None,
             retryable: false,
+            response_body: None,
         }
     }
 
@@ -971,6 +974,13 @@ pub trait AxTransport: Send {
     fn send(&mut self, request: Value) -> AxResult<Value>;
 }
 
+// Hosts can provide a tenant-aware registry; keys remain the stable
+// provider:model:contentHash tuple used by the in-process registry.
+pub trait AxContextCacheRegistry: Send {
+    fn get(&mut self, namespace: &str, key: &str) -> Option<Value>;
+    fn set(&mut self, namespace: &str, key: &str, entry: Value);
+}
+
 pub type RuntimeTransport = dyn AxTransport;
 
 pub struct ScriptedTransport {
@@ -1007,6 +1017,8 @@ pub struct OpenAICompatibleClient {
     pub model_config: Value,
     pub options: Value,
     pub transport: Option<Box<dyn AxTransport>>,
+    pub context_cache_registry: Option<Box<dyn AxContextCacheRegistry>>,
+    context_cache_entries: BTreeMap<String, Value>,
 }
 
 impl OpenAICompatibleClient {
@@ -1022,11 +1034,21 @@ impl OpenAICompatibleClient {
             model_config: json!({}),
             options: json!({}),
             transport: None,
+            context_cache_registry: None,
+            context_cache_entries: BTreeMap::new(),
         }
     }
 
     pub fn with_transport(mut self, transport: impl AxTransport + 'static) -> Self {
         self.transport = Some(Box::new(transport));
+        self
+    }
+
+    pub fn with_context_cache_registry(
+        mut self,
+        registry: impl AxContextCacheRegistry + 'static,
+    ) -> Self {
+        self.context_cache_registry = Some(Box::new(registry));
         self
     }
 
@@ -1192,7 +1214,12 @@ impl OpenAICompatibleClient {
             } else {
                 "json"
             };
-        let mut out = json!({"method": "POST", "url": url, "headers": Value::Object(headers), "stream": stream});
+        let method = operation_descriptor
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or("POST")
+            .to_ascii_uppercase();
+        let mut out = json!({"method": method, "url": url, "headers": Value::Object(headers), "stream": stream});
         out[body_key] = payload.clone();
         Ok(out)
     }
@@ -1206,10 +1233,16 @@ impl OpenAICompatibleClient {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
+        let method = call
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or("POST")
+            .parse::<reqwest::Method>()
+            .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
         let mut builder = HttpClient::builder()
             .timeout(Duration::from_secs(60))
             .build()?
-            .post(url);
+            .request(method, url);
         if let Some(headers) = call.get("headers").and_then(Value::as_object) {
             for (key, value) in headers {
                 builder = builder.header(key.as_str(), value.as_str().unwrap_or_default());
@@ -1218,19 +1251,312 @@ impl OpenAICompatibleClient {
         // A `data` body marks a multipart/form-data operation (e.g. /audio/transcriptions):
         // encode it as a binary multipart body and override Content-Type. A `json` body is
         // serialized as JSON as usual.
-        let response: Value = if let Some(data) = call.get("data") {
+        let response = if let Some(data) = call.get("data") {
             let (body, content_type) = encode_multipart(data);
             builder
                 .header("Content-Type", content_type)
                 .body(body)
                 .send()?
-                .error_for_status()?
-                .json()?
         } else {
             let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
-            builder.json(&body).send()?.error_for_status()?.json()?
+            builder.json(&body).send()?
         };
-        Ok(json!({"status": 200, "json": response}))
+        let status = response.status().as_u16();
+        let bytes = response.bytes()?;
+        let body = if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes)
+                .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
+        };
+        normalize_passthrough_response(json!({"status": status, "json": body}))
+    }
+
+    fn send_json_call(&mut self, call: Value) -> AxResult<Value> {
+        normalize_passthrough_response(self.dispatch_transport_request(call)?)
+    }
+
+    fn context_cache_get(&mut self, namespace: &str, key: &str) -> Value {
+        if let Some(registry) = self.context_cache_registry.as_mut() {
+            registry.get(namespace, key).unwrap_or_else(|| json!({}))
+        } else {
+            self.context_cache_entries
+                .get(key)
+                .cloned()
+                .unwrap_or_else(|| json!({}))
+        }
+    }
+
+    fn context_cache_set(&mut self, namespace: &str, key: &str, value: Value) {
+        if let Some(registry) = self.context_cache_registry.as_mut() {
+            registry.set(namespace, key, value);
+        } else {
+            self.context_cache_entries.insert(key.to_string(), value);
+        }
+    }
+
+    fn gemini_cache_call(&mut self, operation: &Value, model: &str) -> AxResult<Value> {
+        let descriptor = core_value_to_json(&provider_descriptor(&[CoreValue::from(
+            self.profile.as_str(),
+        )])?);
+        let base = self.base_url_override.clone().unwrap_or_else(|| {
+            descriptor
+                .get("baseUrl")
+                .and_then(Value::as_str)
+                .unwrap_or("https://generativelanguage.googleapis.com/v1beta")
+                .to_string()
+        });
+        let headers_call = self.provider_transport_request("chat", &json!({}), model, false)?;
+        let call = json!({
+            "method": operation.get("method").and_then(Value::as_str).unwrap_or("POST"),
+            "url": format!("{}{}", base.trim_end_matches('/'), operation.get("path").and_then(Value::as_str).unwrap_or_default()),
+            "headers": headers_call.get("headers").cloned().unwrap_or_else(|| json!({})),
+            "json": operation.get("request").cloned().unwrap_or_else(|| json!({})),
+            "stream": false,
+        });
+        self.send_json_call(call)
+    }
+
+    fn context_cache_chat(
+        &mut self,
+        request: &Value,
+        payload: &Value,
+        model: &str,
+        full_call: &Value,
+    ) -> AxResult<Option<Value>> {
+        let cfg_value = self
+            .options
+            .get("contextCache")
+            .or_else(|| self.options.get("context_cache"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        if self.profile != "google-gemini" || cfg_value.is_null() || cfg_value == Value::Bool(false)
+        {
+            return Ok(None);
+        }
+        let descriptor = core_value_to_json(&provider_descriptor(&[CoreValue::from(
+            self.profile.as_str(),
+        )])?);
+        if !descriptor
+            .pointer("/features/caching/supported")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Ok(None);
+        }
+        let cfg = cfg_value.as_object().cloned().unwrap_or_default();
+        let explicit = cfg
+            .get("name")
+            .or_else(|| cfg.get("cacheName"))
+            .or_else(|| cfg.get("cache_name"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !explicit.is_empty() {
+            let mut cached = payload.clone();
+            cached["cachedContent"] = json!(explicit);
+            let mut call = full_call.clone();
+            call["json"] = cached;
+            return self.send_json_call(call).map(Some);
+        }
+        let prompts = request
+            .get("chat_prompt")
+            .or_else(|| request.get("chatPrompt"))
+            .or_else(|| request.get("messages"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let mut non_system = 0usize;
+        let mut cached_count = 0usize;
+        for prompt in prompts {
+            if prompt.get("role").and_then(Value::as_str) == Some("system") {
+                continue;
+            }
+            non_system += 1;
+            if prompt
+                .get("cache")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                cached_count = non_system;
+            }
+        }
+        let mut cache_body = json!({});
+        for key in ["systemInstruction", "tools", "toolConfig"] {
+            if let Some(value) = payload.get(key) {
+                cache_body[key] = value.clone();
+            }
+        }
+        let contents = payload
+            .get("contents")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if cached_count > 0 {
+            cache_body["contents"] =
+                Value::Array(contents[..cached_count.min(contents.len())].to_vec());
+        }
+        if cache_body.get("systemInstruction").is_none()
+            && cache_body
+                .get("contents")
+                .and_then(Value::as_array)
+                .map(Vec::is_empty)
+                .unwrap_or(true)
+        {
+            return Ok(None);
+        }
+        let encoded = stable_stringify(&cache_body);
+        let min_tokens = cfg
+            .get("minTokens")
+            .or_else(|| cfg.get("min_tokens"))
+            .and_then(Value::as_u64)
+            .unwrap_or(2048) as usize;
+        let eligible = encoded.len().div_ceil(4) >= min_tokens;
+        let ttl_seconds = cfg
+            .get("ttlSeconds")
+            .or_else(|| cfg.get("ttl_seconds"))
+            .and_then(Value::as_u64)
+            .unwrap_or(3600);
+        let refresh_window = (cfg
+            .get("refreshWindowSeconds")
+            .or_else(|| cfg.get("refresh_window_seconds"))
+            .and_then(Value::as_f64)
+            .unwrap_or(300.0)
+            * 1000.0) as u64;
+        let content_hash = stable_content_hash(encoded.as_bytes());
+        let cache_key = format!("{}:{}:{content_hash}", self.profile, model);
+        let namespace = cfg
+            .get("namespace")
+            .and_then(Value::as_str)
+            .unwrap_or("default")
+            .to_string();
+        let external = self.context_cache_registry.is_some();
+        let now = epoch_millis();
+        let entry = self.context_cache_get(&namespace, &cache_key);
+        let plan = core_value_to_json(&ai_context_cache_plan(&[
+            CoreValue::Bool(true),
+            CoreValue::Bool(true),
+            CoreValue::from(""),
+            core_value_from_json(&entry),
+            CoreValue::Num(now as f64),
+            CoreValue::Num(refresh_window as f64),
+            CoreValue::Bool(eligible),
+        ])?);
+        let mut cache_name = plan
+            .get("cacheName")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let action = plan.get("action").and_then(Value::as_str).unwrap_or("none");
+        if action == "refresh" {
+            let ops = core_value_to_json(&ai_gemini_cache_ops(&[
+                CoreValue::from(cache_name.as_str()),
+                CoreValue::Num(ttl_seconds as f64),
+                CoreValue::from(self.api_key.as_str()),
+                CoreValue::from(model),
+                core_value_from_json(&cache_body),
+            ])?);
+            let refreshed = self.gemini_cache_call(&ops["update"], model);
+            let expires_at = refreshed
+                .as_ref()
+                .ok()
+                .and_then(cache_expiry_millis)
+                .filter(|value| *value > epoch_millis());
+            if let Some(expires_at) = expires_at {
+                self.context_cache_set(
+                    &namespace,
+                    &cache_key,
+                    json!({"cacheName":cache_name,"expiresAt":expires_at}),
+                );
+            } else {
+                cache_name.clear();
+            }
+        }
+        if action == "create" || (action == "refresh" && cache_name.is_empty()) {
+            let ops = core_value_to_json(&ai_gemini_cache_ops(&[
+                CoreValue::from(""),
+                CoreValue::Num(ttl_seconds as f64),
+                CoreValue::from(self.api_key.as_str()),
+                CoreValue::from(model),
+                core_value_from_json(&cache_body),
+            ])?);
+            match self.gemini_cache_call(&ops["create"], model) {
+                Ok(created) => {
+                    cache_name = created
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let expires_at = cache_expiry_millis(&created)
+                        .filter(|value| *value > epoch_millis())
+                        .unwrap_or(0);
+                    if cache_name.is_empty() || expires_at == 0 {
+                        return self.send_json_call(full_call.clone()).map(Some);
+                    }
+                    self.context_cache_set(
+                        &namespace,
+                        &cache_key,
+                        json!({"cacheName":cache_name,"expiresAt":expires_at}),
+                    );
+                }
+                Err(_) => return self.send_json_call(full_call.clone()).map(Some),
+            }
+        }
+        if action == "none" || cache_name.is_empty() {
+            return Ok(None);
+        }
+        let mut cached = payload.clone();
+        if let Some(map) = cached.as_object_mut() {
+            map.remove("systemInstruction");
+            map.remove("tools");
+            map.remove("toolConfig");
+        }
+        cached["contents"] = Value::Array(contents[cached_count.min(contents.len())..].to_vec());
+        cached["cachedContent"] = json!(cache_name);
+        let mut cached_call = full_call.clone();
+        cached_call["json"] = cached;
+        match self.send_json_call(cached_call) {
+            Ok(value) => Ok(Some(value)),
+            Err(error) => {
+                let rejected = core_value_to_json(&ai_context_cache_rejection(&[
+                    CoreValue::Num(error.status.unwrap_or(0) as f64),
+                    core_value_from_json(error.response_body.as_ref().unwrap_or(&Value::Null)),
+                ])?)
+                .as_bool()
+                .unwrap_or(false);
+                if !rejected {
+                    return Err(error);
+                }
+                let current = self.context_cache_get(&namespace, &cache_key);
+                let recovery = core_value_to_json(&ai_context_cache_recovery(&[
+                    core_value_from_json(&current),
+                    CoreValue::from(cache_name.as_str()),
+                    CoreValue::Bool(external),
+                ])?);
+                if recovery
+                    .get("invalidated")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    if external {
+                        self.context_cache_set(
+                            &namespace,
+                            &cache_key,
+                            recovery
+                                .get("externalEntry")
+                                .cloned()
+                                .unwrap_or_else(|| json!({})),
+                        );
+                    } else if recovery
+                        .get("deleteInMemory")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                    {
+                        self.context_cache_entries.remove(&cache_key);
+                    }
+                }
+                self.send_json_call(full_call.clone()).map(Some)
+            }
+        }
     }
 
     fn request_body(&self, request: &Value) -> Value {
@@ -1421,6 +1747,7 @@ impl OpenAICompatibleClient {
                 status: None,
                 code: None,
                 retryable: false,
+                response_body: None,
             });
         }
         let embed_model = string_at(&request, "embed_model")
@@ -1434,6 +1761,7 @@ impl OpenAICompatibleClient {
                 status: None,
                 code: None,
                 retryable: false,
+                response_body: None,
             });
         }
         let mut req = if request.is_object() {
@@ -1978,7 +2306,10 @@ impl AxAIClient for OpenAICompatibleClient {
             })
             .unwrap_or_else(|| self.model.clone());
         let call = self.provider_transport_request("chat", &payload, &model, false)?;
-        let raw = self.dispatch_transport_request(call)?;
+        let raw = match self.context_cache_chat(&req, &payload, &model, &call)? {
+            Some(value) => value,
+            None => self.dispatch_transport_request(call)?,
+        };
         let profile = self.profile.clone();
         let response = normalize_openai_response(&profile, &model, raw);
         if let Ok(value) = &response {
@@ -8180,6 +8511,58 @@ pub fn stable_stringify(value: &Value) -> String {
     }
 }
 
+fn stable_content_hash(bytes: &[u8]) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn epoch_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn parse_rfc3339_millis(text: &str) -> Option<u64> {
+    if text.len() < 20 || !text.ends_with('Z') {
+        return None;
+    }
+    let number = |range: std::ops::Range<usize>| text.get(range)?.parse::<i64>().ok();
+    let year = number(0..4)?;
+    let month = number(5..7)?;
+    let day = number(8..10)?;
+    let hour = number(11..13)?;
+    let minute = number(14..16)?;
+    let second = number(17..19)?;
+    let adjusted_year = year - if month <= 2 { 1 } else { 0 };
+    let era = adjusted_year.div_euclid(400);
+    let yoe = adjusted_year - era * 400;
+    let shifted_month = month + if month > 2 { -3 } else { 9 };
+    let doy = (153 * shifted_month + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    let mut millis = (days * 86400 + hour * 3600 + minute * 60 + second) * 1000;
+    if let Some(dot) = text.find('.') {
+        let fraction = &text[dot + 1..text.len() - 1];
+        let digits = &fraction[..fraction.len().min(3)];
+        millis += format!("{digits:0<3}").parse::<i64>().ok()?;
+    }
+    u64::try_from(millis).ok()
+}
+
+fn cache_expiry_millis(value: &Value) -> Option<u64> {
+    let raw = value
+        .get("expireTime")
+        .or_else(|| value.get("expire_time"))?;
+    raw.as_u64()
+        .or_else(|| raw.as_f64().map(|value| value as u64))
+        .or_else(|| raw.as_str().and_then(parse_rfc3339_millis))
+}
+
 pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
     let kind = fixture
         .get("kind")
@@ -8205,6 +8588,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "ai_transcribe" => run_ai_transcribe_fixture(&fixture)?,
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
         "ai_realtime" => run_ai_realtime_fixture(&fixture)?,
+        "ai_context_cache" => run_ai_context_cache_fixture(&fixture)?,
         "ai_provider_descriptor"
         | "ai_provider_registry"
         | "ai_model_catalog_audit"
@@ -8230,6 +8614,52 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "mcp" => mcp::run_mcp_conformance_fixture(&fixture)?,
         "event" => run_event_fixture(&fixture)?,
         _ => run_explicit_non_ai_conformance_fixture(kind, &fixture)?,
+    }
+    Ok(())
+}
+
+fn run_ai_context_cache_fixture(fixture: &Value) -> AxResult<()> {
+    let operation = fixture
+        .get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let cases = fixture
+        .get("cases")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| {
+            vec![json!({
+                "args": fixture.get("args").cloned().unwrap_or_else(|| json!([])),
+                "expected": fixture.get("expected").cloned().unwrap_or(Value::Null),
+            })]
+        });
+    for (index, case) in cases.iter().enumerate() {
+        let args = case
+            .get("args")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(core_value_from_json)
+            .collect::<Vec<_>>();
+        let actual = match operation {
+            "rejection" => ai_context_cache_rejection(&args),
+            "expiry" => ai_context_cache_expiry(&args),
+            "plan" => ai_context_cache_plan(&args),
+            "recovery" => ai_context_cache_recovery(&args),
+            "gemini_ops" => ai_gemini_cache_ops(&args),
+            _ => {
+                return Err(AxError::new(
+                    "fixture",
+                    format!("unsupported AI context-cache operation {operation}"),
+                ))
+            }
+        }?;
+        let actual = core_value_to_json(&actual);
+        let expected = case.get("expected").unwrap_or(&Value::Null);
+        if &actual != expected {
+            return Err(AxError::new("fixture", format!("AI context-cache {operation} case {index} mismatch: expected {expected}, got {actual}")));
+        }
     }
     Ok(())
 }
@@ -18729,6 +19159,10 @@ fn core_ai_error(
         status,
         code: code.as_str().map(str::to_string),
         retryable,
+        response_body: match core_arg(args, 3) {
+            CoreValue::Null => None,
+            value => Some(core_value_to_json(&value)),
+        },
     })))
 }
 
@@ -27590,6 +28024,70 @@ fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError>
     unreachable_code,
     clippy::all
 )]
+fn ai_context_cache_rejection(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_context_cache_rejection");
+    let mut v_status = core_arg(args, 0);
+    let mut v_body_json = core_arg(args, 1);
+    let mut v_body_lower = CoreValue::Null;
+    let mut v_body_text = CoreValue::Null;
+    let mut v_cache_rejection = CoreValue::Null;
+    let mut v_expired = CoreValue::Null;
+    let mut v_has_cache = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_invalid_cache = CoreValue::Null;
+    let mut v_invalid_left = CoreValue::Null;
+    let mut v_invalid_reason = CoreValue::Null;
+    let mut v_invalid_right = CoreValue::Null;
+    let mut v_is_400 = CoreValue::Null;
+    let mut v_is_404 = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_names_cache = CoreValue::Null;
+    let mut v_names_compact = CoreValue::Null;
+    let mut v_names_left = CoreValue::Null;
+    let mut v_names_resource = CoreValue::Null;
+    let mut v_names_spaced = CoreValue::Null;
+    let mut v_not_found = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_status_400_max = CoreValue::Null;
+    let mut v_status_400_min = CoreValue::Null;
+    let mut v_status_404_max = CoreValue::Null;
+    let mut v_status_404_min = CoreValue::Null;
+    let mut v_valid_status = CoreValue::Null;
+    v_status_400_min = core_gte(&[v_status.clone(), CoreValue::Num(400f64)])?;
+    v_status_400_max = core_lte(&[v_status.clone(), CoreValue::Num(400f64)])?;
+    v_is_400 = core_and(&[v_status_400_min.clone(), v_status_400_max.clone()])?;
+    v_status_404_min = core_gte(&[v_status.clone(), CoreValue::Num(404f64)])?;
+    v_status_404_max = core_lte(&[v_status.clone(), CoreValue::Num(404f64)])?;
+    v_is_404 = core_and(&[v_status_404_min.clone(), v_status_404_max.clone()])?;
+    v_valid_status = core_or(&[v_is_400.clone(), v_is_404.clone()])?;
+    v_body_text = core_json_stringify(&[v_body_json.clone()])?;
+    v_body_lower = core_string_lower(&[v_body_text.clone()])?;
+    v_names_compact = core_contains(&[v_body_lower.clone(), CoreValue::from("cachedcontent")])?;
+    v_names_spaced = core_contains(&[v_body_lower.clone(), CoreValue::from("cached content")])?;
+    v_names_resource = core_contains(&[v_body_lower.clone(), CoreValue::from("cachedcontents/")])?;
+    v_names_left = core_or(&[v_names_compact.clone(), v_names_spaced.clone()])?;
+    v_names_cache = core_or(&[v_names_left.clone(), v_names_resource.clone()])?;
+    v_has_cache = core_contains(&[v_body_lower.clone(), CoreValue::from("cache")])?;
+    v_expired = core_contains(&[v_body_lower.clone(), CoreValue::from("expired")])?;
+    v_not_found = core_contains(&[v_body_lower.clone(), CoreValue::from("not found")])?;
+    v_missing = core_contains(&[v_body_lower.clone(), CoreValue::from("does not exist")])?;
+    v_invalid = core_contains(&[v_body_lower.clone(), CoreValue::from("invalid")])?;
+    v_invalid_left = core_or(&[v_expired.clone(), v_not_found.clone()])?;
+    v_invalid_right = core_or(&[v_missing.clone(), v_invalid.clone()])?;
+    v_invalid_reason = core_or(&[v_invalid_left.clone(), v_invalid_right.clone()])?;
+    v_invalid_cache = core_and(&[v_has_cache.clone(), v_invalid_reason.clone()])?;
+    v_cache_rejection = core_or(&[v_names_cache.clone(), v_invalid_cache.clone()])?;
+    v_out = core_and(&[v_valid_status.clone(), v_cache_rejection.clone()])?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_normalize_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_normalize_choice_impl");
     let mut v_choice = core_arg(args, 0);
@@ -27669,6 +28167,29 @@ fn _openai_normalize_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
+fn ai_context_cache_expiry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_context_cache_expiry");
+    let mut v_provider_expire_time = core_arg(args, 0);
+    let mut v_now = core_arg(args, 1);
+    let mut v_future = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    v_is_number = core_type_is(&v_provider_expire_time, CoreValue::from("number"));
+    if core_truthy(&v_is_number) {
+        v_future = core_gt(&[v_provider_expire_time.clone(), v_now.clone()])?;
+        if core_truthy(&v_future) {
+            return Ok(v_provider_expire_time.clone());
+        }
+    }
+    return Ok(CoreValue::Num(0f64));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_normalize_tool_calls_impl");
     let mut v_calls = core_arg(args, 0);
@@ -27734,6 +28255,95 @@ fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, Ax
     unreachable_code,
     clippy::all
 )]
+fn ai_context_cache_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_context_cache_plan");
+    let mut v_configured = core_arg(args, 0);
+    let mut v_supported = core_arg(args, 1);
+    let mut v_explicit_name = core_arg(args, 2);
+    let mut v_existing = core_arg(args, 3);
+    let mut v_now = core_arg(args, 4);
+    let mut v_refresh_window_ms = core_arg(args, 5);
+    let mut v_create_eligible = core_arg(args, 6);
+    let mut v_cache_name = CoreValue::Null;
+    let mut v_cache_name_length = CoreValue::Null;
+    let mut v_disabled = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_existing_object = CoreValue::Null;
+    let mut v_expires_at = CoreValue::Null;
+    let mut v_explicit_length = CoreValue::Null;
+    let mut v_future = CoreValue::Null;
+    let mut v_has_explicit = CoreValue::Null;
+    let mut v_has_name = CoreValue::Null;
+    let mut v_needs_refresh = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_refresh_at = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("action"), CoreValue::from("none"))?;
+    core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(false))?;
+    v_enabled = core_and(&[v_configured.clone(), v_supported.clone()])?;
+    v_disabled = core_not(&[v_enabled.clone()])?;
+    if core_truthy(&v_disabled) {
+        return Ok(v_out.clone());
+    }
+    v_explicit_length = core_len(&[v_explicit_name.clone()])?;
+    v_has_explicit = core_gt(&[v_explicit_length.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_explicit) {
+        core_set(&v_out, CoreValue::from("action"), CoreValue::from("use"))?;
+        core_set(
+            &v_out,
+            CoreValue::from("cacheName"),
+            v_explicit_name.clone(),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_existing_object = core_type_is(&v_existing, CoreValue::from("object"));
+    if core_truthy(&v_existing_object) {
+        v_cache_name = core_get(
+            &v_existing,
+            &CoreValue::from("cacheName"),
+            CoreValue::from(""),
+        );
+        v_expires_at = core_get(
+            &v_existing,
+            &CoreValue::from("expiresAt"),
+            CoreValue::Num(0f64),
+        );
+        v_cache_name_length = core_len(&[v_cache_name.clone()])?;
+        v_has_name = core_gt(&[v_cache_name_length.clone(), CoreValue::Num(0f64)])?;
+        v_future = core_gt(&[v_expires_at.clone(), v_now.clone()])?;
+        v_valid = core_and(&[v_has_name.clone(), v_future.clone()])?;
+        if core_truthy(&v_valid) {
+            v_refresh_at = core_add(&[v_now.clone(), v_refresh_window_ms.clone()])?;
+            v_needs_refresh = core_lt(&[v_expires_at.clone(), v_refresh_at.clone()])?;
+            core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(true))?;
+            core_set(&v_out, CoreValue::from("cacheName"), v_cache_name.clone())?;
+            if core_truthy(&v_needs_refresh) {
+                core_set(
+                    &v_out,
+                    CoreValue::from("action"),
+                    CoreValue::from("refresh"),
+                )?;
+            } else {
+                core_set(&v_out, CoreValue::from("action"), CoreValue::from("use"))?;
+            }
+            return Ok(v_out.clone());
+        }
+    }
+    if core_truthy(&v_create_eligible) {
+        core_set(&v_out, CoreValue::from("action"), CoreValue::from("create"))?;
+        core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(true))?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_openai_finish_reason_impl");
     let mut v_value = core_arg(args, 0);
@@ -27764,6 +28374,74 @@ fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     }
     v_none = core_none(&[])?;
     return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn ai_context_cache_recovery(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_context_cache_recovery");
+    let mut v_current_entry = core_arg(args, 0);
+    let mut v_cache_name = core_arg(args, 1);
+    let mut v_external_registry = core_arg(args, 2);
+    let mut v_current_name = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_entry_object = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_tombstone = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("invalidated"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("deleteInMemory"),
+        CoreValue::Bool(false),
+    )?;
+    v_entry_object = core_type_is(&v_current_entry, CoreValue::from("object"));
+    if core_truthy(&v_entry_object) {
+        v_current_name = core_get(
+            &v_current_entry,
+            &CoreValue::from("cacheName"),
+            CoreValue::from(""),
+        );
+        v_matches = core_eq(&[v_current_name.clone(), v_cache_name.clone()])?;
+        if core_truthy(&v_matches) {
+            core_set(
+                &v_out,
+                CoreValue::from("invalidated"),
+                CoreValue::Bool(true),
+            )?;
+            if core_truthy(&v_external_registry) {
+                v_empty = CoreValue::new_map();
+                v_tombstone = core_map_merge(&[v_current_entry.clone(), v_empty.clone()])?;
+                core_set(
+                    &v_tombstone,
+                    CoreValue::from("expiresAt"),
+                    CoreValue::Num(0f64),
+                )?;
+                core_set(
+                    &v_out,
+                    CoreValue::from("externalEntry"),
+                    v_tombstone.clone(),
+                )?;
+            } else {
+                core_set(
+                    &v_out,
+                    CoreValue::from("deleteInMemory"),
+                    CoreValue::Bool(true),
+                )?;
+            }
+        }
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -27811,6 +28489,124 @@ fn openai_normalize_embed_response(args: &[CoreValue]) -> Result<CoreValue, AxEr
         CoreValue::from("model_usage"),
         v_model_usage.clone(),
     )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn ai_gemini_cache_ops(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_gemini_cache_ops");
+    let mut v_cache_name = core_arg(args, 0);
+    let mut v_ttl_seconds = core_arg(args, 1);
+    let mut v_api_key = core_arg(args, 2);
+    let mut v_model = core_arg(args, 3);
+    let mut v_create_body = core_arg(args, 4);
+    let mut v_api_key_length = CoreValue::Null;
+    let mut v_create = CoreValue::Null;
+    let mut v_create_copy = CoreValue::Null;
+    let mut v_create_is_object = CoreValue::Null;
+    let mut v_create_path = CoreValue::Null;
+    let mut v_create_request = CoreValue::Null;
+    let mut v_create_with_key = CoreValue::Null;
+    let mut v_delete_op = CoreValue::Null;
+    let mut v_delete_path = CoreValue::Null;
+    let mut v_delete_with_key = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_empty_request = CoreValue::Null;
+    let mut v_has_key = CoreValue::Null;
+    let mut v_model_resource = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_ttl = CoreValue::Null;
+    let mut v_update = CoreValue::Null;
+    let mut v_update_path = CoreValue::Null;
+    let mut v_update_request = CoreValue::Null;
+    let mut v_update_with_key = CoreValue::Null;
+    v_ttl = core_string_format(&[CoreValue::from("{}s"), v_ttl_seconds.clone()])?;
+    v_api_key_length = core_len(&[v_api_key.clone()])?;
+    v_has_key = core_gt(&[v_api_key_length.clone(), CoreValue::Num(0f64)])?;
+    v_create_path = CoreValue::from("/cachedContents");
+    v_update_path =
+        core_string_format(&[CoreValue::from("/{}?updateMask=ttl"), v_cache_name.clone()])?;
+    v_delete_path = core_string_format(&[CoreValue::from("/{}"), v_cache_name.clone()])?;
+    if core_truthy(&v_has_key) {
+        v_create_with_key =
+            core_string_format(&[CoreValue::from("/cachedContents?key={}"), v_api_key.clone()])?;
+        v_update_with_key = core_string_format(&[
+            CoreValue::from("/{}?updateMask=ttl&key={}"),
+            v_cache_name.clone(),
+            v_api_key.clone(),
+        ])?;
+        v_delete_with_key = core_string_format(&[
+            CoreValue::from("/{}?key={}"),
+            v_cache_name.clone(),
+            v_api_key.clone(),
+        ])?;
+        v_create_path = v_create_with_key.clone();
+        v_update_path = v_update_with_key.clone();
+        v_delete_path = v_delete_with_key.clone();
+    }
+    v_create_request = CoreValue::new_map();
+    v_create_is_object = core_type_is(&v_create_body, CoreValue::from("object"));
+    if core_truthy(&v_create_is_object) {
+        v_empty = CoreValue::new_map();
+        v_create_copy = core_map_merge(&[v_create_body.clone(), v_empty.clone()])?;
+        v_create_request = v_create_copy.clone();
+    }
+    v_model_resource = core_string_format(&[CoreValue::from("models/{}"), v_model.clone()])?;
+    core_set(
+        &v_create_request,
+        CoreValue::from("model"),
+        v_model_resource.clone(),
+    )?;
+    core_set(&v_create_request, CoreValue::from("ttl"), v_ttl.clone())?;
+    v_update_request = CoreValue::new_map();
+    core_set(&v_update_request, CoreValue::from("ttl"), v_ttl.clone())?;
+    v_empty_request = CoreValue::new_map();
+    v_create = CoreValue::new_map();
+    core_set(
+        &v_create,
+        CoreValue::from("method"),
+        CoreValue::from("POST"),
+    )?;
+    core_set(&v_create, CoreValue::from("path"), v_create_path.clone())?;
+    core_set(
+        &v_create,
+        CoreValue::from("request"),
+        v_create_request.clone(),
+    )?;
+    v_update = CoreValue::new_map();
+    core_set(
+        &v_update,
+        CoreValue::from("method"),
+        CoreValue::from("PATCH"),
+    )?;
+    core_set(&v_update, CoreValue::from("path"), v_update_path.clone())?;
+    core_set(
+        &v_update,
+        CoreValue::from("request"),
+        v_update_request.clone(),
+    )?;
+    v_delete_op = CoreValue::new_map();
+    core_set(
+        &v_delete_op,
+        CoreValue::from("method"),
+        CoreValue::from("DELETE"),
+    )?;
+    core_set(&v_delete_op, CoreValue::from("path"), v_delete_path.clone())?;
+    core_set(
+        &v_delete_op,
+        CoreValue::from("request"),
+        v_empty_request.clone(),
+    )?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("create"), v_create.clone())?;
+    core_set(&v_out, CoreValue::from("update"), v_update.clone())?;
+    core_set(&v_out, CoreValue::from("delete"), v_delete_op.clone())?;
     return Ok(v_out.clone());
 }
 
@@ -72390,4 +73186,4 @@ fn mcp_oauth_validate_issuer(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (545 of 545 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (550 of 550 core functions)

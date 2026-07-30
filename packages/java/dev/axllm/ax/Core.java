@@ -3688,6 +3688,36 @@ final class Core {
     return out;
   }
 
+  static Object ai_context_cache_rejection(Object status, Object body_json) {
+    axirCoverageMark("ai_context_cache_rejection");
+    Object status_400_min = Core.gte(status, 400);
+    Object status_400_max = Core.lte(status, 400);
+    Object is_400 = Core.and(status_400_min, status_400_max);
+    Object status_404_min = Core.gte(status, 404);
+    Object status_404_max = Core.lte(status, 404);
+    Object is_404 = Core.and(status_404_min, status_404_max);
+    Object valid_status = Core.or(is_400, is_404);
+    Object body_text = Core.jsonStringify(body_json);
+    Object body_lower = Core.stringLower(body_text);
+    Object names_compact = Core.contains(body_lower, "cachedcontent");
+    Object names_spaced = Core.contains(body_lower, "cached content");
+    Object names_resource = Core.contains(body_lower, "cachedcontents/");
+    Object names_left = Core.or(names_compact, names_spaced);
+    Object names_cache = Core.or(names_left, names_resource);
+    Object has_cache = Core.contains(body_lower, "cache");
+    Object expired = Core.contains(body_lower, "expired");
+    Object not_found = Core.contains(body_lower, "not found");
+    Object missing = Core.contains(body_lower, "does not exist");
+    Object invalid = Core.contains(body_lower, "invalid");
+    Object invalid_left = Core.or(expired, not_found);
+    Object invalid_right = Core.or(missing, invalid);
+    Object invalid_reason = Core.or(invalid_left, invalid_right);
+    Object invalid_cache = Core.and(has_cache, invalid_reason);
+    Object cache_rejection = Core.or(names_cache, invalid_cache);
+    Object out = Core.and(valid_status, cache_rejection);
+    return out;
+  }
+
   static Object _openai_normalize_choice_impl(Object choice, Object raw) {
     axirCoverageMark("_openai_normalize_choice_impl");
     Object empty_message = new java.util.LinkedHashMap<String, Object>();
@@ -3723,6 +3753,18 @@ final class Core {
     return out;
   }
 
+  static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
+    axirCoverageMark("ai_context_cache_expiry");
+    Object is_number = Core.typeIs(provider_expire_time, "number");
+    if (Core.truthy(is_number)) {
+      Object future = Core.gt(provider_expire_time, now);
+      if (Core.truthy(future)) {
+        return provider_expire_time;
+      }
+    }
+    return 0;
+  }
+
   static Object _openai_normalize_tool_calls_impl(Object calls) {
     axirCoverageMark("_openai_normalize_tool_calls_impl");
     Object out = new java.util.ArrayList<Object>();
@@ -3752,6 +3794,52 @@ final class Core {
     return out;
   }
 
+  static Object ai_context_cache_plan(Object configured, Object supported, Object explicit_name, Object existing, Object now, Object refresh_window_ms, Object create_eligible) {
+    axirCoverageMark("ai_context_cache_plan");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "action", "none");
+    Core.set(out, "managed", Boolean.FALSE);
+    Object enabled = Core.and(configured, supported);
+    Object disabled = Core.not(enabled);
+    if (Core.truthy(disabled)) {
+      return out;
+    }
+    Object explicit_length = Core.len(explicit_name);
+    Object has_explicit = Core.gt(explicit_length, 0);
+    if (Core.truthy(has_explicit)) {
+      Core.set(out, "action", "use");
+      Core.set(out, "cacheName", explicit_name);
+      return out;
+    }
+    Object existing_object = Core.typeIs(existing, "object");
+    if (Core.truthy(existing_object)) {
+      Object cache_name = Core.get(existing, "cacheName", "");
+      Object expires_at = Core.get(existing, "expiresAt", 0);
+      Object cache_name_length = Core.len(cache_name);
+      Object has_name = Core.gt(cache_name_length, 0);
+      Object future = Core.gt(expires_at, now);
+      Object valid = Core.and(has_name, future);
+      if (Core.truthy(valid)) {
+        Object refresh_at = Core.add(now, refresh_window_ms);
+        Object needs_refresh = Core.lt(expires_at, refresh_at);
+        Core.set(out, "managed", Boolean.TRUE);
+        Core.set(out, "cacheName", cache_name);
+        if (Core.truthy(needs_refresh)) {
+          Core.set(out, "action", "refresh");
+        }
+        if (!Core.truthy(needs_refresh)) {
+          Core.set(out, "action", "use");
+        }
+        return out;
+      }
+    }
+    if (Core.truthy(create_eligible)) {
+      Core.set(out, "action", "create");
+      Core.set(out, "managed", Boolean.TRUE);
+    }
+    return out;
+  }
+
   static Object _openai_finish_reason_impl(Object value) {
     axirCoverageMark("_openai_finish_reason_impl");
     Object is_stop = Core.eq(value, "stop");
@@ -3776,6 +3864,31 @@ final class Core {
     return none;
   }
 
+  static Object ai_context_cache_recovery(Object current_entry, Object cache_name, Object external_registry) {
+    axirCoverageMark("ai_context_cache_recovery");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "invalidated", Boolean.FALSE);
+    Core.set(out, "deleteInMemory", Boolean.FALSE);
+    Object entry_object = Core.typeIs(current_entry, "object");
+    if (Core.truthy(entry_object)) {
+      Object current_name = Core.get(current_entry, "cacheName", "");
+      Object matches = Core.eq(current_name, cache_name);
+      if (Core.truthy(matches)) {
+        Core.set(out, "invalidated", Boolean.TRUE);
+        if (Core.truthy(external_registry)) {
+          Object empty = new java.util.LinkedHashMap<String, Object>();
+          Object tombstone = Core.mapMerge(current_entry, empty);
+          Core.set(tombstone, "expiresAt", 0);
+          Core.set(out, "externalEntry", tombstone);
+        }
+        if (!Core.truthy(external_registry)) {
+          Core.set(out, "deleteInMemory", Boolean.TRUE);
+        }
+      }
+    }
+    return out;
+  }
+
   static Object openai_normalize_embed_response(Object raw, Object ai_name, Object model) {
     axirCoverageMark("openai_normalize_embed_response");
     Object embeddings = new java.util.ArrayList<Object>();
@@ -3794,6 +3907,54 @@ final class Core {
     Core.set(out, "embeddings", embeddings);
     Core.set(out, "remote_id", remote_id);
     Core.set(out, "model_usage", model_usage);
+    return out;
+  }
+
+  static Object ai_gemini_cache_ops(Object cache_name, Object ttl_seconds, Object api_key, Object model, Object create_body) {
+    axirCoverageMark("ai_gemini_cache_ops");
+    Object ttl = Core.stringFormat("{}s", ttl_seconds);
+    Object api_key_length = Core.len(api_key);
+    Object has_key = Core.gt(api_key_length, 0);
+    Object create_path = "/cachedContents";
+    Object update_path = Core.stringFormat("/{}?updateMask=ttl", cache_name);
+    Object delete_path = Core.stringFormat("/{}", cache_name);
+    if (Core.truthy(has_key)) {
+      Object create_with_key = Core.stringFormat("/cachedContents?key={}", api_key);
+      Object update_with_key = Core.stringFormat("/{}?updateMask=ttl&key={}", cache_name, api_key);
+      Object delete_with_key = Core.stringFormat("/{}?key={}", cache_name, api_key);
+      create_path = create_with_key;
+      update_path = update_with_key;
+      delete_path = delete_with_key;
+    }
+    Object create_request = new java.util.LinkedHashMap<String, Object>();
+    Object create_is_object = Core.typeIs(create_body, "object");
+    if (Core.truthy(create_is_object)) {
+      Object empty = new java.util.LinkedHashMap<String, Object>();
+      Object create_copy = Core.mapMerge(create_body, empty);
+      create_request = create_copy;
+    }
+    Object model_resource = Core.stringFormat("models/{}", model);
+    Core.set(create_request, "model", model_resource);
+    Core.set(create_request, "ttl", ttl);
+    Object update_request = new java.util.LinkedHashMap<String, Object>();
+    Core.set(update_request, "ttl", ttl);
+    Object empty_request = new java.util.LinkedHashMap<String, Object>();
+    Object create = new java.util.LinkedHashMap<String, Object>();
+    Core.set(create, "method", "POST");
+    Core.set(create, "path", create_path);
+    Core.set(create, "request", create_request);
+    Object update = new java.util.LinkedHashMap<String, Object>();
+    Core.set(update, "method", "PATCH");
+    Core.set(update, "path", update_path);
+    Core.set(update, "request", update_request);
+    Object delete_op = new java.util.LinkedHashMap<String, Object>();
+    Core.set(delete_op, "method", "DELETE");
+    Core.set(delete_op, "path", delete_path);
+    Core.set(delete_op, "request", empty_request);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "create", create);
+    Core.set(out, "update", update);
+    Core.set(out, "delete", delete_op);
     return out;
   }
 

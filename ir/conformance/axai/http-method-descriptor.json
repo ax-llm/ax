@@ -1,0 +1,49 @@
+{
+  "args": [
+    "cachedContents/cache-1",
+    3600,
+    "gemini-key",
+    "gemini-3.5-flash",
+    {
+      "systemInstruction": {
+        "parts": [
+          {
+            "text": "stable context"
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "create": {
+      "method": "POST",
+      "path": "/cachedContents?key=gemini-key",
+      "request": {
+        "model": "models/gemini-3.5-flash",
+        "systemInstruction": {
+          "parts": [
+            {
+              "text": "stable context"
+            }
+          ]
+        },
+        "ttl": "3600s"
+      }
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/cachedContents/cache-1?key=gemini-key",
+      "request": {}
+    },
+    "update": {
+      "method": "PATCH",
+      "path": "/cachedContents/cache-1?updateMask=ttl&key=gemini-key",
+      "request": {
+        "ttl": "3600s"
+      }
+    }
+  },
+  "kind": "ai_context_cache",
+  "name": "http-method-descriptor",
+  "operation": "gemini_ops"
+}

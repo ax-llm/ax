@@ -2785,6 +2785,21 @@ static void run(Value fixture) {
     run_ai_speak(fixture);
   } else if (kind == "ai_realtime") {
     run_ai_realtime(fixture);
+  } else if (kind == "ai_context_cache") {
+    auto operation = display(Core::get(fixture, "operation", ""));
+    auto cases = Core::iter(Core::get(fixture, "cases", Value::array()));
+    if (cases.empty()) cases.push_back(object({{"args", Core::get(fixture, "args", Value::array())}, {"expected", Core::get(fixture, "expected")}}));
+    for (size_t index = 0; index < cases.size(); ++index) {
+      auto args = Core::iter(Core::get(cases[index], "args", Value::array()));
+      Value actual;
+      if (operation == "rejection") actual = Core::ai_context_cache_rejection(args.at(0), args.at(1));
+      else if (operation == "expiry") actual = Core::ai_context_cache_expiry(args.at(0), args.at(1));
+      else if (operation == "plan") actual = Core::ai_context_cache_plan(args.at(0), args.at(1), args.at(2), args.at(3), args.at(4), args.at(5), args.at(6));
+      else if (operation == "recovery") actual = Core::ai_context_cache_recovery(args.at(0), args.at(1), args.at(2));
+      else if (operation == "gemini_ops") actual = Core::ai_gemini_cache_ops(args.at(0), args.at(1), args.at(2), args.at(3), args.at(4));
+      else throw AxError("fixture", "unsupported AI context-cache operation " + operation);
+      assert_equal(actual, Core::get(cases[index], "expected"), "AI context-cache " + operation + " case " + std::to_string(index));
+    }
   } else {
     throw AxError("fixture", "unsupported C++ alpha fixture kind " + kind);
   }

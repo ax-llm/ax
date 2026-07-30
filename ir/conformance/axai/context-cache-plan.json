@@ -1,0 +1,67 @@
+{
+  "cases": [
+    {
+      "args": [false, true, "", {}, 1000, 300, true],
+      "expected": {
+        "action": "none",
+        "managed": false
+      }
+    },
+    {
+      "args": [true, true, "cachedContents/explicit", {}, 1000, 300, true],
+      "expected": {
+        "action": "use",
+        "cacheName": "cachedContents/explicit",
+        "managed": false
+      }
+    },
+    {
+      "args": [
+        true,
+        true,
+        "",
+        {
+          "cacheName": "cachedContents/fresh",
+          "expiresAt": 5000
+        },
+        1000,
+        300,
+        true
+      ],
+      "expected": {
+        "action": "use",
+        "cacheName": "cachedContents/fresh",
+        "managed": true
+      }
+    },
+    {
+      "args": [
+        true,
+        true,
+        "",
+        {
+          "cacheName": "cachedContents/near-expiry",
+          "expiresAt": 1200
+        },
+        1000,
+        300,
+        true
+      ],
+      "expected": {
+        "action": "refresh",
+        "cacheName": "cachedContents/near-expiry",
+        "managed": true
+      }
+    },
+    {
+      "args": [true, true, "", {}, 1000, 300, true],
+      "expected": {
+        "action": "create",
+        "managed": true
+      }
+    }
+  ],
+  "kind": "ai_context_cache",
+  "name": "context-cache-plan",
+  "operation": "plan"
+}

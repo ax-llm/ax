@@ -1,0 +1,53 @@
+{
+  "cases": [
+    {
+      "args": [
+        {
+          "cacheName": "cachedContents/current",
+          "expiresAt": 5000
+        },
+        "cachedContents/current",
+        true
+      ],
+      "expected": {
+        "deleteInMemory": false,
+        "externalEntry": {
+          "cacheName": "cachedContents/current",
+          "expiresAt": 0
+        },
+        "invalidated": true
+      }
+    },
+    {
+      "args": [
+        {
+          "cacheName": "cachedContents/current",
+          "expiresAt": 5000
+        },
+        "cachedContents/current",
+        false
+      ],
+      "expected": {
+        "deleteInMemory": true,
+        "invalidated": true
+      }
+    },
+    {
+      "args": [
+        {
+          "cacheName": "cachedContents/replaced",
+          "expiresAt": 5000
+        },
+        "cachedContents/stale",
+        true
+      ],
+      "expected": {
+        "deleteInMemory": false,
+        "invalidated": false
+      }
+    }
+  ],
+  "kind": "ai_context_cache",
+  "name": "context-cache-recovery",
+  "operation": "recovery"
+}

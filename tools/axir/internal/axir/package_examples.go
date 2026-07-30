@@ -1,5 +1,184 @@
 package axir
 
+const pyContextCacheRecoveryExample = `import json
+import os
+import time
+
+from axllm import GoogleGeminiClient
+
+
+def chat_response(text):
+    return {"status": 200, "json": {"candidates": [{"content": {"parts": [{"text": text}]}, "finishReason": "STOP"}]}}
+
+
+class ScriptedTransport:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.requests = []
+
+    def __call__(self, request):
+        self.requests.append(request)
+        return self.responses.pop(0)
+
+
+def client(transport):
+    return GoogleGeminiClient(model="gemini-3.5-flash", api_key="gemini-key", transport=transport, contextCache={"minTokens": 0, "ttlSeconds": 3600, "refreshWindowSeconds": 300})
+
+
+request = {"chat_prompt": [{"role": "system", "content": "stable context"}, {"role": "user", "content": "answer briefly"}]}
+future = lambda seconds: int(time.time() * 1000) + seconds * 1000
+
+recovery = ScriptedTransport([
+    {"status": 200, "json": {"name": "cachedContents/cache-1", "expireTime": future(3600)}},
+    {"status": 400, "json": {"error": {"message": "cachedContent is invalid"}}},
+    chat_response("uncached recovery"),
+])
+assert client(recovery).chat(request)["results"][0]["content"] == "uncached recovery"
+assert [item["method"] for item in recovery.requests] == ["POST", "POST", "POST"]
+assert "cachedContent" in recovery.requests[1]["json"] and "cachedContent" not in recovery.requests[2]["json"]
+
+refresh = ScriptedTransport([
+    {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(1)}}, chat_response("old"),
+    {"status": 500, "json": {"error": {"message": "refresh failed"}}},
+    {"status": 200, "json": {"name": "cachedContents/new", "expireTime": future(3600)}}, chat_response("recreated"),
+])
+refresh_client = client(refresh)
+refresh_client.chat(request)
+assert refresh_client.chat(request)["results"][0]["content"] == "recreated"
+assert [item["method"] for item in refresh.requests] == ["POST", "POST", "PATCH", "POST", "POST"]
+
+fallback = ScriptedTransport([
+    {"status": 200, "json": {"name": "cachedContents/old", "expireTime": future(1)}}, chat_response("old"),
+    {"status": 500, "json": {"error": {"message": "refresh failed"}}},
+    {"status": 500, "json": {"error": {"message": "recreate failed"}}}, chat_response("uncached fallback"),
+])
+fallback_client = client(fallback)
+fallback_client.chat(request)
+assert fallback_client.chat(request)["results"][0]["content"] == "uncached fallback"
+assert [item["method"] for item in fallback.requests] == ["POST", "POST", "PATCH", "POST", "POST"]
+
+if os.getenv("AX_CONTEXT_CACHE_LIVE") == "1":
+    key = os.getenv("GOOGLE_APIKEY") or os.getenv("GOOGLE_API_KEY")
+    if not key:
+        raise SystemExit("Set GOOGLE_APIKEY to run the live Gemini cache exercise")
+    entries = {}
+    registry = {"get": lambda namespace, cache_key: entries.get((namespace, cache_key)), "set": lambda namespace, cache_key, entry: entries.__setitem__((namespace, cache_key), entry)}
+    live = GoogleGeminiClient(model=os.getenv("AX_GEMINI_MODEL", "gemini-3.5-flash"), api_key=key, contextCache={"minTokens": 0, "ttlSeconds": 60, "refreshWindowSeconds": 120, "namespace": "live-example", "registry": registry})
+    live_request = {"chat_prompt": [{"role": "system", "content": "This is stable reference context. " * 4000}, {"role": "user", "content": "Reply with the word ready."}]}
+    live.chat(live_request)
+    first_expiry = next(iter(entries.values()))["expiresAt"]
+    live.chat(live_request)
+    second_expiry = next(iter(entries.values()))["expiresAt"]
+    assert second_expiry >= first_expiry
+    print(json.dumps({"live": True, "createdExpiry": first_expiry, "refreshedExpiry": second_expiry}))
+else:
+    print("python-context-cache-recovery-ok")
+`
+
+const goContextCacheRecoveryExample = `package main
+
+import (
+  "context"
+  "fmt"
+  "time"
+  ax "github.com/ax-llm/ax/packages/go"
+)
+
+func success(text string) ax.Value { return ax.Object("status", 200.0, "json", ax.Object("candidates", ax.Array(ax.Object("content", ax.Object("parts", ax.Array(ax.Object("text", text)))), "finishReason", "STOP"))) }
+func cache(name string, seconds int64) ax.Value { return ax.Object("status", 200.0, "json", ax.Object("name", name, "expireTime", float64(time.Now().Add(time.Duration(seconds)*time.Second).UnixMilli()))) }
+func failure(status float64, message string) ax.Value { return ax.Object("status", status, "json", ax.Object("error", ax.Object("message", message))) }
+func service(transport *ax.ScriptedTransport) *ax.GoogleGeminiClient { return ax.NewGoogleGeminiClient(map[string]ax.Value{"model":"gemini-3.5-flash", "api_key":"gemini-key", "transport":transport, "contextCache":ax.Object("minTokens",0.0,"ttlSeconds",3600.0,"refreshWindowSeconds",300.0)}) }
+func methods(requests []ax.Value) []string { out:=[]string{}; for _,request:=range requests { out=append(out, request.(map[string]ax.Value)["method"].(string)) }; return out }
+func same(actual []string, expected ...string) bool { if len(actual)!=len(expected){return false}; for i:=range actual{if actual[i]!=expected[i]{return false}}; return true }
+
+func main() {
+  request:=map[string]ax.Value{"chat_prompt":ax.Array(ax.Object("role","system","content","stable context"),ax.Object("role","user","content","answer briefly"))}
+  recovery:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/cache-1",3600),failure(400,"cachedContent is invalid"),success("uncached recovery")})
+  out,err:=service(recovery).Chat(context.Background(),request,nil); if err!=nil||out==nil||!same(methods(recovery.Requests),"POST","POST","POST"){panic(fmt.Sprint(out,err,recovery.Requests))}
+  refresh:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")})
+  refreshClient:=service(refresh); if _,err=refreshClient.Chat(context.Background(),request,nil);err!=nil{panic(err)}; if _,err=refreshClient.Chat(context.Background(),request,nil);err!=nil||!same(methods(refresh.Requests),"POST","POST","PATCH","POST","POST"){panic(fmt.Sprint(err,refresh.Requests))}
+  fallback:=ax.NewScriptedTransport([]ax.Value{cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")})
+  fallbackClient:=service(fallback); if _,err=fallbackClient.Chat(context.Background(),request,nil);err!=nil{panic(err)}; if _,err=fallbackClient.Chat(context.Background(),request,nil);err!=nil||!same(methods(fallback.Requests),"POST","POST","PATCH","POST","POST"){panic(fmt.Sprint(err,fallback.Requests))}
+  fmt.Println("go-context-cache-recovery-ok")
+}
+`
+
+const javaContextCacheRecoveryExample = `import dev.axllm.ax.GoogleGeminiClient;
+import dev.axllm.ax.OpenAICompatibleClient;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+public class ContextCacheRecoveryExample {
+  static Object success(String text) { return Map.of("status",200,"json",Map.of("candidates",List.of(Map.of("content",Map.of("parts",List.of(Map.of("text",text))),"finishReason","STOP")))); }
+  static Object cache(String name,long seconds) { return Map.of("status",200,"json",Map.of("name",name,"expireTime",System.currentTimeMillis()+seconds*1000)); }
+  static Object failure(int status,String message) { return Map.of("status",status,"json",Map.of("error",Map.of("message",message))); }
+  static final class Script implements OpenAICompatibleClient.Transport {
+    final ArrayDeque<Object> responses; final List<Map<String,Object>> requests=new ArrayList<>();
+    Script(Object... responses){this.responses=new ArrayDeque<>(List.of(responses));}
+    public Object call(Map<String,Object> request){requests.add(new LinkedHashMap<>(request));return responses.removeFirst();}
+    List<String> methods(){return requests.stream().map(value->String.valueOf(value.get("method"))).toList();}
+  }
+  static GoogleGeminiClient service(Script script){return new GoogleGeminiClient(Map.of("model","gemini-3.5-flash","api_key","gemini-key","transport",script,"contextCache",Map.of("minTokens",0,"ttlSeconds",3600,"refreshWindowSeconds",300)));}
+  public static void main(String[] args) throws Exception {
+    Map<String,Object> request=Map.of("chat_prompt",List.of(Map.of("role","system","content","stable context"),Map.of("role","user","content","answer briefly")));
+    Script recovery=new Script(cache("cachedContents/cache-1",3600),failure(400,"cachedContent is invalid"),success("uncached recovery")); service(recovery).chat(request); if(!recovery.methods().equals(List.of("POST","POST","POST")))throw new AssertionError(recovery.methods());
+    Script refresh=new Script(cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")); GoogleGeminiClient refreshClient=service(refresh);refreshClient.chat(request);refreshClient.chat(request);if(!refresh.methods().equals(List.of("POST","POST","PATCH","POST","POST")))throw new AssertionError(refresh.methods());
+    Script fallback=new Script(cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback"));GoogleGeminiClient fallbackClient=service(fallback);fallbackClient.chat(request);fallbackClient.chat(request);if(!fallback.methods().equals(List.of("POST","POST","PATCH","POST","POST")))throw new AssertionError(fallback.methods());
+    System.out.println("java-context-cache-recovery-ok");
+  }
+}
+`
+
+const rustContextCacheRecoveryExample = `use axllm::{AxAIClient, AxError, AxResult, AxTransport, OpenAICompatibleClient};
+use serde_json::{json, Value};
+use std::collections::VecDeque;
+use std::sync::{Arc,Mutex};
+use std::time::{SystemTime,UNIX_EPOCH};
+
+#[derive(Clone)] struct Script(Arc<Mutex<State>>); struct State{responses:VecDeque<Value>,requests:Vec<Value>}
+impl Script{fn new(responses:Vec<Value>)->Self{Self(Arc::new(Mutex::new(State{responses:responses.into(),requests:vec![]})))}fn methods(&self)->Vec<String>{self.0.lock().unwrap().requests.iter().map(|value|value["method"].as_str().unwrap().to_string()).collect()}}
+impl AxTransport for Script{fn send(&mut self,request:Value)->AxResult<Value>{let mut state=self.0.lock().unwrap();state.requests.push(request);state.responses.pop_front().ok_or_else(||AxError::runtime("script exhausted"))}}
+fn now()->u64{SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()as u64}
+fn success(text:&str)->Value{json!({"status":200,"json":{"candidates":[{"content":{"parts":[{"text":text}]},"finishReason":"STOP"}]}})}
+fn cache(name:&str,seconds:u64)->Value{json!({"status":200,"json":{"name":name,"expireTime":now()+seconds*1000}})}
+fn failure(status:u16,message:&str)->Value{json!({"status":status,"json":{"error":{"message":message}}})}
+fn service(script:Script)->OpenAICompatibleClient{OpenAICompatibleClient::new("gemini-key","gemini-3.5-flash").with_profile("google-gemini").with_options(json!({"contextCache":{"minTokens":0,"ttlSeconds":3600,"refreshWindowSeconds":300}})).with_transport(script)}
+fn main()->AxResult<()>{
+ let request=json!({"chat_prompt":[{"role":"system","content":"stable context"},{"role":"user","content":"answer briefly"}]});
+ let recovery=Script::new(vec![cache("cachedContents/cache-1",3600),failure(400,"cachedContent is invalid"),success("uncached recovery")]);service(recovery.clone()).chat(request.clone())?;assert_eq!(recovery.methods(),vec!["POST","POST","POST"]);
+ let refresh=Script::new(vec![cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")]);let mut refresh_client=service(refresh.clone());refresh_client.chat(request.clone())?;refresh_client.chat(request.clone())?;assert_eq!(refresh.methods(),vec!["POST","POST","PATCH","POST","POST"]);
+ let fallback=Script::new(vec![cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")]);let mut fallback_client=service(fallback.clone());fallback_client.chat(request.clone())?;fallback_client.chat(request)?;assert_eq!(fallback.methods(),vec!["POST","POST","PATCH","POST","POST"]);
+ println!("rust-context-cache-recovery-ok");Ok(())
+}
+`
+
+const cppContextCacheRecoveryExample = `#include "axllm/axllm.hpp"
+#include <chrono>
+#include <iostream>
+
+struct Script : axllm::Transport {
+  std::vector<axllm::Value> responses; std::vector<axllm::Value> requests; std::size_t index=0;
+  explicit Script(std::vector<axllm::Value> values):responses(std::move(values)){}
+  axllm::Value call(axllm::Value request) override {requests.push_back(request);return responses.at(index++);}
+  std::vector<std::string> methods()const{std::vector<std::string> out;for(auto request:requests)out.push_back(axllm::display(axllm::Core::get(request,"method")));return out;}
+};
+double now_ms(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();}
+axllm::Value success(std::string text){return axllm::object({{"status",200},{"json",axllm::object({{"candidates",axllm::array({axllm::object({{"content",axllm::object({{"parts",axllm::array({axllm::object({{"text",text}})})}})},{"finishReason","STOP"}})})}})}});}
+axllm::Value cache(std::string name,int seconds){return axllm::object({{"status",200},{"json",axllm::object({{"name",name},{"expireTime",now_ms()+seconds*1000}})}});}
+axllm::Value failure(int status,std::string message){return axllm::object({{"status",status},{"json",axllm::object({{"error",axllm::object({{"message",message}})}})}});}
+axllm::GoogleGeminiClient service(Script* script){return axllm::GoogleGeminiClient(axllm::object({{"model","gemini-3.5-flash"},{"api_key","gemini-key"},{"contextCache",axllm::object({{"minTokens",0},{"ttlSeconds",3600},{"refreshWindowSeconds",300}})}}),script);}
+int main(){
+ auto request=axllm::object({{"chat_prompt",axllm::array({axllm::object({{"role","system"},{"content","stable context"}}),axllm::object({{"role","user"},{"content","answer briefly"}})})}});
+ Script recovery({cache("cachedContents/cache-1",3600),failure(400,"cachedContent is invalid"),success("uncached recovery")});auto recovery_client=service(&recovery);recovery_client.chat(request);if(recovery.methods()!=std::vector<std::string>({"POST","POST","POST"}))return 1;
+ Script refresh({cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")});auto refresh_client=service(&refresh);refresh_client.chat(request);refresh_client.chat(request);if(refresh.methods()!=std::vector<std::string>({"POST","POST","PATCH","POST","POST"}))return 2;
+ Script fallback({cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")});auto fallback_client=service(&fallback);fallback_client.chat(request);fallback_client.chat(request);if(fallback.methods()!=std::vector<std::string>({"POST","POST","PATCH","POST","POST"}))return 3;
+ std::cout<<"cpp-context-cache-recovery-ok\n";
+}
+`
+
 const pySignatureSchemaExample = `from axllm import s
 
 sig = s("question:string -> answer:string")

@@ -87,9 +87,10 @@ class AxError : public std::runtime_error {
   int status;
   std::string code;
   bool retryable;
+  Value response_body;
   AxError(std::string category, std::string message);
   AxError(std::string category, std::string message, std::string type, int status = 0,
-          std::string code = "", bool retryable = false);
+          std::string code = "", bool retryable = false, Value response_body = Value());
 };
 
 struct Core {
@@ -312,10 +313,15 @@ struct Core {
   static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
   static Value openai_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value chat_response_to_completion(Value response);
+  static Value ai_context_cache_rejection(Value status, Value body_json);
   static Value _openai_normalize_choice_impl(Value choice, Value raw);
+  static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
   static Value _openai_normalize_tool_calls_impl(Value calls);
+  static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
   static Value _openai_finish_reason_impl(Value value);
+  static Value ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
+  static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body);
   static Value openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model);
   static Value _openai_stream_choice_impl(Value choice, Value index_ids);
   static Value openai_normalize_error(Value status, Value body, Value request);
@@ -1049,6 +1055,13 @@ class HttpTransport : public Transport {
   Value call(Value request) override;
 };
 
+class AxContextCacheRegistry {
+ public:
+  virtual ~AxContextCacheRegistry() = default;
+  virtual Value get(const std::string& tenant_namespace, const std::string& key) = 0;
+  virtual void set(const std::string& tenant_namespace, const std::string& key, Value entry) = 0;
+};
+
 // Transport seam for the realtime turn driver: ScriptedRealtimeTransport for
 // deterministic offline turns, plus a WebSocket-backed transport (compiled only
 // when AXLLM_ENABLE_REALTIME is defined) for live turns.
@@ -1082,6 +1095,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value realtime_audio_setup(Value request);
   Value realtime_audio_input(Value request);
   Value realtime_chat(Value request, RealtimeTransport* transport = nullptr);
+  OpenAICompatibleClient& context_cache_registry(AxContextCacheRegistry* registry);
 
  protected:
   OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model);
@@ -1097,9 +1111,14 @@ class OpenAICompatibleClient : public AxBaseAI {
   double timeout_seconds_;
   std::unique_ptr<Transport> owned_transport_;
   Transport* transport_;
+  AxContextCacheRegistry* context_cache_registry_ = nullptr;
+  Value context_cache_entries_ = Value::object();
+  Value context_cache_chat(Value request, Value options, Value payload, Value model, const std::string& endpoint);
   Value request_json(const std::string& endpoint, Value payload, bool stream);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key);
   Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response);
+  Value request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method);
+  std::string operation_method(const std::string& operation) const;
   std::string operation_path(const std::string& operation) const;
   std::string operation_path(const std::string& operation, Value model) const;
   Value headers() const;

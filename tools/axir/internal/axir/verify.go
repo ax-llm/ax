@@ -467,6 +467,7 @@ func verifyGoTarget(report VerifyTargetReport, conformanceRoot string) (VerifyTa
 		"mcp_scripted_tools",
 		"mcp_modern_roundtrip",
 		"mcp_sse_roundtrip",
+		"context_cache_recovery",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, report.OutDir, env, goTool, "run", "./examples/"+example); err != nil {
 			return report, err
@@ -560,6 +561,7 @@ func verifyRustTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"mcp_scripted_tools",
 		"mcp_modern_roundtrip",
 		"mcp_sse_roundtrip",
+		"context_cache_recovery",
 	} {
 		if err := runCargoVerifyCommand(&report, "example "+example, report.OutDir, env, cargo, "run", "--quiet", "--manifest-path", filepath.Join(report.OutDir, "Cargo.toml"), "--example", example); err != nil {
 			return report, err
@@ -704,6 +706,7 @@ func verifyPythonTarget(report VerifyTargetReport, conformanceRoot string) (Veri
 		"mcp_scripted_tools.py",
 		"mcp_modern_roundtrip.py",
 		"mcp_sse_roundtrip.py",
+		"context_cache_recovery.py",
 	} {
 		if err := runVerifyCommand(&report, "example "+example, "", env, python, filepath.Join(report.OutDir, "examples", example)); err != nil {
 			return report, err
@@ -842,6 +845,7 @@ func verifyJavaTarget(report VerifyTargetReport, conformanceRoot string) (Verify
 		"AxMCPScriptedToolsExample",
 		"AxMCPModernRoundtripExample",
 		"AxMCPSseRoundtripExample",
+		"ContextCacheRecoveryExample",
 	} {
 		if err := runVerifyCommand(&report, "example "+className, "", env, java, "-cp", report.OutDir, className); err != nil {
 			return report, err
@@ -1204,6 +1208,7 @@ func verifyCppTarget(report VerifyTargetReport, conformanceRoot string) (VerifyT
 		"ace_playbook",
 		"agent_playbook",
 		"mcp_scripted_tools",
+		"context_cache_recovery",
 	}
 	for _, example := range examples {
 		source := filepath.Join(report.OutDir, "examples", example+".cpp")

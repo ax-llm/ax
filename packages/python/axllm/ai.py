@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 import base64
 import copy
 from dataclasses import dataclass
+from datetime import datetime
+import hashlib
 import json
 import math
 import os
@@ -553,6 +555,7 @@ class ProviderOperationClient(AxBaseAI):
         self.api_version = api_version or descriptor.get("apiVersion")
         self.timeout = timeout
         self.transport = transport
+        self._context_cache_entries: dict[str, dict[str, Any]] = {}
 
     def __enter__(self):
         return self
@@ -569,8 +572,135 @@ class ProviderOperationClient(AxBaseAI):
             return self._stream_chat(payload, request, options)
         model = request.get("model") or payload.get("model") or self.model
         endpoint = self._operation_path("chat", model)
-        raw = self._request_json(endpoint, payload, stream=False)
+        raw = self._context_cache_chat(request, payload, model, endpoint, options)
+        if raw is None:
+            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"))
         return provider_normalize_chat_response(self.profile, raw, self.name, model)
+
+    def _context_cache_chat(self, request, payload, model, endpoint, options):
+        cfg = (options or {}).get("contextCache", (options or {}).get("context_cache"))
+        supported = bool((((self.descriptor.get("features") or {}).get("caching") or {}).get("supported")))
+        if self.profile != "google-gemini" or not supported or not cfg:
+            return None
+        if cfg is True:
+            cfg = {}
+        if not isinstance(cfg, dict):
+            return None
+        explicit = str(cfg.get("name") or cfg.get("cacheName") or cfg.get("cache_name") or "")
+        if explicit:
+            cached_payload = copy.deepcopy(payload)
+            cached_payload["cachedContent"] = explicit
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"))
+
+        prompts = request.get("chat_prompt") or request.get("chatPrompt") or request.get("messages") or []
+        non_system_seen = 0
+        cached_content_count = 0
+        for prompt in prompts if isinstance(prompts, list) else []:
+            if not isinstance(prompt, dict) or prompt.get("role") == "system":
+                continue
+            non_system_seen += 1
+            if prompt.get("cache") is True:
+                cached_content_count = non_system_seen
+        cache_body = {}
+        for key in ("systemInstruction", "tools", "toolConfig"):
+            if key in payload:
+                cache_body[key] = copy.deepcopy(payload[key])
+        contents = list(payload.get("contents") or [])
+        if cached_content_count:
+            cache_body["contents"] = copy.deepcopy(contents[:cached_content_count])
+        if not cache_body.get("systemInstruction") and not cache_body.get("contents"):
+            return None
+        min_tokens = int(cfg.get("minTokens", cfg.get("min_tokens", 2048)))
+        encoded = json.dumps(cache_body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        eligible = math.ceil(len(encoded) / 4) >= min_tokens
+        ttl_seconds = int(cfg.get("ttlSeconds", cfg.get("ttl_seconds", 3600)))
+        refresh_window_ms = int(float(cfg.get("refreshWindowSeconds", cfg.get("refresh_window_seconds", 300))) * 1000)
+        content_hash = hashlib.sha256(encoded.encode()).hexdigest()
+        cache_key = f"{self.profile}:{model}:{content_hash}"
+        namespace = str(cfg.get("namespace") or "default")
+        registry = cfg.get("registry")
+
+        def registry_call(name, *args):
+            callback = registry.get(name) if isinstance(registry, dict) else getattr(registry, name, None)
+            return callback(*args) if callable(callback) else None
+
+        external = registry is not None
+        entry = registry_call("get", namespace, cache_key) if external else self._context_cache_entries.get(cache_key)
+        entry = copy.deepcopy(entry) if isinstance(entry, dict) else {}
+        now = int(time.time() * 1000)
+        plan = ai_context_cache_plan(True, True, "", entry, now, refresh_window_ms, eligible)
+
+        def save(value):
+            if external:
+                registry_call("set", namespace, cache_key, copy.deepcopy(value))
+            else:
+                self._context_cache_entries[cache_key] = copy.deepcopy(value)
+
+        def expiry(value):
+            raw = (value or {}).get("expireTime") or (value or {}).get("expire_time")
+            parsed = 0
+            if isinstance(raw, (int, float)):
+                parsed = int(raw)
+            elif isinstance(raw, str):
+                try:
+                    parsed = int(datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp() * 1000)
+                except ValueError:
+                    pass
+            return ai_context_cache_expiry(parsed, int(time.time() * 1000))
+
+        api_key = self.api_key or ""
+        cache_name = str(plan.get("cacheName") or "")
+        try:
+            if plan.get("action") == "refresh":
+                ops = ai_gemini_cache_ops(cache_name, ttl_seconds, api_key, str(model), cache_body)
+                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"])
+                expires_at = expiry(refreshed)
+                if not expires_at:
+                    raise AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", response_body=refreshed)
+                save({"cacheName": cache_name, "expiresAt": expires_at})
+            if plan.get("action") in ("create", "refresh") and (plan.get("action") == "create" or not cache_name):
+                ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body)
+                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"])
+                cache_name = str((created or {}).get("name") or "")
+                expires_at = expiry(created)
+                if not cache_name or not expires_at:
+                    raise AxAIServiceResponseError("Gemini cache creation omitted name or future expireTime", response_body=created)
+                save({"cacheName": cache_name, "expiresAt": expires_at})
+        except AxAIServiceError:
+            if plan.get("action") == "refresh":
+                try:
+                    ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body)
+                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"])
+                    cache_name = str((created or {}).get("name") or "")
+                    expires_at = expiry(created)
+                    if not cache_name or not expires_at:
+                        raise AxAIServiceResponseError("Gemini cache recreation omitted name or future expireTime", response_body=created)
+                    save({"cacheName": cache_name, "expiresAt": expires_at})
+                except AxAIServiceError:
+                    return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"))
+            else:
+                return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"))
+        if not cache_name:
+            return None
+        cached_payload = copy.deepcopy(payload)
+        cached_payload.pop("systemInstruction", None)
+        cached_payload["contents"] = contents[cached_content_count:]
+        cached_payload.pop("tools", None)
+        cached_payload.pop("toolConfig", None)
+        cached_payload["cachedContent"] = cache_name
+        try:
+            return self._request_json(endpoint, cached_payload, stream=False, method=self._operation_method("chat"))
+        except AxAIServiceError as error:
+            if not ai_context_cache_rejection(error.status or 0, error.response_body):
+                raise
+            current = registry_call("get", namespace, cache_key) if external else self._context_cache_entries.get(cache_key)
+            recovery = ai_context_cache_recovery(current or {}, cache_name, external)
+            if recovery.get("invalidated"):
+                if external:
+                    registry_call("set", namespace, cache_key, recovery.get("externalEntry"))
+                elif recovery.get("deleteInMemory"):
+                    self._context_cache_entries.pop(cache_key, None)
+            return self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"))
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         req = _coerce_chat_request(request)
@@ -593,7 +723,7 @@ class ProviderOperationClient(AxBaseAI):
         payload = provider_build_embed_request(self.profile, request)
         model = request.get("embed_model") or request.get("embedModel") or payload.get("model") or self.embed_model
         endpoint = self._operation_path("embed", model)
-        raw = self._request_json(endpoint, payload, stream=False)
+        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"))
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
     def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -611,7 +741,7 @@ class ProviderOperationClient(AxBaseAI):
             # normalize runs (so peeking has no side effects). If the provider classifies it as
             # a retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
             # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
-            raw = self._request_json(endpoint, payload, stream=True)
+            raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"))
             events = _iter_sse_json(raw)
             first = next(events, sentinel)
             if first is not sentinel:
@@ -634,7 +764,7 @@ class ProviderOperationClient(AxBaseAI):
         model = request.get("model") or self.model
         descriptor = provider_operation_descriptor(self.profile, "transcribe")
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
-        raw = self._request_json(self._operation_path("transcribe", model), payload, stream=False, body_key=body_key)
+        raw = self._request_json(self._operation_path("transcribe", model), payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"))
         return provider_normalize_transcribe_response(self.profile, raw)
 
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -643,7 +773,7 @@ class ProviderOperationClient(AxBaseAI):
         descriptor = provider_operation_descriptor(self.profile, "speak")
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
         binary_response = descriptor.get("response") == "binary"
-        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response)
+        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"))
         return provider_normalize_speak_response(self.profile, raw, request)
 
     def realtime(self, events: Iterable[dict[str, Any]], model: str | None = None):
@@ -753,9 +883,13 @@ class ProviderOperationClient(AxBaseAI):
             path += separator + "api-version=" + urllib.parse.quote(str(self.api_version), safe="")
         return path
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False):
+    def _operation_method(self, operation: str) -> str:
+        return str(provider_operation_descriptor(self.profile, operation).get("method") or "POST").upper()
+
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST"):
+        method = str(method or "POST").upper()
         call = {
-            "method": "POST",
+            "method": method,
             "url": self.base_url + endpoint,
             "headers": self._headers(),
             body_key: payload,
@@ -783,7 +917,7 @@ class ProviderOperationClient(AxBaseAI):
             call["url"],
             data=request_body,
             headers=request_headers,
-            method="POST",
+            method=method,
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as res:
@@ -854,7 +988,7 @@ class GoogleGeminiClient(ProviderOperationClient):
         embed_model = options.pop("embed_model", None)
         if embed_model is None:
             embed_model = options.pop("embedModel", "gemini-embedding-2")
-        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("GOOGLE_APIKEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
         base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("GOOGLE_GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta"
         super().__init__(
             "google-gemini",
@@ -2613,6 +2747,36 @@ def chat_response_to_completion(response: AxChatResponse) -> Any:
     return out
 
 
+def ai_context_cache_rejection(status: number, body_json: Any) -> bool:
+    _core_coverage_mark("ai_context_cache_rejection")
+    status_400_min = _core_gte(status, 400)
+    status_400_max = _core_lte(status, 400)
+    is_400 = _core_and(status_400_min, status_400_max)
+    status_404_min = _core_gte(status, 404)
+    status_404_max = _core_lte(status, 404)
+    is_404 = _core_and(status_404_min, status_404_max)
+    valid_status = _core_or(is_400, is_404)
+    body_text = _core_json_stringify(body_json)
+    body_lower = _core_string_lower(body_text)
+    names_compact = _core_contains(body_lower, "cachedcontent")
+    names_spaced = _core_contains(body_lower, "cached content")
+    names_resource = _core_contains(body_lower, "cachedcontents/")
+    names_left = _core_or(names_compact, names_spaced)
+    names_cache = _core_or(names_left, names_resource)
+    has_cache = _core_contains(body_lower, "cache")
+    expired = _core_contains(body_lower, "expired")
+    not_found = _core_contains(body_lower, "not found")
+    missing = _core_contains(body_lower, "does not exist")
+    invalid = _core_contains(body_lower, "invalid")
+    invalid_left = _core_or(expired, not_found)
+    invalid_right = _core_or(missing, invalid)
+    invalid_reason = _core_or(invalid_left, invalid_right)
+    invalid_cache = _core_and(has_cache, invalid_reason)
+    cache_rejection = _core_or(names_cache, invalid_cache)
+    out = _core_and(valid_status, cache_rejection)
+    return out
+
+
 def _openai_normalize_choice_impl(choice: Any, raw: Any) -> Any:
     _core_coverage_mark("_openai_normalize_choice_impl")
     empty_message = {}
@@ -2647,6 +2811,20 @@ def _openai_normalize_choice_impl(choice: Any, raw: Any) -> Any:
     return out
 
 
+def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
+    _core_coverage_mark("ai_context_cache_expiry")
+    is_number = _core_type_is(provider_expire_time, "number")
+    if is_number:
+        future = _core_gt(provider_expire_time, now)
+        if future:
+            return provider_expire_time
+        else:
+            pass
+    else:
+        pass
+    return 0
+
+
 def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
     _core_coverage_mark("_openai_normalize_tool_calls_impl")
     out = []
@@ -2672,6 +2850,55 @@ def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
         normalized["type"] = "function"
         normalized["function"] = function
         out.append(normalized)
+    return out
+
+
+def ai_context_cache_plan(configured: bool, supported: bool, explicit_name: str, existing: Any, now: number, refresh_window_ms: number, create_eligible: bool) -> Any:
+    _core_coverage_mark("ai_context_cache_plan")
+    out = {}
+    out["action"] = "none"
+    out["managed"] = False
+    enabled = _core_and(configured, supported)
+    disabled = _core_not(enabled)
+    if disabled:
+        return out
+    else:
+        pass
+    explicit_length = _core_len(explicit_name)
+    has_explicit = _core_gt(explicit_length, 0)
+    if has_explicit:
+        out["action"] = "use"
+        out["cacheName"] = explicit_name
+        return out
+    else:
+        pass
+    existing_object = _core_type_is(existing, "object")
+    if existing_object:
+        cache_name = _core_get(existing, "cacheName", "")
+        expires_at = _core_get(existing, "expiresAt", 0)
+        cache_name_length = _core_len(cache_name)
+        has_name = _core_gt(cache_name_length, 0)
+        future = _core_gt(expires_at, now)
+        valid = _core_and(has_name, future)
+        if valid:
+            refresh_at = _core_add(now, refresh_window_ms)
+            needs_refresh = _core_lt(expires_at, refresh_at)
+            out["managed"] = True
+            out["cacheName"] = cache_name
+            if needs_refresh:
+                out["action"] = "refresh"
+            else:
+                out["action"] = "use"
+            return out
+        else:
+            pass
+    else:
+        pass
+    if create_eligible:
+        out["action"] = "create"
+        out["managed"] = True
+    else:
+        pass
     return out
 
 
@@ -2703,6 +2930,31 @@ def _openai_finish_reason_impl(value: Any) -> Any:
     return none
 
 
+def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_registry: bool) -> Any:
+    _core_coverage_mark("ai_context_cache_recovery")
+    out = {}
+    out["invalidated"] = False
+    out["deleteInMemory"] = False
+    entry_object = _core_type_is(current_entry, "object")
+    if entry_object:
+        current_name = _core_get(current_entry, "cacheName", "")
+        matches = _core_eq(current_name, cache_name)
+        if matches:
+            out["invalidated"] = True
+            if external_registry:
+                empty = {}
+                tombstone = _core_map_merge(current_entry, empty)
+                tombstone["expiresAt"] = 0
+                out["externalEntry"] = tombstone
+            else:
+                out["deleteInMemory"] = True
+        else:
+            pass
+    else:
+        pass
+    return out
+
+
 def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:
     _core_coverage_mark("openai_normalize_embed_response")
     embeddings = []
@@ -2720,6 +2972,56 @@ def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: st
     out["embeddings"] = embeddings
     out["remote_id"] = remote_id
     out["model_usage"] = model_usage
+    return out
+
+
+def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, model: str, create_body: Any) -> Any:
+    _core_coverage_mark("ai_gemini_cache_ops")
+    ttl = _core_string_format("{}s", ttl_seconds)
+    api_key_length = _core_len(api_key)
+    has_key = _core_gt(api_key_length, 0)
+    create_path = "/cachedContents"
+    update_path = _core_string_format("/{}?updateMask=ttl", cache_name)
+    delete_path = _core_string_format("/{}", cache_name)
+    if has_key:
+        create_with_key = _core_string_format("/cachedContents?key={}", api_key)
+        update_with_key = _core_string_format("/{}?updateMask=ttl&key={}", cache_name, api_key)
+        delete_with_key = _core_string_format("/{}?key={}", cache_name, api_key)
+        create_path = create_with_key
+        update_path = update_with_key
+        delete_path = delete_with_key
+    else:
+        pass
+    create_request = {}
+    create_is_object = _core_type_is(create_body, "object")
+    if create_is_object:
+        empty = {}
+        create_copy = _core_map_merge(create_body, empty)
+        create_request = create_copy
+    else:
+        pass
+    model_resource = _core_string_format("models/{}", model)
+    create_request["model"] = model_resource
+    create_request["ttl"] = ttl
+    update_request = {}
+    update_request["ttl"] = ttl
+    empty_request = {}
+    create = {}
+    create["method"] = "POST"
+    create["path"] = create_path
+    create["request"] = create_request
+    update = {}
+    update["method"] = "PATCH"
+    update["path"] = update_path
+    update["request"] = update_request
+    delete_op = {}
+    delete_op["method"] = "DELETE"
+    delete_op["path"] = delete_path
+    delete_op["request"] = empty_request
+    out = {}
+    out["create"] = create
+    out["update"] = update
+    out["delete"] = delete_op
     return out
 
 

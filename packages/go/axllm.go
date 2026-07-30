@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -692,7 +694,7 @@ func runtimeJSONValue(value Value) any {
 func errorValue(raw any) Value {
 	switch v := raw.(type) {
 	case AxError:
-		return Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable)
+		return Object("__error", v.Category, "message", v.Message, "__type", v.Type, "status", float64(v.Status), "code", v.Code, "retryable", v.Retryable, "response_body", v.Payload)
 	case error:
 		return Object("__error", "runtime", "message", v.Error())
 	default:
@@ -706,7 +708,7 @@ func asAxError(value Value) AxError {
 	}
 	m := asMap(value)
 	if cat := display(m["__error"]); cat != "" {
-		return AxError{Category: cat, Message: display(m["message"]), Type: display(m["__type"]), Status: int(num(m["status"])), Code: display(m["code"]), Retryable: coreTruthy(m["retryable"]), Payload: m["payload"]}
+		return AxError{Category: cat, Message: display(m["message"]), Type: display(m["__type"]), Status: int(num(m["status"])), Code: display(m["code"]), Retryable: coreTruthy(m["retryable"]), Payload: coreGet(m, "response_body", m["payload"])}
 	}
 	return AxError{Category: "runtime", Message: display(value)}
 }
@@ -6881,6 +6883,92 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func ai_context_cache_rejection(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_rejection")
+	var v_status Value
+	var v_body_json Value
+	var v_body_lower Value
+	var v_body_text Value
+	var v_cache_rejection Value
+	var v_expired Value
+	var v_has_cache Value
+	var v_invalid Value
+	var v_invalid_cache Value
+	var v_invalid_left Value
+	var v_invalid_reason Value
+	var v_invalid_right Value
+	var v_is_400 Value
+	var v_is_404 Value
+	var v_missing Value
+	var v_names_cache Value
+	var v_names_compact Value
+	var v_names_left Value
+	var v_names_resource Value
+	var v_names_spaced Value
+	var v_not_found Value
+	var v_out Value
+	var v_status_400_max Value
+	var v_status_400_min Value
+	var v_status_404_max Value
+	var v_status_404_min Value
+	var v_valid_status Value
+	if len(args) > 0 { v_status = args[0] }
+	_ = v_status
+	if len(args) > 1 { v_body_json = args[1] }
+	_ = v_body_json
+	_ = v_body_lower
+	_ = v_body_text
+	_ = v_cache_rejection
+	_ = v_expired
+	_ = v_has_cache
+	_ = v_invalid
+	_ = v_invalid_cache
+	_ = v_invalid_left
+	_ = v_invalid_reason
+	_ = v_invalid_right
+	_ = v_is_400
+	_ = v_is_404
+	_ = v_missing
+	_ = v_names_cache
+	_ = v_names_compact
+	_ = v_names_left
+	_ = v_names_resource
+	_ = v_names_spaced
+	_ = v_not_found
+	_ = v_out
+	_ = v_status_400_max
+	_ = v_status_400_min
+	_ = v_status_404_max
+	_ = v_status_404_min
+	_ = v_valid_status
+	v_status_400_min = _core_gte(v_status, 400)
+	v_status_400_max = _core_lte(v_status, 400)
+	v_is_400 = _core_and(v_status_400_min, v_status_400_max)
+	v_status_404_min = _core_gte(v_status, 404)
+	v_status_404_max = _core_lte(v_status, 404)
+	v_is_404 = _core_and(v_status_404_min, v_status_404_max)
+	v_valid_status = _core_or(v_is_400, v_is_404)
+	v_body_text = _core_json_stringify(v_body_json)
+	v_body_lower = _core_string_lower(v_body_text)
+	v_names_compact = _core_contains(v_body_lower, "cachedcontent")
+	v_names_spaced = _core_contains(v_body_lower, "cached content")
+	v_names_resource = _core_contains(v_body_lower, "cachedcontents/")
+	v_names_left = _core_or(v_names_compact, v_names_spaced)
+	v_names_cache = _core_or(v_names_left, v_names_resource)
+	v_has_cache = _core_contains(v_body_lower, "cache")
+	v_expired = _core_contains(v_body_lower, "expired")
+	v_not_found = _core_contains(v_body_lower, "not found")
+	v_missing = _core_contains(v_body_lower, "does not exist")
+	v_invalid = _core_contains(v_body_lower, "invalid")
+	v_invalid_left = _core_or(v_expired, v_not_found)
+	v_invalid_right = _core_or(v_missing, v_invalid)
+	v_invalid_reason = _core_or(v_invalid_left, v_invalid_right)
+	v_invalid_cache = _core_and(v_has_cache, v_invalid_reason)
+	v_cache_rejection = _core_or(v_names_cache, v_invalid_cache)
+	v_out = _core_and(v_valid_status, v_cache_rejection)
+	return v_out, nil
+}
+
 func _openai_normalize_choice_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_normalize_choice_impl")
 	var v_choice Value
@@ -6955,6 +7043,32 @@ func _openai_normalize_choice_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func ai_context_cache_expiry(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_expiry")
+	var v_provider_expire_time Value
+	var v_now Value
+	var v_future Value
+	var v_is_number Value
+	if len(args) > 0 { v_provider_expire_time = args[0] }
+	_ = v_provider_expire_time
+	if len(args) > 1 { v_now = args[1] }
+	_ = v_now
+	_ = v_future
+	_ = v_is_number
+	v_is_number = coreTypeIs(v_provider_expire_time, "number")
+	if coreTruthy(v_is_number) {
+		v_future = _core_gt(v_provider_expire_time, v_now)
+		if coreTruthy(v_future) {
+			return v_provider_expire_time, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return 0, nil
+}
+
 func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_normalize_tool_calls_impl")
 	var v_calls Value
@@ -7017,6 +7131,110 @@ func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func ai_context_cache_plan(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_plan")
+	var v_configured Value
+	var v_supported Value
+	var v_explicit_name Value
+	var v_existing Value
+	var v_now Value
+	var v_refresh_window_ms Value
+	var v_create_eligible Value
+	var v_cache_name Value
+	var v_cache_name_length Value
+	var v_disabled Value
+	var v_enabled Value
+	var v_existing_object Value
+	var v_expires_at Value
+	var v_explicit_length Value
+	var v_future Value
+	var v_has_explicit Value
+	var v_has_name Value
+	var v_needs_refresh Value
+	var v_out Value
+	var v_refresh_at Value
+	var v_valid Value
+	if len(args) > 0 { v_configured = args[0] }
+	_ = v_configured
+	if len(args) > 1 { v_supported = args[1] }
+	_ = v_supported
+	if len(args) > 2 { v_explicit_name = args[2] }
+	_ = v_explicit_name
+	if len(args) > 3 { v_existing = args[3] }
+	_ = v_existing
+	if len(args) > 4 { v_now = args[4] }
+	_ = v_now
+	if len(args) > 5 { v_refresh_window_ms = args[5] }
+	_ = v_refresh_window_ms
+	if len(args) > 6 { v_create_eligible = args[6] }
+	_ = v_create_eligible
+	_ = v_cache_name
+	_ = v_cache_name_length
+	_ = v_disabled
+	_ = v_enabled
+	_ = v_existing_object
+	_ = v_expires_at
+	_ = v_explicit_length
+	_ = v_future
+	_ = v_has_explicit
+	_ = v_has_name
+	_ = v_needs_refresh
+	_ = v_out
+	_ = v_refresh_at
+	_ = v_valid
+	v_out = Object()
+	if err := coreSet(v_out, "action", "none"); err != nil { return nil, err }
+	if err := coreSet(v_out, "managed", false); err != nil { return nil, err }
+	v_enabled = _core_and(v_configured, v_supported)
+	v_disabled = _core_not(v_enabled)
+	if coreTruthy(v_disabled) {
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_explicit_length = _core_len(v_explicit_name)
+	v_has_explicit = _core_gt(v_explicit_length, 0)
+	if coreTruthy(v_has_explicit) {
+		if err := coreSet(v_out, "action", "use"); err != nil { return nil, err }
+		if err := coreSet(v_out, "cacheName", v_explicit_name); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_existing_object = coreTypeIs(v_existing, "object")
+	if coreTruthy(v_existing_object) {
+		v_cache_name = coreGet(v_existing, "cacheName", "")
+		v_expires_at = coreGet(v_existing, "expiresAt", 0)
+		v_cache_name_length = _core_len(v_cache_name)
+		v_has_name = _core_gt(v_cache_name_length, 0)
+		v_future = _core_gt(v_expires_at, v_now)
+		v_valid = _core_and(v_has_name, v_future)
+		if coreTruthy(v_valid) {
+			v_refresh_at = _core_add(v_now, v_refresh_window_ms)
+			v_needs_refresh = _core_lt(v_expires_at, v_refresh_at)
+			if err := coreSet(v_out, "managed", true); err != nil { return nil, err }
+			if err := coreSet(v_out, "cacheName", v_cache_name); err != nil { return nil, err }
+			if coreTruthy(v_needs_refresh) {
+				if err := coreSet(v_out, "action", "refresh"); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_out, "action", "use"); err != nil { return nil, err }
+			}
+			return v_out, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	if coreTruthy(v_create_eligible) {
+		if err := coreSet(v_out, "action", "create"); err != nil { return nil, err }
+		if err := coreSet(v_out, "managed", true); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
 func _openai_finish_reason_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_finish_reason_impl")
 	var v_value Value
@@ -7064,6 +7282,55 @@ func _openai_finish_reason_impl(args ...Value) (Value, error) {
 	}
 	v_none = _core_none()
 	return v_none, nil
+}
+
+func ai_context_cache_recovery(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_recovery")
+	var v_current_entry Value
+	var v_cache_name Value
+	var v_external_registry Value
+	var v_current_name Value
+	var v_empty Value
+	var v_entry_object Value
+	var v_matches Value
+	var v_out Value
+	var v_tombstone Value
+	if len(args) > 0 { v_current_entry = args[0] }
+	_ = v_current_entry
+	if len(args) > 1 { v_cache_name = args[1] }
+	_ = v_cache_name
+	if len(args) > 2 { v_external_registry = args[2] }
+	_ = v_external_registry
+	_ = v_current_name
+	_ = v_empty
+	_ = v_entry_object
+	_ = v_matches
+	_ = v_out
+	_ = v_tombstone
+	v_out = Object()
+	if err := coreSet(v_out, "invalidated", false); err != nil { return nil, err }
+	if err := coreSet(v_out, "deleteInMemory", false); err != nil { return nil, err }
+	v_entry_object = coreTypeIs(v_current_entry, "object")
+	if coreTruthy(v_entry_object) {
+		v_current_name = coreGet(v_current_entry, "cacheName", "")
+		v_matches = _core_eq(v_current_name, v_cache_name)
+		if coreTruthy(v_matches) {
+			if err := coreSet(v_out, "invalidated", true); err != nil { return nil, err }
+			if coreTruthy(v_external_registry) {
+				v_empty = Object()
+				v_tombstone = _core_map_merge(v_current_entry, v_empty)
+				if err := coreSet(v_tombstone, "expiresAt", 0); err != nil { return nil, err }
+				if err := coreSet(v_out, "externalEntry", v_tombstone); err != nil { return nil, err }
+			} else {
+				if err := coreSet(v_out, "deleteInMemory", true); err != nil { return nil, err }
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func openai_normalize_embed_response(args ...Value) (Value, error) {
@@ -7115,6 +7382,113 @@ func openai_normalize_embed_response(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "embeddings", v_embeddings); err != nil { return nil, err }
 	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
 	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func ai_gemini_cache_ops(args ...Value) (Value, error) {
+	axirCoverageMark("ai_gemini_cache_ops")
+	var v_cache_name Value
+	var v_ttl_seconds Value
+	var v_api_key Value
+	var v_model Value
+	var v_create_body Value
+	var v_api_key_length Value
+	var v_create Value
+	var v_create_copy Value
+	var v_create_is_object Value
+	var v_create_path Value
+	var v_create_request Value
+	var v_create_with_key Value
+	var v_delete_op Value
+	var v_delete_path Value
+	var v_delete_with_key Value
+	var v_empty Value
+	var v_empty_request Value
+	var v_has_key Value
+	var v_model_resource Value
+	var v_out Value
+	var v_ttl Value
+	var v_update Value
+	var v_update_path Value
+	var v_update_request Value
+	var v_update_with_key Value
+	if len(args) > 0 { v_cache_name = args[0] }
+	_ = v_cache_name
+	if len(args) > 1 { v_ttl_seconds = args[1] }
+	_ = v_ttl_seconds
+	if len(args) > 2 { v_api_key = args[2] }
+	_ = v_api_key
+	if len(args) > 3 { v_model = args[3] }
+	_ = v_model
+	if len(args) > 4 { v_create_body = args[4] }
+	_ = v_create_body
+	_ = v_api_key_length
+	_ = v_create
+	_ = v_create_copy
+	_ = v_create_is_object
+	_ = v_create_path
+	_ = v_create_request
+	_ = v_create_with_key
+	_ = v_delete_op
+	_ = v_delete_path
+	_ = v_delete_with_key
+	_ = v_empty
+	_ = v_empty_request
+	_ = v_has_key
+	_ = v_model_resource
+	_ = v_out
+	_ = v_ttl
+	_ = v_update
+	_ = v_update_path
+	_ = v_update_request
+	_ = v_update_with_key
+	v_ttl = _core_string_format("{}s", v_ttl_seconds)
+	v_api_key_length = _core_len(v_api_key)
+	v_has_key = _core_gt(v_api_key_length, 0)
+	v_create_path = "/cachedContents"
+	v_update_path = _core_string_format("/{}?updateMask=ttl", v_cache_name)
+	v_delete_path = _core_string_format("/{}", v_cache_name)
+	if coreTruthy(v_has_key) {
+		v_create_with_key = _core_string_format("/cachedContents?key={}", v_api_key)
+		v_update_with_key = _core_string_format("/{}?updateMask=ttl&key={}", v_cache_name, v_api_key)
+		v_delete_with_key = _core_string_format("/{}?key={}", v_cache_name, v_api_key)
+		v_create_path = v_create_with_key
+		v_update_path = v_update_with_key
+		v_delete_path = v_delete_with_key
+	} else {
+	// empty
+	}
+	v_create_request = Object()
+	v_create_is_object = coreTypeIs(v_create_body, "object")
+	if coreTruthy(v_create_is_object) {
+		v_empty = Object()
+		v_create_copy = _core_map_merge(v_create_body, v_empty)
+		v_create_request = v_create_copy
+	} else {
+	// empty
+	}
+	v_model_resource = _core_string_format("models/{}", v_model)
+	if err := coreSet(v_create_request, "model", v_model_resource); err != nil { return nil, err }
+	if err := coreSet(v_create_request, "ttl", v_ttl); err != nil { return nil, err }
+	v_update_request = Object()
+	if err := coreSet(v_update_request, "ttl", v_ttl); err != nil { return nil, err }
+	v_empty_request = Object()
+	v_create = Object()
+	if err := coreSet(v_create, "method", "POST"); err != nil { return nil, err }
+	if err := coreSet(v_create, "path", v_create_path); err != nil { return nil, err }
+	if err := coreSet(v_create, "request", v_create_request); err != nil { return nil, err }
+	v_update = Object()
+	if err := coreSet(v_update, "method", "PATCH"); err != nil { return nil, err }
+	if err := coreSet(v_update, "path", v_update_path); err != nil { return nil, err }
+	if err := coreSet(v_update, "request", v_update_request); err != nil { return nil, err }
+	v_delete_op = Object()
+	if err := coreSet(v_delete_op, "method", "DELETE"); err != nil { return nil, err }
+	if err := coreSet(v_delete_op, "path", v_delete_path); err != nil { return nil, err }
+	if err := coreSet(v_delete_op, "request", v_empty_request); err != nil { return nil, err }
+	v_out = Object()
+	if err := coreSet(v_out, "create", v_create); err != nil { return nil, err }
+	if err := coreSet(v_out, "update", v_update); err != nil { return nil, err }
+	if err := coreSet(v_out, "delete", v_delete_op); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -47206,6 +47580,14 @@ type OpenAICompatibleClient struct {
 	LastEmbed  Value
 	LastConfig Value
 	Metrics    map[string]Value
+	contextCacheEntries map[string]map[string]Value
+}
+
+// AxContextCacheRegistry lets hosts share managed cache entries across client
+// instances. The namespace is tenant-owned; keys are provider:model:contentHash.
+type AxContextCacheRegistry interface {
+	Get(namespace, key string) (map[string]Value, bool)
+	Set(namespace, key string, entry map[string]Value)
 }
 type OpenAIResponsesClient struct{ *OpenAICompatibleClient }
 type GoogleGeminiClient struct{ *OpenAICompatibleClient }
@@ -47240,7 +47622,7 @@ func newProviderClient(profile, name string, options map[string]Value, defaultMo
 	if transport == nil {
 		transport = HTTPTransport{}
 	}
-	return &OpenAICompatibleClient{Profile: profile, Name: name, Options: options, Transport: transport, ID: name + "-id", Metrics: balancerBaseMetrics()}
+	return &OpenAICompatibleClient{Profile: profile, Name: name, Options: options, Transport: transport, ID: name + "-id", Metrics: balancerBaseMetrics(), contextCacheEntries: map[string]map[string]Value{}}
 }
 func NewOpenAIResponsesClient(options map[string]Value) *OpenAIResponsesClient {
 	return &OpenAIResponsesClient{newProviderClient("openai-responses", "openai-responses", options, "gpt-4o", "text-embedding-ada-002")}
@@ -47337,6 +47719,9 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		config := coreGet(req, "model_config", Object())
 		c.setLastChat(model, config)
 		transportReq := c.requestJSON("chat", req, false)
+		if body, handled := c.contextCacheChat(ctx, req, mergedOptions, model, transportReq); handled {
+			return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model))
+		}
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
@@ -47348,6 +47733,137 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		emitUsageEvent("chat", response, mergedOptions, false)
 	}
 	return response, err
+}
+
+func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request map[string]Value, options map[string]Value, model Value, fullCall Value) (Value, bool) {
+	cfgValue := coreGet(options, "contextCache", coreGet(options, "context_cache", nil))
+	if c.Profile != "google-gemini" || !coreTruthy(cfgValue) {
+		return nil, false
+	}
+	descriptor := mustCore(provider_descriptor(c.Profile))
+	if !coreTruthy(coreGet(coreGet(coreGet(descriptor, "features", Object()), "caching", Object()), "supported", false)) {
+		return nil, false
+	}
+	cfg := asMap(cfgValue)
+	payload := cloneMap(asMap(coreGet(fullCall, "json", Object())))
+	explicit := display(coreGet(cfg, "name", coreGet(cfg, "cacheName", coreGet(cfg, "cache_name", ""))))
+	tryCall := func(call Value) (Value, error) {
+		raw, err := c.Transport.Call(ctx, call)
+		if err != nil {
+			return nil, AxError{Category: "network", Message: err.Error()}
+		}
+		return safeValue(func() Value { return normalizeTransportPayload(raw) })
+	}
+	if explicit != "" {
+		coreSet(payload, "cachedContent", explicit)
+		call := cloneMap(asMap(fullCall))
+		coreSet(call, "json", payload)
+		body, err := tryCall(call)
+		if err != nil { panic(err) }
+		return body, true
+	}
+	prompts := asSlice(coreGet(request, "chat_prompt", coreGet(request, "chatPrompt", coreGet(request, "messages", Array()))))
+	nonSystem, cachedCount := 0, 0
+	for _, raw := range prompts {
+		prompt := asMap(raw)
+		if display(coreGet(prompt, "role", "")) == "system" { continue }
+		nonSystem++
+		if coreTruthy(coreGet(prompt, "cache", false)) { cachedCount = nonSystem }
+	}
+	cacheBody := Object()
+	for _, key := range []string{"systemInstruction", "tools", "toolConfig"} {
+		if value := coreGet(payload, key, nil); value != nil { coreSet(cacheBody, key, cloneValue(value)) }
+	}
+	contents := asSlice(coreGet(payload, "contents", Array()))
+	if cachedCount > 0 {
+		limit := cachedCount
+		if limit > len(contents) { limit = len(contents) }
+		coreSet(cacheBody, "contents", cloneValue(contents[:limit]))
+	}
+	if coreGet(cacheBody, "systemInstruction", nil) == nil && len(asSlice(coreGet(cacheBody, "contents", Array()))) == 0 {
+		return nil, false
+	}
+	encoded := stableStringify(cacheBody)
+	minTokens := int(num(coreGet(cfg, "minTokens", coreGet(cfg, "min_tokens", 2048))))
+	eligible := int(math.Ceil(float64(len(encoded))/4)) >= minTokens
+	ttlSeconds := int(num(coreGet(cfg, "ttlSeconds", coreGet(cfg, "ttl_seconds", 3600))))
+	refreshWindow := int64(num(coreGet(cfg, "refreshWindowSeconds", coreGet(cfg, "refresh_window_seconds", 300))) * 1000)
+	hashBytes := sha256.Sum256([]byte(encoded))
+	cacheKey := c.Profile + ":" + display(model) + ":" + hex.EncodeToString(hashBytes[:])
+	namespace := display(coreGet(cfg, "namespace", "default"))
+	registry, external := coreGet(cfg, "registry", nil).(AxContextCacheRegistry)
+	getEntry := func() map[string]Value {
+		if external { if value, ok := registry.Get(namespace, cacheKey); ok { return cloneMap(value) }; return Object() }
+		c.mu.RLock(); defer c.mu.RUnlock()
+		return cloneMap(c.contextCacheEntries[cacheKey])
+	}
+	setEntry := func(value map[string]Value) {
+		if external { registry.Set(namespace, cacheKey, cloneMap(value)); return }
+		c.mu.Lock(); defer c.mu.Unlock(); c.contextCacheEntries[cacheKey] = cloneMap(value)
+	}
+	now := time.Now().UnixMilli()
+	entry := getEntry()
+	plan := asMap(mustCore(ai_context_cache_plan(true, true, "", entry, float64(now), float64(refreshWindow), eligible)))
+	expiry := func(value Value) float64 {
+		raw := coreGet(value, "expireTime", coreGet(value, "expire_time", nil))
+		var millis int64
+		switch typed := raw.(type) {
+		case float64: millis = int64(typed)
+		case int64: millis = typed
+		case string:
+			if parsed, err := time.Parse(time.RFC3339Nano, typed); err == nil { millis = parsed.UnixMilli() }
+		}
+		return num(mustCore(ai_context_cache_expiry(float64(millis), float64(time.Now().UnixMilli()))))
+	}
+	opCall := func(op Value) (Value, error) {
+		opMap := asMap(op)
+		opts := c.optionsSnapshot()
+		base := display(coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://generativelanguage.googleapis.com/v1beta"))))
+		call := Object("method", display(coreGet(opMap, "method", "POST")), "url", strings.TrimRight(base, "/")+display(coreGet(opMap, "path", "")), "headers", coreGet(fullCall, "headers", Object()), "json", coreGet(opMap, "request", Object()), "stream", false)
+		return tryCall(call)
+	}
+	apiKey := display(coreGet(c.optionsSnapshot(), "api_key", coreGet(c.optionsSnapshot(), "apiKey", os.Getenv("GOOGLE_APIKEY"))))
+	cacheName := display(coreGet(plan, "cacheName", ""))
+	create := func() bool {
+		ops := mustCore(ai_gemini_cache_ops("", float64(ttlSeconds), apiKey, display(model), cacheBody))
+		created, err := opCall(coreGet(ops, "create", Object()))
+		if err != nil { return false }
+		cacheName = display(coreGet(created, "name", ""))
+		expiresAt := expiry(created)
+		if cacheName == "" || expiresAt == 0 { return false }
+		setEntry(Object("cacheName", cacheName, "expiresAt", expiresAt))
+		return true
+	}
+	switch display(coreGet(plan, "action", "none")) {
+	case "refresh":
+		ops := mustCore(ai_gemini_cache_ops(cacheName, float64(ttlSeconds), apiKey, display(model), cacheBody))
+		refreshed, err := opCall(coreGet(ops, "update", Object()))
+		if err != nil || expiry(refreshed) == 0 {
+			if !create() { body, fullErr := tryCall(fullCall); if fullErr != nil { panic(fullErr) }; return body, true }
+		} else { setEntry(Object("cacheName", cacheName, "expiresAt", expiry(refreshed))) }
+	case "create":
+		if !create() { body, fullErr := tryCall(fullCall); if fullErr != nil { panic(fullErr) }; return body, true }
+	case "none":
+		return nil, false
+	}
+	if cacheName == "" { return nil, false }
+	cachedPayload := cloneMap(payload)
+	delete(cachedPayload, "systemInstruction"); delete(cachedPayload, "tools"); delete(cachedPayload, "toolConfig")
+	if cachedCount > len(contents) { cachedCount = len(contents) }
+	coreSet(cachedPayload, "contents", cloneValue(contents[cachedCount:]))
+	coreSet(cachedPayload, "cachedContent", cacheName)
+	cachedCall := cloneMap(asMap(fullCall)); coreSet(cachedCall, "json", cachedPayload)
+	body, err := tryCall(cachedCall)
+	if err == nil { return body, true }
+	axErr := asAxError(errorValue(err))
+	if !coreTruthy(mustCore(ai_context_cache_rejection(float64(axErr.Status), axErr.Payload))) { panic(err) }
+	current := getEntry()
+	recovery := asMap(mustCore(ai_context_cache_recovery(current, cacheName, external)))
+	if coreTruthy(coreGet(recovery, "invalidated", false)) {
+		if external { registry.Set(namespace, cacheKey, cloneMap(asMap(coreGet(recovery, "externalEntry", Object()))))
+		} else if coreTruthy(coreGet(recovery, "deleteInMemory", false)) { c.mu.Lock(); delete(c.contextCacheEntries, cacheKey); c.mu.Unlock() }
+	}
+	body, err = tryCall(fullCall); if err != nil { panic(err) }; return body, true
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), options)
@@ -47504,7 +48020,8 @@ func (c *OpenAICompatibleClient) requestJSON(operation string, request map[strin
 		}
 		requestURL += sep + "api-version=" + url.QueryEscape(strings.TrimPrefix(apiVersion, "api-version="))
 	}
-	out := Object("method", "POST", "url", requestURL, "headers", headers, "stream", stream)
+	method := strings.ToUpper(display(coreGet(operationDescriptor, "method", "POST")))
+	out := Object("method", method, "url", requestURL, "headers", headers, "stream", stream)
 	bodyKey := "json"
 	if display(coreGet(operationDescriptor, "body", "json")) == "multipart" {
 		bodyKey = "data"
@@ -52824,6 +53341,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceProviderOperation(fixture, "speak")
 	case "ai_realtime":
 		runConformanceProviderOperation(fixture, "realtime")
+	case "ai_context_cache":
+		runConformanceAIContextCache(fixture)
 	case "ai_unsupported", "ai_error":
 		runConformanceAIError(fixture)
 	case "program_contract":
@@ -52858,6 +53377,34 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAgentRuntimeReal(fixture)
 	default:
 		panic(AxError{Category: "fixture", Message: "unsupported Go conformance fixture kind " + kind})
+	}
+}
+
+func runConformanceAIContextCache(fixture map[string]Value) {
+	operation := display(coreGet(fixture, "operation", ""))
+	cases := asSlice(coreGet(fixture, "cases", nil))
+	if len(cases) == 0 {
+		cases = []Value{Object("args", coreGet(fixture, "args", Array()), "expected", coreGet(fixture, "expected", nil))}
+	}
+	for index, raw := range cases {
+		item := asMap(raw)
+		args := asSlice(coreGet(item, "args", Array()))
+		var actual Value
+		switch operation {
+		case "rejection":
+			actual = mustCore(ai_context_cache_rejection(args...))
+		case "expiry":
+			actual = mustCore(ai_context_cache_expiry(args...))
+		case "plan":
+			actual = mustCore(ai_context_cache_plan(args...))
+		case "recovery":
+			actual = mustCore(ai_context_cache_recovery(args...))
+		case "gemini_ops":
+			actual = mustCore(ai_gemini_cache_ops(args...))
+		default:
+			panic(AxError{Category: "fixture", Message: "unsupported AI context-cache operation " + operation})
+		}
+		assertEqual(actual, coreGet(item, "expected", nil), fmt.Sprintf("AI context-cache %s case %d", operation, index))
 	}
 }
 

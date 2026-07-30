@@ -567,6 +567,7 @@ public final class Conformance {
       case "ai_transcribe" -> runAITranscribe(fixture);
       case "ai_speak" -> runAISpeak(fixture);
       case "ai_realtime" -> runAIRealtime(fixture);
+      case "ai_context_cache" -> runAIContextCache(fixture);
       case "agent_forward" -> runAgentForward(fixture);
       case "agent_playbook_coverage" -> runAgentPlaybookCoverage(fixture);
       case "agent_playbook_evolve" -> runAgentPlaybookEvolve(fixture);
@@ -583,6 +584,27 @@ public final class Conformance {
       case "mcp" -> AxMCPClient.runConformanceFixture(fixture);
       case "event" -> runEvent(fixture);
       default -> throw new FixtureError("unknown fixture kind " + kind);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  static void runAIContextCache(Map<String, Object> fixture) {
+    String operation = String.valueOf(fixture.getOrDefault("operation", ""));
+    List<Object> cases = (List<Object>) fixture.get("cases");
+    if (cases == null || cases.isEmpty()) cases = List.of(Map.of("args", fixture.getOrDefault("args", List.of()), "expected", fixture.get("expected")));
+    int index = 0;
+    for (Object raw : cases) {
+      Map<String,Object> item = (Map<String,Object>) raw;
+      List<Object> args = (List<Object>) item.getOrDefault("args", List.of());
+      Object actual = switch (operation) {
+        case "rejection" -> Core.ai_context_cache_rejection(args.get(0), args.get(1));
+        case "expiry" -> Core.ai_context_cache_expiry(args.get(0), args.get(1));
+        case "plan" -> Core.ai_context_cache_plan(args.get(0), args.get(1), args.get(2), args.get(3), args.get(4), args.get(5), args.get(6));
+        case "recovery" -> Core.ai_context_cache_recovery(args.get(0), args.get(1), args.get(2));
+        case "gemini_ops" -> Core.ai_gemini_cache_ops(args.get(0), args.get(1), args.get(2), args.get(3), args.get(4));
+        default -> throw new FixtureError("unsupported AI context-cache operation " + operation);
+      };
+      assertEqual(actual, item.get("expected"), "AI context-cache " + operation + " case " + index++);
     }
   }
 

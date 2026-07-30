@@ -40,13 +40,14 @@ bool Value::is_object() const { return std::holds_alternative<std::shared_ptr<Ob
 
 AxError::AxError(std::string category, std::string message)
     : AxError(std::move(category), std::move(message), "", 0, "", false) {}
-AxError::AxError(std::string category, std::string message, std::string type_, int status_, std::string code_, bool retryable_)
+AxError::AxError(std::string category, std::string message, std::string type_, int status_, std::string code_, bool retryable_, Value response_body_)
     : std::runtime_error(std::move(message)),
       category(std::move(category)),
       type(std::move(type_)),
       status(status_),
       code(std::move(code_)),
-      retryable(retryable_) {}
+      retryable(retryable_),
+      response_body(std::move(response_body_)) {}
 
 static std::map<std::string, AIClient*>& client_registry() {
   static std::map<std::string, AIClient*> clients;
@@ -448,6 +449,8 @@ Value HttpTransport::call(Value request) {
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
   } else {
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
   }
 
   CURLcode rc = curl_easy_perform(curl);
@@ -972,6 +975,7 @@ Value Core::exception_value(const std::exception& error) {
     if (ax->status != 0) out["status"] = ax->status;
     if (!ax->code.empty()) out["code"] = ax->code;
     out["retryable"] = ax->retryable;
+    if (!ax->response_body.is_null()) out["response_body"] = ax->response_body;
     return Value(out);
   }
   return runtime_error(error.what());
@@ -983,7 +987,7 @@ Value Core::exception_message(Value error) {
 AxError Core::as_error(Value error) {
   if (error.is_object() && has_key(error, "__error")) {
     int status = get_key(error, "status").is_null() ? 0 : static_cast<int>(num(get_key(error, "status")));
-    return AxError(str(get_key(error, "__error")), str(get_key(error, "message")), str(get_key(error, "__type")), status, str(get_key(error, "code")), truthy(get_key(error, "retryable")));
+    return AxError(str(get_key(error, "__error")), str(get_key(error, "message")), str(get_key(error, "__type")), status, str(get_key(error, "code")), truthy(get_key(error, "retryable")), get_key(error, "response_body"));
   }
   return AxError("runtime", str(error));
 }
@@ -4719,6 +4723,36 @@ Value Core::chat_response_to_completion(Value response) {
   return out;
 }
 
+Value Core::ai_context_cache_rejection(Value status, Value body_json) {
+  axir_coverage_mark("ai_context_cache_rejection");
+  Value status_400_min = Core::gte(status, Value(400));
+  Value status_400_max = Core::lte(status, Value(400));
+  Value is_400 = Core::and_(status_400_min, status_400_max);
+  Value status_404_min = Core::gte(status, Value(404));
+  Value status_404_max = Core::lte(status, Value(404));
+  Value is_404 = Core::and_(status_404_min, status_404_max);
+  Value valid_status = Core::or_(is_400, is_404);
+  Value body_text = Core::json_stringify(body_json);
+  Value body_lower = Core::string_lower(body_text);
+  Value names_compact = Core::contains(body_lower, Value("cachedcontent"));
+  Value names_spaced = Core::contains(body_lower, Value("cached content"));
+  Value names_resource = Core::contains(body_lower, Value("cachedcontents/"));
+  Value names_left = Core::or_(names_compact, names_spaced);
+  Value names_cache = Core::or_(names_left, names_resource);
+  Value has_cache = Core::contains(body_lower, Value("cache"));
+  Value expired = Core::contains(body_lower, Value("expired"));
+  Value not_found = Core::contains(body_lower, Value("not found"));
+  Value missing = Core::contains(body_lower, Value("does not exist"));
+  Value invalid = Core::contains(body_lower, Value("invalid"));
+  Value invalid_left = Core::or_(expired, not_found);
+  Value invalid_right = Core::or_(missing, invalid);
+  Value invalid_reason = Core::or_(invalid_left, invalid_right);
+  Value invalid_cache = Core::and_(has_cache, invalid_reason);
+  Value cache_rejection = Core::or_(names_cache, invalid_cache);
+  Value out = Core::and_(valid_status, cache_rejection);
+  return out;
+}
+
 Value Core::_openai_normalize_choice_impl(Value choice, Value raw) {
   axir_coverage_mark("_openai_normalize_choice_impl");
   Value empty_message = Value::object();
@@ -4754,6 +4788,18 @@ Value Core::_openai_normalize_choice_impl(Value choice, Value raw) {
   return out;
 }
 
+Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
+  axir_coverage_mark("ai_context_cache_expiry");
+  Value is_number = Core::type_is(provider_expire_time, Value("number"));
+  if (Core::truthy(is_number)) {
+    Value future = Core::gt(provider_expire_time, now);
+    if (Core::truthy(future)) {
+      return provider_expire_time;
+    }
+  }
+  return Value(0);
+}
+
 Value Core::_openai_normalize_tool_calls_impl(Value calls) {
   axir_coverage_mark("_openai_normalize_tool_calls_impl");
   Value out = Value::array();
@@ -4784,6 +4830,52 @@ Value Core::_openai_normalize_tool_calls_impl(Value calls) {
   return out;
 }
 
+Value Core::ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible) {
+  axir_coverage_mark("ai_context_cache_plan");
+  Value out = Value::object();
+  Core::set(out, Value("action"), Value("none"));
+  Core::set(out, Value("managed"), Value(false));
+  Value enabled = Core::and_(configured, supported);
+  Value disabled = Core::not_(enabled);
+  if (Core::truthy(disabled)) {
+    return out;
+  }
+  Value explicit_length = Core::len(explicit_name);
+  Value has_explicit = Core::gt(explicit_length, Value(0));
+  if (Core::truthy(has_explicit)) {
+    Core::set(out, Value("action"), Value("use"));
+    Core::set(out, Value("cacheName"), explicit_name);
+    return out;
+  }
+  Value existing_object = Core::type_is(existing, Value("object"));
+  if (Core::truthy(existing_object)) {
+    Value cache_name = Core::get(existing, Value("cacheName"), Value(""));
+    Value expires_at = Core::get(existing, Value("expiresAt"), Value(0));
+    Value cache_name_length = Core::len(cache_name);
+    Value has_name = Core::gt(cache_name_length, Value(0));
+    Value future = Core::gt(expires_at, now);
+    Value valid = Core::and_(has_name, future);
+    if (Core::truthy(valid)) {
+      Value refresh_at = Core::add(now, refresh_window_ms);
+      Value needs_refresh = Core::lt(expires_at, refresh_at);
+      Core::set(out, Value("managed"), Value(true));
+      Core::set(out, Value("cacheName"), cache_name);
+      if (Core::truthy(needs_refresh)) {
+        Core::set(out, Value("action"), Value("refresh"));
+      }
+      if (!Core::truthy(needs_refresh)) {
+        Core::set(out, Value("action"), Value("use"));
+      }
+      return out;
+    }
+  }
+  if (Core::truthy(create_eligible)) {
+    Core::set(out, Value("action"), Value("create"));
+    Core::set(out, Value("managed"), Value(true));
+  }
+  return out;
+}
+
 Value Core::_openai_finish_reason_impl(Value value) {
   axir_coverage_mark("_openai_finish_reason_impl");
   Value is_stop = Core::eq(value, Value("stop"));
@@ -4808,6 +4900,31 @@ Value Core::_openai_finish_reason_impl(Value value) {
   return none;
 }
 
+Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry) {
+  axir_coverage_mark("ai_context_cache_recovery");
+  Value out = Value::object();
+  Core::set(out, Value("invalidated"), Value(false));
+  Core::set(out, Value("deleteInMemory"), Value(false));
+  Value entry_object = Core::type_is(current_entry, Value("object"));
+  if (Core::truthy(entry_object)) {
+    Value current_name = Core::get(current_entry, Value("cacheName"), Value(""));
+    Value matches = Core::eq(current_name, cache_name);
+    if (Core::truthy(matches)) {
+      Core::set(out, Value("invalidated"), Value(true));
+      if (Core::truthy(external_registry)) {
+        Value empty = Value::object();
+        Value tombstone = Core::map_merge(current_entry, empty);
+        Core::set(tombstone, Value("expiresAt"), Value(0));
+        Core::set(out, Value("externalEntry"), tombstone);
+      }
+      if (!Core::truthy(external_registry)) {
+        Core::set(out, Value("deleteInMemory"), Value(true));
+      }
+    }
+  }
+  return out;
+}
+
 Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
   axir_coverage_mark("openai_normalize_embed_response");
   Value embeddings = Value::array();
@@ -4826,6 +4943,54 @@ Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value mode
   Core::set(out, Value("embeddings"), embeddings);
   Core::set(out, Value("remote_id"), remote_id);
   Core::set(out, Value("model_usage"), model_usage);
+  return out;
+}
+
+Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body) {
+  axir_coverage_mark("ai_gemini_cache_ops");
+  Value ttl = Core::string_format(Value("{}s"), ttl_seconds);
+  Value api_key_length = Core::len(api_key);
+  Value has_key = Core::gt(api_key_length, Value(0));
+  Value create_path = Value("/cachedContents");
+  Value update_path = Core::string_format(Value("/{}?updateMask=ttl"), cache_name);
+  Value delete_path = Core::string_format(Value("/{}"), cache_name);
+  if (Core::truthy(has_key)) {
+    Value create_with_key = Core::string_format(Value("/cachedContents?key={}"), api_key);
+    Value update_with_key = Core::string_format(Value("/{}?updateMask=ttl&key={}"), cache_name, api_key);
+    Value delete_with_key = Core::string_format(Value("/{}?key={}"), cache_name, api_key);
+    create_path = create_with_key;
+    update_path = update_with_key;
+    delete_path = delete_with_key;
+  }
+  Value create_request = Value::object();
+  Value create_is_object = Core::type_is(create_body, Value("object"));
+  if (Core::truthy(create_is_object)) {
+    Value empty = Value::object();
+    Value create_copy = Core::map_merge(create_body, empty);
+    create_request = create_copy;
+  }
+  Value model_resource = Core::string_format(Value("models/{}"), model);
+  Core::set(create_request, Value("model"), model_resource);
+  Core::set(create_request, Value("ttl"), ttl);
+  Value update_request = Value::object();
+  Core::set(update_request, Value("ttl"), ttl);
+  Value empty_request = Value::object();
+  Value create = Value::object();
+  Core::set(create, Value("method"), Value("POST"));
+  Core::set(create, Value("path"), create_path);
+  Core::set(create, Value("request"), create_request);
+  Value update = Value::object();
+  Core::set(update, Value("method"), Value("PATCH"));
+  Core::set(update, Value("path"), update_path);
+  Core::set(update, Value("request"), update_request);
+  Value delete_op = Value::object();
+  Core::set(delete_op, Value("method"), Value("DELETE"));
+  Core::set(delete_op, Value("path"), delete_path);
+  Core::set(delete_op, Value("request"), empty_request);
+  Value out = Value::object();
+  Core::set(out, Value("create"), create);
+  Core::set(out, Value("update"), update);
+  Core::set(out, Value("delete"), delete_op);
   return out;
 }
 
@@ -24379,6 +24544,97 @@ GrokClient::GrokClient(Value options, Transport* transport)
         return out;
       }(), transport, "grok-4.3", "") {}
 
+OpenAICompatibleClient& OpenAICompatibleClient::context_cache_registry(AxContextCacheRegistry* registry) {
+  context_cache_registry_ = registry;
+  return *this;
+}
+
+static std::string ax_context_cache_hash(const std::string& text) {
+  std::uint64_t hash = 14695981039346656037ULL;
+  for (unsigned char value : text) { hash ^= value; hash *= 1099511628211ULL; }
+  std::ostringstream out; out << std::hex << std::setw(16) << std::setfill('0') << hash; return out.str();
+}
+
+static double ax_context_cache_expiry_ms(Value response) {
+  Value raw = Core::get(response, "expireTime", Core::get(response, "expire_time"));
+  if (raw.is_number()) return num(raw);
+  std::string text = str(raw);
+  if (text.size() < 20) return 0;
+  std::tm tm{}; std::istringstream input(text.substr(0, 19)); input >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
+  if (input.fail()) return 0;
+  return static_cast<double>(timegm(&tm)) * 1000.0;
+}
+
+Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, Value payload, Value model, const std::string& endpoint) {
+  Value cfg_value = Core::get(options, "contextCache", Core::get(options, "context_cache"));
+  bool supported = Core::truthy(Core::get(Core::get(Core::get(descriptor_, "features", Value::object()), "caching", Value::object()), "supported", false));
+  if (profile_ != "google-gemini" || !supported || !Core::truthy(cfg_value)) return Value();
+  Value cfg = cfg_value.is_object() ? cfg_value : Value::object();
+  std::string explicit_name = str(Core::get(cfg, "name", Core::get(cfg, "cacheName", Core::get(cfg, "cache_name", ""))));
+  if (!explicit_name.empty()) {
+    Value cached = payload; Core::set(cached, "cachedContent", explicit_name);
+    return request_json(endpoint, cached, false, "json", false, operation_method("chat"));
+  }
+  Value prompts = Core::get(request, "chat_prompt", Core::get(request, "chatPrompt", Core::get(request, "messages", Value::array())));
+  std::size_t non_system = 0, cached_count = 0;
+  for (const auto& raw : Core::iter(prompts)) {
+    if (str(Core::get(raw, "role", "")) == "system") continue;
+    ++non_system; if (Core::truthy(Core::get(raw, "cache", false))) cached_count = non_system;
+  }
+  Value cache_body = Value::object();
+  for (const auto& key : {"systemInstruction", "tools", "toolConfig"}) if (!Core::get(payload, key).is_null()) Core::set(cache_body, key, Core::get(payload, key));
+  auto contents = Core::iter(Core::get(payload, "contents", Value::array()));
+  if (cached_count > 0) {
+    Value prefix = Value::array(); for (std::size_t i = 0; i < std::min(cached_count, contents.size()); ++i) Core::append(prefix, contents[i]); Core::set(cache_body, "contents", prefix);
+  }
+  if (Core::get(cache_body, "systemInstruction").is_null() && Core::iter(Core::get(cache_body, "contents", Value::array())).empty()) return Value();
+  std::string encoded = stable_stringify(cache_body);
+  int min_tokens = static_cast<int>(num(Core::get(cfg, "minTokens", Core::get(cfg, "min_tokens", 2048))));
+  bool eligible = static_cast<int>((encoded.size() + 3) / 4) >= min_tokens;
+  double ttl_seconds = num(Core::get(cfg, "ttlSeconds", Core::get(cfg, "ttl_seconds", 3600)));
+  double refresh_window_ms = num(Core::get(cfg, "refreshWindowSeconds", Core::get(cfg, "refresh_window_seconds", 300))) * 1000.0;
+  std::string cache_key = profile_ + ":" + str(model) + ":" + ax_context_cache_hash(encoded);
+  std::string tenant_namespace = str(Core::get(cfg, "namespace", "default"));
+  bool external = context_cache_registry_ != nullptr;
+  auto get_entry = [&]() { return external ? context_cache_registry_->get(tenant_namespace, cache_key) : Core::get(context_cache_entries_, cache_key, Value::object()); };
+  auto set_entry = [&](Value entry) { if (external) context_cache_registry_->set(tenant_namespace, cache_key, entry); else Core::set(context_cache_entries_, cache_key, entry); };
+  auto now_ms = []() { return static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()); };
+  Value plan = Core::ai_context_cache_plan(true, true, "", get_entry(), now_ms(), refresh_window_ms, eligible);
+  std::string cache_name = str(Core::get(plan, "cacheName", ""));
+  auto call_op = [&](Value op) { return request_json(str(Core::get(op, "path")), Core::get(op, "request", Value::object()), false, "json", false, str(Core::get(op, "method", "POST"))); };
+  auto create = [&]() {
+    try {
+      Value ops = Core::ai_gemini_cache_ops("", ttl_seconds, api_key_, model, cache_body);
+      Value created = call_op(Core::get(ops, "create")); cache_name = str(Core::get(created, "name", "")); double expires_at = ax_context_cache_expiry_ms(created);
+      if (cache_name.empty() || expires_at <= now_ms()) return false;
+      set_entry(object({{"cacheName", cache_name}, {"expiresAt", expires_at}})); return true;
+    } catch (const AxError&) { return false; }
+  };
+  std::string action = str(Core::get(plan, "action", "none"));
+  if (action == "refresh") {
+    try {
+      Value ops = Core::ai_gemini_cache_ops(cache_name, ttl_seconds, api_key_, model, cache_body); Value refreshed = call_op(Core::get(ops, "update")); double expires_at = ax_context_cache_expiry_ms(refreshed);
+      if (expires_at <= now_ms()) throw AxError("ai_service", "Gemini cache refresh omitted a future expireTime");
+      set_entry(object({{"cacheName", cache_name}, {"expiresAt", expires_at}}));
+    } catch (const AxError&) { if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat")); }
+  } else if (action == "create") {
+    if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat"));
+  } else if (action == "none") return Value();
+  if (cache_name.empty()) return Value();
+  Value cached = payload; object_mut(cached).erase("systemInstruction"); object_mut(cached).erase("tools"); object_mut(cached).erase("toolConfig");
+  Value suffix = Value::array(); for (std::size_t i = std::min(cached_count, contents.size()); i < contents.size(); ++i) Core::append(suffix, contents[i]); Core::set(cached, "contents", suffix); Core::set(cached, "cachedContent", cache_name);
+  try { return request_json(endpoint, cached, false, "json", false, operation_method("chat")); }
+  catch (const AxError& error) {
+    if (!Core::truthy(Core::ai_context_cache_rejection(error.status, error.response_body))) throw;
+    Value recovery = Core::ai_context_cache_recovery(get_entry(), cache_name, external);
+    if (Core::truthy(Core::get(recovery, "invalidated", false))) {
+      if (external) context_cache_registry_->set(tenant_namespace, cache_key, Core::get(recovery, "externalEntry", Value::object()));
+      else if (Core::truthy(Core::get(recovery, "deleteInMemory", false))) object_mut(context_cache_entries_).erase(cache_key);
+    }
+    return request_json(endpoint, payload, false, "json", false, operation_method("chat"));
+  }
+}
+
 Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   Value realtime_model = Core::coalesce(Core::get(request, "model"), Value(model_));
   if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request))) {
@@ -24389,7 +24645,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   bool stream = Core::truthy(Core::get(payload, "stream"));
   if (stream) {
     Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
-    Value raw = request_json(operation_path("stream_chat", model), payload, true);
+    Value raw = request_json(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"));
     Value state = Value::object();
     Value results = Value::array();
     for (const auto& event : iter_sse_json(raw)) {
@@ -24398,14 +24654,16 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
     return Value(Object{{"results", results}});
   }
   Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
-  Value raw = request_json(operation_path("chat", model), payload, false);
+  std::string endpoint = operation_path("chat", model);
+  Value raw = context_cache_chat(request, options, payload, model, endpoint);
+  if (raw.is_null()) raw = request_json(endpoint, payload, false, "json", false, operation_method("chat"));
   return Core::provider_normalize_chat_response(profile_, raw, name_, model);
 }
 
 Value OpenAICompatibleClient::do_embed(Value request, Value) {
   Value payload = Core::provider_build_embed_request(profile_, request);
   Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
-  Value raw = request_json(operation_path("embed", model), payload, false);
+  Value raw = request_json(operation_path("embed", model), payload, false, "json", false, operation_method("embed"));
   return Core::provider_normalize_embed_response(profile_, raw, name_, model);
 }
 
@@ -24453,7 +24711,7 @@ Value OpenAICompatibleClient::transcribe(Value request) {
   Value payload = Core::provider_build_transcribe_request(profile_, request);
   Value model = Core::get(request, "model", model_);
   std::string body_key = str(Core::get(Core::provider_operation_descriptor(profile_, "transcribe"), "body", "json")) == "multipart" ? "data" : "json";
-  Value raw = request_json(operation_path("transcribe", model), payload, false, body_key);
+  Value raw = request_json(operation_path("transcribe", model), payload, false, body_key, false, operation_method("transcribe"));
   return Core::provider_normalize_transcribe_response(profile_, raw);
 }
 
@@ -24465,7 +24723,7 @@ Value OpenAICompatibleClient::speak(Value request) {
   // OpenAI /audio/speech returns raw binary audio (mp3); the transport returns
   // it as base64 instead of JSON-parsing, and the normalizer reads raw["audio"].
   bool binary = str(Core::get(descriptor, "response", Value(""))) == "binary";
-  Value raw = request_json(operation_path("speak", model), payload, false, body_key, binary);
+  Value raw = request_json(operation_path("speak", model), payload, false, body_key, binary, operation_method("speak"));
   return Core::provider_normalize_speak_response(profile_, raw, request);
 }
 
@@ -24687,8 +24945,16 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response) {
+  return request_json(endpoint, std::move(payload), stream, body_key, binary_response, "POST");
+}
+
+std::string OpenAICompatibleClient::operation_method(const std::string& operation) const {
+  return str(Core::get(Core::provider_operation_descriptor(profile_, operation), "method", "POST"));
+}
+
+Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
   Value call = Value::object();
-  Core::set(call, "method", "POST");
+  Core::set(call, "method", method.empty() ? "POST" : method);
   Core::set(call, "url", base_url_ + endpoint);
   Core::set(call, "headers", headers());
   Core::set(call, body_key.empty() ? "json" : body_key, payload);

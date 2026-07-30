@@ -63,6 +63,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `python examples/agent_playbook.py`: attach a seeded agent playbook, exercise stage instructions and citations, learn from run-end failures, and verify accept/rollback evolution (offline, scripted client)
 - `python examples/mcp_scripted_tools.py`: MCP tool discovery and invocation through a scripted transport
 - `python examples/mcp_modern_roundtrip.py`: modern MCP discovery, cache, task, and roots MRTR over an in-process HTTP loopback
+- `python examples/context_cache_recovery.py`: Gemini managed-context-cache create, refresh/recreate, rejection invalidation, and uncached fallback
 
 `provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
 
