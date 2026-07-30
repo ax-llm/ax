@@ -623,7 +623,7 @@
     },
     {
       "id": "axir-2026-07-29-port-dual-era-mcp-discovery-and-classification",
-      "status": "open",
+      "status": "done",
       "title": "Port dual-era MCP discovery and classification",
       "createdAt": "2026-07-29",
       "sourcePR": null,
@@ -636,9 +636,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-30",
+      "completedByCommit": "e43afb35854c370a637f13acf416668f263c7efb",
+      "verification": "Five-port discover-auto-fallback and discover-modern conformance plus real mcp_sse_roundtrip auto fallback in Python, Java, C++, Go, and Rust; npm run test:axir"
     },
     {
       "id": "axir-2026-07-29-port-mcp-2026-07-28-required-http-headers",
@@ -718,7 +718,7 @@
     },
     {
       "id": "axir-2026-07-29-port-modern-mcp-per-request-metadata",
-      "status": "open",
+      "status": "done",
       "title": "Port modern MCP per-request metadata",
       "createdAt": "2026-07-29",
       "sourcePR": null,
@@ -731,9 +731,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-30",
+      "completedByCommit": "e43afb35854c370a637f13acf416668f263c7efb",
+      "verification": "Five-port discover-modern conformance covers required _meta, bounded -32022 version retry, Mcp-Param headers, and one-shot -32020 catalog refresh; npm run test:axir"
     },
     {
       "id": "axir-2026-07-29-port-modern-mcp-subscriptions-listen",
