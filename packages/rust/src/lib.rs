@@ -69493,14 +69493,25 @@ fn mcp_modern_request_headers(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     axir_coverage_mark("mcp_modern_request_headers");
     let mut v_method = core_arg(args, 0);
     let mut v_name = core_arg(args, 1);
+    let mut v_protocol_version = core_arg(args, 2);
     let mut v_missing = CoreValue::Null;
     let mut v_out = CoreValue::Null;
+    let mut v_version_missing = CoreValue::Null;
     v_out = CoreValue::new_map();
-    core_set(
-        &v_out,
-        CoreValue::from("MCP-Protocol-Version"),
-        CoreValue::from("2026-07-28"),
-    )?;
+    v_version_missing = core_is_none(&[v_protocol_version.clone()])?;
+    if core_truthy(&v_version_missing) {
+        core_set(
+            &v_out,
+            CoreValue::from("MCP-Protocol-Version"),
+            CoreValue::from("2026-07-28"),
+        )?;
+    } else {
+        core_set(
+            &v_out,
+            CoreValue::from("MCP-Protocol-Version"),
+            v_protocol_version.clone(),
+        )?;
+    }
     core_set(&v_out, CoreValue::from("Mcp-Method"), v_method.clone())?;
     v_missing = core_is_none(&[v_name.clone()])?;
     if core_truthy(&v_missing) {
@@ -69517,45 +69528,159 @@ fn mcp_modern_request_headers(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn mcp_jsonrpc_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_jsonrpc_request");
-    let mut v_id = core_arg(args, 0);
-    let mut v_method = core_arg(args, 1);
-    let mut v_params = core_arg(args, 2);
-    let mut v_missing = CoreValue::Null;
+fn mcp_classify_discovery_result(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_classify_discovery_result");
+    let mut v_result = core_arg(args, 0);
+    let mut v_capabilities = CoreValue::Null;
+    let mut v_capabilities_valid = CoreValue::Null;
+    let mut v_complete = CoreValue::Null;
+    let mut v_empty_meta = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_meta = CoreValue::Null;
+    let mut v_meta_base = CoreValue::Null;
+    let mut v_meta_is_object = CoreValue::Null;
+    let mut v_meta_raw = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
     let mut v_out = CoreValue::Null;
+    let mut v_private_scope = CoreValue::Null;
+    let mut v_public_scope = CoreValue::Null;
+    let mut v_result_type = CoreValue::Null;
+    let mut v_scope = CoreValue::Null;
+    let mut v_scope_valid = CoreValue::Null;
+    let mut v_server_info = CoreValue::Null;
+    let mut v_server_info_base = CoreValue::Null;
+    let mut v_server_info_object = CoreValue::Null;
+    let mut v_server_info_raw = CoreValue::Null;
+    let mut v_server_info_valid = CoreValue::Null;
+    let mut v_server_name = CoreValue::Null;
+    let mut v_server_name_string = CoreValue::Null;
+    let mut v_server_version = CoreValue::Null;
+    let mut v_server_version_string = CoreValue::Null;
+    let mut v_shape_a = CoreValue::Null;
+    let mut v_shape_b = CoreValue::Null;
+    let mut v_shape_c = CoreValue::Null;
+    let mut v_ttl = CoreValue::Null;
+    let mut v_ttl_integer = CoreValue::Null;
+    let mut v_ttl_nonnegative = CoreValue::Null;
+    let mut v_ttl_number = CoreValue::Null;
+    let mut v_ttl_text = CoreValue::Null;
+    let mut v_ttl_valid = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    let mut v_version_invalid = CoreValue::Null;
+    let mut v_version_string = CoreValue::Null;
+    let mut v_versions = CoreValue::Null;
+    let mut v_versions_list = CoreValue::Null;
+    let mut v_versions_valid = CoreValue::Null;
     v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("jsonrpc"), CoreValue::from("2.0"))?;
-    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
-    core_set(&v_out, CoreValue::from("method"), v_method.clone())?;
-    v_missing = core_is_none(&[v_params.clone()])?;
-    if core_truthy(&v_missing) {
-    } else {
-        core_set(&v_out, CoreValue::from("params"), v_params.clone())?;
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn mcp_jsonrpc_notification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_jsonrpc_notification");
-    let mut v_method = core_arg(args, 0);
-    let mut v_params = core_arg(args, 1);
-    let mut v_missing = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("jsonrpc"), CoreValue::from("2.0"))?;
-    core_set(&v_out, CoreValue::from("method"), v_method.clone())?;
-    v_missing = core_is_none(&[v_params.clone()])?;
-    if core_truthy(&v_missing) {
-    } else {
-        core_set(&v_out, CoreValue::from("params"), v_params.clone())?;
+    v_none = core_none(&[])?;
+    core_set(&v_out, CoreValue::from("valid"), CoreValue::Bool(false))?;
+    core_set(&v_out, CoreValue::from("serverInfo"), v_none.clone())?;
+    v_empty_meta = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("meta"), v_empty_meta.clone())?;
+    v_is_object = core_type_is(&v_result, CoreValue::from("object"));
+    if core_truthy(&v_is_object) {
+        v_result_type = core_get(
+            &v_result,
+            &CoreValue::from("resultType"),
+            CoreValue::from(""),
+        );
+        v_complete = core_eq(&[v_result_type.clone(), CoreValue::from("complete")])?;
+        v_versions = core_get(
+            &v_result,
+            &CoreValue::from("supportedVersions"),
+            CoreValue::Null,
+        );
+        v_versions_list = core_type_is(&v_versions, CoreValue::from("list"));
+        v_versions_valid = v_versions_list.clone();
+        if core_truthy(&v_versions_list) {
+            for v_version in core_iter(&v_versions)? {
+                let mut v_version = v_version;
+                v_version_string = core_type_is(&v_version, CoreValue::from("string"));
+                v_version_invalid = core_not(&[v_version_string.clone()])?;
+                if core_truthy(&v_version_invalid) {
+                    v_versions_valid = CoreValue::Bool(false);
+                }
+            }
+        }
+        v_capabilities = core_get(&v_result, &CoreValue::from("capabilities"), CoreValue::Null);
+        v_capabilities_valid = core_type_is(&v_capabilities, CoreValue::from("object"));
+        v_ttl = core_get(&v_result, &CoreValue::from("ttlMs"), CoreValue::Null);
+        v_ttl_number = core_type_is(&v_ttl, CoreValue::from("number"));
+        v_ttl_valid = CoreValue::Bool(false);
+        if core_truthy(&v_ttl_number) {
+            v_ttl_text = core_json_stringify(&[v_ttl.clone()])?;
+            v_ttl_integer = core_regex_match(CoreValue::from("^[0-9]+$"), &v_ttl_text)?;
+            v_ttl_nonnegative = core_gte(&[v_ttl.clone(), CoreValue::Num(0f64)])?;
+            v_ttl_valid = core_and(&[v_ttl_integer.clone(), v_ttl_nonnegative.clone()])?;
+        }
+        v_scope = core_get(
+            &v_result,
+            &CoreValue::from("cacheScope"),
+            CoreValue::from(""),
+        );
+        v_private_scope = core_eq(&[v_scope.clone(), CoreValue::from("private")])?;
+        v_public_scope = core_eq(&[v_scope.clone(), CoreValue::from("public")])?;
+        v_scope_valid = core_or(&[v_private_scope.clone(), v_public_scope.clone()])?;
+        v_shape_a = core_and(&[v_complete.clone(), v_versions_valid.clone()])?;
+        v_shape_b = core_and(&[v_capabilities_valid.clone(), v_ttl_valid.clone()])?;
+        v_shape_c = core_and(&[v_shape_a.clone(), v_shape_b.clone()])?;
+        v_valid = core_and(&[v_shape_c.clone(), v_scope_valid.clone()])?;
+        if core_truthy(&v_valid) {
+            core_set(&v_out, CoreValue::from("valid"), CoreValue::Bool(true))?;
+            core_set(
+                &v_out,
+                CoreValue::from("supportedVersions"),
+                v_versions.clone(),
+            )?;
+            core_set(
+                &v_out,
+                CoreValue::from("capabilities"),
+                v_capabilities.clone(),
+            )?;
+            core_set(&v_out, CoreValue::from("ttlMs"), v_ttl.clone())?;
+            core_set(&v_out, CoreValue::from("cacheScope"), v_scope.clone())?;
+            v_meta_raw = core_get(&v_result, &CoreValue::from("_meta"), CoreValue::Null);
+            v_meta_is_object = core_type_is(&v_meta_raw, CoreValue::from("object"));
+            if core_truthy(&v_meta_is_object) {
+                v_meta_base = CoreValue::new_map();
+                v_meta = core_map_merge(&[v_meta_base.clone(), v_meta_raw.clone()])?;
+                core_set(&v_out, CoreValue::from("meta"), v_meta.clone())?;
+                v_server_info_raw = core_get(
+                    &v_meta,
+                    &CoreValue::from("io.modelcontextprotocol/serverInfo"),
+                    CoreValue::Null,
+                );
+                v_server_info_object = core_type_is(&v_server_info_raw, CoreValue::from("object"));
+                if core_truthy(&v_server_info_object) {
+                    v_server_name = core_get(
+                        &v_server_info_raw,
+                        &CoreValue::from("name"),
+                        CoreValue::Null,
+                    );
+                    v_server_version = core_get(
+                        &v_server_info_raw,
+                        &CoreValue::from("version"),
+                        CoreValue::Null,
+                    );
+                    v_server_name_string = core_type_is(&v_server_name, CoreValue::from("string"));
+                    v_server_version_string =
+                        core_type_is(&v_server_version, CoreValue::from("string"));
+                    v_server_info_valid = core_and(&[
+                        v_server_name_string.clone(),
+                        v_server_version_string.clone(),
+                    ])?;
+                    if core_truthy(&v_server_info_valid) {
+                        v_server_info_base = CoreValue::new_map();
+                        v_server_info = core_map_merge(&[
+                            v_server_info_base.clone(),
+                            v_server_info_raw.clone(),
+                        ])?;
+                        core_set(&v_out, CoreValue::from("serverInfo"), v_server_info.clone())?;
+                    }
+                }
+            }
+        }
     }
     return Ok(v_out.clone());
 }
@@ -69599,51 +69724,6 @@ fn event_retry_transition(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_normalize_error");
-    let mut v_response = core_arg(args, 0);
-    let mut v_code = CoreValue::Null;
-    let mut v_data = CoreValue::Null;
-    let mut v_err = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_ok = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    v_err = core_get(&v_response, &CoreValue::from("error"), CoreValue::Null);
-    v_missing = core_is_none(&[v_err.clone()])?;
-    if core_truthy(&v_missing) {
-        v_ok = CoreValue::new_map();
-        v_result = core_get(&v_response, &CoreValue::from("result"), CoreValue::Null);
-        core_set(&v_ok, CoreValue::from("ok"), CoreValue::Bool(true))?;
-        core_set(&v_ok, CoreValue::from("result"), v_result.clone())?;
-        return Ok(v_ok.clone());
-    } else {
-        v_code = core_get(&v_err, &CoreValue::from("code"), CoreValue::Num(0f64));
-        v_message = core_get(
-            &v_err,
-            &CoreValue::from("message"),
-            CoreValue::from("MCP JSON-RPC error"),
-        );
-        v_data = core_get(&v_err, &CoreValue::from("data"), CoreValue::Null);
-        v_out = CoreValue::new_map();
-        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
-        core_set(&v_out, CoreValue::from("category"), CoreValue::from("mcp"))?;
-        core_set(&v_out, CoreValue::from("code"), v_code.clone())?;
-        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
-        core_set(&v_out, CoreValue::from("data"), v_data.clone())?;
-        return Ok(v_out.clone());
-    }
-    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -69771,105 +69851,60 @@ fn event_resolve_path(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn mcp_resource_subscription_selection(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_resource_subscription_selection");
-    let mut v_resources = core_arg(args, 0);
-    let mut v_mode = core_arg(args, 1);
-    let mut v_explicit_uris = core_arg(args, 2);
-    let mut v_duplicate = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    let mut v_is_all = CoreValue::Null;
-    let mut v_is_explicit = CoreValue::Null;
-    let mut v_is_selector = CoreValue::Null;
-    let mut v_resource = CoreValue::Null;
-    let mut v_selected = CoreValue::Null;
-    let mut v_skip = CoreValue::Null;
-    let mut v_uri = CoreValue::Null;
-    let mut v_uses_resources = CoreValue::Null;
-    v_selected = CoreValue::new_list();
-    v_is_explicit = core_eq(&[v_mode.clone(), CoreValue::from("explicit")])?;
-    if core_truthy(&v_is_explicit) {
-        for v_uri in core_iter(&v_explicit_uris)? {
-            let mut v_uri = v_uri;
-            v_empty = core_eq(&[v_uri.clone(), CoreValue::from("")])?;
-            v_duplicate = core_contains(&[v_selected.clone(), v_uri.clone()])?;
-            v_skip = core_or(&[v_empty.clone(), v_duplicate.clone()])?;
-            if core_truthy(&v_skip) {
-            } else {
-                core_append(&v_selected, v_uri.clone())?;
-            }
-        }
-    } else {
-        v_is_all = core_eq(&[v_mode.clone(), CoreValue::from("all")])?;
-        v_is_selector = core_eq(&[v_mode.clone(), CoreValue::from("selector")])?;
-        v_uses_resources = core_or(&[v_is_all.clone(), v_is_selector.clone()])?;
-        if core_truthy(&v_uses_resources) {
-            for v_resource in core_iter(&v_resources)? {
-                let mut v_resource = v_resource;
-                v_uri = core_get(&v_resource, &CoreValue::from("uri"), CoreValue::from(""));
-                v_empty = core_eq(&[v_uri.clone(), CoreValue::from("")])?;
-                v_duplicate = core_contains(&[v_selected.clone(), v_uri.clone()])?;
-                v_skip = core_or(&[v_empty.clone(), v_duplicate.clone()])?;
-                if core_truthy(&v_skip) {
-                } else {
-                    core_append(&v_selected, v_uri.clone())?;
-                }
-            }
-        }
-    }
-    return Ok(v_selected.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn mcp_resource_subscription_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_resource_subscription_plan");
-    let mut v_desired = core_arg(args, 0);
-    let mut v_current = core_arg(args, 1);
-    let mut v_additions = CoreValue::Null;
-    let mut v_duplicate = CoreValue::Null;
+fn mcp_resolve_known_era(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_resolve_known_era");
+    let mut v_configured = core_arg(args, 0);
+    let mut v_hint = core_arg(args, 1);
+    let mut v_cached = core_arg(args, 2);
+    let mut v_stored = core_arg(args, 3);
+    let mut v_cached_known = CoreValue::Null;
+    let mut v_cached_legacy = CoreValue::Null;
+    let mut v_cached_modern = CoreValue::Null;
+    let mut v_configured_known = CoreValue::Null;
+    let mut v_configured_legacy = CoreValue::Null;
+    let mut v_configured_modern = CoreValue::Null;
+    let mut v_hint_known = CoreValue::Null;
+    let mut v_hint_legacy = CoreValue::Null;
+    let mut v_hint_modern = CoreValue::Null;
     let mut v_out = CoreValue::Null;
-    let mut v_owned = CoreValue::Null;
-    let mut v_removals = CoreValue::Null;
-    let mut v_selected = CoreValue::Null;
-    let mut v_uri = CoreValue::Null;
-    let mut v_wanted = CoreValue::Null;
-    v_selected = CoreValue::new_list();
-    for v_uri in core_iter(&v_desired)? {
-        let mut v_uri = v_uri;
-        v_duplicate = core_contains(&[v_selected.clone(), v_uri.clone()])?;
-        if core_truthy(&v_duplicate) {
-        } else {
-            core_append(&v_selected, v_uri.clone())?;
-        }
-    }
-    v_additions = CoreValue::new_list();
-    for v_uri in core_iter(&v_selected)? {
-        let mut v_uri = v_uri;
-        v_owned = core_contains(&[v_current.clone(), v_uri.clone()])?;
-        if core_truthy(&v_owned) {
-        } else {
-            core_append(&v_additions, v_uri.clone())?;
-        }
-    }
-    v_removals = CoreValue::new_list();
-    for v_uri in core_iter(&v_current)? {
-        let mut v_uri = v_uri;
-        v_wanted = core_contains(&[v_selected.clone(), v_uri.clone()])?;
-        if core_truthy(&v_wanted) {
-        } else {
-            core_append(&v_removals, v_uri.clone())?;
-        }
-    }
+    let mut v_stored_known = CoreValue::Null;
+    let mut v_stored_legacy = CoreValue::Null;
+    let mut v_stored_modern = CoreValue::Null;
     v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("selected"), v_selected.clone())?;
-    core_set(&v_out, CoreValue::from("additions"), v_additions.clone())?;
-    core_set(&v_out, CoreValue::from("removals"), v_removals.clone())?;
+    v_configured_modern = core_eq(&[v_configured.clone(), CoreValue::from("modern")])?;
+    v_configured_legacy = core_eq(&[v_configured.clone(), CoreValue::from("legacy")])?;
+    v_configured_known = core_or(&[v_configured_modern.clone(), v_configured_legacy.clone()])?;
+    if core_truthy(&v_configured_known) {
+        core_set(&v_out, CoreValue::from("era"), v_configured.clone())?;
+        core_set(&v_out, CoreValue::from("probe"), CoreValue::Bool(false))?;
+        return Ok(v_out.clone());
+    }
+    v_hint_modern = core_eq(&[v_hint.clone(), CoreValue::from("modern")])?;
+    v_hint_legacy = core_eq(&[v_hint.clone(), CoreValue::from("legacy")])?;
+    v_hint_known = core_or(&[v_hint_modern.clone(), v_hint_legacy.clone()])?;
+    if core_truthy(&v_hint_known) {
+        core_set(&v_out, CoreValue::from("era"), v_hint.clone())?;
+        core_set(&v_out, CoreValue::from("probe"), CoreValue::Bool(false))?;
+        return Ok(v_out.clone());
+    }
+    v_cached_modern = core_eq(&[v_cached.clone(), CoreValue::from("modern")])?;
+    v_cached_legacy = core_eq(&[v_cached.clone(), CoreValue::from("legacy")])?;
+    v_cached_known = core_or(&[v_cached_modern.clone(), v_cached_legacy.clone()])?;
+    if core_truthy(&v_cached_known) {
+        core_set(&v_out, CoreValue::from("era"), v_cached.clone())?;
+        core_set(&v_out, CoreValue::from("probe"), CoreValue::Bool(false))?;
+        return Ok(v_out.clone());
+    }
+    v_stored_modern = core_eq(&[v_stored.clone(), CoreValue::from("modern")])?;
+    v_stored_legacy = core_eq(&[v_stored.clone(), CoreValue::from("legacy")])?;
+    v_stored_known = core_or(&[v_stored_modern.clone(), v_stored_legacy.clone()])?;
+    if core_truthy(&v_stored_known) {
+        core_set(&v_out, CoreValue::from("era"), v_stored.clone())?;
+        core_set(&v_out, CoreValue::from("probe"), CoreValue::Bool(false))?;
+        return Ok(v_out.clone());
+    }
+    core_set(&v_out, CoreValue::from("era"), CoreValue::from("modern"))?;
+    core_set(&v_out, CoreValue::from("probe"), CoreValue::Bool(true))?;
     return Ok(v_out.clone());
 }
 
@@ -69988,73 +70023,101 @@ fn event_map_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn mcp_resource_subscription_ownership(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_resource_subscription_ownership");
-    let mut v_owners = core_arg(args, 0);
-    let mut v_owner = core_arg(args, 1);
-    let mut v_operation = core_arg(args, 2);
-    let mut v_before = CoreValue::Null;
-    let mut v_current = CoreValue::Null;
-    let mut v_has_owner = CoreValue::Null;
-    let mut v_is_acquire = CoreValue::Null;
-    let mut v_matches = CoreValue::Null;
-    let mut v_now_empty = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_out_owners = CoreValue::Null;
-    let mut v_remaining = CoreValue::Null;
-    let mut v_was_empty = CoreValue::Null;
-    v_out_owners = CoreValue::new_list();
-    v_out = CoreValue::new_map();
-    core_set(
-        &v_out,
-        CoreValue::from("wireAction"),
-        CoreValue::from("none"),
-    )?;
-    core_set(&v_out, CoreValue::from("changed"), CoreValue::Bool(false))?;
-    v_has_owner = core_contains(&[v_owners.clone(), v_owner.clone()])?;
-    v_is_acquire = core_eq(&[v_operation.clone(), CoreValue::from("acquire")])?;
-    if core_truthy(&v_is_acquire) {
-        for v_current in core_iter(&v_owners)? {
-            let mut v_current = v_current;
-            core_append(&v_out_owners, v_current.clone())?;
-        }
-        if core_truthy(&v_has_owner) {
-        } else {
-            v_before = core_len(&[v_owners.clone()])?;
-            v_was_empty = core_eq(&[v_before.clone(), CoreValue::Num(0f64)])?;
-            if core_truthy(&v_was_empty) {
-                core_set(
-                    &v_out,
-                    CoreValue::from("wireAction"),
-                    CoreValue::from("subscribe"),
-                )?;
+fn mcp_select_mutual_version(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_select_mutual_version");
+    let mut v_error_data = core_arg(args, 0);
+    let mut v_client_versions = core_arg(args, 1);
+    let mut v_is_object = CoreValue::Null;
+    let mut v_mutual = CoreValue::Null;
+    let mut v_supported = CoreValue::Null;
+    let mut v_supported_list = CoreValue::Null;
+    let mut v_version = CoreValue::Null;
+    v_is_object = core_type_is(&v_error_data, CoreValue::from("object"));
+    if core_truthy(&v_is_object) {
+        v_supported = core_get(
+            &v_error_data,
+            &CoreValue::from("supported"),
+            CoreValue::Null,
+        );
+        v_supported_list = core_type_is(&v_supported, CoreValue::from("list"));
+        if core_truthy(&v_supported_list) {
+            for v_version in core_iter(&v_client_versions)? {
+                let mut v_version = v_version;
+                v_mutual = core_contains(&[v_supported.clone(), v_version.clone()])?;
+                if core_truthy(&v_mutual) {
+                    return Ok(v_version.clone());
+                }
             }
-            core_append(&v_out_owners, v_owner.clone())?;
-            core_set(&v_out, CoreValue::from("changed"), CoreValue::Bool(true))?;
-        }
-    } else {
-        for v_current in core_iter(&v_owners)? {
-            let mut v_current = v_current;
-            v_matches = core_eq(&[v_current.clone(), v_owner.clone()])?;
-            if core_truthy(&v_matches) {
-            } else {
-                core_append(&v_out_owners, v_current.clone())?;
-            }
-        }
-        if core_truthy(&v_has_owner) {
-            v_remaining = core_len(&[v_out_owners.clone()])?;
-            v_now_empty = core_eq(&[v_remaining.clone(), CoreValue::Num(0f64)])?;
-            if core_truthy(&v_now_empty) {
-                core_set(
-                    &v_out,
-                    CoreValue::from("wireAction"),
-                    CoreValue::from("unsubscribe"),
-                )?;
-            }
-            core_set(&v_out, CoreValue::from("changed"), CoreValue::Bool(true))?;
         }
     }
-    core_set(&v_out, CoreValue::from("owners"), v_out_owners.clone())?;
+    return Ok(CoreValue::from(""));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_build_request_meta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_build_request_meta");
+    let mut v_existing = core_arg(args, 0);
+    let mut v_protocol_version = core_arg(args, 1);
+    let mut v_client_capabilities = core_arg(args, 2);
+    let mut v_client_info = core_arg(args, 3);
+    let mut v_log_level = core_arg(args, 4);
+    let mut v_traceparent = core_arg(args, 5);
+    let mut v_tracestate = core_arg(args, 6);
+    let mut v_empty = CoreValue::Null;
+    let mut v_existing_object = CoreValue::Null;
+    let mut v_has_log = CoreValue::Null;
+    let mut v_has_traceparent = CoreValue::Null;
+    let mut v_has_tracestate = CoreValue::Null;
+    let mut v_log_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_empty = CoreValue::new_map();
+    v_out = v_empty.clone();
+    v_existing_object = core_type_is(&v_existing, CoreValue::from("object"));
+    if core_truthy(&v_existing_object) {
+        v_out = core_map_merge(&[v_empty.clone(), v_existing.clone()])?;
+    }
+    core_set(
+        &v_out,
+        CoreValue::from("io.modelcontextprotocol/protocolVersion"),
+        v_protocol_version.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("io.modelcontextprotocol/clientCapabilities"),
+        v_client_capabilities.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("io.modelcontextprotocol/clientInfo"),
+        v_client_info.clone(),
+    )?;
+    v_log_missing = core_is_none(&[v_log_level.clone()])?;
+    v_has_log = core_not(&[v_log_missing.clone()])?;
+    if core_truthy(&v_has_log) {
+        core_set(
+            &v_out,
+            CoreValue::from("io.modelcontextprotocol/logLevel"),
+            v_log_level.clone(),
+        )?;
+    }
+    v_has_traceparent = core_truthy_value(&[v_traceparent.clone()])?;
+    if core_truthy(&v_has_traceparent) {
+        core_set(
+            &v_out,
+            CoreValue::from("traceparent"),
+            v_traceparent.clone(),
+        )?;
+    }
+    v_has_tracestate = core_truthy_value(&[v_tracestate.clone()])?;
+    if core_truthy(&v_has_tracestate) {
+        core_set(&v_out, CoreValue::from("tracestate"), v_tracestate.clone())?;
+    }
     return Ok(v_out.clone());
 }
 
@@ -70123,6 +70186,93 @@ fn event_normalize_input(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         core_set(&v_result, CoreValue::from("error"), v_error.clone())?;
     }
     return Ok(v_result.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_client_capabilities(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_client_capabilities");
+    let mut v_has_roots = core_arg(args, 0);
+    let mut v_has_sampling = core_arg(args, 1);
+    let mut v_has_elicitation = core_arg(args, 2);
+    let mut v_era = core_arg(args, 3);
+    let mut v_tasks_extension = core_arg(args, 4);
+    let mut v_add_tasks = CoreValue::Null;
+    let mut v_elicitation = CoreValue::Null;
+    let mut v_elicitation_form = CoreValue::Null;
+    let mut v_elicitation_url = CoreValue::Null;
+    let mut v_extensions = CoreValue::Null;
+    let mut v_modern = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_roots = CoreValue::Null;
+    let mut v_sampling = CoreValue::Null;
+    let mut v_sampling_context = CoreValue::Null;
+    let mut v_sampling_tools = CoreValue::Null;
+    let mut v_tasks = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    if core_truthy(&v_has_roots) {
+        v_roots = CoreValue::new_map();
+        core_set(
+            &v_roots,
+            CoreValue::from("listChanged"),
+            CoreValue::Bool(true),
+        )?;
+        core_set(&v_out, CoreValue::from("roots"), v_roots.clone())?;
+    }
+    if core_truthy(&v_has_sampling) {
+        v_sampling = CoreValue::new_map();
+        v_sampling_context = CoreValue::new_map();
+        v_sampling_tools = CoreValue::new_map();
+        core_set(
+            &v_sampling,
+            CoreValue::from("context"),
+            v_sampling_context.clone(),
+        )?;
+        core_set(
+            &v_sampling,
+            CoreValue::from("tools"),
+            v_sampling_tools.clone(),
+        )?;
+        core_set(&v_out, CoreValue::from("sampling"), v_sampling.clone())?;
+    }
+    if core_truthy(&v_has_elicitation) {
+        v_elicitation = CoreValue::new_map();
+        v_elicitation_form = CoreValue::new_map();
+        v_elicitation_url = CoreValue::new_map();
+        core_set(
+            &v_elicitation,
+            CoreValue::from("form"),
+            v_elicitation_form.clone(),
+        )?;
+        core_set(
+            &v_elicitation,
+            CoreValue::from("url"),
+            v_elicitation_url.clone(),
+        )?;
+        core_set(
+            &v_out,
+            CoreValue::from("elicitation"),
+            v_elicitation.clone(),
+        )?;
+    }
+    v_modern = core_eq(&[v_era.clone(), CoreValue::from("modern")])?;
+    v_add_tasks = core_and(&[v_modern.clone(), v_tasks_extension.clone()])?;
+    if core_truthy(&v_add_tasks) {
+        v_extensions = CoreValue::new_map();
+        v_tasks = CoreValue::new_map();
+        core_set(
+            &v_extensions,
+            CoreValue::from("io.modelcontextprotocol/tasks"),
+            v_tasks.clone(),
+        )?;
+        core_set(&v_out, CoreValue::from("extensions"), v_extensions.clone())?;
+    }
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -70214,6 +70364,58 @@ fn event_continuation_match(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn mcp_negotiate_extensions(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_negotiate_extensions");
+    let mut v_client_ext = core_arg(args, 0);
+    let mut v_server_ext = core_arg(args, 1);
+    let mut v_both_objects = CoreValue::Null;
+    let mut v_client_object = CoreValue::Null;
+    let mut v_client_value = CoreValue::Null;
+    let mut v_client_value_object = CoreValue::Null;
+    let mut v_merged = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_names = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_server_has = CoreValue::Null;
+    let mut v_server_object = CoreValue::Null;
+    let mut v_server_value = CoreValue::Null;
+    let mut v_server_value_object = CoreValue::Null;
+    let mut v_values_objects = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_client_object = core_type_is(&v_client_ext, CoreValue::from("object"));
+    v_server_object = core_type_is(&v_server_ext, CoreValue::from("object"));
+    v_both_objects = core_and(&[v_client_object.clone(), v_server_object.clone()])?;
+    if core_truthy(&v_both_objects) {
+        v_names = core_map_keys(&[v_client_ext.clone()])?;
+        for v_name in core_iter(&v_names)? {
+            let mut v_name = v_name;
+            v_server_has = core_map_contains(&[v_server_ext.clone(), v_name.clone()])?;
+            if core_truthy(&v_server_has) {
+                v_client_value = core_get(&v_client_ext, &v_name.clone(), CoreValue::Null);
+                v_server_value = core_get(&v_server_ext, &v_name.clone(), CoreValue::Null);
+                v_client_value_object = core_type_is(&v_client_value, CoreValue::from("object"));
+                v_server_value_object = core_type_is(&v_server_value, CoreValue::from("object"));
+                v_values_objects =
+                    core_and(&[v_client_value_object.clone(), v_server_value_object.clone()])?;
+                if core_truthy(&v_values_objects) {
+                    v_merged = core_map_merge(&[v_client_value.clone(), v_server_value.clone()])?;
+                    core_set(&v_out, v_name.clone(), v_merged.clone())?;
+                } else {
+                    core_set(&v_out, v_name.clone(), v_server_value.clone())?;
+                }
+            }
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn event_delivery_due(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("event_delivery_due");
     let mut v_status = core_arg(args, 0);
@@ -70226,6 +70428,50 @@ fn event_delivery_due(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     v_ready = core_lte(&[v_available_at.clone(), v_now.clone()])?;
     v_due = core_and(&[v_queued.clone(), v_ready.clone()])?;
     return Ok(v_due.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_request_name(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_request_name");
+    let mut v_method = core_arg(args, 0);
+    let mut v_params = core_arg(args, 1);
+    let mut v_name = CoreValue::Null;
+    let mut v_name_string = CoreValue::Null;
+    let mut v_named = CoreValue::Null;
+    let mut v_params_object = CoreValue::Null;
+    let mut v_prompts_get = CoreValue::Null;
+    let mut v_resources_read = CoreValue::Null;
+    let mut v_tools_call = CoreValue::Null;
+    let mut v_uri = CoreValue::Null;
+    let mut v_uri_string = CoreValue::Null;
+    v_params_object = core_type_is(&v_params, CoreValue::from("object"));
+    if core_truthy(&v_params_object) {
+        v_tools_call = core_eq(&[v_method.clone(), CoreValue::from("tools/call")])?;
+        v_prompts_get = core_eq(&[v_method.clone(), CoreValue::from("prompts/get")])?;
+        v_named = core_or(&[v_tools_call.clone(), v_prompts_get.clone()])?;
+        if core_truthy(&v_named) {
+            v_name = core_get(&v_params, &CoreValue::from("name"), CoreValue::from(""));
+            v_name_string = core_type_is(&v_name, CoreValue::from("string"));
+            if core_truthy(&v_name_string) {
+                return Ok(v_name.clone());
+            }
+        }
+        v_resources_read = core_eq(&[v_method.clone(), CoreValue::from("resources/read")])?;
+        if core_truthy(&v_resources_read) {
+            v_uri = core_get(&v_params, &CoreValue::from("uri"), CoreValue::from(""));
+            v_uri_string = core_type_is(&v_uri, CoreValue::from("string"));
+            if core_truthy(&v_uri_string) {
+                return Ok(v_uri.clone());
+            }
+        }
+    }
+    return Ok(CoreValue::from(""));
 }
 
 #[allow(
@@ -70327,6 +70573,328 @@ fn event_strict_delivery_eligible(args: &[CoreValue]) -> Result<CoreValue, AxErr
         }
     }
     return Ok(v_eligible.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_header_value_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_header_value_plan");
+    let mut v_value = core_arg(args, 0);
+    let mut v_edge_or_sentinel = CoreValue::Null;
+    let mut v_edge_space = CoreValue::Null;
+    let mut v_encode = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_sentinel = CoreValue::Null;
+    let mut v_sentinel_prefix = CoreValue::Null;
+    let mut v_sentinel_suffix = CoreValue::Null;
+    let mut v_unsafe_octet = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_edge_space = core_regex_match(CoreValue::from("^[\\t ]|[\\t ]$"), &v_value)?;
+    v_sentinel_prefix = core_string_starts_with(&[v_value.clone(), CoreValue::from("=?base64?")])?;
+    v_sentinel_suffix = core_string_ends_with(&[v_value.clone(), CoreValue::from("?=")])?;
+    v_sentinel = core_and(&[v_sentinel_prefix.clone(), v_sentinel_suffix.clone()])?;
+    v_unsafe_octet = core_regex_match(CoreValue::from("[^\\t -~]"), &v_value)?;
+    v_edge_or_sentinel = core_or(&[v_edge_space.clone(), v_sentinel.clone()])?;
+    v_encode = core_or(&[v_edge_or_sentinel.clone(), v_unsafe_octet.clone()])?;
+    if core_truthy(&v_encode) {
+        core_set(&v_out, CoreValue::from("mode"), CoreValue::from("encode"))?;
+    } else {
+        core_set(&v_out, CoreValue::from("mode"), CoreValue::from("plain"))?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_param_header_bindings(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_param_header_bindings");
+    let mut v_input_schema = core_arg(args, 0);
+    let mut v_annotated = CoreValue::Null;
+    let mut v_binding = CoreValue::Null;
+    let mut v_bindings = CoreValue::Null;
+    let mut v_child_base = CoreValue::Null;
+    let mut v_child_binding = CoreValue::Null;
+    let mut v_child_bindings = CoreValue::Null;
+    let mut v_child_duplicate = CoreValue::Null;
+    let mut v_child_duplicate_error = CoreValue::Null;
+    let mut v_child_header_name = CoreValue::Null;
+    let mut v_child_normalized = CoreValue::Null;
+    let mut v_child_part = CoreValue::Null;
+    let mut v_child_path = CoreValue::Null;
+    let mut v_child_schema = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_duplicate_error = CoreValue::Null;
+    let mut v_full_header_name = CoreValue::Null;
+    let mut v_header_invalid = CoreValue::Null;
+    let mut v_header_length = CoreValue::Null;
+    let mut v_header_name = CoreValue::Null;
+    let mut v_header_nonempty = CoreValue::Null;
+    let mut v_header_not_string = CoreValue::Null;
+    let mut v_header_string = CoreValue::Null;
+    let mut v_is_annotation = CoreValue::Null;
+    let mut v_is_properties = CoreValue::Null;
+    let mut v_item_annotated = CoreValue::Null;
+    let mut v_item_binding_count = CoreValue::Null;
+    let mut v_item_bindings = CoreValue::Null;
+    let mut v_item_error = CoreValue::Null;
+    let mut v_keyword_annotated = CoreValue::Null;
+    let mut v_keyword_binding_count = CoreValue::Null;
+    let mut v_keyword_bindings = CoreValue::Null;
+    let mut v_keyword_error = CoreValue::Null;
+    let mut v_keyword_item = CoreValue::Null;
+    let mut v_keyword_item_object = CoreValue::Null;
+    let mut v_keyword_list = CoreValue::Null;
+    let mut v_keyword_object = CoreValue::Null;
+    let mut v_keyword_value = CoreValue::Null;
+    let mut v_name_error = CoreValue::Null;
+    let mut v_name_type_error = CoreValue::Null;
+    let mut v_normalized_full_name = CoreValue::Null;
+    let mut v_normalized_name = CoreValue::Null;
+    let mut v_not_object = CoreValue::Null;
+    let mut v_path = CoreValue::Null;
+    let mut v_prefixed_binding = CoreValue::Null;
+    let mut v_prefixed_binding_base = CoreValue::Null;
+    let mut v_prefixed_path = CoreValue::Null;
+    let mut v_properties = CoreValue::Null;
+    let mut v_properties_object = CoreValue::Null;
+    let mut v_property_name = CoreValue::Null;
+    let mut v_property_names = CoreValue::Null;
+    let mut v_property_object = CoreValue::Null;
+    let mut v_property_schema = CoreValue::Null;
+    let mut v_property_type = CoreValue::Null;
+    let mut v_root_annotated = CoreValue::Null;
+    let mut v_root_error = CoreValue::Null;
+    let mut v_schema_key = CoreValue::Null;
+    let mut v_schema_keys = CoreValue::Null;
+    let mut v_schema_object = CoreValue::Null;
+    let mut v_seen_names = CoreValue::Null;
+    let mut v_skip_keyword = CoreValue::Null;
+    let mut v_token_error = CoreValue::Null;
+    let mut v_token_invalid = CoreValue::Null;
+    let mut v_token_valid = CoreValue::Null;
+    let mut v_type_boolean = CoreValue::Null;
+    let mut v_type_error = CoreValue::Null;
+    let mut v_type_integer = CoreValue::Null;
+    let mut v_type_invalid = CoreValue::Null;
+    let mut v_type_scalar_a = CoreValue::Null;
+    let mut v_type_string = CoreValue::Null;
+    let mut v_type_valid = CoreValue::Null;
+    let mut v_visit_keyword = CoreValue::Null;
+    v_bindings = CoreValue::new_list();
+    v_schema_object = core_type_is(&v_input_schema, CoreValue::from("object"));
+    v_not_object = core_not(&[v_schema_object.clone()])?;
+    if core_truthy(&v_not_object) {
+        return Ok(v_bindings.clone());
+    }
+    v_root_annotated =
+        core_map_contains(&[v_input_schema.clone(), CoreValue::from("x-mcp-header")])?;
+    if core_truthy(&v_root_annotated) {
+        v_root_error = core_validation_error(&[CoreValue::from(
+            "x-mcp-header at inputSchema is not statically reachable through properties",
+        )])?;
+        return Err(core_as_error(&v_root_error));
+    }
+    v_seen_names = CoreValue::new_list();
+    v_properties = core_get(
+        &v_input_schema,
+        &CoreValue::from("properties"),
+        CoreValue::Null,
+    );
+    v_properties_object = core_type_is(&v_properties, CoreValue::from("object"));
+    if core_truthy(&v_properties_object) {
+        v_property_names = core_map_keys(&[v_properties.clone()])?;
+        for v_property_name in core_iter(&v_property_names)? {
+            let mut v_property_name = v_property_name;
+            v_property_schema = core_get(&v_properties, &v_property_name.clone(), CoreValue::Null);
+            v_property_object = core_type_is(&v_property_schema, CoreValue::from("object"));
+            if core_truthy(&v_property_object) {
+                v_annotated = core_map_contains(&[
+                    v_property_schema.clone(),
+                    CoreValue::from("x-mcp-header"),
+                ])?;
+                if core_truthy(&v_annotated) {
+                    v_header_name = core_get(
+                        &v_property_schema,
+                        &CoreValue::from("x-mcp-header"),
+                        CoreValue::Null,
+                    );
+                    v_header_string = core_type_is(&v_header_name, CoreValue::from("string"));
+                    v_header_not_string = core_not(&[v_header_string.clone()])?;
+                    if core_truthy(&v_header_not_string) {
+                        v_name_type_error = core_validation_error(&[CoreValue::from(
+                            "x-mcp-header must be a non-empty string",
+                        )])?;
+                        return Err(core_as_error(&v_name_type_error));
+                    }
+                    v_header_length = core_len(&[v_header_name.clone()])?;
+                    v_header_nonempty = core_gt(&[v_header_length.clone(), CoreValue::Num(0f64)])?;
+                    v_header_invalid = core_not(&[v_header_nonempty.clone()])?;
+                    if core_truthy(&v_header_invalid) {
+                        v_name_error = core_validation_error(&[CoreValue::from(
+                            "x-mcp-header must be a non-empty string",
+                        )])?;
+                        return Err(core_as_error(&v_name_error));
+                    }
+                    v_token_valid = core_regex_match(
+                        CoreValue::from("^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$"),
+                        &v_header_name,
+                    )?;
+                    v_token_invalid = core_not(&[v_token_valid.clone()])?;
+                    if core_truthy(&v_token_invalid) {
+                        v_token_error = core_validation_error(&[CoreValue::from(
+                            "x-mcp-header value is not an RFC 9110 field-name token",
+                        )])?;
+                        return Err(core_as_error(&v_token_error));
+                    }
+                    v_normalized_name = core_string_lower(&[v_header_name.clone()])?;
+                    v_normalized_full_name = core_string_format(&[
+                        CoreValue::from("mcp-param-{}"),
+                        v_normalized_name.clone(),
+                    ])?;
+                    v_duplicate =
+                        core_contains(&[v_seen_names.clone(), v_normalized_full_name.clone()])?;
+                    if core_truthy(&v_duplicate) {
+                        v_duplicate_error = core_validation_error(&[CoreValue::from(
+                            "x-mcp-header value is not case-insensitively unique",
+                        )])?;
+                        return Err(core_as_error(&v_duplicate_error));
+                    }
+                    core_append(&v_seen_names, v_normalized_full_name.clone())?;
+                    v_property_type = core_get(
+                        &v_property_schema,
+                        &CoreValue::from("type"),
+                        CoreValue::Null,
+                    );
+                    v_type_string = core_eq(&[v_property_type.clone(), CoreValue::from("string")])?;
+                    v_type_integer =
+                        core_eq(&[v_property_type.clone(), CoreValue::from("integer")])?;
+                    v_type_boolean =
+                        core_eq(&[v_property_type.clone(), CoreValue::from("boolean")])?;
+                    v_type_scalar_a = core_or(&[v_type_string.clone(), v_type_integer.clone()])?;
+                    v_type_valid = core_or(&[v_type_scalar_a.clone(), v_type_boolean.clone()])?;
+                    v_type_invalid = core_not(&[v_type_valid.clone()])?;
+                    if core_truthy(&v_type_invalid) {
+                        v_type_error = core_validation_error(&[CoreValue::from(
+                            "x-mcp-header requires type string, integer, or boolean",
+                        )])?;
+                        return Err(core_as_error(&v_type_error));
+                    }
+                    v_binding = CoreValue::new_map();
+                    v_full_header_name = core_string_format(&[
+                        CoreValue::from("Mcp-Param-{}"),
+                        v_header_name.clone(),
+                    ])?;
+                    core_set(
+                        &v_binding,
+                        CoreValue::from("headerName"),
+                        v_full_header_name.clone(),
+                    )?;
+                    v_path = CoreValue::new_list();
+                    core_append(&v_path, v_property_name.clone())?;
+                    core_set(&v_binding, CoreValue::from("path"), v_path.clone())?;
+                    core_set(&v_binding, CoreValue::from("type"), v_property_type.clone())?;
+                    core_append(&v_bindings, v_binding.clone())?;
+                }
+                v_child_base = CoreValue::new_map();
+                v_child_schema =
+                    core_map_merge(&[v_child_base.clone(), v_property_schema.clone()])?;
+                core_map_delete(&[v_child_schema.clone(), CoreValue::from("x-mcp-header")])?;
+                v_child_bindings = mcp_param_header_bindings(&[v_child_schema.clone()])?;
+                for v_child_binding in core_iter(&v_child_bindings)? {
+                    let mut v_child_binding = v_child_binding;
+                    v_child_header_name = core_get(
+                        &v_child_binding,
+                        &CoreValue::from("headerName"),
+                        CoreValue::from(""),
+                    );
+                    v_child_normalized = core_string_lower(&[v_child_header_name.clone()])?;
+                    v_child_duplicate =
+                        core_contains(&[v_seen_names.clone(), v_child_normalized.clone()])?;
+                    if core_truthy(&v_child_duplicate) {
+                        v_child_duplicate_error = core_validation_error(&[CoreValue::from(
+                            "x-mcp-header value is not case-insensitively unique",
+                        )])?;
+                        return Err(core_as_error(&v_child_duplicate_error));
+                    }
+                    core_append(&v_seen_names, v_child_normalized.clone())?;
+                    v_child_path =
+                        core_get(&v_child_binding, &CoreValue::from("path"), CoreValue::Null);
+                    v_prefixed_path = CoreValue::new_list();
+                    core_append(&v_prefixed_path, v_property_name.clone())?;
+                    for v_child_part in core_iter(&v_child_path)? {
+                        let mut v_child_part = v_child_part;
+                        core_append(&v_prefixed_path, v_child_part.clone())?;
+                    }
+                    v_prefixed_binding_base = CoreValue::new_map();
+                    v_prefixed_binding = core_map_merge(&[
+                        v_prefixed_binding_base.clone(),
+                        v_child_binding.clone(),
+                    ])?;
+                    core_set(
+                        &v_prefixed_binding,
+                        CoreValue::from("path"),
+                        v_prefixed_path.clone(),
+                    )?;
+                    core_append(&v_bindings, v_prefixed_binding.clone())?;
+                }
+            }
+        }
+    }
+    v_schema_keys = core_map_keys(&[v_input_schema.clone()])?;
+    for v_schema_key in core_iter(&v_schema_keys)? {
+        let mut v_schema_key = v_schema_key;
+        v_is_properties = core_eq(&[v_schema_key.clone(), CoreValue::from("properties")])?;
+        v_is_annotation = core_eq(&[v_schema_key.clone(), CoreValue::from("x-mcp-header")])?;
+        v_skip_keyword = core_or(&[v_is_properties.clone(), v_is_annotation.clone()])?;
+        v_visit_keyword = core_not(&[v_skip_keyword.clone()])?;
+        if core_truthy(&v_visit_keyword) {
+            v_keyword_value = core_get(&v_input_schema, &v_schema_key.clone(), CoreValue::Null);
+            v_keyword_object = core_type_is(&v_keyword_value, CoreValue::from("object"));
+            if core_truthy(&v_keyword_object) {
+                v_keyword_bindings = mcp_param_header_bindings(&[v_keyword_value.clone()])?;
+                v_keyword_binding_count = core_len(&[v_keyword_bindings.clone()])?;
+                v_keyword_annotated =
+                    core_gt(&[v_keyword_binding_count.clone(), CoreValue::Num(0f64)])?;
+                if core_truthy(&v_keyword_annotated) {
+                    v_keyword_error = core_validation_error(&[CoreValue::from(
+                        "x-mcp-header is not statically reachable through properties",
+                    )])?;
+                    return Err(core_as_error(&v_keyword_error));
+                }
+            }
+            v_keyword_list = core_type_is(&v_keyword_value, CoreValue::from("list"));
+            if core_truthy(&v_keyword_list) {
+                for v_keyword_item in core_iter(&v_keyword_value)? {
+                    let mut v_keyword_item = v_keyword_item;
+                    v_keyword_item_object =
+                        core_type_is(&v_keyword_item, CoreValue::from("object"));
+                    if core_truthy(&v_keyword_item_object) {
+                        v_item_bindings = mcp_param_header_bindings(&[v_keyword_item.clone()])?;
+                        v_item_binding_count = core_len(&[v_item_bindings.clone()])?;
+                        v_item_annotated =
+                            core_gt(&[v_item_binding_count.clone(), CoreValue::Num(0f64)])?;
+                        if core_truthy(&v_item_annotated) {
+                            v_item_error = core_validation_error(&[CoreValue::from(
+                                "x-mcp-header is not statically reachable through properties",
+                            )])?;
+                            return Err(core_as_error(&v_item_error));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return Ok(v_bindings.clone());
 }
 
 #[allow(
@@ -70547,4 +71115,427 @@ fn event_normalize_mcp(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (525 of 525 core functions)
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_param_header_values(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_param_header_values");
+    let mut v_bindings = core_arg(args, 0);
+    let mut v_arguments = core_arg(args, 1);
+    let mut v_absolute = CoreValue::Null;
+    let mut v_binding = CoreValue::Null;
+    let mut v_bindings_list = CoreValue::Null;
+    let mut v_boolean_error = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_current_object = CoreValue::Null;
+    let mut v_emit_value = CoreValue::Null;
+    let mut v_expected_type = CoreValue::Null;
+    let mut v_expects_boolean = CoreValue::Null;
+    let mut v_expects_string = CoreValue::Null;
+    let mut v_has_part = CoreValue::Null;
+    let mut v_header_name = CoreValue::Null;
+    let mut v_integer_error = CoreValue::Null;
+    let mut v_invalid_boolean = CoreValue::Null;
+    let mut v_invalid_integer = CoreValue::Null;
+    let mut v_invalid_string = CoreValue::Null;
+    let mut v_is_boolean = CoreValue::Null;
+    let mut v_is_integer = CoreValue::Null;
+    let mut v_is_null = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    let mut v_is_safe = CoreValue::Null;
+    let mut v_is_string = CoreValue::Null;
+    let mut v_not_bindings = CoreValue::Null;
+    let mut v_not_null = CoreValue::Null;
+    let mut v_not_number = CoreValue::Null;
+    let mut v_number_error = CoreValue::Null;
+    let mut v_number_text = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_path = CoreValue::Null;
+    let mut v_present = CoreValue::Null;
+    let mut v_safe_high = CoreValue::Null;
+    let mut v_safe_max = CoreValue::Null;
+    let mut v_string_error = CoreValue::Null;
+    let mut v_valid_integer = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_bindings_list = core_type_is(&v_bindings, CoreValue::from("list"));
+    v_not_bindings = core_not(&[v_bindings_list.clone()])?;
+    if core_truthy(&v_not_bindings) {
+        return Ok(v_out.clone());
+    }
+    for v_binding in core_iter(&v_bindings)? {
+        let mut v_binding = v_binding;
+        v_header_name = core_get(
+            &v_binding,
+            &CoreValue::from("headerName"),
+            CoreValue::from(""),
+        );
+        v_path = core_get(&v_binding, &CoreValue::from("path"), CoreValue::Null);
+        v_expected_type = core_get(&v_binding, &CoreValue::from("type"), CoreValue::from(""));
+        v_current = v_arguments.clone();
+        v_present = CoreValue::Bool(true);
+        for v_part in core_iter(&v_path)? {
+            let mut v_part = v_part;
+            v_current_object = core_type_is(&v_current, CoreValue::from("object"));
+            if core_truthy(&v_current_object) {
+                v_has_part = core_map_contains(&[v_current.clone(), v_part.clone()])?;
+                if core_truthy(&v_has_part) {
+                    v_current = core_get(&v_current, &v_part.clone(), CoreValue::Null);
+                } else {
+                    v_present = CoreValue::Bool(false);
+                }
+            } else {
+                v_present = CoreValue::Bool(false);
+            }
+        }
+        v_is_null = core_is_none(&[v_current.clone()])?;
+        v_not_null = core_not(&[v_is_null.clone()])?;
+        v_emit_value = core_and(&[v_present.clone(), v_not_null.clone()])?;
+        if core_truthy(&v_emit_value) {
+            v_expects_string = core_eq(&[v_expected_type.clone(), CoreValue::from("string")])?;
+            if core_truthy(&v_expects_string) {
+                v_is_string = core_type_is(&v_current, CoreValue::from("string"));
+                v_invalid_string = core_not(&[v_is_string.clone()])?;
+                if core_truthy(&v_invalid_string) {
+                    v_string_error = core_validation_error(&[CoreValue::from(
+                        "MCP parameter header expected string",
+                    )])?;
+                    return Err(core_as_error(&v_string_error));
+                }
+                core_set(&v_out, v_header_name.clone(), v_current.clone())?;
+            } else {
+                v_expects_boolean =
+                    core_eq(&[v_expected_type.clone(), CoreValue::from("boolean")])?;
+                if core_truthy(&v_expects_boolean) {
+                    v_is_boolean = core_type_is(&v_current, CoreValue::from("boolean"));
+                    v_invalid_boolean = core_not(&[v_is_boolean.clone()])?;
+                    if core_truthy(&v_invalid_boolean) {
+                        v_boolean_error = core_validation_error(&[CoreValue::from(
+                            "MCP parameter header expected boolean",
+                        )])?;
+                        return Err(core_as_error(&v_boolean_error));
+                    }
+                    if core_truthy(&v_current) {
+                        core_set(&v_out, v_header_name.clone(), CoreValue::from("true"))?;
+                    } else {
+                        core_set(&v_out, v_header_name.clone(), CoreValue::from("false"))?;
+                    }
+                } else {
+                    v_is_number = core_type_is(&v_current, CoreValue::from("number"));
+                    v_not_number = core_not(&[v_is_number.clone()])?;
+                    if core_truthy(&v_not_number) {
+                        v_number_error = core_validation_error(&[CoreValue::from(
+                            "MCP parameter header expected integer",
+                        )])?;
+                        return Err(core_as_error(&v_number_error));
+                    }
+                    v_number_text = core_json_stringify(&[v_current.clone()])?;
+                    v_is_integer =
+                        core_regex_match(CoreValue::from("^-?(0|[1-9][0-9]*)$"), &v_number_text)?;
+                    v_absolute = core_math_abs(&[v_current.clone()])?;
+                    v_safe_high =
+                        core_mul(&[CoreValue::Num(9007199f64), CoreValue::Num(1000000000f64)])?;
+                    v_safe_max = core_add(&[v_safe_high.clone(), CoreValue::Num(254740991f64)])?;
+                    v_is_safe = core_lte(&[v_absolute.clone(), v_safe_max.clone()])?;
+                    v_valid_integer = core_and(&[v_is_integer.clone(), v_is_safe.clone()])?;
+                    v_invalid_integer = core_not(&[v_valid_integer.clone()])?;
+                    if core_truthy(&v_invalid_integer) {
+                        v_integer_error = core_validation_error(&[CoreValue::from(
+                            "MCP parameter header expected integer",
+                        )])?;
+                        return Err(core_as_error(&v_integer_error));
+                    }
+                    core_set(&v_out, v_header_name.clone(), v_number_text.clone())?;
+                }
+            }
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_jsonrpc_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_jsonrpc_request");
+    let mut v_id = core_arg(args, 0);
+    let mut v_method = core_arg(args, 1);
+    let mut v_params = core_arg(args, 2);
+    let mut v_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("jsonrpc"), CoreValue::from("2.0"))?;
+    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_out, CoreValue::from("method"), v_method.clone())?;
+    v_missing = core_is_none(&[v_params.clone()])?;
+    if core_truthy(&v_missing) {
+    } else {
+        core_set(&v_out, CoreValue::from("params"), v_params.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_jsonrpc_notification(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_jsonrpc_notification");
+    let mut v_method = core_arg(args, 0);
+    let mut v_params = core_arg(args, 1);
+    let mut v_missing = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("jsonrpc"), CoreValue::from("2.0"))?;
+    core_set(&v_out, CoreValue::from("method"), v_method.clone())?;
+    v_missing = core_is_none(&[v_params.clone()])?;
+    if core_truthy(&v_missing) {
+    } else {
+        core_set(&v_out, CoreValue::from("params"), v_params.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_normalize_error(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_normalize_error");
+    let mut v_response = core_arg(args, 0);
+    let mut v_code = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_err = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_ok = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    v_err = core_get(&v_response, &CoreValue::from("error"), CoreValue::Null);
+    v_missing = core_is_none(&[v_err.clone()])?;
+    if core_truthy(&v_missing) {
+        v_ok = CoreValue::new_map();
+        v_result = core_get(&v_response, &CoreValue::from("result"), CoreValue::Null);
+        core_set(&v_ok, CoreValue::from("ok"), CoreValue::Bool(true))?;
+        core_set(&v_ok, CoreValue::from("result"), v_result.clone())?;
+        return Ok(v_ok.clone());
+    } else {
+        v_code = core_get(&v_err, &CoreValue::from("code"), CoreValue::Num(0f64));
+        v_message = core_get(
+            &v_err,
+            &CoreValue::from("message"),
+            CoreValue::from("MCP JSON-RPC error"),
+        );
+        v_data = core_get(&v_err, &CoreValue::from("data"), CoreValue::Null);
+        v_out = CoreValue::new_map();
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(&v_out, CoreValue::from("category"), CoreValue::from("mcp"))?;
+        core_set(&v_out, CoreValue::from("code"), v_code.clone())?;
+        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        core_set(&v_out, CoreValue::from("data"), v_data.clone())?;
+        return Ok(v_out.clone());
+    }
+    return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_resource_subscription_selection(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_resource_subscription_selection");
+    let mut v_resources = core_arg(args, 0);
+    let mut v_mode = core_arg(args, 1);
+    let mut v_explicit_uris = core_arg(args, 2);
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_is_all = CoreValue::Null;
+    let mut v_is_explicit = CoreValue::Null;
+    let mut v_is_selector = CoreValue::Null;
+    let mut v_resource = CoreValue::Null;
+    let mut v_selected = CoreValue::Null;
+    let mut v_skip = CoreValue::Null;
+    let mut v_uri = CoreValue::Null;
+    let mut v_uses_resources = CoreValue::Null;
+    v_selected = CoreValue::new_list();
+    v_is_explicit = core_eq(&[v_mode.clone(), CoreValue::from("explicit")])?;
+    if core_truthy(&v_is_explicit) {
+        for v_uri in core_iter(&v_explicit_uris)? {
+            let mut v_uri = v_uri;
+            v_empty = core_eq(&[v_uri.clone(), CoreValue::from("")])?;
+            v_duplicate = core_contains(&[v_selected.clone(), v_uri.clone()])?;
+            v_skip = core_or(&[v_empty.clone(), v_duplicate.clone()])?;
+            if core_truthy(&v_skip) {
+            } else {
+                core_append(&v_selected, v_uri.clone())?;
+            }
+        }
+    } else {
+        v_is_all = core_eq(&[v_mode.clone(), CoreValue::from("all")])?;
+        v_is_selector = core_eq(&[v_mode.clone(), CoreValue::from("selector")])?;
+        v_uses_resources = core_or(&[v_is_all.clone(), v_is_selector.clone()])?;
+        if core_truthy(&v_uses_resources) {
+            for v_resource in core_iter(&v_resources)? {
+                let mut v_resource = v_resource;
+                v_uri = core_get(&v_resource, &CoreValue::from("uri"), CoreValue::from(""));
+                v_empty = core_eq(&[v_uri.clone(), CoreValue::from("")])?;
+                v_duplicate = core_contains(&[v_selected.clone(), v_uri.clone()])?;
+                v_skip = core_or(&[v_empty.clone(), v_duplicate.clone()])?;
+                if core_truthy(&v_skip) {
+                } else {
+                    core_append(&v_selected, v_uri.clone())?;
+                }
+            }
+        }
+    }
+    return Ok(v_selected.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_resource_subscription_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_resource_subscription_plan");
+    let mut v_desired = core_arg(args, 0);
+    let mut v_current = core_arg(args, 1);
+    let mut v_additions = CoreValue::Null;
+    let mut v_duplicate = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_owned = CoreValue::Null;
+    let mut v_removals = CoreValue::Null;
+    let mut v_selected = CoreValue::Null;
+    let mut v_uri = CoreValue::Null;
+    let mut v_wanted = CoreValue::Null;
+    v_selected = CoreValue::new_list();
+    for v_uri in core_iter(&v_desired)? {
+        let mut v_uri = v_uri;
+        v_duplicate = core_contains(&[v_selected.clone(), v_uri.clone()])?;
+        if core_truthy(&v_duplicate) {
+        } else {
+            core_append(&v_selected, v_uri.clone())?;
+        }
+    }
+    v_additions = CoreValue::new_list();
+    for v_uri in core_iter(&v_selected)? {
+        let mut v_uri = v_uri;
+        v_owned = core_contains(&[v_current.clone(), v_uri.clone()])?;
+        if core_truthy(&v_owned) {
+        } else {
+            core_append(&v_additions, v_uri.clone())?;
+        }
+    }
+    v_removals = CoreValue::new_list();
+    for v_uri in core_iter(&v_current)? {
+        let mut v_uri = v_uri;
+        v_wanted = core_contains(&[v_selected.clone(), v_uri.clone()])?;
+        if core_truthy(&v_wanted) {
+        } else {
+            core_append(&v_removals, v_uri.clone())?;
+        }
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("selected"), v_selected.clone())?;
+    core_set(&v_out, CoreValue::from("additions"), v_additions.clone())?;
+    core_set(&v_out, CoreValue::from("removals"), v_removals.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_resource_subscription_ownership(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_resource_subscription_ownership");
+    let mut v_owners = core_arg(args, 0);
+    let mut v_owner = core_arg(args, 1);
+    let mut v_operation = core_arg(args, 2);
+    let mut v_before = CoreValue::Null;
+    let mut v_current = CoreValue::Null;
+    let mut v_has_owner = CoreValue::Null;
+    let mut v_is_acquire = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_now_empty = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_out_owners = CoreValue::Null;
+    let mut v_remaining = CoreValue::Null;
+    let mut v_was_empty = CoreValue::Null;
+    v_out_owners = CoreValue::new_list();
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("wireAction"),
+        CoreValue::from("none"),
+    )?;
+    core_set(&v_out, CoreValue::from("changed"), CoreValue::Bool(false))?;
+    v_has_owner = core_contains(&[v_owners.clone(), v_owner.clone()])?;
+    v_is_acquire = core_eq(&[v_operation.clone(), CoreValue::from("acquire")])?;
+    if core_truthy(&v_is_acquire) {
+        for v_current in core_iter(&v_owners)? {
+            let mut v_current = v_current;
+            core_append(&v_out_owners, v_current.clone())?;
+        }
+        if core_truthy(&v_has_owner) {
+        } else {
+            v_before = core_len(&[v_owners.clone()])?;
+            v_was_empty = core_eq(&[v_before.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_was_empty) {
+                core_set(
+                    &v_out,
+                    CoreValue::from("wireAction"),
+                    CoreValue::from("subscribe"),
+                )?;
+            }
+            core_append(&v_out_owners, v_owner.clone())?;
+            core_set(&v_out, CoreValue::from("changed"), CoreValue::Bool(true))?;
+        }
+    } else {
+        for v_current in core_iter(&v_owners)? {
+            let mut v_current = v_current;
+            v_matches = core_eq(&[v_current.clone(), v_owner.clone()])?;
+            if core_truthy(&v_matches) {
+            } else {
+                core_append(&v_out_owners, v_current.clone())?;
+            }
+        }
+        if core_truthy(&v_has_owner) {
+            v_remaining = core_len(&[v_out_owners.clone()])?;
+            v_now_empty = core_eq(&[v_remaining.clone(), CoreValue::Num(0f64)])?;
+            if core_truthy(&v_now_empty) {
+                core_set(
+                    &v_out,
+                    CoreValue::from("wireAction"),
+                    CoreValue::from("unsubscribe"),
+                )?;
+            }
+            core_set(&v_out, CoreValue::from("changed"), CoreValue::Bool(true))?;
+        }
+    }
+    core_set(&v_out, CoreValue::from("owners"), v_out_owners.clone())?;
+    return Ok(v_out.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (535 of 535 core functions)

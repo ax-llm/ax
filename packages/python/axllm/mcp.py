@@ -5,6 +5,7 @@ import base64
 import hashlib
 import ipaddress
 import json
+import re
 import socket
 import subprocess
 import threading
@@ -50,9 +51,11 @@ def _core_type_is(value, expected):
     return {
         "object": isinstance(value, dict),
         "array": isinstance(value, (list, tuple)),
+        "list": isinstance(value, (list, tuple)),
         "string": isinstance(value, str),
         "number": isinstance(value, (int, float)) and not isinstance(value, bool),
         "bool": isinstance(value, bool),
+        "boolean": isinstance(value, bool),
     }.get(expected, False)
 
 
@@ -62,12 +65,35 @@ def _core_not(value): return not bool(value)
 def _core_eq(left, right): return left == right
 def _core_lt(left, right): return left < right
 def _core_lte(left, right): return left <= right
+def _core_gt(left, right): return left > right
+def _core_gte(left, right): return left >= right
 def _core_add(left, right): return left + right
+def _core_mul(left, right): return left * right
 def _core_len(value): return len(value or [])
 def _core_contains(container, item): return False if container is None else item in container
+def _core_truthy(value): return bool(value)
 def _core_none(): return None
 def _core_json_stringify(value): return json.dumps(value, separators=(",", ":"), sort_keys=True)
 def _core_json_parse(value): return json.loads(value)
+def _core_math_abs(value): return abs(value)
+
+
+def _core_map_merge(left, right):
+    merged = dict(left or {})
+    merged.update(right or {})
+    return merged
+
+
+def _core_map_contains(values, key): return isinstance(values, dict) and key in values
+def _core_map_delete(target, key):
+    if isinstance(target, dict): target.pop(key, None)
+    return target
+def _core_map_keys(values): return list(values.keys()) if isinstance(values, dict) else []
+def _core_string_lower(value): return str(value).lower()
+def _core_string_starts_with(value, prefix): return str(value).startswith(str(prefix))
+def _core_string_ends_with(value, suffix): return str(value).endswith(str(suffix))
+def _core_regex_match(pattern, value): return isinstance(value, str) and re.search(pattern, value) is not None
+def _core_validation_error(message): return AxMCPError(str(message))
 
 
 def _core_string_format(template, *args):
@@ -202,10 +228,14 @@ def event_route_commands(event: Any, routes: list[Any], identity_scope: str, tru
     return commands
 
 
-def mcp_modern_request_headers(method: str, name: str) -> Any:
+def mcp_modern_request_headers(method: str, name: str, protocol_version: str) -> Any:
     _core_coverage_mark("mcp_modern_request_headers")
     out = {}
-    out["MCP-Protocol-Version"] = "2026-07-28"
+    version_missing = _core_is_none(protocol_version)
+    if version_missing:
+        out["MCP-Protocol-Version"] = "2026-07-28"
+    else:
+        out["MCP-Protocol-Version"] = protocol_version
     out["Mcp-Method"] = method
     missing = _core_is_none(name)
     if missing:
@@ -215,30 +245,85 @@ def mcp_modern_request_headers(method: str, name: str) -> Any:
     return out
 
 
-def mcp_jsonrpc_request(id: str, method: str, params: Any) -> Any:
-    _core_coverage_mark("mcp_jsonrpc_request")
+def mcp_classify_discovery_result(result: Any) -> Any:
+    _core_coverage_mark("mcp_classify_discovery_result")
     out = {}
-    out["jsonrpc"] = "2.0"
-    out["id"] = id
-    out["method"] = method
-    missing = _core_is_none(params)
-    if missing:
-        pass
+    none = _core_none()
+    out["valid"] = False
+    out["serverInfo"] = none
+    empty_meta = {}
+    out["meta"] = empty_meta
+    is_object = _core_type_is(result, "object")
+    if is_object:
+        result_type = _core_get(result, "resultType", "")
+        complete = _core_eq(result_type, "complete")
+        versions = _core_get(result, "supportedVersions", None)
+        versions_list = _core_type_is(versions, "list")
+        versions_valid = versions_list
+        if versions_list:
+            for version in versions:
+                version_string = _core_type_is(version, "string")
+                version_invalid = _core_not(version_string)
+                if version_invalid:
+                    versions_valid = False
+                else:
+                    pass
+        else:
+            pass
+        capabilities = _core_get(result, "capabilities", None)
+        capabilities_valid = _core_type_is(capabilities, "object")
+        ttl = _core_get(result, "ttlMs", None)
+        ttl_number = _core_type_is(ttl, "number")
+        ttl_valid = False
+        if ttl_number:
+            ttl_text = _core_json_stringify(ttl)
+            ttl_integer = _core_regex_match("^[0-9]+$", ttl_text)
+            ttl_nonnegative = _core_gte(ttl, 0)
+            ttl_valid = _core_and(ttl_integer, ttl_nonnegative)
+        else:
+            pass
+        scope = _core_get(result, "cacheScope", "")
+        private_scope = _core_eq(scope, "private")
+        public_scope = _core_eq(scope, "public")
+        scope_valid = _core_or(private_scope, public_scope)
+        shape_a = _core_and(complete, versions_valid)
+        shape_b = _core_and(capabilities_valid, ttl_valid)
+        shape_c = _core_and(shape_a, shape_b)
+        valid = _core_and(shape_c, scope_valid)
+        if valid:
+            out["valid"] = True
+            out["supportedVersions"] = versions
+            out["capabilities"] = capabilities
+            out["ttlMs"] = ttl
+            out["cacheScope"] = scope
+            meta_raw = _core_get(result, "_meta", None)
+            meta_is_object = _core_type_is(meta_raw, "object")
+            if meta_is_object:
+                meta_base = {}
+                meta = _core_map_merge(meta_base, meta_raw)
+                out["meta"] = meta
+                server_info_raw = _core_get(meta, "io.modelcontextprotocol/serverInfo", None)
+                server_info_object = _core_type_is(server_info_raw, "object")
+                if server_info_object:
+                    server_name = _core_get(server_info_raw, "name", None)
+                    server_version = _core_get(server_info_raw, "version", None)
+                    server_name_string = _core_type_is(server_name, "string")
+                    server_version_string = _core_type_is(server_version, "string")
+                    server_info_valid = _core_and(server_name_string, server_version_string)
+                    if server_info_valid:
+                        server_info_base = {}
+                        server_info = _core_map_merge(server_info_base, server_info_raw)
+                        out["serverInfo"] = server_info
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
     else:
-        out["params"] = params
-    return out
-
-
-def mcp_jsonrpc_notification(method: str, params: Any) -> Any:
-    _core_coverage_mark("mcp_jsonrpc_notification")
-    out = {}
-    out["jsonrpc"] = "2.0"
-    out["method"] = method
-    missing = _core_is_none(params)
-    if missing:
         pass
-    else:
-        out["params"] = params
     return out
 
 
@@ -261,30 +346,6 @@ def event_retry_transition(invocation_started: bool, retry_safety: str, attempt:
     else:
         pass
     return out
-
-
-def mcp_normalize_error(response: Any) -> Any:
-    _core_coverage_mark("mcp_normalize_error")
-    err = _core_get(response, "error", None)
-    missing = _core_is_none(err)
-    if missing:
-        ok = {}
-        result = _core_get(response, "result", None)
-        ok["ok"] = True
-        ok["result"] = result
-        return ok
-    else:
-        code = _core_get(err, "code", 0)
-        message = _core_get(err, "message", "MCP JSON-RPC error")
-        data = _core_get(err, "data", None)
-        out = {}
-        out["ok"] = False
-        out["category"] = "mcp"
-        out["code"] = code
-        out["message"] = message
-        out["data"] = data
-        return out
-    return response
 
 
 def event_resolve_path(ingress: Any, path: Any, continuation: Any) -> Any:
@@ -355,65 +416,47 @@ def event_resolve_path(ingress: Any, path: Any, continuation: Any) -> Any:
     return current
 
 
-def mcp_resource_subscription_selection(resources: list[Any], mode: str, explicit_uris: list[Any]) -> list[Any]:
-    _core_coverage_mark("mcp_resource_subscription_selection")
-    selected = []
-    is_explicit = _core_eq(mode, "explicit")
-    if is_explicit:
-        for uri in explicit_uris:
-            empty = _core_eq(uri, "")
-            duplicate = _core_contains(selected, uri)
-            skip = _core_or(empty, duplicate)
-            if skip:
-                pass
-            else:
-                selected.append(uri)
-    else:
-        is_all = _core_eq(mode, "all")
-        is_selector = _core_eq(mode, "selector")
-        uses_resources = _core_or(is_all, is_selector)
-        if uses_resources:
-            for resource in resources:
-                uri = _core_get(resource, "uri", "")
-                empty = _core_eq(uri, "")
-                duplicate = _core_contains(selected, uri)
-                skip = _core_or(empty, duplicate)
-                if skip:
-                    pass
-                else:
-                    selected.append(uri)
-        else:
-            pass
-    return selected
-
-
-def mcp_resource_subscription_plan(desired: list[Any], current: list[Any]) -> Any:
-    _core_coverage_mark("mcp_resource_subscription_plan")
-    selected = []
-    for uri in desired:
-        duplicate = _core_contains(selected, uri)
-        if duplicate:
-            pass
-        else:
-            selected.append(uri)
-    additions = []
-    for uri in selected:
-        owned = _core_contains(current, uri)
-        if owned:
-            pass
-        else:
-            additions.append(uri)
-    removals = []
-    for uri in current:
-        wanted = _core_contains(selected, uri)
-        if wanted:
-            pass
-        else:
-            removals.append(uri)
+def mcp_resolve_known_era(configured: str, hint: str, cached: str, stored: str) -> Any:
+    _core_coverage_mark("mcp_resolve_known_era")
     out = {}
-    out["selected"] = selected
-    out["additions"] = additions
-    out["removals"] = removals
+    configured_modern = _core_eq(configured, "modern")
+    configured_legacy = _core_eq(configured, "legacy")
+    configured_known = _core_or(configured_modern, configured_legacy)
+    if configured_known:
+        out["era"] = configured
+        out["probe"] = False
+        return out
+    else:
+        pass
+    hint_modern = _core_eq(hint, "modern")
+    hint_legacy = _core_eq(hint, "legacy")
+    hint_known = _core_or(hint_modern, hint_legacy)
+    if hint_known:
+        out["era"] = hint
+        out["probe"] = False
+        return out
+    else:
+        pass
+    cached_modern = _core_eq(cached, "modern")
+    cached_legacy = _core_eq(cached, "legacy")
+    cached_known = _core_or(cached_modern, cached_legacy)
+    if cached_known:
+        out["era"] = cached
+        out["probe"] = False
+        return out
+    else:
+        pass
+    stored_modern = _core_eq(stored, "modern")
+    stored_legacy = _core_eq(stored, "legacy")
+    stored_known = _core_or(stored_modern, stored_legacy)
+    if stored_known:
+        out["era"] = stored
+        out["probe"] = False
+        return out
+    else:
+        pass
+    out["era"] = "modern"
+    out["probe"] = True
     return out
 
 
@@ -472,46 +515,54 @@ def event_map_input(ingress: Any, plan: Any, signature_fields: list[Any], contin
     return result
 
 
-def mcp_resource_subscription_ownership(owners: list[Any], owner: str, operation: str) -> Any:
-    _core_coverage_mark("mcp_resource_subscription_ownership")
-    out_owners = []
-    out = {}
-    out["wireAction"] = "none"
-    out["changed"] = False
-    has_owner = _core_contains(owners, owner)
-    is_acquire = _core_eq(operation, "acquire")
-    if is_acquire:
-        for current in owners:
-            out_owners.append(current)
-        if has_owner:
-            pass
+def mcp_select_mutual_version(error_data: Any, client_versions: list[Any]) -> str:
+    _core_coverage_mark("mcp_select_mutual_version")
+    is_object = _core_type_is(error_data, "object")
+    if is_object:
+        supported = _core_get(error_data, "supported", None)
+        supported_list = _core_type_is(supported, "list")
+        if supported_list:
+            for version in client_versions:
+                mutual = _core_contains(supported, version)
+                if mutual:
+                    return version
+                else:
+                    pass
         else:
-            before = _core_len(owners)
-            was_empty = _core_eq(before, 0)
-            if was_empty:
-                out["wireAction"] = "subscribe"
-            else:
-                pass
-            out_owners.append(owner)
-            out["changed"] = True
+            pass
     else:
-        for current in owners:
-            matches = _core_eq(current, owner)
-            if matches:
-                pass
-            else:
-                out_owners.append(current)
-        if has_owner:
-            remaining = _core_len(out_owners)
-            now_empty = _core_eq(remaining, 0)
-            if now_empty:
-                out["wireAction"] = "unsubscribe"
-            else:
-                pass
-            out["changed"] = True
-        else:
-            pass
-    out["owners"] = out_owners
+        pass
+    return ""
+
+
+def mcp_build_request_meta(existing: Any, protocol_version: str, client_capabilities: Any, client_info: Any, log_level: str, traceparent: str, tracestate: str) -> Any:
+    _core_coverage_mark("mcp_build_request_meta")
+    empty = {}
+    out = empty
+    existing_object = _core_type_is(existing, "object")
+    if existing_object:
+        out = _core_map_merge(empty, existing)
+    else:
+        pass
+    out["io.modelcontextprotocol/protocolVersion"] = protocol_version
+    out["io.modelcontextprotocol/clientCapabilities"] = client_capabilities
+    out["io.modelcontextprotocol/clientInfo"] = client_info
+    log_missing = _core_is_none(log_level)
+    has_log = _core_not(log_missing)
+    if has_log:
+        out["io.modelcontextprotocol/logLevel"] = log_level
+    else:
+        pass
+    has_traceparent = _core_truthy(traceparent)
+    if has_traceparent:
+        out["traceparent"] = traceparent
+    else:
+        pass
+    has_tracestate = _core_truthy(tracestate)
+    if has_tracestate:
+        out["tracestate"] = tracestate
+    else:
+        pass
     return out
 
 
@@ -550,6 +601,45 @@ def event_normalize_input(input: Any, signature_fields: list[Any]) -> Any:
     return result
 
 
+def mcp_client_capabilities(has_roots: bool, has_sampling: bool, has_elicitation: bool, era: str, tasks_extension: bool) -> Any:
+    _core_coverage_mark("mcp_client_capabilities")
+    out = {}
+    if has_roots:
+        roots = {}
+        roots["listChanged"] = True
+        out["roots"] = roots
+    else:
+        pass
+    if has_sampling:
+        sampling = {}
+        sampling_context = {}
+        sampling_tools = {}
+        sampling["context"] = sampling_context
+        sampling["tools"] = sampling_tools
+        out["sampling"] = sampling
+    else:
+        pass
+    if has_elicitation:
+        elicitation = {}
+        elicitation_form = {}
+        elicitation_url = {}
+        elicitation["form"] = elicitation_form
+        elicitation["url"] = elicitation_url
+        out["elicitation"] = elicitation
+    else:
+        pass
+    modern = _core_eq(era, "modern")
+    add_tasks = _core_and(modern, tasks_extension)
+    if add_tasks:
+        extensions = {}
+        tasks = {}
+        extensions["io.modelcontextprotocol/tasks"] = tasks
+        out["extensions"] = extensions
+    else:
+        pass
+    return out
+
+
 def event_continuation_match(continuations: list[Any], identity_scope: str, kind: str, value: str, now: float) -> Any:
     _core_coverage_mark("event_continuation_match")
     result = _core_none()
@@ -580,12 +670,71 @@ def event_continuation_match(continuations: list[Any], identity_scope: str, kind
     return result
 
 
+def mcp_negotiate_extensions(client_ext: Any, server_ext: Any) -> Any:
+    _core_coverage_mark("mcp_negotiate_extensions")
+    out = {}
+    client_object = _core_type_is(client_ext, "object")
+    server_object = _core_type_is(server_ext, "object")
+    both_objects = _core_and(client_object, server_object)
+    if both_objects:
+        names = _core_map_keys(client_ext)
+        for name in names:
+            server_has = _core_map_contains(server_ext, name)
+            if server_has:
+                client_value = _core_get(client_ext, name, None)
+                server_value = _core_get(server_ext, name, None)
+                client_value_object = _core_type_is(client_value, "object")
+                server_value_object = _core_type_is(server_value, "object")
+                values_objects = _core_and(client_value_object, server_value_object)
+                if values_objects:
+                    merged = _core_map_merge(client_value, server_value)
+                    out[name] = merged
+                else:
+                    out[name] = server_value
+            else:
+                pass
+    else:
+        pass
+    return out
+
+
 def event_delivery_due(status: str, available_at: float, now: float) -> bool:
     _core_coverage_mark("event_delivery_due")
     queued = _core_eq(status, "queued")
     ready = _core_lte(available_at, now)
     due = _core_and(queued, ready)
     return due
+
+
+def mcp_request_name(method: str, params: Any) -> str:
+    _core_coverage_mark("mcp_request_name")
+    params_object = _core_type_is(params, "object")
+    if params_object:
+        tools_call = _core_eq(method, "tools/call")
+        prompts_get = _core_eq(method, "prompts/get")
+        named = _core_or(tools_call, prompts_get)
+        if named:
+            name = _core_get(params, "name", "")
+            name_string = _core_type_is(name, "string")
+            if name_string:
+                return name
+            else:
+                pass
+        else:
+            pass
+        resources_read = _core_eq(method, "resources/read")
+        if resources_read:
+            uri = _core_get(params, "uri", "")
+            uri_string = _core_type_is(uri, "string")
+            if uri_string:
+                return uri
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
+    return ""
 
 
 def event_strict_delivery_eligible(candidate: Any, deliveries: list[Any]) -> bool:
@@ -626,6 +775,172 @@ def event_strict_delivery_eligible(candidate: Any, deliveries: list[Any]) -> boo
     else:
         pass
     return eligible
+
+
+def mcp_header_value_plan(value: str) -> Any:
+    _core_coverage_mark("mcp_header_value_plan")
+    out = {}
+    edge_space = _core_regex_match("^[\\t ]|[\\t ]$", value)
+    sentinel_prefix = _core_string_starts_with(value, "=?base64?")
+    sentinel_suffix = _core_string_ends_with(value, "?=")
+    sentinel = _core_and(sentinel_prefix, sentinel_suffix)
+    unsafe_octet = _core_regex_match("[^\\t -~]", value)
+    edge_or_sentinel = _core_or(edge_space, sentinel)
+    encode = _core_or(edge_or_sentinel, unsafe_octet)
+    if encode:
+        out["mode"] = "encode"
+    else:
+        out["mode"] = "plain"
+    return out
+
+
+def mcp_param_header_bindings(input_schema: Any) -> Any:
+    _core_coverage_mark("mcp_param_header_bindings")
+    bindings = []
+    schema_object = _core_type_is(input_schema, "object")
+    not_object = _core_not(schema_object)
+    if not_object:
+        return bindings
+    else:
+        pass
+    root_annotated = _core_map_contains(input_schema, "x-mcp-header")
+    if root_annotated:
+        root_error = _core_validation_error("x-mcp-header at inputSchema is not statically reachable through properties")
+        raise root_error
+    else:
+        pass
+    seen_names = []
+    properties = _core_get(input_schema, "properties", None)
+    properties_object = _core_type_is(properties, "object")
+    if properties_object:
+        property_names = _core_map_keys(properties)
+        for property_name in property_names:
+            property_schema = _core_get(properties, property_name, None)
+            property_object = _core_type_is(property_schema, "object")
+            if property_object:
+                annotated = _core_map_contains(property_schema, "x-mcp-header")
+                if annotated:
+                    header_name = _core_get(property_schema, "x-mcp-header", None)
+                    header_string = _core_type_is(header_name, "string")
+                    header_not_string = _core_not(header_string)
+                    if header_not_string:
+                        name_type_error = _core_validation_error("x-mcp-header must be a non-empty string")
+                        raise name_type_error
+                    else:
+                        pass
+                    header_length = _core_len(header_name)
+                    header_nonempty = _core_gt(header_length, 0)
+                    header_invalid = _core_not(header_nonempty)
+                    if header_invalid:
+                        name_error = _core_validation_error("x-mcp-header must be a non-empty string")
+                        raise name_error
+                    else:
+                        pass
+                    token_valid = _core_regex_match("^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$", header_name)
+                    token_invalid = _core_not(token_valid)
+                    if token_invalid:
+                        token_error = _core_validation_error("x-mcp-header value is not an RFC 9110 field-name token")
+                        raise token_error
+                    else:
+                        pass
+                    normalized_name = _core_string_lower(header_name)
+                    normalized_full_name = _core_string_format("mcp-param-{}", normalized_name)
+                    duplicate = _core_contains(seen_names, normalized_full_name)
+                    if duplicate:
+                        duplicate_error = _core_validation_error("x-mcp-header value is not case-insensitively unique")
+                        raise duplicate_error
+                    else:
+                        pass
+                    seen_names.append(normalized_full_name)
+                    property_type = _core_get(property_schema, "type", None)
+                    type_string = _core_eq(property_type, "string")
+                    type_integer = _core_eq(property_type, "integer")
+                    type_boolean = _core_eq(property_type, "boolean")
+                    type_scalar_a = _core_or(type_string, type_integer)
+                    type_valid = _core_or(type_scalar_a, type_boolean)
+                    type_invalid = _core_not(type_valid)
+                    if type_invalid:
+                        type_error = _core_validation_error("x-mcp-header requires type string, integer, or boolean")
+                        raise type_error
+                    else:
+                        pass
+                    binding = {}
+                    full_header_name = _core_string_format("Mcp-Param-{}", header_name)
+                    binding["headerName"] = full_header_name
+                    path = []
+                    path.append(property_name)
+                    binding["path"] = path
+                    binding["type"] = property_type
+                    bindings.append(binding)
+                else:
+                    pass
+                child_base = {}
+                child_schema = _core_map_merge(child_base, property_schema)
+                _core_map_delete(child_schema, "x-mcp-header")
+                child_bindings = mcp_param_header_bindings(child_schema)
+                for child_binding in child_bindings:
+                    child_header_name = _core_get(child_binding, "headerName", "")
+                    child_normalized = _core_string_lower(child_header_name)
+                    child_duplicate = _core_contains(seen_names, child_normalized)
+                    if child_duplicate:
+                        child_duplicate_error = _core_validation_error("x-mcp-header value is not case-insensitively unique")
+                        raise child_duplicate_error
+                    else:
+                        pass
+                    seen_names.append(child_normalized)
+                    child_path = _core_get(child_binding, "path", None)
+                    prefixed_path = []
+                    prefixed_path.append(property_name)
+                    for child_part in child_path:
+                        prefixed_path.append(child_part)
+                    prefixed_binding_base = {}
+                    prefixed_binding = _core_map_merge(prefixed_binding_base, child_binding)
+                    prefixed_binding["path"] = prefixed_path
+                    bindings.append(prefixed_binding)
+            else:
+                pass
+    else:
+        pass
+    schema_keys = _core_map_keys(input_schema)
+    for schema_key in schema_keys:
+        is_properties = _core_eq(schema_key, "properties")
+        is_annotation = _core_eq(schema_key, "x-mcp-header")
+        skip_keyword = _core_or(is_properties, is_annotation)
+        visit_keyword = _core_not(skip_keyword)
+        if visit_keyword:
+            keyword_value = _core_get(input_schema, schema_key, None)
+            keyword_object = _core_type_is(keyword_value, "object")
+            if keyword_object:
+                keyword_bindings = mcp_param_header_bindings(keyword_value)
+                keyword_binding_count = _core_len(keyword_bindings)
+                keyword_annotated = _core_gt(keyword_binding_count, 0)
+                if keyword_annotated:
+                    keyword_error = _core_validation_error("x-mcp-header is not statically reachable through properties")
+                    raise keyword_error
+                else:
+                    pass
+            else:
+                pass
+            keyword_list = _core_type_is(keyword_value, "list")
+            if keyword_list:
+                for keyword_item in keyword_value:
+                    keyword_item_object = _core_type_is(keyword_item, "object")
+                    if keyword_item_object:
+                        item_bindings = mcp_param_header_bindings(keyword_item)
+                        item_binding_count = _core_len(item_bindings)
+                        item_annotated = _core_gt(item_binding_count, 0)
+                        if item_annotated:
+                            item_error = _core_validation_error("x-mcp-header is not statically reachable through properties")
+                            raise item_error
+                        else:
+                            pass
+                    else:
+                        pass
+            else:
+                pass
+        else:
+            pass
+    return bindings
 
 
 def event_capacity_transition(pending: int, queued_bytes: int, envelope_bytes: int, max_pending: int, max_queued_bytes: int, max_envelope_bytes: int) -> Any:
@@ -707,6 +1022,242 @@ def event_normalize_mcp(namespace: str, method: str, params: Any) -> Any:
         out["correlation"] = correlation
     else:
         pass
+    return out
+
+
+def mcp_param_header_values(bindings: Any, arguments: Any) -> Any:
+    _core_coverage_mark("mcp_param_header_values")
+    out = {}
+    bindings_list = _core_type_is(bindings, "list")
+    not_bindings = _core_not(bindings_list)
+    if not_bindings:
+        return out
+    else:
+        pass
+    for binding in bindings:
+        header_name = _core_get(binding, "headerName", "")
+        path = _core_get(binding, "path", None)
+        expected_type = _core_get(binding, "type", "")
+        current = arguments
+        present = True
+        for part in path:
+            current_object = _core_type_is(current, "object")
+            if current_object:
+                has_part = _core_map_contains(current, part)
+                if has_part:
+                    current = _core_get(current, part, None)
+                else:
+                    present = False
+            else:
+                present = False
+        is_null = _core_is_none(current)
+        not_null = _core_not(is_null)
+        emit_value = _core_and(present, not_null)
+        if emit_value:
+            expects_string = _core_eq(expected_type, "string")
+            if expects_string:
+                is_string = _core_type_is(current, "string")
+                invalid_string = _core_not(is_string)
+                if invalid_string:
+                    string_error = _core_validation_error("MCP parameter header expected string")
+                    raise string_error
+                else:
+                    pass
+                out[header_name] = current
+            else:
+                expects_boolean = _core_eq(expected_type, "boolean")
+                if expects_boolean:
+                    is_boolean = _core_type_is(current, "boolean")
+                    invalid_boolean = _core_not(is_boolean)
+                    if invalid_boolean:
+                        boolean_error = _core_validation_error("MCP parameter header expected boolean")
+                        raise boolean_error
+                    else:
+                        pass
+                    if current:
+                        out[header_name] = "true"
+                    else:
+                        out[header_name] = "false"
+                else:
+                    is_number = _core_type_is(current, "number")
+                    not_number = _core_not(is_number)
+                    if not_number:
+                        number_error = _core_validation_error("MCP parameter header expected integer")
+                        raise number_error
+                    else:
+                        pass
+                    number_text = _core_json_stringify(current)
+                    is_integer = _core_regex_match("^-?(0|[1-9][0-9]*)$", number_text)
+                    absolute = _core_math_abs(current)
+                    safe_high = _core_mul(9007199, 1000000000)
+                    safe_max = _core_add(safe_high, 254740991)
+                    is_safe = _core_lte(absolute, safe_max)
+                    valid_integer = _core_and(is_integer, is_safe)
+                    invalid_integer = _core_not(valid_integer)
+                    if invalid_integer:
+                        integer_error = _core_validation_error("MCP parameter header expected integer")
+                        raise integer_error
+                    else:
+                        pass
+                    out[header_name] = number_text
+        else:
+            pass
+    return out
+
+
+def mcp_jsonrpc_request(id: str, method: str, params: Any) -> Any:
+    _core_coverage_mark("mcp_jsonrpc_request")
+    out = {}
+    out["jsonrpc"] = "2.0"
+    out["id"] = id
+    out["method"] = method
+    missing = _core_is_none(params)
+    if missing:
+        pass
+    else:
+        out["params"] = params
+    return out
+
+
+def mcp_jsonrpc_notification(method: str, params: Any) -> Any:
+    _core_coverage_mark("mcp_jsonrpc_notification")
+    out = {}
+    out["jsonrpc"] = "2.0"
+    out["method"] = method
+    missing = _core_is_none(params)
+    if missing:
+        pass
+    else:
+        out["params"] = params
+    return out
+
+
+def mcp_normalize_error(response: Any) -> Any:
+    _core_coverage_mark("mcp_normalize_error")
+    err = _core_get(response, "error", None)
+    missing = _core_is_none(err)
+    if missing:
+        ok = {}
+        result = _core_get(response, "result", None)
+        ok["ok"] = True
+        ok["result"] = result
+        return ok
+    else:
+        code = _core_get(err, "code", 0)
+        message = _core_get(err, "message", "MCP JSON-RPC error")
+        data = _core_get(err, "data", None)
+        out = {}
+        out["ok"] = False
+        out["category"] = "mcp"
+        out["code"] = code
+        out["message"] = message
+        out["data"] = data
+        return out
+    return response
+
+
+def mcp_resource_subscription_selection(resources: list[Any], mode: str, explicit_uris: list[Any]) -> list[Any]:
+    _core_coverage_mark("mcp_resource_subscription_selection")
+    selected = []
+    is_explicit = _core_eq(mode, "explicit")
+    if is_explicit:
+        for uri in explicit_uris:
+            empty = _core_eq(uri, "")
+            duplicate = _core_contains(selected, uri)
+            skip = _core_or(empty, duplicate)
+            if skip:
+                pass
+            else:
+                selected.append(uri)
+    else:
+        is_all = _core_eq(mode, "all")
+        is_selector = _core_eq(mode, "selector")
+        uses_resources = _core_or(is_all, is_selector)
+        if uses_resources:
+            for resource in resources:
+                uri = _core_get(resource, "uri", "")
+                empty = _core_eq(uri, "")
+                duplicate = _core_contains(selected, uri)
+                skip = _core_or(empty, duplicate)
+                if skip:
+                    pass
+                else:
+                    selected.append(uri)
+        else:
+            pass
+    return selected
+
+
+def mcp_resource_subscription_plan(desired: list[Any], current: list[Any]) -> Any:
+    _core_coverage_mark("mcp_resource_subscription_plan")
+    selected = []
+    for uri in desired:
+        duplicate = _core_contains(selected, uri)
+        if duplicate:
+            pass
+        else:
+            selected.append(uri)
+    additions = []
+    for uri in selected:
+        owned = _core_contains(current, uri)
+        if owned:
+            pass
+        else:
+            additions.append(uri)
+    removals = []
+    for uri in current:
+        wanted = _core_contains(selected, uri)
+        if wanted:
+            pass
+        else:
+            removals.append(uri)
+    out = {}
+    out["selected"] = selected
+    out["additions"] = additions
+    out["removals"] = removals
+    return out
+
+
+def mcp_resource_subscription_ownership(owners: list[Any], owner: str, operation: str) -> Any:
+    _core_coverage_mark("mcp_resource_subscription_ownership")
+    out_owners = []
+    out = {}
+    out["wireAction"] = "none"
+    out["changed"] = False
+    has_owner = _core_contains(owners, owner)
+    is_acquire = _core_eq(operation, "acquire")
+    if is_acquire:
+        for current in owners:
+            out_owners.append(current)
+        if has_owner:
+            pass
+        else:
+            before = _core_len(owners)
+            was_empty = _core_eq(before, 0)
+            if was_empty:
+                out["wireAction"] = "subscribe"
+            else:
+                pass
+            out_owners.append(owner)
+            out["changed"] = True
+    else:
+        for current in owners:
+            matches = _core_eq(current, owner)
+            if matches:
+                pass
+            else:
+                out_owners.append(current)
+        if has_owner:
+            remaining = _core_len(out_owners)
+            now_empty = _core_eq(remaining, 0)
+            if now_empty:
+                out["wireAction"] = "unsubscribe"
+            else:
+                pass
+            out["changed"] = True
+        else:
+            pass
+    out["owners"] = out_owners
     return out
 
 # END AXIR CORE EMITTED FUNCTIONS
@@ -2400,11 +2951,89 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             headers = mcp_modern_request_headers(
                 fixture.get("method", "server/discover"),
                 fixture.get("resource_name"),
+                fixture.get("protocol_version"),
             )
             _assert_subset(headers, fixture.get("expected_headers") or {}, "modern headers")
             for key in fixture.get("forbidden_headers") or []:
                 if key in headers:
                     raise AssertionError(f"modern headers contain forbidden {key}")
+            return
+        if operation == "era_classification":
+            classification = mcp_classify_discovery_result(fixture.get("discovery_result"))
+            _assert_subset(classification, fixture.get("expected_classification") or {}, "discovery classification")
+            for invalid in fixture.get("invalid_discovery_results") or []:
+                result = mcp_classify_discovery_result(invalid)
+                if result.get("valid") is not False:
+                    raise AssertionError(f"invalid discovery result classified as valid: {invalid!r}")
+            for case in fixture.get("era_cases") or []:
+                actual = mcp_resolve_known_era(case.get("configured", "auto"), case.get("hint"), case.get("cached"), case.get("stored"))
+                _assert_subset(actual, case.get("expected") or {}, "era resolution")
+            capability_case = fixture.get("capability_case") or {}
+            capabilities = mcp_client_capabilities(
+                capability_case.get("has_roots", False),
+                capability_case.get("has_sampling", False),
+                capability_case.get("has_elicitation", False),
+                capability_case.get("era", "legacy"),
+                capability_case.get("tasks_extension", False),
+            )
+            _assert_subset(capabilities, capability_case.get("expected") or {}, "client capabilities")
+            for case in fixture.get("request_name_cases") or []:
+                actual = mcp_request_name(case.get("method", ""), case.get("params") or {})
+                if actual != case.get("expected", ""):
+                    raise AssertionError(f"request name mismatch: {actual!r}")
+            return
+        if operation == "mutual_version":
+            for case in fixture.get("cases") or []:
+                actual = mcp_select_mutual_version(case.get("error_data"), case.get("client_versions") or [])
+                if actual != case.get("expected_version", ""):
+                    raise AssertionError(f"mutual version mismatch: {actual!r}")
+            return
+        if operation == "request_meta":
+            actual = mcp_build_request_meta(
+                fixture.get("existing"),
+                fixture.get("protocol_version", "2026-07-28"),
+                fixture.get("client_capabilities") or {},
+                fixture.get("client_info") or {},
+                fixture.get("log_level"),
+                fixture.get("traceparent"),
+                fixture.get("tracestate"),
+            )
+            _assert_subset(actual, fixture.get("expected_meta") or {}, "request meta")
+            return
+        if operation == "extension_negotiation":
+            actual = mcp_negotiate_extensions(fixture.get("client_extensions") or {}, fixture.get("server_extensions") or {})
+            if actual != (fixture.get("expected_extensions") or {}):
+                raise AssertionError(f"extension negotiation mismatch: {actual!r}")
+            return
+        if operation == "param_headers":
+            bindings = mcp_param_header_bindings(fixture.get("input_schema") or {})
+            if bindings != (fixture.get("expected_bindings") or []):
+                raise AssertionError(f"parameter header bindings mismatch: {bindings!r}")
+            values = mcp_param_header_values(bindings, fixture.get("arguments") or {})
+            if values != (fixture.get("expected_values") or {}):
+                raise AssertionError(f"parameter header values mismatch: {values!r}")
+            for invalid in fixture.get("invalid_schemas") or []:
+                try:
+                    mcp_param_header_bindings(invalid.get("schema") or {})
+                except Exception as error:
+                    if invalid.get("expected_error_contains", "") not in str(error):
+                        raise AssertionError(f"unexpected parameter header error: {error}") from error
+                else:
+                    raise AssertionError("invalid parameter header schema was accepted")
+            for invalid in fixture.get("invalid_values") or []:
+                try:
+                    mcp_param_header_values(bindings, invalid.get("arguments") or {})
+                except Exception as error:
+                    if invalid.get("expected_error_contains", "") not in str(error):
+                        raise AssertionError(f"unexpected parameter header value error: {error}") from error
+                else:
+                    raise AssertionError("invalid parameter header value was accepted")
+            return
+        if operation == "header_value":
+            for case in fixture.get("cases") or []:
+                actual = mcp_header_value_plan(case.get("value", ""))
+                if actual != (case.get("expected_plan") or {}):
+                    raise AssertionError(f"header value plan mismatch: {actual!r}")
             return
         if operation == "http_session_headers":
             transport = AxMCPStreamableHTTPTransport(fixture.get("endpoint", "https://example.com/mcp"), fixture.get("transport_options") or {})

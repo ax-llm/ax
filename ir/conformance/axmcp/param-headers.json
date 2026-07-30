@@ -1,0 +1,98 @@
+{
+  "name": "mcp parameter header schema and values",
+  "kind": "mcp",
+  "operation": "param_headers",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "region": { "type": "string", "x-mcp-header": "Region" },
+      "routing": {
+        "type": "object",
+        "properties": {
+          "shard": { "type": "integer", "x-mcp-header": "Shard" },
+          "urgent": { "type": "boolean", "x-mcp-header": "Urgent" },
+          "nullable": { "type": "string", "x-mcp-header": "Nullable" }
+        }
+      }
+    }
+  },
+  "arguments": {
+    "region": "us-west1",
+    "routing": { "shard": -7, "urgent": false, "nullable": null }
+  },
+  "expected_bindings": [
+    { "headerName": "Mcp-Param-Region", "path": ["region"], "type": "string" },
+    {
+      "headerName": "Mcp-Param-Shard",
+      "path": ["routing", "shard"],
+      "type": "integer"
+    },
+    {
+      "headerName": "Mcp-Param-Urgent",
+      "path": ["routing", "urgent"],
+      "type": "boolean"
+    },
+    {
+      "headerName": "Mcp-Param-Nullable",
+      "path": ["routing", "nullable"],
+      "type": "string"
+    }
+  ],
+  "expected_values": {
+    "Mcp-Param-Region": "us-west1",
+    "Mcp-Param-Shard": "-7",
+    "Mcp-Param-Urgent": "false"
+  },
+  "invalid_schemas": [
+    {
+      "schema": {
+        "type": "object",
+        "properties": { "value": { "type": "string", "x-mcp-header": 4 } }
+      },
+      "expected_error_contains": "non-empty string"
+    },
+    {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": { "type": "string", "x-mcp-header": "bad name" }
+        }
+      },
+      "expected_error_contains": "RFC 9110"
+    },
+    {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "first": { "type": "string", "x-mcp-header": "Region" },
+          "second": { "type": "string", "x-mcp-header": "region" }
+        }
+      },
+      "expected_error_contains": "case-insensitively unique"
+    },
+    {
+      "schema": {
+        "type": "object",
+        "allOf": [
+          {
+            "type": "object",
+            "properties": {
+              "value": { "type": "string", "x-mcp-header": "Route" }
+            }
+          }
+        ]
+      },
+      "expected_error_contains": "not statically reachable"
+    }
+  ],
+  "invalid_values": [
+    {
+      "arguments": { "routing": { "shard": "7" } },
+      "expected_error_contains": "expected integer"
+    },
+    {
+      "arguments": { "routing": { "shard": 9007199254740992 } },
+      "expected_error_contains": "expected integer"
+    }
+  ]
+}

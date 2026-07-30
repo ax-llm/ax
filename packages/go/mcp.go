@@ -893,9 +893,76 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		return
 	}
 	if op == "modern_headers" {
-		headers := asMap(mustCore(mcp_modern_request_headers(coreGet(fixture, "method", "server/discover"), coreGet(fixture, "resource_name", nil))))
+		headers := asMap(mustCore(mcp_modern_request_headers(coreGet(fixture, "method", "server/discover"), coreGet(fixture, "resource_name", nil), coreGet(fixture, "protocol_version", nil))))
 		assertSubset(headers, coreGet(fixture, "expected_headers", Object()), "modern headers")
 		for _, key := range asSlice(coreGet(fixture, "forbidden_headers", Array())) { if _, ok := headers[display(key)]; ok { panic("modern headers contain forbidden " + display(key)) } }
+		return
+	}
+	if op == "era_classification" {
+		classification := mustCore(mcp_classify_discovery_result(coreGet(fixture, "discovery_result", nil)))
+		assertSubset(classification, coreGet(fixture, "expected_classification", Object()), "discovery classification")
+		for _, invalid := range asSlice(coreGet(fixture, "invalid_discovery_results", Array())) {
+			classified := asMap(mustCore(mcp_classify_discovery_result(invalid)))
+			if coreTruthy(coreGet(classified, "valid", true)) { panic("invalid discovery result classified as valid") }
+		}
+		for _, raw := range asSlice(coreGet(fixture, "era_cases", Array())) {
+			c := asMap(raw)
+			actual := mustCore(mcp_resolve_known_era(coreGet(c, "configured", "auto"), coreGet(c, "hint", nil), coreGet(c, "cached", nil), coreGet(c, "stored", nil)))
+			assertSubset(actual, coreGet(c, "expected", Object()), "era resolution")
+		}
+		capabilityCase := asMap(coreGet(fixture, "capability_case", Object()))
+		capabilities := mustCore(mcp_client_capabilities(coreGet(capabilityCase, "has_roots", false), coreGet(capabilityCase, "has_sampling", false), coreGet(capabilityCase, "has_elicitation", false), coreGet(capabilityCase, "era", "legacy"), coreGet(capabilityCase, "tasks_extension", false)))
+		assertSubset(capabilities, coreGet(capabilityCase, "expected", Object()), "client capabilities")
+		for _, raw := range asSlice(coreGet(fixture, "request_name_cases", Array())) {
+			c := asMap(raw)
+			actual := display(mustCore(mcp_request_name(coreGet(c, "method", ""), coreGet(c, "params", Object()))))
+			if actual != display(coreGet(c, "expected", "")) { panic("request name mismatch") }
+		}
+		return
+	}
+	if op == "mutual_version" {
+		for _, raw := range asSlice(coreGet(fixture, "cases", Array())) {
+			c := asMap(raw)
+			actual := display(mustCore(mcp_select_mutual_version(coreGet(c, "error_data", nil), coreGet(c, "client_versions", Array()))))
+			if actual != display(coreGet(c, "expected_version", "")) { panic("mutual version mismatch") }
+		}
+		return
+	}
+	if op == "request_meta" {
+		actual := mustCore(mcp_build_request_meta(coreGet(fixture, "existing", nil), coreGet(fixture, "protocol_version", "2026-07-28"), coreGet(fixture, "client_capabilities", Object()), coreGet(fixture, "client_info", Object()), coreGet(fixture, "log_level", nil), coreGet(fixture, "traceparent", nil), coreGet(fixture, "tracestate", nil)))
+		assertSubset(actual, coreGet(fixture, "expected_meta", Object()), "request meta")
+		return
+	}
+	if op == "extension_negotiation" {
+		actual := mustCore(mcp_negotiate_extensions(coreGet(fixture, "client_extensions", Object()), coreGet(fixture, "server_extensions", Object())))
+		assertEqual(actual, coreGet(fixture, "expected_extensions", Object()), "extension negotiation")
+		return
+	}
+	if op == "param_headers" {
+		bindings := mustCore(mcp_param_header_bindings(coreGet(fixture, "input_schema", Object())))
+		assertEqual(bindings, coreGet(fixture, "expected_bindings", Array()), "parameter header bindings")
+		values := mustCore(mcp_param_header_values(bindings, coreGet(fixture, "arguments", Object())))
+		assertEqual(values, coreGet(fixture, "expected_values", Object()), "parameter header values")
+		for _, raw := range asSlice(coreGet(fixture, "invalid_schemas", Array())) {
+			c := asMap(raw)
+			_, err := mcp_param_header_bindings(coreGet(c, "schema", Object()))
+			if err == nil { panic("invalid parameter header schema was accepted") }
+			if !strings.Contains(err.Error(), display(coreGet(c, "expected_error_contains", ""))) { panic("unexpected parameter header error: " + err.Error()) }
+		}
+		for _, raw := range asSlice(coreGet(fixture, "invalid_values", Array())) {
+			c := asMap(raw)
+			_, err := mcp_param_header_values(bindings, coreGet(c, "arguments", Object()))
+			if err == nil { panic("invalid parameter header value was accepted") }
+			if !strings.Contains(err.Error(), display(coreGet(c, "expected_error_contains", ""))) { panic("unexpected parameter header value error: " + err.Error()) }
+		}
+		return
+	}
+	if op == "header_value" {
+		for _, raw := range asSlice(coreGet(fixture, "cases", Array())) {
+			c := asMap(raw)
+			actual := mustCore(mcp_header_value_plan(coreGet(c, "value", "")))
+			assertEqual(actual, coreGet(c, "expected_plan", Object()), "header value plan")
+		}
 		return
 	}
 	if op == "http_session_headers" {

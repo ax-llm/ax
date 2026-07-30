@@ -128,15 +128,567 @@ module @ax.mcp version "0.1" {
     attr core_kind = "func"
     attr emit_module = "mcp"
     tag "axmcp"
-    type signature = "(method:string, name?:string) -> json"
-    body @entry(%method: string, %name: string) {
+    type signature = "(method:string, name?:string, protocol_version?:string) -> json"
+    body @entry(%method: string, %name: string, %protocol_version: string) {
       %out = core.map
-      core.set %out["MCP-Protocol-Version"] = "2026-07-28"
+      %version_missing = core.call intrinsic.is_none(%protocol_version)
+      core.if %version_missing {
+        core.set %out["MCP-Protocol-Version"] = "2026-07-28"
+      } else {
+        core.set %out["MCP-Protocol-Version"] = %protocol_version
+      }
       core.set %out["Mcp-Method"] = %method
       %missing = core.call intrinsic.is_none(%name)
       core.if %missing {
       } else {
         core.set %out["Mcp-Name"] = %name
+      }
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_classify_discovery_result {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-modern-era"
+    type signature = "(result:json) -> json"
+    body @entry(%result: json) {
+      %out = core.map
+      %none = core.call intrinsic.none()
+      core.set %out["valid"] = false
+      core.set %out["serverInfo"] = %none
+      %empty_meta = core.map
+      core.set %out["meta"] = %empty_meta
+      %is_object = core.type_is %result type "object"
+      core.if %is_object {
+        %result_type = core.get %result["resultType"] default ""
+        %complete = core.call intrinsic.eq(%result_type, "complete")
+        %versions = core.get %result["supportedVersions"] default null
+        %versions_list = core.type_is %versions type "list"
+        %versions_valid = core.let %versions_list
+        core.if %versions_list {
+          core.for %version in %versions {
+            %version_string = core.type_is %version type "string"
+            %version_invalid = core.call intrinsic.not(%version_string)
+            core.if %version_invalid {
+              %versions_valid = core.const false
+            }
+          }
+        }
+        %capabilities = core.get %result["capabilities"] default null
+        %capabilities_valid = core.type_is %capabilities type "object"
+        %ttl = core.get %result["ttlMs"] default null
+        %ttl_number = core.type_is %ttl type "number"
+        %ttl_valid = core.const false
+        core.if %ttl_number {
+          %ttl_text = core.call intrinsic.json.stringify(%ttl)
+          %ttl_integer = core.regex_match %ttl_text pattern "^[0-9]+$"
+          %ttl_nonnegative = core.call intrinsic.gte(%ttl, 0)
+          %ttl_valid = core.call intrinsic.and(%ttl_integer, %ttl_nonnegative)
+        }
+        %scope = core.get %result["cacheScope"] default ""
+        %private_scope = core.call intrinsic.eq(%scope, "private")
+        %public_scope = core.call intrinsic.eq(%scope, "public")
+        %scope_valid = core.call intrinsic.or(%private_scope, %public_scope)
+        %shape_a = core.call intrinsic.and(%complete, %versions_valid)
+        %shape_b = core.call intrinsic.and(%capabilities_valid, %ttl_valid)
+        %shape_c = core.call intrinsic.and(%shape_a, %shape_b)
+        %valid = core.call intrinsic.and(%shape_c, %scope_valid)
+        core.if %valid {
+          core.set %out["valid"] = true
+          core.set %out["supportedVersions"] = %versions
+          core.set %out["capabilities"] = %capabilities
+          core.set %out["ttlMs"] = %ttl
+          core.set %out["cacheScope"] = %scope
+          %meta_raw = core.get %result["_meta"] default null
+          %meta_is_object = core.type_is %meta_raw type "object"
+          core.if %meta_is_object {
+            %meta_base = core.map
+            %meta = core.call intrinsic.map.merge(%meta_base, %meta_raw)
+            core.set %out["meta"] = %meta
+            %server_info_raw = core.get %meta["io.modelcontextprotocol/serverInfo"] default null
+            %server_info_object = core.type_is %server_info_raw type "object"
+            core.if %server_info_object {
+              %server_name = core.get %server_info_raw["name"] default null
+              %server_version = core.get %server_info_raw["version"] default null
+              %server_name_string = core.type_is %server_name type "string"
+              %server_version_string = core.type_is %server_version type "string"
+              %server_info_valid = core.call intrinsic.and(%server_name_string, %server_version_string)
+              core.if %server_info_valid {
+                %server_info_base = core.map
+                %server_info = core.call intrinsic.map.merge(%server_info_base, %server_info_raw)
+                core.set %out["serverInfo"] = %server_info
+              }
+            }
+          }
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_resolve_known_era {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-modern-era"
+    type signature = "(configured:string, hint?:string, cached?:string, stored?:string) -> json"
+    body @entry(%configured: string, %hint: string, %cached: string, %stored: string) {
+      %out = core.map
+      %configured_modern = core.call intrinsic.eq(%configured, "modern")
+      %configured_legacy = core.call intrinsic.eq(%configured, "legacy")
+      %configured_known = core.call intrinsic.or(%configured_modern, %configured_legacy)
+      core.if %configured_known {
+        core.set %out["era"] = %configured
+        core.set %out["probe"] = false
+        core.return %out
+      }
+      %hint_modern = core.call intrinsic.eq(%hint, "modern")
+      %hint_legacy = core.call intrinsic.eq(%hint, "legacy")
+      %hint_known = core.call intrinsic.or(%hint_modern, %hint_legacy)
+      core.if %hint_known {
+        core.set %out["era"] = %hint
+        core.set %out["probe"] = false
+        core.return %out
+      }
+      %cached_modern = core.call intrinsic.eq(%cached, "modern")
+      %cached_legacy = core.call intrinsic.eq(%cached, "legacy")
+      %cached_known = core.call intrinsic.or(%cached_modern, %cached_legacy)
+      core.if %cached_known {
+        core.set %out["era"] = %cached
+        core.set %out["probe"] = false
+        core.return %out
+      }
+      %stored_modern = core.call intrinsic.eq(%stored, "modern")
+      %stored_legacy = core.call intrinsic.eq(%stored, "legacy")
+      %stored_known = core.call intrinsic.or(%stored_modern, %stored_legacy)
+      core.if %stored_known {
+        core.set %out["era"] = %stored
+        core.set %out["probe"] = false
+        core.return %out
+      }
+      core.set %out["era"] = "modern"
+      core.set %out["probe"] = true
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_select_mutual_version {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-modern-era"
+    type signature = "(error_data:json, client_versions:list<string>) -> string"
+    body @entry(%error_data: json, %client_versions: list<json>) {
+      %is_object = core.type_is %error_data type "object"
+      core.if %is_object {
+        %supported = core.get %error_data["supported"] default null
+        %supported_list = core.type_is %supported type "list"
+        core.if %supported_list {
+          core.for %version in %client_versions {
+            %mutual = core.call intrinsic.contains(%supported, %version)
+            core.if %mutual {
+              core.return %version
+            }
+          }
+        }
+      }
+      core.return ""
+    }
+  }
+
+  op ax.mcp.semantic @mcp_build_request_meta {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-modern-era"
+    type signature = "(existing:json, protocol_version:string, client_capabilities:json, client_info:json, log_level?:string, traceparent?:string, tracestate?:string) -> json"
+    body @entry(%existing: json, %protocol_version: string, %client_capabilities: json, %client_info: json, %log_level: string, %traceparent: string, %tracestate: string) {
+      %empty = core.map
+      %out = core.let %empty
+      %existing_object = core.type_is %existing type "object"
+      core.if %existing_object {
+        %out = core.call intrinsic.map.merge(%empty, %existing)
+      }
+      core.set %out["io.modelcontextprotocol/protocolVersion"] = %protocol_version
+      core.set %out["io.modelcontextprotocol/clientCapabilities"] = %client_capabilities
+      core.set %out["io.modelcontextprotocol/clientInfo"] = %client_info
+      %log_missing = core.call intrinsic.is_none(%log_level)
+      %has_log = core.call intrinsic.not(%log_missing)
+      core.if %has_log {
+        core.set %out["io.modelcontextprotocol/logLevel"] = %log_level
+      }
+      %has_traceparent = core.call intrinsic.truthy(%traceparent)
+      core.if %has_traceparent {
+        core.set %out["traceparent"] = %traceparent
+      }
+      %has_tracestate = core.call intrinsic.truthy(%tracestate)
+      core.if %has_tracestate {
+        core.set %out["tracestate"] = %tracestate
+      }
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_client_capabilities {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-modern-era"
+    type signature = "(has_roots:bool, has_sampling:bool, has_elicitation:bool, era:string, tasks_extension:bool) -> json"
+    body @entry(%has_roots: bool, %has_sampling: bool, %has_elicitation: bool, %era: string, %tasks_extension: bool) {
+      %out = core.map
+      core.if %has_roots {
+        %roots = core.map
+        core.set %roots["listChanged"] = true
+        core.set %out["roots"] = %roots
+      }
+      core.if %has_sampling {
+        %sampling = core.map
+        %sampling_context = core.map
+        %sampling_tools = core.map
+        core.set %sampling["context"] = %sampling_context
+        core.set %sampling["tools"] = %sampling_tools
+        core.set %out["sampling"] = %sampling
+      }
+      core.if %has_elicitation {
+        %elicitation = core.map
+        %elicitation_form = core.map
+        %elicitation_url = core.map
+        core.set %elicitation["form"] = %elicitation_form
+        core.set %elicitation["url"] = %elicitation_url
+        core.set %out["elicitation"] = %elicitation
+      }
+      %modern = core.call intrinsic.eq(%era, "modern")
+      %add_tasks = core.call intrinsic.and(%modern, %tasks_extension)
+      core.if %add_tasks {
+        %extensions = core.map
+        %tasks = core.map
+        core.set %extensions["io.modelcontextprotocol/tasks"] = %tasks
+        core.set %out["extensions"] = %extensions
+      }
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_negotiate_extensions {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-modern-era"
+    type signature = "(client_ext:json, server_ext:json) -> json"
+    body @entry(%client_ext: json, %server_ext: json) {
+      %out = core.map
+      %client_object = core.type_is %client_ext type "object"
+      %server_object = core.type_is %server_ext type "object"
+      %both_objects = core.call intrinsic.and(%client_object, %server_object)
+      core.if %both_objects {
+        %names = core.call intrinsic.map.keys(%client_ext)
+        core.for %name in %names {
+          %server_has = core.call intrinsic.map.contains(%server_ext, %name)
+          core.if %server_has {
+            %client_value = core.get %client_ext[%name] default null
+            %server_value = core.get %server_ext[%name] default null
+            %client_value_object = core.type_is %client_value type "object"
+            %server_value_object = core.type_is %server_value type "object"
+            %values_objects = core.call intrinsic.and(%client_value_object, %server_value_object)
+            core.if %values_objects {
+              %merged = core.call intrinsic.map.merge(%client_value, %server_value)
+              core.set %out[%name] = %merged
+            } else {
+              core.set %out[%name] = %server_value
+            }
+          }
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_request_name {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-modern-era"
+    type signature = "(method:string, params:json) -> string"
+    body @entry(%method: string, %params: json) {
+      %params_object = core.type_is %params type "object"
+      core.if %params_object {
+        %tools_call = core.call intrinsic.eq(%method, "tools/call")
+        %prompts_get = core.call intrinsic.eq(%method, "prompts/get")
+        %named = core.call intrinsic.or(%tools_call, %prompts_get)
+        core.if %named {
+          %name = core.get %params["name"] default ""
+          %name_string = core.type_is %name type "string"
+          core.if %name_string {
+            core.return %name
+          }
+        }
+        %resources_read = core.call intrinsic.eq(%method, "resources/read")
+        core.if %resources_read {
+          %uri = core.get %params["uri"] default ""
+          %uri_string = core.type_is %uri type "string"
+          core.if %uri_string {
+            core.return %uri
+          }
+        }
+      }
+      core.return ""
+    }
+  }
+
+  op ax.mcp.semantic @mcp_header_value_plan {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-param-headers"
+    type signature = "(value:string) -> json"
+    body @entry(%value: string) {
+      %out = core.map
+      %edge_space = core.regex_match %value pattern "^[\\t ]|[\\t ]$"
+      %sentinel_prefix = core.call intrinsic.string.starts_with(%value, "=?base64?")
+      %sentinel_suffix = core.call intrinsic.string.ends_with(%value, "?=")
+      %sentinel = core.call intrinsic.and(%sentinel_prefix, %sentinel_suffix)
+      %unsafe_octet = core.regex_match %value pattern "[^\\t -~]"
+      %edge_or_sentinel = core.call intrinsic.or(%edge_space, %sentinel)
+      %encode = core.call intrinsic.or(%edge_or_sentinel, %unsafe_octet)
+      core.if %encode {
+        core.set %out["mode"] = "encode"
+      } else {
+        core.set %out["mode"] = "plain"
+      }
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_param_header_bindings {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "mcp"
+    tag "axmcp-param-headers"
+    type signature = "(input_schema:json) -> json throws"
+    body @entry(%input_schema: json) {
+      %bindings = core.list
+      %schema_object = core.type_is %input_schema type "object"
+      %not_object = core.call intrinsic.not(%schema_object)
+      core.if %not_object {
+        core.return %bindings
+      }
+      %root_annotated = core.call intrinsic.map.contains(%input_schema, "x-mcp-header")
+      core.if %root_annotated {
+        %root_error = core.call intrinsic.error.validation("x-mcp-header at inputSchema is not statically reachable through properties")
+        core.raise %root_error
+      }
+      %seen_names = core.list
+      %properties = core.get %input_schema["properties"] default null
+      %properties_object = core.type_is %properties type "object"
+      core.if %properties_object {
+        %property_names = core.call intrinsic.map.keys(%properties)
+        core.for %property_name in %property_names {
+          %property_schema = core.get %properties[%property_name] default null
+          %property_object = core.type_is %property_schema type "object"
+          core.if %property_object {
+            %annotated = core.call intrinsic.map.contains(%property_schema, "x-mcp-header")
+            core.if %annotated {
+              %header_name = core.get %property_schema["x-mcp-header"] default null
+              %header_string = core.type_is %header_name type "string"
+              %header_not_string = core.call intrinsic.not(%header_string)
+              core.if %header_not_string {
+                %name_type_error = core.call intrinsic.error.validation("x-mcp-header must be a non-empty string")
+                core.raise %name_type_error
+              }
+              %header_length = core.call intrinsic.len(%header_name)
+              %header_nonempty = core.call intrinsic.gt(%header_length, 0)
+              %header_invalid = core.call intrinsic.not(%header_nonempty)
+              core.if %header_invalid {
+                %name_error = core.call intrinsic.error.validation("x-mcp-header must be a non-empty string")
+                core.raise %name_error
+              }
+              %token_valid = core.regex_match %header_name pattern "^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$"
+              %token_invalid = core.call intrinsic.not(%token_valid)
+              core.if %token_invalid {
+                %token_error = core.call intrinsic.error.validation("x-mcp-header value is not an RFC 9110 field-name token")
+                core.raise %token_error
+              }
+              %normalized_name = core.call intrinsic.string.lower(%header_name)
+              %normalized_full_name = core.call intrinsic.string.format("mcp-param-{}", %normalized_name)
+              %duplicate = core.call intrinsic.contains(%seen_names, %normalized_full_name)
+              core.if %duplicate {
+                %duplicate_error = core.call intrinsic.error.validation("x-mcp-header value is not case-insensitively unique")
+                core.raise %duplicate_error
+              }
+              core.append %seen_names, %normalized_full_name
+              %property_type = core.get %property_schema["type"] default null
+              %type_string = core.call intrinsic.eq(%property_type, "string")
+              %type_integer = core.call intrinsic.eq(%property_type, "integer")
+              %type_boolean = core.call intrinsic.eq(%property_type, "boolean")
+              %type_scalar_a = core.call intrinsic.or(%type_string, %type_integer)
+              %type_valid = core.call intrinsic.or(%type_scalar_a, %type_boolean)
+              %type_invalid = core.call intrinsic.not(%type_valid)
+              core.if %type_invalid {
+                %type_error = core.call intrinsic.error.validation("x-mcp-header requires type string, integer, or boolean")
+                core.raise %type_error
+              }
+              %binding = core.map
+              %full_header_name = core.call intrinsic.string.format("Mcp-Param-{}", %header_name)
+              core.set %binding["headerName"] = %full_header_name
+              %path = core.list
+              core.append %path, %property_name
+              core.set %binding["path"] = %path
+              core.set %binding["type"] = %property_type
+              core.append %bindings, %binding
+            }
+            %child_base = core.map
+            %child_schema = core.call intrinsic.map.merge(%child_base, %property_schema)
+            core.call intrinsic.map.delete(%child_schema, "x-mcp-header")
+            %child_bindings = core.call @mcp_param_header_bindings(%child_schema)
+            core.for %child_binding in %child_bindings {
+              %child_header_name = core.get %child_binding["headerName"] default ""
+              %child_normalized = core.call intrinsic.string.lower(%child_header_name)
+              %child_duplicate = core.call intrinsic.contains(%seen_names, %child_normalized)
+              core.if %child_duplicate {
+                %child_duplicate_error = core.call intrinsic.error.validation("x-mcp-header value is not case-insensitively unique")
+                core.raise %child_duplicate_error
+              }
+              core.append %seen_names, %child_normalized
+              %child_path = core.get %child_binding["path"] default null
+              %prefixed_path = core.list
+              core.append %prefixed_path, %property_name
+              core.for %child_part in %child_path {
+                core.append %prefixed_path, %child_part
+              }
+              %prefixed_binding_base = core.map
+              %prefixed_binding = core.call intrinsic.map.merge(%prefixed_binding_base, %child_binding)
+              core.set %prefixed_binding["path"] = %prefixed_path
+              core.append %bindings, %prefixed_binding
+            }
+          }
+        }
+      }
+      %schema_keys = core.call intrinsic.map.keys(%input_schema)
+      core.for %schema_key in %schema_keys {
+        %is_properties = core.call intrinsic.eq(%schema_key, "properties")
+        %is_annotation = core.call intrinsic.eq(%schema_key, "x-mcp-header")
+        %skip_keyword = core.call intrinsic.or(%is_properties, %is_annotation)
+        %visit_keyword = core.call intrinsic.not(%skip_keyword)
+        core.if %visit_keyword {
+          %keyword_value = core.get %input_schema[%schema_key] default null
+          %keyword_object = core.type_is %keyword_value type "object"
+          core.if %keyword_object {
+            %keyword_bindings = core.call @mcp_param_header_bindings(%keyword_value)
+            %keyword_binding_count = core.call intrinsic.len(%keyword_bindings)
+            %keyword_annotated = core.call intrinsic.gt(%keyword_binding_count, 0)
+            core.if %keyword_annotated {
+              %keyword_error = core.call intrinsic.error.validation("x-mcp-header is not statically reachable through properties")
+              core.raise %keyword_error
+            }
+          }
+          %keyword_list = core.type_is %keyword_value type "list"
+          core.if %keyword_list {
+            core.for %keyword_item in %keyword_value {
+              %keyword_item_object = core.type_is %keyword_item type "object"
+              core.if %keyword_item_object {
+                %item_bindings = core.call @mcp_param_header_bindings(%keyword_item)
+                %item_binding_count = core.call intrinsic.len(%item_bindings)
+                %item_annotated = core.call intrinsic.gt(%item_binding_count, 0)
+                core.if %item_annotated {
+                  %item_error = core.call intrinsic.error.validation("x-mcp-header is not statically reachable through properties")
+                  core.raise %item_error
+                }
+              }
+            }
+          }
+        }
+      }
+      core.return %bindings
+    }
+  }
+
+  op ax.mcp.semantic @mcp_param_header_values {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "mcp"
+    tag "axmcp-param-headers"
+    type signature = "(bindings:json, arguments:json) -> json throws"
+    body @entry(%bindings: json, %arguments: json) {
+      %out = core.map
+      %bindings_list = core.type_is %bindings type "list"
+      %not_bindings = core.call intrinsic.not(%bindings_list)
+      core.if %not_bindings {
+        core.return %out
+      }
+      core.for %binding in %bindings {
+        %header_name = core.get %binding["headerName"] default ""
+        %path = core.get %binding["path"] default null
+        %expected_type = core.get %binding["type"] default ""
+        %current = core.let %arguments
+        %present = core.const true
+        core.for %part in %path {
+          %current_object = core.type_is %current type "object"
+          core.if %current_object {
+            %has_part = core.call intrinsic.map.contains(%current, %part)
+            core.if %has_part {
+              %current = core.get %current[%part] default null
+            } else {
+              %present = core.const false
+            }
+          } else {
+            %present = core.const false
+          }
+        }
+        %is_null = core.call intrinsic.is_none(%current)
+        %not_null = core.call intrinsic.not(%is_null)
+        %emit_value = core.call intrinsic.and(%present, %not_null)
+        core.if %emit_value {
+          %expects_string = core.call intrinsic.eq(%expected_type, "string")
+          core.if %expects_string {
+            %is_string = core.type_is %current type "string"
+            %invalid_string = core.call intrinsic.not(%is_string)
+            core.if %invalid_string {
+              %string_error = core.call intrinsic.error.validation("MCP parameter header expected string")
+              core.raise %string_error
+            }
+            core.set %out[%header_name] = %current
+          } else {
+            %expects_boolean = core.call intrinsic.eq(%expected_type, "boolean")
+            core.if %expects_boolean {
+              %is_boolean = core.type_is %current type "boolean"
+              %invalid_boolean = core.call intrinsic.not(%is_boolean)
+              core.if %invalid_boolean {
+                %boolean_error = core.call intrinsic.error.validation("MCP parameter header expected boolean")
+                core.raise %boolean_error
+              }
+              core.if %current {
+                core.set %out[%header_name] = "true"
+              } else {
+                core.set %out[%header_name] = "false"
+              }
+            } else {
+              %is_number = core.type_is %current type "number"
+              %not_number = core.call intrinsic.not(%is_number)
+              core.if %not_number {
+                %number_error = core.call intrinsic.error.validation("MCP parameter header expected integer")
+                core.raise %number_error
+              }
+              %number_text = core.call intrinsic.json.stringify(%current)
+              %is_integer = core.regex_match %number_text pattern "^-?(0|[1-9][0-9]*)$"
+              %absolute = core.call intrinsic.math.abs(%current)
+              %safe_high = core.call intrinsic.mul(9007199, 1000000000)
+              %safe_max = core.call intrinsic.add(%safe_high, 254740991)
+              %is_safe = core.call intrinsic.lte(%absolute, %safe_max)
+              %valid_integer = core.call intrinsic.and(%is_integer, %is_safe)
+              %invalid_integer = core.call intrinsic.not(%valid_integer)
+              core.if %invalid_integer {
+                %integer_error = core.call intrinsic.error.validation("MCP parameter header expected integer")
+                core.raise %integer_error
+              }
+              core.set %out[%header_name] = %number_text
+            }
+          }
+        }
       }
       core.return %out
     }

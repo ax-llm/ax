@@ -1,0 +1,30 @@
+{
+  "name": "mcp modern per-request metadata",
+  "kind": "mcp",
+  "operation": "request_meta",
+  "existing": {
+    "caller": "preserved",
+    "io.modelcontextprotocol/protocolVersion": "caller-must-not-win",
+    "io.modelcontextprotocol/clientInfo": { "name": "caller", "version": "0" }
+  },
+  "protocol_version": "2026-07-28",
+  "client_capabilities": { "roots": { "listChanged": true } },
+  "client_info": { "name": "AxMCPClient", "version": "1.0.0" },
+  "log_level": "debug",
+  "traceparent": "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
+  "tracestate": "fixture=1",
+  "expected_meta": {
+    "caller": "preserved",
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientCapabilities": {
+      "roots": { "listChanged": true }
+    },
+    "io.modelcontextprotocol/clientInfo": {
+      "name": "AxMCPClient",
+      "version": "1.0.0"
+    },
+    "io.modelcontextprotocol/logLevel": "debug",
+    "traceparent": "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
+    "tracestate": "fixture=1"
+  }
+}

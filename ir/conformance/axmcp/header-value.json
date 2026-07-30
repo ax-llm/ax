@@ -1,0 +1,14 @@
+{
+  "name": "mcp RFC 9110 header value classification",
+  "kind": "mcp",
+  "operation": "header_value",
+  "cases": [
+    { "value": "plain value", "expected_plan": { "mode": "plain" } },
+    { "value": "tab\tinside", "expected_plan": { "mode": "plain" } },
+    { "value": " leading", "expected_plan": { "mode": "encode" } },
+    { "value": "trailing\t", "expected_plan": { "mode": "encode" } },
+    { "value": "line\rbreak", "expected_plan": { "mode": "encode" } },
+    { "value": "non-ascii-é", "expected_plan": { "mode": "encode" } },
+    { "value": "=?base64?literal?=", "expected_plan": { "mode": "encode" } }
+  ]
+}

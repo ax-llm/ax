@@ -313,6 +313,48 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "era_classification",
+        "runner": "rust:axmcp.era_classification",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "mutual_version",
+        "runner": "rust:axmcp.mutual_version",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "request_meta",
+        "runner": "rust:axmcp.request_meta",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "extension_negotiation",
+        "runner": "rust:axmcp.extension_negotiation",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "param_headers",
+        "runner": "rust:axmcp.param_headers",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "header_value",
+        "runner": "rust:axmcp.header_value",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "ping",
         "runner": "rust:axmcp.ping",
         "category": "transport-boundary"

@@ -47,6 +47,16 @@ func TestCoreFuncRegistryFromAxCore(t *testing.T) {
 		"anthropic_build_chat_request":        "_anthropic_build_chat_request",
 		"mcp_protocol_constants":              "mcp_protocol_constants",
 		"mcp_modern_request_headers":          "mcp_modern_request_headers",
+		"mcp_classify_discovery_result":       "mcp_classify_discovery_result",
+		"mcp_resolve_known_era":               "mcp_resolve_known_era",
+		"mcp_select_mutual_version":           "mcp_select_mutual_version",
+		"mcp_build_request_meta":              "mcp_build_request_meta",
+		"mcp_client_capabilities":             "mcp_client_capabilities",
+		"mcp_negotiate_extensions":            "mcp_negotiate_extensions",
+		"mcp_request_name":                    "mcp_request_name",
+		"mcp_header_value_plan":                "mcp_header_value_plan",
+		"mcp_param_header_bindings":            "mcp_param_header_bindings",
+		"mcp_param_header_values":              "mcp_param_header_values",
 		"event_runtime_descriptor":            "event_runtime_descriptor",
 		"event_retry_transition":              "event_retry_transition",
 		"event_resolve_path":                  "event_resolve_path",
@@ -69,8 +79,8 @@ func TestCoreFuncRegistryFromAxCore(t *testing.T) {
 	for _, spec := range specs {
 		byModule[spec.Module]++
 	}
-	if byModule["mcp"] != 23 {
-		t.Fatalf("expected the 23 MCP/UCP/event core functions in the registry, got %d", byModule["mcp"])
+	if byModule["mcp"] != 33 {
+		t.Fatalf("expected the 33 MCP/UCP/event core functions in the registry, got %d", byModule["mcp"])
 	}
 	if byModule[""] != 0 {
 		t.Fatal("registry contains specs without emit_module")

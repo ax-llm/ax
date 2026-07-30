@@ -206,6 +206,8 @@
     "axflow-nested-component-paths",
     "axflow-optimization-rollback",
     "axmcp",
+    "axmcp-modern-era",
+    "axmcp-param-headers",
     "axmcp-json-rpc-lifecycle",
     "axmcp-protocol-negotiation",
     "axmcp-tools-prompts-resources",

@@ -4,8 +4,9 @@
   "operation": "modern_headers",
   "method": "tools/call",
   "resource_name": "inventory.lookup",
+  "protocol_version": "2025-11-25",
   "expected_headers": {
-    "MCP-Protocol-Version": "2026-07-28",
+    "MCP-Protocol-Version": "2025-11-25",
     "Mcp-Method": "tools/call",
     "Mcp-Name": "inventory.lookup"
   },

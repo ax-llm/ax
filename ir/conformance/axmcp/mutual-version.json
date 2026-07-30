@@ -1,0 +1,22 @@
+{
+  "name": "mcp mutual protocol version selection",
+  "kind": "mcp",
+  "operation": "mutual_version",
+  "cases": [
+    {
+      "error_data": { "supported": ["2025-11-25", "2026-07-28"] },
+      "client_versions": ["2026-07-28", "2025-11-25"],
+      "expected_version": "2026-07-28"
+    },
+    {
+      "error_data": { "supported": ["2025-03-26"] },
+      "client_versions": ["2026-07-28", "2025-11-25"],
+      "expected_version": ""
+    },
+    {
+      "error_data": { "supported": "2026-07-28" },
+      "client_versions": ["2026-07-28"],
+      "expected_version": ""
+    }
+  ]
+}

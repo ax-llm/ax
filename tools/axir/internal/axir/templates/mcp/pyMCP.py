@@ -5,6 +5,7 @@ import base64
 import hashlib
 import ipaddress
 import json
+import re
 import socket
 import subprocess
 import threading
@@ -51,9 +52,11 @@ def _core_type_is(value, expected):
     return {
         "object": isinstance(value, dict),
         "array": isinstance(value, (list, tuple)),
+        "list": isinstance(value, (list, tuple)),
         "string": isinstance(value, str),
         "number": isinstance(value, (int, float)) and not isinstance(value, bool),
         "bool": isinstance(value, bool),
+        "boolean": isinstance(value, bool),
     }.get(expected, False)
 
 
@@ -63,12 +66,35 @@ def _core_not(value): return not bool(value)
 def _core_eq(left, right): return left == right
 def _core_lt(left, right): return left < right
 def _core_lte(left, right): return left <= right
+def _core_gt(left, right): return left > right
+def _core_gte(left, right): return left >= right
 def _core_add(left, right): return left + right
+def _core_mul(left, right): return left * right
 def _core_len(value): return len(value or [])
 def _core_contains(container, item): return False if container is None else item in container
+def _core_truthy(value): return bool(value)
 def _core_none(): return None
 def _core_json_stringify(value): return json.dumps(value, separators=(",", ":"), sort_keys=True)
 def _core_json_parse(value): return json.loads(value)
+def _core_math_abs(value): return abs(value)
+
+
+def _core_map_merge(left, right):
+    merged = dict(left or {})
+    merged.update(right or {})
+    return merged
+
+
+def _core_map_contains(values, key): return isinstance(values, dict) and key in values
+def _core_map_delete(target, key):
+    if isinstance(target, dict): target.pop(key, None)
+    return target
+def _core_map_keys(values): return list(values.keys()) if isinstance(values, dict) else []
+def _core_string_lower(value): return str(value).lower()
+def _core_string_starts_with(value, prefix): return str(value).startswith(str(prefix))
+def _core_string_ends_with(value, suffix): return str(value).endswith(str(suffix))
+def _core_regex_match(pattern, value): return isinstance(value, str) and re.search(pattern, value) is not None
+def _core_validation_error(message): return AxMCPError(str(message))
 
 
 def _core_string_format(template, *args):
@@ -1769,11 +1795,89 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             headers = mcp_modern_request_headers(
                 fixture.get("method", "server/discover"),
                 fixture.get("resource_name"),
+                fixture.get("protocol_version"),
             )
             _assert_subset(headers, fixture.get("expected_headers") or {}, "modern headers")
             for key in fixture.get("forbidden_headers") or []:
                 if key in headers:
                     raise AssertionError(f"modern headers contain forbidden {key}")
+            return
+        if operation == "era_classification":
+            classification = mcp_classify_discovery_result(fixture.get("discovery_result"))
+            _assert_subset(classification, fixture.get("expected_classification") or {}, "discovery classification")
+            for invalid in fixture.get("invalid_discovery_results") or []:
+                result = mcp_classify_discovery_result(invalid)
+                if result.get("valid") is not False:
+                    raise AssertionError(f"invalid discovery result classified as valid: {invalid!r}")
+            for case in fixture.get("era_cases") or []:
+                actual = mcp_resolve_known_era(case.get("configured", "auto"), case.get("hint"), case.get("cached"), case.get("stored"))
+                _assert_subset(actual, case.get("expected") or {}, "era resolution")
+            capability_case = fixture.get("capability_case") or {}
+            capabilities = mcp_client_capabilities(
+                capability_case.get("has_roots", False),
+                capability_case.get("has_sampling", False),
+                capability_case.get("has_elicitation", False),
+                capability_case.get("era", "legacy"),
+                capability_case.get("tasks_extension", False),
+            )
+            _assert_subset(capabilities, capability_case.get("expected") or {}, "client capabilities")
+            for case in fixture.get("request_name_cases") or []:
+                actual = mcp_request_name(case.get("method", ""), case.get("params") or {})
+                if actual != case.get("expected", ""):
+                    raise AssertionError(f"request name mismatch: {actual!r}")
+            return
+        if operation == "mutual_version":
+            for case in fixture.get("cases") or []:
+                actual = mcp_select_mutual_version(case.get("error_data"), case.get("client_versions") or [])
+                if actual != case.get("expected_version", ""):
+                    raise AssertionError(f"mutual version mismatch: {actual!r}")
+            return
+        if operation == "request_meta":
+            actual = mcp_build_request_meta(
+                fixture.get("existing"),
+                fixture.get("protocol_version", "2026-07-28"),
+                fixture.get("client_capabilities") or {},
+                fixture.get("client_info") or {},
+                fixture.get("log_level"),
+                fixture.get("traceparent"),
+                fixture.get("tracestate"),
+            )
+            _assert_subset(actual, fixture.get("expected_meta") or {}, "request meta")
+            return
+        if operation == "extension_negotiation":
+            actual = mcp_negotiate_extensions(fixture.get("client_extensions") or {}, fixture.get("server_extensions") or {})
+            if actual != (fixture.get("expected_extensions") or {}):
+                raise AssertionError(f"extension negotiation mismatch: {actual!r}")
+            return
+        if operation == "param_headers":
+            bindings = mcp_param_header_bindings(fixture.get("input_schema") or {})
+            if bindings != (fixture.get("expected_bindings") or []):
+                raise AssertionError(f"parameter header bindings mismatch: {bindings!r}")
+            values = mcp_param_header_values(bindings, fixture.get("arguments") or {})
+            if values != (fixture.get("expected_values") or {}):
+                raise AssertionError(f"parameter header values mismatch: {values!r}")
+            for invalid in fixture.get("invalid_schemas") or []:
+                try:
+                    mcp_param_header_bindings(invalid.get("schema") or {})
+                except Exception as error:
+                    if invalid.get("expected_error_contains", "") not in str(error):
+                        raise AssertionError(f"unexpected parameter header error: {error}") from error
+                else:
+                    raise AssertionError("invalid parameter header schema was accepted")
+            for invalid in fixture.get("invalid_values") or []:
+                try:
+                    mcp_param_header_values(bindings, invalid.get("arguments") or {})
+                except Exception as error:
+                    if invalid.get("expected_error_contains", "") not in str(error):
+                        raise AssertionError(f"unexpected parameter header value error: {error}") from error
+                else:
+                    raise AssertionError("invalid parameter header value was accepted")
+            return
+        if operation == "header_value":
+            for case in fixture.get("cases") or []:
+                actual = mcp_header_value_plan(case.get("value", ""))
+                if actual != (case.get("expected_plan") or {}):
+                    raise AssertionError(f"header value plan mismatch: {actual!r}")
             return
         if operation == "http_session_headers":
             transport = AxMCPStreamableHTTPTransport(fixture.get("endpoint", "https://example.com/mcp"), fixture.get("transport_options") or {})

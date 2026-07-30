@@ -596,9 +596,87 @@ void run_mcp_conformance_fixture(Value fixture) {
       return;
     }
     if (op == "modern_headers") {
-      Value headers = Core::mcp_modern_request_headers(Core::get(fixture, "method", "server/discover"), Core::get(fixture, "resource_name", Value()));
+      Value headers = Core::mcp_modern_request_headers(Core::get(fixture, "method", "server/discover"), Core::get(fixture, "resource_name", Value()), Core::get(fixture, "protocol_version", Value()));
       expect_subset_local(headers, Core::get(fixture, "expected_headers", Value::object()), "modern headers");
       for (auto key : as_array_local(Core::get(fixture, "forbidden_headers", Value::array()))) if (!Core::get(headers, display(key), Value()).is_null()) throw AxError("fixture", "modern headers contain forbidden " + display(key));
+      return;
+    }
+    if (op == "era_classification") {
+      Value classification = Core::mcp_classify_discovery_result(Core::get(fixture, "discovery_result", Value()));
+      expect_subset_local(classification, Core::get(fixture, "expected_classification", Value::object()), "discovery classification");
+      for (auto invalid : as_array_local(Core::get(fixture, "invalid_discovery_results", Value::array()))) {
+        if (Core::truthy(Core::get(Core::mcp_classify_discovery_result(invalid), "valid", true))) throw AxError("fixture", "invalid discovery result classified as valid");
+      }
+      for (auto raw : as_array_local(Core::get(fixture, "era_cases", Value::array()))) {
+        Value actual = Core::mcp_resolve_known_era(Core::get(raw, "configured", "auto"), Core::get(raw, "hint", Value()), Core::get(raw, "cached", Value()), Core::get(raw, "stored", Value()));
+        expect_subset_local(actual, Core::get(raw, "expected", Value::object()), "era resolution");
+      }
+      Value capability_case = Core::get(fixture, "capability_case", Value::object());
+      Value capabilities = Core::mcp_client_capabilities(Core::get(capability_case, "has_roots", false), Core::get(capability_case, "has_sampling", false), Core::get(capability_case, "has_elicitation", false), Core::get(capability_case, "era", "legacy"), Core::get(capability_case, "tasks_extension", false));
+      expect_subset_local(capabilities, Core::get(capability_case, "expected", Value::object()), "client capabilities");
+      for (auto raw : as_array_local(Core::get(fixture, "request_name_cases", Value::array()))) {
+        std::string actual = display(Core::mcp_request_name(Core::get(raw, "method", ""), Core::get(raw, "params", Value::object())));
+        if (actual != display(Core::get(raw, "expected", ""))) throw AxError("fixture", "request name mismatch");
+      }
+      return;
+    }
+    if (op == "mutual_version") {
+      for (auto raw : as_array_local(Core::get(fixture, "cases", Value::array()))) {
+        std::string actual = display(Core::mcp_select_mutual_version(Core::get(raw, "error_data", Value()), Core::get(raw, "client_versions", Value::array())));
+        if (actual != display(Core::get(raw, "expected_version", ""))) throw AxError("fixture", "mutual version mismatch");
+      }
+      return;
+    }
+    if (op == "request_meta") {
+      Value actual = Core::mcp_build_request_meta(Core::get(fixture, "existing", Value()), Core::get(fixture, "protocol_version", "2026-07-28"), Core::get(fixture, "client_capabilities", Value::object()), Core::get(fixture, "client_info", Value::object()), Core::get(fixture, "log_level", Value()), Core::get(fixture, "traceparent", Value()), Core::get(fixture, "tracestate", Value()));
+      expect_subset_local(actual, Core::get(fixture, "expected_meta", Value::object()), "request meta");
+      return;
+    }
+    if (op == "extension_negotiation") {
+      Value actual = Core::mcp_negotiate_extensions(Core::get(fixture, "client_extensions", Value::object()), Core::get(fixture, "server_extensions", Value::object()));
+      Value expected = Core::get(fixture, "expected_extensions", Value::object());
+      expect_subset_local(actual, expected, "extension negotiation");
+      expect_subset_local(expected, actual, "extension negotiation");
+      return;
+    }
+    if (op == "param_headers") {
+      Value bindings = Core::mcp_param_header_bindings(Core::get(fixture, "input_schema", Value::object()));
+      Value expected_bindings = Core::get(fixture, "expected_bindings", Value::array());
+      expect_subset_local(bindings, expected_bindings, "parameter header bindings");
+      expect_subset_local(expected_bindings, bindings, "parameter header bindings");
+      Value values = Core::mcp_param_header_values(bindings, Core::get(fixture, "arguments", Value::object()));
+      Value expected_values = Core::get(fixture, "expected_values", Value::object());
+      expect_subset_local(values, expected_values, "parameter header values");
+      expect_subset_local(expected_values, values, "parameter header values");
+      for (auto raw : as_array_local(Core::get(fixture, "invalid_schemas", Value::array()))) {
+        bool rejected = false;
+        try {
+          Core::mcp_param_header_bindings(Core::get(raw, "schema", Value::object()));
+        } catch (const std::exception& error) {
+          rejected = true;
+          if (std::string(error.what()).find(display(Core::get(raw, "expected_error_contains", ""))) == std::string::npos) throw;
+        }
+        if (!rejected) throw AxError("fixture", "invalid parameter header schema was accepted");
+      }
+      for (auto raw : as_array_local(Core::get(fixture, "invalid_values", Value::array()))) {
+        bool rejected = false;
+        try {
+          Core::mcp_param_header_values(bindings, Core::get(raw, "arguments", Value::object()));
+        } catch (const std::exception& error) {
+          rejected = true;
+          if (std::string(error.what()).find(display(Core::get(raw, "expected_error_contains", ""))) == std::string::npos) throw;
+        }
+        if (!rejected) throw AxError("fixture", "invalid parameter header value was accepted");
+      }
+      return;
+    }
+    if (op == "header_value") {
+      for (auto raw : as_array_local(Core::get(fixture, "cases", Value::array()))) {
+        Value actual = Core::mcp_header_value_plan(Core::get(raw, "value", ""));
+        Value expected_plan = Core::get(raw, "expected_plan", Value::object());
+        expect_subset_local(actual, expected_plan, "header value plan");
+        expect_subset_local(expected_plan, actual, "header value plan");
+      }
       return;
     }
     if (op == "http_session_headers") {

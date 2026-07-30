@@ -1,0 +1,122 @@
+{
+  "name": "mcp modern discovery classification and era resolution",
+  "kind": "mcp",
+  "operation": "era_classification",
+  "discovery_result": {
+    "resultType": "complete",
+    "supportedVersions": ["2026-07-28", "2025-11-25"],
+    "capabilities": { "tools": {}, "extensions": { "server-only": {} } },
+    "ttlMs": 120000,
+    "cacheScope": "private",
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "fixture-server",
+        "title": "Fixture Server",
+        "version": "2.0.0"
+      }
+    }
+  },
+  "expected_classification": {
+    "valid": true,
+    "supportedVersions": ["2026-07-28", "2025-11-25"],
+    "ttlMs": 120000,
+    "cacheScope": "private",
+    "serverInfo": { "name": "fixture-server", "version": "2.0.0" }
+  },
+  "invalid_discovery_results": [
+    {
+      "resultType": "partial",
+      "supportedVersions": [],
+      "capabilities": {},
+      "ttlMs": 0,
+      "cacheScope": "private"
+    },
+    {
+      "resultType": "complete",
+      "supportedVersions": [4],
+      "capabilities": {},
+      "ttlMs": 0,
+      "cacheScope": "private"
+    },
+    {
+      "resultType": "complete",
+      "supportedVersions": [],
+      "capabilities": [],
+      "ttlMs": 0,
+      "cacheScope": "private"
+    },
+    {
+      "resultType": "complete",
+      "supportedVersions": [],
+      "capabilities": {},
+      "ttlMs": 1.5,
+      "cacheScope": "private"
+    },
+    {
+      "resultType": "complete",
+      "supportedVersions": [],
+      "capabilities": {},
+      "ttlMs": 0,
+      "cacheScope": "shared"
+    }
+  ],
+  "era_cases": [
+    {
+      "configured": "legacy",
+      "hint": "modern",
+      "cached": "modern",
+      "stored": "modern",
+      "expected": { "era": "legacy", "probe": false }
+    },
+    {
+      "configured": "auto",
+      "hint": "modern",
+      "cached": "legacy",
+      "stored": "legacy",
+      "expected": { "era": "modern", "probe": false }
+    },
+    {
+      "configured": "auto",
+      "cached": "legacy",
+      "stored": "modern",
+      "expected": { "era": "legacy", "probe": false }
+    },
+    {
+      "configured": "auto",
+      "stored": "modern",
+      "expected": { "era": "modern", "probe": false }
+    },
+    { "configured": "auto", "expected": { "era": "modern", "probe": true } }
+  ],
+  "capability_case": {
+    "has_roots": true,
+    "has_sampling": true,
+    "has_elicitation": true,
+    "era": "modern",
+    "tasks_extension": true,
+    "expected": {
+      "roots": { "listChanged": true },
+      "sampling": { "context": {}, "tools": {} },
+      "elicitation": { "form": {}, "url": {} },
+      "extensions": { "io.modelcontextprotocol/tasks": {} }
+    }
+  },
+  "request_name_cases": [
+    {
+      "method": "tools/call",
+      "params": { "name": "inventory.lookup" },
+      "expected": "inventory.lookup"
+    },
+    {
+      "method": "prompts/get",
+      "params": { "name": "draft" },
+      "expected": "draft"
+    },
+    {
+      "method": "resources/read",
+      "params": { "uri": "file:///fixture" },
+      "expected": "file:///fixture"
+    },
+    { "method": "tools/list", "params": {}, "expected": "" }
+  ]
+}

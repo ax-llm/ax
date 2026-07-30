@@ -1,0 +1,23 @@
+{
+  "name": "mcp extension key-presence negotiation",
+  "kind": "mcp",
+  "operation": "extension_negotiation",
+  "client_extensions": {
+    "io.modelcontextprotocol/tasks": { "client": true, "shared": "client" },
+    "client-only": { "enabled": true },
+    "false-valued": { "client": true }
+  },
+  "server_extensions": {
+    "io.modelcontextprotocol/tasks": { "server": true, "shared": "server" },
+    "server-only": { "enabled": true },
+    "false-valued": false
+  },
+  "expected_extensions": {
+    "io.modelcontextprotocol/tasks": {
+      "client": true,
+      "server": true,
+      "shared": "server"
+    },
+    "false-valued": false
+  }
+}

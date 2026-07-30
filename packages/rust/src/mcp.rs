@@ -3430,6 +3430,9 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
             let headers = crate::core_value_to_json(&crate::mcp_modern_request_headers(&[
                 crate::core_value_from_json(&method),
                 crate::core_value_from_json(fixture.get("resource_name").unwrap_or(&Value::Null)),
+                crate::core_value_from_json(
+                    fixture.get("protocol_version").unwrap_or(&Value::Null),
+                ),
             ])?);
             expect_subset(
                 "modern headers",
@@ -3449,6 +3452,308 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                             format!("modern headers contain forbidden {key}"),
                         ));
                     }
+                }
+            }
+            Ok(())
+        }
+        "era_classification" => {
+            let classification =
+                crate::core_value_to_json(&crate::mcp_classify_discovery_result(&[
+                    crate::core_value_from_json(
+                        fixture.get("discovery_result").unwrap_or(&Value::Null),
+                    ),
+                ])?);
+            expect_subset(
+                "discovery classification",
+                &classification,
+                fixture
+                    .get("expected_classification")
+                    .unwrap_or(&Value::Null),
+            )?;
+            for invalid in fixture
+                .get("invalid_discovery_results")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let classified =
+                    crate::core_value_to_json(&crate::mcp_classify_discovery_result(&[
+                        crate::core_value_from_json(&invalid),
+                    ])?);
+                if classified.get("valid").and_then(Value::as_bool) != Some(false) {
+                    return Err(AxError::new(
+                        "fixture",
+                        "invalid discovery result classified as valid",
+                    ));
+                }
+            }
+            for case in fixture
+                .get("era_cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = crate::core_value_to_json(&crate::mcp_resolve_known_era(&[
+                    crate::core_value_from_json(
+                        &case
+                            .get("configured")
+                            .cloned()
+                            .unwrap_or_else(|| json!("auto")),
+                    ),
+                    crate::core_value_from_json(case.get("hint").unwrap_or(&Value::Null)),
+                    crate::core_value_from_json(case.get("cached").unwrap_or(&Value::Null)),
+                    crate::core_value_from_json(case.get("stored").unwrap_or(&Value::Null)),
+                ])?);
+                expect_subset(
+                    "era resolution",
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            let capability_case = fixture
+                .get("capability_case")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let capabilities = crate::core_value_to_json(&crate::mcp_client_capabilities(&[
+                crate::core_value_from_json(
+                    &capability_case
+                        .get("has_roots")
+                        .cloned()
+                        .unwrap_or_else(|| json!(false)),
+                ),
+                crate::core_value_from_json(
+                    &capability_case
+                        .get("has_sampling")
+                        .cloned()
+                        .unwrap_or_else(|| json!(false)),
+                ),
+                crate::core_value_from_json(
+                    &capability_case
+                        .get("has_elicitation")
+                        .cloned()
+                        .unwrap_or_else(|| json!(false)),
+                ),
+                crate::core_value_from_json(
+                    &capability_case
+                        .get("era")
+                        .cloned()
+                        .unwrap_or_else(|| json!("legacy")),
+                ),
+                crate::core_value_from_json(
+                    &capability_case
+                        .get("tasks_extension")
+                        .cloned()
+                        .unwrap_or_else(|| json!(false)),
+                ),
+            ])?);
+            expect_subset(
+                "client capabilities",
+                &capabilities,
+                capability_case.get("expected").unwrap_or(&Value::Null),
+            )?;
+            for case in fixture
+                .get("request_name_cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = crate::core_value_to_json(&crate::mcp_request_name(&[
+                    crate::core_value_from_json(
+                        &case.get("method").cloned().unwrap_or_else(|| json!("")),
+                    ),
+                    crate::core_value_from_json(
+                        &case.get("params").cloned().unwrap_or_else(|| json!({})),
+                    ),
+                ])?);
+                if actual.as_str().unwrap_or_default()
+                    != case
+                        .get("expected")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                {
+                    return Err(AxError::new("fixture", "request name mismatch"));
+                }
+            }
+            Ok(())
+        }
+        "mutual_version" => {
+            for case in fixture
+                .get("cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = crate::core_value_to_json(&crate::mcp_select_mutual_version(&[
+                    crate::core_value_from_json(case.get("error_data").unwrap_or(&Value::Null)),
+                    crate::core_value_from_json(
+                        &case
+                            .get("client_versions")
+                            .cloned()
+                            .unwrap_or_else(|| json!([])),
+                    ),
+                ])?);
+                if actual.as_str().unwrap_or_default()
+                    != case
+                        .get("expected_version")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                {
+                    return Err(AxError::new("fixture", "mutual version mismatch"));
+                }
+            }
+            Ok(())
+        }
+        "request_meta" => {
+            let actual = crate::core_value_to_json(&crate::mcp_build_request_meta(&[
+                crate::core_value_from_json(fixture.get("existing").unwrap_or(&Value::Null)),
+                crate::core_value_from_json(
+                    &fixture
+                        .get("protocol_version")
+                        .cloned()
+                        .unwrap_or_else(|| json!("2026-07-28")),
+                ),
+                crate::core_value_from_json(
+                    &fixture
+                        .get("client_capabilities")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                ),
+                crate::core_value_from_json(
+                    &fixture
+                        .get("client_info")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                ),
+                crate::core_value_from_json(fixture.get("log_level").unwrap_or(&Value::Null)),
+                crate::core_value_from_json(fixture.get("traceparent").unwrap_or(&Value::Null)),
+                crate::core_value_from_json(fixture.get("tracestate").unwrap_or(&Value::Null)),
+            ])?);
+            expect_subset(
+                "request meta",
+                &actual,
+                fixture.get("expected_meta").unwrap_or(&Value::Null),
+            )
+        }
+        "extension_negotiation" => {
+            let actual = crate::core_value_to_json(&crate::mcp_negotiate_extensions(&[
+                crate::core_value_from_json(
+                    &fixture
+                        .get("client_extensions")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                ),
+                crate::core_value_from_json(
+                    &fixture
+                        .get("server_extensions")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                ),
+            ])?);
+            if &actual != fixture.get("expected_extensions").unwrap_or(&Value::Null) {
+                return Err(AxError::new("fixture", "extension negotiation mismatch"));
+            }
+            Ok(())
+        }
+        "param_headers" => {
+            let bindings_core = crate::mcp_param_header_bindings(&[crate::core_value_from_json(
+                &fixture
+                    .get("input_schema")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            )])?;
+            let bindings = crate::core_value_to_json(&bindings_core);
+            if &bindings != fixture.get("expected_bindings").unwrap_or(&Value::Null) {
+                return Err(AxError::new(
+                    "fixture",
+                    "parameter header bindings mismatch",
+                ));
+            }
+            let values = crate::core_value_to_json(&crate::mcp_param_header_values(&[
+                bindings_core.clone(),
+                crate::core_value_from_json(
+                    &fixture
+                        .get("arguments")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
+                ),
+            ])?);
+            if &values != fixture.get("expected_values").unwrap_or(&Value::Null) {
+                return Err(AxError::new("fixture", "parameter header values mismatch"));
+            }
+            for invalid in fixture
+                .get("invalid_schemas")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                match crate::mcp_param_header_bindings(&[crate::core_value_from_json(
+                    &invalid.get("schema").cloned().unwrap_or_else(|| json!({})),
+                )]) {
+                    Ok(_) => {
+                        return Err(AxError::new(
+                            "fixture",
+                            "invalid parameter header schema was accepted",
+                        ))
+                    }
+                    Err(error) => {
+                        let expected = invalid
+                            .get("expected_error_contains")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        if !error.to_string().contains(expected) {
+                            return Err(error);
+                        }
+                    }
+                }
+            }
+            for invalid in fixture
+                .get("invalid_values")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                match crate::mcp_param_header_values(&[
+                    bindings_core.clone(),
+                    crate::core_value_from_json(
+                        &invalid
+                            .get("arguments")
+                            .cloned()
+                            .unwrap_or_else(|| json!({})),
+                    ),
+                ]) {
+                    Ok(_) => {
+                        return Err(AxError::new(
+                            "fixture",
+                            "invalid parameter header value was accepted",
+                        ))
+                    }
+                    Err(error) => {
+                        let expected = invalid
+                            .get("expected_error_contains")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        if !error.to_string().contains(expected) {
+                            return Err(error);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+        "header_value" => {
+            for case in fixture
+                .get("cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = crate::core_value_to_json(&crate::mcp_header_value_plan(&[
+                    crate::core_value_from_json(
+                        &case.get("value").cloned().unwrap_or_else(|| json!("")),
+                    ),
+                ])?);
+                if &actual != case.get("expected_plan").unwrap_or(&Value::Null) {
+                    return Err(AxError::new("fixture", "header value plan mismatch"));
                 }
             }
             Ok(())

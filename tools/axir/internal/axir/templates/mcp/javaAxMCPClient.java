@@ -349,9 +349,84 @@ public final class AxMCPClient {
         return;
       }
       if ("modern_headers".equals(operation)) {
-        Map<String, Object> headers = Core.asMap(Core.mcp_modern_request_headers(fixture.getOrDefault("method", "server/discover"), fixture.get("resource_name")));
+        Map<String, Object> headers = Core.asMap(Core.mcp_modern_request_headers(fixture.getOrDefault("method", "server/discover"), fixture.get("resource_name"), fixture.get("protocol_version")));
         assertSubset(headers, fixture.getOrDefault("expected_headers", Map.of()), "modern headers");
         for (Object key : Core.asList(fixture.get("forbidden_headers"))) if (headers.containsKey(String.valueOf(key))) throw new AssertionError("modern headers contain forbidden " + key);
+        return;
+      }
+      if ("era_classification".equals(operation)) {
+        Object classification = Core.mcp_classify_discovery_result(fixture.get("discovery_result"));
+        assertSubset(classification, fixture.getOrDefault("expected_classification", Map.of()), "discovery classification");
+        for (Object invalid : Core.asList(fixture.get("invalid_discovery_results"))) {
+          if (Core.truthy(Core.asMap(Core.mcp_classify_discovery_result(invalid)).get("valid"))) throw new AssertionError("invalid discovery result classified as valid");
+        }
+        for (Object raw : Core.asList(fixture.get("era_cases"))) {
+          Map<String, Object> c = Core.asMap(raw);
+          Object actual = Core.mcp_resolve_known_era(c.getOrDefault("configured", "auto"), c.get("hint"), c.get("cached"), c.get("stored"));
+          assertSubset(actual, c.getOrDefault("expected", Map.of()), "era resolution");
+        }
+        Map<String, Object> capabilityCase = Core.asMap(fixture.get("capability_case"));
+        Object capabilities = Core.mcp_client_capabilities(
+          capabilityCase.getOrDefault("has_roots", false), capabilityCase.getOrDefault("has_sampling", false),
+          capabilityCase.getOrDefault("has_elicitation", false), capabilityCase.getOrDefault("era", "legacy"),
+          capabilityCase.getOrDefault("tasks_extension", false));
+        assertSubset(capabilities, capabilityCase.getOrDefault("expected", Map.of()), "client capabilities");
+        for (Object raw : Core.asList(fixture.get("request_name_cases"))) {
+          Map<String, Object> c = Core.asMap(raw);
+          String actual = String.valueOf(Core.mcp_request_name(c.getOrDefault("method", ""), c.getOrDefault("params", Map.of())));
+          if (!actual.equals(String.valueOf(c.getOrDefault("expected", "")))) throw new AssertionError("request name mismatch");
+        }
+        return;
+      }
+      if ("mutual_version".equals(operation)) {
+        for (Object raw : Core.asList(fixture.get("cases"))) {
+          Map<String, Object> c = Core.asMap(raw);
+          String actual = String.valueOf(Core.mcp_select_mutual_version(c.get("error_data"), c.getOrDefault("client_versions", List.of())));
+          if (!actual.equals(String.valueOf(c.getOrDefault("expected_version", "")))) throw new AssertionError("mutual version mismatch");
+        }
+        return;
+      }
+      if ("request_meta".equals(operation)) {
+        Object actual = Core.mcp_build_request_meta(fixture.get("existing"), fixture.getOrDefault("protocol_version", "2026-07-28"), fixture.getOrDefault("client_capabilities", Map.of()), fixture.getOrDefault("client_info", Map.of()), fixture.get("log_level"), fixture.get("traceparent"), fixture.get("tracestate"));
+        assertSubset(actual, fixture.getOrDefault("expected_meta", Map.of()), "request meta");
+        return;
+      }
+      if ("extension_negotiation".equals(operation)) {
+        Object actual = Core.mcp_negotiate_extensions(fixture.getOrDefault("client_extensions", Map.of()), fixture.getOrDefault("server_extensions", Map.of()));
+        if (!actual.equals(fixture.getOrDefault("expected_extensions", Map.of()))) throw new AssertionError("extension negotiation mismatch: " + actual);
+        return;
+      }
+      if ("param_headers".equals(operation)) {
+        Object bindings = Core.mcp_param_header_bindings(fixture.getOrDefault("input_schema", Map.of()));
+        if (!bindings.equals(fixture.getOrDefault("expected_bindings", List.of()))) throw new AssertionError("parameter header bindings mismatch: " + bindings);
+        Object values = Core.mcp_param_header_values(bindings, fixture.getOrDefault("arguments", Map.of()));
+        if (!values.equals(fixture.getOrDefault("expected_values", Map.of()))) throw new AssertionError("parameter header values mismatch: " + values);
+        for (Object raw : Core.asList(fixture.get("invalid_schemas"))) {
+          Map<String, Object> c = Core.asMap(raw);
+          try {
+            Core.mcp_param_header_bindings(c.getOrDefault("schema", Map.of()));
+            throw new AssertionError("invalid parameter header schema was accepted");
+          } catch (RuntimeException error) {
+            if (error.getMessage() == null || !error.getMessage().contains(String.valueOf(c.getOrDefault("expected_error_contains", "")))) throw error;
+          }
+        }
+        for (Object raw : Core.asList(fixture.get("invalid_values"))) {
+          Map<String, Object> c = Core.asMap(raw);
+          try {
+            Core.mcp_param_header_values(bindings, c.getOrDefault("arguments", Map.of()));
+            throw new AssertionError("invalid parameter header value was accepted");
+          } catch (RuntimeException error) {
+            if (error.getMessage() == null || !error.getMessage().contains(String.valueOf(c.getOrDefault("expected_error_contains", "")))) throw error;
+          }
+        }
+        return;
+      }
+      if ("header_value".equals(operation)) {
+        for (Object raw : Core.asList(fixture.get("cases"))) {
+          Map<String, Object> c = Core.asMap(raw);
+          Object actual = Core.mcp_header_value_plan(c.getOrDefault("value", ""));
+          if (!actual.equals(c.getOrDefault("expected_plan", Map.of()))) throw new AssertionError("header value plan mismatch: " + actual);
+        }
         return;
       }
       if ("http_session_headers".equals(operation)) {
