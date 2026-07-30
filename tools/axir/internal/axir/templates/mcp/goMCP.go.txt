@@ -82,6 +82,8 @@ type AxMCPClient struct {
 	prompts []map[string]Value
 	resources []map[string]Value
 	resourceTemplates []map[string]Value
+	catalogCache map[string]map[string]Value
+	resourceReadCache map[string]map[string]Value
 	catalogRevision int64
 	subscriptionOwners map[string]map[string]bool
 	nextID int
@@ -97,7 +99,7 @@ var axMCPEraCache = struct{sync.Mutex; values map[string]string}{values:map[stri
 
 func NewAxMCPClient(transport AxMCPTransport, options map[string]Value) *AxMCPClient {
 	if options == nil { options = map[string]Value{} }
-	c := &AxMCPClient{transport: transport, options: options, nextID: 1, notificationListeners:map[int]func(map[string]Value){}, lifecycleListeners:map[int]func(string){}, nextListenerID:1,subscriptionOwners:map[string]map[string]bool{}}
+	c := &AxMCPClient{transport: transport, options: options, nextID: 1, notificationListeners:map[int]func(map[string]Value){}, lifecycleListeners:map[int]func(string){}, nextListenerID:1,subscriptionOwners:map[string]map[string]bool{},catalogCache:map[string]map[string]Value{},resourceReadCache:map[string]map[string]Value{}}
 	transport.SetMessageHandler(c.handleInboundMessage)
 	transport.SetLifecycleHandler(c.EmitLifecycle)
 	return c
@@ -147,25 +149,30 @@ func(c *AxMCPClient)negotiateExtensions(){client:=asMap(coreGet(c.clientCapabili
 func(c *AxMCPClient)GetEra()string{return c.era}
 func(c *AxMCPClient)Discover()(map[string]Value,error){if err:=c.Init();err!=nil{return nil,err};if c.era!="modern"{return nil,fmt.Errorf("server/discover is only available for modern MCP")};result,err:=c.requestDiscovery();if err!=nil{return nil,err};if err=c.applyDiscovery(result);err!=nil{return nil,err};return cloneMCPMap(result),nil}
 
-func (c *AxMCPClient) Close() error { c.initialized = false;c.subscriptionOwners=map[string]map[string]bool{}; return c.transport.Close() }
+func (c *AxMCPClient) Close() error { c.initialized = false;c.subscriptionOwners=map[string]map[string]bool{};c.catalogCache=map[string]map[string]Value{};c.resourceReadCache=map[string]map[string]Value{}; return c.transport.Close() }
 
-func (c *AxMCPClient) Refresh() error {
-	c.tools = nil; c.prompts = nil; c.resources = nil; c.resourceTemplates = nil
-	if c.capability("tools") {
+func (c *AxMCPClient) Refresh() error { return c.RefreshWithOptions(true) }
+func (c *AxMCPClient) RefreshWithOptions(force bool) error {
+	changed:=false
+	if c.capability("tools")&&(force||!c.catalogCacheFresh("tools")) {
+		c.tools=nil
 		values,err:=c.collectCatalog("tools/list","tools");if err!=nil{return err};for _,tool:=range values{if _,bindErr:=mcp_param_header_bindings(coreGet(tool,"inputSchema",Object()));bindErr==nil{c.tools=append(c.tools,tool)}}
+		changed=true
 	}
-	if c.capability("prompts") {
+	if c.capability("prompts")&&(force||!c.catalogCacheFresh("prompts")) {
 		values,err:=c.collectCatalog("prompts/list","prompts");if err!=nil{return err};c.prompts=values
+		changed=true
 	}
 	if c.capability("resources") {
-		values,err:=c.collectCatalog("resources/list","resources");if err!=nil{return err};c.resources=values
-		templates,err:=c.collectCatalog("resources/templates/list","resourceTemplates");if err!=nil{return err};c.resourceTemplates=templates
+		if force||!c.catalogCacheFresh("resources"){values,err:=c.collectCatalog("resources/list","resources");if err!=nil{return err};c.resources=values;changed=true}
+		if force||!c.catalogCacheFresh("resourceTemplates"){templates,err:=c.collectCatalog("resources/templates/list","resourceTemplates");if err!=nil{return err};c.resourceTemplates=templates;changed=true}
 	}
-	c.catalogRevision++
+	if changed{c.catalogRevision++}
 	return nil
 }
 
-func (c *AxMCPClient) collectCatalog(method,field string)([]map[string]Value,error){out:=[]map[string]Value{};cursor:="";seen:=map[string]bool{};maxPages:=1000;if value,ok:=c.options["maxPaginationPages"].(int);ok{maxPages=value};for page:=0;page<maxPages;page++{result,err:=c.request(method,cursorParams(cursor));if err!=nil{return nil,err};for _,item:=range asSlice(coreGet(result,field,Array())){out=append(out,cloneMCPMap(asMap(item)))};cursor=display(coreGet(result,"nextCursor",""));if cursor==""{return out,nil};if seen[cursor]{return nil,fmt.Errorf("MCP %s repeated pagination cursor %s",method,cursor)};seen[cursor]=true};return nil,fmt.Errorf("MCP %s exceeded %d pagination pages",method,maxPages)}
+func (c *AxMCPClient) collectCatalog(method,field string)([]map[string]Value,error){out:=[]map[string]Value{};pages:=[]Value{};cursor:="";seen:=map[string]bool{};maxPages:=1000;if value,ok:=c.options["maxPaginationPages"].(int);ok{maxPages=value};for page:=0;page<maxPages;page++{result,err:=c.request(method,cursorParams(cursor));if err!=nil{return nil,err};pages=append(pages,result);for _,item:=range asSlice(coreGet(result,field,Array())){out=append(out,cloneMCPMap(asMap(item)))};cursor=display(coreGet(result,"nextCursor",""));if cursor==""{if name:=map[string]string{"tools/list":"tools","prompts/list":"prompts","resources/list":"resources","resources/templates/list":"resourceTemplates"}[method];name!=""{c.catalogCache[name]=asMap(mustCore(mcp_fold_cache_info(pages,time.Now().UnixMilli())))};return out,nil};if seen[cursor]{return nil,fmt.Errorf("MCP %s repeated pagination cursor %s",method,cursor)};seen[cursor]=true};return nil,fmt.Errorf("MCP %s exceeded %d pagination pages",method,maxPages)}
+func(c *AxMCPClient)catalogCacheFresh(name string)bool{return coreTruthy(mustCore(mcp_cache_freshness(c.catalogCache[name],time.Now().UnixMilli())))}
 
 type AxMCPCatalogSnapshot struct{Namespace,ProtocolVersion string;Revision int64;ServerInfo,ServerCapabilities map[string]Value;Tools,Prompts,Resources,ResourceTemplates []map[string]Value;Subscriptions []string}
 func (c *AxMCPClient) InspectCatalog(refresh bool)(AxMCPCatalogSnapshot,error){if err:=c.Init();err!=nil{return AxMCPCatalogSnapshot{},err};if refresh{if err:=c.Refresh();err!=nil{return AxMCPCatalogSnapshot{},err}};subscriptions:=[]string{};for uri:=range c.subscriptionOwners{subscriptions=append(subscriptions,uri)};sort.Strings(subscriptions);cloneList:=func(values []map[string]Value)[]map[string]Value{out:=make([]map[string]Value,0,len(values));for _,value:=range values{out=append(out,cloneMCPMap(value))};return out};return AxMCPCatalogSnapshot{c.Namespace(),c.negotiatedProtocolVersion,c.catalogRevision,cloneMCPMap(c.serverInfo),cloneMCPMap(c.serverCapabilities),cloneList(c.tools),cloneList(c.prompts),cloneList(c.resources),cloneList(c.resourceTemplates),subscriptions},nil}
@@ -182,7 +189,7 @@ func(c *AxMCPClient)toolHeaders(name string,args map[string]Value)map[string]str
 func (c *AxMCPClient) ListPrompts(cursor string) (map[string]Value, error) { return c.request("prompts/list", cursorParams(cursor)) }
 func (c *AxMCPClient) GetPrompt(name string, args map[string]Value) (map[string]Value, error) { if args == nil { args = map[string]Value{} }; return c.request("prompts/get", map[string]Value{"name":name, "arguments":args}) }
 func (c *AxMCPClient) ListResources(cursor string) (map[string]Value, error) { return c.request("resources/list", cursorParams(cursor)) }
-func (c *AxMCPClient) ReadResource(uri string) (map[string]Value, error) { return c.request("resources/read", map[string]Value{"uri":uri}) }
+func (c *AxMCPClient) ReadResource(uri string) (map[string]Value, error) {if c.era=="modern"&&coreTruthy(c.options["readCache"]){if cached:=c.resourceReadCache[uri];cached!=nil&&coreTruthy(mustCore(mcp_cache_freshness(coreGet(cached,"cache",nil),time.Now().UnixMilli()))){return cloneMCPMap(asMap(cached["result"])),nil};delete(c.resourceReadCache,uri)};result,err:=c.request("resources/read",map[string]Value{"uri":uri});if err!=nil{return nil,err};if c.era=="modern"&&coreTruthy(c.options["readCache"]){cache:=asMap(mustCore(mcp_fold_cache_info([]Value{result},time.Now().UnixMilli())));if coreTruthy(mustCore(mcp_cache_freshness(cache,time.Now().UnixMilli()))){c.resourceReadCache[uri]=map[string]Value{"result":cloneMCPMap(result),"cache":cache}}};return result,nil}
 func (c *AxMCPClient) assertResourceSubscriptions()error{capability:=asMap(coreGet(c.serverCapabilities,"resources",Object()));if !coreTruthy(capability["subscribe"]){return fmt.Errorf("resource subscriptions are not supported")};return nil}
 func (c *AxMCPClient) AcquireResourceSubscription(uri,owner string)(map[string]Value,error){if err:=c.assertResourceSubscriptions();err!=nil{return nil,err};current:=[]string{};for value:=range c.subscriptionOwners[uri]{current=append(current,value)};sort.Strings(current);raw,err:=mcp_resource_subscription_ownership(current,owner,"acquire");if err!=nil{return nil,err};transition:=asMap(raw);result:=map[string]Value{};if display(transition["wireAction"])=="subscribe"{result,err=c.request("resources/subscribe",map[string]Value{"uri":uri});if err!=nil{return nil,err}};owners:=map[string]bool{};for _,value:=range asSlice(transition["owners"]){owners[display(value)]=true};c.subscriptionOwners[uri]=owners;return result,nil}
 func (c *AxMCPClient) ReleaseResourceSubscription(uri,owner string)(map[string]Value,error){if err:=c.assertResourceSubscriptions();err!=nil{return nil,err};current:=[]string{};for value:=range c.subscriptionOwners[uri]{current=append(current,value)};sort.Strings(current);raw,err:=mcp_resource_subscription_ownership(current,owner,"release");if err!=nil{return nil,err};transition:=asMap(raw);result:=map[string]Value{};if display(transition["wireAction"])=="unsubscribe"{result,err=c.request("resources/unsubscribe",map[string]Value{"uri":uri});if err!=nil{return nil,err}};owners:=map[string]bool{};for _,value:=range asSlice(transition["owners"]){owners[display(value)]=true};if len(owners)==0{delete(c.subscriptionOwners,uri)}else{c.subscriptionOwners[uri]=owners};return result,nil}
@@ -541,6 +548,7 @@ func (c *AxMCPClient) handleInboundMessage(message map[string]Value) {
 		_ = c.transport.SendResponse(map[string]Value{"jsonrpc":"2.0", "id":coreGet(message, "id", nil), "result":map[string]Value{"roots":coreGet(c.options, "roots", Array())}})
 	}
 	if method=="notifications/tools/list_changed"||method=="notifications/prompts/list_changed"||method=="notifications/resources/list_changed"{_ = c.Refresh()}
+	if method=="notifications/resources/updated"{uri:=display(coreGet(coreGet(message,"params",Object()),"uri",""));if uri!=""{delete(c.resourceReadCache,uri)}}
 	if callback,ok:=c.options["onNotification"].(func(map[string]Value));ok{callback(message)}
 	listeners:=make([]func(map[string]Value),0,len(c.notificationListeners));for _,listener:=range c.notificationListeners{listeners=append(listeners,listener)};for _,listener:=range listeners{listener(message)}
 }
@@ -1033,6 +1041,10 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		}
 		return
 	}
+	if op == "cache_fold" {
+		for _,raw:=range asSlice(coreGet(fixture,"cases",Array())){c:=asMap(raw);actual:=asMap(mustCore(mcp_fold_cache_info(coreGet(c,"pages",Array()),coreGet(c,"fetched_at",0))));assertSubset(actual,coreGet(c,"expected",Object()),"cache info");for _,field:=range asSlice(coreGet(c,"forbidden_fields",Array())){if _,ok:=actual[display(field)];ok{panic("cache info contains forbidden field "+display(field))}};fresh:=coreTruthy(mustCore(mcp_cache_freshness(actual,coreGet(c,"now",0))));if fresh!=coreTruthy(coreGet(c,"expected_fresh",false)){panic("cache freshness mismatch")}}
+		return
+	}
 	if op == "http_session_headers" {
 		t, err := NewAxMCPStreamableHTTPTransport(display(coreGet(fixture, "endpoint", "https://example.com/mcp")), asMap(coreGet(fixture, "transport_options", Object()))); if err != nil { panic(err) }
 		t.SessionID = display(coreGet(fixture, "session_id", "session-1"))
@@ -1075,6 +1087,8 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		for index,expected:=range asSlice(coreGet(fixture,"expected_request_headers",Array())){assertSubset(mcpHeaderValues(transport.RequestHeaders[index]),expected,fmt.Sprintf("request headers %d",index))}
 		for _,forbidden:=range asSlice(coreGet(fixture,"forbidden_methods",Array())){method:=display(forbidden);for _,request:=range transport.Requests{if display(coreGet(request,"method",""))==method{panic("forbidden modern method emitted: "+method)}};for _,notification:=range transport.Notifications{if display(coreGet(notification,"method",""))==method{panic("forbidden modern method emitted: "+method)}}}
 		if expected:=coreGet(fixture,"expected_notification_methods",nil);expected!=nil{methods:=[]Value{};for _,notification:=range transport.Notifications{methods=append(methods,display(coreGet(notification,"method","")))};assertEqual(methods,expected,"notification methods")}
+	case "read_cache":
+		if err:=client.RefreshWithOptions(false);err!=nil{panic(err)};catalogRequests:=0;for _,request:=range transport.Requests{method:=display(coreGet(request,"method",""));if method=="resources/list"||method=="resources/templates/list"{catalogRequests++}};if catalogRequests!=mcpInt(coreGet(fixture,"expected_catalog_requests_after_fresh_refresh",0)){panic("fresh catalog issued extra requests")};uri:=display(coreGet(fixture,"uri",""));first,err:=client.ReadResource(uri);if err!=nil{panic(err)};second,err:=client.ReadResource(uri);if err!=nil{panic(err)};assertSubset(first,coreGet(fixture,"expected_first",Object()),"first resource read");assertSubset(second,coreGet(fixture,"expected_first",Object()),"cached resource read");transport.Emit(asMap(coreGet(fixture,"notification",Object())));after,err:=client.ReadResource(uri);if err!=nil{panic(err)};assertSubset(after,coreGet(fixture,"expected_after_update",Object()),"resource read after update");reads:=0;for _,request:=range transport.Requests{if display(coreGet(request,"method",""))=="resources/read"{reads++}};if reads!=mcpInt(coreGet(fixture,"expected_read_requests",0)){panic("resource read request count mismatch")}
 	case "initialize", "protocol_negotiation":
 		assertMCPRequests(transport.Requests, fixture)
 	case "ping":

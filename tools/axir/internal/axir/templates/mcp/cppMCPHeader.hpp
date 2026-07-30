@@ -73,6 +73,7 @@ class AxMCPClient {
   void init();
   void close();
   void refresh();
+  void refresh(bool force);
   std::string protocol_version() const;
   Value ping();
   Value list_tools(const std::string& cursor = "");
@@ -121,6 +122,8 @@ class AxMCPClient {
   std::vector<Value> prompts_;
   std::vector<Value> resources_;
   std::vector<Value> resource_templates_;
+  Value catalog_cache_=Value::object();
+  Value resource_read_cache_=Value::object();
   long catalog_revision_=0;
   std::map<std::string,std::set<std::string>> subscription_owners_;
   int next_id_ = 1;
@@ -140,6 +143,7 @@ class AxMCPClient {
   Value request_with_headers(const std::string& method, Value params, Value headers, bool allow_version_retry);
   Value tool_headers(const std::string& name, Value arguments) const;
   std::vector<Value> collect_catalog(const std::string& method,const std::string& field);
+  bool catalog_cache_fresh(const std::string& name) const;
   Tool tool_to_function(Value spec);
   Tool prompt_to_function(Value spec);
   Tool resource_to_function(Value spec);

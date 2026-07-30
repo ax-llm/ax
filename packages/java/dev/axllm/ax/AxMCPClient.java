@@ -28,6 +28,8 @@ public final class AxMCPClient {
   private final List<Map<String, Object>> prompts = new ArrayList<>();
   private final List<Map<String, Object>> resources = new ArrayList<>();
   private final List<Map<String, Object>> resourceTemplates = new ArrayList<>();
+  private final Map<String,Map<String,Object>> catalogCache = new LinkedHashMap<>();
+  private final Map<String,Map<String,Object>> resourceReadCache = new LinkedHashMap<>();
   private final Map<String,Set<String>> subscriptionOwners = new LinkedHashMap<>();
   private long catalogRevision;
   private Map<String, Object> serverCapabilities = new LinkedHashMap<>();
@@ -97,23 +99,22 @@ public final class AxMCPClient {
   public String getEra(){return era;}
   public Map<String,Object> discover(){init();if(!"modern".equals(era))throw new AxMCPError("server/discover is only available for modern MCP");Map<String,Object> result=requestDiscovery();applyDiscovery(result);return cloneMap(result);}
 
-  public synchronized void close() { initialized = false;subscriptionOwners.clear();transport.close(); }
+  public synchronized void close() { initialized = false;subscriptionOwners.clear();catalogCache.clear();resourceReadCache.clear();transport.close(); }
 
-  public void refresh() {
-    tools.clear();
-    prompts.clear();
-    resources.clear();
-    resourceTemplates.clear();
-    if (capability("tools")) for(Map<String,Object> tool:collectCatalog("tools/list","tools")){try{Core.mcp_param_header_bindings(tool.getOrDefault("inputSchema",Map.of()));tools.add(tool);}catch(RuntimeException ignored){}}
-    if (capability("prompts")) prompts.addAll(collectCatalog("prompts/list","prompts"));
+  public void refresh() { refresh(true); }
+  public void refresh(boolean force) {
+    boolean changed=false;
+    if (capability("tools")&&(force||!catalogCacheFresh("tools"))){tools.clear();for(Map<String,Object> tool:collectCatalog("tools/list","tools")){try{Core.mcp_param_header_bindings(tool.getOrDefault("inputSchema",Map.of()));tools.add(tool);}catch(RuntimeException ignored){}}changed=true;}
+    if (capability("prompts")&&(force||!catalogCacheFresh("prompts"))){prompts.clear();prompts.addAll(collectCatalog("prompts/list","prompts"));changed=true;}
     if (capability("resources")) {
-      resources.addAll(collectCatalog("resources/list","resources"));
-      resourceTemplates.addAll(collectCatalog("resources/templates/list","resourceTemplates"));
+      if(force||!catalogCacheFresh("resources")){resources.clear();resources.addAll(collectCatalog("resources/list","resources"));changed=true;}
+      if(force||!catalogCacheFresh("resourceTemplates")){resourceTemplates.clear();resourceTemplates.addAll(collectCatalog("resources/templates/list","resourceTemplates"));changed=true;}
     }
-    catalogRevision++;
+    if(changed)catalogRevision++;
   }
 
-  private List<Map<String,Object>> collectCatalog(String method,String field){List<Map<String,Object>> out=new ArrayList<>();String cursor=null;Set<String> seen=new LinkedHashSet<>();int max=((Number)options.getOrDefault("maxPaginationPages",1000)).intValue();for(int page=0;page<max;page++){Map<String,Object> result=request(method,cursor==null?Map.of():Map.of("cursor",cursor));for(Object item:Core.asList(result.get(field)))out.add(cloneMap(Core.asMap(item)));Object next=result.get("nextCursor");if(next==null||String.valueOf(next).isBlank())return out;cursor=String.valueOf(next);if(!seen.add(cursor))throw new AxMCPError("MCP "+method+" repeated pagination cursor "+cursor);}throw new AxMCPError("MCP "+method+" exceeded "+max+" pagination pages");}
+  private List<Map<String,Object>> collectCatalog(String method,String field){List<Map<String,Object>> out=new ArrayList<>();List<Map<String,Object>> pages=new ArrayList<>();String cursor=null;Set<String> seen=new LinkedHashSet<>();int max=((Number)options.getOrDefault("maxPaginationPages",1000)).intValue();for(int page=0;page<max;page++){Map<String,Object> result=request(method,cursor==null?Map.of():Map.of("cursor",cursor));pages.add(cloneMap(result));for(Object item:Core.asList(result.get(field)))out.add(cloneMap(Core.asMap(item)));Object next=result.get("nextCursor");if(next==null||String.valueOf(next).isBlank()){String name=Map.of("tools/list","tools","prompts/list","prompts","resources/list","resources","resources/templates/list","resourceTemplates").get(method);if(name!=null)catalogCache.put(name,Core.asMap(Core.mcp_fold_cache_info(pages,System.currentTimeMillis())));return out;}cursor=String.valueOf(next);if(!seen.add(cursor))throw new AxMCPError("MCP "+method+" repeated pagination cursor "+cursor);}throw new AxMCPError("MCP "+method+" exceeded "+max+" pagination pages");}
+  private boolean catalogCacheFresh(String name){return Boolean.TRUE.equals(Core.mcp_cache_freshness(catalogCache.get(name),System.currentTimeMillis()));}
 
   public record CatalogSnapshot(String namespace,String protocolVersion,long revision,Map<String,Object> serverInfo,Map<String,Object> serverCapabilities,List<Map<String,Object>> tools,List<Map<String,Object>> prompts,List<Map<String,Object>> resources,List<Map<String,Object>> resourceTemplates,List<String> subscriptions){}
   public synchronized CatalogSnapshot inspectCatalog(boolean refresh){init();if(refresh)refresh();List<String> subscriptions=new ArrayList<>(subscriptionOwners.keySet());subscriptions.sort(String::compareTo);return new CatalogSnapshot(namespace(),negotiatedProtocolVersion,catalogRevision,cloneMap(serverInfo),cloneMap(serverCapabilities),cloneList(tools),cloneList(prompts),cloneList(resources),cloneList(resourceTemplates),List.copyOf(subscriptions));}
@@ -135,7 +136,7 @@ public final class AxMCPClient {
   public Map<String, Object> listPrompts(String cursor) { return request("prompts/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
   public Map<String, Object> getPrompt(String name, Map<String, Object> arguments) { return request("prompts/get", Map.of("name", name, "arguments", arguments == null ? Map.of() : arguments)); }
   public Map<String, Object> listResources(String cursor) { return request("resources/list", cursor == null ? Map.of() : Map.of("cursor", cursor)); }
-  public Map<String, Object> readResource(String uri) { return request("resources/read", Map.of("uri", uri)); }
+  public Map<String, Object> readResource(String uri) {if("modern".equals(era)&&Boolean.TRUE.equals(options.get("readCache"))){Map<String,Object> cached=resourceReadCache.get(uri);if(cached!=null&&Boolean.TRUE.equals(Core.mcp_cache_freshness(cached.get("cache"),System.currentTimeMillis())))return cloneMap(Core.asMap(cached.get("result")));resourceReadCache.remove(uri);}Map<String,Object> result=request("resources/read",Map.of("uri",uri));if("modern".equals(era)&&Boolean.TRUE.equals(options.get("readCache"))){Map<String,Object> cache=Core.asMap(Core.mcp_fold_cache_info(List.of(result),System.currentTimeMillis()));if(Boolean.TRUE.equals(Core.mcp_cache_freshness(cache,System.currentTimeMillis())))resourceReadCache.put(uri,new LinkedHashMap<>(Map.of("result",cloneMap(result),"cache",cache)));}return result;}
   private void assertResourceSubscriptions(){Map<String,Object> resourceCapability=Core.asMap(serverCapabilities.get("resources"));if(!Boolean.TRUE.equals(resourceCapability.get("subscribe")))throw new AxMCPError("Resource subscriptions are not supported");}
   public synchronized Map<String,Object> acquireResourceSubscription(String uri,String owner){assertResourceSubscriptions();List<String> current=new ArrayList<>(subscriptionOwners.getOrDefault(uri,Set.of()));current.sort(String::compareTo);Map<String,Object> transition=Core.asMap(Core.mcp_resource_subscription_ownership(current,owner,"acquire"));Map<String,Object> result="subscribe".equals(transition.get("wireAction"))?request("resources/subscribe",Map.of("uri",uri)):Map.of();subscriptionOwners.put(uri,new LinkedHashSet<>(Core.asList(transition.get("owners")).stream().map(String::valueOf).toList()));return result;}
   public synchronized Map<String,Object> releaseResourceSubscription(String uri,String owner){assertResourceSubscriptions();List<String> current=new ArrayList<>(subscriptionOwners.getOrDefault(uri,Set.of()));current.sort(String::compareTo);Map<String,Object> transition=Core.asMap(Core.mcp_resource_subscription_ownership(current,owner,"release"));Map<String,Object> result="unsubscribe".equals(transition.get("wireAction"))?request("resources/unsubscribe",Map.of("uri",uri)):Map.of();Set<String> remaining=new LinkedHashSet<>(Core.asList(transition.get("owners")).stream().map(String::valueOf).toList());if(remaining.isEmpty())subscriptionOwners.remove(uri);else subscriptionOwners.put(uri,remaining);return result;}
@@ -237,6 +238,7 @@ public final class AxMCPClient {
     }
     Object method=message.get("method");
     if("notifications/tools/list_changed".equals(method)||"notifications/prompts/list_changed".equals(method)||"notifications/resources/list_changed".equals(method))refresh();
+    if("notifications/resources/updated".equals(method)){Object uri=Core.asMap(message.get("params")).get("uri");if(uri!=null)resourceReadCache.remove(String.valueOf(uri));}
     Object callback = options.get("onNotification");
     if (callback instanceof Consumer<?> raw) {
       @SuppressWarnings("unchecked")
@@ -455,6 +457,10 @@ public final class AxMCPClient {
         }
         return;
       }
+      if ("cache_fold".equals(operation)) {
+        for(Object raw:Core.asList(fixture.get("cases"))){Map<String,Object> c=Core.asMap(raw);Map<String,Object> actual=Core.asMap(Core.mcp_fold_cache_info(c.getOrDefault("pages",List.of()),c.getOrDefault("fetched_at",0)));assertSubset(actual,c.getOrDefault("expected",Map.of()),"cache info");for(Object field:Core.asList(c.get("forbidden_fields")))if(actual.containsKey(String.valueOf(field)))throw new AssertionError("cache info contains forbidden field "+field);boolean fresh=Boolean.TRUE.equals(Core.mcp_cache_freshness(actual,c.getOrDefault("now",0)));if(fresh!=Boolean.TRUE.equals(c.get("expected_fresh")))throw new AssertionError("cache freshness mismatch");}
+        return;
+      }
       if ("http_session_headers".equals(operation)) {
         AxMCPStreamableHTTPTransport transport = new AxMCPStreamableHTTPTransport(String.valueOf(fixture.getOrDefault("endpoint", "https://example.com/mcp")), Core.asMap(fixture.get("transport_options")));
         transport.setSessionId(String.valueOf(fixture.getOrDefault("session_id", "session-1")));
@@ -504,6 +510,8 @@ public final class AxMCPClient {
         List<Object> expectedHeaders=Core.asList(fixture.get("expected_request_headers"));for(int i=0;i<expectedHeaders.size();i++)assertSubset(transport.requestHeaders.get(i),expectedHeaders.get(i),"request headers "+i);
         for(Object forbidden:Core.asList(fixture.get("forbidden_methods"))){String method=String.valueOf(forbidden);if(transport.requests.stream().anyMatch(request->method.equals(request.get("method")))||transport.notifications.stream().anyMatch(item->method.equals(item.get("method"))))throw new AssertionError("forbidden modern method emitted: "+method);}
         if(fixture.get("expected_notification_methods")!=null){List<String> methods=transport.notifications.stream().map(item->String.valueOf(item.get("method"))).toList();if(!methods.equals(Core.asList(fixture.get("expected_notification_methods")).stream().map(String::valueOf).toList()))throw new AssertionError("notification methods mismatch");}
+      } else if ("read_cache".equals(operation)) {
+        client.refresh(false);int catalogs=0;for(Map<String,Object> request:transport.requests){String method=String.valueOf(request.get("method"));if("resources/list".equals(method)||"resources/templates/list".equals(method))catalogs++;}if(catalogs!=((Number)fixture.getOrDefault("expected_catalog_requests_after_fresh_refresh",0)).intValue())throw new AssertionError("fresh catalog issued extra requests: "+catalogs);String uri=String.valueOf(fixture.getOrDefault("uri",""));Map<String,Object> first=client.readResource(uri);Map<String,Object> second=client.readResource(uri);assertSubset(first,fixture.getOrDefault("expected_first",Map.of()),"first resource read");assertSubset(second,fixture.getOrDefault("expected_first",Map.of()),"cached resource read");transport.emit(Core.asMap(fixture.get("notification")));Map<String,Object> after=client.readResource(uri);assertSubset(after,fixture.getOrDefault("expected_after_update",Map.of()),"resource read after update");int reads=0;for(Map<String,Object> request:transport.requests)if("resources/read".equals(request.get("method")))reads++;if(reads!=((Number)fixture.getOrDefault("expected_read_requests",0)).intValue())throw new AssertionError("resource read request count mismatch: "+reads);
       } else if ("initialize".equals(operation)) {
         assertRequests(transport.requests, fixture);
       } else if ("protocol_negotiation".equals(operation)) {

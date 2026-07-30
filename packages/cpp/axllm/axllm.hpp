@@ -768,6 +768,8 @@ struct Core {
   static Value event_debounce_transition(Value now, Value debounce_ms, Value has_queued_predecessor);
   static Value event_normalize_mcp(Value namespace_, Value method, Value params);
   static Value mcp_param_header_values(Value bindings, Value arguments);
+  static Value mcp_fold_cache_info(Value pages, Value fetched_at);
+  static Value mcp_cache_freshness(Value cache_info, Value now);
   static Value mcp_jsonrpc_request(Value id, Value method, Value params);
   static Value mcp_jsonrpc_notification(Value method, Value params);
   static Value mcp_normalize_error(Value response);

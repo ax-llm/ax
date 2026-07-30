@@ -1,0 +1,60 @@
+{
+  "name": "modern MCP resource read cache and update invalidation",
+  "kind": "mcp",
+  "operation": "read_cache",
+  "client_options": { "era": "modern", "readCache": true },
+  "responses": [
+    {
+      "method": "server/discover",
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": { "resources": {} },
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "resources/list",
+      "result": {
+        "resources": [{ "uri": "demo://cached", "name": "cached" }],
+        "ttlMs": 60000,
+        "cacheScope": "public"
+      }
+    },
+    {
+      "method": "resources/templates/list",
+      "result": {
+        "resourceTemplates": [],
+        "ttlMs": 60000,
+        "cacheScope": "public"
+      }
+    },
+    {
+      "method": "resources/read",
+      "result": {
+        "contents": [{ "uri": "demo://cached", "text": "version-1" }],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "resources/read",
+      "result": {
+        "contents": [{ "uri": "demo://cached", "text": "version-2" }],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    }
+  ],
+  "uri": "demo://cached",
+  "notification": {
+    "jsonrpc": "2.0",
+    "method": "notifications/resources/updated",
+    "params": { "uri": "demo://cached" }
+  },
+  "expected_first": { "contents": [{ "text": "version-1" }] },
+  "expected_after_update": { "contents": [{ "text": "version-2" }] },
+  "expected_read_requests": 2,
+  "expected_catalog_requests_after_fresh_refresh": 2
+}

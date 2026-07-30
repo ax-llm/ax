@@ -25,6 +25,10 @@ static bool value_has(Value object_value, const std::string& key) {
   return obj.find(key) != obj.end();
 }
 
+static void value_erase(Value& object_value,const std::string& key){if(auto p=std::get_if<std::shared_ptr<Object>>(&object_value.data))(**p).erase(key);}
+
+static long mcp_now_ms(){return static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());}
+
 static Value cursor_params(const std::string& cursor) {
   if (cursor.empty()) return Value::object();
   return object({{"cursor", cursor}});
@@ -84,7 +88,7 @@ static void expect_subset_local(Value actual, Value expected, const std::string&
 static std::map<std::string,std::string>& ax_mcp_client_era_cache(){static std::map<std::string,std::string> cache;return cache;}
 
 AxMCPClient::AxMCPClient(std::shared_ptr<AxMCPTransport> transport, Value options)
-    : transport_(std::move(transport)), options_(std::move(options)) { transport_->set_message_handler([this](Value message){auto method=display(Core::get(message,"method",""));if(method=="notifications/tools/list_changed"||method=="notifications/prompts/list_changed"||method=="notifications/resources/list_changed")refresh();emit_notification(std::move(message));});transport_->set_lifecycle_handler([this](std::string state){emit_lifecycle(state);}); }
+    : transport_(std::move(transport)), options_(std::move(options)) { transport_->set_message_handler([this](Value message){auto method=display(Core::get(message,"method",""));if(method=="notifications/tools/list_changed"||method=="notifications/prompts/list_changed"||method=="notifications/resources/list_changed")refresh();if(method=="notifications/resources/updated"){auto uri=display(Core::get(Core::get(message,"params",Value::object()),"uri",""));if(!uri.empty())value_erase(resource_read_cache_,uri);}emit_notification(std::move(message));});transport_->set_lifecycle_handler([this](std::string state){emit_lifecycle(state);}); }
 
 void AxMCPClient::init() {
   if(initialized_)return;
@@ -120,23 +124,22 @@ void AxMCPClient::apply_discovery(Value result){auto classified=Core::mcp_classi
 void AxMCPClient::negotiate_extensions(){negotiated_extensions_=Core::mcp_negotiate_extensions(Core::get(client_capabilities(),"extensions",Value::object()),Core::get(server_capabilities_,"extensions",Value::object()));}
 Value AxMCPClient::discover(){init();if(era_!="modern")throw AxError("mcp","server/discover is only available for modern MCP");auto result=request_discovery();apply_discovery(result);return result;}
 
-void AxMCPClient::close(){initialized_=false;subscription_owners_.clear();transport_->close();}
+void AxMCPClient::close(){initialized_=false;subscription_owners_.clear();catalog_cache_=Value::object();resource_read_cache_=Value::object();transport_->close();}
 
-void AxMCPClient::refresh() {
-  tools_.clear();
-  prompts_.clear();
-  resources_.clear();
-  resource_templates_.clear();
-  if (capability("tools")) {for(auto tool:collect_catalog("tools/list","tools")){try{Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));tools_.push_back(tool);}catch(const std::exception&){}}}
-  if (capability("prompts")) prompts_ = collect_catalog("prompts/list","prompts");
+void AxMCPClient::refresh(){refresh(true);}
+void AxMCPClient::refresh(bool force) {
+  bool changed=false;
+  if (capability("tools")&&(force||!catalog_cache_fresh("tools"))) {tools_.clear();for(auto tool:collect_catalog("tools/list","tools")){try{Core::mcp_param_header_bindings(Core::get(tool,"inputSchema",Value::object()));tools_.push_back(tool);}catch(const std::exception&){}}changed=true;}
+  if (capability("prompts")&&(force||!catalog_cache_fresh("prompts"))){prompts_=collect_catalog("prompts/list","prompts");changed=true;}
   if (capability("resources")) {
-    resources_ = collect_catalog("resources/list","resources");
-    resource_templates_ = collect_catalog("resources/templates/list","resourceTemplates");
+    if(force||!catalog_cache_fresh("resources")){resources_=collect_catalog("resources/list","resources");changed=true;}
+    if(force||!catalog_cache_fresh("resourceTemplates")){resource_templates_=collect_catalog("resources/templates/list","resourceTemplates");changed=true;}
   }
-  ++catalog_revision_;
+  if(changed)++catalog_revision_;
 }
 
-std::vector<Value> AxMCPClient::collect_catalog(const std::string& method,const std::string& field){std::vector<Value> out;std::string cursor;std::set<std::string> seen;auto max_pages=static_cast<int>(Core::number(Core::get(options_,"maxPaginationPages",1000)));for(int page=0;page<max_pages;++page){auto result=request(method,cursor_params(cursor));for(auto item:as_array_local(Core::get(result,field,Value::array())))out.push_back(item);cursor=display(Core::get(result,"nextCursor",""));if(cursor.empty())return out;if(!seen.insert(cursor).second)throw AxError("mcp","MCP "+method+" repeated pagination cursor "+cursor);}throw AxError("mcp","MCP "+method+" exceeded pagination limit");}
+std::vector<Value> AxMCPClient::collect_catalog(const std::string& method,const std::string& field){std::vector<Value> out;Value pages=Value::array();std::string cursor;std::set<std::string> seen;auto max_pages=static_cast<int>(Core::number(Core::get(options_,"maxPaginationPages",1000)));for(int page=0;page<max_pages;++page){auto result=request(method,cursor_params(cursor));Core::append(pages,result);for(auto item:as_array_local(Core::get(result,field,Value::array())))out.push_back(item);cursor=display(Core::get(result,"nextCursor",""));if(cursor.empty()){std::map<std::string,std::string> names={{"tools/list","tools"},{"prompts/list","prompts"},{"resources/list","resources"},{"resources/templates/list","resourceTemplates"}};auto found=names.find(method);if(found!=names.end())Core::set(catalog_cache_,found->second,Core::mcp_fold_cache_info(pages,mcp_now_ms()));return out;}if(!seen.insert(cursor).second)throw AxError("mcp","MCP "+method+" repeated pagination cursor "+cursor);}throw AxError("mcp","MCP "+method+" exceeded pagination limit");}
+bool AxMCPClient::catalog_cache_fresh(const std::string& name)const{return Core::truthy(Core::mcp_cache_freshness(Core::get(catalog_cache_,name,Value()),mcp_now_ms()));}
 
 AxMCPCatalogSnapshot AxMCPClient::inspect_catalog(bool refresh_catalog){init();if(refresh_catalog)refresh();AxMCPCatalogSnapshot out;out.namespace_name=namespace_name();out.protocol_version=negotiated_protocol_version_;out.revision=catalog_revision_;out.server_info=server_info_;out.server_capabilities=server_capabilities_;out.tools=Value(Array(tools_.begin(),tools_.end()));out.prompts=Value(Array(prompts_.begin(),prompts_.end()));out.resources=Value(Array(resources_.begin(),resources_.end()));out.resource_templates=Value(Array(resource_templates_.begin(),resource_templates_.end()));for(const auto& item:subscription_owners_)out.subscriptions.push_back(item.first);return out;}
 
@@ -148,7 +151,7 @@ Value AxMCPClient::tool_headers(const std::string& name,Value arguments)const{if
 Value AxMCPClient::list_prompts(const std::string& cursor) { return request("prompts/list", cursor_params(cursor)); }
 Value AxMCPClient::get_prompt(const std::string& name, Value arguments) { return request("prompts/get", object({{"name", name}, {"arguments", arguments}})); }
 Value AxMCPClient::list_resources(const std::string& cursor) { return request("resources/list", cursor_params(cursor)); }
-Value AxMCPClient::read_resource(const std::string& uri) { return request("resources/read", object({{"uri", uri}})); }
+Value AxMCPClient::read_resource(const std::string& uri) {bool enabled=era_=="modern"&&Core::truthy(Core::get(options_,"readCache",false));if(enabled){auto cached=Core::get(resource_read_cache_,uri,Value());if(!cached.is_null()&&Core::truthy(Core::mcp_cache_freshness(Core::get(cached,"cache",Value()),mcp_now_ms())))return Core::json_parse(Core::json_stringify(Core::get(cached,"result",Value::object())));value_erase(resource_read_cache_,uri);}auto result=request("resources/read",object({{"uri",uri}}));if(enabled){auto cache=Core::mcp_fold_cache_info(array({result}),mcp_now_ms());if(Core::truthy(Core::mcp_cache_freshness(cache,mcp_now_ms())))Core::set(resource_read_cache_,uri,object({{"result",Core::json_parse(Core::json_stringify(result))},{"cache",cache}}));}return result;}
 Value AxMCPClient::acquire_resource_subscription(const std::string& uri,const std::string& owner){if(!Core::truthy(Core::get(Core::get(server_capabilities_,"resources",Value::object()),"subscribe",false)))throw AxError("mcp","Resource subscriptions are not supported");Value current=Value::array();for(const auto& value:subscription_owners_[uri])Core::append(current,value);auto transition=Core::mcp_resource_subscription_ownership(current,owner,"acquire");Value result=display(Core::get(transition,"wireAction","none"))=="subscribe"?request("resources/subscribe",object({{"uri",uri}})):Value::object();std::set<std::string> owners;for(const auto& value:Core::iter(Core::get(transition,"owners",Value::array())))owners.insert(display(value));subscription_owners_[uri]=std::move(owners);return result;}
 Value AxMCPClient::release_resource_subscription(const std::string& uri,const std::string& owner){if(!Core::truthy(Core::get(Core::get(server_capabilities_,"resources",Value::object()),"subscribe",false)))throw AxError("mcp","Resource subscriptions are not supported");Value current=Value::array();auto found=subscription_owners_.find(uri);if(found!=subscription_owners_.end())for(const auto& value:found->second)Core::append(current,value);auto transition=Core::mcp_resource_subscription_ownership(current,owner,"release");Value result=display(Core::get(transition,"wireAction","none"))=="unsubscribe"?request("resources/unsubscribe",object({{"uri",uri}})):Value::object();std::set<std::string> owners;for(const auto& value:Core::iter(Core::get(transition,"owners",Value::array())))owners.insert(display(value));if(owners.empty())subscription_owners_.erase(uri);else subscription_owners_[uri]=std::move(owners);return result;}
 void AxMCPClient::restore_resource_subscriptions(){for(const auto& item:subscription_owners_)request("resources/subscribe",object({{"uri",item.first}}));}
@@ -757,6 +760,10 @@ void run_mcp_conformance_fixture(Value fixture) {
       }
       return;
     }
+    if(op=="cache_fold"){
+      for(auto raw:as_array_local(Core::get(fixture,"cases",Value::array()))){auto actual=Core::mcp_fold_cache_info(Core::get(raw,"pages",Value::array()),Core::get(raw,"fetched_at",0));expect_subset_local(actual,Core::get(raw,"expected",Value::object()),"cache info");for(auto field:as_array_local(Core::get(raw,"forbidden_fields",Value::array())))if(value_has(actual,display(field)))throw AxError("fixture","cache info contains forbidden field "+display(field));auto fresh=Core::truthy(Core::mcp_cache_freshness(actual,Core::get(raw,"now",0)));if(fresh!=Core::truthy(Core::get(raw,"expected_fresh",false)))throw AxError("fixture","cache freshness mismatch");}
+      return;
+    }
     if (op == "http_session_headers") {
       AxMCPStreamableHTTPTransport transport(display(Core::get(fixture, "endpoint", "https://example.com/mcp")), Core::get(fixture, "transport_options", Value::object()));
       transport.set_session_id(display(Core::get(fixture, "session_id", "session-1")));
@@ -807,6 +814,8 @@ void run_mcp_conformance_fixture(Value fixture) {
       Array names;for(auto tool:as_array_local(client.inspect_catalog(false).tools))names.push_back(display(Core::get(tool,"name","")));expect_subset_local(Value(names),Core::get(fixture,"expected_tool_names",Value::array()),"tool names");expect_subset_local(client.inspect_catalog(false).server_info,Core::get(fixture,"expected_server_info",Value::object()),"server info");
       auto expected=as_array_local(Core::get(fixture,"expected_requests",Value::array()));if(transport->requests.size()<expected.size())throw AxError("fixture","not enough MCP requests");for(size_t index=0;index<expected.size();++index)expect_subset_local(transport->requests[index],expected[index],"request");auto expected_headers=as_array_local(Core::get(fixture,"expected_request_headers",Value::array()));for(size_t index=0;index<expected_headers.size();++index)expect_subset_local(transport->request_headers[index],expected_headers[index],"request headers");
       for(auto forbidden:as_array_local(Core::get(fixture,"forbidden_methods",Value::array()))){auto method=display(forbidden);for(auto item:transport->requests)if(display(Core::get(item,"method",""))==method)throw AxError("fixture","forbidden modern method emitted");for(auto item:transport->notifications)if(display(Core::get(item,"method",""))==method)throw AxError("fixture","forbidden modern method emitted");}auto expected_notifications=Core::get(fixture,"expected_notification_methods",Value());if(!expected_notifications.is_null()){Array methods;for(auto item:transport->notifications)methods.push_back(display(Core::get(item,"method","")));expect_subset_local(Value(methods),expected_notifications,"notification methods");}
+    } else if(op=="read_cache"){
+      client.refresh(false);int catalogs=0;for(auto request:transport->requests){auto method=display(Core::get(request,"method",""));if(method=="resources/list"||method=="resources/templates/list")++catalogs;}if(catalogs!=static_cast<int>(Core::number(Core::get(fixture,"expected_catalog_requests_after_fresh_refresh",0))))throw AxError("fixture","fresh catalog issued extra requests");auto uri=display(Core::get(fixture,"uri",""));auto first=client.read_resource(uri);auto second=client.read_resource(uri);expect_subset_local(first,Core::get(fixture,"expected_first",Value::object()),"first resource read");expect_subset_local(second,Core::get(fixture,"expected_first",Value::object()),"cached resource read");transport->emit(Core::get(fixture,"notification",Value::object()));auto after=client.read_resource(uri);expect_subset_local(after,Core::get(fixture,"expected_after_update",Value::object()),"resource read after update");int reads=0;for(auto request:transport->requests)if(display(Core::get(request,"method",""))=="resources/read")++reads;if(reads!=static_cast<int>(Core::number(Core::get(fixture,"expected_read_requests",0))))throw AxError("fixture","resource read request count mismatch");
     } else if (op == "ping") {
       client.ping();
     } else if (op == "tools") {

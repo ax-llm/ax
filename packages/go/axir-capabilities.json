@@ -192,6 +192,7 @@
     "axmcp",
     "axmcp-modern-era",
     "axmcp-param-headers",
+    "axmcp-cacheable-results",
     "axmcp-json-rpc-lifecycle",
     "axmcp-protocol-negotiation",
     "axmcp-tools-prompts-resources",

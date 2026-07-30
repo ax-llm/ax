@@ -924,6 +924,8 @@ class AxMCPClient:
         self.prompts: list[dict[str, Any]] = []
         self.resources: list[dict[str, Any]] = []
         self.resource_templates: list[dict[str, Any]] = []
+        self.catalog_cache: dict[str, dict[str, Any]] = {}
+        self._resource_read_cache: dict[str, dict[str, Any]] = {}
         self.catalog_revision = 0
         self._subscription_owners: dict[str, set[str]] = {}
         self._next_id = 1
@@ -1057,42 +1059,60 @@ class AxMCPClient:
 
     def close(self) -> None:
         self._subscription_owners.clear()
+        self.catalog_cache.clear()
+        self._resource_read_cache.clear()
         self._initialized = False
         self.transport.close()
 
-    def refresh(self) -> None:
-        raw_tools = self._collect_catalog("tools/list", "tools") if self._capability("tools") else []
-        self.tools = []
-        for tool in raw_tools:
-            try:
-                mcp_param_header_bindings(tool.get("inputSchema") or {})
-                self.tools.append(tool)
-            except Exception:
-                logger = self.options.get("logger")
-                if callable(logger):
-                    logger(f"Warning: excluded MCP tool {tool.get('name', '')}: invalid x-mcp-header annotation")
-        self.prompts = self._collect_catalog("prompts/list", "prompts") if self._capability("prompts") else []
+    def refresh(self, *, force: bool = True) -> None:
+        changed = False
+        if self._capability("tools") and (force or not self._catalog_cache_fresh("tools")):
+            raw_tools = self._collect_catalog("tools/list", "tools")
+            self.tools = []
+            for tool in raw_tools:
+                try:
+                    mcp_param_header_bindings(tool.get("inputSchema") or {})
+                    self.tools.append(tool)
+                except Exception:
+                    logger = self.options.get("logger")
+                    if callable(logger):
+                        logger(f"Warning: excluded MCP tool {tool.get('name', '')}: invalid x-mcp-header annotation")
+            changed = True
+        if self._capability("prompts") and (force or not self._catalog_cache_fresh("prompts")):
+            self.prompts = self._collect_catalog("prompts/list", "prompts")
+            changed = True
         if self._capability("resources"):
-            self.resources = self._collect_catalog("resources/list", "resources")
-            self.resource_templates = self._collect_catalog("resources/templates/list", "resourceTemplates")
-        else:
-            self.resources = []
-            self.resource_templates = []
-        self.catalog_revision += 1
+            if force or not self._catalog_cache_fresh("resources"):
+                self.resources = self._collect_catalog("resources/list", "resources")
+                changed = True
+            if force or not self._catalog_cache_fresh("resourceTemplates"):
+                self.resource_templates = self._collect_catalog("resources/templates/list", "resourceTemplates")
+                changed = True
+        if changed:
+            self.catalog_revision += 1
 
     def _collect_catalog(self, method: str, field: str) -> list[dict[str, Any]]:
         values: list[dict[str, Any]] = []
+        pages: list[dict[str, Any]] = []
         cursor = None
         seen: set[str] = set()
         max_pages = int(self.options.get("maxPaginationPages", 1000))
         for _page in range(max_pages):
             result = self._request(method, {"cursor": cursor} if cursor else {})
+            pages.append(result)
             values.extend(json.loads(json.dumps(result.get(field) or [])))
             cursor = result.get("nextCursor")
-            if not cursor: return values
+            if not cursor:
+                cache_name = {"tools/list": "tools", "prompts/list": "prompts", "resources/list": "resources", "resources/templates/list": "resourceTemplates"}.get(method)
+                if cache_name:
+                    self.catalog_cache[cache_name] = mcp_fold_cache_info(pages, int(time.time() * 1000))
+                return values
             if cursor in seen: raise AxMCPError(f"MCP {method} repeated pagination cursor {cursor}")
             seen.add(cursor)
         raise AxMCPError(f"MCP {method} exceeded {max_pages} pagination pages")
+
+    def _catalog_cache_fresh(self, name: str) -> bool:
+        return mcp_cache_freshness(self.catalog_cache.get(name), int(time.time() * 1000))
 
     def inspect_catalog(self, *, refresh: bool = False) -> dict[str, Any]:
         self.init()
@@ -1149,7 +1169,17 @@ class AxMCPClient:
         return self._request("resources/list", {"cursor": cursor} if cursor else {})
 
     def read_resource(self, uri: str) -> dict[str, Any]:
-        return self._request("resources/read", {"uri": uri})
+        if self.era == "modern" and self.options.get("readCache"):
+            cached = self._resource_read_cache.get(uri)
+            if cached and mcp_cache_freshness(cached.get("cache"), int(time.time() * 1000)):
+                return json.loads(json.dumps(cached["result"]))
+            self._resource_read_cache.pop(uri, None)
+        result = self._request("resources/read", {"uri": uri})
+        if self.era == "modern" and self.options.get("readCache"):
+            cache = mcp_fold_cache_info([result], int(time.time() * 1000))
+            if mcp_cache_freshness(cache, int(time.time() * 1000)):
+                self._resource_read_cache[uri] = {"result": json.loads(json.dumps(result)), "cache": cache}
+        return result
 
     def subscribe_resource(self, uri: str) -> dict[str, Any]:
         return self.acquire_resource_subscription(uri, "manual")
@@ -1324,6 +1354,10 @@ class AxMCPClient:
             return
         if method in {"notifications/tools/list_changed", "notifications/prompts/list_changed", "notifications/resources/list_changed"}:
             self.refresh()
+        if method == "notifications/resources/updated":
+            uri = (message.get("params") or {}).get("uri")
+            if uri:
+                self._resource_read_cache.pop(str(uri), None)
         callback = self.options.get("onNotification")
         if callable(callback):
             callback(message)
@@ -2114,6 +2148,17 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
                 if actual != (case.get("expected_plan") or {}):
                     raise AssertionError(f"header value plan mismatch: {actual!r}")
             return
+        if operation == "cache_fold":
+            for case in fixture.get("cases") or []:
+                actual = mcp_fold_cache_info(case.get("pages") or [], case.get("fetched_at", 0))
+                _assert_subset(actual, case.get("expected") or {}, "cache info")
+                for field in case.get("forbidden_fields") or []:
+                    if field in actual:
+                        raise AssertionError(f"cache info contains forbidden field {field}")
+                fresh = mcp_cache_freshness(actual, case.get("now", 0))
+                if fresh is not case.get("expected_fresh"):
+                    raise AssertionError(f"cache freshness mismatch: {fresh!r}")
+            return
         if operation == "http_session_headers":
             transport = AxMCPStreamableHTTPTransport(fixture.get("endpoint", "https://example.com/mcp"), fixture.get("transport_options") or {})
             transport.session_id = fixture.get("session_id", "session-1")
@@ -2205,6 +2250,23 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             expected_notifications = fixture.get("expected_notification_methods")
             if expected_notifications is not None and [item.get("method") for item in transport.notifications] != expected_notifications:
                 raise AssertionError("notification methods mismatch")
+            return
+        if operation == "read_cache":
+            catalog_methods = {"resources/list", "resources/templates/list"}
+            client.refresh(force=False)
+            catalog_requests = sum(1 for request in transport.requests if request.get("method") in catalog_methods)
+            if catalog_requests != fixture.get("expected_catalog_requests_after_fresh_refresh"):
+                raise AssertionError(f"fresh catalog issued extra requests: {catalog_requests}")
+            first = client.read_resource(fixture.get("uri", ""))
+            second = client.read_resource(fixture.get("uri", ""))
+            _assert_subset(first, fixture.get("expected_first") or {}, "first resource read")
+            _assert_subset(second, fixture.get("expected_first") or {}, "cached resource read")
+            transport.emit(fixture.get("notification") or {})
+            after = client.read_resource(fixture.get("uri", ""))
+            _assert_subset(after, fixture.get("expected_after_update") or {}, "resource read after update")
+            reads = sum(1 for request in transport.requests if request.get("method") == "resources/read")
+            if reads != fixture.get("expected_read_requests"):
+                raise AssertionError(f"resource read request count mismatch: {reads}")
             return
         if operation == "initialize":
             _assert_requests(transport.requests, fixture)

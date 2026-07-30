@@ -23230,6 +23230,84 @@ Value Core::mcp_param_header_values(Value bindings, Value arguments) {
   return out;
 }
 
+Value Core::mcp_fold_cache_info(Value pages, Value fetched_at) {
+  axir_coverage_mark("mcp_fold_cache_info");
+  Value out = Value::object();
+  Core::set(out, Value("fetchedAt"), fetched_at);
+  Value page_count = Core::len(pages);
+  Value has_pages = Core::gt(page_count, Value(0));
+  Value ttl_valid = has_pages;
+  Value first_ttl = Value(true);
+  Value min_ttl = Value(0);
+  Value private_scope = Value(false);
+  Value public_scope = has_pages;
+  for (auto page : Core::iter(pages)) {
+    Value ttl = Core::get(page, Value("ttlMs"), Value());
+    Value ttl_number = Core::type_is(ttl, Value("number"));
+    Value ttl_integer = Value(false);
+    Value ttl_nonnegative = Value(false);
+    if (Core::truthy(ttl_number)) {
+      Value ttl_text = Core::json_stringify(ttl);
+      ttl_integer = Core::regex_match(Value("^[0-9]+$"), ttl_text);
+      ttl_nonnegative = Core::gte(ttl, Value(0));
+    }
+    Value page_ttl_valid = Core::and_(ttl_integer, ttl_nonnegative);
+    if (Core::truthy(page_ttl_valid)) {
+      if (Core::truthy(first_ttl)) {
+        min_ttl = ttl;
+        first_ttl = Value(false);
+      }
+      if (!Core::truthy(first_ttl)) {
+        Value smaller = Core::lt(ttl, min_ttl);
+        if (Core::truthy(smaller)) {
+          min_ttl = ttl;
+        }
+      }
+    }
+    if (!Core::truthy(page_ttl_valid)) {
+      ttl_valid = Value(false);
+    }
+    Value scope = Core::get(page, Value("cacheScope"), Value(""));
+    Value page_private = Core::eq(scope, Value("private"));
+    Value page_public = Core::eq(scope, Value("public"));
+    if (Core::truthy(page_private)) {
+      private_scope = Value(true);
+    }
+    Value not_public = Core::not_(page_public);
+    if (Core::truthy(not_public)) {
+      public_scope = Value(false);
+    }
+  }
+  if (Core::truthy(ttl_valid)) {
+    Core::set(out, Value("ttlMs"), min_ttl);
+    Value expires_at = Core::add(fetched_at, min_ttl);
+    Core::set(out, Value("expiresAt"), expires_at);
+  }
+  if (Core::truthy(private_scope)) {
+    Core::set(out, Value("cacheScope"), Value("private"));
+  }
+  if (!Core::truthy(private_scope)) {
+    if (Core::truthy(public_scope)) {
+      Core::set(out, Value("cacheScope"), Value("public"));
+    }
+  }
+  return out;
+}
+
+Value Core::mcp_cache_freshness(Value cache_info, Value now) {
+  axir_coverage_mark("mcp_cache_freshness");
+  Value cache_object = Core::type_is(cache_info, Value("object"));
+  if (Core::truthy(cache_object)) {
+    Value expires_at = Core::get(cache_info, Value("expiresAt"), Value());
+    Value expires_number = Core::type_is(expires_at, Value("number"));
+    if (Core::truthy(expires_number)) {
+      Value fresh = Core::lt(now, expires_at);
+      return fresh;
+    }
+  }
+  return Value(false);
+}
+
 Value Core::mcp_jsonrpc_request(Value id, Value method, Value params) {
   axir_coverage_mark("mcp_jsonrpc_request");
   Value out = Value::object();

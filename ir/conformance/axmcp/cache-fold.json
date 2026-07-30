@@ -1,0 +1,56 @@
+{
+  "name": "mcp cache metadata folding and freshness",
+  "kind": "mcp",
+  "operation": "cache_fold",
+  "cases": [
+    {
+      "pages": [
+        { "ttlMs": 5000, "cacheScope": "public" },
+        { "ttlMs": 1200, "cacheScope": "public" }
+      ],
+      "fetched_at": 100,
+      "now": 1299,
+      "expected": {
+        "ttlMs": 1200,
+        "cacheScope": "public",
+        "fetchedAt": 100,
+        "expiresAt": 1300
+      },
+      "expected_fresh": true
+    },
+    {
+      "pages": [
+        { "ttlMs": 3000, "cacheScope": "public" },
+        { "ttlMs": 2500, "cacheScope": "private" }
+      ],
+      "fetched_at": 200,
+      "now": 2700,
+      "expected": {
+        "ttlMs": 2500,
+        "cacheScope": "private",
+        "fetchedAt": 200,
+        "expiresAt": 2700
+      },
+      "expected_fresh": false
+    },
+    {
+      "pages": [
+        { "ttlMs": 1000, "cacheScope": "public" },
+        { "cacheScope": "public" }
+      ],
+      "fetched_at": 300,
+      "now": 301,
+      "expected": { "cacheScope": "public", "fetchedAt": 300 },
+      "forbidden_fields": ["ttlMs", "expiresAt"],
+      "expected_fresh": false
+    },
+    {
+      "pages": [],
+      "fetched_at": 400,
+      "now": 400,
+      "expected": { "fetchedAt": 400 },
+      "forbidden_fields": ["ttlMs", "cacheScope", "expiresAt"],
+      "expected_fresh": false
+    }
+  ]
+}

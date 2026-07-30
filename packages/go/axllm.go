@@ -45587,6 +45587,159 @@ func mcp_param_header_values(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func mcp_fold_cache_info(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_fold_cache_info")
+	var v_pages Value
+	var v_fetched_at Value
+	var v_expires_at Value
+	var v_first_ttl Value
+	var v_has_pages Value
+	var v_min_ttl Value
+	var v_not_public Value
+	var v_out Value
+	var v_page Value
+	var v_page_count Value
+	var v_page_private Value
+	var v_page_public Value
+	var v_page_ttl_valid Value
+	var v_private_scope Value
+	var v_public_scope Value
+	var v_scope Value
+	var v_smaller Value
+	var v_ttl Value
+	var v_ttl_integer Value
+	var v_ttl_nonnegative Value
+	var v_ttl_number Value
+	var v_ttl_text Value
+	var v_ttl_valid Value
+	if len(args) > 0 { v_pages = args[0] }
+	_ = v_pages
+	if len(args) > 1 { v_fetched_at = args[1] }
+	_ = v_fetched_at
+	_ = v_expires_at
+	_ = v_first_ttl
+	_ = v_has_pages
+	_ = v_min_ttl
+	_ = v_not_public
+	_ = v_out
+	_ = v_page
+	_ = v_page_count
+	_ = v_page_private
+	_ = v_page_public
+	_ = v_page_ttl_valid
+	_ = v_private_scope
+	_ = v_public_scope
+	_ = v_scope
+	_ = v_smaller
+	_ = v_ttl
+	_ = v_ttl_integer
+	_ = v_ttl_nonnegative
+	_ = v_ttl_number
+	_ = v_ttl_text
+	_ = v_ttl_valid
+	v_out = Object()
+	if err := coreSet(v_out, "fetchedAt", v_fetched_at); err != nil { return nil, err }
+	v_page_count = _core_len(v_pages)
+	v_has_pages = _core_gt(v_page_count, 0)
+	v_ttl_valid = v_has_pages
+	v_first_ttl = true
+	v_min_ttl = 0
+	v_private_scope = false
+	v_public_scope = v_has_pages
+	for _, v_page = range coreIter(v_pages) {
+		v_ttl = coreGet(v_page, "ttlMs", nil)
+		v_ttl_number = coreTypeIs(v_ttl, "number")
+		v_ttl_integer = false
+		v_ttl_nonnegative = false
+		if coreTruthy(v_ttl_number) {
+			v_ttl_text = _core_json_stringify(v_ttl)
+			v_ttl_integer = coreRegexMatch("^[0-9]+$", v_ttl_text)
+			v_ttl_nonnegative = _core_gte(v_ttl, 0)
+		} else {
+		// empty
+		}
+		v_page_ttl_valid = _core_and(v_ttl_integer, v_ttl_nonnegative)
+		if coreTruthy(v_page_ttl_valid) {
+			if coreTruthy(v_first_ttl) {
+				v_min_ttl = v_ttl
+				v_first_ttl = false
+			} else {
+				v_smaller = _core_lt(v_ttl, v_min_ttl)
+				if coreTruthy(v_smaller) {
+					v_min_ttl = v_ttl
+				} else {
+				// empty
+				}
+			}
+		} else {
+			v_ttl_valid = false
+		}
+		v_scope = coreGet(v_page, "cacheScope", "")
+		v_page_private = _core_eq(v_scope, "private")
+		v_page_public = _core_eq(v_scope, "public")
+		if coreTruthy(v_page_private) {
+			v_private_scope = true
+		} else {
+		// empty
+		}
+		v_not_public = _core_not(v_page_public)
+		if coreTruthy(v_not_public) {
+			v_public_scope = false
+		} else {
+		// empty
+		}
+	}
+	if coreTruthy(v_ttl_valid) {
+		if err := coreSet(v_out, "ttlMs", v_min_ttl); err != nil { return nil, err }
+		v_expires_at = _core_add(v_fetched_at, v_min_ttl)
+		if err := coreSet(v_out, "expiresAt", v_expires_at); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	if coreTruthy(v_private_scope) {
+		if err := coreSet(v_out, "cacheScope", "private"); err != nil { return nil, err }
+	} else {
+		if coreTruthy(v_public_scope) {
+			if err := coreSet(v_out, "cacheScope", "public"); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+	}
+	return v_out, nil
+}
+
+func mcp_cache_freshness(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_cache_freshness")
+	var v_cache_info Value
+	var v_now Value
+	var v_cache_object Value
+	var v_expires_at Value
+	var v_expires_number Value
+	var v_fresh Value
+	if len(args) > 0 { v_cache_info = args[0] }
+	_ = v_cache_info
+	if len(args) > 1 { v_now = args[1] }
+	_ = v_now
+	_ = v_cache_object
+	_ = v_expires_at
+	_ = v_expires_number
+	_ = v_fresh
+	v_cache_object = coreTypeIs(v_cache_info, "object")
+	if coreTruthy(v_cache_object) {
+		v_expires_at = coreGet(v_cache_info, "expiresAt", nil)
+		v_expires_number = coreTypeIs(v_expires_at, "number")
+		if coreTruthy(v_expires_number) {
+			v_fresh = _core_lt(v_now, v_expires_at)
+			return v_fresh, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return false, nil
+}
+
 func mcp_jsonrpc_request(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_jsonrpc_request")
 	var v_id Value

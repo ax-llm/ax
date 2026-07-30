@@ -362,6 +362,20 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "cache_fold",
+        "runner": "go:axmcp.cache_fold",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "read_cache",
+        "runner": "go:axmcp.read_cache",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "ping",
         "runner": "go:axmcp.ping",
         "category": "transport-boundary"

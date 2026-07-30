@@ -116,6 +116,8 @@ pub struct AxMCPClient {
     prompts: Vec<Value>,
     resources: Vec<Value>,
     resource_templates: Vec<Value>,
+    catalog_cache: HashMap<String, Value>,
+    resource_read_cache: HashMap<String, Value>,
     next_id: Arc<Mutex<u64>>,
     notification_listeners: Arc<Mutex<HashMap<usize, Arc<dyn Fn(Value)>>>>,
     lifecycle_listeners: Arc<Mutex<HashMap<usize, Arc<dyn Fn(String)>>>>,
@@ -142,6 +144,8 @@ impl AxMCPClient {
             prompts: Vec::new(),
             resources: Vec::new(),
             resource_templates: Vec::new(),
+            catalog_cache: HashMap::new(),
+            resource_read_cache: HashMap::new(),
             next_id: Arc::new(Mutex::new(1)),
             notification_listeners: Arc::new(Mutex::new(HashMap::new())),
             lifecycle_listeners: Arc::new(Mutex::new(HashMap::new())),
@@ -159,6 +163,20 @@ impl AxMCPClient {
             return Ok(());
         }
         self.transport.lock().unwrap().connect()?;
+        let inbound_messages = self.inbound_messages.clone();
+        self.transport
+            .lock()
+            .unwrap()
+            .set_message_handler(Arc::new(move |message| {
+                inbound_messages.lock().unwrap().push(message)
+            }));
+        let inbound_lifecycle = self.inbound_lifecycle.clone();
+        self.transport
+            .lock()
+            .unwrap()
+            .set_lifecycle_handler(Arc::new(move |state| {
+                inbound_lifecycle.lock().unwrap().push(state)
+            }));
         let configured = self
             .options
             .get("era")
@@ -391,15 +409,17 @@ impl AxMCPClient {
     pub fn close(&mut self) -> AxResult<()> {
         self.initialized = false;
         self.subscription_owners.lock().unwrap().clear();
+        self.catalog_cache.clear();
+        self.resource_read_cache.clear();
         self.transport.lock().unwrap().close()
     }
 
     pub fn refresh(&mut self) -> AxResult<()> {
-        self.tools.clear();
-        self.prompts.clear();
-        self.resources.clear();
-        self.resource_templates.clear();
-        if self.capability("tools") {
+        self.refresh_with_force(true)
+    }
+    pub fn refresh_with_force(&mut self, force: bool) -> AxResult<()> {
+        let mut changed = false;
+        if self.capability("tools") && (force || !self.catalog_cache_fresh("tools")?) {
             self.tools = self
                 .collect_catalog("tools/list", "tools")?
                 .into_iter()
@@ -414,21 +434,32 @@ impl AxMCPClient {
                     .is_ok()
                 })
                 .collect();
+            changed = true;
         }
-        if self.capability("prompts") {
+        if self.capability("prompts") && (force || !self.catalog_cache_fresh("prompts")?) {
             self.prompts = self.collect_catalog("prompts/list", "prompts")?;
+            changed = true;
         }
         if self.capability("resources") {
-            self.resources = self.collect_catalog("resources/list", "resources")?;
-            self.resource_templates =
-                self.collect_catalog("resources/templates/list", "resourceTemplates")?;
+            if force || !self.catalog_cache_fresh("resources")? {
+                self.resources = self.collect_catalog("resources/list", "resources")?;
+                changed = true;
+            }
+            if force || !self.catalog_cache_fresh("resourceTemplates")? {
+                self.resource_templates =
+                    self.collect_catalog("resources/templates/list", "resourceTemplates")?;
+                changed = true;
+            }
         }
-        self.catalog_revision += 1;
+        if changed {
+            self.catalog_revision += 1;
+        }
         Ok(())
     }
 
-    fn collect_catalog(&self, method: &str, field: &str) -> AxResult<Vec<Value>> {
+    fn collect_catalog(&mut self, method: &str, field: &str) -> AxResult<Vec<Value>> {
         let mut out = Vec::new();
+        let mut pages = Vec::new();
         let mut cursor: Option<String> = None;
         let mut seen = HashSet::new();
         let max = self
@@ -444,6 +475,7 @@ impl AxMCPClient {
                     .map(|value| json!({"cursor":value}))
                     .unwrap_or_else(|| json!({})),
             )?;
+            pages.push(result.clone());
             out.extend(
                 result
                     .get(field)
@@ -456,6 +488,19 @@ impl AxMCPClient {
                 .and_then(Value::as_str)
                 .map(str::to_string);
             let Some(value) = cursor.as_ref() else {
+                if let Some(name) = match method {
+                    "tools/list" => Some("tools"),
+                    "prompts/list" => Some("prompts"),
+                    "resources/list" => Some("resources"),
+                    "resources/templates/list" => Some("resourceTemplates"),
+                    _ => None,
+                } {
+                    let cache = core_mcp(
+                        &crate::mcp_fold_cache_info,
+                        &[json!(pages), json!(mcp_now_ms())],
+                    )?;
+                    self.catalog_cache.insert(name.into(), cache);
+                }
                 return Ok(out);
             };
             if !seen.insert(value.clone()) {
@@ -469,6 +514,17 @@ impl AxMCPClient {
             "mcp",
             format!("MCP {method} exceeded {max} pagination pages"),
         ))
+    }
+    fn catalog_cache_fresh(&self, name: &str) -> AxResult<bool> {
+        Ok(core_mcp(
+            &crate::mcp_cache_freshness,
+            &[
+                self.catalog_cache.get(name).cloned().unwrap_or(Value::Null),
+                json!(mcp_now_ms()),
+            ],
+        )?
+        .as_bool()
+            == Some(true))
     }
 
     pub fn inspect_catalog(&mut self, refresh: bool) -> AxResult<AxMCPCatalogSnapshot> {
@@ -580,7 +636,43 @@ impl AxMCPClient {
         self.request("resources/list", cursor_params(cursor))
     }
     pub fn read_resource(&mut self, uri: &str) -> AxResult<Value> {
-        self.request("resources/read", json!({"uri": uri}))
+        let enabled = self.era.as_deref() == Some("modern")
+            && self.options.get("readCache").and_then(Value::as_bool) == Some(true);
+        if enabled {
+            if let Some(cached) = self.resource_read_cache.get(uri) {
+                if core_mcp(
+                    &crate::mcp_cache_freshness,
+                    &[
+                        cached.get("cache").cloned().unwrap_or(Value::Null),
+                        json!(mcp_now_ms()),
+                    ],
+                )?
+                .as_bool()
+                    == Some(true)
+                {
+                    return Ok(cached.get("result").cloned().unwrap_or_else(|| json!({})));
+                }
+            }
+            self.resource_read_cache.remove(uri);
+        }
+        let result = self.request("resources/read", json!({"uri":uri}))?;
+        if enabled {
+            let cache = core_mcp(
+                &crate::mcp_fold_cache_info,
+                &[json!([result.clone()]), json!(mcp_now_ms())],
+            )?;
+            if core_mcp(
+                &crate::mcp_cache_freshness,
+                &[cache.clone(), json!(mcp_now_ms())],
+            )?
+            .as_bool()
+                == Some(true)
+            {
+                self.resource_read_cache
+                    .insert(uri.into(), json!({"result":result.clone(),"cache":cache}));
+            }
+        }
+        Ok(result)
     }
     fn assert_resource_subscriptions(&self) -> AxResult<()> {
         if self
@@ -784,7 +876,19 @@ impl AxMCPClient {
             listener(state.into())
         }
     }
-    pub fn drain_inbound(&self) -> usize {
+    fn apply_cache_notification(&mut self, message: &Value) {
+        if message.get("method").and_then(Value::as_str) == Some("notifications/resources/updated")
+        {
+            if let Some(uri) = message
+                .get("params")
+                .and_then(|params| params.get("uri"))
+                .and_then(Value::as_str)
+            {
+                self.resource_read_cache.remove(uri);
+            }
+        }
+    }
+    pub fn drain_inbound(&mut self) -> usize {
         let messages = std::mem::take(&mut *self.inbound_messages.lock().unwrap());
         let states = std::mem::take(&mut *self.inbound_lifecycle.lock().unwrap());
         let count = messages.len() + states.len();
@@ -792,6 +896,7 @@ impl AxMCPClient {
             self.emit_lifecycle(&state)
         }
         for message in messages {
+            self.apply_cache_notification(&message);
             self.emit_notification(message)
         }
         count
@@ -2847,6 +2952,9 @@ impl AxMCPEventSource {
                 let mut queue = client.inbound_messages.lock().unwrap();
                 std::mem::take(&mut *queue)
             };
+            for message in &messages {
+                client.apply_cache_notification(message);
+            }
             if messages.iter().any(|message| {
                 matches!(
                     message.get("method").and_then(Value::as_str),
@@ -3045,6 +3153,12 @@ fn core_mcp(
         .map(crate::core_value_from_json)
         .collect::<Vec<_>>();
     function(&args).map(|value| crate::core_value_to_json(&value))
+}
+fn mcp_now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
 }
 
 fn mcp_transport_request(
@@ -4265,6 +4379,50 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
             }
             Ok(())
         }
+        "cache_fold" => {
+            for case in fixture
+                .get("cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = core_mcp(
+                    &crate::mcp_fold_cache_info,
+                    &[
+                        case.get("pages").cloned().unwrap_or_else(|| json!([])),
+                        case.get("fetched_at").cloned().unwrap_or_else(|| json!(0)),
+                    ],
+                )?;
+                expect_subset(
+                    "cache info",
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+                for field in case
+                    .get("forbidden_fields")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                {
+                    if actual.get(field.as_str().unwrap_or_default()).is_some() {
+                        return Err(AxError::new(
+                            "fixture",
+                            "cache info contains forbidden field",
+                        ));
+                    }
+                }
+                let fresh = core_mcp(
+                    &crate::mcp_cache_freshness,
+                    &[actual, case.get("now").cloned().unwrap_or_else(|| json!(0))],
+                )?
+                .as_bool()
+                    == Some(true);
+                if fresh != (case.get("expected_fresh").and_then(Value::as_bool) == Some(true)) {
+                    return Err(AxError::new("fixture", "cache freshness mismatch"));
+                }
+            }
+            Ok(())
+        }
         "http_session_headers" => {
             let mut transport = AxMCPStreamableHTTPTransport::new(
                 fixture
@@ -4572,6 +4730,84 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                                 .collect(),
                         );
                         expect_subset("notification methods", &methods, expected)?
+                    }
+                    Ok(())
+                }
+                "read_cache" => {
+                    client.refresh_with_force(false)?;
+                    let catalogs = client
+                        .transport
+                        .lock()
+                        .unwrap()
+                        .sent_requests()
+                        .into_iter()
+                        .filter(|request| {
+                            matches!(
+                                request.get("method").and_then(Value::as_str),
+                                Some("resources/list") | Some("resources/templates/list")
+                            )
+                        })
+                        .count();
+                    if catalogs
+                        != fixture
+                            .get("expected_catalog_requests_after_fresh_refresh")
+                            .and_then(Value::as_u64)
+                            .unwrap_or_default() as usize
+                    {
+                        return Err(AxError::new(
+                            "fixture",
+                            "fresh catalog issued extra requests",
+                        ));
+                    }
+                    let uri = fixture
+                        .get("uri")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    let first = client.read_resource(uri)?;
+                    let second = client.read_resource(uri)?;
+                    expect_subset(
+                        "first resource read",
+                        &first,
+                        fixture.get("expected_first").unwrap_or(&Value::Null),
+                    )?;
+                    expect_subset(
+                        "cached resource read",
+                        &second,
+                        fixture.get("expected_first").unwrap_or(&Value::Null),
+                    )?;
+                    client.inbound_messages.lock().unwrap().push(
+                        fixture
+                            .get("notification")
+                            .cloned()
+                            .unwrap_or_else(|| json!({})),
+                    );
+                    client.drain_inbound();
+                    let after = client.read_resource(uri)?;
+                    expect_subset(
+                        "resource read after update",
+                        &after,
+                        fixture.get("expected_after_update").unwrap_or(&Value::Null),
+                    )?;
+                    let reads = client
+                        .transport
+                        .lock()
+                        .unwrap()
+                        .sent_requests()
+                        .into_iter()
+                        .filter(|request| {
+                            request.get("method").and_then(Value::as_str) == Some("resources/read")
+                        })
+                        .count();
+                    if reads
+                        != fixture
+                            .get("expected_read_requests")
+                            .and_then(Value::as_u64)
+                            .unwrap_or_default() as usize
+                    {
+                        return Err(AxError::new(
+                            "fixture",
+                            "resource read request count mismatch",
+                        ));
                     }
                     Ok(())
                 }

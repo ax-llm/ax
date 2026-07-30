@@ -71264,6 +71264,137 @@ fn mcp_param_header_values(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn mcp_fold_cache_info(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_fold_cache_info");
+    let mut v_pages = core_arg(args, 0);
+    let mut v_fetched_at = core_arg(args, 1);
+    let mut v_expires_at = CoreValue::Null;
+    let mut v_first_ttl = CoreValue::Null;
+    let mut v_has_pages = CoreValue::Null;
+    let mut v_min_ttl = CoreValue::Null;
+    let mut v_not_public = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_page = CoreValue::Null;
+    let mut v_page_count = CoreValue::Null;
+    let mut v_page_private = CoreValue::Null;
+    let mut v_page_public = CoreValue::Null;
+    let mut v_page_ttl_valid = CoreValue::Null;
+    let mut v_private_scope = CoreValue::Null;
+    let mut v_public_scope = CoreValue::Null;
+    let mut v_scope = CoreValue::Null;
+    let mut v_smaller = CoreValue::Null;
+    let mut v_ttl = CoreValue::Null;
+    let mut v_ttl_integer = CoreValue::Null;
+    let mut v_ttl_nonnegative = CoreValue::Null;
+    let mut v_ttl_number = CoreValue::Null;
+    let mut v_ttl_text = CoreValue::Null;
+    let mut v_ttl_valid = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("fetchedAt"), v_fetched_at.clone())?;
+    v_page_count = core_len(&[v_pages.clone()])?;
+    v_has_pages = core_gt(&[v_page_count.clone(), CoreValue::Num(0f64)])?;
+    v_ttl_valid = v_has_pages.clone();
+    v_first_ttl = CoreValue::Bool(true);
+    v_min_ttl = CoreValue::Num(0f64);
+    v_private_scope = CoreValue::Bool(false);
+    v_public_scope = v_has_pages.clone();
+    for v_page in core_iter(&v_pages)? {
+        let mut v_page = v_page;
+        v_ttl = core_get(&v_page, &CoreValue::from("ttlMs"), CoreValue::Null);
+        v_ttl_number = core_type_is(&v_ttl, CoreValue::from("number"));
+        v_ttl_integer = CoreValue::Bool(false);
+        v_ttl_nonnegative = CoreValue::Bool(false);
+        if core_truthy(&v_ttl_number) {
+            v_ttl_text = core_json_stringify(&[v_ttl.clone()])?;
+            v_ttl_integer = core_regex_match(CoreValue::from("^[0-9]+$"), &v_ttl_text)?;
+            v_ttl_nonnegative = core_gte(&[v_ttl.clone(), CoreValue::Num(0f64)])?;
+        }
+        v_page_ttl_valid = core_and(&[v_ttl_integer.clone(), v_ttl_nonnegative.clone()])?;
+        if core_truthy(&v_page_ttl_valid) {
+            if core_truthy(&v_first_ttl) {
+                v_min_ttl = v_ttl.clone();
+                v_first_ttl = CoreValue::Bool(false);
+            } else {
+                v_smaller = core_lt(&[v_ttl.clone(), v_min_ttl.clone()])?;
+                if core_truthy(&v_smaller) {
+                    v_min_ttl = v_ttl.clone();
+                }
+            }
+        } else {
+            v_ttl_valid = CoreValue::Bool(false);
+        }
+        v_scope = core_get(&v_page, &CoreValue::from("cacheScope"), CoreValue::from(""));
+        v_page_private = core_eq(&[v_scope.clone(), CoreValue::from("private")])?;
+        v_page_public = core_eq(&[v_scope.clone(), CoreValue::from("public")])?;
+        if core_truthy(&v_page_private) {
+            v_private_scope = CoreValue::Bool(true);
+        }
+        v_not_public = core_not(&[v_page_public.clone()])?;
+        if core_truthy(&v_not_public) {
+            v_public_scope = CoreValue::Bool(false);
+        }
+    }
+    if core_truthy(&v_ttl_valid) {
+        core_set(&v_out, CoreValue::from("ttlMs"), v_min_ttl.clone())?;
+        v_expires_at = core_add(&[v_fetched_at.clone(), v_min_ttl.clone()])?;
+        core_set(&v_out, CoreValue::from("expiresAt"), v_expires_at.clone())?;
+    }
+    if core_truthy(&v_private_scope) {
+        core_set(
+            &v_out,
+            CoreValue::from("cacheScope"),
+            CoreValue::from("private"),
+        )?;
+    } else {
+        if core_truthy(&v_public_scope) {
+            core_set(
+                &v_out,
+                CoreValue::from("cacheScope"),
+                CoreValue::from("public"),
+            )?;
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_cache_freshness(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_cache_freshness");
+    let mut v_cache_info = core_arg(args, 0);
+    let mut v_now = core_arg(args, 1);
+    let mut v_cache_object = CoreValue::Null;
+    let mut v_expires_at = CoreValue::Null;
+    let mut v_expires_number = CoreValue::Null;
+    let mut v_fresh = CoreValue::Null;
+    v_cache_object = core_type_is(&v_cache_info, CoreValue::from("object"));
+    if core_truthy(&v_cache_object) {
+        v_expires_at = core_get(
+            &v_cache_info,
+            &CoreValue::from("expiresAt"),
+            CoreValue::Null,
+        );
+        v_expires_number = core_type_is(&v_expires_at, CoreValue::from("number"));
+        if core_truthy(&v_expires_number) {
+            v_fresh = core_lt(&[v_now.clone(), v_expires_at.clone()])?;
+            return Ok(v_fresh.clone());
+        }
+    }
+    return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_jsonrpc_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_jsonrpc_request");
     let mut v_id = core_arg(args, 0);
@@ -71538,4 +71669,4 @@ fn mcp_resource_subscription_ownership(args: &[CoreValue]) -> Result<CoreValue, 
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (535 of 535 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (537 of 537 core functions)

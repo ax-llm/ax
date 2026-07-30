@@ -694,6 +694,93 @@ module @ax.mcp version "0.1" {
     }
   }
 
+  op ax.mcp.semantic @mcp_fold_cache_info {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-cacheable-results"
+    type signature = "(pages:list<json>, fetched_at:number) -> json"
+    body @entry(%pages: list<json>, %fetched_at: number) {
+      %out = core.map
+      core.set %out["fetchedAt"] = %fetched_at
+      %page_count = core.call intrinsic.len(%pages)
+      %has_pages = core.call intrinsic.gt(%page_count, 0)
+      %ttl_valid = core.let %has_pages
+      %first_ttl = core.const true
+      %min_ttl = core.let 0
+      %private_scope = core.const false
+      %public_scope = core.let %has_pages
+      core.for %page in %pages {
+        %ttl = core.get %page["ttlMs"] default null
+        %ttl_number = core.type_is %ttl type "number"
+        %ttl_integer = core.const false
+        %ttl_nonnegative = core.const false
+        core.if %ttl_number {
+          %ttl_text = core.call intrinsic.json.stringify(%ttl)
+          %ttl_integer = core.regex_match %ttl_text pattern "^[0-9]+$"
+          %ttl_nonnegative = core.call intrinsic.gte(%ttl, 0)
+        }
+        %page_ttl_valid = core.call intrinsic.and(%ttl_integer, %ttl_nonnegative)
+        core.if %page_ttl_valid {
+          core.if %first_ttl {
+            %min_ttl = core.let %ttl
+            %first_ttl = core.const false
+          } else {
+            %smaller = core.call intrinsic.lt(%ttl, %min_ttl)
+            core.if %smaller {
+              %min_ttl = core.let %ttl
+            }
+          }
+        } else {
+          %ttl_valid = core.const false
+        }
+        %scope = core.get %page["cacheScope"] default ""
+        %page_private = core.call intrinsic.eq(%scope, "private")
+        %page_public = core.call intrinsic.eq(%scope, "public")
+        core.if %page_private {
+          %private_scope = core.const true
+        }
+        %not_public = core.call intrinsic.not(%page_public)
+        core.if %not_public {
+          %public_scope = core.const false
+        }
+      }
+      core.if %ttl_valid {
+        core.set %out["ttlMs"] = %min_ttl
+        %expires_at = core.call intrinsic.add(%fetched_at, %min_ttl)
+        core.set %out["expiresAt"] = %expires_at
+      }
+      core.if %private_scope {
+        core.set %out["cacheScope"] = "private"
+      } else {
+        core.if %public_scope {
+          core.set %out["cacheScope"] = "public"
+        }
+      }
+      core.return %out
+    }
+  }
+
+  op ax.mcp.semantic @mcp_cache_freshness {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-cacheable-results"
+    type signature = "(cache_info:json, now:number) -> bool"
+    body @entry(%cache_info: json, %now: number) {
+      %cache_object = core.type_is %cache_info type "object"
+      core.if %cache_object {
+        %expires_at = core.get %cache_info["expiresAt"] default null
+        %expires_number = core.type_is %expires_at type "number"
+        core.if %expires_number {
+          %fresh = core.call intrinsic.lt(%now, %expires_at)
+          core.return %fresh
+        }
+      }
+      core.return false
+    }
+  }
+
   op ax.mcp.semantic @mcp_jsonrpc_request {
     attr body_source = "core"
     attr core_kind = "func"

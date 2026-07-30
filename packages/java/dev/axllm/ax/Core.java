@@ -22219,6 +22219,84 @@ final class Core {
     return out;
   }
 
+  static Object mcp_fold_cache_info(Object pages, Object fetched_at) {
+    axirCoverageMark("mcp_fold_cache_info");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "fetchedAt", fetched_at);
+    Object page_count = Core.len(pages);
+    Object has_pages = Core.gt(page_count, 0);
+    Object ttl_valid = has_pages;
+    Object first_ttl = Boolean.TRUE;
+    Object min_ttl = 0;
+    Object private_scope = Boolean.FALSE;
+    Object public_scope = has_pages;
+    for (Object page : Core.iter(pages)) {
+      Object ttl = Core.get(page, "ttlMs", null);
+      Object ttl_number = Core.typeIs(ttl, "number");
+      Object ttl_integer = Boolean.FALSE;
+      Object ttl_nonnegative = Boolean.FALSE;
+      if (Core.truthy(ttl_number)) {
+        Object ttl_text = Core.jsonStringify(ttl);
+        ttl_integer = Core.regexMatch("^[0-9]+$", ttl_text);
+        ttl_nonnegative = Core.gte(ttl, 0);
+      }
+      Object page_ttl_valid = Core.and(ttl_integer, ttl_nonnegative);
+      if (Core.truthy(page_ttl_valid)) {
+        if (Core.truthy(first_ttl)) {
+          min_ttl = ttl;
+          first_ttl = Boolean.FALSE;
+        }
+        if (!Core.truthy(first_ttl)) {
+          Object smaller = Core.lt(ttl, min_ttl);
+          if (Core.truthy(smaller)) {
+            min_ttl = ttl;
+          }
+        }
+      }
+      if (!Core.truthy(page_ttl_valid)) {
+        ttl_valid = Boolean.FALSE;
+      }
+      Object scope = Core.get(page, "cacheScope", "");
+      Object page_private = Core.eq(scope, "private");
+      Object page_public = Core.eq(scope, "public");
+      if (Core.truthy(page_private)) {
+        private_scope = Boolean.TRUE;
+      }
+      Object not_public = Core.not(page_public);
+      if (Core.truthy(not_public)) {
+        public_scope = Boolean.FALSE;
+      }
+    }
+    if (Core.truthy(ttl_valid)) {
+      Core.set(out, "ttlMs", min_ttl);
+      Object expires_at = Core.add(fetched_at, min_ttl);
+      Core.set(out, "expiresAt", expires_at);
+    }
+    if (Core.truthy(private_scope)) {
+      Core.set(out, "cacheScope", "private");
+    }
+    if (!Core.truthy(private_scope)) {
+      if (Core.truthy(public_scope)) {
+        Core.set(out, "cacheScope", "public");
+      }
+    }
+    return out;
+  }
+
+  static Object mcp_cache_freshness(Object cache_info, Object now) {
+    axirCoverageMark("mcp_cache_freshness");
+    Object cache_object = Core.typeIs(cache_info, "object");
+    if (Core.truthy(cache_object)) {
+      Object expires_at = Core.get(cache_info, "expiresAt", null);
+      Object expires_number = Core.typeIs(expires_at, "number");
+      if (Core.truthy(expires_number)) {
+        Object fresh = Core.lt(now, expires_at);
+        return fresh;
+      }
+    }
+    return Boolean.FALSE;
+  }
+
   static Object mcp_jsonrpc_request(Object id, Object method, Object params) {
     axirCoverageMark("mcp_jsonrpc_request");
     Object out = new java.util.LinkedHashMap<String, Object>();
