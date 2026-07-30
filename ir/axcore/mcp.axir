@@ -1359,4 +1359,48 @@ module @ax.mcp version "0.1" {
       core.return %out
     }
   }
+
+  op ax.mcp.semantic @mcp_oauth_validate_issuer {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    attr public = true
+    tag "axmcp-oauth"
+    type signature = "(response:json, expected_issuer:string, require_iss:bool) -> json"
+    body @entry(%response: json, %expected_issuer: string, %require_iss: bool) {
+      %state = core.get %response["state"] default null
+      %expected_state = core.get %response["expectedState"] default null
+      %state_matches = core.call intrinsic.eq(%state, %expected_state)
+      core.if %state_matches {
+      } else {
+        %out = core.map
+        core.set %out["ok"] = false
+        core.set %out["message"] = "OAuth state mismatch"
+        core.return %out
+      }
+      %returned_issuer = core.get %response["iss"] default null
+      %issuer_missing = core.call intrinsic.is_none(%returned_issuer)
+      core.if %issuer_missing {
+        core.if %require_iss {
+          %out = core.map
+          core.set %out["ok"] = false
+          core.set %out["message"] = "OAuth authorization response issuer is required"
+          core.return %out
+        }
+      } else {
+        %issuer_matches = core.call intrinsic.eq(%returned_issuer, %expected_issuer)
+        core.if %issuer_matches {
+        } else {
+          %message = core.call intrinsic.string.format("OAuth issuer mismatch: expected {}, received {}", %expected_issuer, %returned_issuer)
+          %out = core.map
+          core.set %out["ok"] = false
+          core.set %out["message"] = %message
+          core.return %out
+        }
+      }
+      %out = core.map
+      core.set %out["ok"] = true
+      core.return %out
+    }
+  }
 }

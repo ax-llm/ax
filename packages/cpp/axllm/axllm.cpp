@@ -23843,6 +23843,48 @@ Value Core::mcp_notification_subscription_filter(Value message, Value active_sub
   return out;
 }
 
+Value Core::mcp_oauth_validate_issuer(Value response, Value expected_issuer, Value require_iss) {
+  axir_coverage_mark("mcp_oauth_validate_issuer");
+  Value state = Core::get(response, Value("state"), Value());
+  Value expected_state = Core::get(response, Value("expectedState"), Value());
+  Value state_matches = Core::eq(state, expected_state);
+  if (Core::truthy(state_matches)) {
+    // empty
+  }
+  if (!Core::truthy(state_matches)) {
+    Value out = Value::object();
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), Value("OAuth state mismatch"));
+    return out;
+  }
+  Value returned_issuer = Core::get(response, Value("iss"), Value());
+  Value issuer_missing = Core::is_none(returned_issuer);
+  if (Core::truthy(issuer_missing)) {
+    if (Core::truthy(require_iss)) {
+      Value out = Value::object();
+      Core::set(out, Value("ok"), Value(false));
+      Core::set(out, Value("message"), Value("OAuth authorization response issuer is required"));
+      return out;
+    }
+  }
+  if (!Core::truthy(issuer_missing)) {
+    Value issuer_matches = Core::eq(returned_issuer, expected_issuer);
+    if (Core::truthy(issuer_matches)) {
+      // empty
+    }
+    if (!Core::truthy(issuer_matches)) {
+      Value message = Core::string_format(Value("OAuth issuer mismatch: expected {}, received {}"), expected_issuer, returned_issuer);
+      Value out = Value::object();
+      Core::set(out, Value("ok"), Value(false));
+      Core::set(out, Value("message"), message);
+      return out;
+    }
+  }
+  Value out = Value::object();
+  Core::set(out, Value("ok"), Value(true));
+  return out;
+}
+
 // END AXIR CORE EMITTED FUNCTIONS
 
 Value parse_json(const std::string& source) {

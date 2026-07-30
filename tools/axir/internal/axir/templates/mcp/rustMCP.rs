@@ -35,6 +35,7 @@ pub struct AxMCPOAuthOptions {
     pub on_auth_code: Option<Arc<dyn Fn(String) -> AxResult<Map<String, Value>> + Send + Sync>>,
     pub token_store: Option<Arc<Mutex<dyn AxMCPTokenStore + Send + Sync>>>,
     pub ssrf_protection: Value,
+    pub require_iss: bool,
 }
 
 pub trait AxMCPTokenStore {
@@ -645,23 +646,27 @@ impl AxMCPStreamableHTTPTransport {
         out
     }
 
-    pub fn apply_oauth(&mut self) -> bool {
-        let Some(oauth) = &self.oauth else { return false; };
+    pub fn apply_oauth(&mut self) -> AxResult<bool> {
+        let Some(oauth) = &self.oauth else { return Ok(false); };
         if let Some(store) = &oauth.token_store {
             if let Ok(Some(token)) = store.lock().unwrap().get_token(&self.endpoint) {
                 self.headers.insert("Authorization".to_string(), json!(format!("Bearer {}", token.access_token)));
-                return true;
+                return Ok(true);
             }
         }
-        let Some(callback) = &oauth.on_auth_code else { return false; };
+        let Some(callback) = &oauth.on_auth_code else { return Ok(false); };
         let verifier = ax_mcp_pkce_verifier();
         let challenge = ax_mcp_pkce_challenge(&verifier);
-        let Ok(auth) = callback(format!("{}?response_type=code&code_challenge={}&code_challenge_method=S256", self.endpoint, ax_mcp_url_encode(&challenge))) else { return false; };
-        let Some(code) = auth.get("code").and_then(Value::as_str) else { return false; };
+        let state = ax_mcp_pkce_verifier();
+        let auth = callback(format!("{}?response_type=code&code_challenge={}&code_challenge_method=S256&state={}", self.endpoint, ax_mcp_url_encode(&challenge), ax_mcp_url_encode(&state)))?;
+        let Some(code) = auth.get("code").and_then(Value::as_str) else { return Ok(false); };
+        let mut response=auth.clone();response.insert("expectedState".into(),json!(state));
+        let validation=core_mcp(&crate::mcp_oauth_validate_issuer,&[Value::Object(response),json!(self.endpoint),json!(oauth.require_iss)])?;
+        if validation.get("ok").and_then(Value::as_bool)!=Some(true){return Err(AxError::new("mcp",validation.get("message").and_then(Value::as_str).unwrap_or("OAuth authorization response validation failed")))}
         let token = AxMCPTokenSet { access_token: format!("mcp-auth-code-{code}"), refresh_token: None, expires_at: None, issuer: Some(self.endpoint.clone()) };
         if let Some(store) = &oauth.token_store { let _ = store.lock().unwrap().set_token(&self.endpoint, token.clone()); }
         self.headers.insert("Authorization".to_string(), json!(format!("Bearer {}", token.access_token)));
-        true
+        Ok(true)
     }
 
     pub fn terminate_session(&mut self) { if self.era.as_deref()!=Some("modern") { self.session_id=None; } }
@@ -678,7 +683,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
             if let Some(text) = value.as_str() { request = request.header(key, text); }
         }
         let response = request.send()?;
-        if response.status().as_u16() == 401 && self.apply_oauth() { return self.send_with_headers(message,extra_headers); }
+        if response.status().as_u16() == 401 && self.apply_oauth()? { return self.send_with_headers(message,extra_headers); }
         if !response.status().is_success() { return Err(AxError::new("mcp", format!("HTTP error {}", response.status().as_u16()))); }
         if self.era.as_deref()!=Some("modern"){if let Some(session)=response.headers().get("mcp-session-id").and_then(|value|value.to_str().ok()){self.session_id=Some(session.to_string());}}
         // A spec-compliant MCP server may answer a JSON-RPC POST with an SSE stream
@@ -1005,14 +1010,23 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
             }
             expect_subset("stdio decoded", &ax_mcp_stdio_decode(&line)?, fixture.get("message").unwrap_or(&Value::Null))
         }
+        "oauth_issuer" => {
+            for case in fixture.get("cases").and_then(Value::as_array).cloned().unwrap_or_default(){let actual=core_mcp(&crate::mcp_oauth_validate_issuer,&[case.get("response").cloned().unwrap_or_else(||json!({})),case.get("expected_issuer").cloned().unwrap_or_else(||json!("")),case.get("require_iss").cloned().unwrap_or_else(||json!(false))])?;expect_subset("OAuth issuer validation",&actual,case.get("expected").unwrap_or(&Value::Null))?;}
+            let endpoint=fixture.get("endpoint").and_then(Value::as_str).unwrap_or("https://auth.example").to_string();
+            let callback_endpoint=endpoint.clone();
+            let mut transport=AxMCPStreamableHTTPTransport::new(&endpoint,Value::Null)?;
+            transport.oauth=Some(AxMCPOAuthOptions{require_iss:true,on_auth_code:Some(Arc::new(move|raw_url|{let state=raw_url.split("state=").nth(1).and_then(|value|value.split('&').next()).unwrap_or_default();Ok(Map::from_iter([("code".to_string(),json!("abc")),("state".to_string(),json!(state)),("iss".to_string(),json!(callback_endpoint))]))})),..Default::default()});
+            if !transport.apply_oauth()?||transport.headers.get("Authorization")!=fixture.get("stub_expected_authorization"){return Err(AxError::new("fixture","OAuth issuer-validating stub did not set Authorization"));}
+            Ok(())
+        }
         "oauth" => {
             let challenge = ax_mcp_pkce_challenge(fixture.get("verifier").and_then(Value::as_str).unwrap_or("test-verifier"));
             if let Some(expected) = fixture.get("expected_challenge").and_then(Value::as_str) {
                 if challenge != expected { return Err(AxError::new("fixture", "PKCE challenge mismatch")); }
             }
             let mut transport = AxMCPStreamableHTTPTransport::new(fixture.get("endpoint").and_then(Value::as_str).unwrap_or("https://example.com/mcp"), Value::Null)?;
-            transport.oauth = Some(AxMCPOAuthOptions { on_auth_code: Some(Arc::new(|_| Ok(Map::from_iter([("code".to_string(), json!("abc"))])))), ..Default::default() });
-            if !transport.apply_oauth() || transport.headers.get("Authorization").is_none() { return Err(AxError::new("fixture", "OAuth flow did not set Authorization")); }
+            transport.oauth = Some(AxMCPOAuthOptions { on_auth_code: Some(Arc::new(|raw_url| {let state=raw_url.split("state=").nth(1).and_then(|value|value.split('&').next()).unwrap_or_default();Ok(Map::from_iter([("code".to_string(), json!("abc")),("state".to_string(),json!(state))]))})), ..Default::default() });
+            if !transport.apply_oauth()? || transport.headers.get("Authorization").is_none() { return Err(AxError::new("fixture", "OAuth flow did not set Authorization")); }
             Ok(())
         }
         "discover" => {

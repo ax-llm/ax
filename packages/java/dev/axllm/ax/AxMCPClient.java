@@ -368,13 +368,36 @@ public final class AxMCPClient {
         assertSubset(stdioDecode(encoded), fixture.get("message"), "stdio decoded");
         return;
       }
+      if ("oauth_issuer".equals(operation)) {
+        for (Object raw : Core.asList(fixture.get("cases"))) {
+          Map<String, Object> testCase = Core.asMap(raw);
+          Object actual = Core.mcp_oauth_validate_issuer(testCase.getOrDefault("response", Map.of()), testCase.getOrDefault("expected_issuer", ""), testCase.getOrDefault("require_iss", false));
+          assertSubset(actual, testCase.getOrDefault("expected", Map.of()), "OAuth issuer validation");
+        }
+        String endpoint = String.valueOf(fixture.getOrDefault("endpoint", "https://auth.example"));
+        AxMCPOAuthOptions oauth = new AxMCPOAuthOptions();
+        oauth.requireIss = true;
+        oauth.onAuthCode = url -> {
+          String state = "";
+          for (String part : URI.create(url).getQuery().split("&")) if (part.startsWith("state=")) state = part.substring("state=".length());
+          return Map.of("code", "abc", "state", state, "iss", endpoint);
+        };
+        AxMCPStreamableHTTPTransport transport = new AxMCPStreamableHTTPTransport(endpoint, Map.of("oauth", oauth));
+        if (!transport.applyOAuth()) throw new AssertionError("OAuth issuer-validating stub did not produce a token");
+        if (!String.valueOf(fixture.get("stub_expected_authorization")).equals(transport.headers().get("Authorization"))) throw new AssertionError("OAuth issuer-validating stub did not set Authorization");
+        return;
+      }
       if ("oauth".equals(operation)) {
         String challenge = pkceChallenge(String.valueOf(fixture.getOrDefault("verifier", "test-verifier")));
         if (fixture.get("expected_challenge") != null && !challenge.equals(fixture.get("expected_challenge"))) throw new AssertionError("PKCE challenge mismatch");
         MapTokenStore store = new MapTokenStore();
         AxMCPOAuthOptions oauth = new AxMCPOAuthOptions();
         oauth.tokenStore = store;
-        oauth.onAuthCode = url -> Map.of("code", "abc");
+        oauth.onAuthCode = url -> {
+          String state = "";
+          for (String part : URI.create(url).getQuery().split("&")) if (part.startsWith("state=")) state = part.substring("state=".length());
+          return Map.of("code", "abc", "state", state);
+        };
         AxMCPStreamableHTTPTransport transport = new AxMCPStreamableHTTPTransport(String.valueOf(fixture.getOrDefault("endpoint", "https://example.com/mcp")), Map.of("oauth", oauth));
         if (!transport.applyOAuth()) throw new AssertionError("OAuth flow did not produce a token");
         if (!transport.headers().containsKey("Authorization")) throw new AssertionError("OAuth flow did not set Authorization");

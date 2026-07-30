@@ -72319,4 +72319,75 @@ fn mcp_notification_subscription_filter(args: &[CoreValue]) -> Result<CoreValue,
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (544 of 544 core functions)
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_oauth_validate_issuer(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_oauth_validate_issuer");
+    let mut v_response = core_arg(args, 0);
+    let mut v_expected_issuer = core_arg(args, 1);
+    let mut v_require_iss = core_arg(args, 2);
+    let mut v_expected_state = CoreValue::Null;
+    let mut v_issuer_matches = CoreValue::Null;
+    let mut v_issuer_missing = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_returned_issuer = CoreValue::Null;
+    let mut v_state = CoreValue::Null;
+    let mut v_state_matches = CoreValue::Null;
+    v_state = core_get(&v_response, &CoreValue::from("state"), CoreValue::Null);
+    v_expected_state = core_get(
+        &v_response,
+        &CoreValue::from("expectedState"),
+        CoreValue::Null,
+    );
+    v_state_matches = core_eq(&[v_state.clone(), v_expected_state.clone()])?;
+    if core_truthy(&v_state_matches) {
+    } else {
+        v_out = CoreValue::new_map();
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("OAuth state mismatch"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_returned_issuer = core_get(&v_response, &CoreValue::from("iss"), CoreValue::Null);
+    v_issuer_missing = core_is_none(&[v_returned_issuer.clone()])?;
+    if core_truthy(&v_issuer_missing) {
+        if core_truthy(&v_require_iss) {
+            v_out = CoreValue::new_map();
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+            core_set(
+                &v_out,
+                CoreValue::from("message"),
+                CoreValue::from("OAuth authorization response issuer is required"),
+            )?;
+            return Ok(v_out.clone());
+        }
+    } else {
+        v_issuer_matches = core_eq(&[v_returned_issuer.clone(), v_expected_issuer.clone()])?;
+        if core_truthy(&v_issuer_matches) {
+        } else {
+            v_message = core_string_format(&[
+                CoreValue::from("OAuth issuer mismatch: expected {}, received {}"),
+                v_expected_issuer.clone(),
+                v_returned_issuer.clone(),
+            ])?;
+            v_out = CoreValue::new_map();
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+            core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+            return Ok(v_out.clone());
+        }
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+    return Ok(v_out.clone());
+}
+
+// END AXIR CORE EMITTED FUNCTIONS (545 of 545 core functions)

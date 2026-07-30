@@ -141,6 +141,7 @@ class AxMCPOAuthOptions:
     onAuthCode: Callable[[str], dict[str, str]] | None = None
     tokenStore: Any = None
     ssrfProtection: dict[str, Any] | None = None
+    requireIss: bool = False
 
 
 @dataclass
@@ -2041,12 +2042,14 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
             scopes = oauth.scopes or []
             client_id = oauth.clientId or "ax-mcp-client"
             redirect_uri = oauth.redirectUri or "http://localhost:8787/callback"
+            require_iss = oauth.requireIss
         else:
             store = oauth.get("tokenStore")
             callback = oauth.get("onAuthCode")
             scopes = oauth.get("scopes") or []
             client_id = oauth.get("clientId") or "ax-mcp-client"
             redirect_uri = oauth.get("redirectUri") or "http://localhost:8787/callback"
+            require_iss = bool(oauth.get("requireIss", oauth.get("require_iss", False)))
         token = _token_store_get(store, self.endpoint)
         if token and token.get("accessToken"):
             self.headers["Authorization"] = "Bearer " + token["accessToken"]
@@ -2055,6 +2058,7 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
             return False
         verifier = ax_mcp_pkce_verifier()
         challenge = ax_mcp_pkce_challenge(verifier)
+        state = ax_mcp_pkce_verifier()
         params = urllib.parse.urlencode({
             "response_type": "code",
             "client_id": client_id,
@@ -2062,10 +2066,14 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
             "scope": " ".join(scopes),
             "code_challenge": challenge,
             "code_challenge_method": "S256",
+            "state": state,
         })
         auth = callback(self.endpoint + ("&" if "?" in self.endpoint else "?") + params)
         if not auth or not auth.get("code"):
             return False
+        validation = mcp_oauth_validate_issuer({**auth, "expectedState": state}, self.endpoint, require_iss)
+        if not validation.get("ok"):
+            raise AxMCPError(str(validation.get("message") or "OAuth authorization response validation failed"))
         token = {"accessToken": "mcp-auth-code-" + auth["code"], "issuer": self.endpoint}
         _token_store_set(store, self.endpoint, token)
         self.headers["Authorization"] = "Bearer " + token["accessToken"]
@@ -2246,15 +2254,37 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             decoded = ax_mcp_stdio_decode(encoded)
             _assert_subset(decoded, fixture["message"], "stdio decoded")
             return
+        if operation == "oauth_issuer":
+            for case in fixture.get("cases") or []:
+                actual = mcp_oauth_validate_issuer(
+                    case.get("response") or {},
+                    case.get("expected_issuer", ""),
+                    bool(case.get("require_iss")),
+                )
+                _assert_subset(actual, case.get("expected") or {}, "OAuth issuer validation")
+            endpoint = fixture.get("endpoint", "https://auth.example")
+            def oauth_callback(url: str) -> dict[str, str]:
+                state = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["state"][0]
+                return {"code": "abc", "state": state, "iss": endpoint}
+            transport = AxMCPStreamableHTTPTransport(endpoint, {"oauth": {"onAuthCode": oauth_callback, "requireIss": True}})
+            if not transport._apply_oauth():
+                raise AssertionError("OAuth issuer-validating stub did not produce a token")
+            if transport.headers.get("Authorization") != fixture.get("stub_expected_authorization"):
+                raise AssertionError("OAuth issuer-validating stub did not set Authorization")
+            return
         if operation == "oauth":
             challenge = ax_mcp_pkce_challenge(fixture.get("verifier", "test-verifier"))
             if fixture.get("expected_challenge") and challenge != fixture["expected_challenge"]:
                 raise AssertionError("PKCE challenge mismatch")
             store: dict[str, Any] = {}
             auth_codes: list[str] = []
+            def oauth_callback(url: str) -> dict[str, str]:
+                state = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["state"][0]
+                auth_codes.append(url)
+                return {"code": "abc", "state": state}
             transport = AxMCPStreamableHTTPTransport(
                 fixture.get("endpoint", "https://example.com/mcp"),
-                {"oauth": {"tokenStore": store, "onAuthCode": lambda url: auth_codes.append(url) or {"code": "abc"}}},
+                {"oauth": {"tokenStore": store, "onAuthCode": oauth_callback}},
             )
             if not transport._apply_oauth():
                 raise AssertionError("OAuth flow did not produce a token")

@@ -12,6 +12,7 @@ public final class AxMCPOAuthOptions {
   public Function<String, Map<String, String>> onAuthCode;
   public TokenStore tokenStore;
   public Map<String, Object> ssrfProtection = Map.of();
+  public boolean requireIss;
 
   public interface TokenStore {
     AxMCPTokenSet getToken(String key);

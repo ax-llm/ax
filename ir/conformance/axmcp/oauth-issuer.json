@@ -1,0 +1,58 @@
+{
+  "name": "mcp oauth RFC 9207 issuer and state validation",
+  "kind": "mcp",
+  "operation": "oauth_issuer",
+  "endpoint": "https://auth.example",
+  "cases": [
+    {
+      "response": {
+        "code": "ok",
+        "state": "state-1",
+        "expectedState": "state-1",
+        "iss": "https://auth.example"
+      },
+      "expected_issuer": "https://auth.example",
+      "require_iss": true,
+      "expected": { "ok": true }
+    },
+    {
+      "response": {
+        "code": "bad-issuer",
+        "state": "state-2",
+        "expectedState": "state-2",
+        "iss": "https://attacker.example"
+      },
+      "expected_issuer": "https://auth.example",
+      "require_iss": false,
+      "expected": {
+        "ok": false,
+        "message": "OAuth issuer mismatch: expected https://auth.example, received https://attacker.example"
+      }
+    },
+    {
+      "response": {
+        "code": "missing-issuer",
+        "state": "state-3",
+        "expectedState": "state-3"
+      },
+      "expected_issuer": "https://auth.example",
+      "require_iss": true,
+      "expected": {
+        "ok": false,
+        "message": "OAuth authorization response issuer is required"
+      }
+    },
+    {
+      "response": {
+        "code": "bad-state",
+        "state": "returned-state",
+        "expectedState": "expected-state",
+        "iss": "https://auth.example"
+      },
+      "expected_issuer": "https://auth.example",
+      "require_iss": true,
+      "expected": { "ok": false, "message": "OAuth state mismatch" }
+    }
+  ],
+  "stub_expected_authorization": "Bearer mcp-auth-code-abc"
+}

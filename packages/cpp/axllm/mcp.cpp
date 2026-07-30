@@ -579,9 +579,13 @@ void AxMCPStreamableHTTPTransport::terminate_session() { if (era_ != "modern") s
 
 bool AxMCPStreamableHTTPTransport::apply_oauth() {
   if (!oauth.onAuthCode) return false;
-  Value auth = oauth.onAuthCode(endpoint_ + "?response_type=code&code_challenge=" + ax_mcp_pkce_challenge(ax_mcp_pkce_verifier()));
+  std::string state = ax_mcp_pkce_verifier();
+  Value auth = oauth.onAuthCode(endpoint_ + "?response_type=code&code_challenge=" + ax_mcp_pkce_challenge(ax_mcp_pkce_verifier()) + "&state=" + state);
   std::string code = display(Core::get(auth, "code", ""));
   if (code.empty()) return false;
+  Core::set(auth, "expectedState", state);
+  Value validation = Core::mcp_oauth_validate_issuer(auth, endpoint_, oauth.requireIss);
+  if (!Core::truthy(Core::get(validation, "ok", false))) throw AxError("mcp", display(Core::get(validation, "message", "OAuth authorization response validation failed")));
   Core::set(headers_, "Authorization", "Bearer mcp-auth-code-" + code);
   return true;
 }
@@ -681,6 +685,24 @@ void run_mcp_conformance_fixture(Value fixture) {
         throw AxError("fixture", "stdio line mismatch");
       }
       expect_subset_local(ax_mcp_stdio_decode(line), Core::get(fixture, "message", Value::object()), "stdio decoded");
+      return;
+    }
+    if (op == "oauth_issuer") {
+      for (auto raw : Core::iter(Core::get(fixture, "cases", Value::array()))) {
+        Value actual = Core::mcp_oauth_validate_issuer(Core::get(raw, "response", Value::object()), Core::get(raw, "expected_issuer", ""), Core::get(raw, "require_iss", false));
+        expect_subset_local(actual, Core::get(raw, "expected", Value::object()), "OAuth issuer validation");
+      }
+      std::string endpoint = display(Core::get(fixture, "endpoint", "https://auth.example"));
+      AxMCPStreamableHTTPTransport transport(endpoint);
+      transport.oauth.requireIss = true;
+      transport.oauth.onAuthCode = [endpoint](const std::string& raw_url) {
+        auto marker = raw_url.find("state=");
+        std::string state = marker == std::string::npos ? "" : raw_url.substr(marker + 6);
+        auto separator = state.find('&'); if (separator != std::string::npos) state.resize(separator);
+        return object({{"code", "abc"}, {"state", state}, {"iss", endpoint}});
+      };
+      if (!transport.apply_oauth()) throw AxError("fixture", "OAuth issuer-validating stub did not produce a token");
+      if (display(Core::get(transport.headers(), "Authorization", "")) != display(Core::get(fixture, "stub_expected_authorization", ""))) throw AxError("fixture", "OAuth issuer-validating stub did not set Authorization");
       return;
     }
     if (op == "oauth") {

@@ -256,8 +256,13 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     if (oauth.onAuthCode == null) return false;
     String verifier = AxMCPClient.pkceVerifier();
     String challenge = AxMCPClient.pkceChallenge(verifier);
-    Map<String, String> auth = oauth.onAuthCode.apply(endpoint + "?response_type=code&code_challenge=" + challenge + "&code_challenge_method=S256");
+    String state = AxMCPClient.pkceVerifier();
+    Map<String, String> auth = oauth.onAuthCode.apply(endpoint + "?response_type=code&code_challenge=" + challenge + "&code_challenge_method=S256&state=" + state);
     if (auth == null || auth.get("code") == null) return false;
+    Map<String, Object> response = new LinkedHashMap<>(auth);
+    response.put("expectedState", state);
+    Map<String, Object> validation = Core.asMap(Core.mcp_oauth_validate_issuer(response, endpoint, oauth.requireIss));
+    if (!Boolean.TRUE.equals(validation.get("ok"))) throw new AxMCPError(String.valueOf(validation.getOrDefault("message", "OAuth authorization response validation failed")));
     AxMCPTokenSet next = new AxMCPTokenSet("mcp-auth-code-" + auth.get("code"), null, null, endpoint);
     if (oauth.tokenStore != null) oauth.tokenStore.setToken(endpoint, next);
     headers.put("Authorization", "Bearer " + next.accessToken);

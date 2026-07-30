@@ -474,6 +474,13 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "oauth_issuer",
+        "runner": "go:axmcp.oauth_issuer",
+        "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "ssrf",
         "runner": "go:axmcp.ssrf",
         "category": "validation-error"

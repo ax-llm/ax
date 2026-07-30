@@ -46712,6 +46712,72 @@ func mcp_notification_subscription_filter(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func mcp_oauth_validate_issuer(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_oauth_validate_issuer")
+	var v_response Value
+	var v_expected_issuer Value
+	var v_require_iss Value
+	var v_expected_state Value
+	var v_issuer_matches Value
+	var v_issuer_missing Value
+	var v_message Value
+	var v_out Value
+	var v_returned_issuer Value
+	var v_state Value
+	var v_state_matches Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	if len(args) > 1 { v_expected_issuer = args[1] }
+	_ = v_expected_issuer
+	if len(args) > 2 { v_require_iss = args[2] }
+	_ = v_require_iss
+	_ = v_expected_state
+	_ = v_issuer_matches
+	_ = v_issuer_missing
+	_ = v_message
+	_ = v_out
+	_ = v_returned_issuer
+	_ = v_state
+	_ = v_state_matches
+	v_state = coreGet(v_response, "state", nil)
+	v_expected_state = coreGet(v_response, "expectedState", nil)
+	v_state_matches = _core_eq(v_state, v_expected_state)
+	if coreTruthy(v_state_matches) {
+	// empty
+	} else {
+		v_out = Object()
+		if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
+		if err := coreSet(v_out, "message", "OAuth state mismatch"); err != nil { return nil, err }
+		return v_out, nil
+	}
+	v_returned_issuer = coreGet(v_response, "iss", nil)
+	v_issuer_missing = _core_is_none(v_returned_issuer)
+	if coreTruthy(v_issuer_missing) {
+		if coreTruthy(v_require_iss) {
+			v_out = Object()
+			if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
+			if err := coreSet(v_out, "message", "OAuth authorization response issuer is required"); err != nil { return nil, err }
+			return v_out, nil
+		} else {
+		// empty
+		}
+	} else {
+		v_issuer_matches = _core_eq(v_returned_issuer, v_expected_issuer)
+		if coreTruthy(v_issuer_matches) {
+		// empty
+		} else {
+			v_message = _core_string_format("OAuth issuer mismatch: expected {}, received {}", v_expected_issuer, v_returned_issuer)
+			v_out = Object()
+			if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
+			if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+			return v_out, nil
+		}
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "ok", true); err != nil { return nil, err }
+	return v_out, nil
+}
+
 // END AXIR CORE EMITTED FUNCTIONS
 
 // Public signature/schema surface.

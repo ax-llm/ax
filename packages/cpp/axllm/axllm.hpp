@@ -783,6 +783,7 @@ struct Core {
   static Value mcp_resource_subscription_ownership(Value owners, Value owner, Value operation);
   static Value mcp_listen_interests(Value subscribed_uris, Value filters);
   static Value mcp_notification_subscription_filter(Value message, Value active_subscription_id);
+  static Value mcp_oauth_validate_issuer(Value response, Value expected_issuer, Value require_iss);
   // END AXIR CORE EMITTED DECLARATIONS
 
 };

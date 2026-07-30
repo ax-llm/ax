@@ -22832,6 +22832,48 @@ final class Core {
     return out;
   }
 
+  static Object mcp_oauth_validate_issuer(Object response, Object expected_issuer, Object require_iss) {
+    axirCoverageMark("mcp_oauth_validate_issuer");
+    Object state = Core.get(response, "state", null);
+    Object expected_state = Core.get(response, "expectedState", null);
+    Object state_matches = Core.eq(state, expected_state);
+    if (Core.truthy(state_matches)) {
+      // empty
+    }
+    if (!Core.truthy(state_matches)) {
+      Object out = new java.util.LinkedHashMap<String, Object>();
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", "OAuth state mismatch");
+      return out;
+    }
+    Object returned_issuer = Core.get(response, "iss", null);
+    Object issuer_missing = Core.isNone(returned_issuer);
+    if (Core.truthy(issuer_missing)) {
+      if (Core.truthy(require_iss)) {
+        Object out = new java.util.LinkedHashMap<String, Object>();
+        Core.set(out, "ok", Boolean.FALSE);
+        Core.set(out, "message", "OAuth authorization response issuer is required");
+        return out;
+      }
+    }
+    if (!Core.truthy(issuer_missing)) {
+      Object issuer_matches = Core.eq(returned_issuer, expected_issuer);
+      if (Core.truthy(issuer_matches)) {
+        // empty
+      }
+      if (!Core.truthy(issuer_matches)) {
+        Object message = Core.stringFormat("OAuth issuer mismatch: expected {}, received {}", expected_issuer, returned_issuer);
+        Object out = new java.util.LinkedHashMap<String, Object>();
+        Core.set(out, "ok", Boolean.FALSE);
+        Core.set(out, "message", message);
+        return out;
+      }
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "ok", Boolean.TRUE);
+    return out;
+  }
+
   // END AXIR CORE EMITTED FUNCTIONS
 }
 

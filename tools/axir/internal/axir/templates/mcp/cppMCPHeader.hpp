@@ -34,6 +34,7 @@ struct AxMCPOAuthOptions {
   std::function<Value(const std::string&)> getToken;
   std::function<void(const std::string&, Value)> setToken;
   Value ssrfProtection = Value::object();
+  bool requireIss = false;
 };
 
 class AxMCPTransport {
@@ -339,6 +340,7 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
                       Value extra_headers = Value::object()) const;
   void terminate_session();
   bool apply_oauth();
+  Value headers() const { return headers_; }
   AxMCPOAuthOptions oauth;
 
  private:
