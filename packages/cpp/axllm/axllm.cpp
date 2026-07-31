@@ -4260,7 +4260,7 @@ Value Core::_openai_apply_model_config_impl(Value payload, Value model_config) {
   Value has_budget = Core::is_not_none(budget);
   if (Core::truthy(has_budget)) {
     Value model = Core::get(payload, Value("model"), Value(""));
-    Value effort = Core::openai_reasoning_effort(model, budget);
+    Value effort = Core::openai_chat_reasoning_effort(model, budget);
     Value has_effort = Core::is_not_none(effort);
     if (Core::truthy(has_effort)) {
       Core::set(payload, Value("reasoning_effort"), effort);
@@ -4361,14 +4361,14 @@ Value Core::normalize_embed_response(Value raw) {
   return response;
 }
 
-Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target) {
-  axir_coverage_mark("_openai_copy_config_key_impl");
-  Value has_source = Core::map_contains(model_config, source);
-  if (Core::truthy(has_source)) {
-    Value value = Core::get(model_config, source, Value());
-    Core::set(payload, target, value);
+Value Core::openai_chat_reasoning_effort(Value model, Value budget) {
+  axir_coverage_mark("openai_chat_reasoning_effort");
+  Value effort = Core::openai_reasoning_effort(model, budget);
+  Value is_max = Core::eq(effort, Value("max"));
+  if (Core::truthy(is_max)) {
+    return Value("xhigh");
   }
-  return Value();
+  return effort;
 }
 
 Value Core::normalize_token_usage(Value usage) {
@@ -4422,6 +4422,16 @@ Value Core::normalize_token_usage(Value usage) {
     Core::set(out, Value("speed"), speed);
   }
   return out;
+}
+
+Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target) {
+  axir_coverage_mark("_openai_copy_config_key_impl");
+  Value has_source = Core::map_contains(model_config, source);
+  if (Core::truthy(has_source)) {
+    Value value = Core::get(model_config, source, Value());
+    Core::set(payload, target, value);
+  }
+  return Value();
 }
 
 Value Core::_openai_message_impl(Value message) {
@@ -4655,30 +4665,6 @@ Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
   return out;
 }
 
-Value Core::_openai_tool_call_to_provider_impl(Value call) {
-  axir_coverage_mark("_openai_tool_call_to_provider_impl");
-  Value fn = Core::get(call, Value("function"), Value());
-  Value params = Core::get(fn, Value("params"), Value());
-  Value params_is_string = Core::type_is(params, Value("string"));
-  if (Core::truthy(params_is_string)) {
-    // empty
-  }
-  if (!Core::truthy(params_is_string)) {
-    Value params_json = Core::json_stringify(params);
-    params = params_json;
-  }
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(fn, Value("name"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("arguments"), params);
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
-}
-
 Value Core::chat_response_to_completion(Value response) {
   axir_coverage_mark("chat_response_to_completion");
   Value empty_results = Value::array();
@@ -4706,6 +4692,30 @@ Value Core::chat_response_to_completion(Value response) {
   Core::set(out, Value("content"), content);
   Core::set(out, Value("function_calls"), calls);
   Core::set(out, Value("usage"), usage);
+  return out;
+}
+
+Value Core::_openai_tool_call_to_provider_impl(Value call) {
+  axir_coverage_mark("_openai_tool_call_to_provider_impl");
+  Value fn = Core::get(call, Value("function"), Value());
+  Value params = Core::get(fn, Value("params"), Value());
+  Value params_is_string = Core::type_is(params, Value("string"));
+  if (Core::truthy(params_is_string)) {
+    // empty
+  }
+  if (!Core::truthy(params_is_string)) {
+    Value params_json = Core::json_stringify(params);
+    params = params_json;
+  }
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(fn, Value("name"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("arguments"), params);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
   return out;
 }
 
@@ -4774,6 +4784,18 @@ Value Core::openai_build_embed_request(Value request) {
   return payload;
 }
 
+Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
+  axir_coverage_mark("ai_context_cache_expiry");
+  Value is_number = Core::type_is(provider_expire_time, Value("number"));
+  if (Core::truthy(is_number)) {
+    Value future = Core::gt(provider_expire_time, now);
+    if (Core::truthy(future)) {
+      return provider_expire_time;
+    }
+  }
+  return Value(0);
+}
+
 Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model) {
   axir_coverage_mark("openai_normalize_chat_response");
   Value raw_is_object = Core::type_is(raw, Value("object"));
@@ -4811,18 +4833,6 @@ Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model
   Core::set(out, Value("remote_id"), remote_id);
   Core::set(out, Value("model_usage"), model_usage);
   return out;
-}
-
-Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
-  axir_coverage_mark("ai_context_cache_expiry");
-  Value is_number = Core::type_is(provider_expire_time, Value("number"));
-  if (Core::truthy(is_number)) {
-    Value future = Core::gt(provider_expire_time, now);
-    if (Core::truthy(future)) {
-      return provider_expire_time;
-    }
-  }
-  return Value(0);
 }
 
 Value Core::ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible) {

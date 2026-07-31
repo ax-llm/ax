@@ -13,7 +13,7 @@ Reference areas:
 - `src/ax/ai/openai/api.ts` for OpenAI-compatible request mapping, response
   mapping, streaming delta mapping, embeddings, finish reasons, tool calls, and
   usage normalization, plus `src/ax/ai/openai/effort.ts` for the TS-derived
-  GPT-5.6 and legacy-model reasoning-effort ladders.
+  GPT-5.6 Chat-versus-Responses and legacy-model reasoning-effort ladders.
 - `src/ax/ai/openai/responses_api.ts` and
   `src/ax/ai/openai/responses_api_base.ts` for descriptor-backed OpenAI
   Responses request/response/stream mapping, citations, function calls, and

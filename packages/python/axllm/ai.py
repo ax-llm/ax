@@ -2261,7 +2261,7 @@ def _openai_apply_model_config_impl(payload: Any, model_config: Any) -> None:
     has_budget = _core_is_not_none(budget)
     if has_budget:
         model = _core_get(payload, "model", "")
-        effort = openai_reasoning_effort(model, budget)
+        effort = openai_chat_reasoning_effort(model, budget)
         has_effort = _core_is_not_none(effort)
         if has_effort:
             payload["reasoning_effort"] = effort
@@ -2373,15 +2373,15 @@ def normalize_embed_response(raw: Any) -> AxEmbedResponse:
     return response
 
 
-def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, target: str) -> None:
-    _core_coverage_mark("_openai_copy_config_key_impl")
-    has_source = _core_map_contains(model_config, source)
-    if has_source:
-        value = _core_get(model_config, source, None)
-        payload[target] = value
+def openai_chat_reasoning_effort(model: str, budget: Any) -> Any:
+    _core_coverage_mark("openai_chat_reasoning_effort")
+    effort = openai_reasoning_effort(model, budget)
+    is_max = _core_eq(effort, "max")
+    if is_max:
+        return "xhigh"
     else:
         pass
-    return None
+    return effort
 
 
 def normalize_token_usage(usage: Any) -> Any:
@@ -2441,6 +2441,17 @@ def normalize_token_usage(usage: Any) -> Any:
     else:
         pass
     return out
+
+
+def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, target: str) -> None:
+    _core_coverage_mark("_openai_copy_config_key_impl")
+    has_source = _core_map_contains(model_config, source)
+    if has_source:
+        value = _core_get(model_config, source, None)
+        payload[target] = value
+    else:
+        pass
+    return None
 
 
 def _openai_message_impl(message: Any) -> Any:
@@ -2687,28 +2698,6 @@ def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
     return out
 
 
-def _openai_tool_call_to_provider_impl(call: Any) -> Any:
-    _core_coverage_mark("_openai_tool_call_to_provider_impl")
-    fn = _core_get(call, "function", None)
-    params = _core_get(fn, "params", None)
-    params_is_string = _core_type_is(params, "string")
-    if params_is_string:
-        pass
-    else:
-        params_json = _core_json_stringify(params)
-        params = params_json
-    id = _core_get(call, "id", None)
-    name = _core_get(fn, "name", None)
-    function = {}
-    function["name"] = name
-    function["arguments"] = params
-    out = {}
-    out["id"] = id
-    out["type"] = "function"
-    out["function"] = function
-    return out
-
-
 def chat_response_to_completion(response: AxChatResponse) -> Any:
     _core_coverage_mark("chat_response_to_completion")
     empty_results = []
@@ -2735,6 +2724,28 @@ def chat_response_to_completion(response: AxChatResponse) -> Any:
     out["content"] = content
     out["function_calls"] = calls
     out["usage"] = usage
+    return out
+
+
+def _openai_tool_call_to_provider_impl(call: Any) -> Any:
+    _core_coverage_mark("_openai_tool_call_to_provider_impl")
+    fn = _core_get(call, "function", None)
+    params = _core_get(fn, "params", None)
+    params_is_string = _core_type_is(params, "string")
+    if params_is_string:
+        pass
+    else:
+        params_json = _core_json_stringify(params)
+        params = params_json
+    id = _core_get(call, "id", None)
+    name = _core_get(fn, "name", None)
+    function = {}
+    function["name"] = name
+    function["arguments"] = params
+    out = {}
+    out["id"] = id
+    out["type"] = "function"
+    out["function"] = function
     return out
 
 
@@ -2805,6 +2816,20 @@ def openai_build_embed_request(request: AxEmbedRequest) -> Any:
     return payload
 
 
+def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
+    _core_coverage_mark("ai_context_cache_expiry")
+    is_number = _core_type_is(provider_expire_time, "number")
+    if is_number:
+        future = _core_gt(provider_expire_time, now)
+        if future:
+            return provider_expire_time
+        else:
+            pass
+    else:
+        pass
+    return 0
+
+
 def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
     _core_coverage_mark("openai_normalize_chat_response")
     raw_is_object = _core_type_is(raw, "object")
@@ -2844,20 +2869,6 @@ def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str
     out["remote_id"] = remote_id
     out["model_usage"] = model_usage
     return out
-
-
-def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
-    _core_coverage_mark("ai_context_cache_expiry")
-    is_number = _core_type_is(provider_expire_time, "number")
-    if is_number:
-        future = _core_gt(provider_expire_time, now)
-        if future:
-            return provider_expire_time
-        else:
-            pass
-    else:
-        pass
-    return 0
 
 
 def ai_context_cache_plan(configured: bool, supported: bool, explicit_name: str, existing: Any, now: number, refresh_window_ms: number, create_eligible: bool) -> Any:

@@ -5896,7 +5896,7 @@ func _openai_apply_model_config_impl(args ...Value) (Value, error) {
 	v_has_budget = _core_is_not_none(v_budget)
 	if coreTruthy(v_has_budget) {
 		v_model = coreGet(v_payload, "model", "")
-		{ v, err := openai_reasoning_effort(v_model, v_budget); if err != nil { return nil, err }; v_effort = v }
+		{ v, err := openai_chat_reasoning_effort(v_model, v_budget); if err != nil { return nil, err }; v_effort = v }
 		v_has_effort = _core_is_not_none(v_effort)
 		if coreTruthy(v_has_effort) {
 			if err := coreSet(v_payload, "reasoning_effort", v_effort); err != nil { return nil, err }
@@ -6086,32 +6086,26 @@ func normalize_embed_response(args ...Value) (Value, error) {
 	return v_response, nil
 }
 
-func _openai_copy_config_key_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_copy_config_key_impl")
-	var v_payload Value
-	var v_model_config Value
-	var v_source Value
-	var v_target Value
-	var v_has_source Value
-	var v_value Value
-	if len(args) > 0 { v_payload = args[0] }
-	_ = v_payload
-	if len(args) > 1 { v_model_config = args[1] }
-	_ = v_model_config
-	if len(args) > 2 { v_source = args[2] }
-	_ = v_source
-	if len(args) > 3 { v_target = args[3] }
-	_ = v_target
-	_ = v_has_source
-	_ = v_value
-	v_has_source = _core_map_contains(v_model_config, v_source)
-	if coreTruthy(v_has_source) {
-		v_value = coreGet(v_model_config, v_source, nil)
-		if err := coreSet(v_payload, v_target, v_value); err != nil { return nil, err }
+func openai_chat_reasoning_effort(args ...Value) (Value, error) {
+	axirCoverageMark("openai_chat_reasoning_effort")
+	var v_model Value
+	var v_budget Value
+	var v_effort Value
+	var v_is_max Value
+	if len(args) > 0 { v_model = args[0] }
+	_ = v_model
+	if len(args) > 1 { v_budget = args[1] }
+	_ = v_budget
+	_ = v_effort
+	_ = v_is_max
+	{ v, err := openai_reasoning_effort(v_model, v_budget); if err != nil { return nil, err }; v_effort = v }
+	v_is_max = _core_eq(v_effort, "max")
+	if coreTruthy(v_is_max) {
+		return "xhigh", nil
 	} else {
 	// empty
 	}
-	return nil, nil
+	return v_effort, nil
 }
 
 func normalize_token_usage(args ...Value) (Value, error) {
@@ -6234,6 +6228,34 @@ func normalize_token_usage(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_out, nil
+}
+
+func _openai_copy_config_key_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_copy_config_key_impl")
+	var v_payload Value
+	var v_model_config Value
+	var v_source Value
+	var v_target Value
+	var v_has_source Value
+	var v_value Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_model_config = args[1] }
+	_ = v_model_config
+	if len(args) > 2 { v_source = args[2] }
+	_ = v_source
+	if len(args) > 3 { v_target = args[3] }
+	_ = v_target
+	_ = v_has_source
+	_ = v_value
+	v_has_source = _core_map_contains(v_model_config, v_source)
+	if coreTruthy(v_has_source) {
+		v_value = coreGet(v_model_config, v_source, nil)
+		if err := coreSet(v_payload, v_target, v_value); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
 }
 
 func _openai_message_impl(args ...Value) (Value, error) {
@@ -6734,48 +6756,6 @@ func _ai_model_usage_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_tool_call_to_provider_impl")
-	var v_call Value
-	var v_fn Value
-	var v_function Value
-	var v_id Value
-	var v_name Value
-	var v_out Value
-	var v_params Value
-	var v_params_is_string Value
-	var v_params_json Value
-	if len(args) > 0 { v_call = args[0] }
-	_ = v_call
-	_ = v_fn
-	_ = v_function
-	_ = v_id
-	_ = v_name
-	_ = v_out
-	_ = v_params
-	_ = v_params_is_string
-	_ = v_params_json
-	v_fn = coreGet(v_call, "function", nil)
-	v_params = coreGet(v_fn, "params", nil)
-	v_params_is_string = coreTypeIs(v_params, "string")
-	if coreTruthy(v_params_is_string) {
-	// empty
-	} else {
-		v_params_json = _core_json_stringify(v_params)
-		v_params = v_params_json
-	}
-	v_id = coreGet(v_call, "id", nil)
-	v_name = coreGet(v_fn, "name", nil)
-	v_function = Object()
-	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-	if err := coreSet(v_function, "arguments", v_params); err != nil { return nil, err }
-	v_out = Object()
-	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
-	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
-	return v_out, nil
-}
-
 func chat_response_to_completion(args ...Value) (Value, error) {
 	axirCoverageMark("chat_response_to_completion")
 	var v_response Value
@@ -6840,6 +6820,48 @@ func chat_response_to_completion(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "content", v_content); err != nil { return nil, err }
 	if err := coreSet(v_out, "function_calls", v_calls); err != nil { return nil, err }
 	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_tool_call_to_provider_impl")
+	var v_call Value
+	var v_fn Value
+	var v_function Value
+	var v_id Value
+	var v_name Value
+	var v_out Value
+	var v_params Value
+	var v_params_is_string Value
+	var v_params_json Value
+	if len(args) > 0 { v_call = args[0] }
+	_ = v_call
+	_ = v_fn
+	_ = v_function
+	_ = v_id
+	_ = v_name
+	_ = v_out
+	_ = v_params
+	_ = v_params_is_string
+	_ = v_params_json
+	v_fn = coreGet(v_call, "function", nil)
+	v_params = coreGet(v_fn, "params", nil)
+	v_params_is_string = coreTypeIs(v_params, "string")
+	if coreTruthy(v_params_is_string) {
+	// empty
+	} else {
+		v_params_json = _core_json_stringify(v_params)
+		v_params = v_params_json
+	}
+	v_id = coreGet(v_call, "id", nil)
+	v_name = coreGet(v_fn, "name", nil)
+	v_function = Object()
+	if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+	if err := coreSet(v_function, "arguments", v_params); err != nil { return nil, err }
+	v_out = Object()
+	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
+	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -7000,6 +7022,32 @@ func openai_build_embed_request(args ...Value) (Value, error) {
 	return v_payload, nil
 }
 
+func ai_context_cache_expiry(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_expiry")
+	var v_provider_expire_time Value
+	var v_now Value
+	var v_future Value
+	var v_is_number Value
+	if len(args) > 0 { v_provider_expire_time = args[0] }
+	_ = v_provider_expire_time
+	if len(args) > 1 { v_now = args[1] }
+	_ = v_now
+	_ = v_future
+	_ = v_is_number
+	v_is_number = coreTypeIs(v_provider_expire_time, "number")
+	if coreTruthy(v_is_number) {
+		v_future = _core_gt(v_provider_expire_time, v_now)
+		if coreTruthy(v_future) {
+			return v_provider_expire_time, nil
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	return 0, nil
+}
+
 func openai_normalize_chat_response(args ...Value) (Value, error) {
 	axirCoverageMark("openai_normalize_chat_response")
 	var v_raw Value
@@ -7088,32 +7136,6 @@ func openai_normalize_chat_response(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
 	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
 	return v_out, nil
-}
-
-func ai_context_cache_expiry(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_expiry")
-	var v_provider_expire_time Value
-	var v_now Value
-	var v_future Value
-	var v_is_number Value
-	if len(args) > 0 { v_provider_expire_time = args[0] }
-	_ = v_provider_expire_time
-	if len(args) > 1 { v_now = args[1] }
-	_ = v_now
-	_ = v_future
-	_ = v_is_number
-	v_is_number = coreTypeIs(v_provider_expire_time, "number")
-	if coreTruthy(v_is_number) {
-		v_future = _core_gt(v_provider_expire_time, v_now)
-		if coreTruthy(v_future) {
-			return v_provider_expire_time, nil
-		} else {
-		// empty
-		}
-	} else {
-	// empty
-	}
-	return 0, nil
 }
 
 func ai_context_cache_plan(args ...Value) (Value, error) {

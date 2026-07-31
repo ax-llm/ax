@@ -22,7 +22,10 @@ import { AxAIGoogleGeminiEmbedModel } from '../../../src/ax/ai/google-gemini/typ
 import { axAIMistralDefaultConfig } from '../../../src/ax/ai/mistral/api.js';
 import { AxMultiServiceRouter } from '../../../src/ax/ai/multiservice.js';
 import { AxAIOpenAIModel } from '../../../src/ax/ai/openai/chat_types.js';
-import { axResolveOpenAIReasoningEffort } from '../../../src/ax/ai/openai/effort.js';
+import {
+  axResolveOpenAIChatReasoningEffort,
+  axResolveOpenAIResponsesReasoningEffort,
+} from '../../../src/ax/ai/openai/effort.js';
 import { axAIOpenAIResponsesDefaultConfig } from '../../../src/ax/ai/openai/responses_api_base.js';
 import { axAIRekaDefaultConfig } from '../../../src/ax/ai/reka/api.js';
 import { AxProviderRouter } from '../../../src/ax/ai/router.js';
@@ -2313,7 +2316,11 @@ const openAIReasoningModels = [
 
 for (const [index, budget] of openAIReasoningBudgets.entries()) {
   const model = openAIReasoningModels[index % openAIReasoningModels.length]!;
-  const effort = axResolveOpenAIReasoningEffort(model, budget);
+  const chatEffort = axResolveOpenAIChatReasoningEffort(model, budget);
+  const responsesEffort = axResolveOpenAIResponsesReasoningEffort(
+    model,
+    budget
+  );
   writeFixture(`openai-gpt-5-6-chat-reasoning-${budget}`, {
     kind: 'ai_chat',
     provider: 'openai-compatible',
@@ -2333,7 +2340,7 @@ for (const [index, budget] of openAIReasoningBudgets.entries()) {
       json: {
         model,
         messages: [{ role: 'user', content: 'reason' }],
-        reasoning_effort: effort,
+        reasoning_effort: chatEffort,
       },
     },
   });
@@ -2378,11 +2385,14 @@ for (const [index, budget] of openAIReasoningBudgets.entries()) {
             content: [{ type: 'input_text', text: 'reason' }],
           },
         ],
-        reasoning: effort === 'none' ? { effort } : { effort, summary: 'auto' },
+        reasoning:
+          responsesEffort === 'none'
+            ? { effort: responsesEffort }
+            : { effort: responsesEffort, summary: 'auto' },
         stream: false,
       },
     },
-    ...(effort === 'none'
+    ...(responsesEffort === 'none'
       ? { expected_transport_json_absent: ['reasoning.summary'] }
       : {}),
   });
@@ -2403,7 +2413,7 @@ writeFixture('openai-legacy-reasoning-control', {
     json: {
       model: 'gpt-5.5',
       messages: [{ role: 'user', content: 'reason' }],
-      reasoning_effort: axResolveOpenAIReasoningEffort('gpt-5.5', 'low'),
+      reasoning_effort: axResolveOpenAIChatReasoningEffort('gpt-5.5', 'low'),
     },
   },
 });
