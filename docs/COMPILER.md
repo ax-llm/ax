@@ -78,11 +78,13 @@ reinterpret high-level Ax dialects.
 
 Core-owned behavior is deterministic and language-agnostic:
 
-- signature parsing, validation, prompts, schemas, and structured output rules
-- AxGen orchestration, tool-call normalization, streaming folds, traces, usage,
-  examples, demos, and retry ordering
+- signature parsing, recursive per-item validation, prompts, schemas, and
+  structured output rules
+- AxGen orchestration, tool-call normalization, structured extraction-route
+  selection and deltas, streaming folds, traces, usage, examples, demos, and
+  retry ordering
 - provider request/response/audio/realtime mapping and scripted-transport
-  normalization
+  normalization, including model-specific reasoning-effort ladders
 - AxAgent runtime envelopes, lifecycle, context policy, checkpoint state,
   action logs, trace events, and actor-visible policy vocabulary
 - AxFlow planning, control flow, cache behavior, state merge, trace/usage/chat
@@ -90,8 +92,9 @@ Core-owned behavior is deterministic and language-agnostic:
 - event route commands, strict same-instance eligibility, signature input
   normalization, retry safety, continuation correlation, and protocol adapter
   normalization
-- MCP catalog snapshots, concrete-resource subscription selection and diffing,
-  and logical URI ownership transitions
+- MCP catalog snapshots, inbound server-request planning, task-input
+  fulfillment, concrete-resource subscription selection and diffing, and
+  logical URI ownership transitions
 - optimizer request/evaluator/artifact shape and generated `AxGEPA` algorithm
   state
 
@@ -158,6 +161,10 @@ type as the destination contract and validate inputs before invoking the typed
 target callback. Generated MCP clients expose deep-cloned catalog snapshots and
 managed none/all/URI/selector subscription policies; real HTTP/SSE smoke tests
 cover catalog changes, reconciliation, reconnect, and automatic event dispatch.
+Their optional transport request-handler extension answers legacy ping, roots,
+and elicitation requests through a shared Core planner. The same planner
+fulfills task roots and elicitation input through `tasks/update`; generated
+sampling remains unsupported and is rejected without being advertised.
 AxIR owns the deterministic state machines; each host owns its timer, transport,
 and asynchronous listening loop.
 Persistent multi-worker capability is not inferred from this baseline and is
@@ -196,6 +203,12 @@ consumer wiring are part of the change.
 
 See [`docs/RELEASE.md`](./RELEASE.md) for the publishable package names,
 versioning rule, and local release smoke workflow.
+
+OpenAI-compatible request builders share the Core
+`openai_reasoning_effort` resolver. It owns the GPT-5.6 low/medium/high/max
+ladder, explicit `none`, and the established legacy-model ladder; budget
+configuration overrides raw effort configuration. Provider-specific DeepSeek
+and Grok wire-shape adjustments remain later profile steps.
 
 ## Runtime Profiles
 

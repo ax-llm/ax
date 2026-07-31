@@ -3711,7 +3711,7 @@ Value Core::_validate_value_impl(Value field, Value value, Value path) {
       Value invalid_url = Core::not_(valid_url);
       if (Core::truthy(invalid_url)) {
         Value field_title = Core::get(field, Value("title"), Value());
-        Value message = Core::string_format(Value("Invalid URL for '{}': Invalid URL format."), field_title);
+        Value message = Core::string_format(Value("Invalid URL for '{}': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: {}."), field_title, value);
         Value error = Core::validation_error(message);
         throw Core::as_error(error);
       }
@@ -9895,10 +9895,127 @@ Value Core::_execute_tool_call(Value functions, Value call) {
   throw Core::as_error(error);
 }
 
-Value Core::_stream_event_content_parts_impl(Value event) {
-  axir_coverage_mark("_stream_event_content_parts_impl");
-  Value parts = Core::stream_event_content_parts(event);
-  return parts;
+Value Core::stream_extraction_route(Value has_complex_fields) {
+  axir_coverage_mark("stream_extraction_route");
+  if (Core::truthy(has_complex_fields)) {
+    return Value("structured_json");
+  }
+  return Value("prompt_extraction");
+}
+
+Value Core::stream_structured_delta(Value fields, Value parsed_values, Value previous_values, Value partial_array_incomplete) {
+  axir_coverage_mark("stream_structured_delta");
+  Value delta = Value::object();
+  Value full_values = Value::object();
+  for (auto field : Core::iter(fields)) {
+    Value key = Core::get(field, Value("name"), Value(""));
+    Value internal_snake = Core::get(field, Value("is_internal"), Value(false));
+    Value is_internal = Core::get(field, Value("isInternal"), internal_snake);
+    Value has_parsed = Core::map_contains(parsed_values, key);
+    Value not_internal = Core::not_(is_internal);
+    Value include = Core::and_(has_parsed, not_internal);
+    if (Core::truthy(include)) {
+      Value new_value_raw = Core::get(parsed_values, key, Value());
+      Value new_is_list = Core::type_is(new_value_raw, Value("list"));
+      Value new_value = new_value_raw;
+      if (Core::truthy(new_is_list)) {
+        Value new_count_raw = Core::len(new_value_raw);
+        Value has_last = Core::gt(new_count_raw, Value(0));
+        Value trim_last = Core::and_(partial_array_incomplete, has_last);
+        if (Core::truthy(trim_last)) {
+          Value trimmed = Value::array();
+          Value keep_count = Core::add(new_count_raw, Value(-1));
+          Value trim_cursor = Value(0);
+          for (auto item : Core::iter(new_value_raw)) {
+            Value keep_item = Core::lt(trim_cursor, keep_count);
+            if (Core::truthy(keep_item)) {
+              Core::append(trimmed, item);
+            }
+            Value trim_cursor_next = Core::add(trim_cursor, Value(1));
+            trim_cursor = trim_cursor_next;
+          }
+          new_value = trimmed;
+        }
+      }
+      Core::set(full_values, key, new_value);
+      Value old_present = Core::map_contains(previous_values, key);
+      Value old_value = Core::get(previous_values, key, Value());
+      Value old_is_list = Core::type_is(old_value, Value("list"));
+      Value should_emit = Value(false);
+      Value delta_value = Core::none();
+      if (Core::truthy(new_is_list)) {
+        if (Core::truthy(old_is_list)) {
+          Value new_count = Core::len(new_value);
+          Value old_count = Core::len(old_value);
+          Value grew = Core::gt(new_count, old_count);
+          if (Core::truthy(grew)) {
+            Value suffix = Value::array();
+            Value cursor = Value(0);
+            for (auto item : Core::iter(new_value)) {
+              Value is_suffix = Core::gte(cursor, old_count);
+              if (Core::truthy(is_suffix)) {
+                Core::append(suffix, item);
+              }
+              Value cursor_next = Core::add(cursor, Value(1));
+              cursor = cursor_next;
+            }
+            delta_value = suffix;
+            should_emit = Value(true);
+          }
+        }
+        if (!Core::truthy(old_is_list)) {
+          Value old_missing = Core::not_(old_present);
+          if (Core::truthy(old_missing)) {
+            delta_value = new_value;
+            should_emit = Value(true);
+          }
+        }
+      }
+      if (!Core::truthy(new_is_list)) {
+        Value new_is_string = Core::type_is(new_value, Value("string"));
+        Value old_is_string = Core::type_is(old_value, Value("string"));
+        Value both_strings = Core::and_(new_is_string, old_is_string);
+        if (Core::truthy(both_strings)) {
+          Value prefix_growing = Core::string_starts_with(new_value, old_value);
+          if (Core::truthy(prefix_growing)) {
+            Value old_length = Core::len(old_value);
+            Value new_length = Core::len(new_value);
+            Value string_grew = Core::gt(new_length, old_length);
+            if (Core::truthy(string_grew)) {
+              Value suffix = Core::string_slice(new_value, old_length);
+              delta_value = suffix;
+              should_emit = Value(true);
+            }
+          }
+          if (!Core::truthy(prefix_growing)) {
+            Value same_string = Core::eq(new_value, old_value);
+            Value changed_string = Core::not_(same_string);
+            if (Core::truthy(changed_string)) {
+              delta_value = new_value;
+              should_emit = Value(true);
+            }
+          }
+        }
+        if (!Core::truthy(both_strings)) {
+          Value same_value = Core::eq(new_value, old_value);
+          Value changed_value = Core::not_(same_value);
+          Value old_missing = Core::not_(old_present);
+          Value emit_value = Core::or_(changed_value, old_missing);
+          if (Core::truthy(emit_value)) {
+            delta_value = new_value;
+            should_emit = Value(true);
+          }
+        }
+      }
+      if (Core::truthy(should_emit)) {
+        Core::set(delta, key, delta_value);
+      }
+    }
+  }
+  Value out = Value::object();
+  Core::set(out, Value("delta"), delta);
+  Core::set(out, Value("full_values"), full_values);
+  return out;
 }
 
 Value Core::_validate_optimization_component_value(Value component, Value value) {
@@ -10106,6 +10223,12 @@ Value Core::_validate_optimization_component_map(Value components, Value compone
     Core::_validate_optimization_component_value(component, value);
   }
   return Value(true);
+}
+
+Value Core::_stream_event_content_parts_impl(Value event) {
+  axir_coverage_mark("_stream_event_content_parts_impl");
+  Value parts = Core::stream_event_content_parts(event);
+  return parts;
 }
 
 Value Core::_validate_optimized_artifact_provenance(Value artifact, Value components) {

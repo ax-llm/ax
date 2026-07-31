@@ -84,6 +84,13 @@ resume the owning target. Closing the event source removes its listener and
 releases only that source's logical subscription ownership, without breaking
 manual subscriptions, other sources, or the caller-owned client.
 
+Generated clients use a shared planner for inbound legacy ping, roots, and
+elicitation requests. Built-in and scripted transports install the optional
+request callback and send its JSON-RPC response on the same channel. Task
+`input_required` rounds fulfill roots and elicitation through `tasks/update`
+and continue polling; sampling is rejected because generated clients do not
+advertise or implement it.
+
 ## Native content and runtime modules
 
 MCP results retain text, structured content, images, audio, resource links,

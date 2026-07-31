@@ -9668,6 +9668,80 @@ fn run_template_validate_fixture(fixture: &Value) -> AxResult<()> {
 // python: _run_stream. Folds the chunks through the emitted fold_stream after
 // every event so streaming assertions fire at the same point in the stream.
 fn run_stream_fixture(fixture: &Value) -> AxResult<()> {
+    if let Some(states) = fixture.get("structured_states").and_then(Value::as_array) {
+        for route_case in fixture
+            .get("route_cases")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+        {
+            let actual = stream_extraction_route(&[CoreValue::Bool(
+                route_case
+                    .get("has_complex_fields")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            )])?;
+            expect_json_equal(
+                "stream extraction route",
+                &core_value_to_json(&actual),
+                route_case.get("expected").unwrap_or(&Value::Null),
+            )?;
+        }
+        let mut previous = Map::new();
+        let mut emitted_items = Vec::new();
+        let tracked_field = fixture
+            .get("tracked_array_field")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        for state in states {
+            let result = core_value_to_json(&stream_structured_delta(&[
+                core_value_from_json(fixture.get("field_specs").unwrap_or(&Value::Null)),
+                core_value_from_json(state.get("parsed_values").unwrap_or(&Value::Null)),
+                core_value_from_json(&Value::Object(previous.clone())),
+                CoreValue::Bool(
+                    state
+                        .get("partial_array_incomplete")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                ),
+            ])?);
+            let delta = result.get("delta").cloned().unwrap_or_else(|| json!({}));
+            let full_values = result
+                .get("full_values")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            expect_json_equal(
+                "structured delta",
+                &delta,
+                state.get("expected_delta").unwrap_or(&Value::Null),
+            )?;
+            expect_json_equal(
+                "structured full values",
+                &full_values,
+                state.get("expected_full_values").unwrap_or(&Value::Null),
+            )?;
+            if let Some(items) = delta.get(tracked_field).and_then(Value::as_array) {
+                emitted_items.extend(items.iter().cloned());
+            }
+            if let Some(values) = full_values.as_object() {
+                for (key, value) in values {
+                    previous.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        expect_json_equal(
+            "structured final values",
+            &Value::Object(previous),
+            fixture.get("expected_final_values").unwrap_or(&Value::Null),
+        )?;
+        expect_json_equal(
+            "structured emitted items",
+            &Value::Array(emitted_items),
+            fixture
+                .get("expected_emitted_items")
+                .unwrap_or(&Value::Null),
+        )?;
+    }
     let events = fixture
         .get("stream_events")
         .and_then(Value::as_array)
@@ -17564,25 +17638,14 @@ fn core_deep_clone(value: &CoreValue) -> CoreValue {
 
 fn core_field_item(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let field = core_arg(args, 0);
-    let item_type = core_deep_clone(&core_get(&field, &CoreValue::from("type"), CoreValue::Null));
+    let item_field = core_deep_clone(&field);
+    let item_type = core_get(&item_field, &CoreValue::from("type"), CoreValue::Null);
     core_set(
         &item_type,
         CoreValue::from("is_array"),
         CoreValue::Bool(false),
     )?;
-    let values = CoreValue::new_map();
-    core_set(
-        &values,
-        CoreValue::from("name"),
-        core_get(&field, &CoreValue::from("name"), CoreValue::Null),
-    )?;
-    core_set(&values, CoreValue::from("type"), item_type)?;
-    core_set(
-        &values,
-        CoreValue::from("description"),
-        core_get(&field, &CoreValue::from("description"), CoreValue::Null),
-    )?;
-    core_record_new(&[CoreValue::from("Field"), values])
+    Ok(item_field)
 }
 
 fn core_map_contains(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -25686,10 +25749,7 @@ fn _validate_value_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_invalid_url = core_not(&[v_valid_url.clone()])?;
             if core_truthy(&v_invalid_url) {
                 v_field_title = core_get(&v_field, &CoreValue::from("title"), CoreValue::Null);
-                v_message = core_string_format(&[
-                    CoreValue::from("Invalid URL for '{}': Invalid URL format."),
-                    v_field_title.clone(),
-                ])?;
+                v_message = core_string_format(&[CoreValue::from("Invalid URL for '{}': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: {}."), v_field_title.clone(), v_value.clone()])?;
                 v_error = core_validation_error(&[v_message.clone()])?;
                 return Err(core_as_error(&v_error));
             }
@@ -39790,12 +39850,200 @@ fn _execute_tool_call(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn _stream_event_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_stream_event_content_parts_impl");
-    let mut v_event = core_arg(args, 0);
-    let mut v_parts = CoreValue::Null;
-    v_parts = core_stream_event_content_parts(&[v_event.clone()])?;
-    return Ok(v_parts.clone());
+fn stream_extraction_route(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("stream_extraction_route");
+    let mut v_has_complex_fields = core_arg(args, 0);
+    if core_truthy(&v_has_complex_fields) {
+        return Ok(CoreValue::from("structured_json"));
+    }
+    return Ok(CoreValue::from("prompt_extraction"));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn stream_structured_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("stream_structured_delta");
+    let mut v_fields = core_arg(args, 0);
+    let mut v_parsed_values = core_arg(args, 1);
+    let mut v_previous_values = core_arg(args, 2);
+    let mut v_partial_array_incomplete = core_arg(args, 3);
+    let mut v_both_strings = CoreValue::Null;
+    let mut v_changed_string = CoreValue::Null;
+    let mut v_changed_value = CoreValue::Null;
+    let mut v_cursor = CoreValue::Null;
+    let mut v_cursor_next = CoreValue::Null;
+    let mut v_delta = CoreValue::Null;
+    let mut v_delta_value = CoreValue::Null;
+    let mut v_emit_value = CoreValue::Null;
+    let mut v_field = CoreValue::Null;
+    let mut v_full_values = CoreValue::Null;
+    let mut v_grew = CoreValue::Null;
+    let mut v_has_last = CoreValue::Null;
+    let mut v_has_parsed = CoreValue::Null;
+    let mut v_include = CoreValue::Null;
+    let mut v_internal_snake = CoreValue::Null;
+    let mut v_is_internal = CoreValue::Null;
+    let mut v_is_suffix = CoreValue::Null;
+    let mut v_item = CoreValue::Null;
+    let mut v_keep_count = CoreValue::Null;
+    let mut v_keep_item = CoreValue::Null;
+    let mut v_key = CoreValue::Null;
+    let mut v_new_count = CoreValue::Null;
+    let mut v_new_count_raw = CoreValue::Null;
+    let mut v_new_is_list = CoreValue::Null;
+    let mut v_new_is_string = CoreValue::Null;
+    let mut v_new_length = CoreValue::Null;
+    let mut v_new_value = CoreValue::Null;
+    let mut v_new_value_raw = CoreValue::Null;
+    let mut v_not_internal = CoreValue::Null;
+    let mut v_old_count = CoreValue::Null;
+    let mut v_old_is_list = CoreValue::Null;
+    let mut v_old_is_string = CoreValue::Null;
+    let mut v_old_length = CoreValue::Null;
+    let mut v_old_missing = CoreValue::Null;
+    let mut v_old_present = CoreValue::Null;
+    let mut v_old_value = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_prefix_growing = CoreValue::Null;
+    let mut v_same_string = CoreValue::Null;
+    let mut v_same_value = CoreValue::Null;
+    let mut v_should_emit = CoreValue::Null;
+    let mut v_string_grew = CoreValue::Null;
+    let mut v_suffix = CoreValue::Null;
+    let mut v_trim_cursor = CoreValue::Null;
+    let mut v_trim_cursor_next = CoreValue::Null;
+    let mut v_trim_last = CoreValue::Null;
+    let mut v_trimmed = CoreValue::Null;
+    v_delta = CoreValue::new_map();
+    v_full_values = CoreValue::new_map();
+    for v_field in core_iter(&v_fields)? {
+        let mut v_field = v_field;
+        v_key = core_get(&v_field, &CoreValue::from("name"), CoreValue::from(""));
+        v_internal_snake = core_get(
+            &v_field,
+            &CoreValue::from("is_internal"),
+            CoreValue::Bool(false),
+        );
+        v_is_internal = core_get(
+            &v_field,
+            &CoreValue::from("isInternal"),
+            v_internal_snake.clone(),
+        );
+        v_has_parsed = core_map_contains(&[v_parsed_values.clone(), v_key.clone()])?;
+        v_not_internal = core_not(&[v_is_internal.clone()])?;
+        v_include = core_and(&[v_has_parsed.clone(), v_not_internal.clone()])?;
+        if core_truthy(&v_include) {
+            v_new_value_raw = core_get(&v_parsed_values, &v_key.clone(), CoreValue::Null);
+            v_new_is_list = core_type_is(&v_new_value_raw, CoreValue::from("list"));
+            v_new_value = v_new_value_raw.clone();
+            if core_truthy(&v_new_is_list) {
+                v_new_count_raw = core_len(&[v_new_value_raw.clone()])?;
+                v_has_last = core_gt(&[v_new_count_raw.clone(), CoreValue::Num(0f64)])?;
+                v_trim_last = core_and(&[v_partial_array_incomplete.clone(), v_has_last.clone()])?;
+                if core_truthy(&v_trim_last) {
+                    v_trimmed = CoreValue::new_list();
+                    v_keep_count = core_add(&[v_new_count_raw.clone(), CoreValue::Num(-1f64)])?;
+                    v_trim_cursor = CoreValue::Num(0f64);
+                    for v_item in core_iter(&v_new_value_raw)? {
+                        let mut v_item = v_item;
+                        v_keep_item = core_lt(&[v_trim_cursor.clone(), v_keep_count.clone()])?;
+                        if core_truthy(&v_keep_item) {
+                            core_append(&v_trimmed, v_item.clone())?;
+                        }
+                        v_trim_cursor_next =
+                            core_add(&[v_trim_cursor.clone(), CoreValue::Num(1f64)])?;
+                        v_trim_cursor = v_trim_cursor_next.clone();
+                    }
+                    v_new_value = v_trimmed.clone();
+                }
+            }
+            core_set(&v_full_values, v_key.clone(), v_new_value.clone())?;
+            v_old_present = core_map_contains(&[v_previous_values.clone(), v_key.clone()])?;
+            v_old_value = core_get(&v_previous_values, &v_key.clone(), CoreValue::Null);
+            v_old_is_list = core_type_is(&v_old_value, CoreValue::from("list"));
+            v_should_emit = CoreValue::Bool(false);
+            v_delta_value = core_none(&[])?;
+            if core_truthy(&v_new_is_list) {
+                if core_truthy(&v_old_is_list) {
+                    v_new_count = core_len(&[v_new_value.clone()])?;
+                    v_old_count = core_len(&[v_old_value.clone()])?;
+                    v_grew = core_gt(&[v_new_count.clone(), v_old_count.clone()])?;
+                    if core_truthy(&v_grew) {
+                        v_suffix = CoreValue::new_list();
+                        v_cursor = CoreValue::Num(0f64);
+                        for v_item in core_iter(&v_new_value)? {
+                            let mut v_item = v_item;
+                            v_is_suffix = core_gte(&[v_cursor.clone(), v_old_count.clone()])?;
+                            if core_truthy(&v_is_suffix) {
+                                core_append(&v_suffix, v_item.clone())?;
+                            }
+                            v_cursor_next = core_add(&[v_cursor.clone(), CoreValue::Num(1f64)])?;
+                            v_cursor = v_cursor_next.clone();
+                        }
+                        v_delta_value = v_suffix.clone();
+                        v_should_emit = CoreValue::Bool(true);
+                    }
+                } else {
+                    v_old_missing = core_not(&[v_old_present.clone()])?;
+                    if core_truthy(&v_old_missing) {
+                        v_delta_value = v_new_value.clone();
+                        v_should_emit = CoreValue::Bool(true);
+                    }
+                }
+            } else {
+                v_new_is_string = core_type_is(&v_new_value, CoreValue::from("string"));
+                v_old_is_string = core_type_is(&v_old_value, CoreValue::from("string"));
+                v_both_strings = core_and(&[v_new_is_string.clone(), v_old_is_string.clone()])?;
+                if core_truthy(&v_both_strings) {
+                    v_prefix_growing =
+                        core_string_starts_with(&[v_new_value.clone(), v_old_value.clone()])?;
+                    if core_truthy(&v_prefix_growing) {
+                        v_old_length = core_len(&[v_old_value.clone()])?;
+                        v_new_length = core_len(&[v_new_value.clone()])?;
+                        v_string_grew = core_gt(&[v_new_length.clone(), v_old_length.clone()])?;
+                        if core_truthy(&v_string_grew) {
+                            v_suffix =
+                                core_string_slice(&[v_new_value.clone(), v_old_length.clone()])?;
+                            v_delta_value = v_suffix.clone();
+                            v_should_emit = CoreValue::Bool(true);
+                        }
+                    } else {
+                        v_same_string = core_eq(&[v_new_value.clone(), v_old_value.clone()])?;
+                        v_changed_string = core_not(&[v_same_string.clone()])?;
+                        if core_truthy(&v_changed_string) {
+                            v_delta_value = v_new_value.clone();
+                            v_should_emit = CoreValue::Bool(true);
+                        }
+                    }
+                } else {
+                    v_same_value = core_eq(&[v_new_value.clone(), v_old_value.clone()])?;
+                    v_changed_value = core_not(&[v_same_value.clone()])?;
+                    v_old_missing = core_not(&[v_old_present.clone()])?;
+                    v_emit_value = core_or(&[v_changed_value.clone(), v_old_missing.clone()])?;
+                    if core_truthy(&v_emit_value) {
+                        v_delta_value = v_new_value.clone();
+                        v_should_emit = CoreValue::Bool(true);
+                    }
+                }
+            }
+            if core_truthy(&v_should_emit) {
+                core_set(&v_delta, v_key.clone(), v_delta_value.clone())?;
+            }
+        }
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("delta"), v_delta.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("full_values"),
+        v_full_values.clone(),
+    )?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -40285,6 +40533,21 @@ fn _validate_optimization_component_map(args: &[CoreValue]) -> Result<CoreValue,
         _validate_optimization_component_value(&[v_component.clone(), v_value.clone()])?;
     }
     return Ok(CoreValue::Bool(true));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _stream_event_content_parts_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_stream_event_content_parts_impl");
+    let mut v_event = core_arg(args, 0);
+    let mut v_parts = CoreValue::Null;
+    v_parts = core_stream_event_content_parts(&[v_event.clone()])?;
+    return Ok(v_parts.clone());
 }
 
 #[allow(
@@ -74552,4 +74815,4 @@ fn mcp_oauth_validate_issuer(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (560 of 560 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (562 of 562 core functions)

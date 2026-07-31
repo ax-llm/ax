@@ -796,6 +796,36 @@ public final class Conformance {
   }
 
   static void runStream(Map<String, Object> fixture) {
+    if (!Core.asList(fixture.getOrDefault("structured_states", List.of())).isEmpty()) {
+      for (Object raw : Core.asList(fixture.getOrDefault("route_cases", List.of()))) {
+        Map<String, Object> routeCase = Core.asMap(raw);
+        assertEqual(
+          Core.stream_extraction_route(Boolean.TRUE.equals(routeCase.get("has_complex_fields"))),
+          routeCase.get("expected"),
+          "stream extraction route"
+        );
+      }
+      Map<String, Object> previous = new LinkedHashMap<>();
+      List<Object> emittedItems = new ArrayList<>();
+      String trackedField = String.valueOf(fixture.getOrDefault("tracked_array_field", ""));
+      for (Object raw : Core.asList(fixture.get("structured_states"))) {
+        Map<String, Object> state = Core.asMap(raw);
+        Map<String, Object> result = Core.asMap(Core.stream_structured_delta(
+          fixture.getOrDefault("field_specs", List.of()),
+          state.getOrDefault("parsed_values", Map.of()),
+          previous,
+          Boolean.TRUE.equals(state.get("partial_array_incomplete"))
+        ));
+        Map<String, Object> delta = Core.asMap(result.get("delta"));
+        Map<String, Object> fullValues = Core.asMap(result.get("full_values"));
+        assertEqual(delta, state.get("expected_delta"), "structured delta");
+        assertEqual(fullValues, state.get("expected_full_values"), "structured full values");
+        if (!trackedField.isEmpty()) emittedItems.addAll(Core.asList(delta.get(trackedField)));
+        previous.putAll(fullValues);
+      }
+      assertEqual(previous, fixture.get("expected_final_values"), "structured final values");
+      assertEqual(emittedItems, fixture.getOrDefault("expected_emitted_items", List.of()), "structured emitted items");
+    }
     List<Object> chunks = new ArrayList<>();
     try {
       for (Object event : Core.asList(fixture.getOrDefault("stream_events", List.of()))) {

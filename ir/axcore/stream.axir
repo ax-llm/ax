@@ -19,6 +19,137 @@ module @ax.stream version "0.1" {
     }
   }
 
+  op ax.stream.semantic @stream_extraction_route {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    tag "structured-stream-routing"
+    type signature = "(has_complex_fields:bool) -> string"
+    body @entry(%has_complex_fields: bool) {
+      core.if %has_complex_fields {
+        core.return "structured_json"
+      }
+      core.return "prompt_extraction"
+    }
+  }
+
+  op ax.stream.semantic @stream_structured_delta {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    tag "structured-stream-delta"
+    type signature = "(fields:list<json>, parsed_values:json, previous_values:json, partial_array_incomplete:bool) -> json"
+    body @entry(%fields: list<json>, %parsed_values: json, %previous_values: json, %partial_array_incomplete: bool) {
+      %delta = core.map
+      %full_values = core.map
+      core.for %field in %fields {
+        %key = core.get %field["name"] default ""
+        %internal_snake = core.get %field["is_internal"] default false
+        %is_internal = core.get %field["isInternal"] default %internal_snake
+        %has_parsed = core.call intrinsic.map.contains(%parsed_values, %key)
+        %not_internal = core.call intrinsic.not(%is_internal)
+        %include = core.call intrinsic.and(%has_parsed, %not_internal)
+        core.if %include {
+          %new_value_raw = core.get %parsed_values[%key]
+          %new_is_list = core.type_is %new_value_raw type "list"
+          %new_value = core.let %new_value_raw
+          core.if %new_is_list {
+            %new_count_raw = core.call intrinsic.len(%new_value_raw)
+            %has_last = core.call intrinsic.gt(%new_count_raw, 0)
+            %trim_last = core.call intrinsic.and(%partial_array_incomplete, %has_last)
+            core.if %trim_last {
+              %trimmed = core.list
+              %keep_count = core.call intrinsic.add(%new_count_raw, -1)
+              %trim_cursor = core.let 0
+              core.for %item in %new_value_raw {
+                %keep_item = core.call intrinsic.lt(%trim_cursor, %keep_count)
+                core.if %keep_item {
+                  core.append %trimmed, %item
+                }
+                %trim_cursor_next = core.call intrinsic.add(%trim_cursor, 1)
+                %trim_cursor = core.let %trim_cursor_next
+              }
+              %new_value = core.let %trimmed
+            }
+          }
+          core.set %full_values[%key] = %new_value
+
+          %old_present = core.call intrinsic.map.contains(%previous_values, %key)
+          %old_value = core.get %previous_values[%key]
+          %old_is_list = core.type_is %old_value type "list"
+          %should_emit = core.let false
+          %delta_value = core.call intrinsic.none()
+
+          core.if %new_is_list {
+            core.if %old_is_list {
+              %new_count = core.call intrinsic.len(%new_value)
+              %old_count = core.call intrinsic.len(%old_value)
+              %grew = core.call intrinsic.gt(%new_count, %old_count)
+              core.if %grew {
+                %suffix = core.list
+                %cursor = core.let 0
+                core.for %item in %new_value {
+                  %is_suffix = core.call intrinsic.gte(%cursor, %old_count)
+                  core.if %is_suffix {
+                    core.append %suffix, %item
+                  }
+                  %cursor_next = core.call intrinsic.add(%cursor, 1)
+                  %cursor = core.let %cursor_next
+                }
+                %delta_value = core.let %suffix
+                %should_emit = core.let true
+              }
+            } else {
+              %old_missing = core.call intrinsic.not(%old_present)
+              core.if %old_missing {
+                %delta_value = core.let %new_value
+                %should_emit = core.let true
+              }
+            }
+          } else {
+            %new_is_string = core.type_is %new_value type "string"
+            %old_is_string = core.type_is %old_value type "string"
+            %both_strings = core.call intrinsic.and(%new_is_string, %old_is_string)
+            core.if %both_strings {
+              %prefix_growing = core.call intrinsic.string.starts_with(%new_value, %old_value)
+              core.if %prefix_growing {
+                %old_length = core.call intrinsic.len(%old_value)
+                %new_length = core.call intrinsic.len(%new_value)
+                %string_grew = core.call intrinsic.gt(%new_length, %old_length)
+                core.if %string_grew {
+                  %suffix = core.call intrinsic.string.slice(%new_value, %old_length)
+                  %delta_value = core.let %suffix
+                  %should_emit = core.let true
+                }
+              } else {
+                %same_string = core.call intrinsic.eq(%new_value, %old_value)
+                %changed_string = core.call intrinsic.not(%same_string)
+                core.if %changed_string {
+                  %delta_value = core.let %new_value
+                  %should_emit = core.let true
+                }
+              }
+            } else {
+              %same_value = core.call intrinsic.eq(%new_value, %old_value)
+              %changed_value = core.call intrinsic.not(%same_value)
+              %old_missing = core.call intrinsic.not(%old_present)
+              %emit_value = core.call intrinsic.or(%changed_value, %old_missing)
+              core.if %emit_value {
+                %delta_value = core.let %new_value
+                %should_emit = core.let true
+              }
+            }
+          }
+          core.if %should_emit {
+            core.set %delta[%key] = %delta_value
+          }
+        }
+      }
+      %out = core.map
+      core.set %out["delta"] = %delta
+      core.set %out["full_values"] = %full_values
+      core.return %out
+    }
+  }
+
   op ax.stream.semantic @stream_event_content_parts_impl {
     attr core_kind = "func"
     attr emit_module = "gen"

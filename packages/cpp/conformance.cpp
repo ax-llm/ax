@@ -715,6 +715,37 @@ static void run_forward(Value fixture) {
 }
 
 static void run_stream(Value fixture) {
+  Value structured_states = Core::get(fixture, "structured_states", Value::array());
+  if (!Core::iter(structured_states).empty()) {
+    for (const auto& route_case : Core::iter(Core::get(fixture, "route_cases", Value::array()))) {
+      assert_equal(
+          Core::stream_extraction_route(Core::get(route_case, "has_complex_fields", false)),
+          Core::get(route_case, "expected"),
+          "stream extraction route");
+    }
+    Value previous = Value::object();
+    Value emitted_items = Value::array();
+    std::string tracked_field = display(Core::get(fixture, "tracked_array_field", ""));
+    for (const auto& state : Core::iter(structured_states)) {
+      Value result = Core::stream_structured_delta(
+          Core::get(fixture, "field_specs", Value::array()),
+          Core::get(state, "parsed_values", Value::object()),
+          previous,
+          Core::get(state, "partial_array_incomplete", false));
+      Value delta = Core::get(result, "delta", Value::object());
+      Value full_values = Core::get(result, "full_values", Value::object());
+      assert_equal(delta, Core::get(state, "expected_delta"), "structured delta");
+      assert_equal(full_values, Core::get(state, "expected_full_values"), "structured full values");
+      if (!tracked_field.empty()) {
+        for (const auto& item : Core::iter(Core::get(delta, tracked_field, Value::array()))) {
+          Core::append(emitted_items, item);
+        }
+      }
+      for (const auto& entry : as_object(full_values)) Core::set(previous, entry.first, entry.second);
+    }
+    assert_equal(previous, Core::get(fixture, "expected_final_values"), "structured final values");
+    assert_equal(emitted_items, Core::get(fixture, "expected_emitted_items", Value::array()), "structured emitted items");
+  }
   Value chunks = Value::array();
   try {
     for (const auto& event : Core::iter(Core::get(fixture, "stream_events", Value::array()))) {

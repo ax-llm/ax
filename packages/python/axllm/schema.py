@@ -187,9 +187,9 @@ def _core_validation_error(message):
 
 
 def _core_field_item(field):
-    item_type = copy.deepcopy(field.type)
-    item_type.is_array = False
-    return field.__class__(name=field.name, type=item_type, description=field.description)
+    item_field = copy.deepcopy(field)
+    item_field.type.is_array = False
+    return item_field
 
 
 def _core_fields_from_map(fields):
@@ -777,7 +777,7 @@ def _validate_value_impl(field: Field, value: Any, path: str) -> None:
             invalid_url = _core_not(valid_url)
             if invalid_url:
                 field_title = _core_get(field, "title", None)
-                message = _core_string_format("Invalid URL for '{}': Invalid URL format.", field_title)
+                message = _core_string_format("Invalid URL for '{}': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: {}.", field_title, value)
                 error = _core_validation_error(message)
                 raise error
             else:

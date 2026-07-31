@@ -300,7 +300,7 @@ module @ax.validate version "0.1" {
           %invalid_url = core.call intrinsic.not(%valid_url)
           core.if %invalid_url {
             %field_title = core.get %field["title"]
-            %message = core.call intrinsic.string.format("Invalid URL for '{}': Invalid URL format.", %field_title)
+            %message = core.call intrinsic.string.format("Invalid URL for '{}': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: {}.", %field_title, %value)
             %error = core.call intrinsic.error.validation(%message)
             core.raise %error
           }

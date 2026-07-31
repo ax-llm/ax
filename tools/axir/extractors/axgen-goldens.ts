@@ -1,12 +1,16 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { createStructuredDelta } from '../../../src/ax/dsp/response/structuredDelta.js';
 import { AxSignature, f } from '../../../src/ax/dsp/sig.js';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
 
-const outDir = join(process.cwd(), 'ir/conformance/axgen');
+const outDir = join(
+  process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd(),
+  'ir/conformance/axgen'
+);
 
 function stable(value: unknown, parentKey = ''): unknown {
   if (Array.isArray(value)) return value.map((item) => stable(item, parentKey));
@@ -177,6 +181,107 @@ writeFixture('structured-stream-rich', {
     { type: 'message_stop' },
   ],
   expected_folded: '{"items":[{"name":"alpha"},{"name":"beta"}]}',
+});
+
+const structuredDeltaSig = f()
+  .input('question', f.string())
+  .output(
+    'items',
+    f
+      .object({
+        id: f.number(),
+        name: f.string(),
+      })
+      .array()
+  )
+  .output('summary', f.string())
+  .output('count', f.number())
+  .output('scratch', f.string().internal())
+  .build();
+const firstItem = { id: 1, name: 'First' };
+const secondItem = { id: 2, name: 'Second' };
+const incompleteMarker = {
+  nestingLevel: 2,
+  inString: false,
+  inArray: true,
+  inObject: true,
+};
+const structuredParsedStates: Array<{
+  parsedValues: Record<string, unknown>;
+  partialMarker: typeof incompleteMarker | null;
+}> = [
+  {
+    parsedValues: {
+      items: [{ id: 1, name: 'Fir' }],
+      summary: 'Hel',
+      count: 1,
+      scratch: 'hidden-1',
+    },
+    partialMarker: incompleteMarker,
+  },
+  {
+    parsedValues: {
+      items: [firstItem, { id: 2 }],
+      summary: 'Hello',
+      count: 1,
+      scratch: 'hidden-2',
+    },
+    partialMarker: incompleteMarker,
+  },
+  {
+    parsedValues: {
+      items: [firstItem, secondItem],
+      summary: 'Hello',
+      count: 1,
+      scratch: 'hidden-3',
+    },
+    partialMarker: null,
+  },
+  {
+    parsedValues: {
+      items: [firstItem, secondItem],
+      summary: 'Hello',
+      count: 1,
+      scratch: 'hidden-4',
+    },
+    partialMarker: null,
+  },
+];
+let structuredPreviousValues: Record<string, unknown> = {};
+const structuredStates = structuredParsedStates.map((state) => {
+  const result = createStructuredDelta({
+    signature: structuredDeltaSig,
+    parsedValues: structuredClone(state.parsedValues),
+    previousValues: structuredPreviousValues,
+    partialMarker: state.partialMarker,
+  });
+  structuredPreviousValues = {
+    ...structuredPreviousValues,
+    ...result.fullValues,
+  };
+  return {
+    parsed_values: state.parsedValues,
+    partial_array_incomplete: state.partialMarker !== null,
+    expected_delta: result.delta,
+    expected_full_values: result.fullValues,
+  };
+});
+
+writeFixture('structured-object-array-delta', {
+  kind: 'stream',
+  route_cases: [
+    { has_complex_fields: true, expected: 'structured_json' },
+    { has_complex_fields: false, expected: 'prompt_extraction' },
+  ],
+  field_specs: structuredDeltaSig.getOutputFields().map((field) => ({
+    name: field.name,
+    isInternal: field.isInternal,
+  })),
+  structured_states: structuredStates as Json,
+  tracked_array_field: 'items',
+  expected_emitted_items: [firstItem, secondItem],
+  expected_final_values: structuredPreviousValues as Json,
+  expected_folded: '',
 });
 
 writeFixture('streaming-assertion-fail-fast', {
