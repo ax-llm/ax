@@ -1,5 +1,24 @@
 # Changelog
 
+## [23.0.9](https://github.com/ax-llm/ax/compare/23.0.7...23.0.8) (2026-07-31)
+
+### Features
+
+* **axir:** map GPT-5.6 reasoning effort ([f9d6ae3](https://github.com/ax-llm/ax/commit/f9d6ae3affdc505cf0c0880a8173a057b512c9d2))
+* **axir:** port MCP inbound requests and task input ([09a14ad](https://github.com/ax-llm/ax/commit/09a14addf945ac4c91abb824113c358f966f2e70))
+* **axir:** port URL arrays and structured stream deltas ([65b1432](https://github.com/ax-llm/ax/commit/65b14323c079975575823722214e0ecdf0bec61f))
+
+### Bug Fixes
+
+* **axir:** publish cleared backlog capabilities ([87ef028](https://github.com/ax-llm/ax/commit/87ef028ca533de39f27185d4d7b1b120a8d71b1c))
+* **axir:** split GPT-5.6 reasoning surfaces ([f76a950](https://github.com/ax-llm/ax/commit/f76a950d40fdadb0ae401445a4229157595fb43e))
+
+## [23.0.8](https://github.com/ax-llm/ax/compare/23.0.7...23.0.8) (2026-07-31)
+
+### Bug Fixes
+
+* **openai:** stop sending max reasoning effort on the chat path ([#569](https://github.com/ax-llm/ax/issues/569)) ([d749bdd](https://github.com/ax-llm/ax/commit/d749bdd38df2884a64e117641349c7c4536270b2))
+
 ## [23.0.8](https://github.com/ax-llm/ax/compare/23.0.6...23.0.7) (2026-07-31)
 
 ### Bug Fixes
