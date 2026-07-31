@@ -1,0 +1,31 @@
+{
+  "expected_error_category": "validation",
+  "expected_error_contains": "Invalid URL for 'Resource Link': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: not a url.",
+  "kind": "validate_output",
+  "name": "output-url-scalar-invalid",
+  "signature_spec": {
+    "inputs": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "resourceLink": {
+        "description": "Canonical resource link",
+        "type": "url"
+      },
+      "resourceLinks": {
+        "array": true,
+        "arrayDescription": "Resource link list",
+        "description": "Canonical resource links",
+        "type": "url"
+      }
+    }
+  },
+  "ts_error_message": "Invalid URL for 'Resource Link': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: not a url.",
+  "ts_error_name": "ValidationError",
+  "values": {
+    "resourceLink": "not a url",
+    "resourceLinks": ["https://axllm.dev"]
+  }
+}

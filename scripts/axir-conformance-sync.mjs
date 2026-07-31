@@ -329,6 +329,13 @@ async function runSync({ repoRoot, write }) {
     runConformanceExtractor(
       repoRoot,
       tempRoot,
+      'schema-validation-goldens.ts',
+      'AxSchema'
+    );
+    runConformanceExtractor(repoRoot, tempRoot, 'axgen-goldens.ts', 'AxGen');
+    runConformanceExtractor(
+      repoRoot,
+      tempRoot,
       'optimize-goldens.ts',
       'AxOptimize'
     );
@@ -337,6 +344,9 @@ async function runSync({ repoRoot, write }) {
     });
     const failures = [
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axai', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'schema', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'validation', write),
+      ...compareGeneratedFixtures(repoRoot, tempRoot, 'axgen', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axoptimize', write),
       ...compareGeneratedFixtures(repoRoot, tempRoot, 'axagent', write),
       ...(await checkProviderCatalog(repoRoot, tempRoot, write)),

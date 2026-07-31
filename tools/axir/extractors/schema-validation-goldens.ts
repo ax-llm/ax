@@ -9,8 +9,9 @@ import { validateValue } from '../../../src/ax/dsp/util.js';
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type Fixture = Record<string, Json>;
 
-const schemaDir = join(process.cwd(), 'ir/conformance/schema');
-const validationDir = join(process.cwd(), 'ir/conformance/validation');
+const outRoot = process.env.AXIR_CONFORMANCE_OUT_ROOT ?? process.cwd();
+const schemaDir = join(outRoot, 'ir/conformance/schema');
+const validationDir = join(outRoot, 'ir/conformance/validation');
 
 function stable(value: unknown, parentKey = ''): unknown {
   if (Array.isArray(value)) return value.map((item) => stable(item, parentKey));
@@ -391,6 +392,59 @@ validateValueErrorCase(
     .getInputFields()[0]!,
   { mimeType: 'application/pdf' },
   'mimeType'
+);
+
+const urlValidationSpec = {
+  inputs: { query: { type: 'string' } },
+  outputs: {
+    resourceLinks: {
+      type: 'url',
+      array: true,
+      description: 'Canonical resource links',
+      arrayDescription: 'Resource link list',
+    },
+    resourceLink: {
+      type: 'url',
+      description: 'Canonical resource link',
+    },
+  },
+};
+const urlValidationSig = f()
+  .input('query', f.string())
+  .output(
+    'resourceLinks',
+    f.url('Canonical resource links').array('Resource link list')
+  )
+  .output('resourceLink', f.url('Canonical resource link'))
+  .build();
+validateOutputCase(
+  'output-url-array-valid',
+  urlValidationSpec,
+  urlValidationSig,
+  {
+    resourceLinks: ['https://axllm.dev', 'https://example.com/docs'],
+    resourceLink: 'https://axllm.dev',
+  }
+);
+validateOutputErrorCase(
+  'output-url-array-invalid-second',
+  urlValidationSpec,
+  urlValidationSig,
+  {
+    resourceLinks: ['https://axllm.dev', 'not a url'],
+    resourceLink: 'https://axllm.dev',
+  },
+  "Invalid URL for 'Resource Links': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: not a url."
+);
+validateOutputErrorCase(
+  'output-url-scalar-invalid',
+  urlValidationSpec,
+  urlValidationSig,
+  {
+    resourceLinks: ['https://axllm.dev'],
+    resourceLink: 'not a url',
+  },
+  "Invalid URL for 'Resource Link': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: not a url."
 );
 
 validateOutputCase('output-valid-nested', nestedSpec, nestedSig, {

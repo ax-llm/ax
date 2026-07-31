@@ -8551,6 +8551,40 @@ func runConformanceForward(fixture map[string]Value) {
 }
 
 func runConformanceStream(fixture map[string]Value) {
+	if states := asSlice(coreGet(fixture, "structured_states", Array())); len(states) > 0 {
+		for _, raw := range asSlice(coreGet(fixture, "route_cases", Array())) {
+			routeCase := asMap(raw)
+			assertEqual(
+				mustCore(stream_extraction_route(coreGet(routeCase, "has_complex_fields", false))),
+				coreGet(routeCase, "expected", ""),
+				"stream extraction route",
+			)
+		}
+		previous := Object()
+		emittedItems := Array()
+		trackedField := display(coreGet(fixture, "tracked_array_field", ""))
+		for _, raw := range states {
+			state := asMap(raw)
+			result := asMap(mustCore(stream_structured_delta(
+				coreGet(fixture, "field_specs", Array()),
+				coreGet(state, "parsed_values", Object()),
+				previous,
+				coreGet(state, "partial_array_incomplete", false),
+			)))
+			delta := asMap(coreGet(result, "delta", Object()))
+			fullValues := asMap(coreGet(result, "full_values", Object()))
+			assertEqual(delta, coreGet(state, "expected_delta", Object()), "structured delta")
+			assertEqual(fullValues, coreGet(state, "expected_full_values", Object()), "structured full values")
+			if trackedField != "" {
+				emittedItems = append(emittedItems, asSlice(coreGet(delta, trackedField, Array()))...)
+			}
+			for key, value := range fullValues {
+				previous[key] = value
+			}
+		}
+		assertEqual(previous, coreGet(fixture, "expected_final_values", Object()), "structured final values")
+		assertEqual(emittedItems, coreGet(fixture, "expected_emitted_items", Array()), "structured emitted items")
+	}
 	chunks := Array()
 	if _, err := safeValue(func() Value {
 		for _, event := range asSlice(coreGet(fixture, "stream_events", Array())) {

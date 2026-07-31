@@ -2676,7 +2676,7 @@ final class Core {
         Object invalid_url = Core.not(valid_url);
         if (Core.truthy(invalid_url)) {
           Object field_title = Core.get(field, "title", null);
-          Object message = Core.stringFormat("Invalid URL for '{}': Invalid URL format.", field_title);
+          Object message = Core.stringFormat("Invalid URL for '{}': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: {}.", field_title, value);
           Object error = Core.validationError(message);
           throw Core.asRuntime(error);
         }
@@ -8872,10 +8872,127 @@ final class Core {
     throw Core.asRuntime(error);
   }
 
-  static Object _stream_event_content_parts_impl(Object event) {
-    axirCoverageMark("_stream_event_content_parts_impl");
-    Object parts = Core.streamEventContentParts(event);
-    return parts;
+  static Object stream_extraction_route(Object has_complex_fields) {
+    axirCoverageMark("stream_extraction_route");
+    if (Core.truthy(has_complex_fields)) {
+      return "structured_json";
+    }
+    return "prompt_extraction";
+  }
+
+  static Object stream_structured_delta(Object fields, Object parsed_values, Object previous_values, Object partial_array_incomplete) {
+    axirCoverageMark("stream_structured_delta");
+    Object delta = new java.util.LinkedHashMap<String, Object>();
+    Object full_values = new java.util.LinkedHashMap<String, Object>();
+    for (Object field : Core.iter(fields)) {
+      Object key = Core.get(field, "name", "");
+      Object internal_snake = Core.get(field, "is_internal", Boolean.FALSE);
+      Object is_internal = Core.get(field, "isInternal", internal_snake);
+      Object has_parsed = Core.mapContains(parsed_values, key);
+      Object not_internal = Core.not(is_internal);
+      Object include = Core.and(has_parsed, not_internal);
+      if (Core.truthy(include)) {
+        Object new_value_raw = Core.get(parsed_values, key, null);
+        Object new_is_list = Core.typeIs(new_value_raw, "list");
+        Object new_value = new_value_raw;
+        if (Core.truthy(new_is_list)) {
+          Object new_count_raw = Core.len(new_value_raw);
+          Object has_last = Core.gt(new_count_raw, 0);
+          Object trim_last = Core.and(partial_array_incomplete, has_last);
+          if (Core.truthy(trim_last)) {
+            Object trimmed = new java.util.ArrayList<Object>();
+            Object keep_count = Core.add(new_count_raw, -1);
+            Object trim_cursor = 0;
+            for (Object item : Core.iter(new_value_raw)) {
+              Object keep_item = Core.lt(trim_cursor, keep_count);
+              if (Core.truthy(keep_item)) {
+                Core.append(trimmed, item);
+              }
+              Object trim_cursor_next = Core.add(trim_cursor, 1);
+              trim_cursor = trim_cursor_next;
+            }
+            new_value = trimmed;
+          }
+        }
+        Core.set(full_values, key, new_value);
+        Object old_present = Core.mapContains(previous_values, key);
+        Object old_value = Core.get(previous_values, key, null);
+        Object old_is_list = Core.typeIs(old_value, "list");
+        Object should_emit = Boolean.FALSE;
+        Object delta_value = Core.none();
+        if (Core.truthy(new_is_list)) {
+          if (Core.truthy(old_is_list)) {
+            Object new_count = Core.len(new_value);
+            Object old_count = Core.len(old_value);
+            Object grew = Core.gt(new_count, old_count);
+            if (Core.truthy(grew)) {
+              Object suffix = new java.util.ArrayList<Object>();
+              Object cursor = 0;
+              for (Object item : Core.iter(new_value)) {
+                Object is_suffix = Core.gte(cursor, old_count);
+                if (Core.truthy(is_suffix)) {
+                  Core.append(suffix, item);
+                }
+                Object cursor_next = Core.add(cursor, 1);
+                cursor = cursor_next;
+              }
+              delta_value = suffix;
+              should_emit = Boolean.TRUE;
+            }
+          }
+          if (!Core.truthy(old_is_list)) {
+            Object old_missing = Core.not(old_present);
+            if (Core.truthy(old_missing)) {
+              delta_value = new_value;
+              should_emit = Boolean.TRUE;
+            }
+          }
+        }
+        if (!Core.truthy(new_is_list)) {
+          Object new_is_string = Core.typeIs(new_value, "string");
+          Object old_is_string = Core.typeIs(old_value, "string");
+          Object both_strings = Core.and(new_is_string, old_is_string);
+          if (Core.truthy(both_strings)) {
+            Object prefix_growing = Core.stringStartsWith(new_value, old_value);
+            if (Core.truthy(prefix_growing)) {
+              Object old_length = Core.len(old_value);
+              Object new_length = Core.len(new_value);
+              Object string_grew = Core.gt(new_length, old_length);
+              if (Core.truthy(string_grew)) {
+                Object suffix = Core.stringSlice(new_value, old_length);
+                delta_value = suffix;
+                should_emit = Boolean.TRUE;
+              }
+            }
+            if (!Core.truthy(prefix_growing)) {
+              Object same_string = Core.eq(new_value, old_value);
+              Object changed_string = Core.not(same_string);
+              if (Core.truthy(changed_string)) {
+                delta_value = new_value;
+                should_emit = Boolean.TRUE;
+              }
+            }
+          }
+          if (!Core.truthy(both_strings)) {
+            Object same_value = Core.eq(new_value, old_value);
+            Object changed_value = Core.not(same_value);
+            Object old_missing = Core.not(old_present);
+            Object emit_value = Core.or(changed_value, old_missing);
+            if (Core.truthy(emit_value)) {
+              delta_value = new_value;
+              should_emit = Boolean.TRUE;
+            }
+          }
+        }
+        if (Core.truthy(should_emit)) {
+          Core.set(delta, key, delta_value);
+        }
+      }
+    }
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "delta", delta);
+    Core.set(out, "full_values", full_values);
+    return out;
   }
 
   static Object _validate_optimization_component_value(Object component, Object value) {
@@ -9081,6 +9198,12 @@ final class Core {
       Core._validate_optimization_component_value(component, value);
     }
     return Boolean.TRUE;
+  }
+
+  static Object _stream_event_content_parts_impl(Object event) {
+    axirCoverageMark("_stream_event_content_parts_impl");
+    Object parts = Core.streamEventContentParts(event);
+    return parts;
   }
 
   static Object _validate_optimized_artifact_provenance(Object artifact, Object components) {

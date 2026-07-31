@@ -607,6 +607,10 @@ def _core_string_starts_with(value, prefix):
     return str(value).startswith(str(prefix))
 
 
+def _core_string_slice(value, start, end=None):
+    return str(value)[int(start):None if end is None else int(end)]
+
+
 def _core_string_ends_with(value, suffix):
     return str(value).endswith(str(suffix))
 
@@ -1120,10 +1124,128 @@ def _execute_tool_call(functions: list[Any], call: Any) -> Any:
     raise error
 
 
-def _stream_event_content_parts_impl(event: Any) -> list[Any]:
-    _core_coverage_mark("_stream_event_content_parts_impl")
-    parts = _core_stream_event_content_parts(event)
-    return parts
+def stream_extraction_route(has_complex_fields: bool) -> str:
+    _core_coverage_mark("stream_extraction_route")
+    if has_complex_fields:
+        return "structured_json"
+    else:
+        pass
+    return "prompt_extraction"
+
+
+def stream_structured_delta(fields: list[Any], parsed_values: Any, previous_values: Any, partial_array_incomplete: bool) -> Any:
+    _core_coverage_mark("stream_structured_delta")
+    delta = {}
+    full_values = {}
+    for field in fields:
+        key = _core_get(field, "name", "")
+        internal_snake = _core_get(field, "is_internal", False)
+        is_internal = _core_get(field, "isInternal", internal_snake)
+        has_parsed = _core_map_contains(parsed_values, key)
+        not_internal = _core_not(is_internal)
+        include = _core_and(has_parsed, not_internal)
+        if include:
+            new_value_raw = _core_get(parsed_values, key, None)
+            new_is_list = _core_type_is(new_value_raw, "list")
+            new_value = new_value_raw
+            if new_is_list:
+                new_count_raw = _core_len(new_value_raw)
+                has_last = _core_gt(new_count_raw, 0)
+                trim_last = _core_and(partial_array_incomplete, has_last)
+                if trim_last:
+                    trimmed = []
+                    keep_count = _core_add(new_count_raw, -1)
+                    trim_cursor = 0
+                    for item in new_value_raw:
+                        keep_item = _core_lt(trim_cursor, keep_count)
+                        if keep_item:
+                            trimmed.append(item)
+                        else:
+                            pass
+                        trim_cursor_next = _core_add(trim_cursor, 1)
+                        trim_cursor = trim_cursor_next
+                    new_value = trimmed
+                else:
+                    pass
+            else:
+                pass
+            full_values[key] = new_value
+            old_present = _core_map_contains(previous_values, key)
+            old_value = _core_get(previous_values, key, None)
+            old_is_list = _core_type_is(old_value, "list")
+            should_emit = False
+            delta_value = _core_none()
+            if new_is_list:
+                if old_is_list:
+                    new_count = _core_len(new_value)
+                    old_count = _core_len(old_value)
+                    grew = _core_gt(new_count, old_count)
+                    if grew:
+                        suffix = []
+                        cursor = 0
+                        for item in new_value:
+                            is_suffix = _core_gte(cursor, old_count)
+                            if is_suffix:
+                                suffix.append(item)
+                            else:
+                                pass
+                            cursor_next = _core_add(cursor, 1)
+                            cursor = cursor_next
+                        delta_value = suffix
+                        should_emit = True
+                    else:
+                        pass
+                else:
+                    old_missing = _core_not(old_present)
+                    if old_missing:
+                        delta_value = new_value
+                        should_emit = True
+                    else:
+                        pass
+            else:
+                new_is_string = _core_type_is(new_value, "string")
+                old_is_string = _core_type_is(old_value, "string")
+                both_strings = _core_and(new_is_string, old_is_string)
+                if both_strings:
+                    prefix_growing = _core_string_starts_with(new_value, old_value)
+                    if prefix_growing:
+                        old_length = _core_len(old_value)
+                        new_length = _core_len(new_value)
+                        string_grew = _core_gt(new_length, old_length)
+                        if string_grew:
+                            suffix = _core_string_slice(new_value, old_length)
+                            delta_value = suffix
+                            should_emit = True
+                        else:
+                            pass
+                    else:
+                        same_string = _core_eq(new_value, old_value)
+                        changed_string = _core_not(same_string)
+                        if changed_string:
+                            delta_value = new_value
+                            should_emit = True
+                        else:
+                            pass
+                else:
+                    same_value = _core_eq(new_value, old_value)
+                    changed_value = _core_not(same_value)
+                    old_missing = _core_not(old_present)
+                    emit_value = _core_or(changed_value, old_missing)
+                    if emit_value:
+                        delta_value = new_value
+                        should_emit = True
+                    else:
+                        pass
+            if should_emit:
+                delta[key] = delta_value
+            else:
+                pass
+        else:
+            pass
+    out = {}
+    out["delta"] = delta
+    out["full_values"] = full_values
+    return out
 
 
 def _validate_optimization_component_value(component: Any, value: Any) -> bool:
@@ -1332,6 +1454,12 @@ def _validate_optimization_component_map(components: Any, component_map: Any) ->
         value = _core_get(component_map, id, None)
         _validate_optimization_component_value(component, value)
     return True
+
+
+def _stream_event_content_parts_impl(event: Any) -> list[Any]:
+    _core_coverage_mark("_stream_event_content_parts_impl")
+    parts = _core_stream_event_content_parts(event)
+    return parts
 
 
 def _validate_optimized_artifact_provenance(artifact: Any, components: Any) -> bool:

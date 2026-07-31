@@ -6773,6 +6773,82 @@ fn run_template_validate_fixture(fixture: &Value) -> AxResult<()> {
 // python: _run_stream. Folds the chunks through the emitted fold_stream after
 // every event so streaming assertions fire at the same point in the stream.
 fn run_stream_fixture(fixture: &Value) -> AxResult<()> {
+    if let Some(states) = fixture.get("structured_states").and_then(Value::as_array) {
+        for route_case in fixture
+            .get("route_cases")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+        {
+            let actual = stream_extraction_route(&[
+                CoreValue::Bool(
+                    route_case
+                        .get("has_complex_fields")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                ),
+            ])?;
+            expect_json_equal(
+                "stream extraction route",
+                &core_value_to_json(&actual),
+                route_case.get("expected").unwrap_or(&Value::Null),
+            )?;
+        }
+        let mut previous = Map::new();
+        let mut emitted_items = Vec::new();
+        let tracked_field = fixture
+            .get("tracked_array_field")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        for state in states {
+            let result = core_value_to_json(&stream_structured_delta(&[
+                core_value_from_json(fixture.get("field_specs").unwrap_or(&Value::Null)),
+                core_value_from_json(state.get("parsed_values").unwrap_or(&Value::Null)),
+                core_value_from_json(&Value::Object(previous.clone())),
+                CoreValue::Bool(
+                    state
+                        .get("partial_array_incomplete")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                ),
+            ])?);
+            let delta = result.get("delta").cloned().unwrap_or_else(|| json!({}));
+            let full_values = result
+                .get("full_values")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            expect_json_equal(
+                "structured delta",
+                &delta,
+                state.get("expected_delta").unwrap_or(&Value::Null),
+            )?;
+            expect_json_equal(
+                "structured full values",
+                &full_values,
+                state.get("expected_full_values").unwrap_or(&Value::Null),
+            )?;
+            if let Some(items) = delta.get(tracked_field).and_then(Value::as_array) {
+                emitted_items.extend(items.iter().cloned());
+            }
+            if let Some(values) = full_values.as_object() {
+                for (key, value) in values {
+                    previous.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        expect_json_equal(
+            "structured final values",
+            &Value::Object(previous),
+            fixture.get("expected_final_values").unwrap_or(&Value::Null),
+        )?;
+        expect_json_equal(
+            "structured emitted items",
+            &Value::Array(emitted_items),
+            fixture
+                .get("expected_emitted_items")
+                .unwrap_or(&Value::Null),
+        )?;
+    }
     let events = fixture
         .get("stream_events")
         .and_then(Value::as_array)
@@ -13473,13 +13549,10 @@ fn core_deep_clone(value: &CoreValue) -> CoreValue {
 
 fn core_field_item(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let field = core_arg(args, 0);
-    let item_type = core_deep_clone(&core_get(&field, &CoreValue::from("type"), CoreValue::Null));
+    let item_field = core_deep_clone(&field);
+    let item_type = core_get(&item_field, &CoreValue::from("type"), CoreValue::Null);
     core_set(&item_type, CoreValue::from("is_array"), CoreValue::Bool(false))?;
-    let values = CoreValue::new_map();
-    core_set(&values, CoreValue::from("name"), core_get(&field, &CoreValue::from("name"), CoreValue::Null))?;
-    core_set(&values, CoreValue::from("type"), item_type)?;
-    core_set(&values, CoreValue::from("description"), core_get(&field, &CoreValue::from("description"), CoreValue::Null))?;
-    core_record_new(&[CoreValue::from("Field"), values])
+    Ok(item_field)
 }
 
 fn core_map_contains(args: &[CoreValue]) -> Result<CoreValue, AxError> {

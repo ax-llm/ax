@@ -4779,7 +4779,7 @@ func _validate_value_impl(args ...Value) (Value, error) {
 			v_invalid_url = _core_not(v_valid_url)
 			if coreTruthy(v_invalid_url) {
 				v_field_title = coreGet(v_field, "title", nil)
-				v_message = _core_string_format("Invalid URL for '{}': Invalid URL format.", v_field_title)
+				v_message = _core_string_format("Invalid URL for '{}': Invalid URL format. Expected a valid URL like https://example.com. Use a valid URL format (e.g., https://example.com). You provided: {}.", v_field_title, v_value)
 				v_error = _core_validation_error(v_message)
 				return nil, asAxError(v_error)
 			} else {
@@ -17551,15 +17551,256 @@ func _execute_tool_call(args ...Value) (Value, error) {
 	return nil, asAxError(v_error)
 }
 
-func _stream_event_content_parts_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_stream_event_content_parts_impl")
-	var v_event Value
-	var v_parts Value
-	if len(args) > 0 { v_event = args[0] }
-	_ = v_event
-	_ = v_parts
-	v_parts = _core_stream_event_content_parts(v_event)
-	return v_parts, nil
+func stream_extraction_route(args ...Value) (Value, error) {
+	axirCoverageMark("stream_extraction_route")
+	var v_has_complex_fields Value
+	if len(args) > 0 { v_has_complex_fields = args[0] }
+	_ = v_has_complex_fields
+	if coreTruthy(v_has_complex_fields) {
+		return "structured_json", nil
+	} else {
+	// empty
+	}
+	return "prompt_extraction", nil
+}
+
+func stream_structured_delta(args ...Value) (Value, error) {
+	axirCoverageMark("stream_structured_delta")
+	var v_fields Value
+	var v_parsed_values Value
+	var v_previous_values Value
+	var v_partial_array_incomplete Value
+	var v_both_strings Value
+	var v_changed_string Value
+	var v_changed_value Value
+	var v_cursor Value
+	var v_cursor_next Value
+	var v_delta Value
+	var v_delta_value Value
+	var v_emit_value Value
+	var v_field Value
+	var v_full_values Value
+	var v_grew Value
+	var v_has_last Value
+	var v_has_parsed Value
+	var v_include Value
+	var v_internal_snake Value
+	var v_is_internal Value
+	var v_is_suffix Value
+	var v_item Value
+	var v_keep_count Value
+	var v_keep_item Value
+	var v_key Value
+	var v_new_count Value
+	var v_new_count_raw Value
+	var v_new_is_list Value
+	var v_new_is_string Value
+	var v_new_length Value
+	var v_new_value Value
+	var v_new_value_raw Value
+	var v_not_internal Value
+	var v_old_count Value
+	var v_old_is_list Value
+	var v_old_is_string Value
+	var v_old_length Value
+	var v_old_missing Value
+	var v_old_present Value
+	var v_old_value Value
+	var v_out Value
+	var v_prefix_growing Value
+	var v_same_string Value
+	var v_same_value Value
+	var v_should_emit Value
+	var v_string_grew Value
+	var v_suffix Value
+	var v_trim_cursor Value
+	var v_trim_cursor_next Value
+	var v_trim_last Value
+	var v_trimmed Value
+	if len(args) > 0 { v_fields = args[0] }
+	_ = v_fields
+	if len(args) > 1 { v_parsed_values = args[1] }
+	_ = v_parsed_values
+	if len(args) > 2 { v_previous_values = args[2] }
+	_ = v_previous_values
+	if len(args) > 3 { v_partial_array_incomplete = args[3] }
+	_ = v_partial_array_incomplete
+	_ = v_both_strings
+	_ = v_changed_string
+	_ = v_changed_value
+	_ = v_cursor
+	_ = v_cursor_next
+	_ = v_delta
+	_ = v_delta_value
+	_ = v_emit_value
+	_ = v_field
+	_ = v_full_values
+	_ = v_grew
+	_ = v_has_last
+	_ = v_has_parsed
+	_ = v_include
+	_ = v_internal_snake
+	_ = v_is_internal
+	_ = v_is_suffix
+	_ = v_item
+	_ = v_keep_count
+	_ = v_keep_item
+	_ = v_key
+	_ = v_new_count
+	_ = v_new_count_raw
+	_ = v_new_is_list
+	_ = v_new_is_string
+	_ = v_new_length
+	_ = v_new_value
+	_ = v_new_value_raw
+	_ = v_not_internal
+	_ = v_old_count
+	_ = v_old_is_list
+	_ = v_old_is_string
+	_ = v_old_length
+	_ = v_old_missing
+	_ = v_old_present
+	_ = v_old_value
+	_ = v_out
+	_ = v_prefix_growing
+	_ = v_same_string
+	_ = v_same_value
+	_ = v_should_emit
+	_ = v_string_grew
+	_ = v_suffix
+	_ = v_trim_cursor
+	_ = v_trim_cursor_next
+	_ = v_trim_last
+	_ = v_trimmed
+	v_delta = Object()
+	v_full_values = Object()
+	for _, v_field = range coreIter(v_fields) {
+		v_key = coreGet(v_field, "name", "")
+		v_internal_snake = coreGet(v_field, "is_internal", false)
+		v_is_internal = coreGet(v_field, "isInternal", v_internal_snake)
+		v_has_parsed = _core_map_contains(v_parsed_values, v_key)
+		v_not_internal = _core_not(v_is_internal)
+		v_include = _core_and(v_has_parsed, v_not_internal)
+		if coreTruthy(v_include) {
+			v_new_value_raw = coreGet(v_parsed_values, v_key, nil)
+			v_new_is_list = coreTypeIs(v_new_value_raw, "list")
+			v_new_value = v_new_value_raw
+			if coreTruthy(v_new_is_list) {
+				v_new_count_raw = _core_len(v_new_value_raw)
+				v_has_last = _core_gt(v_new_count_raw, 0)
+				v_trim_last = _core_and(v_partial_array_incomplete, v_has_last)
+				if coreTruthy(v_trim_last) {
+					v_trimmed = MutableArray()
+					v_keep_count = _core_add(v_new_count_raw, -1)
+					v_trim_cursor = 0
+					for _, v_item = range coreIter(v_new_value_raw) {
+						v_keep_item = _core_lt(v_trim_cursor, v_keep_count)
+						if coreTruthy(v_keep_item) {
+							v_trimmed = coreAppend(v_trimmed, v_item)
+						} else {
+						// empty
+						}
+						v_trim_cursor_next = _core_add(v_trim_cursor, 1)
+						v_trim_cursor = v_trim_cursor_next
+					}
+					v_new_value = v_trimmed
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+			if err := coreSet(v_full_values, v_key, v_new_value); err != nil { return nil, err }
+			v_old_present = _core_map_contains(v_previous_values, v_key)
+			v_old_value = coreGet(v_previous_values, v_key, nil)
+			v_old_is_list = coreTypeIs(v_old_value, "list")
+			v_should_emit = false
+			v_delta_value = _core_none()
+			if coreTruthy(v_new_is_list) {
+				if coreTruthy(v_old_is_list) {
+					v_new_count = _core_len(v_new_value)
+					v_old_count = _core_len(v_old_value)
+					v_grew = _core_gt(v_new_count, v_old_count)
+					if coreTruthy(v_grew) {
+						v_suffix = MutableArray()
+						v_cursor = 0
+						for _, v_item = range coreIter(v_new_value) {
+							v_is_suffix = _core_gte(v_cursor, v_old_count)
+							if coreTruthy(v_is_suffix) {
+								v_suffix = coreAppend(v_suffix, v_item)
+							} else {
+							// empty
+							}
+							v_cursor_next = _core_add(v_cursor, 1)
+							v_cursor = v_cursor_next
+						}
+						v_delta_value = v_suffix
+						v_should_emit = true
+					} else {
+					// empty
+					}
+				} else {
+					v_old_missing = _core_not(v_old_present)
+					if coreTruthy(v_old_missing) {
+						v_delta_value = v_new_value
+						v_should_emit = true
+					} else {
+					// empty
+					}
+				}
+			} else {
+				v_new_is_string = coreTypeIs(v_new_value, "string")
+				v_old_is_string = coreTypeIs(v_old_value, "string")
+				v_both_strings = _core_and(v_new_is_string, v_old_is_string)
+				if coreTruthy(v_both_strings) {
+					v_prefix_growing = _core_string_starts_with(v_new_value, v_old_value)
+					if coreTruthy(v_prefix_growing) {
+						v_old_length = _core_len(v_old_value)
+						v_new_length = _core_len(v_new_value)
+						v_string_grew = _core_gt(v_new_length, v_old_length)
+						if coreTruthy(v_string_grew) {
+							v_suffix = _core_string_slice(v_new_value, v_old_length)
+							v_delta_value = v_suffix
+							v_should_emit = true
+						} else {
+						// empty
+						}
+					} else {
+						v_same_string = _core_eq(v_new_value, v_old_value)
+						v_changed_string = _core_not(v_same_string)
+						if coreTruthy(v_changed_string) {
+							v_delta_value = v_new_value
+							v_should_emit = true
+						} else {
+						// empty
+						}
+					}
+				} else {
+					v_same_value = _core_eq(v_new_value, v_old_value)
+					v_changed_value = _core_not(v_same_value)
+					v_old_missing = _core_not(v_old_present)
+					v_emit_value = _core_or(v_changed_value, v_old_missing)
+					if coreTruthy(v_emit_value) {
+						v_delta_value = v_new_value
+						v_should_emit = true
+					} else {
+					// empty
+					}
+				}
+			}
+			if coreTruthy(v_should_emit) {
+				if err := coreSet(v_delta, v_key, v_delta_value); err != nil { return nil, err }
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	}
+	v_out = Object()
+	if err := coreSet(v_out, "delta", v_delta); err != nil { return nil, err }
+	if err := coreSet(v_out, "full_values", v_full_values); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func _validate_optimization_component_value(args ...Value) (Value, error) {
@@ -18017,6 +18258,17 @@ func _validate_optimization_component_map(args ...Value) (Value, error) {
 		if _, err := _validate_optimization_component_value(v_component, v_value); err != nil { return nil, err }
 	}
 	return true, nil
+}
+
+func _stream_event_content_parts_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_stream_event_content_parts_impl")
+	var v_event Value
+	var v_parts Value
+	if len(args) > 0 { v_event = args[0] }
+	_ = v_event
+	_ = v_parts
+	v_parts = _core_stream_event_content_parts(v_event)
+	return v_parts, nil
 }
 
 func _validate_optimized_artifact_provenance(args ...Value) (Value, error) {
@@ -55607,6 +55859,40 @@ func runConformanceForward(fixture map[string]Value) {
 }
 
 func runConformanceStream(fixture map[string]Value) {
+	if states := asSlice(coreGet(fixture, "structured_states", Array())); len(states) > 0 {
+		for _, raw := range asSlice(coreGet(fixture, "route_cases", Array())) {
+			routeCase := asMap(raw)
+			assertEqual(
+				mustCore(stream_extraction_route(coreGet(routeCase, "has_complex_fields", false))),
+				coreGet(routeCase, "expected", ""),
+				"stream extraction route",
+			)
+		}
+		previous := Object()
+		emittedItems := Array()
+		trackedField := display(coreGet(fixture, "tracked_array_field", ""))
+		for _, raw := range states {
+			state := asMap(raw)
+			result := asMap(mustCore(stream_structured_delta(
+				coreGet(fixture, "field_specs", Array()),
+				coreGet(state, "parsed_values", Object()),
+				previous,
+				coreGet(state, "partial_array_incomplete", false),
+			)))
+			delta := asMap(coreGet(result, "delta", Object()))
+			fullValues := asMap(coreGet(result, "full_values", Object()))
+			assertEqual(delta, coreGet(state, "expected_delta", Object()), "structured delta")
+			assertEqual(fullValues, coreGet(state, "expected_full_values", Object()), "structured full values")
+			if trackedField != "" {
+				emittedItems = append(emittedItems, asSlice(coreGet(delta, trackedField, Array()))...)
+			}
+			for key, value := range fullValues {
+				previous[key] = value
+			}
+		}
+		assertEqual(previous, coreGet(fixture, "expected_final_values", Object()), "structured final values")
+		assertEqual(emittedItems, coreGet(fixture, "expected_emitted_items", Array()), "structured emitted items")
+	}
 	chunks := Array()
 	if _, err := safeValue(func() Value {
 		for _, event := range asSlice(coreGet(fixture, "stream_events", Array())) {

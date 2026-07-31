@@ -188,9 +188,9 @@ def _core_validation_error(message):
 
 
 def _core_field_item(field):
-    item_type = copy.deepcopy(field.type)
-    item_type.is_array = False
-    return field.__class__(name=field.name, type=item_type, description=field.description)
+    item_field = copy.deepcopy(field)
+    item_field.type.is_array = False
+    return item_field
 
 
 def _core_fields_from_map(fields):

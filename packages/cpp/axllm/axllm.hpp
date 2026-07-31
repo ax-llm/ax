@@ -441,10 +441,12 @@ struct Core {
   static Value _build_gen_chat_request(Value gen, Value messages, Value options);
   static Value fold_stream(Value events);
   static Value _execute_tool_call(Value functions, Value call);
-  static Value _stream_event_content_parts_impl(Value event);
+  static Value stream_extraction_route(Value has_complex_fields);
+  static Value stream_structured_delta(Value fields, Value parsed_values, Value previous_values, Value partial_array_incomplete);
   static Value _validate_optimization_component_value(Value component, Value value);
   static Value _forward_impl(Value gen, Value client, Value values, Value options);
   static Value _validate_optimization_component_map(Value components, Value component_map);
+  static Value _stream_event_content_parts_impl(Value event);
   static Value _validate_optimized_artifact_provenance(Value artifact, Value components);
   static Value _validate_optimized_artifact(Value artifact, Value components);
   static Value _set_examples(Value gen, Value examples);

@@ -1,0 +1,190 @@
+{
+  "expected_emitted_items": [
+    {
+      "id": 1,
+      "name": "First"
+    },
+    {
+      "id": 2,
+      "name": "Second"
+    }
+  ],
+  "expected_final_values": {
+    "count": 1,
+    "items": [
+      {
+        "id": 1,
+        "name": "First"
+      },
+      {
+        "id": 2,
+        "name": "Second"
+      }
+    ],
+    "summary": "Hello"
+  },
+  "expected_folded": "",
+  "field_specs": [
+    {
+      "name": "items"
+    },
+    {
+      "name": "summary"
+    },
+    {
+      "name": "count"
+    },
+    {
+      "isInternal": true,
+      "name": "scratch"
+    }
+  ],
+  "kind": "stream",
+  "name": "structured-object-array-delta",
+  "route_cases": [
+    {
+      "expected": "structured_json",
+      "has_complex_fields": true
+    },
+    {
+      "expected": "prompt_extraction",
+      "has_complex_fields": false
+    }
+  ],
+  "structured_states": [
+    {
+      "expected_delta": {
+        "count": 1,
+        "items": [],
+        "summary": "Hel"
+      },
+      "expected_full_values": {
+        "count": 1,
+        "items": [],
+        "summary": "Hel"
+      },
+      "parsed_values": {
+        "count": 1,
+        "items": [
+          {
+            "id": 1,
+            "name": "Fir"
+          }
+        ],
+        "scratch": "hidden-1",
+        "summary": "Hel"
+      },
+      "partial_array_incomplete": true
+    },
+    {
+      "expected_delta": {
+        "items": [
+          {
+            "id": 1,
+            "name": "First"
+          }
+        ],
+        "summary": "lo"
+      },
+      "expected_full_values": {
+        "count": 1,
+        "items": [
+          {
+            "id": 1,
+            "name": "First"
+          }
+        ],
+        "summary": "Hello"
+      },
+      "parsed_values": {
+        "count": 1,
+        "items": [
+          {
+            "id": 1,
+            "name": "First"
+          },
+          {
+            "id": 2
+          }
+        ],
+        "scratch": "hidden-2",
+        "summary": "Hello"
+      },
+      "partial_array_incomplete": true
+    },
+    {
+      "expected_delta": {
+        "items": [
+          {
+            "id": 2,
+            "name": "Second"
+          }
+        ]
+      },
+      "expected_full_values": {
+        "count": 1,
+        "items": [
+          {
+            "id": 1,
+            "name": "First"
+          },
+          {
+            "id": 2,
+            "name": "Second"
+          }
+        ],
+        "summary": "Hello"
+      },
+      "parsed_values": {
+        "count": 1,
+        "items": [
+          {
+            "id": 1,
+            "name": "First"
+          },
+          {
+            "id": 2,
+            "name": "Second"
+          }
+        ],
+        "scratch": "hidden-3",
+        "summary": "Hello"
+      },
+      "partial_array_incomplete": false
+    },
+    {
+      "expected_delta": {},
+      "expected_full_values": {
+        "count": 1,
+        "items": [
+          {
+            "id": 1,
+            "name": "First"
+          },
+          {
+            "id": 2,
+            "name": "Second"
+          }
+        ],
+        "summary": "Hello"
+      },
+      "parsed_values": {
+        "count": 1,
+        "items": [
+          {
+            "id": 1,
+            "name": "First"
+          },
+          {
+            "id": 2,
+            "name": "Second"
+          }
+        ],
+        "scratch": "hidden-4",
+        "summary": "Hello"
+      },
+      "partial_array_incomplete": false
+    }
+  ],
+  "tracked_array_field": "items"
+}

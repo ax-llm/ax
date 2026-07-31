@@ -14,6 +14,8 @@ from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalance
 from .gen import (
     ax,
     fold_stream,
+    stream_extraction_route,
+    stream_structured_delta,
     _ace_apply_curator_operations,
     _ace_dedupe_playbook,
     _ace_empty_playbook,
@@ -854,6 +856,38 @@ def _run_template_validate(fixture):
 
 
 def _run_stream(fixture):
+    if fixture.get("structured_states"):
+        for route_case in fixture.get("route_cases") or []:
+            _assert_equal(
+                stream_extraction_route(bool(route_case.get("has_complex_fields"))),
+                route_case["expected"],
+                "stream extraction route",
+            )
+        previous = {}
+        emitted_items = []
+        tracked_field = fixture.get("tracked_array_field")
+        for state in fixture["structured_states"]:
+            result = stream_structured_delta(
+                fixture.get("field_specs") or [],
+                state.get("parsed_values") or {},
+                previous,
+                bool(state.get("partial_array_incomplete")),
+            )
+            _assert_equal(result.get("delta") or {}, state["expected_delta"], "structured delta")
+            _assert_equal(
+                result.get("full_values") or {},
+                state["expected_full_values"],
+                "structured full values",
+            )
+            if tracked_field:
+                emitted_items.extend((result.get("delta") or {}).get(tracked_field) or [])
+            previous = {**previous, **(result.get("full_values") or {})}
+        _assert_equal(previous, fixture["expected_final_values"], "structured final values")
+        _assert_equal(
+            emitted_items,
+            fixture.get("expected_emitted_items") or [],
+            "structured emitted items",
+        )
     chunks = []
     try:
         for event in fixture.get("stream_events") or []:
