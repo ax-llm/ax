@@ -2254,6 +2254,21 @@ def _openai_apply_model_config_impl(payload: Any, model_config: Any) -> None:
     _openai_copy_config_key_impl(payload, model_config, "presencePenalty", "presence_penalty")
     _openai_copy_config_key_impl(payload, model_config, "frequency_penalty", "frequency_penalty")
     _openai_copy_config_key_impl(payload, model_config, "frequencyPenalty", "frequency_penalty")
+    _openai_copy_config_key_impl(payload, model_config, "reasoning_effort", "reasoning_effort")
+    _openai_copy_config_key_impl(payload, model_config, "reasoningEffort", "reasoning_effort")
+    budget_snake = _core_get(model_config, "thinking_token_budget", None)
+    budget = _core_get(model_config, "thinkingTokenBudget", budget_snake)
+    has_budget = _core_is_not_none(budget)
+    if has_budget:
+        model = _core_get(payload, "model", "")
+        effort = openai_reasoning_effort(model, budget)
+        has_effort = _core_is_not_none(effort)
+        if has_effort:
+            payload["reasoning_effort"] = effort
+        else:
+            _core_map_delete(payload, "reasoning_effort")
+    else:
+        pass
     stop_snake = _core_get(model_config, "stop_sequences", None)
     stop = _core_get(model_config, "stopSequences", stop_snake)
     has_stop = _core_truthy(stop)
@@ -2273,6 +2288,91 @@ def _openai_apply_model_config_impl(payload: Any, model_config: Any) -> None:
     return None
 
 
+def build_chat_request(service: AxAIService, request: AxChatRequest, options: Any = None) -> Any:
+    _core_coverage_mark("build_chat_request")
+    validate_chat_request(request)
+    payload = openai_build_chat_request(request)
+    return payload
+
+
+def openai_reasoning_effort(model: str, budget: Any) -> Any:
+    _core_coverage_mark("openai_reasoning_effort")
+    is_gpt56_alias = _core_eq(model, "gpt-5.6")
+    is_gpt56_suffix = _core_string_starts_with(model, "gpt-5.6-")
+    is_gpt56 = _core_or(is_gpt56_alias, is_gpt56_suffix)
+    is_none = _core_eq(budget, "none")
+    if is_none:
+        if is_gpt56:
+            return "none"
+        else:
+            pass
+        none = _core_none()
+        return none
+    else:
+        pass
+    is_minimal = _core_eq(budget, "minimal")
+    is_low = _core_eq(budget, "low")
+    is_medium = _core_eq(budget, "medium")
+    is_highest = _core_eq(budget, "highest")
+    if is_gpt56:
+        if is_minimal:
+            return "low"
+        else:
+            pass
+        if is_low:
+            return "low"
+        else:
+            pass
+        if is_medium:
+            return "medium"
+        else:
+            pass
+        if is_highest:
+            return "max"
+        else:
+            pass
+        return "high"
+    else:
+        pass
+    if is_minimal:
+        return "minimal"
+    else:
+        pass
+    if is_low:
+        return "medium"
+    else:
+        pass
+    if is_highest:
+        return "xhigh"
+    else:
+        pass
+    return "high"
+
+
+def normalize_chat_response(raw: Any) -> AxChatResponse:
+    _core_coverage_mark("normalize_chat_response")
+    response = openai_normalize_chat_response(raw)
+    return response
+
+
+def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
+    _core_coverage_mark("normalize_stream_delta")
+    response = openai_normalize_stream_delta(raw, state)
+    return response
+
+
+def build_embed_request(service: AxAIService, request: AxEmbedRequest, options: Any = None) -> Any:
+    _core_coverage_mark("build_embed_request")
+    payload = openai_build_embed_request(request)
+    return payload
+
+
+def normalize_embed_response(raw: Any) -> AxEmbedResponse:
+    _core_coverage_mark("normalize_embed_response")
+    response = openai_normalize_embed_response(raw)
+    return response
+
+
 def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, target: str) -> None:
     _core_coverage_mark("_openai_copy_config_key_impl")
     has_source = _core_map_contains(model_config, source)
@@ -2284,11 +2384,63 @@ def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, t
     return None
 
 
-def build_chat_request(service: AxAIService, request: AxChatRequest, options: Any = None) -> Any:
-    _core_coverage_mark("build_chat_request")
-    validate_chat_request(request)
-    payload = openai_build_chat_request(request)
-    return payload
+def normalize_token_usage(usage: Any) -> Any:
+    _core_coverage_mark("normalize_token_usage")
+    out = {}
+    input_tokens = _core_get(usage, "input_tokens", 0)
+    prompt_tokens_snake = _core_get(usage, "prompt_tokens", input_tokens)
+    prompt_tokens = _core_get(usage, "promptTokens", prompt_tokens_snake)
+    output_tokens = _core_get(usage, "output_tokens", 0)
+    completion_tokens_snake = _core_get(usage, "completion_tokens", output_tokens)
+    completion_tokens = _core_get(usage, "completionTokens", completion_tokens_snake)
+    computed_total_tokens = _core_add(prompt_tokens, completion_tokens)
+    total_tokens_snake = _core_get(usage, "total_tokens", computed_total_tokens)
+    total_tokens = _core_get(usage, "totalTokens", total_tokens_snake)
+    out["prompt_tokens"] = prompt_tokens
+    out["completion_tokens"] = completion_tokens
+    out["total_tokens"] = total_tokens
+    thoughts_tokens_snake = _core_get(usage, "thoughts_tokens", None)
+    thoughts_tokens = _core_get(usage, "thoughtsTokens", thoughts_tokens_snake)
+    has_thoughts = _core_is_not_none(thoughts_tokens)
+    if has_thoughts:
+        out["thoughts_tokens"] = thoughts_tokens
+    else:
+        pass
+    reasoning_tokens_snake = _core_get(usage, "reasoning_tokens", None)
+    reasoning_tokens = _core_get(usage, "reasoningTokens", reasoning_tokens_snake)
+    has_reasoning = _core_is_not_none(reasoning_tokens)
+    if has_reasoning:
+        out["reasoning_tokens"] = reasoning_tokens
+    else:
+        pass
+    cache_read_tokens_snake = _core_get(usage, "cache_read_tokens", None)
+    cache_read_tokens = _core_get(usage, "cacheReadTokens", cache_read_tokens_snake)
+    has_cache_read = _core_is_not_none(cache_read_tokens)
+    if has_cache_read:
+        out["cache_read_tokens"] = cache_read_tokens
+    else:
+        pass
+    cache_creation_tokens_snake = _core_get(usage, "cache_creation_tokens", None)
+    cache_creation_tokens = _core_get(usage, "cacheCreationTokens", cache_creation_tokens_snake)
+    has_cache_creation = _core_is_not_none(cache_creation_tokens)
+    if has_cache_creation:
+        out["cache_creation_tokens"] = cache_creation_tokens
+    else:
+        pass
+    service_tier_snake = _core_get(usage, "service_tier", None)
+    service_tier = _core_get(usage, "serviceTier", service_tier_snake)
+    has_service_tier = _core_is_not_none(service_tier)
+    if has_service_tier:
+        out["service_tier"] = service_tier
+    else:
+        pass
+    speed = _core_get(usage, "speed", None)
+    has_speed = _core_is_not_none(speed)
+    if has_speed:
+        out["speed"] = speed
+    else:
+        pass
+    return out
 
 
 def _openai_message_impl(message: Any) -> Any:
@@ -2365,153 +2517,6 @@ def _openai_message_impl(message: Any) -> Any:
         pass
     message_text = _core_string_format("Invalid role: {}", role)
     error = _core_ai_error_response(message_text)
-    raise error
-
-
-def normalize_chat_response(raw: Any) -> AxChatResponse:
-    _core_coverage_mark("normalize_chat_response")
-    response = openai_normalize_chat_response(raw)
-    return response
-
-
-def normalize_stream_delta(raw: Any, state: Any) -> AxChatResponse:
-    _core_coverage_mark("normalize_stream_delta")
-    response = openai_normalize_stream_delta(raw, state)
-    return response
-
-
-def build_embed_request(service: AxAIService, request: AxEmbedRequest, options: Any = None) -> Any:
-    _core_coverage_mark("build_embed_request")
-    payload = openai_build_embed_request(request)
-    return payload
-
-
-def normalize_embed_response(raw: Any) -> AxEmbedResponse:
-    _core_coverage_mark("normalize_embed_response")
-    response = openai_normalize_embed_response(raw)
-    return response
-
-
-def normalize_token_usage(usage: Any) -> Any:
-    _core_coverage_mark("normalize_token_usage")
-    out = {}
-    input_tokens = _core_get(usage, "input_tokens", 0)
-    prompt_tokens_snake = _core_get(usage, "prompt_tokens", input_tokens)
-    prompt_tokens = _core_get(usage, "promptTokens", prompt_tokens_snake)
-    output_tokens = _core_get(usage, "output_tokens", 0)
-    completion_tokens_snake = _core_get(usage, "completion_tokens", output_tokens)
-    completion_tokens = _core_get(usage, "completionTokens", completion_tokens_snake)
-    computed_total_tokens = _core_add(prompt_tokens, completion_tokens)
-    total_tokens_snake = _core_get(usage, "total_tokens", computed_total_tokens)
-    total_tokens = _core_get(usage, "totalTokens", total_tokens_snake)
-    out["prompt_tokens"] = prompt_tokens
-    out["completion_tokens"] = completion_tokens
-    out["total_tokens"] = total_tokens
-    thoughts_tokens_snake = _core_get(usage, "thoughts_tokens", None)
-    thoughts_tokens = _core_get(usage, "thoughtsTokens", thoughts_tokens_snake)
-    has_thoughts = _core_is_not_none(thoughts_tokens)
-    if has_thoughts:
-        out["thoughts_tokens"] = thoughts_tokens
-    else:
-        pass
-    reasoning_tokens_snake = _core_get(usage, "reasoning_tokens", None)
-    reasoning_tokens = _core_get(usage, "reasoningTokens", reasoning_tokens_snake)
-    has_reasoning = _core_is_not_none(reasoning_tokens)
-    if has_reasoning:
-        out["reasoning_tokens"] = reasoning_tokens
-    else:
-        pass
-    cache_read_tokens_snake = _core_get(usage, "cache_read_tokens", None)
-    cache_read_tokens = _core_get(usage, "cacheReadTokens", cache_read_tokens_snake)
-    has_cache_read = _core_is_not_none(cache_read_tokens)
-    if has_cache_read:
-        out["cache_read_tokens"] = cache_read_tokens
-    else:
-        pass
-    cache_creation_tokens_snake = _core_get(usage, "cache_creation_tokens", None)
-    cache_creation_tokens = _core_get(usage, "cacheCreationTokens", cache_creation_tokens_snake)
-    has_cache_creation = _core_is_not_none(cache_creation_tokens)
-    if has_cache_creation:
-        out["cache_creation_tokens"] = cache_creation_tokens
-    else:
-        pass
-    service_tier_snake = _core_get(usage, "service_tier", None)
-    service_tier = _core_get(usage, "serviceTier", service_tier_snake)
-    has_service_tier = _core_is_not_none(service_tier)
-    if has_service_tier:
-        out["service_tier"] = service_tier
-    else:
-        pass
-    speed = _core_get(usage, "speed", None)
-    has_speed = _core_is_not_none(speed)
-    if has_speed:
-        out["speed"] = speed
-    else:
-        pass
-    return out
-
-
-def _openai_content_part_impl(part: Any) -> Any:
-    _core_coverage_mark("_openai_content_part_impl")
-    type = _core_get(part, "type", None)
-    is_text = _core_eq(type, "text")
-    if is_text:
-        text = _core_get(part, "text", "")
-        out = {}
-        out["type"] = "text"
-        out["text"] = text
-        return out
-    else:
-        pass
-    is_image = _core_eq(type, "image")
-    if is_image:
-        mime_snake = _core_get(part, "mime_type", None)
-        mime_raw = _core_get(part, "mimeType", mime_snake)
-        mime = _core_coalesce(mime_raw, "image/png")
-        image_value = _core_get(part, "image", None)
-        image_raw = _core_get(part, "data", image_value)
-        image = _core_coalesce(image_raw, "")
-        is_data_url = _core_string_starts_with(image, "data:")
-        url = ""
-        if is_data_url:
-            url = image
-        else:
-            url = _core_string_format("data:{};base64,{}", mime, image)
-        details = _core_get(part, "details", "auto")
-        image_url = {}
-        image_url["url"] = url
-        image_url["detail"] = details
-        out = {}
-        out["type"] = "image_url"
-        out["image_url"] = image_url
-        return out
-    else:
-        pass
-    is_audio = _core_eq(type, "audio")
-    if is_audio:
-        audio_alt = _core_get(part, "audio", None)
-        data = _core_get(part, "data", audio_alt)
-        format = _core_get(part, "format", None)
-        is_wav = _core_eq(format, "wav")
-        is_mp3 = _core_eq(format, "mp3")
-        format_ok = _core_or(is_wav, is_mp3)
-        if format_ok:
-            out = {}
-            out["type"] = "input_audio"
-            input_audio = {}
-            input_audio["data"] = data
-            input_audio["format"] = format
-            out["input_audio"] = input_audio
-            return out
-        else:
-            pass
-        audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", format)
-        audio_error = _core_ai_error_unsupported(audio_message)
-        raise audio_error
-    else:
-        pass
-    message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
-    error = _core_ai_error_unsupported(message)
     raise error
 
 
@@ -2601,6 +2606,87 @@ def build_usage_event(operation: str, response: Any, options: Any, streaming: bo
     return event
 
 
+def _openai_content_part_impl(part: Any) -> Any:
+    _core_coverage_mark("_openai_content_part_impl")
+    type = _core_get(part, "type", None)
+    is_text = _core_eq(type, "text")
+    if is_text:
+        text = _core_get(part, "text", "")
+        out = {}
+        out["type"] = "text"
+        out["text"] = text
+        return out
+    else:
+        pass
+    is_image = _core_eq(type, "image")
+    if is_image:
+        mime_snake = _core_get(part, "mime_type", None)
+        mime_raw = _core_get(part, "mimeType", mime_snake)
+        mime = _core_coalesce(mime_raw, "image/png")
+        image_value = _core_get(part, "image", None)
+        image_raw = _core_get(part, "data", image_value)
+        image = _core_coalesce(image_raw, "")
+        is_data_url = _core_string_starts_with(image, "data:")
+        url = ""
+        if is_data_url:
+            url = image
+        else:
+            url = _core_string_format("data:{};base64,{}", mime, image)
+        details = _core_get(part, "details", "auto")
+        image_url = {}
+        image_url["url"] = url
+        image_url["detail"] = details
+        out = {}
+        out["type"] = "image_url"
+        out["image_url"] = image_url
+        return out
+    else:
+        pass
+    is_audio = _core_eq(type, "audio")
+    if is_audio:
+        audio_alt = _core_get(part, "audio", None)
+        data = _core_get(part, "data", audio_alt)
+        format = _core_get(part, "format", None)
+        is_wav = _core_eq(format, "wav")
+        is_mp3 = _core_eq(format, "mp3")
+        format_ok = _core_or(is_wav, is_mp3)
+        if format_ok:
+            out = {}
+            out["type"] = "input_audio"
+            input_audio = {}
+            input_audio["data"] = data
+            input_audio["format"] = format
+            out["input_audio"] = input_audio
+            return out
+        else:
+            pass
+        audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", format)
+        audio_error = _core_ai_error_unsupported(audio_message)
+        raise audio_error
+    else:
+        pass
+    message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
+    error = _core_ai_error_unsupported(message)
+    raise error
+
+
+def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
+    _core_coverage_mark("_ai_model_usage_impl")
+    has_usage = _core_truthy(usage)
+    missing_usage = _core_not(has_usage)
+    if missing_usage:
+        none = _core_none()
+        return none
+    else:
+        pass
+    tokens = normalize_token_usage(usage)
+    out = {}
+    out["ai"] = ai_name
+    out["model"] = model
+    out["tokens"] = tokens
+    return out
+
+
 def _openai_tool_call_to_provider_impl(call: Any) -> Any:
     _core_coverage_mark("_openai_tool_call_to_provider_impl")
     fn = _core_get(call, "function", None)
@@ -2623,6 +2709,35 @@ def _openai_tool_call_to_provider_impl(call: Any) -> Any:
     return out
 
 
+def chat_response_to_completion(response: AxChatResponse) -> Any:
+    _core_coverage_mark("chat_response_to_completion")
+    empty_results = []
+    results = _core_get(response, "results", empty_results)
+    empty_result = {}
+    result = _core_list_get(results, 0, empty_result)
+    content = _core_get(result, "content", "")
+    calls = []
+    empty_calls = []
+    function_calls = _core_get(result, "function_calls", empty_calls)
+    for call in function_calls:
+        fn = _core_get(call, "function", None)
+        id = _core_get(call, "id", None)
+        name = _core_get(fn, "name", None)
+        params = _core_get(fn, "params", None)
+        compat_call = {}
+        compat_call["id"] = id
+        compat_call["name"] = name
+        compat_call["params"] = params
+        calls.append(compat_call)
+    model_usage = _core_get(response, "model_usage", None)
+    usage = _core_get(model_usage, "tokens", None)
+    out = {}
+    out["content"] = content
+    out["function_calls"] = calls
+    out["usage"] = usage
+    return out
+
+
 def _openai_tool_spec_impl(fn: Any) -> Any:
     _core_coverage_mark("_openai_tool_spec_impl")
     name = _core_get(fn, "name", None)
@@ -2642,6 +2757,36 @@ def _openai_tool_spec_impl(fn: Any) -> Any:
     return out
 
 
+def ai_context_cache_rejection(status: number, body_json: Any) -> bool:
+    _core_coverage_mark("ai_context_cache_rejection")
+    status_400_min = _core_gte(status, 400)
+    status_400_max = _core_lte(status, 400)
+    is_400 = _core_and(status_400_min, status_400_max)
+    status_404_min = _core_gte(status, 404)
+    status_404_max = _core_lte(status, 404)
+    is_404 = _core_and(status_404_min, status_404_max)
+    valid_status = _core_or(is_400, is_404)
+    body_text = _core_json_stringify(body_json)
+    body_lower = _core_string_lower(body_text)
+    names_compact = _core_contains(body_lower, "cachedcontent")
+    names_spaced = _core_contains(body_lower, "cached content")
+    names_resource = _core_contains(body_lower, "cachedcontents/")
+    names_left = _core_or(names_compact, names_spaced)
+    names_cache = _core_or(names_left, names_resource)
+    has_cache = _core_contains(body_lower, "cache")
+    expired = _core_contains(body_lower, "expired")
+    not_found = _core_contains(body_lower, "not found")
+    missing = _core_contains(body_lower, "does not exist")
+    invalid = _core_contains(body_lower, "invalid")
+    invalid_left = _core_or(expired, not_found)
+    invalid_right = _core_or(missing, invalid)
+    invalid_reason = _core_or(invalid_left, invalid_right)
+    invalid_cache = _core_and(has_cache, invalid_reason)
+    cache_rejection = _core_or(names_cache, invalid_cache)
+    out = _core_and(valid_status, cache_rejection)
+    return out
+
+
 def openai_build_embed_request(request: AxEmbedRequest) -> Any:
     _core_coverage_mark("openai_build_embed_request")
     embed_model_snake = _core_get(request, "embed_model", None)
@@ -2658,23 +2803,6 @@ def openai_build_embed_request(request: AxEmbedRequest) -> Any:
     else:
         pass
     return payload
-
-
-def _ai_model_usage_impl(ai_name: str, model: str, usage: Any) -> Any:
-    _core_coverage_mark("_ai_model_usage_impl")
-    has_usage = _core_truthy(usage)
-    missing_usage = _core_not(has_usage)
-    if missing_usage:
-        none = _core_none()
-        return none
-    else:
-        pass
-    tokens = normalize_token_usage(usage)
-    out = {}
-    out["ai"] = ai_name
-    out["model"] = model
-    out["tokens"] = tokens
-    return out
 
 
 def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
@@ -2718,99 +2846,6 @@ def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str
     return out
 
 
-def chat_response_to_completion(response: AxChatResponse) -> Any:
-    _core_coverage_mark("chat_response_to_completion")
-    empty_results = []
-    results = _core_get(response, "results", empty_results)
-    empty_result = {}
-    result = _core_list_get(results, 0, empty_result)
-    content = _core_get(result, "content", "")
-    calls = []
-    empty_calls = []
-    function_calls = _core_get(result, "function_calls", empty_calls)
-    for call in function_calls:
-        fn = _core_get(call, "function", None)
-        id = _core_get(call, "id", None)
-        name = _core_get(fn, "name", None)
-        params = _core_get(fn, "params", None)
-        compat_call = {}
-        compat_call["id"] = id
-        compat_call["name"] = name
-        compat_call["params"] = params
-        calls.append(compat_call)
-    model_usage = _core_get(response, "model_usage", None)
-    usage = _core_get(model_usage, "tokens", None)
-    out = {}
-    out["content"] = content
-    out["function_calls"] = calls
-    out["usage"] = usage
-    return out
-
-
-def ai_context_cache_rejection(status: number, body_json: Any) -> bool:
-    _core_coverage_mark("ai_context_cache_rejection")
-    status_400_min = _core_gte(status, 400)
-    status_400_max = _core_lte(status, 400)
-    is_400 = _core_and(status_400_min, status_400_max)
-    status_404_min = _core_gte(status, 404)
-    status_404_max = _core_lte(status, 404)
-    is_404 = _core_and(status_404_min, status_404_max)
-    valid_status = _core_or(is_400, is_404)
-    body_text = _core_json_stringify(body_json)
-    body_lower = _core_string_lower(body_text)
-    names_compact = _core_contains(body_lower, "cachedcontent")
-    names_spaced = _core_contains(body_lower, "cached content")
-    names_resource = _core_contains(body_lower, "cachedcontents/")
-    names_left = _core_or(names_compact, names_spaced)
-    names_cache = _core_or(names_left, names_resource)
-    has_cache = _core_contains(body_lower, "cache")
-    expired = _core_contains(body_lower, "expired")
-    not_found = _core_contains(body_lower, "not found")
-    missing = _core_contains(body_lower, "does not exist")
-    invalid = _core_contains(body_lower, "invalid")
-    invalid_left = _core_or(expired, not_found)
-    invalid_right = _core_or(missing, invalid)
-    invalid_reason = _core_or(invalid_left, invalid_right)
-    invalid_cache = _core_and(has_cache, invalid_reason)
-    cache_rejection = _core_or(names_cache, invalid_cache)
-    out = _core_and(valid_status, cache_rejection)
-    return out
-
-
-def _openai_normalize_choice_impl(choice: Any, raw: Any) -> Any:
-    _core_coverage_mark("_openai_normalize_choice_impl")
-    empty_message = {}
-    message = _core_get(choice, "message", empty_message)
-    refusal = _core_get(message, "refusal", None)
-    has_refusal = _core_truthy(refusal)
-    if has_refusal:
-        error = _core_ai_error_refusal(refusal, raw)
-        raise error
-    else:
-        pass
-    index = _core_get(choice, "index", 0)
-    id = _core_string_str(index)
-    content_raw = _core_get(message, "content", None)
-    content = _core_none()
-    has_content = _core_truthy(content_raw)
-    if has_content:
-        content = content_raw
-    else:
-        content = _core_none()
-    empty_calls = []
-    tool_calls = _core_get(message, "tool_calls", empty_calls)
-    function_calls = _openai_normalize_tool_calls_impl(tool_calls)
-    finish_reason_raw = _core_get(choice, "finish_reason", None)
-    finish_reason = _openai_finish_reason_impl(finish_reason_raw)
-    out = {}
-    out["index"] = index
-    out["id"] = id
-    out["content"] = content
-    out["function_calls"] = function_calls
-    out["finish_reason"] = finish_reason
-    return out
-
-
 def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
     _core_coverage_mark("ai_context_cache_expiry")
     is_number = _core_type_is(provider_expire_time, "number")
@@ -2823,34 +2858,6 @@ def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
     else:
         pass
     return 0
-
-
-def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
-    _core_coverage_mark("_openai_normalize_tool_calls_impl")
-    out = []
-    for call in calls:
-        fn = _core_get(call, "function", None)
-        params = _core_get(fn, "arguments", None)
-        params_is_string = _core_type_is(params, "string")
-        if params_is_string:
-            try:
-                parsed_params = _core_json_parse(params)
-                params = parsed_params
-            except Exception as parse_error:
-                pass
-        else:
-            pass
-        id = _core_get(call, "id", None)
-        name = _core_get(fn, "name", None)
-        function = {}
-        function["name"] = name
-        function["params"] = params
-        normalized = {}
-        normalized["id"] = id
-        normalized["type"] = "function"
-        normalized["function"] = function
-        out.append(normalized)
-    return out
 
 
 def ai_context_cache_plan(configured: bool, supported: bool, explicit_name: str, existing: Any, now: number, refresh_window_ms: number, create_eligible: bool) -> Any:
@@ -2902,32 +2909,38 @@ def ai_context_cache_plan(configured: bool, supported: bool, explicit_name: str,
     return out
 
 
-def _openai_finish_reason_impl(value: Any) -> Any:
-    _core_coverage_mark("_openai_finish_reason_impl")
-    is_stop = _core_eq(value, "stop")
-    if is_stop:
-        return "stop"
+def _openai_normalize_choice_impl(choice: Any, raw: Any) -> Any:
+    _core_coverage_mark("_openai_normalize_choice_impl")
+    empty_message = {}
+    message = _core_get(choice, "message", empty_message)
+    refusal = _core_get(message, "refusal", None)
+    has_refusal = _core_truthy(refusal)
+    if has_refusal:
+        error = _core_ai_error_refusal(refusal, raw)
+        raise error
     else:
         pass
-    is_length = _core_eq(value, "length")
-    if is_length:
-        return "length"
+    index = _core_get(choice, "index", 0)
+    id = _core_string_str(index)
+    content_raw = _core_get(message, "content", None)
+    content = _core_none()
+    has_content = _core_truthy(content_raw)
+    if has_content:
+        content = content_raw
     else:
-        pass
-    is_content_filter = _core_eq(value, "content_filter")
-    if is_content_filter:
-        return "error"
-    else:
-        pass
-    is_tool_calls = _core_eq(value, "tool_calls")
-    is_function_call = _core_eq(value, "function_call")
-    is_call = _core_or(is_tool_calls, is_function_call)
-    if is_call:
-        return "function_call"
-    else:
-        pass
-    none = _core_none()
-    return none
+        content = _core_none()
+    empty_calls = []
+    tool_calls = _core_get(message, "tool_calls", empty_calls)
+    function_calls = _openai_normalize_tool_calls_impl(tool_calls)
+    finish_reason_raw = _core_get(choice, "finish_reason", None)
+    finish_reason = _openai_finish_reason_impl(finish_reason_raw)
+    out = {}
+    out["index"] = index
+    out["id"] = id
+    out["content"] = content
+    out["function_calls"] = function_calls
+    out["finish_reason"] = finish_reason
+    return out
 
 
 def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_registry: bool) -> Any:
@@ -2955,23 +2968,31 @@ def ai_context_cache_recovery(current_entry: Any, cache_name: str, external_regi
     return out
 
 
-def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:
-    _core_coverage_mark("openai_normalize_embed_response")
-    embeddings = []
-    empty_data = []
-    data = _core_get(raw, "data", empty_data)
-    for item in data:
-        embedding = _core_get(item, "embedding", None)
-        embeddings.append(embedding)
-    raw_model = _core_get(raw, "model", None)
-    used_model = _core_coalesce(raw_model, model)
-    usage = _core_get(raw, "usage", None)
-    model_usage = _ai_model_usage_impl(ai_name, used_model, usage)
-    remote_id = _core_get(raw, "id", None)
-    out = {}
-    out["embeddings"] = embeddings
-    out["remote_id"] = remote_id
-    out["model_usage"] = model_usage
+def _openai_normalize_tool_calls_impl(calls: list[Any]) -> list[Any]:
+    _core_coverage_mark("_openai_normalize_tool_calls_impl")
+    out = []
+    for call in calls:
+        fn = _core_get(call, "function", None)
+        params = _core_get(fn, "arguments", None)
+        params_is_string = _core_type_is(params, "string")
+        if params_is_string:
+            try:
+                parsed_params = _core_json_parse(params)
+                params = parsed_params
+            except Exception as parse_error:
+                pass
+        else:
+            pass
+        id = _core_get(call, "id", None)
+        name = _core_get(fn, "name", None)
+        function = {}
+        function["name"] = name
+        function["params"] = params
+        normalized = {}
+        normalized["id"] = id
+        normalized["type"] = "function"
+        normalized["function"] = function
+        out.append(normalized)
     return out
 
 
@@ -3022,6 +3043,54 @@ def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, mode
     out["create"] = create
     out["update"] = update
     out["delete"] = delete_op
+    return out
+
+
+def _openai_finish_reason_impl(value: Any) -> Any:
+    _core_coverage_mark("_openai_finish_reason_impl")
+    is_stop = _core_eq(value, "stop")
+    if is_stop:
+        return "stop"
+    else:
+        pass
+    is_length = _core_eq(value, "length")
+    if is_length:
+        return "length"
+    else:
+        pass
+    is_content_filter = _core_eq(value, "content_filter")
+    if is_content_filter:
+        return "error"
+    else:
+        pass
+    is_tool_calls = _core_eq(value, "tool_calls")
+    is_function_call = _core_eq(value, "function_call")
+    is_call = _core_or(is_tool_calls, is_function_call)
+    if is_call:
+        return "function_call"
+    else:
+        pass
+    none = _core_none()
+    return none
+
+
+def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxEmbedResponse:
+    _core_coverage_mark("openai_normalize_embed_response")
+    embeddings = []
+    empty_data = []
+    data = _core_get(raw, "data", empty_data)
+    for item in data:
+        embedding = _core_get(item, "embedding", None)
+        embeddings.append(embedding)
+    raw_model = _core_get(raw, "model", None)
+    used_model = _core_coalesce(raw_model, model)
+    usage = _core_get(raw, "usage", None)
+    model_usage = _ai_model_usage_impl(ai_name, used_model, usage)
+    remote_id = _core_get(raw, "id", None)
+    out = {}
+    out["embeddings"] = embeddings
+    out["remote_id"] = remote_id
+    out["model_usage"] = model_usage
     return out
 
 
@@ -5516,13 +5585,13 @@ def openai_responses_build_chat_request(request: AxChatRequest) -> Any:
     model_config = _core_get(request, "model_config", empty_model_config)
     stream = _core_get(model_config, "stream", False)
     payload["stream"] = stream
-    _openai_responses_apply_model_config_impl(payload, model_config)
     reasoning = _core_get(model_config, "reasoning", None)
     has_reasoning = _core_truthy(reasoning)
     if has_reasoning:
         payload["reasoning"] = reasoning
     else:
         pass
+    _openai_responses_apply_model_config_impl(payload, model_config)
     include = _core_get(model_config, "include", None)
     has_include = _core_truthy(include)
     if has_include:
@@ -5549,6 +5618,27 @@ def _openai_responses_apply_model_config_impl(payload: Any, model_config: Any) -
     _openai_copy_config_key_impl(payload, model_config, "presence_penalty", "presence_penalty")
     _openai_copy_config_key_impl(payload, model_config, "frequencyPenalty", "frequency_penalty")
     _openai_copy_config_key_impl(payload, model_config, "frequency_penalty", "frequency_penalty")
+    budget_snake = _core_get(model_config, "thinking_token_budget", None)
+    budget = _core_get(model_config, "thinkingTokenBudget", budget_snake)
+    has_budget = _core_is_not_none(budget)
+    if has_budget:
+        model = _core_get(payload, "model", "")
+        effort = openai_reasoning_effort(model, budget)
+        has_effort = _core_is_not_none(effort)
+        if has_effort:
+            empty_reasoning = {}
+            reasoning = _core_get(payload, "reasoning", empty_reasoning)
+            reasoning["effort"] = effort
+            is_none = _core_eq(effort, "none")
+            if is_none:
+                _core_map_delete(reasoning, "summary")
+            else:
+                pass
+            payload["reasoning"] = reasoning
+        else:
+            _core_map_delete(payload, "reasoning")
+    else:
+        pass
     return None
 
 

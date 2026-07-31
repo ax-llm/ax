@@ -4253,6 +4253,22 @@ Value Core::_openai_apply_model_config_impl(Value payload, Value model_config) {
   Core::_openai_copy_config_key_impl(payload, model_config, Value("presencePenalty"), Value("presence_penalty"));
   Core::_openai_copy_config_key_impl(payload, model_config, Value("frequency_penalty"), Value("frequency_penalty"));
   Core::_openai_copy_config_key_impl(payload, model_config, Value("frequencyPenalty"), Value("frequency_penalty"));
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("reasoning_effort"), Value("reasoning_effort"));
+  Core::_openai_copy_config_key_impl(payload, model_config, Value("reasoningEffort"), Value("reasoning_effort"));
+  Value budget_snake = Core::get(model_config, Value("thinking_token_budget"), Value());
+  Value budget = Core::get(model_config, Value("thinkingTokenBudget"), budget_snake);
+  Value has_budget = Core::is_not_none(budget);
+  if (Core::truthy(has_budget)) {
+    Value model = Core::get(payload, Value("model"), Value(""));
+    Value effort = Core::openai_reasoning_effort(model, budget);
+    Value has_effort = Core::is_not_none(effort);
+    if (Core::truthy(has_effort)) {
+      Core::set(payload, Value("reasoning_effort"), effort);
+    }
+    if (!Core::truthy(has_effort)) {
+      Core::map_delete(payload, Value("reasoning_effort"));
+    }
+  }
   Value stop_snake = Core::get(model_config, Value("stop_sequences"), Value());
   Value stop = Core::get(model_config, Value("stopSequences"), stop_snake);
   Value has_stop = Core::truthy_value(stop);
@@ -4270,6 +4286,81 @@ Value Core::_openai_apply_model_config_impl(Value payload, Value model_config) {
   return Value();
 }
 
+Value Core::build_chat_request(Value service, Value request, Value options) {
+  axir_coverage_mark("build_chat_request");
+  Core::validate_chat_request(request);
+  Value payload = Core::openai_build_chat_request(request);
+  return payload;
+}
+
+Value Core::openai_reasoning_effort(Value model, Value budget) {
+  axir_coverage_mark("openai_reasoning_effort");
+  Value is_gpt56_alias = Core::eq(model, Value("gpt-5.6"));
+  Value is_gpt56_suffix = Core::string_starts_with(model, Value("gpt-5.6-"));
+  Value is_gpt56 = Core::or_(is_gpt56_alias, is_gpt56_suffix);
+  Value is_none = Core::eq(budget, Value("none"));
+  if (Core::truthy(is_none)) {
+    if (Core::truthy(is_gpt56)) {
+      return Value("none");
+    }
+    Value none = Core::none();
+    return none;
+  }
+  Value is_minimal = Core::eq(budget, Value("minimal"));
+  Value is_low = Core::eq(budget, Value("low"));
+  Value is_medium = Core::eq(budget, Value("medium"));
+  Value is_highest = Core::eq(budget, Value("highest"));
+  if (Core::truthy(is_gpt56)) {
+    if (Core::truthy(is_minimal)) {
+      return Value("low");
+    }
+    if (Core::truthy(is_low)) {
+      return Value("low");
+    }
+    if (Core::truthy(is_medium)) {
+      return Value("medium");
+    }
+    if (Core::truthy(is_highest)) {
+      return Value("max");
+    }
+    return Value("high");
+  }
+  if (Core::truthy(is_minimal)) {
+    return Value("minimal");
+  }
+  if (Core::truthy(is_low)) {
+    return Value("medium");
+  }
+  if (Core::truthy(is_highest)) {
+    return Value("xhigh");
+  }
+  return Value("high");
+}
+
+Value Core::normalize_chat_response(Value raw) {
+  axir_coverage_mark("normalize_chat_response");
+  Value response = Core::openai_normalize_chat_response(raw);
+  return response;
+}
+
+Value Core::normalize_stream_delta(Value raw, Value state) {
+  axir_coverage_mark("normalize_stream_delta");
+  Value response = Core::openai_normalize_stream_delta(raw, state);
+  return response;
+}
+
+Value Core::build_embed_request(Value service, Value request, Value options) {
+  axir_coverage_mark("build_embed_request");
+  Value payload = Core::openai_build_embed_request(request);
+  return payload;
+}
+
+Value Core::normalize_embed_response(Value raw) {
+  axir_coverage_mark("normalize_embed_response");
+  Value response = Core::openai_normalize_embed_response(raw);
+  return response;
+}
+
 Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target) {
   axir_coverage_mark("_openai_copy_config_key_impl");
   Value has_source = Core::map_contains(model_config, source);
@@ -4280,11 +4371,57 @@ Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Valu
   return Value();
 }
 
-Value Core::build_chat_request(Value service, Value request, Value options) {
-  axir_coverage_mark("build_chat_request");
-  Core::validate_chat_request(request);
-  Value payload = Core::openai_build_chat_request(request);
-  return payload;
+Value Core::normalize_token_usage(Value usage) {
+  axir_coverage_mark("normalize_token_usage");
+  Value out = Value::object();
+  Value input_tokens = Core::get(usage, Value("input_tokens"), Value(0));
+  Value prompt_tokens_snake = Core::get(usage, Value("prompt_tokens"), input_tokens);
+  Value prompt_tokens = Core::get(usage, Value("promptTokens"), prompt_tokens_snake);
+  Value output_tokens = Core::get(usage, Value("output_tokens"), Value(0));
+  Value completion_tokens_snake = Core::get(usage, Value("completion_tokens"), output_tokens);
+  Value completion_tokens = Core::get(usage, Value("completionTokens"), completion_tokens_snake);
+  Value computed_total_tokens = Core::add(prompt_tokens, completion_tokens);
+  Value total_tokens_snake = Core::get(usage, Value("total_tokens"), computed_total_tokens);
+  Value total_tokens = Core::get(usage, Value("totalTokens"), total_tokens_snake);
+  Core::set(out, Value("prompt_tokens"), prompt_tokens);
+  Core::set(out, Value("completion_tokens"), completion_tokens);
+  Core::set(out, Value("total_tokens"), total_tokens);
+  Value thoughts_tokens_snake = Core::get(usage, Value("thoughts_tokens"), Value());
+  Value thoughts_tokens = Core::get(usage, Value("thoughtsTokens"), thoughts_tokens_snake);
+  Value has_thoughts = Core::is_not_none(thoughts_tokens);
+  if (Core::truthy(has_thoughts)) {
+    Core::set(out, Value("thoughts_tokens"), thoughts_tokens);
+  }
+  Value reasoning_tokens_snake = Core::get(usage, Value("reasoning_tokens"), Value());
+  Value reasoning_tokens = Core::get(usage, Value("reasoningTokens"), reasoning_tokens_snake);
+  Value has_reasoning = Core::is_not_none(reasoning_tokens);
+  if (Core::truthy(has_reasoning)) {
+    Core::set(out, Value("reasoning_tokens"), reasoning_tokens);
+  }
+  Value cache_read_tokens_snake = Core::get(usage, Value("cache_read_tokens"), Value());
+  Value cache_read_tokens = Core::get(usage, Value("cacheReadTokens"), cache_read_tokens_snake);
+  Value has_cache_read = Core::is_not_none(cache_read_tokens);
+  if (Core::truthy(has_cache_read)) {
+    Core::set(out, Value("cache_read_tokens"), cache_read_tokens);
+  }
+  Value cache_creation_tokens_snake = Core::get(usage, Value("cache_creation_tokens"), Value());
+  Value cache_creation_tokens = Core::get(usage, Value("cacheCreationTokens"), cache_creation_tokens_snake);
+  Value has_cache_creation = Core::is_not_none(cache_creation_tokens);
+  if (Core::truthy(has_cache_creation)) {
+    Core::set(out, Value("cache_creation_tokens"), cache_creation_tokens);
+  }
+  Value service_tier_snake = Core::get(usage, Value("service_tier"), Value());
+  Value service_tier = Core::get(usage, Value("serviceTier"), service_tier_snake);
+  Value has_service_tier = Core::is_not_none(service_tier);
+  if (Core::truthy(has_service_tier)) {
+    Core::set(out, Value("service_tier"), service_tier);
+  }
+  Value speed = Core::get(usage, Value("speed"), Value());
+  Value has_speed = Core::is_not_none(speed);
+  if (Core::truthy(has_speed)) {
+    Core::set(out, Value("speed"), speed);
+  }
+  return out;
 }
 
 Value Core::_openai_message_impl(Value message) {
@@ -4358,145 +4495,6 @@ Value Core::_openai_message_impl(Value message) {
   }
   Value message_text = Core::string_format(Value("Invalid role: {}"), role);
   Value error = Core::ai_error_response(message_text);
-  throw Core::as_error(error);
-}
-
-Value Core::normalize_chat_response(Value raw) {
-  axir_coverage_mark("normalize_chat_response");
-  Value response = Core::openai_normalize_chat_response(raw);
-  return response;
-}
-
-Value Core::normalize_stream_delta(Value raw, Value state) {
-  axir_coverage_mark("normalize_stream_delta");
-  Value response = Core::openai_normalize_stream_delta(raw, state);
-  return response;
-}
-
-Value Core::build_embed_request(Value service, Value request, Value options) {
-  axir_coverage_mark("build_embed_request");
-  Value payload = Core::openai_build_embed_request(request);
-  return payload;
-}
-
-Value Core::normalize_embed_response(Value raw) {
-  axir_coverage_mark("normalize_embed_response");
-  Value response = Core::openai_normalize_embed_response(raw);
-  return response;
-}
-
-Value Core::normalize_token_usage(Value usage) {
-  axir_coverage_mark("normalize_token_usage");
-  Value out = Value::object();
-  Value input_tokens = Core::get(usage, Value("input_tokens"), Value(0));
-  Value prompt_tokens_snake = Core::get(usage, Value("prompt_tokens"), input_tokens);
-  Value prompt_tokens = Core::get(usage, Value("promptTokens"), prompt_tokens_snake);
-  Value output_tokens = Core::get(usage, Value("output_tokens"), Value(0));
-  Value completion_tokens_snake = Core::get(usage, Value("completion_tokens"), output_tokens);
-  Value completion_tokens = Core::get(usage, Value("completionTokens"), completion_tokens_snake);
-  Value computed_total_tokens = Core::add(prompt_tokens, completion_tokens);
-  Value total_tokens_snake = Core::get(usage, Value("total_tokens"), computed_total_tokens);
-  Value total_tokens = Core::get(usage, Value("totalTokens"), total_tokens_snake);
-  Core::set(out, Value("prompt_tokens"), prompt_tokens);
-  Core::set(out, Value("completion_tokens"), completion_tokens);
-  Core::set(out, Value("total_tokens"), total_tokens);
-  Value thoughts_tokens_snake = Core::get(usage, Value("thoughts_tokens"), Value());
-  Value thoughts_tokens = Core::get(usage, Value("thoughtsTokens"), thoughts_tokens_snake);
-  Value has_thoughts = Core::is_not_none(thoughts_tokens);
-  if (Core::truthy(has_thoughts)) {
-    Core::set(out, Value("thoughts_tokens"), thoughts_tokens);
-  }
-  Value reasoning_tokens_snake = Core::get(usage, Value("reasoning_tokens"), Value());
-  Value reasoning_tokens = Core::get(usage, Value("reasoningTokens"), reasoning_tokens_snake);
-  Value has_reasoning = Core::is_not_none(reasoning_tokens);
-  if (Core::truthy(has_reasoning)) {
-    Core::set(out, Value("reasoning_tokens"), reasoning_tokens);
-  }
-  Value cache_read_tokens_snake = Core::get(usage, Value("cache_read_tokens"), Value());
-  Value cache_read_tokens = Core::get(usage, Value("cacheReadTokens"), cache_read_tokens_snake);
-  Value has_cache_read = Core::is_not_none(cache_read_tokens);
-  if (Core::truthy(has_cache_read)) {
-    Core::set(out, Value("cache_read_tokens"), cache_read_tokens);
-  }
-  Value cache_creation_tokens_snake = Core::get(usage, Value("cache_creation_tokens"), Value());
-  Value cache_creation_tokens = Core::get(usage, Value("cacheCreationTokens"), cache_creation_tokens_snake);
-  Value has_cache_creation = Core::is_not_none(cache_creation_tokens);
-  if (Core::truthy(has_cache_creation)) {
-    Core::set(out, Value("cache_creation_tokens"), cache_creation_tokens);
-  }
-  Value service_tier_snake = Core::get(usage, Value("service_tier"), Value());
-  Value service_tier = Core::get(usage, Value("serviceTier"), service_tier_snake);
-  Value has_service_tier = Core::is_not_none(service_tier);
-  if (Core::truthy(has_service_tier)) {
-    Core::set(out, Value("service_tier"), service_tier);
-  }
-  Value speed = Core::get(usage, Value("speed"), Value());
-  Value has_speed = Core::is_not_none(speed);
-  if (Core::truthy(has_speed)) {
-    Core::set(out, Value("speed"), speed);
-  }
-  return out;
-}
-
-Value Core::_openai_content_part_impl(Value part) {
-  axir_coverage_mark("_openai_content_part_impl");
-  Value type = Core::get(part, Value("type"), Value());
-  Value is_text = Core::eq(type, Value("text"));
-  if (Core::truthy(is_text)) {
-    Value text = Core::get(part, Value("text"), Value(""));
-    Value out = Value::object();
-    Core::set(out, Value("type"), Value("text"));
-    Core::set(out, Value("text"), text);
-    return out;
-  }
-  Value is_image = Core::eq(type, Value("image"));
-  if (Core::truthy(is_image)) {
-    Value mime_snake = Core::get(part, Value("mime_type"), Value());
-    Value mime_raw = Core::get(part, Value("mimeType"), mime_snake);
-    Value mime = Core::coalesce(mime_raw, Value("image/png"));
-    Value image_value = Core::get(part, Value("image"), Value());
-    Value image_raw = Core::get(part, Value("data"), image_value);
-    Value image = Core::coalesce(image_raw, Value(""));
-    Value is_data_url = Core::string_starts_with(image, Value("data:"));
-    Value url = Value("");
-    if (Core::truthy(is_data_url)) {
-      url = image;
-    }
-    if (!Core::truthy(is_data_url)) {
-      url = Core::string_format(Value("data:{};base64,{}"), mime, image);
-    }
-    Value details = Core::get(part, Value("details"), Value("auto"));
-    Value image_url = Value::object();
-    Core::set(image_url, Value("url"), url);
-    Core::set(image_url, Value("detail"), details);
-    Value out = Value::object();
-    Core::set(out, Value("type"), Value("image_url"));
-    Core::set(out, Value("image_url"), image_url);
-    return out;
-  }
-  Value is_audio = Core::eq(type, Value("audio"));
-  if (Core::truthy(is_audio)) {
-    Value audio_alt = Core::get(part, Value("audio"), Value());
-    Value data = Core::get(part, Value("data"), audio_alt);
-    Value format = Core::get(part, Value("format"), Value());
-    Value is_wav = Core::eq(format, Value("wav"));
-    Value is_mp3 = Core::eq(format, Value("mp3"));
-    Value format_ok = Core::or_(is_wav, is_mp3);
-    if (Core::truthy(format_ok)) {
-      Value out = Value::object();
-      Core::set(out, Value("type"), Value("input_audio"));
-      Value input_audio = Value::object();
-      Core::set(input_audio, Value("data"), data);
-      Core::set(input_audio, Value("format"), format);
-      Core::set(out, Value("input_audio"), input_audio);
-      return out;
-    }
-    Value audio_message = Core::string_format(Value("OpenAI audio chat input supports only wav and mp3 audio, received {}"), format);
-    Value audio_error = Core::ai_error_unsupported(audio_message);
-    throw Core::as_error(audio_error);
-  }
-  Value message = Core::string_format(Value("OpenAI-compatible beta does not support content part type: {}"), type);
-  Value error = Core::ai_error_unsupported(message);
   throw Core::as_error(error);
 }
 
@@ -4579,6 +4577,84 @@ Value Core::build_usage_event(Value operation, Value response, Value options, Va
   return event;
 }
 
+Value Core::_openai_content_part_impl(Value part) {
+  axir_coverage_mark("_openai_content_part_impl");
+  Value type = Core::get(part, Value("type"), Value());
+  Value is_text = Core::eq(type, Value("text"));
+  if (Core::truthy(is_text)) {
+    Value text = Core::get(part, Value("text"), Value(""));
+    Value out = Value::object();
+    Core::set(out, Value("type"), Value("text"));
+    Core::set(out, Value("text"), text);
+    return out;
+  }
+  Value is_image = Core::eq(type, Value("image"));
+  if (Core::truthy(is_image)) {
+    Value mime_snake = Core::get(part, Value("mime_type"), Value());
+    Value mime_raw = Core::get(part, Value("mimeType"), mime_snake);
+    Value mime = Core::coalesce(mime_raw, Value("image/png"));
+    Value image_value = Core::get(part, Value("image"), Value());
+    Value image_raw = Core::get(part, Value("data"), image_value);
+    Value image = Core::coalesce(image_raw, Value(""));
+    Value is_data_url = Core::string_starts_with(image, Value("data:"));
+    Value url = Value("");
+    if (Core::truthy(is_data_url)) {
+      url = image;
+    }
+    if (!Core::truthy(is_data_url)) {
+      url = Core::string_format(Value("data:{};base64,{}"), mime, image);
+    }
+    Value details = Core::get(part, Value("details"), Value("auto"));
+    Value image_url = Value::object();
+    Core::set(image_url, Value("url"), url);
+    Core::set(image_url, Value("detail"), details);
+    Value out = Value::object();
+    Core::set(out, Value("type"), Value("image_url"));
+    Core::set(out, Value("image_url"), image_url);
+    return out;
+  }
+  Value is_audio = Core::eq(type, Value("audio"));
+  if (Core::truthy(is_audio)) {
+    Value audio_alt = Core::get(part, Value("audio"), Value());
+    Value data = Core::get(part, Value("data"), audio_alt);
+    Value format = Core::get(part, Value("format"), Value());
+    Value is_wav = Core::eq(format, Value("wav"));
+    Value is_mp3 = Core::eq(format, Value("mp3"));
+    Value format_ok = Core::or_(is_wav, is_mp3);
+    if (Core::truthy(format_ok)) {
+      Value out = Value::object();
+      Core::set(out, Value("type"), Value("input_audio"));
+      Value input_audio = Value::object();
+      Core::set(input_audio, Value("data"), data);
+      Core::set(input_audio, Value("format"), format);
+      Core::set(out, Value("input_audio"), input_audio);
+      return out;
+    }
+    Value audio_message = Core::string_format(Value("OpenAI audio chat input supports only wav and mp3 audio, received {}"), format);
+    Value audio_error = Core::ai_error_unsupported(audio_message);
+    throw Core::as_error(audio_error);
+  }
+  Value message = Core::string_format(Value("OpenAI-compatible beta does not support content part type: {}"), type);
+  Value error = Core::ai_error_unsupported(message);
+  throw Core::as_error(error);
+}
+
+Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
+  axir_coverage_mark("_ai_model_usage_impl");
+  Value has_usage = Core::truthy_value(usage);
+  Value missing_usage = Core::not_(has_usage);
+  if (Core::truthy(missing_usage)) {
+    Value none = Core::none();
+    return none;
+  }
+  Value tokens = Core::normalize_token_usage(usage);
+  Value out = Value::object();
+  Core::set(out, Value("ai"), ai_name);
+  Core::set(out, Value("model"), model);
+  Core::set(out, Value("tokens"), tokens);
+  return out;
+}
+
 Value Core::_openai_tool_call_to_provider_impl(Value call) {
   axir_coverage_mark("_openai_tool_call_to_provider_impl");
   Value fn = Core::get(call, Value("function"), Value());
@@ -4603,6 +4679,36 @@ Value Core::_openai_tool_call_to_provider_impl(Value call) {
   return out;
 }
 
+Value Core::chat_response_to_completion(Value response) {
+  axir_coverage_mark("chat_response_to_completion");
+  Value empty_results = Value::array();
+  Value results = Core::get(response, Value("results"), empty_results);
+  Value empty_result = Value::object();
+  Value result = Core::list_get(results, Value(0), empty_result);
+  Value content = Core::get(result, Value("content"), Value(""));
+  Value calls = Value::array();
+  Value empty_calls = Value::array();
+  Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
+  for (auto call : Core::iter(function_calls)) {
+    Value fn = Core::get(call, Value("function"), Value());
+    Value id = Core::get(call, Value("id"), Value());
+    Value name = Core::get(fn, Value("name"), Value());
+    Value params = Core::get(fn, Value("params"), Value());
+    Value compat_call = Value::object();
+    Core::set(compat_call, Value("id"), id);
+    Core::set(compat_call, Value("name"), name);
+    Core::set(compat_call, Value("params"), params);
+    Core::append(calls, compat_call);
+  }
+  Value model_usage = Core::get(response, Value("model_usage"), Value());
+  Value usage = Core::get(model_usage, Value("tokens"), Value());
+  Value out = Value::object();
+  Core::set(out, Value("content"), content);
+  Core::set(out, Value("function_calls"), calls);
+  Core::set(out, Value("usage"), usage);
+  return out;
+}
+
 Value Core::_openai_tool_spec_impl(Value fn) {
   axir_coverage_mark("_openai_tool_spec_impl");
   Value name = Core::get(fn, Value("name"), Value());
@@ -4621,6 +4727,36 @@ Value Core::_openai_tool_spec_impl(Value fn) {
   return out;
 }
 
+Value Core::ai_context_cache_rejection(Value status, Value body_json) {
+  axir_coverage_mark("ai_context_cache_rejection");
+  Value status_400_min = Core::gte(status, Value(400));
+  Value status_400_max = Core::lte(status, Value(400));
+  Value is_400 = Core::and_(status_400_min, status_400_max);
+  Value status_404_min = Core::gte(status, Value(404));
+  Value status_404_max = Core::lte(status, Value(404));
+  Value is_404 = Core::and_(status_404_min, status_404_max);
+  Value valid_status = Core::or_(is_400, is_404);
+  Value body_text = Core::json_stringify(body_json);
+  Value body_lower = Core::string_lower(body_text);
+  Value names_compact = Core::contains(body_lower, Value("cachedcontent"));
+  Value names_spaced = Core::contains(body_lower, Value("cached content"));
+  Value names_resource = Core::contains(body_lower, Value("cachedcontents/"));
+  Value names_left = Core::or_(names_compact, names_spaced);
+  Value names_cache = Core::or_(names_left, names_resource);
+  Value has_cache = Core::contains(body_lower, Value("cache"));
+  Value expired = Core::contains(body_lower, Value("expired"));
+  Value not_found = Core::contains(body_lower, Value("not found"));
+  Value missing = Core::contains(body_lower, Value("does not exist"));
+  Value invalid = Core::contains(body_lower, Value("invalid"));
+  Value invalid_left = Core::or_(expired, not_found);
+  Value invalid_right = Core::or_(missing, invalid);
+  Value invalid_reason = Core::or_(invalid_left, invalid_right);
+  Value invalid_cache = Core::and_(has_cache, invalid_reason);
+  Value cache_rejection = Core::or_(names_cache, invalid_cache);
+  Value out = Core::and_(valid_status, cache_rejection);
+  return out;
+}
+
 Value Core::openai_build_embed_request(Value request) {
   axir_coverage_mark("openai_build_embed_request");
   Value embed_model_snake = Core::get(request, Value("embed_model"), Value());
@@ -4636,22 +4772,6 @@ Value Core::openai_build_embed_request(Value request) {
     Core::set(payload, Value("dimensions"), dimensions);
   }
   return payload;
-}
-
-Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
-  axir_coverage_mark("_ai_model_usage_impl");
-  Value has_usage = Core::truthy_value(usage);
-  Value missing_usage = Core::not_(has_usage);
-  if (Core::truthy(missing_usage)) {
-    Value none = Core::none();
-    return none;
-  }
-  Value tokens = Core::normalize_token_usage(usage);
-  Value out = Value::object();
-  Core::set(out, Value("ai"), ai_name);
-  Core::set(out, Value("model"), model);
-  Core::set(out, Value("tokens"), tokens);
-  return out;
 }
 
 Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model) {
@@ -4693,101 +4813,6 @@ Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model
   return out;
 }
 
-Value Core::chat_response_to_completion(Value response) {
-  axir_coverage_mark("chat_response_to_completion");
-  Value empty_results = Value::array();
-  Value results = Core::get(response, Value("results"), empty_results);
-  Value empty_result = Value::object();
-  Value result = Core::list_get(results, Value(0), empty_result);
-  Value content = Core::get(result, Value("content"), Value(""));
-  Value calls = Value::array();
-  Value empty_calls = Value::array();
-  Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
-  for (auto call : Core::iter(function_calls)) {
-    Value fn = Core::get(call, Value("function"), Value());
-    Value id = Core::get(call, Value("id"), Value());
-    Value name = Core::get(fn, Value("name"), Value());
-    Value params = Core::get(fn, Value("params"), Value());
-    Value compat_call = Value::object();
-    Core::set(compat_call, Value("id"), id);
-    Core::set(compat_call, Value("name"), name);
-    Core::set(compat_call, Value("params"), params);
-    Core::append(calls, compat_call);
-  }
-  Value model_usage = Core::get(response, Value("model_usage"), Value());
-  Value usage = Core::get(model_usage, Value("tokens"), Value());
-  Value out = Value::object();
-  Core::set(out, Value("content"), content);
-  Core::set(out, Value("function_calls"), calls);
-  Core::set(out, Value("usage"), usage);
-  return out;
-}
-
-Value Core::ai_context_cache_rejection(Value status, Value body_json) {
-  axir_coverage_mark("ai_context_cache_rejection");
-  Value status_400_min = Core::gte(status, Value(400));
-  Value status_400_max = Core::lte(status, Value(400));
-  Value is_400 = Core::and_(status_400_min, status_400_max);
-  Value status_404_min = Core::gte(status, Value(404));
-  Value status_404_max = Core::lte(status, Value(404));
-  Value is_404 = Core::and_(status_404_min, status_404_max);
-  Value valid_status = Core::or_(is_400, is_404);
-  Value body_text = Core::json_stringify(body_json);
-  Value body_lower = Core::string_lower(body_text);
-  Value names_compact = Core::contains(body_lower, Value("cachedcontent"));
-  Value names_spaced = Core::contains(body_lower, Value("cached content"));
-  Value names_resource = Core::contains(body_lower, Value("cachedcontents/"));
-  Value names_left = Core::or_(names_compact, names_spaced);
-  Value names_cache = Core::or_(names_left, names_resource);
-  Value has_cache = Core::contains(body_lower, Value("cache"));
-  Value expired = Core::contains(body_lower, Value("expired"));
-  Value not_found = Core::contains(body_lower, Value("not found"));
-  Value missing = Core::contains(body_lower, Value("does not exist"));
-  Value invalid = Core::contains(body_lower, Value("invalid"));
-  Value invalid_left = Core::or_(expired, not_found);
-  Value invalid_right = Core::or_(missing, invalid);
-  Value invalid_reason = Core::or_(invalid_left, invalid_right);
-  Value invalid_cache = Core::and_(has_cache, invalid_reason);
-  Value cache_rejection = Core::or_(names_cache, invalid_cache);
-  Value out = Core::and_(valid_status, cache_rejection);
-  return out;
-}
-
-Value Core::_openai_normalize_choice_impl(Value choice, Value raw) {
-  axir_coverage_mark("_openai_normalize_choice_impl");
-  Value empty_message = Value::object();
-  Value message = Core::get(choice, Value("message"), empty_message);
-  Value refusal = Core::get(message, Value("refusal"), Value());
-  Value has_refusal = Core::truthy_value(refusal);
-  if (Core::truthy(has_refusal)) {
-    Value error = Core::ai_error_refusal(refusal, raw);
-    throw Core::as_error(error);
-  }
-  Value index = Core::get(choice, Value("index"), Value(0));
-  Value id = Core::string_str(index);
-  Value content_raw = Core::get(message, Value("content"), Value());
-  Value content = Core::none();
-  Value has_content = Core::truthy_value(content_raw);
-  if (Core::truthy(has_content)) {
-    content = content_raw;
-  }
-  if (!Core::truthy(has_content)) {
-    content = Core::none();
-  }
-  Value empty_calls = Value::array();
-  Value tool_calls = Core::get(message, Value("tool_calls"), empty_calls);
-  Value function_calls = Core::_openai_normalize_tool_calls_impl(tool_calls);
-  Value finish_reason_raw = Core::get(choice, Value("finish_reason"), Value());
-  Value finish_reason = Core::_openai_finish_reason_impl(finish_reason_raw);
-  Value out = Value::object();
-  Core::set(out, Value("index"), index);
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("content"), content);
-  Core::set(out, Value("function_calls"), function_calls);
-  Core::set(out, Value("finish_reason"), finish_reason);
-  return out;
-}
-
 Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
   axir_coverage_mark("ai_context_cache_expiry");
   Value is_number = Core::type_is(provider_expire_time, Value("number"));
@@ -4798,36 +4823,6 @@ Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
     }
   }
   return Value(0);
-}
-
-Value Core::_openai_normalize_tool_calls_impl(Value calls) {
-  axir_coverage_mark("_openai_normalize_tool_calls_impl");
-  Value out = Value::array();
-  for (auto call : Core::iter(calls)) {
-    Value fn = Core::get(call, Value("function"), Value());
-    Value params = Core::get(fn, Value("arguments"), Value());
-    Value params_is_string = Core::type_is(params, Value("string"));
-    if (Core::truthy(params_is_string)) {
-      try {
-        Value parsed_params = Core::json_parse(params);
-        params = parsed_params;
-      } catch (const std::exception& e) {
-        Value parse_error = Core::exception_value(e);
-        // empty
-      }
-    }
-    Value id = Core::get(call, Value("id"), Value());
-    Value name = Core::get(fn, Value("name"), Value());
-    Value function = Value::object();
-    Core::set(function, Value("name"), name);
-    Core::set(function, Value("params"), params);
-    Value normalized = Value::object();
-    Core::set(normalized, Value("id"), id);
-    Core::set(normalized, Value("type"), Value("function"));
-    Core::set(normalized, Value("function"), function);
-    Core::append(out, normalized);
-  }
-  return out;
 }
 
 Value Core::ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible) {
@@ -4876,28 +4871,39 @@ Value Core::ai_context_cache_plan(Value configured, Value supported, Value expli
   return out;
 }
 
-Value Core::_openai_finish_reason_impl(Value value) {
-  axir_coverage_mark("_openai_finish_reason_impl");
-  Value is_stop = Core::eq(value, Value("stop"));
-  if (Core::truthy(is_stop)) {
-    return Value("stop");
+Value Core::_openai_normalize_choice_impl(Value choice, Value raw) {
+  axir_coverage_mark("_openai_normalize_choice_impl");
+  Value empty_message = Value::object();
+  Value message = Core::get(choice, Value("message"), empty_message);
+  Value refusal = Core::get(message, Value("refusal"), Value());
+  Value has_refusal = Core::truthy_value(refusal);
+  if (Core::truthy(has_refusal)) {
+    Value error = Core::ai_error_refusal(refusal, raw);
+    throw Core::as_error(error);
   }
-  Value is_length = Core::eq(value, Value("length"));
-  if (Core::truthy(is_length)) {
-    return Value("length");
+  Value index = Core::get(choice, Value("index"), Value(0));
+  Value id = Core::string_str(index);
+  Value content_raw = Core::get(message, Value("content"), Value());
+  Value content = Core::none();
+  Value has_content = Core::truthy_value(content_raw);
+  if (Core::truthy(has_content)) {
+    content = content_raw;
   }
-  Value is_content_filter = Core::eq(value, Value("content_filter"));
-  if (Core::truthy(is_content_filter)) {
-    return Value("error");
+  if (!Core::truthy(has_content)) {
+    content = Core::none();
   }
-  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
-  Value is_function_call = Core::eq(value, Value("function_call"));
-  Value is_call = Core::or_(is_tool_calls, is_function_call);
-  if (Core::truthy(is_call)) {
-    return Value("function_call");
-  }
-  Value none = Core::none();
-  return none;
+  Value empty_calls = Value::array();
+  Value tool_calls = Core::get(message, Value("tool_calls"), empty_calls);
+  Value function_calls = Core::_openai_normalize_tool_calls_impl(tool_calls);
+  Value finish_reason_raw = Core::get(choice, Value("finish_reason"), Value());
+  Value finish_reason = Core::_openai_finish_reason_impl(finish_reason_raw);
+  Value out = Value::object();
+  Core::set(out, Value("index"), index);
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("content"), content);
+  Core::set(out, Value("function_calls"), function_calls);
+  Core::set(out, Value("finish_reason"), finish_reason);
+  return out;
 }
 
 Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry) {
@@ -4925,24 +4931,33 @@ Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Val
   return out;
 }
 
-Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
-  axir_coverage_mark("openai_normalize_embed_response");
-  Value embeddings = Value::array();
-  Value empty_data = Value::array();
-  Value data = Core::get(raw, Value("data"), empty_data);
-  for (auto item : Core::iter(data)) {
-    Value embedding = Core::get(item, Value("embedding"), Value());
-    Core::append(embeddings, embedding);
+Value Core::_openai_normalize_tool_calls_impl(Value calls) {
+  axir_coverage_mark("_openai_normalize_tool_calls_impl");
+  Value out = Value::array();
+  for (auto call : Core::iter(calls)) {
+    Value fn = Core::get(call, Value("function"), Value());
+    Value params = Core::get(fn, Value("arguments"), Value());
+    Value params_is_string = Core::type_is(params, Value("string"));
+    if (Core::truthy(params_is_string)) {
+      try {
+        Value parsed_params = Core::json_parse(params);
+        params = parsed_params;
+      } catch (const std::exception& e) {
+        Value parse_error = Core::exception_value(e);
+        // empty
+      }
+    }
+    Value id = Core::get(call, Value("id"), Value());
+    Value name = Core::get(fn, Value("name"), Value());
+    Value function = Value::object();
+    Core::set(function, Value("name"), name);
+    Core::set(function, Value("params"), params);
+    Value normalized = Value::object();
+    Core::set(normalized, Value("id"), id);
+    Core::set(normalized, Value("type"), Value("function"));
+    Core::set(normalized, Value("function"), function);
+    Core::append(out, normalized);
   }
-  Value raw_model = Core::get(raw, Value("model"), Value());
-  Value used_model = Core::coalesce(raw_model, model);
-  Value usage = Core::get(raw, Value("usage"), Value());
-  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
-  Value remote_id = Core::get(raw, Value("id"), Value());
-  Value out = Value::object();
-  Core::set(out, Value("embeddings"), embeddings);
-  Core::set(out, Value("remote_id"), remote_id);
-  Core::set(out, Value("model_usage"), model_usage);
   return out;
 }
 
@@ -4991,6 +5006,51 @@ Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_k
   Core::set(out, Value("create"), create);
   Core::set(out, Value("update"), update);
   Core::set(out, Value("delete"), delete_op);
+  return out;
+}
+
+Value Core::_openai_finish_reason_impl(Value value) {
+  axir_coverage_mark("_openai_finish_reason_impl");
+  Value is_stop = Core::eq(value, Value("stop"));
+  if (Core::truthy(is_stop)) {
+    return Value("stop");
+  }
+  Value is_length = Core::eq(value, Value("length"));
+  if (Core::truthy(is_length)) {
+    return Value("length");
+  }
+  Value is_content_filter = Core::eq(value, Value("content_filter"));
+  if (Core::truthy(is_content_filter)) {
+    return Value("error");
+  }
+  Value is_tool_calls = Core::eq(value, Value("tool_calls"));
+  Value is_function_call = Core::eq(value, Value("function_call"));
+  Value is_call = Core::or_(is_tool_calls, is_function_call);
+  if (Core::truthy(is_call)) {
+    return Value("function_call");
+  }
+  Value none = Core::none();
+  return none;
+}
+
+Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value model) {
+  axir_coverage_mark("openai_normalize_embed_response");
+  Value embeddings = Value::array();
+  Value empty_data = Value::array();
+  Value data = Core::get(raw, Value("data"), empty_data);
+  for (auto item : Core::iter(data)) {
+    Value embedding = Core::get(item, Value("embedding"), Value());
+    Core::append(embeddings, embedding);
+  }
+  Value raw_model = Core::get(raw, Value("model"), Value());
+  Value used_model = Core::coalesce(raw_model, model);
+  Value usage = Core::get(raw, Value("usage"), Value());
+  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
+  Value remote_id = Core::get(raw, Value("id"), Value());
+  Value out = Value::object();
+  Core::set(out, Value("embeddings"), embeddings);
+  Core::set(out, Value("remote_id"), remote_id);
+  Core::set(out, Value("model_usage"), model_usage);
   return out;
 }
 
@@ -7429,12 +7489,12 @@ Value Core::openai_responses_build_chat_request(Value request) {
   Value model_config = Core::get(request, Value("model_config"), empty_model_config);
   Value stream = Core::get(model_config, Value("stream"), Value(false));
   Core::set(payload, Value("stream"), stream);
-  Core::_openai_responses_apply_model_config_impl(payload, model_config);
   Value reasoning = Core::get(model_config, Value("reasoning"), Value());
   Value has_reasoning = Core::truthy_value(reasoning);
   if (Core::truthy(has_reasoning)) {
     Core::set(payload, Value("reasoning"), reasoning);
   }
+  Core::_openai_responses_apply_model_config_impl(payload, model_config);
   Value include = Core::get(model_config, Value("include"), Value());
   Value has_include = Core::truthy_value(include);
   if (Core::truthy(has_include)) {
@@ -7459,6 +7519,27 @@ Value Core::_openai_responses_apply_model_config_impl(Value payload, Value model
   Core::_openai_copy_config_key_impl(payload, model_config, Value("presence_penalty"), Value("presence_penalty"));
   Core::_openai_copy_config_key_impl(payload, model_config, Value("frequencyPenalty"), Value("frequency_penalty"));
   Core::_openai_copy_config_key_impl(payload, model_config, Value("frequency_penalty"), Value("frequency_penalty"));
+  Value budget_snake = Core::get(model_config, Value("thinking_token_budget"), Value());
+  Value budget = Core::get(model_config, Value("thinkingTokenBudget"), budget_snake);
+  Value has_budget = Core::is_not_none(budget);
+  if (Core::truthy(has_budget)) {
+    Value model = Core::get(payload, Value("model"), Value(""));
+    Value effort = Core::openai_reasoning_effort(model, budget);
+    Value has_effort = Core::is_not_none(effort);
+    if (Core::truthy(has_effort)) {
+      Value empty_reasoning = Value::object();
+      Value reasoning = Core::get(payload, Value("reasoning"), empty_reasoning);
+      Core::set(reasoning, Value("effort"), effort);
+      Value is_none = Core::eq(effort, Value("none"));
+      if (Core::truthy(is_none)) {
+        Core::map_delete(reasoning, Value("summary"));
+      }
+      Core::set(payload, Value("reasoning"), reasoning);
+    }
+    if (!Core::truthy(has_effort)) {
+      Core::map_delete(payload, Value("reasoning"));
+    }
+  }
   return Value();
 }
 

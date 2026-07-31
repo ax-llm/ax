@@ -1,0 +1,59 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": "reason",
+          "role": "user"
+        }
+      ],
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "high"
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5.6-luna",
+  "name": "openai-gpt-5-6-chat-reasoning-high",
+  "provider": "openai-compatible",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "reason",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "reasoningEffort": "xhigh",
+      "stream": false,
+      "thinkingTokenBudget": "high"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chat_high",
+        "model": "gpt-5.6-luna",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}
