@@ -1,5 +1,46 @@
 # Changelog
 
+## [23.0.8](https://github.com/ax-llm/ax/compare/23.0.6...23.0.7) (2026-07-31)
+
+### Bug Fixes
+
+* **openai:** stop sending max reasoning effort on the chat path ([#569](https://github.com/ax-llm/ax/issues/569)) ([d749bdd](https://github.com/ax-llm/ax/commit/d749bdd38df2884a64e117641349c7c4536270b2))
+
+## [23.0.7](https://github.com/ax-llm/ax/compare/23.0.6...23.0.7) (2026-07-31)
+
+### Features
+
+* **axir:** add modern MCP semantic foundations ([75ae884](https://github.com/ax-llm/ax/commit/75ae884cbb268037926dd4a266da30321bbff011))
+* **axir:** port actor multi-fence rejection ([e872fbb](https://github.com/ax-llm/ax/commit/e872fbb994e0c2ed22c2136756420806c959fd8a))
+* **axir:** port dual-era MCP client ([e43afb3](https://github.com/ax-llm/ax/commit/e43afb35854c370a637f13acf416668f263c7efb))
+* **axir:** port managed Gemini context caching ([e843410](https://github.com/ax-llm/ax/commit/e8434104a87b536dad1d19ecd2b036cf24960b27))
+* **axir:** port MCP cacheable results ([2067e57](https://github.com/ax-llm/ax/commit/2067e579c0147530133e59ecc115b3a5c02b6990))
+* **axir:** port MCP OAuth issuer validation ([82272c5](https://github.com/ax-llm/ax/commit/82272c59c56a083e80f44e941ff1637acd5d10af))
+* **axir:** port MCP subscriptions listen ([400092a](https://github.com/ax-llm/ax/commit/400092a28d43f10fd876e59c90e92d699110ef1c))
+* **axir:** port MCP Tasks v2 ([bfe2f5a](https://github.com/ax-llm/ax/commit/bfe2f5ab07bd1c815534cf631fc057b05bfd7758))
+* **axir:** port modern MCP transport headers ([afaae69](https://github.com/ax-llm/ax/commit/afaae6931c3d9911ef6e4399ac3df3c0ee402f19))
+* **axir:** port roots-first MCP MRTR ([0935411](https://github.com/ax-llm/ax/commit/093541147aa43ff543cd0befc2f8c6b749ff81af))
+* **axir:** verify modern MCP round trips ([c6253f5](https://github.com/ax-llm/ax/commit/c6253f57ebdb3f5d4359338a7f32366b02de9665))
+* **mcp:** add 2026-07-28 protocol types ([dceed8b](https://github.com/ax-llm/ax/commit/dceed8b45870325f80bb82551e5662cf09e11d10))
+* **mcp:** add dual-era stateless client core ([d5c3b5f](https://github.com/ax-llm/ax/commit/d5c3b5f97f0e2d4d239cab000c5d4b869d8ddc3a))
+* **mcp:** add modern transport header plumbing ([4b3bf5b](https://github.com/ax-llm/ax/commit/4b3bf5b3b4172616c7600c928b80352e31079a07))
+* **mcp:** add schema-driven parameter headers ([f55a529](https://github.com/ax-llm/ax/commit/f55a5297d68b20c3365357b74623a41806d8e623))
+* **mcp:** add subscriptions and cache TTL ([2907843](https://github.com/ax-llm/ax/commit/29078437badf25fed3e1b7ead3812b61a972d169))
+* **mcp:** add tasks extension v2 ([5ac2f72](https://github.com/ax-llm/ax/commit/5ac2f72e8b68c2999f248d29213fbd9735f67841))
+* **mcp:** add typed protocol and oauth issuer errors ([933fe0a](https://github.com/ax-llm/ax/commit/933fe0a8d780f5d31d49fdb079b38897062951b5))
+* **mcp:** define modern port boundaries ([db2714d](https://github.com/ax-llm/ax/commit/db2714d0729d223dc2b3af8b318d82684fed5567))
+* **mcp:** document dual-era client ([4d479b9](https://github.com/ax-llm/ax/commit/4d479b97f933b977c6c79d98fe2fc4b984fb7b96))
+* **mcp:** port MRTR elicitation ([f053c73](https://github.com/ax-llm/ax/commit/f053c737285a7a6dea38f9b653fb601d402d4658))
+* **mcp:** port OAuth discovery and grants ([ca86192](https://github.com/ax-llm/ax/commit/ca8619226fe91d893f0e5b51c3ce76a774057456))
+* **mcp:** support multi round-trip requests ([2bb681f](https://github.com/ax-llm/ax/commit/2bb681f310bce68d46c45fb24279fde3b3e4e686))
+* **openai:** add GPT-5.6 model family support ([#568](https://github.com/ax-llm/ax/issues/568)) ([0bbccda](https://github.com/ax-llm/ax/commit/0bbccdac3c9d789dd12d62286a63c191233837a8))
+
+### Bug Fixes
+
+* **mcp:** validate subscription acknowledgements ([42377de](https://github.com/ax-llm/ax/commit/42377de43c399892593864dd86bd43c4eec3cee4))
+* stop duplicating object array items when streaming structured output ([#565](https://github.com/ax-llm/ax/issues/565)) ([f414c6d](https://github.com/ax-llm/ax/commit/f414c6d7b7038e611bc0d3f66b633a14d65aadd3)), closes [#564](https://github.com/ax-llm/ax/issues/564) [#568](https://github.com/ax-llm/ax/issues/568)
+* validate url arrays per-item instead of on the whole array ([#567](https://github.com/ax-llm/ax/issues/567)) ([87a6720](https://github.com/ax-llm/ax/commit/87a6720829b6937909ecc6da6cae993de4c5a73c))
+
 ## [23.0.7](https://github.com/ax-llm/ax/compare/23.0.5...23.0.6) (2026-07-31)
 
 ### Features
