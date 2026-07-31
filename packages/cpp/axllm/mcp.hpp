@@ -23,6 +23,8 @@ struct AxMCPTokenSet {
   std::string refreshToken;
   long expiresAt = 0;
   std::string issuer;
+  std::string tokenType;
+  std::string scope;
 };
 
 struct AxMCPOAuthOptions {
@@ -33,8 +35,12 @@ struct AxMCPOAuthOptions {
   std::function<Value(const std::string&)> onAuthCode;
   std::function<Value(const std::string&)> getToken;
   std::function<void(const std::string&, Value)> setToken;
+  std::function<void(const std::string&)> clearToken;
   Value ssrfProtection = Value::object();
   bool requireIss = false;
+  std::string grantType = "authorization_code";
+  std::string resource;
+  Value authorizationServerMetadata;
 };
 
 class AxMCPTransport {
@@ -107,6 +113,7 @@ class AxMCPClient {
   Value resource_templates() const;
   std::string namespace_name() const;
   Value request(const std::string& method, Value params = Value::object());
+  void set_elicitation_handler(std::function<Value(Value, Value)> handler);
   std::string get_era() const { return era_; }
   Value discover();
   int add_notification_listener(std::function<void(Value)> listener){int id=next_listener_id_++;notification_listeners_[id]=std::move(listener);return id;}
@@ -141,6 +148,7 @@ class AxMCPClient {
   int next_listener_id_=1;
   std::map<int,std::function<void(Value)>> notification_listeners_;
   std::map<int,std::function<void(std::string)>> lifecycle_listeners_;
+  std::function<Value(Value,Value)> elicitation_handler_;
   bool initialized_=false;
 
   bool capability(const std::string& name) const;
@@ -341,7 +349,7 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
                       const std::string& method = "", Value params = Value::object(),
                       Value extra_headers = Value::object()) const;
   void terminate_session();
-  bool apply_oauth();
+  bool apply_oauth(const std::string& www_authenticate = "");
   Value headers() const { return headers_; }
   AxMCPOAuthOptions oauth;
 

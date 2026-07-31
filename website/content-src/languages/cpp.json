@@ -307,11 +307,30 @@
         "sourcePath": "src/examples/cpp/mcp/native_mcp_tools.cpp",
         "illustrative": true,
         "notes": [
-          "Current generated-package lifecycle. MCP 2026-07-28 era classification and discovery are tracked for a future port."
+          "Generated C++ supports automatic dual-era classification and modern discovery."
         ],
         "code": [
           "auto mcp = std::make_shared<axllm::AxMCPClient>(transport, axllm::object({{\"namespace\", \"inventory\"}}));",
           "auto catalog = mcp->inspect_catalog();"
+        ]
+      },
+      "mrtrElicitation": {
+        "illustrative": true,
+        "notes": [
+          "The setter installs a real host callback before initialization; sampling remains unsupported."
+        ],
+        "code": [
+          "axllm::AxMCPClient client(transport, axllm::object({",
+          "    {\"era\", \"modern\"},",
+          "    {\"roots\", axllm::array({axllm::object({{\"uri\", \"file:///workspace\"}})})},",
+          "}));",
+          "client.set_elicitation_handler([](axllm::Value params, axllm::Value context) {",
+          "    return axllm::object({",
+          "        {\"action\", \"accept\"},",
+          "        {\"content\", axllm::object({{\"confirmed\", true}})},",
+          "    });",
+          "});",
+          "auto result = client.call_tool(\"mrtr_one_round\", axllm::Value::object());"
         ]
       },
       "native": {

@@ -18,7 +18,24 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-07-30-port-legacy-inbound-mcp-elicitation` [axmcp] Port legacy inbound MCP elicitation
+  - Status: open
+  - Source commit: `4f0d018f`
+  - TS paths: `src/ax/mcp/client.ts`
+  - Impact: TypeScript can dispatch a legacy server-initiated elicitation/create request through the host handler, while generated clients currently expose elicitation only inside modern MRTR input rounds; Rust and C++ also lack general inbound server-request plumbing.
+  - Suggested AxIR work: Define a portable inbound server-request dispatch contract and transport boundary.; Add legacy elicitation fixtures and explicit runner arms for all generated languages.; Advertise legacy elicitation only on ports whose transports can receive and answer the request.
+- `axir-2026-07-30-port-task-input-required-fulfillment` [axmcp] Port MCP Tasks v2 input required fulfillment
+  - Status: open
+  - Source commit: `4f0d018f`
+  - TS paths: `src/ax/mcp/client.ts`
+  - Impact: TypeScript can fulfill input_required task status through tasks/update and continue polling, while generated clients currently auto-await only working and terminal task states and do not run the input-request fulfillment loop.
+  - Suggested AxIR work: Reuse the portable MRTR fulfillment planner for task inputRequests.; Add tasks/update request construction and continuation semantics to all generated clients.; Prove roots and elicitation task fulfillment plus missing-handler and sampling violations in five-language fixtures and live smoke.
+- `axir-2026-07-30-port-the-gpt-5-6-reasoning-effort-ladder` [axai] Port the GPT-5.6 reasoning-effort ladder
+  - Status: open
+  - Source commit: `cbaf70906d76c8534373451780b240e190a0f22c`
+  - TS paths: `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/responses_api.ts`
+  - Impact: Generated Python/Java/C++/Go/Rust clients have no OpenAI thinkingTokenBudget -> reasoning.effort mapping; AxIR models only the DeepSeek and Grok quirk blocks, so the GPT-5.6 1:1 ladder and its max rung are TS-only.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -272,7 +289,7 @@ No entries.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-30
   - Completed by: `e43afb35854c370a637f13acf416668f263c7efb`
-  - Verification: `Five-port discover-auto-fallback and discover-modern conformance plus real mcp_sse_roundtrip auto fallback in Python, Java, C++, Go, and Rust; npm run test:axir`
+  - Verification: `Five-port discover-auto-fallback and discover-modern conformance plus real mcp_sse_roundtrip auto fallback in Python, Java, C++, Go, and Rust; npm run test:axir; 2026-07-30 production evidence: Pipedream reachable and classified legacy 2024-11-05 with tools/resources but strict catalog incomplete because resources/templates/list returned -32601, DeepWiki PASS legacy 2025-11-25 with 3 tools, Cloudflare Docs PASS modern 2026-07-28 with 2 tools and 1 prompt`
 - `axir-2026-07-29-port-mcp-2026-07-28-required-http-headers` [axmcp] Port MCP 2026-07-28 required HTTP headers
   - Status: done
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
@@ -299,7 +316,7 @@ No entries.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-30
   - Completed by: `82272c59`
-  - Verification: `oauth-issuer.json and existing oauth.json passed in generated Python, Java, C++, Go, and Rust; shared state/issuer validation runs before token fabrication; full authorization-code flow remains a host boundary`
+  - Verification: `oauth-issuer.json and oauth.json pass in generated Python, Java, C++, Go, and Rust; shared state/issuer validation is now consumed by real authorization-code flows, with host interaction isolated to onAuthCode(url)`
 - `axir-2026-07-29-port-mcp-tasks-extension-v2` [axmcp] Port MCP tasks extension v2
   - Status: done
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
@@ -331,8 +348,26 @@ No entries.
   - Status: done
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
   - TS paths: `src/ax/mcp/mrtr.ts`
-  - Impact: Generated Python, Java, C++, Go, and Rust clients cannot fulfill modern input_required rounds. The first portable tranche is roots-only because generated clients do not yet expose sampling or elicitation host handlers.
+  - Impact: Generated Python, Java, C++, Go, and Rust clients initially could not fulfill modern input_required rounds. This completed first tranche deliberately covered roots only and is superseded by the MRTR elicitation host-callback tranche; sampling remains outside the generated-port scope.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-30
   - Completed by: `09354114`
-  - Verification: `mrtr-roots + mrtr-violations across Python/Go/Java/C++/Rust; fresh IDs, byte-exact requestState, current-round-only inputs; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check`
+  - Verification: `mrtr-roots + mrtr-violations across Python/Go/Java/C++/Rust; fresh IDs, byte-exact requestState, current-round-only inputs; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check; superseded by axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks`
+- `axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks` [axmcp] Port MCP MRTR elicitation host callbacks
+  - Status: done
+  - Source commit: `4f0d018f`
+  - TS paths: `src/ax/mcp/mrtr.ts`, `src/ax/mcp/client.ts`
+  - Impact: The generated Python, Java, C++, Go, and Rust clients can fulfill roots-only modern MRTR rounds but lack host elicitation callbacks and can advertise sampling or elicitation option keys they cannot execute.
+  - Suggested AxIR work: Replace the roots-only fulfillment op with a shared roots and pending-host-request planner.; Add real elicitation callback surfaces and honest modern capability advertisement to every generated client.; Prove mixed roots and elicitation, requestState echo, sampling rejection, generated package lockstep, and five-language localhost event smoke.
+  - Completed at: 2026-07-30
+  - Completed by: `f053c737`
+  - Verification: `npm test; npm run axir:backlog:validate; generated five-language conformance release verifier; legacy and modern five-language MCP event smoke; TypeScript stdio and HTTP plus five-port foreign-server interop`
+- `axir-2026-07-31-port-mcp-oauth-discovery-grants-and-refresh` [axmcp] Port MCP OAuth discovery, grants, and refresh
+  - Status: done
+  - Source commit: `9e4f3ed15f28dcc891556cc611ed7da997bb9aac`
+  - TS paths: `src/ax/mcp/oauth/oauthHelper.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust OAuth transports fabricate bearer tokens instead of performing RFC 9728 discovery, PKCE authorization-code or client-credentials exchange, 60-second-skew refresh, RFC 8707 resource binding, and RFC 9207 issuer validation against the discovered authorization server.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-31
+  - Completed by: `ca8619226fe91d893f0e5b51c3ce76a774057456`
+  - Verification: `npm test; npm run website:build; npm run website:check; 2026-07-30 localhost AS live evidence: Python, Java, C++, Go, and Rust passed well-known and 401-challenge authorization-code flows, refresh with 60-second skew, client credentials conformance, and wrong-iss rejection; Pipedream uses bearer-via-SDK and is not claimed as MCP-native OAuth proof`

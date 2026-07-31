@@ -299,11 +299,29 @@
         "sourcePath": "src/examples/java/mcp/NativeMCPToolsExample.java",
         "illustrative": true,
         "notes": [
-          "Current generated-package lifecycle. MCP 2026-07-28 era classification and discovery are tracked for a future port."
+          "Generated Java supports automatic dual-era classification and modern discovery."
         ],
         "code": [
           "AxMCPClient mcp = new AxMCPClient(new AxMCPStreamableHTTPTransport(endpoint), Map.of(\"namespace\", \"inventory\"));",
           "AxMCPClient.CatalogSnapshot catalog = mcp.inspectCatalog();"
+        ]
+      },
+      "mrtrElicitation": {
+        "illustrative": true,
+        "notes": [
+          "The BiFunction is advertised only for modern MCP; sampling remains unsupported."
+        ],
+        "code": [
+          "BiFunction<Map<String,Object>, Map<String,Object>, Map<String,Object>> elicitation =",
+          "    (params, context) -> Map.of(",
+          "        \"action\", \"accept\",",
+          "        \"content\", Map.of(\"confirmed\", true));",
+          "Map<String,Object> options = new LinkedHashMap<>();",
+          "options.put(\"era\", \"modern\");",
+          "options.put(\"roots\", List.of(Map.of(\"uri\", \"file:///workspace\")));",
+          "options.put(\"elicitation\", elicitation);",
+          "AxMCPClient client = new AxMCPClient(transport, options);",
+          "Map<String,Object> result = client.callTool(\"mrtr_one_round\", Map.of());"
         ]
       },
       "native": {

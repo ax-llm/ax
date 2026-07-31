@@ -63,7 +63,7 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
       for (Map.Entry<String, String> entry : buildHeaders(Map.of("Content-Type", "application/json", "Accept", "application/json, text/event-stream"), !"initialize".equals(method), method, Core.asMap(message.get("params")), extraHeaders).entrySet()) builder.header(entry.getKey(), entry.getValue());
       HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
       if (!"modern".equals(era)) response.headers().firstValue("MCP-Session-Id").ifPresent(value -> sessionId = value);
-      if (response.statusCode() == 401 && applyOAuth()) return sendWithHeaders(message, extraHeaders);
+      if (response.statusCode() == 401 && applyOAuth(response.headers().firstValue("WWW-Authenticate").orElse(""))) return sendWithHeaders(message, extraHeaders);
       if (response.statusCode() < 200 || response.statusCode() >= 300) throw new AxMCPError("HTTP error " + response.statusCode());
       String bodyText = response.body();
       Object requestId = message.get("id");
@@ -248,29 +248,59 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     return "=?base64?" + Base64.getEncoder().encodeToString(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)) + "?=";
   }
 
-  boolean applyOAuth() {
+  private static Map<String, Object> oauthTokenValue(AxMCPTokenSet token) {
+    if (token == null) return null;
+    Map<String,Object> out = new LinkedHashMap<>(); out.put("accessToken", token.accessToken);
+    if (token.refreshToken != null) out.put("refreshToken", token.refreshToken); if (token.expiresAt != null) out.put("expiresAt", token.expiresAt); if (token.issuer != null) out.put("issuer", token.issuer); if (token.tokenType != null) out.put("tokenType", token.tokenType); if (token.scope != null) out.put("scope", token.scope); return out;
+  }
+
+  private static AxMCPTokenSet oauthTokenSet(Object value) {
+    Map<String,Object> token = Core.asMap(value); Object expiresAt = token.get("expiresAt");
+    return new AxMCPTokenSet(String.valueOf(token.getOrDefault("accessToken", "")), token.get("refreshToken") == null ? null : String.valueOf(token.get("refreshToken")), expiresAt instanceof Number number ? number.longValue() : null, token.get("issuer") == null ? null : String.valueOf(token.get("issuer")), token.get("tokenType") == null ? "Bearer" : String.valueOf(token.get("tokenType")), token.get("scope") == null ? null : String.valueOf(token.get("scope")));
+  }
+
+  private Map<String,Object> oauthGetJson(String endpoint, AxMCPOAuthOptions oauth) throws Exception {
+    String checked = AxMCPClient.validateEndpoint(endpoint, oauth.ssrfProtection); HttpRequest request = HttpRequest.newBuilder(URI.create(checked)).header("Accept", "application/json").GET().build(); HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+    if (response.statusCode() < 200 || response.statusCode() >= 300) throw new AxMCPError("OAuth discovery HTTP error " + response.statusCode()); return Core.asMap(Json.parse(response.body()));
+  }
+
+  private Map<String,Object> oauthPostToken(String endpoint, Map<String,Object> body, AxMCPOAuthOptions oauth) throws Exception {
+    String checked = AxMCPClient.validateEndpoint(endpoint, oauth.ssrfProtection); List<String> fields = new ArrayList<>();
+    for (Map.Entry<String,Object> entry : body.entrySet()) if (!"__order".equals(entry.getKey())) fields.add(java.net.URLEncoder.encode(entry.getKey(), java.nio.charset.StandardCharsets.UTF_8) + "=" + java.net.URLEncoder.encode(String.valueOf(entry.getValue()), java.nio.charset.StandardCharsets.UTF_8));
+    HttpRequest request = HttpRequest.newBuilder(URI.create(checked)).header("Accept", "application/json").header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(String.join("&", fields))).build(); HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+    if (response.statusCode() < 200 || response.statusCode() >= 300) throw new AxMCPError("OAuth token HTTP error " + response.statusCode() + ": " + response.body()); return Core.asMap(Json.parse(response.body()));
+  }
+
+  boolean applyOAuth() { return applyOAuth(""); }
+
+  boolean applyOAuth(String wwwAuthenticate) {
     Object raw = options.get("oauth");
     if (raw == null) return false;
     AxMCPOAuthOptions oauth = raw instanceof AxMCPOAuthOptions typed ? typed : null;
     if (oauth == null) return false;
-    AxMCPTokenSet token = oauth.tokenStore == null ? null : oauth.tokenStore.getToken(endpoint);
-    if (token != null && token.accessToken != null) {
-      headers.put("Authorization", "Bearer " + token.accessToken);
-      return true;
-    }
-    if (oauth.onAuthCode == null) return false;
-    String verifier = AxMCPClient.pkceVerifier();
-    String challenge = AxMCPClient.pkceChallenge(verifier);
-    String state = AxMCPClient.pkceVerifier();
-    Map<String, String> auth = oauth.onAuthCode.apply(endpoint + "?response_type=code&code_challenge=" + challenge + "&code_challenge_method=S256&state=" + state);
-    if (auth == null || auth.get("code") == null) return false;
-    Map<String, Object> response = new LinkedHashMap<>(auth);
-    response.put("expectedState", state);
-    Map<String, Object> validation = Core.asMap(Core.mcp_oauth_validate_issuer(response, endpoint, oauth.requireIss));
-    if (!Boolean.TRUE.equals(validation.get("ok"))) throw new AxMCPError(String.valueOf(validation.getOrDefault("message", "OAuth authorization response validation failed")));
-    AxMCPTokenSet next = new AxMCPTokenSet("mcp-auth-code-" + auth.get("code"), null, null, endpoint);
-    if (oauth.tokenStore != null) oauth.tokenStore.setToken(endpoint, next);
-    headers.put("Authorization", "Bearer " + next.accessToken);
-    return true;
+    try {
+      AxMCPTokenSet stored = oauth.tokenStore == null ? null : oauth.tokenStore.getToken(endpoint); String grantType = oauth.grantType == null ? "authorization_code" : oauth.grantType;
+      Map<String,Object> plan = Core.asMap(Core.mcp_oauth_plan_ensure_token(oauthTokenValue(stored), System.currentTimeMillis(), false, grantType, oauth.onAuthCode != null));
+      if (!Boolean.TRUE.equals(plan.get("ok"))) throw new AxMCPError(String.valueOf(plan.getOrDefault("message", "OAuth token planning failed"))); String action = String.valueOf(plan.get("action"));
+      if ("cached".equals(action)) { AxMCPTokenSet token = oauthTokenSet(plan.get("token")); headers.put("Authorization", "Bearer " + token.accessToken); return true; }
+      Map<String,Object> parsedChallenge = Core.asMap(Core.mcp_oauth_parse_www_authenticate(wwwAuthenticate == null ? "" : wwwAuthenticate)); String resource = oauth.resource == null ? "" : oauth.resource; Map<String,Object> asMetadata = oauth.authorizationServerMetadata; String issuer = asMetadata == null ? "" : String.valueOf(asMetadata.getOrDefault("issuer", "")); String clientAuth = oauth.clientSecret == null || oauth.clientSecret.isBlank() ? "none" : "client_secret_post";
+      if (asMetadata == null) {
+        Map<String,Object> discovery = Core.asMap(Core.mcp_oauth_discovery_endpoints(endpoint, "", parsedChallenge.getOrDefault("resourceMetadata", ""))); Map<String,Object> resourceMetadata = null; Exception lastError = null;
+        for (Object candidate : Core.asList(discovery.get("resourceMetadataEndpoints"))) try { resourceMetadata = oauthGetJson(String.valueOf(candidate), oauth); break; } catch (Exception error) { lastError = error; }
+        if (resourceMetadata == null) throw new AxMCPError("Failed to resolve protected resource metadata: " + lastError); Map<String,Object> coverage = Core.asMap(Core.mcp_oauth_validate_resource_coverage(endpoint, resourceMetadata)); if (!Boolean.TRUE.equals(coverage.get("ok"))) throw new AxMCPError(String.valueOf(coverage.getOrDefault("message", "OAuth resource coverage validation failed")));
+        if (resource.isBlank()) resource = String.valueOf(coverage.get("resource")); List<Object> issuers = Core.asList(coverage.get("issuers")); if (issuers.isEmpty()) throw new AxMCPError("No OAuth authorization server discovered"); issuer = String.valueOf(issuers.get(0));
+        discovery = Core.asMap(Core.mcp_oauth_discovery_endpoints(endpoint, issuer, "")); lastError = null;
+        for (Object candidateEndpoint : Core.asList(discovery.get("authorizationServerMetadataEndpoints"))) try { Map<String,Object> candidate = oauthGetJson(String.valueOf(candidateEndpoint), oauth); Map<String,Object> validation = Core.asMap(Core.mcp_oauth_validate_as_metadata(candidate, issuer, !"client_credentials".equals(grantType), clientAuth)); if (!Boolean.TRUE.equals(validation.get("ok"))) throw new AxMCPError(String.valueOf(validation.getOrDefault("message", "OAuth AS metadata validation failed"))); asMetadata = candidate; break; } catch (Exception error) { lastError = error; }
+        if (asMetadata == null) throw new AxMCPError("Failed to discover authorization server metadata: " + lastError);
+      }
+      if (resource.isBlank()) resource = endpoint; if (issuer.isBlank()) issuer = String.valueOf(asMetadata.getOrDefault("issuer", "")); Map<String,Object> metadataValidation = Core.asMap(Core.mcp_oauth_validate_as_metadata(asMetadata, issuer, !"client_credentials".equals(grantType), clientAuth)); if (!Boolean.TRUE.equals(metadataValidation.get("ok"))) throw new AxMCPError(String.valueOf(metadataValidation.getOrDefault("message", "OAuth AS metadata validation failed")));
+      oauth.authorizationServerMetadata = asMetadata; oauth.resource = resource;
+      List<Object> scopes = new ArrayList<>(Core.asList(parsedChallenge.get("scopes"))); if (scopes.isEmpty()) scopes.addAll(oauth.scopes); if (scopes.isEmpty()) scopes.addAll(Core.asList(asMetadata.get("scopes_supported"))); String clientId = oauth.clientId == null || oauth.clientId.isBlank() ? "ax-mcp-client" : oauth.clientId; String clientSecret = oauth.clientSecret == null ? "" : oauth.clientSecret; String redirectUri = oauth.redirectUri == null || oauth.redirectUri.isBlank() ? "http://localhost:8787/callback" : oauth.redirectUri;
+      final String flowResource = resource, flowIssuer = issuer; final Map<String,Object> flowMetadata = asMetadata; final List<Object> flowScopes = scopes;
+      java.util.function.Function<Map<String,String>,AxMCPTokenSet> exchange = values -> { try { String selectedGrant = values.get("grant"), refresh = values.getOrDefault("refresh", ""); Map<String,Object> grant = Core.asMap(Core.mcp_oauth_grant_body(selectedGrant, clientId, clientSecret, clientAuth, flowResource, flowScopes, values.getOrDefault("code", ""), redirectUri, values.getOrDefault("verifier", ""), refresh)); if (!Boolean.TRUE.equals(grant.get("ok"))) throw new AxMCPError(String.valueOf(grant.getOrDefault("message", "OAuth grant planning failed"))); Map<String,Object> response = oauthPostToken(String.valueOf(flowMetadata.get("token_endpoint")), Core.asMap(grant.get("body")), oauth); Map<String,Object> parsed = Core.asMap(Core.mcp_oauth_parse_token_response(response, System.currentTimeMillis(), refresh, flowIssuer)); if (!Boolean.TRUE.equals(parsed.get("ok"))) throw new AxMCPError(String.valueOf(parsed.getOrDefault("message", "OAuth token response validation failed"))); return oauthTokenSet(parsed.get("token")); } catch (AxMCPError error) { throw error; } catch (Exception error) { throw new AxMCPError(error.getMessage()); } };
+      AxMCPTokenSet next = null; if ("refresh".equals(action)) try { next = exchange.apply(Map.of("grant", "refresh_token", "refresh", String.valueOf(plan.get("refreshToken")))); } catch (Exception error) { if (oauth.tokenStore != null) oauth.tokenStore.clearToken(endpoint); action = "client_credentials".equals(grantType) ? "client_credentials" : "authorize"; }
+      if ("client_credentials".equals(action)) next = exchange.apply(Map.of("grant", "client_credentials")); else if ("authorize".equals(action)) { if (oauth.onAuthCode == null) throw new AxMCPError("Authorization required. Provide oauth.onAuthCode to complete the flow"); String verifier = AxMCPClient.pkceVerifier(), challenge = AxMCPClient.pkceChallenge(verifier), state = AxMCPClient.pkceVerifier(); Map<String,Object> params = Core.asMap(Core.mcp_oauth_authorization_request_params(clientId, redirectUri, scopes, resource, state, challenge)); String authorizationEndpoint = AxMCPClient.validateEndpoint(String.valueOf(asMetadata.get("authorization_endpoint")), oauth.ssrfProtection); List<String> query = new ArrayList<>(); for (Map.Entry<String,Object> entry : params.entrySet()) if (!"__order".equals(entry.getKey())) query.add(java.net.URLEncoder.encode(entry.getKey(), java.nio.charset.StandardCharsets.UTF_8) + "=" + java.net.URLEncoder.encode(String.valueOf(entry.getValue()), java.nio.charset.StandardCharsets.UTF_8)); Map<String,String> auth = oauth.onAuthCode.apply(authorizationEndpoint + (authorizationEndpoint.contains("?") ? "&" : "?") + String.join("&", query)); if (auth == null || auth.get("code") == null) return false; Map<String,Object> authResponse = new LinkedHashMap<>(auth); authResponse.put("expectedState", state); Map<String,Object> validation = Core.asMap(Core.mcp_oauth_validate_issuer(authResponse, issuer, oauth.requireIss || Boolean.TRUE.equals(metadataValidation.get("requireIss")))); if (!Boolean.TRUE.equals(validation.get("ok"))) throw new AxMCPError(String.valueOf(validation.getOrDefault("message", "OAuth authorization response validation failed"))); next = exchange.apply(Map.of("grant", "authorization_code", "code", auth.get("code"), "verifier", verifier)); }
+      if (next == null) throw new AxMCPError("OAuth flow produced no token"); if (oauth.tokenStore != null) oauth.tokenStore.setToken(endpoint, next); headers.put("Authorization", "Bearer " + next.accessToken); return true;
+    } catch (AxMCPError error) { throw error; } catch (Exception error) { throw new AxMCPError(error.getMessage()); }
   }
 }

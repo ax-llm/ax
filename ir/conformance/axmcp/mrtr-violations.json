@@ -78,6 +78,8 @@
     {
       "input_requests": { "workspace": { "method": "roots/list" } },
       "roots": [{ "uri": "file:///workspace", "_meta": { "nested": true } }],
+      "has_elicitation": false,
+      "has_sampling": false,
       "expected": {
         "ok": true,
         "responses": {
@@ -86,12 +88,15 @@
               { "uri": "file:///workspace", "_meta": { "nested": true } }
             ]
           }
-        }
+        },
+        "pending": {}
       }
     },
     {
       "input_requests": { "workspace": { "method": "roots/list" } },
       "roots": null,
+      "has_elicitation": false,
+      "has_sampling": false,
       "expected": {
         "ok": false,
         "message": "MCP protocol violation: server requested roots/list without a matching client handler"
@@ -102,6 +107,8 @@
         "sample": { "method": "sampling/createMessage", "params": {} }
       },
       "roots": [],
+      "has_elicitation": false,
+      "has_sampling": false,
       "expected": {
         "ok": false,
         "message": "MCP protocol violation: server requested sampling/createMessage without a matching client handler"
@@ -112,14 +119,60 @@
         "answer": { "method": "elicitation/create", "params": {} }
       },
       "roots": [],
+      "has_elicitation": false,
+      "has_sampling": false,
       "expected": {
         "ok": false,
         "message": "MCP protocol violation: server requested elicitation/create without a matching client handler"
       }
     },
     {
+      "input_requests": {
+        "answer": {
+          "method": "elicitation/create",
+          "params": { "message": "Continue?" }
+        }
+      },
+      "roots": [],
+      "has_elicitation": true,
+      "has_sampling": false,
+      "expected": {
+        "ok": true,
+        "responses": {},
+        "pending": {
+          "answer": {
+            "method": "elicitation/create",
+            "params": { "message": "Continue?" }
+          }
+        }
+      }
+    },
+    {
+      "input_requests": {
+        "sample": {
+          "method": "sampling/createMessage",
+          "params": { "maxTokens": 8 }
+        }
+      },
+      "roots": [],
+      "has_elicitation": false,
+      "has_sampling": true,
+      "expected": {
+        "ok": true,
+        "responses": {},
+        "pending": {
+          "sample": {
+            "method": "sampling/createMessage",
+            "params": { "maxTokens": 8 }
+          }
+        }
+      }
+    },
+    {
       "input_requests": { "future": { "method": "future/request" } },
       "roots": [],
+      "has_elicitation": true,
+      "has_sampling": true,
       "expected": {
         "ok": false,
         "message": "MCP protocol violation: unsupported MRTR input request method future/request"

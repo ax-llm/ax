@@ -21,9 +21,9 @@ initialize a session; modern servers answer `server/discover` and receive the
 protocol version, method, operation name, client metadata, and tracing context
 on every request.
 
-The generated Python, Java, C++, Go, and Rust packages currently retain their
-legacy lifecycle while modern-era port work is tracked separately. Their
-language-specific snippet below deliberately shows that boundary.
+The generated Python, Java, C++, Go, and Rust packages use the same automatic
+dual-era classification and modern discovery boundary. Their language-specific
+snippet below shows the native spelling.
 
 {{mcpEraExample}}
 
@@ -38,6 +38,16 @@ schema properties to request headers with `x-mcp-header`; Ax validates those
 annotations and keeps the body and headers synchronized.
 
 {{mcpNativeExample}}
+
+## Multi Round-Trip Input
+
+Modern operations may pause with `input_required`. TypeScript can fulfill
+roots, sampling, and elicitation through host handlers. The generated Python,
+Java, C++, Go, and Rust clients fulfill roots automatically and elicitation
+through a host callback; they deliberately do not advertise sampling and reject
+a truthy sampling option during initialization.
+
+{{mcpMRTRExample}}
 
 ## Subscriptions Can Wake Programs
 
@@ -68,9 +78,10 @@ Polling remains available because MCP task notifications are optional.
 
 Ax supports stdio, Streamable HTTP, legacy HTTP/SSE, and custom WebSocket
 transports. Native clients also expose prompts, resources, templates,
-subscriptions, completions, roots, sampling, elicitation, multi round-trip
-requests (MRTR), progress, cancellation, Tasks v2, OAuth, MCP Apps, client
-credentials, and enterprise-managed authorization.
+subscriptions, completions, roots, elicitation, multi round-trip requests
+(MRTR), progress, cancellation, Tasks v2, OAuth, MCP Apps, client credentials,
+and enterprise-managed authorization. Sampling and legacy inbound elicitation
+remain TypeScript-only.
 
 Transport listeners are supervised and nonblocking. Legacy reconnect resumes
 with `Last-Event-ID` when available and restores logical subscriptions. Modern

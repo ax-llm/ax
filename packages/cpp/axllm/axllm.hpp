@@ -779,7 +779,7 @@ struct Core {
   static Value mcp_validate_modern_task(Value task);
   static Value mcp_task_terminal_outcome(Value task);
   static Value mcp_mrtr_plan_round(Value result, Value era, Value method, Value round, Value max_rounds);
-  static Value mcp_mrtr_fulfill_roots(Value input_requests, Value roots);
+  static Value mcp_mrtr_plan_fulfillment(Value input_requests, Value roots, Value has_elicitation, Value has_sampling);
   static Value mcp_mrtr_next_params(Value base_params, Value input_responses, Value request_state);
   static Value mcp_jsonrpc_request(Value id, Value method, Value params);
   static Value mcp_jsonrpc_notification(Value method, Value params);
@@ -789,6 +789,14 @@ struct Core {
   static Value mcp_resource_subscription_ownership(Value owners, Value owner, Value operation);
   static Value mcp_listen_interests(Value subscribed_uris, Value filters);
   static Value mcp_notification_subscription_filter(Value message, Value active_subscription_id);
+  static Value mcp_oauth_parse_www_authenticate(Value www_authenticate);
+  static Value mcp_oauth_discovery_endpoints(Value requested_url, Value issuer, Value resource_metadata_url);
+  static Value mcp_oauth_validate_resource_coverage(Value requested_url, Value metadata);
+  static Value mcp_oauth_validate_as_metadata(Value metadata, Value expected_issuer, Value require_authorization, Value client_auth_method);
+  static Value mcp_oauth_authorization_request_params(Value client_id, Value redirect_uri, Value scopes, Value resource, Value state, Value code_challenge);
+  static Value mcp_oauth_grant_body(Value grant_type, Value client_id, Value client_secret, Value client_auth_method, Value resource, Value scopes, Value code, Value redirect_uri, Value code_verifier, Value refresh_token);
+  static Value mcp_oauth_parse_token_response(Value response, Value now_ms, Value previous_refresh_token, Value issuer);
+  static Value mcp_oauth_plan_ensure_token(Value token, Value now_ms, Value force_refresh, Value grant_type, Value has_on_auth_code);
   static Value mcp_oauth_validate_issuer(Value response, Value expected_issuer, Value require_iss);
   // END AXIR CORE EMITTED DECLARATIONS
 

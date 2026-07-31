@@ -106,7 +106,7 @@ export const mcpUnit = {
       apiLabel: 'startListening()',
       prerequisites: ['mcp-catalog'],
       summary:
-        'A modern operation may request roots, sampling, or elicitation input before it completes. Modern notifications arrive through a fresh subscriptions/listen POST instead of a resumable session stream.',
+        'A modern operation may request roots, sampling, or elicitation before it completes; generated clients handle roots and host-callback elicitation while leaving sampling undeclared. Modern notifications arrive through a fresh subscriptions/listen POST.',
       example:
         "const listening = await client.startListening();\nawait listening.ready;\nconst result = await client.callTool('review', input);",
       check: choice(

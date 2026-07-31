@@ -334,11 +334,28 @@
         "sourcePath": "src/examples/python/mcp/native-mcp-tools.py",
         "illustrative": true,
         "notes": [
-          "Current generated-package lifecycle. MCP 2026-07-28 era classification and discovery are tracked for a future port."
+          "Generated Python supports automatic dual-era classification and modern discovery."
         ],
         "code": [
           "mcp = AxMCPClient(AxMCPStreamableHTTPTransport(endpoint), {\"namespace\": \"inventory\"})",
           "catalog = mcp.inspect_catalog()"
+        ]
+      },
+      "mrtrElicitation": {
+        "illustrative": true,
+        "notes": [
+          "The callback is advertised only for modern MCP; sampling remains unsupported."
+        ],
+        "code": [
+          "client = AxMCPClient(transport, {",
+          "    \"era\": \"modern\",",
+          "    \"roots\": [{\"uri\": \"file:///workspace\", \"name\": \"workspace\"}],",
+          "    \"elicitation\": lambda params, context: {",
+          "        \"action\": \"accept\",",
+          "        \"content\": {\"confirmed\": True},",
+          "    },",
+          "})",
+          "result = client.call_tool(\"mrtr_one_round\", {})"
         ]
       },
       "native": {

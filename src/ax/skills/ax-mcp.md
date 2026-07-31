@@ -211,6 +211,12 @@ elicitation requests through the same host handlers used by legacy server
 requests, then repeats the original operation with the latest input responses
 and byte-exact `requestState`.
 
+The generated Python, Java, C++, Go, and Rust clients fulfill roots and
+host-callback elicitation in modern MRTR rounds. They advertise elicitation only
+when a real handler is installed, never advertise sampling, and reject a truthy
+sampling option during initialization. Legacy inbound elicitation and MRTR
+sampling remain TypeScript-only.
+
 Configure only handlers the host can enforce. Ax limits the loop to five input
 rounds by default; use `maxInputRounds` for a stricter policy. A missing handler
 or exhausted round limit is a protocol error. The tool concurrency slot stays
@@ -346,6 +352,22 @@ step-up, DPoP, PAR/JAR/RAR, mTLS, revocation, introspection, client credentials,
 or enterprise-managed authorization. Supply persistent token and registration
 stores in distributed deployments. Never serialize tokens into Ax program or
 event state.
+
+Generated Python, Java, C++, Go, and Rust transports implement the portable
+OAuth middle tier: RFC 9728 well-known and challenge discovery, RFC 8414/OIDC
+authorization-server metadata, PKCE S256 authorization-code exchange,
+RFC 8707 resource binding, refresh with a 60-second skew, client credentials,
+and RFC 9207 `iss`. Configure the language's `AxMCPOAuthOptions` with
+`clientId`, an endpoint-keyed `tokenStore`, `onAuthCode`, and `requireIss`.
+The host callback receives an authorization URL and returns `code`, `state`,
+and `iss`; it owns browser or headless interaction. `none` and
+`client_secret_post` are the only generated-port client authentication modes.
+
+Do not suggest TypeScript-only DPoP, CIMD/DCR, JAR, PAR, RAR, mTLS,
+revocation/introspection, JWT validation, or enterprise-managed authorization
+for a generated-language client. Use `npm run test:mcp-oauth` as the
+credential-free cross-language gate. See `docs/MCP_UCP.md` for compact
+per-language configuration snippets.
 
 Keep SSRF protection enabled for remote discovery and redirect handling. Relax
 loopback or HTTP restrictions only for controlled local development.

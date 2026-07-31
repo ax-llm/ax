@@ -44,6 +44,11 @@ export enum AxAIOpenAIResponsesModel {
   // GPT-5.5 models
   GPT55 = 'gpt-5.5',
   GPT55Pro = 'gpt-5.5-pro',
+  // GPT-5.6 models. `gpt-5.6` is an alias OpenAI routes to `gpt-5.6-sol`.
+  GPT56 = 'gpt-5.6',
+  GPT56Sol = 'gpt-5.6-sol',
+  GPT56Terra = 'gpt-5.6-terra',
+  GPT56Luna = 'gpt-5.6-luna',
   // Reasoning models
   O1Pro = 'o1-pro',
   O1 = 'o1',
@@ -219,6 +224,7 @@ export interface AxAIOpenAIResponsesRequest<TModel = AxAIOpenAIResponsesModel> {
       | 'medium'
       | 'high'
       | 'xhigh'
+      | 'max'
       | null;
     readonly summary?: 'auto' | 'concise' | 'detailed' | null; // 'generate_summary' is deprecated
   } | null;
@@ -811,7 +817,14 @@ export type AxAIOpenAIResponsesConfig<TModel, TEmbedModel> = Omit<
   logprobs?: number;
   echo?: boolean;
   dimensions?: number;
-  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  reasoningEffort?:
+    | 'none'
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'xhigh'
+    | 'max';
   reasoningSummary?: 'auto' | 'concise' | 'detailed';
   store?: boolean;
   systemPrompt?: string;

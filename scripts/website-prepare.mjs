@@ -464,6 +464,7 @@ async function renderContext(language, page) {
     mcpOverridesExample: snippetBlock(language, 'mcp.overrides'),
     mcpEraExample: snippetBlock(language, 'mcp.era'),
     mcpNativeExample: snippetBlock(language, 'mcp.native'),
+    mcpMRTRExample: snippetBlock(language, 'mcp.mrtrElicitation'),
     mcpResourceWakeExample: snippetBlock(language, 'mcp.resourceWake'),
     mcpTaskResumeExample: snippetBlock(language, 'mcp.taskResume'),
     eventWakeExample: snippetBlock(language, 'event.wake'),

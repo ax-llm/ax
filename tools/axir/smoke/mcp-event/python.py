@@ -32,6 +32,10 @@ client = AxMCPClient(
         "namespace": "inventory",
         "era": "auto" if era == "modern" else "legacy",
         "roots": [{"uri": "file:///workspace", "name": "workspace"}],
+        "elicitation": lambda _params, _context: {
+            "action": "accept",
+            "content": {"confirmed": True},
+        },
         "subscriptionFilters": {"resourcesListChanged": True},
     },
 )
@@ -106,6 +110,16 @@ if era == "modern":
     roots_result = client.call_tool("mrtr_roots_round", {})
     if roots_result.get("structuredContent", {}).get("indexed") != 42:
         raise RuntimeError(f"modern roots MRTR failed: {roots_result}")
+    elicitation_result = client.call_tool("mrtr_one_round", {})
+    if elicitation_result.get("structuredContent", {}).get("indexed") != 42:
+        raise RuntimeError(f"modern elicitation MRTR failed: {elicitation_result}")
+    try:
+        client.call_tool("mrtr_two_round", {})
+    except Exception as error:
+        if str(error) != "MCP protocol violation: server requested sampling/createMessage without a matching client handler":
+            raise
+    else:
+        raise RuntimeError("modern sampling MRTR request was accepted")
     refreshed = client.inspect_catalog()
     if refreshed.get("serverInfo", {}).get("version") in (None, "2.0.0"):
         raise RuntimeError(f"modern serverInfo was not refreshed: {refreshed}")

@@ -90,9 +90,26 @@ def _core_map_delete(target, key):
     if isinstance(target, dict): target.pop(key, None)
     return target
 def _core_map_keys(values): return list(values.keys()) if isinstance(values, dict) else []
+def _core_string_trim(value): return str(value).strip()
 def _core_string_lower(value): return str(value).lower()
 def _core_string_starts_with(value, prefix): return str(value).startswith(str(prefix))
 def _core_string_ends_with(value, suffix): return str(value).endswith(str(suffix))
+def _core_string_replace(value, old, new): return str(value).replace(str(old), str(new))
+def _core_string_slice(value, start, end=None): return str(value)[int(start):None if end is None else int(end)]
+def _core_string_split(value, sep): return str(value).split(str(sep))
+def _core_string_split_once(value, sep):
+    text, delimiter = str(value), str(sep)
+    if delimiter in text:
+        left, right = text.split(delimiter, 1)
+        return {"found": True, "left": left, "right": right}
+    return {"found": False, "left": text, "right": ""}
+def _core_string_split_trim_nonempty(value, sep): return [part.strip() for part in str(value).split(str(sep)) if part.strip()]
+def _core_string_join(sep, values): return str(sep).join(str(value) for value in (values or []))
+def _core_string_remove_suffix(value, suffix):
+    text, ending = str(value), str(suffix)
+    if ending and text.endswith(ending):
+        return {"value": text[:-len(ending)], "removed": True}
+    return {"value": text, "removed": False}
 def _core_regex_match(pattern, value): return isinstance(value, str) and re.search(pattern, value) is not None
 def _core_validation_error(message): return AxMCPError(str(message))
 
@@ -130,6 +147,8 @@ class AxMCPTokenSet:
     refreshToken: str | None = None
     expiresAt: int | None = None
     issuer: str | None = None
+    tokenType: str | None = None
+    scope: str | None = None
 
 
 @dataclass
@@ -142,6 +161,9 @@ class AxMCPOAuthOptions:
     tokenStore: Any = None
     ssrfProtection: dict[str, Any] | None = None
     requireIss: bool = False
+    grantType: str | None = None
+    resource: str | None = None
+    authorizationServerMetadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -967,6 +989,8 @@ class AxMCPClient:
     def init(self) -> None:
         if self._initialized:
             return
+        if self.options.get("sampling"):
+            raise AxMCPError("MCP sampling is not supported by the generated Python client")
         self.transport.connect()
         configured = str(self.options.get("era", "auto"))
         key = self.transport.era_cache_key
@@ -1440,10 +1464,19 @@ class AxMCPClient:
             requests = plan.get("inputRequests")
             if plan.get("hasInputRequests") and isinstance(requests, dict):
                 roots = self.options.get("roots") if "roots" in self.options else None
-                fulfillment = mcp_mrtr_fulfill_roots(requests, roots)
+                elicitation = self.options.get("elicitation")
+                has_elicitation = callable(elicitation)
+                fulfillment = mcp_mrtr_plan_fulfillment(requests, roots, has_elicitation, False)
                 if not fulfillment.get("ok"):
                     raise AxMCPError(str(fulfillment.get("message", "MCP protocol violation")))
-                input_responses = fulfillment.get("responses")
+                input_responses = dict(fulfillment.get("responses") or {})
+                for key, pending in (fulfillment.get("pending") or {}).items():
+                    if pending.get("method") != "elicitation/create":
+                        raise AxMCPError(f"MCP protocol violation: unsupported pending MRTR input request method {pending.get('method')}")
+                    input_responses[key] = elicitation(
+                        pending.get("params") or {},
+                        {"client": self, "namespace": self.namespace()},
+                    )
             request_state = plan.get("requestState") if plan.get("hasRequestState") else None
             params = mcp_mrtr_next_params(base_params, input_responses, request_state)
             round_index += 1
@@ -1492,9 +1525,13 @@ class AxMCPClient:
 
     def _client_capabilities(self) -> dict[str, Any]:
         capabilities = dict(self.options.get("capabilities") or {})
-        derived = mcp_client_capabilities(bool(self.options.get("roots")), bool(self.options.get("sampling")), bool(self.options.get("elicitation")), self.era or "legacy", self.options.get("tasksExtension") is not False)
+        has_elicitation = self.era == "modern" and callable(self.options.get("elicitation"))
+        derived = mcp_client_capabilities(bool(self.options.get("roots")), False, has_elicitation, self.era or "legacy", self.options.get("tasksExtension") is not False)
         for key, value in derived.items():
             capabilities.setdefault(key, value)
+        capabilities.pop("sampling", None)
+        if not has_elicitation:
+            capabilities.pop("elicitation", None)
         return capabilities
 
     def _capability(self, name: str) -> bool:
@@ -1987,7 +2024,7 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
                     return self._select_sse_response(_ax_mcp_parse_sse(text), message.get("id"))
                 return json.loads(text)
         except urllib.error.HTTPError as error:
-            if error.code == 401 and self._apply_oauth():
+            if error.code == 401 and self._apply_oauth(error.headers.get("WWW-Authenticate") if error.headers else None):
                 return self.send_with_headers(message, extra_headers)
             raise AxMCPError(f"HTTP error {error.code}: {error.reason}")
 
@@ -2047,7 +2084,7 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
         if session_id:
             self.session_id = session_id
 
-    def _apply_oauth(self) -> bool:
+    def _apply_oauth(self, www_authenticate: str | None = None) -> bool:
         oauth = self.options.get("oauth")
         if oauth is None:
             return False
@@ -2056,42 +2093,122 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
             callback = oauth.onAuthCode
             scopes = oauth.scopes or []
             client_id = oauth.clientId or "ax-mcp-client"
+            client_secret = oauth.clientSecret or ""
             redirect_uri = oauth.redirectUri or "http://localhost:8787/callback"
             require_iss = oauth.requireIss
+            grant_type = oauth.grantType or "authorization_code"
+            configured_resource = oauth.resource or ""
+            configured_as_metadata = oauth.authorizationServerMetadata
+            ssrf_protection = oauth.ssrfProtection or {}
         else:
             store = oauth.get("tokenStore")
             callback = oauth.get("onAuthCode")
             scopes = oauth.get("scopes") or []
             client_id = oauth.get("clientId") or "ax-mcp-client"
+            client_secret = oauth.get("clientSecret") or ""
             redirect_uri = oauth.get("redirectUri") or "http://localhost:8787/callback"
             require_iss = bool(oauth.get("requireIss", oauth.get("require_iss", False)))
+            grant_type = oauth.get("grantType", oauth.get("grant_type", "authorization_code"))
+            configured_resource = oauth.get("resource") or ""
+            configured_as_metadata = oauth.get("authorizationServerMetadata", oauth.get("authorization_server_metadata"))
+            ssrf_protection = oauth.get("ssrfProtection", oauth.get("ssrf_protection")) or {}
         token = _token_store_get(store, self.endpoint)
-        if token and token.get("accessToken"):
-            self.headers["Authorization"] = "Bearer " + token["accessToken"]
+        now_ms = int(time.time() * 1000)
+        plan = mcp_oauth_plan_ensure_token(token, now_ms, False, grant_type, callable(callback))
+        if not plan.get("ok"):
+            raise AxMCPError(str(plan.get("message") or "OAuth token planning failed"))
+        action = plan.get("action")
+        if action == "cached":
+            cached = plan.get("token") or token or {}
+            self.headers["Authorization"] = "Bearer " + cached["accessToken"]
             return True
-        if not callable(callback):
-            return False
-        verifier = ax_mcp_pkce_verifier()
-        challenge = ax_mcp_pkce_challenge(verifier)
-        state = ax_mcp_pkce_verifier()
-        params = urllib.parse.urlencode({
-            "response_type": "code",
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
-            "scope": " ".join(scopes),
-            "code_challenge": challenge,
-            "code_challenge_method": "S256",
-            "state": state,
-        })
-        auth = callback(self.endpoint + ("&" if "?" in self.endpoint else "?") + params)
-        if not auth or not auth.get("code"):
-            return False
-        validation = mcp_oauth_validate_issuer({**auth, "expectedState": state}, self.endpoint, require_iss)
-        if not validation.get("ok"):
-            raise AxMCPError(str(validation.get("message") or "OAuth authorization response validation failed"))
-        token = {"accessToken": "mcp-auth-code-" + auth["code"], "issuer": self.endpoint}
-        _token_store_set(store, self.endpoint, token)
-        self.headers["Authorization"] = "Bearer " + token["accessToken"]
+
+        parsed_challenge = mcp_oauth_parse_www_authenticate(www_authenticate or "")
+        resource = configured_resource
+        as_metadata = configured_as_metadata if isinstance(configured_as_metadata, dict) else None
+        issuer = str(as_metadata.get("issuer") or "") if as_metadata else ""
+        if not as_metadata:
+            discovery = mcp_oauth_discovery_endpoints(self.endpoint, "", str(parsed_challenge.get("resourceMetadata") or ""))
+            resource_metadata = None
+            last_error: Exception | None = None
+            for discovery_url in discovery.get("resourceMetadataEndpoints") or []:
+                try:
+                    resource_metadata = _oauth_json_get(discovery_url, ssrf_protection, float(self.options.get("timeout", 30)))
+                    break
+                except Exception as error:
+                    last_error = error
+            if resource_metadata is None:
+                raise AxMCPError(f"Failed to resolve protected resource metadata: {last_error}")
+            coverage = mcp_oauth_validate_resource_coverage(self.endpoint, resource_metadata)
+            if not coverage.get("ok"):
+                raise AxMCPError(str(coverage.get("message") or "OAuth resource coverage validation failed"))
+            resource = resource or str(coverage.get("resource") or "")
+            issuer = str((coverage.get("issuers") or [""])[0])
+            discovery = mcp_oauth_discovery_endpoints(self.endpoint, issuer, "")
+            last_error = None
+            for discovery_url in discovery.get("authorizationServerMetadataEndpoints") or []:
+                try:
+                    candidate = _oauth_json_get(discovery_url, ssrf_protection, float(self.options.get("timeout", 30)))
+                    candidate_validation = mcp_oauth_validate_as_metadata(candidate, issuer, grant_type != "client_credentials", "client_secret_post" if client_secret else "none")
+                    if not candidate_validation.get("ok"):
+                        raise AxMCPError(str(candidate_validation.get("message") or "OAuth AS metadata validation failed"))
+                    as_metadata = candidate
+                    break
+                except Exception as error:
+                    last_error = error
+            if as_metadata is None:
+                raise AxMCPError(f"Failed to discover authorization server metadata: {last_error}")
+        resource = resource or self.endpoint
+        issuer = issuer or str(as_metadata.get("issuer") or "")
+        metadata_validation = mcp_oauth_validate_as_metadata(as_metadata, issuer, grant_type != "client_credentials", "client_secret_post" if client_secret else "none")
+        if not metadata_validation.get("ok"):
+            raise AxMCPError(str(metadata_validation.get("message") or "OAuth AS metadata validation failed"))
+        if isinstance(oauth, AxMCPOAuthOptions):
+            oauth.authorizationServerMetadata = as_metadata
+            oauth.resource = resource
+        else:
+            oauth["authorizationServerMetadata"] = as_metadata
+            oauth["resource"] = resource
+        challenged_scopes = parsed_challenge.get("scopes") or []
+        effective_scopes = challenged_scopes or scopes or as_metadata.get("scopes_supported") or []
+
+        def exchange(selected_grant: str, *, code: str = "", verifier: str = "", refresh_token: str = "") -> dict[str, Any]:
+            grant = mcp_oauth_grant_body(selected_grant, client_id, client_secret, "client_secret_post" if client_secret else "none", resource, effective_scopes, code, redirect_uri, verifier, refresh_token)
+            if not grant.get("ok"):
+                raise AxMCPError(str(grant.get("message") or "OAuth grant planning failed"))
+            response = _oauth_token_post(str(as_metadata["token_endpoint"]), grant["body"], ssrf_protection, float(self.options.get("timeout", 30)))
+            parsed = mcp_oauth_parse_token_response(response, int(time.time() * 1000), refresh_token, issuer)
+            if not parsed.get("ok"):
+                raise AxMCPError(str(parsed.get("message") or "OAuth token response validation failed"))
+            return parsed["token"]
+
+        next_token: dict[str, Any]
+        if action == "refresh":
+            try:
+                next_token = exchange("refresh_token", refresh_token=str(plan.get("refreshToken") or ""))
+            except Exception:
+                _token_store_clear(store, self.endpoint)
+                action = "client_credentials" if grant_type == "client_credentials" else "authorize"
+        if action == "client_credentials":
+            next_token = exchange("client_credentials")
+        elif action == "authorize":
+            if not callable(callback):
+                raise AxMCPError("Authorization required. Provide oauth.onAuthCode to complete the flow")
+            verifier = ax_mcp_pkce_verifier()
+            challenge = ax_mcp_pkce_challenge(verifier)
+            state = ax_mcp_pkce_verifier()
+            params = mcp_oauth_authorization_request_params(client_id, redirect_uri, effective_scopes, resource, state, challenge)
+            authorization_endpoint = ax_mcp_validate_endpoint(str(as_metadata["authorization_endpoint"]), ssrf_protection)
+            auth_url = authorization_endpoint + ("&" if "?" in authorization_endpoint else "?") + urllib.parse.urlencode(params)
+            auth = callback(auth_url)
+            if not auth or not auth.get("code"):
+                return False
+            validation = mcp_oauth_validate_issuer({**auth, "expectedState": state}, issuer, require_iss or bool(metadata_validation.get("requireIss")))
+            if not validation.get("ok"):
+                raise AxMCPError(str(validation.get("message") or "OAuth authorization response validation failed"))
+            next_token = exchange("authorization_code", code=str(auth["code"]), verifier=verifier)
+        _token_store_set(store, self.endpoint, next_token)
+        self.headers["Authorization"] = "Bearer " + next_token["accessToken"]
         return True
 
 
@@ -2189,6 +2306,21 @@ def ax_mcp_validate_endpoint(endpoint: str, options: dict[str, Any] | None = Non
     return endpoint
 
 
+def _oauth_json_get(endpoint: str, ssrf_protection: dict[str, Any], timeout: float) -> dict[str, Any]:
+    checked = ax_mcp_validate_endpoint(endpoint, ssrf_protection)
+    request = urllib.request.Request(checked, headers={"Accept": "application/json"}, method="GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _oauth_token_post(endpoint: str, body: dict[str, Any], ssrf_protection: dict[str, Any], timeout: float) -> dict[str, Any]:
+    checked = ax_mcp_validate_endpoint(endpoint, ssrf_protection)
+    encoded = urllib.parse.urlencode({key: str(value) for key, value in body.items()}).encode("utf-8")
+    request = urllib.request.Request(checked, data=encoded, headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}, method="POST")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def _token_store_get(store: Any, key: str) -> dict[str, Any] | None:
     if store is None:
         return None
@@ -2216,11 +2348,26 @@ def _token_store_set(store: Any, key: str, token: dict[str, Any]) -> None:
     return None
 
 
+def _token_store_clear(store: Any, key: str) -> None:
+    if store is None:
+        return None
+    if isinstance(store, dict):
+        if callable(store.get("clearToken")):
+            store["clearToken"](key)
+        else:
+            store.pop(key, None)
+        return None
+    clearer = getattr(store, "clearToken", None) or getattr(store, "clear_token", None)
+    if callable(clearer):
+        clearer(key)
+    return None
+
+
 def _token_to_dict(token: Any) -> dict[str, Any] | None:
     if token is None:
         return None
     if isinstance(token, AxMCPTokenSet):
-        return {"accessToken": token.accessToken, "refreshToken": token.refreshToken, "expiresAt": token.expiresAt, "issuer": token.issuer}
+        return {"accessToken": token.accessToken, "refreshToken": token.refreshToken, "expiresAt": token.expiresAt, "issuer": token.issuer, "tokenType": token.tokenType, "scope": token.scope}
     if isinstance(token, dict):
         return token
     return None
@@ -2269,6 +2416,26 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             decoded = ax_mcp_stdio_decode(encoded)
             _assert_subset(decoded, fixture["message"], "stdio decoded")
             return
+        if operation == "oauth_discovery":
+            _assert_subset(mcp_oauth_parse_www_authenticate(fixture.get("www_authenticate", "")), fixture.get("expected_parse") or {}, "OAuth WWW-Authenticate parsing")
+            _assert_subset(mcp_oauth_discovery_endpoints(fixture.get("requested_url", ""), fixture.get("issuer", ""), fixture.get("resource_metadata_url", "")), fixture.get("expected_endpoints") or {}, "OAuth discovery endpoints")
+            for case in fixture.get("coverage_cases") or []:
+                _assert_subset(mcp_oauth_validate_resource_coverage(case.get("requested_url", ""), case.get("metadata") or {}), case.get("expected") or {}, "OAuth resource coverage")
+            return
+        if operation == "oauth_as_metadata":
+            for case in fixture.get("cases") or []:
+                _assert_subset(mcp_oauth_validate_as_metadata(case.get("metadata") or {}, case.get("expected_issuer", ""), bool(case.get("require_authorization")), case.get("client_auth_method", "none")), case.get("expected") or {}, "OAuth AS metadata")
+            return
+        if operation == "oauth_token":
+            authorization = fixture.get("authorization") or {}
+            _assert_subset(mcp_oauth_authorization_request_params(*(authorization.get("args") or [])), authorization.get("expected") or {}, "OAuth authorization params")
+            for case in fixture.get("grant_cases") or []:
+                _assert_subset(mcp_oauth_grant_body(*(case.get("args") or [])), case.get("expected") or {}, "OAuth grant body")
+            for case in fixture.get("token_cases") or []:
+                _assert_subset(mcp_oauth_parse_token_response(case.get("response") or {}, case.get("now_ms", 0), case.get("previous_refresh_token", ""), case.get("issuer", "")), case.get("expected") or {}, "OAuth token response")
+            for case in fixture.get("plan_cases") or []:
+                _assert_subset(mcp_oauth_plan_ensure_token(case.get("token"), case.get("now_ms", 0), bool(case.get("force_refresh")), case.get("grant_type", "authorization_code"), bool(case.get("has_on_auth_code"))), case.get("expected") or {}, "OAuth token plan")
+            return
         if operation == "oauth_issuer":
             for case in fixture.get("cases") or []:
                 actual = mcp_oauth_validate_issuer(
@@ -2277,34 +2444,21 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
                     bool(case.get("require_iss")),
                 )
                 _assert_subset(actual, case.get("expected") or {}, "OAuth issuer validation")
-            endpoint = fixture.get("endpoint", "https://auth.example")
-            def oauth_callback(url: str) -> dict[str, str]:
-                state = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["state"][0]
-                return {"code": "abc", "state": state, "iss": endpoint}
-            transport = AxMCPStreamableHTTPTransport(endpoint, {"oauth": {"onAuthCode": oauth_callback, "requireIss": True}})
-            if not transport._apply_oauth():
-                raise AssertionError("OAuth issuer-validating stub did not produce a token")
-            if transport.headers.get("Authorization") != fixture.get("stub_expected_authorization"):
-                raise AssertionError("OAuth issuer-validating stub did not set Authorization")
             return
         if operation == "oauth":
             challenge = ax_mcp_pkce_challenge(fixture.get("verifier", "test-verifier"))
             if fixture.get("expected_challenge") and challenge != fixture["expected_challenge"]:
                 raise AssertionError("PKCE challenge mismatch")
-            store: dict[str, Any] = {}
-            auth_codes: list[str] = []
-            def oauth_callback(url: str) -> dict[str, str]:
-                state = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["state"][0]
-                auth_codes.append(url)
-                return {"code": "abc", "state": state}
+            endpoint = fixture.get("endpoint", "https://example.com/mcp")
+            store: dict[str, Any] = {endpoint: fixture.get("stored_token") or {}}
             transport = AxMCPStreamableHTTPTransport(
-                fixture.get("endpoint", "https://example.com/mcp"),
-                {"oauth": {"tokenStore": store, "onAuthCode": oauth_callback}},
+                endpoint,
+                {"oauth": {"tokenStore": store}},
             )
             if not transport._apply_oauth():
                 raise AssertionError("OAuth flow did not produce a token")
-            if "Authorization" not in transport.headers:
-                raise AssertionError("OAuth flow did not set Authorization")
+            if transport.headers.get("Authorization") != fixture.get("expected_authorization"):
+                raise AssertionError("OAuth cached token did not set Authorization")
             return
         if operation == "discover":
             constants = mcp_protocol_constants()
@@ -2440,8 +2594,8 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
                 actual = mcp_mrtr_plan_round(case.get("result") or {}, case.get("era", "legacy"), case.get("method", "tools/call"), case.get("round", 0), case.get("max_rounds"))
                 _assert_subset(actual, case.get("expected") or {}, "MRTR round plan")
             for case in fixture.get("fulfill_cases") or []:
-                actual = mcp_mrtr_fulfill_roots(case.get("input_requests") or {}, case.get("roots"))
-                _assert_subset(actual, case.get("expected") or {}, "MRTR roots fulfillment")
+                actual = mcp_mrtr_plan_fulfillment(case.get("input_requests") or {}, case.get("roots"), bool(case.get("has_elicitation")), bool(case.get("has_sampling")))
+                _assert_subset(actual, case.get("expected") or {}, "MRTR fulfillment plan")
             for case in fixture.get("next_params_cases") or []:
                 actual = mcp_mrtr_next_params(case.get("base_params") or {}, case.get("input_responses"), case.get("request_state"))
                 if actual != (case.get("expected") or {}):
@@ -2506,7 +2660,14 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             return
 
         transport = AxMCPScriptedTransport(fixture.get("responses") or fixture.get("transport_responses") or [])
-        client = AxMCPClient(transport, fixture.get("client_options") or {})
+        client_options = dict(fixture.get("client_options") or {})
+        elicitation_calls: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        if operation == "mrtr_elicitation":
+            def fixture_elicitation(params, context):
+                elicitation_calls.append((params, context))
+                return dict(fixture.get("elicitation_result") or {})
+            client_options["elicitation"] = fixture_elicitation
+        client = AxMCPClient(transport, client_options)
         if operation == "protocol_negotiation":
             client.init()
             if fixture.get("expected_protocol_version") and client.negotiated_protocol_version != fixture["expected_protocol_version"]:
@@ -2572,6 +2733,29 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             methods = [request.get("method") for request in transport.requests]
             if methods != (fixture.get("expected_methods") or []):
                 raise AssertionError(f"task request methods mismatch: {methods!r}")
+            return
+        if operation == "mrtr_elicitation":
+            result = client.call_tool("work", {"value": 1})
+            _assert_subset(result, fixture.get("expected_result") or {}, "MRTR elicitation result")
+            if len(elicitation_calls) != 1:
+                raise AssertionError(f"MRTR elicitation handler count mismatch: {len(elicitation_calls)}")
+            _assert_subset(elicitation_calls[0][0], fixture.get("expected_elicitation_params") or {}, "MRTR elicitation params")
+            _assert_subset(elicitation_calls[0][1], fixture.get("expected_context") or {}, "MRTR elicitation context")
+            tool_calls = [request for request in transport.requests if request.get("method") == "tools/call"]
+            for index, expected in enumerate(fixture.get("expected_call_params") or []):
+                _assert_subset(tool_calls[index].get("params") or {}, expected, f"MRTR elicitation call params {index}")
+            discover_meta = (transport.requests[0].get("params") or {}).get("_meta") or {}
+            capabilities = discover_meta.get("io.modelcontextprotocol/clientCapabilities") or {}
+            if "elicitation" not in capabilities or "sampling" in capabilities:
+                raise AssertionError(f"dishonest MRTR capabilities: {capabilities!r}")
+            bad = AxMCPClient(AxMCPScriptedTransport([]), {"era": "modern", "sampling": True})
+            try:
+                bad.init()
+            except Exception as error:
+                if "sampling is not supported" not in str(error):
+                    raise
+            else:
+                raise AssertionError("truthy sampling option was accepted")
             return
         if operation == "mrtr_roots":
             result = client.call_tool("work", {"value": 1})

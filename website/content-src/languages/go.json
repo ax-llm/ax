@@ -302,11 +302,31 @@
         "sourcePath": "src/examples/go/mcp/native_mcp_tools.go",
         "illustrative": true,
         "notes": [
-          "Current generated-package lifecycle. MCP 2026-07-28 era classification and discovery are tracked for a future port."
+          "Generated Go supports automatic dual-era classification and modern discovery."
         ],
         "code": [
           "mcp := ax.NewAxMCPClient(transport, map[string]ax.Value{\"namespace\": \"inventory\"})",
           "catalog, err := mcp.InspectCatalog(false)"
+        ]
+      },
+      "mrtrElicitation": {
+        "illustrative": true,
+        "notes": [
+          "The callback is advertised only for modern MCP; sampling remains unsupported."
+        ],
+        "code": [
+          "elicitation := func(params, context map[string]ax.Value) (map[string]ax.Value, error) {",
+          "    return map[string]ax.Value{",
+          "        \"action\": \"accept\",",
+          "        \"content\": map[string]ax.Value{\"confirmed\": true},",
+          "    }, nil",
+          "}",
+          "client := ax.NewAxMCPClient(transport, map[string]ax.Value{",
+          "    \"era\": \"modern\",",
+          "    \"roots\": ax.Array(map[string]ax.Value{\"uri\": \"file:///workspace\"}),",
+          "    \"elicitation\": elicitation,",
+          "})",
+          "result, err := client.CallTool(\"mrtr_one_round\", map[string]ax.Value{})"
         ]
       },
       "native": {

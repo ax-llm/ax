@@ -23,6 +23,7 @@ interface ExportInfo {
  * Checks if a symbol name starts with the expected prefixes (ax or Ax) or is a special case
  */
 const internalExportNames = new Set([
+  'AxAIOpenAIReasoningEffort',
   'AxAIOpenAIResponsesImpl',
   'AxAgentInternalCompletionPayload',
   'AxAppliedProposal',
@@ -54,6 +55,7 @@ const internalExportNames = new Set([
   'AxPreparedRestoredState',
   'AxResponseHandlerArgs',
   'AxStepContextImpl',
+  'axResolveOpenAIReasoningEffort',
 ]);
 
 function hasValidPrefix(name: string): boolean {

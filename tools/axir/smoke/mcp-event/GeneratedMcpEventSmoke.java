@@ -16,6 +16,7 @@ public final class GeneratedMcpEventSmoke {
     AxMCPClient client = new AxMCPClient(transport, Map.of(
         "namespace", "inventory", "era", clientEra,
         "roots", List.of(Map.of("uri", "file:///workspace", "name", "workspace")),
+        "elicitation", (java.util.function.BiFunction<Map<String,Object>,Map<String,Object>,Map<String,Object>>) (_params, _context) -> Map.of("action", "accept", "content", Map.of("confirmed", true)),
         "subscriptionFilters", Map.of("resourcesListChanged", true)));
     AtomicInteger resources = new AtomicInteger();
     AtomicInteger tasks = new AtomicInteger();
@@ -34,6 +35,10 @@ public final class GeneratedMcpEventSmoke {
       if (((Number) object(taskResult.get("structuredContent")).get("indexed")).intValue() != 42) throw new IllegalStateException("modern task result was not flattened: " + taskResult);
       Map<String,Object> rootsResult = client.callTool("mrtr_roots_round", Map.of());
       if (((Number) object(rootsResult.get("structuredContent")).get("indexed")).intValue() != 42) throw new IllegalStateException("modern roots MRTR failed: " + rootsResult);
+      Map<String,Object> elicitationResult = client.callTool("mrtr_one_round", Map.of());
+      if (((Number) object(elicitationResult.get("structuredContent")).get("indexed")).intValue() != 42) throw new IllegalStateException("modern elicitation MRTR failed: " + elicitationResult);
+      try { client.callTool("mrtr_two_round", Map.of()); throw new IllegalStateException("modern sampling MRTR request was accepted"); }
+      catch (RuntimeException error) { if (!"MCP protocol violation: server requested sampling/createMessage without a matching client handler".equals(error.getMessage())) throw error; }
       AxMCPClient.CatalogSnapshot refreshed = client.inspectCatalog();
       String version = String.valueOf(refreshed.serverInfo().get("version"));
       if (version.equals("null") || version.equals("2.0.0")) throw new IllegalStateException("modern serverInfo was not refreshed: " + refreshed.serverInfo());
