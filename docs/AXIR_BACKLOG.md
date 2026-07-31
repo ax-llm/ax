@@ -283,7 +283,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-30
   - Completed by: `e43afb35854c370a637f13acf416668f263c7efb`
-  - Verification: `Five-port discover-auto-fallback and discover-modern conformance plus real mcp_sse_roundtrip auto fallback in Python, Java, C++, Go, and Rust; npm run test:axir`
+  - Verification: `Five-port discover-auto-fallback and discover-modern conformance plus real mcp_sse_roundtrip auto fallback in Python, Java, C++, Go, and Rust; npm run test:axir; 2026-07-30 production evidence: Pipedream reachable and classified legacy 2024-11-05 with tools/resources but strict catalog incomplete because resources/templates/list returned -32601, DeepWiki PASS legacy 2025-11-25 with 3 tools, Cloudflare Docs PASS modern 2026-07-28 with 2 tools and 1 prompt`
 - `axir-2026-07-29-port-mcp-2026-07-28-required-http-headers` [axmcp] Port MCP 2026-07-28 required HTTP headers
   - Status: done
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
@@ -364,4 +364,4 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-31
   - Completed by: `ca8619226fe91d893f0e5b51c3ce76a774057456`
-  - Verification: `npm test; npm run website:build; npm run website:check; Python, Java, C++, Go, and Rust passed well-known and 401-challenge authorization-code flows, refresh with 60-second skew, client credentials conformance, and wrong-iss rejection`
+  - Verification: `npm test; npm run website:build; npm run website:check; 2026-07-30 localhost AS live evidence: Python, Java, C++, Go, and Rust passed well-known and 401-challenge authorization-code flows, refresh with 60-second skew, client credentials conformance, and wrong-iss rejection; Pipedream uses bearer-via-SDK and is not claimed as MCP-native OAuth proof`
