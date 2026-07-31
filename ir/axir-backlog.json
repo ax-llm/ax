@@ -894,6 +894,28 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-07-31-port-structured-object-array-streaming-deduplication",
+      "status": "open",
+      "title": "Port structured object-array streaming deduplication",
+      "createdAt": "2026-07-31",
+      "sourcePR": 565,
+      "sourceCommit": "e29c3316a7cbc1d06959eceb58b0d099882d8c52",
+      "tsPaths": [
+        "src/ax/dsp/response/streaming.ts",
+        "src/ax/dsp/streaming_duplication.test.ts"
+      ],
+      "portableSurface": "axgen",
+      "impact": "Generated Python, Java, C++, Go, and Rust streaming runtimes may still run prompt extraction after structured JSON parsing for complex fields, re-emitting object-array items and returning duplicated results.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
