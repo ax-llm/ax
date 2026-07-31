@@ -36,6 +36,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/responses_api.ts`
   - Impact: Generated Python/Java/C++/Go/Rust clients have no OpenAI thinkingTokenBudget -> reasoning.effort mapping; AxIR models only the DeepSeek and Grok quirk blocks, so the GPT-5.6 1:1 ladder and its max rung are TS-only.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-31-port-per-item-url-array-validation` [axgen] Port per-item URL array validation
+  - Status: open
+  - Source PR: #567
+  - Source commit: `d3bc713e4e58921e1346bfbe38625a55af008f62`
+  - TS paths: `src/ax/dsp/extract.test.ts`, `src/ax/dsp/extract/fieldValue.ts`, `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/structured.test.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust validators may still validate URL arrays as scalar values or skip per-item URL checks, diverging from TypeScript extraction and structured-output validation.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
