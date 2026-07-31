@@ -66,26 +66,33 @@ function responsesReasoning(
 // only prove both request builders route through the resolver and hand it the
 // model, so they cover the rungs where the two ladders disagree.
 describe('OpenAI reasoning effort ladder', () => {
+  // `highest` is where the two surfaces part: Chat Completions rejects `max`,
+  // so it stops at `xhigh` while Responses goes the rung higher.
   const budgets = [
-    { budget: 'medium', legacy: 'high', gpt56: 'medium' },
-    { budget: 'highest', legacy: 'xhigh', gpt56: 'max' },
+    {
+      budget: 'medium',
+      legacy: 'high',
+      chat56: 'medium',
+      responses56: 'medium',
+    },
+    { budget: 'highest', legacy: 'xhigh', chat56: 'xhigh', responses56: 'max' },
   ] as const;
 
   it.each(budgets)(
-    'Chat maps $budget to $legacy on gpt-5.5 and $gpt56 on gpt-5.6',
-    async ({ budget, legacy, gpt56 }) => {
+    'Chat maps $budget to $legacy on gpt-5.5 and $chat56 on gpt-5.6',
+    async ({ budget, legacy, chat56 }) => {
       await expect(
         chatEffort(AxAIOpenAIModel.GPT55, { thinkingTokenBudget: budget })
       ).resolves.toBe(legacy);
       await expect(
         chatEffort(AxAIOpenAIModel.GPT56, { thinkingTokenBudget: budget })
-      ).resolves.toBe(gpt56);
+      ).resolves.toBe(chat56);
     }
   );
 
   it.each(budgets)(
-    'Responses maps $budget to $legacy on gpt-5.5 and $gpt56 on gpt-5.6',
-    ({ budget, legacy, gpt56 }) => {
+    'Responses maps $budget to $legacy on gpt-5.5 and $responses56 on gpt-5.6',
+    ({ budget, legacy, responses56 }) => {
       expect(
         responsesReasoning(AxAIOpenAIResponsesModel.GPT55, {
           thinkingTokenBudget: budget,
@@ -95,7 +102,7 @@ describe('OpenAI reasoning effort ladder', () => {
         responsesReasoning(AxAIOpenAIResponsesModel.GPT56, {
           thinkingTokenBudget: budget,
         })?.effort
-      ).toBe(gpt56);
+      ).toBe(responses56);
     }
   );
 
@@ -108,7 +115,7 @@ describe('OpenAI reasoning effort ladder', () => {
   ])('Chat applies the 5.6 ladder to %s', async (model) => {
     await expect(
       chatEffort(model, { thinkingTokenBudget: 'highest' })
-    ).resolves.toBe('max');
+    ).resolves.toBe('xhigh');
   });
 
   it.each([
@@ -184,11 +191,8 @@ describe('OpenAI thinkingTokenBudget=none', () => {
 // verbatim — including the rungs the budget ladder cannot reach.
 describe('OpenAI explicit reasoningEffort', () => {
   it.each(['xhigh', 'max'] as const)(
-    'forwards %s unchanged on gpt-5.6',
-    async (effort) => {
-      await expect(
-        chatEffort(AxAIOpenAIModel.GPT56, {}, { reasoningEffort: effort })
-      ).resolves.toBe(effort);
+    'forwards %s unchanged on gpt-5.6 responses',
+    (effort) => {
       expect(
         responsesReasoning(
           AxAIOpenAIResponsesModel.GPT56,
@@ -199,12 +203,28 @@ describe('OpenAI explicit reasoningEffort', () => {
     }
   );
 
+  it('forwards xhigh unchanged on gpt-5.6 chat', async () => {
+    await expect(
+      chatEffort(AxAIOpenAIModel.GPT56, {}, { reasoningEffort: 'xhigh' })
+    ).resolves.toBe('xhigh');
+  });
+
+  // The chat config type no longer offers `max`, but the escape hatch is a
+  // passthrough rather than a validator — the same hook lets DeepSeek send its
+  // own `max`. A caller who forces one past the type still gets it on the wire,
+  // and OpenAI answers with a 400. Pinned so nobody adds a silent clamp here.
+  it('forwards an unsupported chat effort as-is rather than clamping it', async () => {
+    await expect(
+      chatEffort(AxAIOpenAIModel.GPT56, {}, { reasoningEffort: 'max' })
+    ).resolves.toBe('max');
+  });
+
   it('is overridden by an explicit thinkingTokenBudget', async () => {
     await expect(
       chatEffort(
         AxAIOpenAIModel.GPT56,
         { thinkingTokenBudget: 'low' },
-        { reasoningEffort: 'max' }
+        { reasoningEffort: 'xhigh' }
       )
     ).resolves.toBe('low');
   });

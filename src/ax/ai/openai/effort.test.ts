@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { AxAIOpenAIModel } from './chat_types.js';
-import { axResolveOpenAIReasoningEffort } from './effort.js';
+import {
+  axResolveOpenAIChatReasoningEffort,
+  axResolveOpenAIResponsesReasoningEffort,
+} from './effort.js';
 
-describe('axResolveOpenAIReasoningEffort', () => {
+describe('OpenAI reasoning effort resolvers', () => {
   const gpt56Models = [
     AxAIOpenAIModel.GPT56,
     AxAIOpenAIModel.GPT56Sol,
@@ -11,23 +14,51 @@ describe('axResolveOpenAIReasoningEffort', () => {
     AxAIOpenAIModel.GPT56Luna,
   ];
 
-  // GPT-5.6 is the only generation serving `max`, so `highest` finally reaches
-  // the top rung instead of collapsing onto `xhigh`. It dropped `minimal`.
+  const budgets = [
+    'none',
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'highest',
+  ] as const;
+
+  // GPT-5.6 dropped `minimal`, so it shares `low` with the rung below. The two
+  // surfaces agree everywhere except the top: `max` exists only on Responses.
   it.each([
-    ['none', 'none'],
-    ['minimal', 'low'],
-    ['low', 'low'],
-    ['medium', 'medium'],
-    ['high', 'high'],
-    ['highest', 'max'],
-  ] as const)('maps %s to %s on every GPT-5.6 tier', (budget, expected) => {
+    ['none', 'none', 'none'],
+    ['minimal', 'low', 'low'],
+    ['low', 'low', 'low'],
+    ['medium', 'medium', 'medium'],
+    ['high', 'high', 'high'],
+    ['highest', 'xhigh', 'max'],
+  ] as const)(
+    'maps %s to %s on chat and %s on responses for every GPT-5.6 tier',
+    (budget, chat, responses) => {
+      for (const model of gpt56Models) {
+        expect(axResolveOpenAIChatReasoningEffort(model, budget)).toBe(chat);
+        expect(axResolveOpenAIResponsesReasoningEffort(model, budget)).toBe(
+          responses
+        );
+      }
+    }
+  );
+
+  // Chat Completions 400s on `max`, which is what shipped in 23.0.7. No rung on
+  // any 5.6 tier may produce it.
+  it('never resolves max on the chat path', () => {
     for (const model of gpt56Models) {
-      expect(axResolveOpenAIReasoningEffort(model, budget)).toBe(expected);
+      for (const budget of budgets) {
+        expect(axResolveOpenAIChatReasoningEffort(model, budget)).not.toBe(
+          'max'
+        );
+      }
     }
   });
 
-  // Everything else keeps the historical ladder byte-for-byte. The non-OpenAI
-  // names matter most: their own request updaters read what this produced.
+  // Everything else keeps the historical ladder byte-for-byte, on both
+  // surfaces. The non-OpenAI names matter most: their own request updaters read
+  // what this produced.
   it.each([
     ['none', undefined],
     ['minimal', 'minimal'],
@@ -47,16 +78,19 @@ describe('axResolveOpenAIReasoningEffort', () => {
       'grok-4',
       undefined,
     ]) {
-      expect(axResolveOpenAIReasoningEffort(model, budget)).toBe(expected);
+      expect(axResolveOpenAIChatReasoningEffort(model, budget)).toBe(expected);
+      expect(axResolveOpenAIResponsesReasoningEffort(model, budget)).toBe(
+        expected
+      );
     }
   });
 
   it('does not mistake other 5.x generations for 5.6', () => {
     expect(
-      axResolveOpenAIReasoningEffort(AxAIOpenAIModel.GPT55, 'highest')
+      axResolveOpenAIResponsesReasoningEffort(AxAIOpenAIModel.GPT55, 'highest')
     ).toBe('xhigh');
-    expect(axResolveOpenAIReasoningEffort('gpt-5.6-sol', 'highest')).toBe(
-      'max'
-    );
+    expect(
+      axResolveOpenAIResponsesReasoningEffort('gpt-5.6-sol', 'highest')
+    ).toBe('max');
   });
 });

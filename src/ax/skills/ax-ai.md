@@ -293,8 +293,10 @@ console.log(res.results[0]?.content);
 | `'high'` | 20,000 | 10,000 |
 | `'highest'` | 32,000 | 24,500 |
 
-For GPT-5.6, these map to `none`, `low`, `low`, `medium`, `high`, and `max`
-respectively. Earlier OpenAI models retain their existing mapping.
+For GPT-5.6, these map to `none`, `low`, `low`, `medium`, `high`, and a top rung
+that depends on the API surface: `xhigh` on Chat Completions, which rejects
+`max`, and `max` on the Responses API, which is the only place it is served.
+Earlier OpenAI models retain their existing mapping.
 
 ### Anthropic Model-Specific Behavior
 

@@ -23,20 +23,19 @@ describe('Responses API type extensions (2026)', () => {
     expect(req.include).toContain('web_search_call.action.return_token_budget');
   });
 
-  it('accepts xhigh and none on reasoning.effort', () => {
-    const reqXhigh: AxAIOpenAIResponsesRequest<AxAIOpenAIResponsesModel> = {
-      model: AxAIOpenAIResponsesModel.GPT55,
-      input: 'hi',
-      reasoning: { effort: 'xhigh' },
-    };
-    const reqNone: AxAIOpenAIResponsesRequest<AxAIOpenAIResponsesModel> = {
-      model: AxAIOpenAIResponsesModel.GPT55,
-      input: 'hi',
-      reasoning: { effort: 'none' },
-    };
-    expect(reqXhigh.reasoning?.effort).toBe('xhigh');
-    expect(reqNone.reasoning?.effort).toBe('none');
-  });
+  // `max` is Responses-only — the chat request type deliberately omits it, so
+  // this is the one place the top rung is pinned to a wire format.
+  it.each(['xhigh', 'none', 'max'] as const)(
+    'accepts %s on reasoning.effort',
+    (effort) => {
+      const req: AxAIOpenAIResponsesRequest<AxAIOpenAIResponsesModel> = {
+        model: AxAIOpenAIResponsesModel.GPT55,
+        input: 'hi',
+        reasoning: { effort },
+      };
+      expect(req.reasoning?.effort).toBe(effort);
+    }
+  );
 
   it('passes through the phase field on output message items', () => {
     const impl = new AxAIOpenAIResponsesImpl(config, false);
