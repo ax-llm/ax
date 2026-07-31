@@ -777,6 +777,7 @@ struct Core {
   static Value mcp_fold_cache_info(Value pages, Value fetched_at);
   static Value mcp_cache_freshness(Value cache_info, Value now);
   static Value mcp_validate_modern_task(Value task);
+  static Value mcp_server_request_plan(Value request, Value roots, Value has_elicitation);
   static Value mcp_task_terminal_outcome(Value task);
   static Value mcp_mrtr_plan_round(Value result, Value era, Value method, Value round, Value max_rounds);
   static Value mcp_mrtr_plan_fulfillment(Value input_requests, Value roots, Value has_elicitation, Value has_sampling);

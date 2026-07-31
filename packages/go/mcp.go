@@ -76,6 +76,10 @@ type AxMCPTransport interface {
 	Close() error
 }
 
+type axMCPRequestHandlerTransport interface {
+	SetRequestHandler(handler func(map[string]Value) map[string]Value)
+}
+
 type AxMCPClient struct {
 	transport AxMCPTransport
 	options map[string]Value
@@ -122,6 +126,7 @@ func NewAxMCPClient(transport AxMCPTransport, options map[string]Value) *AxMCPCl
 	if options == nil { options = map[string]Value{} }
 	c := &AxMCPClient{transport: transport, options: options, nextID: 1, notificationListeners:map[int]func(map[string]Value){}, lifecycleListeners:map[int]func(string){}, nextListenerID:1,subscriptionOwners:map[string]map[string]bool{},catalogCache:map[string]map[string]Value{},resourceReadCache:map[string]map[string]Value{}}
 	transport.SetMessageHandler(c.handleInboundMessage)
+	if requestTransport,ok:=transport.(axMCPRequestHandlerTransport);ok{requestTransport.SetRequestHandler(c.handleServerRequest)}
 	transport.SetLifecycleHandler(c.EmitLifecycle)
 	return c
 }
@@ -207,7 +212,7 @@ func (c *AxMCPClient) ResourceTemplates() []map[string]Value { return append([]m
 func (c *AxMCPClient) Ping() (map[string]Value, error) { return c.request("ping", map[string]Value{}) }
 func (c *AxMCPClient) ListTools(cursor string) (map[string]Value, error) { return c.request("tools/list", cursorParams(cursor)) }
 func (c *AxMCPClient) CallTool(name string, args map[string]Value) (map[string]Value, error) {if args==nil{args=map[string]Value{}};headers:=c.toolHeaders(name,args);result,err:=c.requestWithInputRounds("tools/call",map[string]Value{"name":name,"arguments":args},headers);if protocol,ok:=err.(AxMCPProtocolError);ok&&c.era=="modern"&&protocol.Code==-32020{values,refreshErr:=c.collectCatalog("tools/list","tools");if refreshErr!=nil{return nil,refreshErr};c.tools=nil;for _,tool:=range values{if _,bindErr:=mcp_param_header_bindings(coreGet(tool,"inputSchema",Object()));bindErr==nil{c.tools=append(c.tools,tool)}};result,err=c.requestWithInputRounds("tools/call",map[string]Value{"name":name,"arguments":args},c.toolHeaders(name,args))};if err!=nil{return nil,err};if display(coreGet(result,"resultType",""))!="task"{return result,nil};if !c.hasTasksCapability(){return nil,fmt.Errorf("MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks")};if !coreTruthy(mustCore(mcp_validate_modern_task(result))){return nil,fmt.Errorf("MCP protocol violation: invalid CreateTaskResult")};return c.awaitModernTask(display(result["taskId"]))}
-func(c *AxMCPClient)awaitModernTask(taskID string)(map[string]Value,error){max:=1000;if value,ok:=c.options["maxTaskPolls"].(int);ok{max=value};for poll:=0;poll<max;poll++{task,err:=c.GetTask(taskID);if err!=nil{return nil,err};outcome:=asMap(mustCore(mcp_task_terminal_outcome(task)));switch display(outcome["kind"]){case "result":return cloneMCPMap(asMap(outcome["result"])),nil;case "protocol_error":return nil,AxMCPProtocolError{Code:mcpInt(outcome["code"]),Message:display(outcome["message"]),Data:outcome["data"]};case "violation","failure","cancelled":return nil,fmt.Errorf("%s",display(outcome["message"]))}};return nil,fmt.Errorf("MCP task %s exceeded %d polls",taskID,max)}
+func(c *AxMCPClient)awaitModernTask(taskID string)(map[string]Value,error){max:=1000;if value,ok:=c.options["maxTaskPolls"].(int);ok{max=value};for poll:=0;poll<max;poll++{task,err:=c.GetTask(taskID);if err!=nil{return nil,err};outcome:=asMap(mustCore(mcp_task_terminal_outcome(task)));switch display(outcome["kind"]){case "result":return cloneMCPMap(asMap(outcome["result"])),nil;case "protocol_error":return nil,AxMCPProtocolError{Code:mcpInt(outcome["code"]),Message:display(outcome["message"]),Data:outcome["data"]};case "violation","failure","cancelled":return nil,fmt.Errorf("%s",display(outcome["message"]));case "input_required":handler,hasHandler:=c.elicitationHandler();fulfillment:=asMap(mustCore(mcp_mrtr_plan_fulfillment(coreGet(outcome,"inputRequests",Object()),coreGet(c.options,"roots",nil),hasHandler,false)));if !coreTruthy(fulfillment["ok"]){return nil,fmt.Errorf("%s",display(fulfillment["message"]))};responses:=asMap(coreGet(fulfillment,"responses",Object()));for key,rawPending:=range asMap(coreGet(fulfillment,"pending",Object())){if key=="__order"{continue};pending:=asMap(rawPending);if !hasHandler||display(coreGet(pending,"method",""))!="elicitation/create"{return nil,fmt.Errorf("MCP protocol violation: unsupported pending task input request method %s",display(coreGet(pending,"method","")))};response,handlerErr:=handler(asMap(coreGet(pending,"params",Object())),map[string]Value{"client":c,"namespace":c.Namespace()});if handlerErr!=nil{return nil,handlerErr};responses[key]=response};if err:=c.ProvideTaskInput(taskID,responses);err!=nil{return nil,err}}};return nil,fmt.Errorf("MCP task %s exceeded %d polls",taskID,max)}
 func(c *AxMCPClient)toolHeaders(name string,args map[string]Value)map[string]string{out:=map[string]string{};if c.era!="modern"{return out};for _,tool:=range c.tools{if display(coreGet(tool,"name",""))==name{bindings,err:=mcp_param_header_bindings(coreGet(tool,"inputSchema",Object()));if err!=nil{return out};values,err:=mcp_param_header_values(bindings,args);if err!=nil{return out};for key,value:=range asMap(values){out[key]=display(value)};break}};return out}
 func (c *AxMCPClient) ListPrompts(cursor string) (map[string]Value, error) { return c.request("prompts/list", cursorParams(cursor)) }
 func (c *AxMCPClient) GetPrompt(name string, args map[string]Value) (map[string]Value, error) { if args == nil { args = map[string]Value{} }; return c.requestWithInputRounds("prompts/get", map[string]Value{"name":name, "arguments":args},nil) }
@@ -579,7 +584,7 @@ func (c *AxMCPClient) requestWithHeaders(method string, params map[string]Value,
 func (c *AxMCPClient) clientCapabilities() map[string]Value {
 	out := map[string]Value{}
 	for key, value := range asMap(coreGet(c.options, "capabilities", Object())) { out[key] = value }
-	tasksExtension:=true;if value,ok:=c.options["tasksExtension"];ok{tasksExtension=coreTruthy(value)};_,hasElicitation:=c.elicitationHandler();hasElicitation=hasElicitation&&c.era=="modern";derived:=asMap(mustCore(mcp_client_capabilities(coreGet(c.options,"roots",nil)!=nil,false,hasElicitation,c.era,tasksExtension)));for key,value:=range derived{if _,ok:=out[key];!ok{out[key]=value}};delete(out,"sampling");if !hasElicitation{delete(out,"elicitation")}
+	tasksExtension:=true;if value,ok:=c.options["tasksExtension"];ok{tasksExtension=coreTruthy(value)};_,hasElicitation:=c.elicitationHandler();derived:=asMap(mustCore(mcp_client_capabilities(coreGet(c.options,"roots",nil)!=nil,false,hasElicitation,c.era,tasksExtension)));for key,value:=range derived{if _,ok:=out[key];!ok{out[key]=value}};delete(out,"sampling");if !hasElicitation{delete(out,"elicitation")}
 	return out
 }
 
@@ -594,13 +599,15 @@ func (c *AxMCPClient) capability(name string) bool {
 func (c *AxMCPClient) handleInboundMessage(message map[string]Value) {
 	if c.era=="modern"{c.subscriptionMu.Lock();active:=c.activeSubscriptionID;c.subscriptionMu.Unlock();filtered:=asMap(mustCore(mcp_notification_subscription_filter(message,active)));if !coreTruthy(filtered["deliver"]){return};message=asMap(filtered["message"]);if coreTruthy(filtered["acknowledged"]){c.subscriptionMu.Lock();ready:=c.subscriptionReady;c.subscriptionMu.Unlock();if ready!=nil{select{case ready<-struct{}{}:default:}}}}
 	method:=display(coreGet(message,"method",""))
-	if method == "roots/list" && coreGet(message, "id", nil) != nil {
-		_ = c.transport.SendResponse(map[string]Value{"jsonrpc":"2.0", "id":coreGet(message, "id", nil), "result":map[string]Value{"roots":coreGet(c.options, "roots", Array())}})
-	}
 	if method=="notifications/tools/list_changed"||method=="notifications/prompts/list_changed"||method=="notifications/resources/list_changed"{_ = c.Refresh()}
 	if method=="notifications/resources/updated"{uri:=display(coreGet(coreGet(message,"params",Object()),"uri",""));if uri!=""{delete(c.resourceReadCache,uri)}}
 	if callback,ok:=c.options["onNotification"].(func(map[string]Value));ok{callback(message)}
 	listeners:=make([]func(map[string]Value),0,len(c.notificationListeners));for _,listener:=range c.notificationListeners{listeners=append(listeners,listener)};for _,listener:=range listeners{listener(message)}
+}
+
+func(c *AxMCPClient)handleServerRequest(message map[string]Value)map[string]Value{
+	handler,hasHandler:=c.elicitationHandler();plan:=asMap(mustCore(mcp_server_request_plan(message,coreGet(c.options,"roots",nil),hasHandler)));if display(plan["action"])=="respond"{return cloneMCPMap(asMap(plan["response"]))}
+	result,err:=handler(asMap(coreGet(plan,"params",Object())),map[string]Value{"client":c,"namespace":c.Namespace()});if err!=nil{return map[string]Value{"jsonrpc":"2.0","id":coreGet(plan,"id",nil),"error":map[string]Value{"code":-32603,"message":err.Error()}}};return map[string]Value{"jsonrpc":"2.0","id":coreGet(plan,"id",nil),"result":result}
 }
 
 type AxMCPResourceSubscriptionPolicy struct{Mode string;URIs []string;Select func(map[string]Value,AxMCPCatalogSnapshot)bool}
@@ -676,6 +683,7 @@ type AxMCPStreamableHTTPTransport struct {
 	eraCacheKey string
 	LastHeaders map[string]string
 	handler func(map[string]Value)
+	requestHandler func(map[string]Value) map[string]Value
 	lifecycleHandler func(string)
 	client *http.Client
 	OAuth *AxMCPOAuthOptions
@@ -739,7 +747,7 @@ func (t *AxMCPStreamableHTTPTransport) selectSSEResponse(messages []Value, reque
 				continue
 			}
 		}
-		if t.handler != nil { t.handler(m) }
+		t.dispatchInbound(m)
 	}
 	if response != nil { return response }
 	if len(messages) > 0 { return asMap(messages[len(messages)-1]) }
@@ -749,6 +757,8 @@ func (t *AxMCPStreamableHTTPTransport) selectSSEResponse(messages []Value, reque
 func (t *AxMCPStreamableHTTPTransport) SendNotification(message map[string]Value) error { _, err := t.Send(message); return err }
 func (t *AxMCPStreamableHTTPTransport) SendResponse(message map[string]Value) error { _, err := t.Send(message); return err }
 func (t *AxMCPStreamableHTTPTransport) SetMessageHandler(handler func(map[string]Value)) { t.handler = handler }
+func (t *AxMCPStreamableHTTPTransport) SetRequestHandler(handler func(map[string]Value)map[string]Value){t.requestHandler=handler}
+func(t *AxMCPStreamableHTTPTransport)dispatchInbound(message map[string]Value){if _,hasID:=message["id"];hasID&&coreGet(message,"method",nil)!=nil&&t.requestHandler!=nil{_ = t.SendResponse(t.requestHandler(message));return};if t.handler!=nil{t.handler(message)}}
 func (t *AxMCPStreamableHTTPTransport) SetLifecycleHandler(handler func(string)) { t.lifecycleHandler = handler }
 func (t *AxMCPStreamableHTTPTransport) SetProtocolVersion(protocolVersion string) { t.ProtocolVersion = protocolVersion }
 func (t *AxMCPStreamableHTTPTransport) SetEra(era string) { t.Era = era; if era == "modern" { t.SessionID = ""; t.ProtocolVersion = "2026-07-28" } else if t.ProtocolVersion == "2026-07-28" { t.ProtocolVersion = "" } }
@@ -775,7 +785,7 @@ func (t *AxMCPStreamableHTTPTransport) OpenRequestStream(message map[string]Valu
 	go func(){defer close(done);body,_:=json.Marshal(message);req,err:=http.NewRequestWithContext(ctx,"POST",t.Endpoint,bytes.NewReader(body));if err!=nil{return};method:=display(coreGet(message,"method",""));for key,value:=range t.BuildHeaders(map[string]string{"Content-Type":"application/json","Accept":"text/event-stream"},true,method,coreGet(message,"params",Object()),Object()){req.Header.Set(key,value)};res,err:=t.client.Do(req);if err!=nil{return};t.listenMu.Lock();t.listenBody=res.Body;t.listenMu.Unlock();if res.StatusCode>=200&&res.StatusCode<300{t.consumeRequestSSE(ctx,res.Body)};_ = res.Body.Close();t.listenMu.Lock();if t.listenBody==res.Body{t.listenBody=nil};t.listenMu.Unlock();if ctx.Err()==nil&&t.lifecycleHandler!=nil{go t.lifecycleHandler("disconnected")}}()
 	return nil
 }
-func(t *AxMCPStreamableHTTPTransport)consumeRequestSSE(ctx context.Context,body io.Reader){scanner:=bufio.NewScanner(body);data:=[]string{};dispatch:=func(){if len(data)>0&&t.handler!=nil{var message map[string]Value;if json.Unmarshal([]byte(strings.Join(data,"\n")),&message)==nil{t.handler(message)}};data=nil};for scanner.Scan()&&ctx.Err()==nil{line:=strings.TrimSuffix(scanner.Text(),"\r");if line==""{dispatch()}else if strings.HasPrefix(line,"data:"){data=append(data,strings.TrimSpace(strings.TrimPrefix(line,"data:")))}};if len(data)>0{dispatch()}}
+func(t *AxMCPStreamableHTTPTransport)consumeRequestSSE(ctx context.Context,body io.Reader){scanner:=bufio.NewScanner(body);data:=[]string{};dispatch:=func(){if len(data)>0{var message map[string]Value;if json.Unmarshal([]byte(strings.Join(data,"\n")),&message)==nil{t.dispatchInbound(message)}};data=nil};for scanner.Scan()&&ctx.Err()==nil{line:=strings.TrimSuffix(scanner.Text(),"\r");if line==""{dispatch()}else if strings.HasPrefix(line,"data:"){data=append(data,strings.TrimSpace(strings.TrimPrefix(line,"data:")))}};if len(data)>0{dispatch()}}
 func(t *AxMCPStreamableHTTPTransport)CloseRequestStream()error{t.listenMu.Lock();cancel,done,body:=t.listenCancel,t.listenDone,t.listenBody;t.listenCancel=nil;t.listenDone=nil;t.listenBody=nil;t.listenMu.Unlock();if cancel!=nil{cancel()};if body!=nil{_ = body.Close()};if done!=nil{select{case<-done:case<-time.After(2*time.Second):}};return nil}
 
 func (t *AxMCPStreamableHTTPTransport) listenLoop(ctx context.Context, done chan struct{}) {
@@ -814,9 +824,9 @@ func (t *AxMCPStreamableHTTPTransport) consumeSSE(ctx context.Context, body io.R
 	eventID := ""
 	dispatch := func() {
 		if eventID != "" { t.lastEventID = eventID }
-		if len(data) > 0 && t.handler != nil {
+		if len(data) > 0 {
 			var message map[string]Value
-			if json.Unmarshal([]byte(strings.Join(data, "\n")), &message) == nil { t.handler(message) }
+			if json.Unmarshal([]byte(strings.Join(data, "\n")), &message) == nil { t.dispatchInbound(message) }
 		}
 		data = nil; eventID = ""
 	}
@@ -942,6 +952,7 @@ type AxMCPStdioTransport struct {
 	stdout *bufio.Reader
 	mu sync.Mutex
 	handler func(map[string]Value)
+	requestHandler func(map[string]Value)map[string]Value
 	protocolVersion string
 }
 
@@ -962,7 +973,7 @@ func (t *AxMCPStdioTransport) Send(message map[string]Value) (map[string]Value, 
 		parsed, err := AxMCPStdioDecode(line)
 		if err != nil { continue }
 		if display(coreGet(parsed, "id", nil)) == display(coreGet(message, "id", nil)) { return parsed, nil }
-		if t.handler != nil { t.handler(parsed) }
+		if _,hasID:=parsed["id"];hasID&&coreGet(parsed,"method",nil)!=nil&&t.requestHandler!=nil{if err:=t.SendResponse(t.requestHandler(parsed));err!=nil{return nil,err}}else if t.handler != nil { t.handler(parsed) }
 	}
 }
 
@@ -971,6 +982,7 @@ func (t *AxMCPStdioTransport) SendWithHeaders(message map[string]Value, headers 
 func (t *AxMCPStdioTransport) SendNotification(message map[string]Value) error { _, err := io.WriteString(t.stdin, AxMCPStdioEncode(message)); return err }
 func (t *AxMCPStdioTransport) SendResponse(message map[string]Value) error { return t.SendNotification(message) }
 func (t *AxMCPStdioTransport) SetMessageHandler(handler func(map[string]Value)) { t.handler = handler }
+func (t *AxMCPStdioTransport) SetRequestHandler(handler func(map[string]Value)map[string]Value){t.requestHandler=handler}
 func (t *AxMCPStdioTransport) SetLifecycleHandler(handler func(string)) {}
 func (t *AxMCPStdioTransport) SetProtocolVersion(protocolVersion string) { t.protocolVersion = protocolVersion }
 func (t *AxMCPStdioTransport) SetEra(era string) {}
@@ -992,6 +1004,7 @@ type AxMCPScriptedTransport struct {
 	RequestHeaders []map[string]string
 	RequestStreams []map[string]Value
 	handler func(map[string]Value)
+	requestHandler func(map[string]Value)map[string]Value
 }
 
 func NewAxMCPScriptedTransport(responses []Value) *AxMCPScriptedTransport { return &AxMCPScriptedTransport{Responses:append([]Value(nil), responses...)} }
@@ -1001,6 +1014,7 @@ func (t *AxMCPScriptedTransport) SetEra(era string) { t.Era = era }
 func (t *AxMCPScriptedTransport) EraHint() string { return "" }
 func (t *AxMCPScriptedTransport) EraCacheKey() string { return "" }
 func (t *AxMCPScriptedTransport) SetMessageHandler(handler func(map[string]Value)) { t.handler = handler }
+func (t *AxMCPScriptedTransport) SetRequestHandler(handler func(map[string]Value)map[string]Value){t.requestHandler=handler}
 func (t *AxMCPScriptedTransport) SetLifecycleHandler(handler func(string)) {}
 func (t *AxMCPScriptedTransport) StartListening() error { return nil }
 func (t *AxMCPScriptedTransport) OpenRequestStream(message map[string]Value) error {if t.Era!="modern"{return AxError{Category:"mcp",Message:"Request streams are only available for modern MCP"}};request:=cloneMCPMap(message);t.RequestStreams=append(t.RequestStreams,request);notifications:=coreGet(coreGet(request,"params",Object()),"notifications",Object());t.Emit(map[string]Value{"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":map[string]Value{"notifications":notifications,"_meta":map[string]Value{"io.modelcontextprotocol/subscriptionId":coreGet(request,"id",nil)}}});return nil}
@@ -1022,7 +1036,7 @@ func (t *AxMCPScriptedTransport) Send(message map[string]Value) (map[string]Valu
 func (t *AxMCPScriptedTransport) SendWithHeaders(message map[string]Value, headers map[string]string) (map[string]Value, error) { copied := map[string]string{}; for key, value := range headers { copied[key] = value }; t.RequestHeaders = append(t.RequestHeaders, copied); return t.Send(message) }
 func (t *AxMCPScriptedTransport) SendNotification(message map[string]Value) error { t.Notifications = append(t.Notifications, cloneMCPMap(message)); return nil }
 func (t *AxMCPScriptedTransport) SendResponse(message map[string]Value) error { t.SentResponses = append(t.SentResponses, cloneMCPMap(message)); return nil }
-func (t *AxMCPScriptedTransport) Emit(message map[string]Value) { if t.handler != nil { t.handler(message) } }
+func (t *AxMCPScriptedTransport) Emit(message map[string]Value) { if _,hasID:=message["id"];hasID&&coreGet(message,"method",nil)!=nil&&t.requestHandler!=nil{_ = t.SendResponse(t.requestHandler(message));return};if t.handler != nil { t.handler(message) } }
 
 func AxMCPStdioEncode(message map[string]Value) string { data, _ := json.Marshal(message); return string(data)+"\n" }
 func AxMCPStdioDecode(line string) (map[string]Value, error) { var out map[string]Value; err := json.Unmarshal([]byte(strings.TrimSpace(line)), &out); return out, err }
@@ -1221,7 +1235,7 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 	}
 	transport := NewAxMCPScriptedTransport(asSlice(coreGet(fixture, "responses", coreGet(fixture, "transport_responses", Array()))))
 	clientOptions:=asMap(coreGet(fixture,"client_options",Object()));elicitationParams:=map[string]Value{};elicitationContext:=map[string]Value{};elicitationCalls:=0
-	if op=="mrtr_elicitation"{clientOptions["elicitation"]=AxMCPElicitationHandler(func(params,context map[string]Value)(map[string]Value,error){elicitationCalls++;elicitationParams=cloneMCPMap(params);elicitationContext=context;return asMap(coreGet(fixture,"elicitation_result",Object())),nil})}
+	if op=="mrtr_elicitation"||op=="tasks_v2_input_required"||op=="server_requests_legacy"{clientOptions["elicitation"]=AxMCPElicitationHandler(func(params,context map[string]Value)(map[string]Value,error){if coreTruthy(coreGet(params,"fail",false)){return nil,fmt.Errorf("fixture handler failed")};elicitationCalls++;elicitationParams=cloneMCPMap(params);elicitationContext=context;return asMap(coreGet(fixture,"elicitation_result",Object())),nil})}
 	client := NewAxMCPClient(transport, clientOptions)
 	if err := client.Init(); err != nil { panic(err) }
 	if want := display(coreGet(fixture, "expected_protocol_version", "")); op!="client_discovery"&&want != "" && client.ProtocolVersion() != want { panic("protocol version mismatch") }
@@ -1238,6 +1252,10 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		if err:=client.RefreshWithOptions(false);err!=nil{panic(err)};catalogRequests:=0;for _,request:=range transport.Requests{method:=display(coreGet(request,"method",""));if method=="resources/list"||method=="resources/templates/list"{catalogRequests++}};if catalogRequests!=mcpInt(coreGet(fixture,"expected_catalog_requests_after_fresh_refresh",0)){panic("fresh catalog issued extra requests")};uri:=display(coreGet(fixture,"uri",""));first,err:=client.ReadResource(uri);if err!=nil{panic(err)};second,err:=client.ReadResource(uri);if err!=nil{panic(err)};assertSubset(first,coreGet(fixture,"expected_first",Object()),"first resource read");assertSubset(second,coreGet(fixture,"expected_first",Object()),"cached resource read");transport.Emit(asMap(coreGet(fixture,"notification",Object())));after,err:=client.ReadResource(uri);if err!=nil{panic(err)};assertSubset(after,coreGet(fixture,"expected_after_update",Object()),"resource read after update");reads:=0;for _,request:=range transport.Requests{if display(coreGet(request,"method",""))=="resources/read"{reads++}};if reads!=mcpInt(coreGet(fixture,"expected_read_requests",0)){panic("resource read request count mismatch")}
 	case "tasks_v2_modern":
 		result,err:=client.CallTool("slow",map[string]Value{});if err!=nil{panic(err)};assertSubset(result,coreGet(fixture,"expected_call_result",Object()),"task call result");if err=client.ProvideTaskInput("task-1",map[string]Value{});err!=nil{panic(err)};if _,err=client.CancelTask("task-1");err!=nil{panic(err)};if _,err=client.ListTasks("");err==nil||!strings.Contains(err.Error(),display(coreGet(fixture,"expected_list_error",""))){panic("missing modern tasks/list rejection")};if _,err=client.GetTaskResult("task-1");err==nil||!strings.Contains(err.Error(),display(coreGet(fixture,"expected_result_error",""))){panic("missing modern tasks/result rejection")};methods:=[]Value{};for _,request:=range transport.Requests{methods=append(methods,display(coreGet(request,"method","")))};assertEqual(methods,coreGet(fixture,"expected_methods",Array()),"task request methods")
+	case "tasks_v2_input_required":
+		result,err:=client.CallTool("slow",map[string]Value{});if err!=nil{panic(err)};assertSubset(result,coreGet(fixture,"expected_result",Object()),"task input-required result");if elicitationCalls!=1{panic("task elicitation handler count mismatch")};assertSubset(elicitationParams,coreGet(fixture,"expected_elicitation_params",Object()),"task elicitation params");assertSubset(elicitationContext,coreGet(fixture,"expected_context",Object()),"task elicitation context");var update map[string]Value;methods:=[]Value{};for _,request:=range transport.Requests{methods=append(methods,display(coreGet(request,"method","")));if display(coreGet(request,"method",""))=="tasks/update"{update=request}};assertSubset(coreGet(update,"params",Object()),coreGet(fixture,"expected_update_params",Object()),"task update params");assertEqual(methods,coreGet(fixture,"expected_methods",Array()),"task input-required methods")
+	case "server_requests_legacy":
+		for _,raw:=range asSlice(coreGet(fixture,"server_requests",Array())){transport.Emit(asMap(raw))};for index,expected:=range asSlice(coreGet(fixture,"expected_responses",Array())){assertSubset(transport.SentResponses[index],expected,fmt.Sprintf("server response %d",index))};if elicitationCalls!=1{panic("legacy elicitation handler count mismatch")};assertSubset(elicitationParams,coreGet(fixture,"expected_elicitation_params",Object()),"legacy elicitation params");assertSubset(elicitationContext,coreGet(fixture,"expected_context",Object()),"legacy elicitation context");var initialize map[string]Value;for _,request:=range transport.Requests{if display(coreGet(request,"method",""))=="initialize"{initialize=request}};assertSubset(coreGet(coreGet(initialize,"params",Object()),"capabilities",Object()),coreGet(fixture,"expected_legacy_capabilities",Object()),"legacy client capabilities")
 	case "mrtr_elicitation":
 		result,err:=client.CallTool("work",map[string]Value{"value":1});if err!=nil{panic(err)};assertSubset(result,coreGet(fixture,"expected_result",Object()),"MRTR elicitation result");if elicitationCalls!=1{panic("MRTR elicitation handler count mismatch")};assertSubset(elicitationParams,coreGet(fixture,"expected_elicitation_params",Object()),"MRTR elicitation params");assertSubset(elicitationContext,coreGet(fixture,"expected_context",Object()),"MRTR elicitation context");toolCalls:=[]map[string]Value{};for _,request:=range transport.Requests{if display(coreGet(request,"method",""))=="tools/call"{toolCalls=append(toolCalls,request)}};for index,expected:=range asSlice(coreGet(fixture,"expected_call_params",Array())){assertSubset(coreGet(toolCalls[index],"params",Object()),expected,fmt.Sprintf("MRTR elicitation call params %d",index))};meta:=asMap(coreGet(coreGet(transport.Requests[0],"params",Object()),"_meta",Object()));capabilities:=asMap(coreGet(meta,"io.modelcontextprotocol/clientCapabilities",Object()));if _,ok:=capabilities["elicitation"];!ok{panic("elicitation capability missing")};if _,ok:=capabilities["sampling"];ok{panic("sampling capability advertised")};bad:=NewAxMCPClient(NewAxMCPScriptedTransport(nil),map[string]Value{"era":"modern","sampling":true});if err:=bad.Init();err==nil||!strings.Contains(err.Error(),"sampling is not supported"){panic("truthy sampling option was accepted")}
 	case "mrtr_roots":

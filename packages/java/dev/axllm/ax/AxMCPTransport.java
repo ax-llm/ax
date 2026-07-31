@@ -8,6 +8,7 @@ public interface AxMCPTransport {
   void sendNotification(Map<String, Object> message);
   default void sendResponse(Map<String, Object> message) { sendNotification(message); }
   default void setMessageHandler(java.util.function.Consumer<Map<String, Object>> handler) {}
+  default void setRequestHandler(java.util.function.Function<Map<String, Object>, Map<String, Object>> handler) {}
   default void setLifecycleHandler(java.util.function.Consumer<String> handler) {}
   default void setProtocolVersion(String protocolVersion) {}
   default void setEra(String era) {}

@@ -46230,6 +46230,118 @@ func mcp_validate_modern_task(args ...Value) (Value, error) {
 	return false, nil
 }
 
+func mcp_server_request_plan(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_server_request_plan")
+	var v_request Value
+	var v_roots Value
+	var v_has_elicitation Value
+	var v_can_elicit Value
+	var v_elicitation Value
+	var v_empty Value
+	var v_error Value
+	var v_id Value
+	var v_message Value
+	var v_method Value
+	var v_out Value
+	var v_params Value
+	var v_params_missing Value
+	var v_ping Value
+	var v_response Value
+	var v_result Value
+	var v_roots_copy Value
+	var v_roots_list Value
+	var v_roots_missing Value
+	var v_roots_text Value
+	if len(args) > 0 { v_request = args[0] }
+	_ = v_request
+	if len(args) > 1 { v_roots = args[1] }
+	_ = v_roots
+	if len(args) > 2 { v_has_elicitation = args[2] }
+	_ = v_has_elicitation
+	_ = v_can_elicit
+	_ = v_elicitation
+	_ = v_empty
+	_ = v_error
+	_ = v_id
+	_ = v_message
+	_ = v_method
+	_ = v_out
+	_ = v_params
+	_ = v_params_missing
+	_ = v_ping
+	_ = v_response
+	_ = v_result
+	_ = v_roots_copy
+	_ = v_roots_list
+	_ = v_roots_missing
+	_ = v_roots_text
+	v_out = Object()
+	v_id = coreGet(v_request, "id", nil)
+	v_method = coreGet(v_request, "method", "")
+	v_params = coreGet(v_request, "params", nil)
+	v_ping = _core_eq(v_method, "ping")
+	if coreTruthy(v_ping) {
+		v_response = Object()
+		v_result = Object()
+		if err := coreSet(v_response, "jsonrpc", "2.0"); err != nil { return nil, err }
+		if err := coreSet(v_response, "id", v_id); err != nil { return nil, err }
+		if err := coreSet(v_response, "result", v_result); err != nil { return nil, err }
+		if err := coreSet(v_out, "action", "respond"); err != nil { return nil, err }
+		if err := coreSet(v_out, "response", v_response); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_roots_list = _core_eq(v_method, "roots/list")
+	if coreTruthy(v_roots_list) {
+		v_roots_missing = _core_is_none(v_roots)
+		if coreTruthy(v_roots_missing) {
+		// empty
+		} else {
+			v_roots_text = _core_json_stringify(v_roots)
+			{ v, err := _core_json_parse(v_roots_text); if err != nil { return nil, err }; v_roots_copy = v }
+			v_result = Object()
+			if err := coreSet(v_result, "roots", v_roots_copy); err != nil { return nil, err }
+			v_response = Object()
+			if err := coreSet(v_response, "jsonrpc", "2.0"); err != nil { return nil, err }
+			if err := coreSet(v_response, "id", v_id); err != nil { return nil, err }
+			if err := coreSet(v_response, "result", v_result); err != nil { return nil, err }
+			if err := coreSet(v_out, "action", "respond"); err != nil { return nil, err }
+			if err := coreSet(v_out, "response", v_response); err != nil { return nil, err }
+			return v_out, nil
+		}
+	} else {
+	// empty
+	}
+	v_elicitation = _core_eq(v_method, "elicitation/create")
+	v_can_elicit = _core_and(v_elicitation, v_has_elicitation)
+	if coreTruthy(v_can_elicit) {
+		if err := coreSet(v_out, "action", "elicitation"); err != nil { return nil, err }
+		if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
+		v_params_missing = _core_is_none(v_params)
+		if coreTruthy(v_params_missing) {
+			v_empty = Object()
+			if err := coreSet(v_out, "params", v_empty); err != nil { return nil, err }
+		} else {
+			if err := coreSet(v_out, "params", v_params); err != nil { return nil, err }
+		}
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_error = Object()
+	if err := coreSet(v_error, "code", -32601); err != nil { return nil, err }
+	v_message = _core_string_format("Unsupported server request: {}", v_method)
+	if err := coreSet(v_error, "message", v_message); err != nil { return nil, err }
+	v_response = Object()
+	if err := coreSet(v_response, "jsonrpc", "2.0"); err != nil { return nil, err }
+	if err := coreSet(v_response, "id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_response, "error", v_error); err != nil { return nil, err }
+	if err := coreSet(v_out, "action", "respond"); err != nil { return nil, err }
+	if err := coreSet(v_out, "response", v_response); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func mcp_task_terminal_outcome(args ...Value) (Value, error) {
 	axirCoverageMark("mcp_task_terminal_outcome")
 	var v_task Value
@@ -46243,10 +46355,13 @@ func mcp_task_terminal_outcome(args ...Value) (Value, error) {
 	var v_error_object Value
 	var v_failed Value
 	var v_has_data Value
+	var v_has_requests Value
 	var v_has_result Value
+	var v_input_required Value
 	var v_message Value
 	var v_message_string Value
 	var v_out Value
+	var v_requests Value
 	var v_result Value
 	var v_status Value
 	var v_task_id Value
@@ -46263,10 +46378,13 @@ func mcp_task_terminal_outcome(args ...Value) (Value, error) {
 	_ = v_error_object
 	_ = v_failed
 	_ = v_has_data
+	_ = v_has_requests
 	_ = v_has_result
+	_ = v_input_required
 	_ = v_message
 	_ = v_message_string
 	_ = v_out
+	_ = v_requests
 	_ = v_result
 	_ = v_status
 	_ = v_task_id
@@ -46330,6 +46448,22 @@ func mcp_task_terminal_outcome(args ...Value) (Value, error) {
 		if err := coreSet(v_out, "kind", "cancelled"); err != nil { return nil, err }
 		v_message = _core_string_format("MCP task {} cancelled", v_task_id)
 		if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_input_required = _core_eq(v_status, "input_required")
+	if coreTruthy(v_input_required) {
+		v_has_requests = _core_map_contains(v_task, "inputRequests")
+		if coreTruthy(v_has_requests) {
+			if err := coreSet(v_out, "kind", "input_required"); err != nil { return nil, err }
+			v_requests = coreGet(v_task, "inputRequests", nil)
+			if err := coreSet(v_out, "inputRequests", v_requests); err != nil { return nil, err }
+		} else {
+			if err := coreSet(v_out, "kind", "violation"); err != nil { return nil, err }
+			v_message = _core_string_format("MCP protocol violation: input_required task {} omitted inputRequests", v_task_id)
+			if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+		}
 		return v_out, nil
 	} else {
 	// empty

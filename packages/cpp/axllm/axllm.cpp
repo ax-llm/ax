@@ -23514,6 +23514,71 @@ Value Core::mcp_validate_modern_task(Value task) {
   return Value(false);
 }
 
+Value Core::mcp_server_request_plan(Value request, Value roots, Value has_elicitation) {
+  axir_coverage_mark("mcp_server_request_plan");
+  Value out = Value::object();
+  Value id = Core::get(request, Value("id"), Value());
+  Value method = Core::get(request, Value("method"), Value(""));
+  Value params = Core::get(request, Value("params"), Value());
+  Value ping = Core::eq(method, Value("ping"));
+  if (Core::truthy(ping)) {
+    Value response = Value::object();
+    Value result = Value::object();
+    Core::set(response, Value("jsonrpc"), Value("2.0"));
+    Core::set(response, Value("id"), id);
+    Core::set(response, Value("result"), result);
+    Core::set(out, Value("action"), Value("respond"));
+    Core::set(out, Value("response"), response);
+    return out;
+  }
+  Value roots_list = Core::eq(method, Value("roots/list"));
+  if (Core::truthy(roots_list)) {
+    Value roots_missing = Core::is_none(roots);
+    if (Core::truthy(roots_missing)) {
+      // empty
+    }
+    if (!Core::truthy(roots_missing)) {
+      Value roots_text = Core::json_stringify(roots);
+      Value roots_copy = Core::json_parse(roots_text);
+      Value result = Value::object();
+      Core::set(result, Value("roots"), roots_copy);
+      Value response = Value::object();
+      Core::set(response, Value("jsonrpc"), Value("2.0"));
+      Core::set(response, Value("id"), id);
+      Core::set(response, Value("result"), result);
+      Core::set(out, Value("action"), Value("respond"));
+      Core::set(out, Value("response"), response);
+      return out;
+    }
+  }
+  Value elicitation = Core::eq(method, Value("elicitation/create"));
+  Value can_elicit = Core::and_(elicitation, has_elicitation);
+  if (Core::truthy(can_elicit)) {
+    Core::set(out, Value("action"), Value("elicitation"));
+    Core::set(out, Value("id"), id);
+    Value params_missing = Core::is_none(params);
+    if (Core::truthy(params_missing)) {
+      Value empty = Value::object();
+      Core::set(out, Value("params"), empty);
+    }
+    if (!Core::truthy(params_missing)) {
+      Core::set(out, Value("params"), params);
+    }
+    return out;
+  }
+  Value error = Value::object();
+  Core::set(error, Value("code"), Value(-32601));
+  Value message = Core::string_format(Value("Unsupported server request: {}"), method);
+  Core::set(error, Value("message"), message);
+  Value response = Value::object();
+  Core::set(response, Value("jsonrpc"), Value("2.0"));
+  Core::set(response, Value("id"), id);
+  Core::set(response, Value("error"), error);
+  Core::set(out, Value("action"), Value("respond"));
+  Core::set(out, Value("response"), response);
+  return out;
+}
+
 Value Core::mcp_task_terminal_outcome(Value task) {
   axir_coverage_mark("mcp_task_terminal_outcome");
   Value out = Value::object();
@@ -23566,6 +23631,21 @@ Value Core::mcp_task_terminal_outcome(Value task) {
     Core::set(out, Value("kind"), Value("cancelled"));
     Value message = Core::string_format(Value("MCP task {} cancelled"), task_id);
     Core::set(out, Value("message"), message);
+    return out;
+  }
+  Value input_required = Core::eq(status, Value("input_required"));
+  if (Core::truthy(input_required)) {
+    Value has_requests = Core::map_contains(task, Value("inputRequests"));
+    if (Core::truthy(has_requests)) {
+      Core::set(out, Value("kind"), Value("input_required"));
+      Value requests = Core::get(task, Value("inputRequests"), Value());
+      Core::set(out, Value("inputRequests"), requests);
+    }
+    if (!Core::truthy(has_requests)) {
+      Core::set(out, Value("kind"), Value("violation"));
+      Value message = Core::string_format(Value("MCP protocol violation: input_required task {} omitted inputRequests"), task_id);
+      Core::set(out, Value("message"), message);
+    }
     return out;
   }
   Core::set(out, Value("kind"), Value("pending"));

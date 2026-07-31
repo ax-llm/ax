@@ -1,0 +1,148 @@
+{
+  "name": "modern MCP Tasks v2 input required fulfillment",
+  "kind": "mcp",
+  "operation": "tasks_v2_input_required",
+  "client_options": {
+    "era": "modern",
+    "namespace": "fixture",
+    "roots": [
+      {
+        "uri": "file:///workspace",
+        "name": "workspace"
+      }
+    ]
+  },
+  "elicitation_result": {
+    "action": "accept",
+    "content": {
+      "confirmed": true
+    }
+  },
+  "responses": [
+    {
+      "method": "server/discover",
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {
+          "tools": {},
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        },
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "tools/list",
+      "result": {
+        "tools": [
+          {
+            "name": "slow",
+            "inputSchema": {
+              "type": "object"
+            }
+          }
+        ],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "task",
+        "taskId": "task-input",
+        "status": "working",
+        "createdAt": "2026-07-28T00:00:00Z",
+        "lastUpdatedAt": "2026-07-28T00:00:01Z",
+        "ttlMs": 60000,
+        "pollIntervalMs": 0
+      }
+    },
+    {
+      "method": "tasks/get",
+      "result": {
+        "taskId": "task-input",
+        "status": "input_required",
+        "createdAt": "2026-07-28T00:00:00Z",
+        "lastUpdatedAt": "2026-07-28T00:00:02Z",
+        "ttlMs": 60000,
+        "pollIntervalMs": 0,
+        "inputRequests": {
+          "workspace": {
+            "method": "roots/list"
+          },
+          "confirmation": {
+            "method": "elicitation/create",
+            "params": {
+              "mode": "form",
+              "message": "Finish task?"
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "tasks/update",
+      "result": {}
+    },
+    {
+      "method": "tasks/get",
+      "result": {
+        "taskId": "task-input",
+        "status": "completed",
+        "createdAt": "2026-07-28T00:00:00Z",
+        "lastUpdatedAt": "2026-07-28T00:00:03Z",
+        "ttlMs": 60000,
+        "pollIntervalMs": 0,
+        "result": {
+          "resultType": "complete",
+          "structuredContent": {
+            "done": true
+          }
+        }
+      }
+    }
+  ],
+  "expected_result": {
+    "structuredContent": {
+      "done": true
+    }
+  },
+  "expected_elicitation_params": {
+    "mode": "form",
+    "message": "Finish task?"
+  },
+  "expected_context": {
+    "namespace": "fixture"
+  },
+  "expected_update_params": {
+    "taskId": "task-input",
+    "inputResponses": {
+      "workspace": {
+        "roots": [
+          {
+            "uri": "file:///workspace",
+            "name": "workspace"
+          }
+        ]
+      },
+      "confirmation": {
+        "action": "accept",
+        "content": {
+          "confirmed": true
+        }
+      }
+    }
+  },
+  "expected_methods": [
+    "server/discover",
+    "tools/list",
+    "tools/call",
+    "tasks/get",
+    "tasks/update",
+    "tasks/get"
+  ]
+}

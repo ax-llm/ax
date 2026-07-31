@@ -856,6 +856,18 @@ class AxMCPTransport:
     def set_message_handler(self, handler: Callable[[dict[str, Any]], None]) -> None:
         self._message_handler = handler
 
+    def set_request_handler(self, handler: Callable[[dict[str, Any]], dict[str, Any]]) -> None:
+        self._request_handler = handler
+
+    def _dispatch_inbound(self, message: dict[str, Any]) -> None:
+        request_handler = getattr(self, "_request_handler", None)
+        if callable(request_handler) and "id" in message and "method" in message:
+            self.send_response(request_handler(message))
+            return
+        message_handler = getattr(self, "_message_handler", None)
+        if callable(message_handler):
+            message_handler(message)
+
     def set_protocol_version(self, protocol_version: str) -> None:
         self.protocol_version = protocol_version
 
@@ -936,8 +948,7 @@ class AxMCPScriptedTransport(AxMCPTransport):
         self.sent_responses.append(json.loads(json.dumps(message)))
 
     def emit(self, message: dict[str, Any]) -> None:
-        if self._message_handler:
-            self._message_handler(message)
+        self._dispatch_inbound(message)
 
     def open_request_stream(self, message: dict[str, Any]) -> None:
         if self.era != "modern":
@@ -984,6 +995,7 @@ class AxMCPClient:
         self._lifecycle_listeners: list[Callable[[str], None]] = []
         self._initialized = False
         self.transport.set_message_handler(self._handle_inbound_message)
+        self.transport.set_request_handler(self._handle_server_request)
         self.transport.set_lifecycle_handler(self.emit_lifecycle)
 
     def init(self) -> None:
@@ -1233,6 +1245,25 @@ class AxMCPClient:
                 raise AxMCPError(str(outcome.get("message", "MCP task failed")), code=int(outcome.get("code", 0)), data=outcome.get("data"))
             if kind in {"violation", "failure", "cancelled"}:
                 raise AxMCPError(str(outcome.get("message", "MCP task failed")))
+            if kind == "input_required":
+                handler = self.options.get("elicitation")
+                fulfillment = mcp_mrtr_plan_fulfillment(
+                    outcome.get("inputRequests"),
+                    self.options.get("roots"),
+                    callable(handler),
+                    False,
+                )
+                if not fulfillment.get("ok"):
+                    raise AxMCPError(str(fulfillment.get("message", "MCP protocol violation")))
+                responses = dict(fulfillment.get("responses") or {})
+                for key, pending in (fulfillment.get("pending") or {}).items():
+                    if pending.get("method") != "elicitation/create" or not callable(handler):
+                        raise AxMCPError(f"MCP protocol violation: unsupported pending task input request method {pending.get('method')}")
+                    responses[key] = handler(
+                        pending.get("params") or {},
+                        {"client": self, "namespace": self.namespace()},
+                    )
+                self.provide_task_input(task_id, responses)
         raise AxMCPError(f"MCP task {task_id} exceeded {max_polls} polls")
 
     def list_prompts(self, cursor: str | None = None) -> dict[str, Any]:
@@ -1525,7 +1556,7 @@ class AxMCPClient:
 
     def _client_capabilities(self) -> dict[str, Any]:
         capabilities = dict(self.options.get("capabilities") or {})
-        has_elicitation = self.era == "modern" and callable(self.options.get("elicitation"))
+        has_elicitation = callable(self.options.get("elicitation"))
         derived = mcp_client_capabilities(bool(self.options.get("roots")), False, has_elicitation, self.era or "legacy", self.options.get("tasksExtension") is not False)
         for key, value in derived.items():
             capabilities.setdefault(key, value)
@@ -1552,13 +1583,6 @@ class AxMCPClient:
             if filtered.get("acknowledged"):
                 self._subscription_ready.set()
         method = message.get("method")
-        if method == "roots/list" and "id" in message:
-            self.transport.send_response({
-                "jsonrpc": "2.0",
-                "id": message["id"],
-                "result": {"roots": self.options.get("roots") or []},
-            })
-            return
         if method in {"notifications/tools/list_changed", "notifications/prompts/list_changed", "notifications/resources/list_changed"}:
             self.refresh()
         if method == "notifications/resources/updated":
@@ -1570,6 +1594,28 @@ class AxMCPClient:
             callback(message)
         for listener in list(self._notification_listeners):
             listener(message)
+
+    def _handle_server_request(self, message: dict[str, Any]) -> dict[str, Any]:
+        handler = self.options.get("elicitation")
+        plan = mcp_server_request_plan(
+            message,
+            self.options.get("roots"),
+            callable(handler),
+        )
+        if plan.get("action") == "respond":
+            return dict(plan.get("response") or {})
+        try:
+            result = handler(
+                plan.get("params") or {},
+                {"client": self, "namespace": self.namespace()},
+            )
+            return {"jsonrpc": "2.0", "id": plan.get("id"), "result": result}
+        except Exception as error:
+            return {
+                "jsonrpc": "2.0",
+                "id": plan.get("id"),
+                "error": {"code": -32603, "message": str(error)},
+            }
 
     def _tool_to_function(self, tool: dict[str, Any]) -> Tool:
         name = _override_name(tool.get("name", ""), self.options)
@@ -1918,8 +1964,8 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
                 if line.startswith("data:"):
                     data.append(line[5:].lstrip())
                 elif line == "":
-                    if data and self._message_handler:
-                        self._message_handler(json.loads("\n".join(data)))
+                    if data:
+                        self._dispatch_inbound(json.loads("\n".join(data)))
                     data = []
             response.close()
         except Exception:
@@ -1968,7 +2014,7 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
                         if event_id: self._last_event_id = event_id
                         if data:
                             message = json.loads("\n".join(data))
-                            if self._message_handler: self._message_handler(message)
+                            self._dispatch_inbound(message)
                         data = []; event_id = None
                 response.close(); self._listen_response = None
                 if not self._listen_stop.is_set() and self._lifecycle_handler: self._lifecycle_handler("disconnected")
@@ -2037,8 +2083,7 @@ class AxMCPStreamableHTTPTransport(AxMCPTransport):
             if response is None and isinstance(msg, dict) and msg.get("id") == request_id:
                 response = msg
                 continue
-            if self._message_handler:
-                self._message_handler(msg)
+            self._dispatch_inbound(msg)
         if response is not None:
             return response
         return messages[-1] if messages else {"jsonrpc": "2.0", "id": request_id, "result": {}}
@@ -2236,8 +2281,7 @@ class AxMCPStdioTransport(AxMCPTransport):
                 parsed = ax_mcp_stdio_decode(raw)
                 if parsed.get("id") == message.get("id"):
                     return parsed
-                if self._message_handler:
-                    self._message_handler(parsed)
+                self._dispatch_inbound(parsed)
 
     def send_notification(self, message: dict[str, Any]) -> None:
         if self.process.stdin is None:
@@ -2662,8 +2706,10 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
         transport = AxMCPScriptedTransport(fixture.get("responses") or fixture.get("transport_responses") or [])
         client_options = dict(fixture.get("client_options") or {})
         elicitation_calls: list[tuple[dict[str, Any], dict[str, Any]]] = []
-        if operation == "mrtr_elicitation":
+        if operation in {"mrtr_elicitation", "tasks_v2_input_required", "server_requests_legacy"}:
             def fixture_elicitation(params, context):
+                if params.get("fail"):
+                    raise AxMCPError("fixture handler failed")
                 elicitation_calls.append((params, context))
                 return dict(fixture.get("elicitation_result") or {})
             client_options["elicitation"] = fixture_elicitation
@@ -2733,6 +2779,31 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             methods = [request.get("method") for request in transport.requests]
             if methods != (fixture.get("expected_methods") or []):
                 raise AssertionError(f"task request methods mismatch: {methods!r}")
+            return
+        if operation == "tasks_v2_input_required":
+            result = client.call_tool("slow", {})
+            _assert_subset(result, fixture.get("expected_result") or {}, "task input-required result")
+            if len(elicitation_calls) != 1:
+                raise AssertionError("task elicitation handler count mismatch")
+            _assert_subset(elicitation_calls[0][0], fixture.get("expected_elicitation_params") or {}, "task elicitation params")
+            _assert_subset(elicitation_calls[0][1], fixture.get("expected_context") or {}, "task elicitation context")
+            updates = [request for request in transport.requests if request.get("method") == "tasks/update"]
+            _assert_subset(updates[0].get("params") or {}, fixture.get("expected_update_params") or {}, "task update params")
+            methods = [request.get("method") for request in transport.requests]
+            if methods != (fixture.get("expected_methods") or []):
+                raise AssertionError(f"task input-required methods mismatch: {methods!r}")
+            return
+        if operation == "server_requests_legacy":
+            for request in fixture.get("server_requests") or []:
+                transport.emit(request)
+            for index, expected in enumerate(fixture.get("expected_responses") or []):
+                _assert_subset(transport.sent_responses[index], expected, f"server response {index}")
+            if len(elicitation_calls) != 1:
+                raise AssertionError("legacy elicitation handler count mismatch")
+            _assert_subset(elicitation_calls[0][0], fixture.get("expected_elicitation_params") or {}, "legacy elicitation params")
+            _assert_subset(elicitation_calls[0][1], fixture.get("expected_context") or {}, "legacy elicitation context")
+            initialize = next(request for request in transport.requests if request.get("method") == "initialize")
+            _assert_subset((initialize.get("params") or {}).get("capabilities") or {}, fixture.get("expected_legacy_capabilities") or {}, "legacy client capabilities")
             return
         if operation == "mrtr_elicitation":
             result = client.call_tool("work", {"value": 1})

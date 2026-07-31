@@ -57,6 +57,7 @@ impl AxMCPTokenStore for AxMCPFixtureTokenStore {
 }
 
 pub type AxMCPElicitationHandler = Arc<dyn Fn(Value, Value) -> AxResult<Value> + Send + Sync>;
+pub type AxMCPRequestHandler = Arc<dyn Fn(Value) -> Value + Send + Sync>;
 
 pub trait AxMCPTransport: Send {
     fn send(&mut self, message: Value) -> AxResult<Value>;
@@ -68,6 +69,7 @@ pub trait AxMCPTransport: Send {
     fn era_hint(&self) -> Option<String> { None }
     fn era_cache_key(&self) -> Option<String> { None }
     fn set_message_handler(&mut self, _handler: Arc<dyn Fn(Value) + Send + Sync>) {}
+    fn set_request_handler(&mut self, _handler: AxMCPRequestHandler) {}
     fn set_lifecycle_handler(&mut self, _handler: Arc<dyn Fn(String) + Send + Sync>) {}
     fn connect(&mut self) -> AxResult<()> { Ok(()) }
     fn start_listening(&mut self) -> AxResult<()> { Ok(()) }
@@ -151,6 +153,7 @@ impl AxMCPClient {
         if self.initialized{return Ok(())}
         if self.options.get("sampling").is_some_and(|value|!value.is_null()&&value!=&Value::Bool(false)){return Err(AxError::new("mcp","MCP sampling is not supported by the generated Rust client"))}
         self.transport.lock().unwrap().connect()?;
+        let request_options=self.options.clone();let request_elicitation=self.elicitation_handler.clone();let request_server_info=self.server_info.clone();self.transport.lock().unwrap().set_request_handler(Arc::new(move|request|ax_mcp_handle_server_request(&request_options,request_elicitation.as_ref(),&request_server_info,request)));
         let inbound_messages=self.inbound_messages.clone();self.transport.lock().unwrap().set_message_handler(Arc::new(move|message|{inbound_messages.lock().unwrap().push(message)}));let inbound_lifecycle=self.inbound_lifecycle.clone();self.transport.lock().unwrap().set_lifecycle_handler(Arc::new(move|state|{inbound_lifecycle.lock().unwrap().push(state)}));
         let configured=self.options.get("era").and_then(Value::as_str).unwrap_or("auto");let key=self.transport.lock().unwrap().era_cache_key().unwrap_or_default();let cache=ax_mcp_era_cache();let cached=cache.lock().unwrap().get(&key).cloned();let stored=self.options.get("eraStore").and_then(Value::as_object).and_then(|store|store.get(&key)).and_then(Value::as_str);let resolution=core_mcp(&crate::mcp_resolve_known_era,&[json!(configured),json!(self.transport.lock().unwrap().era_hint()),json!(cached),json!(stored)])?;let resolved=resolution.get("era").and_then(Value::as_str).unwrap_or("modern");
         if !resolution.get("probe").and_then(Value::as_bool).unwrap_or(false){if resolved=="legacy"{self.initialize_legacy()?}else{self.apply_era("modern");let discovery=self.request_discovery()?;self.apply_discovery(discovery)?;self.refresh()?}self.remember_era(resolved);self.initialized=true;if resolved=="legacy"{return self.transport.lock().unwrap().start_listening()}return Ok(())}
@@ -226,7 +229,7 @@ impl AxMCPClient {
     pub fn ping(&mut self) -> AxResult<Value> { self.request("ping", json!({})) }
     pub fn list_tools(&mut self, cursor: Option<&str>) -> AxResult<Value> { self.request("tools/list", cursor_params(cursor)) }
     pub fn call_tool(&mut self,name:&str,arguments:Value)->AxResult<Value>{let args=if arguments.is_null(){json!({})}else{arguments};let params=json!({"name":name,"arguments":args});let headers=self.tool_headers(name,&args)?;let result=match self.request_with_input_rounds("tools/call",params.clone(),headers){Ok(value)=>value,Err(error)if self.era.as_deref()==Some("modern")&&error.code.as_deref()==Some("-32020")=>{self.tools=self.collect_catalog("tools/list","tools")?.into_iter().filter(|tool|core_mcp(&crate::mcp_param_header_bindings,&[tool.get("inputSchema").cloned().unwrap_or_else(||json!({}))]).is_ok()).collect();self.request_with_input_rounds("tools/call",params,self.tool_headers(name,&args)?)?},Err(error)=>return Err(error)};if result.get("resultType").and_then(Value::as_str)!=Some("task"){return Ok(result)}if !self.has_tasks_capability(){return Err(AxError::new("mcp","MCP protocol violation: server returned a task without negotiating io.modelcontextprotocol/tasks"))}if core_mcp(&crate::mcp_validate_modern_task,&[result.clone()])?.as_bool()!=Some(true){return Err(AxError::new("mcp","MCP protocol violation: invalid CreateTaskResult"))}self.await_modern_task(result.get("taskId").and_then(Value::as_str).unwrap_or_default())}
-    fn await_modern_task(&mut self,task_id:&str)->AxResult<Value>{let max=self.options.get("maxTaskPolls").and_then(Value::as_u64).unwrap_or(1000);for _ in 0..max{let task=self.get_task(task_id)?;let outcome=core_mcp(&crate::mcp_task_terminal_outcome,&[task])?;match outcome.get("kind").and_then(Value::as_str).unwrap_or_default(){"result"=>return Ok(outcome.get("result").cloned().unwrap_or(Value::Null)),"protocol_error"=>{let mut error=AxError::new("mcp",outcome.get("message").and_then(Value::as_str).unwrap_or("MCP task failed"));error.code=Some(outcome.get("code").map(ToString::to_string).unwrap_or_default());return Err(error)},"violation"|"failure"|"cancelled"=>return Err(AxError::new("mcp",outcome.get("message").and_then(Value::as_str).unwrap_or("MCP task failed"))),_=>{}}}Err(AxError::new("mcp",format!("MCP task {task_id} exceeded {max} polls")))}
+    fn await_modern_task(&mut self,task_id:&str)->AxResult<Value>{let max=self.options.get("maxTaskPolls").and_then(Value::as_u64).unwrap_or(1000);for _ in 0..max{let task=self.get_task(task_id)?;let outcome=core_mcp(&crate::mcp_task_terminal_outcome,&[task])?;match outcome.get("kind").and_then(Value::as_str).unwrap_or_default(){"result"=>return Ok(outcome.get("result").cloned().unwrap_or(Value::Null)),"protocol_error"=>{let mut error=AxError::new("mcp",outcome.get("message").and_then(Value::as_str).unwrap_or("MCP task failed"));error.code=Some(outcome.get("code").map(ToString::to_string).unwrap_or_default());return Err(error)},"violation"|"failure"|"cancelled"=>return Err(AxError::new("mcp",outcome.get("message").and_then(Value::as_str).unwrap_or("MCP task failed"))),"input_required"=>{let fulfillment=core_mcp(&crate::mcp_mrtr_plan_fulfillment,&[outcome.get("inputRequests").cloned().unwrap_or_else(||json!({})),self.options.get("roots").cloned().unwrap_or(Value::Null),json!(self.elicitation_handler.is_some()),json!(false)])?;if fulfillment.get("ok").and_then(Value::as_bool)!=Some(true){return Err(AxError::new("mcp",fulfillment.get("message").and_then(Value::as_str).unwrap_or("MCP protocol violation")))}let mut responses=fulfillment.get("responses").and_then(Value::as_object).cloned().unwrap_or_default();for(key,pending)in fulfillment.get("pending").and_then(Value::as_object).cloned().unwrap_or_default(){let method=pending.get("method").and_then(Value::as_str).unwrap_or_default();let handler=self.elicitation_handler.as_ref().ok_or_else(||AxError::new("mcp",format!("MCP protocol violation: unsupported pending task input request method {method}")))?;if method!="elicitation/create"{return Err(AxError::new("mcp",format!("MCP protocol violation: unsupported pending task input request method {method}")))}responses.insert(key,handler(pending.get("params").cloned().unwrap_or_else(||json!({})),json!({"client":"AxMCPClient","namespace":self.namespace()}))?);}self.provide_task_input(task_id,Value::Object(responses))?},_=>{}}}Err(AxError::new("mcp",format!("MCP task {task_id} exceeded {max} polls")))}
     fn tool_headers(&self,name:&str,args:&Value)->AxResult<Map<String,Value>>{let mut out=Map::new();if self.era.as_deref()!=Some("modern"){return Ok(out)}if let Some(tool)=self.tools.iter().find(|tool|tool.get("name").and_then(Value::as_str)==Some(name)){let bindings=core_mcp(&crate::mcp_param_header_bindings,&[tool.get("inputSchema").cloned().unwrap_or_else(||json!({}))])?;if let Some(values)=core_mcp(&crate::mcp_param_header_values,&[bindings,args.clone()])?.as_object(){out=values.clone()}}Ok(out)}
     pub fn list_prompts(&mut self, cursor: Option<&str>) -> AxResult<Value> { self.request("prompts/list", cursor_params(cursor)) }
     pub fn get_prompt(&mut self, name: &str, arguments: Value) -> AxResult<Value> { self.request_with_input_rounds("prompts/get", json!({"name": name, "arguments": if arguments.is_null() { json!({}) } else { arguments }}),Map::new()) }
@@ -311,9 +314,11 @@ impl AxMCPClient {
 
     fn client_capabilities(&self) -> Value {
         let mut out = self.options.get("capabilities").cloned().unwrap_or_else(|| json!({}));
-        let has_elicitation=self.era.as_deref()==Some("modern")&&self.elicitation_handler.is_some();let derived=core_mcp(&crate::mcp_client_capabilities,&[json!(self.options.get("roots").is_some()),json!(false),json!(has_elicitation),json!(self.era.as_deref().unwrap_or("legacy")),json!(self.options.get("tasksExtension").and_then(Value::as_bool).unwrap_or(true))]).unwrap_or_else(|_|json!({}));if let(Some(target),Some(source))=(out.as_object_mut(),derived.as_object()){for(key,value)in source{target.entry(key.clone()).or_insert_with(||value.clone());}target.remove("sampling");if !has_elicitation{target.remove("elicitation");}}
+        let has_elicitation=self.elicitation_handler.is_some();let derived=core_mcp(&crate::mcp_client_capabilities,&[json!(self.options.get("roots").is_some()),json!(false),json!(has_elicitation),json!(self.era.as_deref().unwrap_or("legacy")),json!(self.options.get("tasksExtension").and_then(Value::as_bool).unwrap_or(true))]).unwrap_or_else(|_|json!({}));if let(Some(target),Some(source))=(out.as_object_mut(),derived.as_object()){for(key,value)in source{target.entry(key.clone()).or_insert_with(||value.clone());}target.remove("sampling");if !has_elicitation{target.remove("elicitation");}}
         out
     }
+
+    fn handle_server_request(&self,request:Value)->Value{ax_mcp_handle_server_request(&self.options,self.elicitation_handler.as_ref(),&self.server_info,request)}
 
     fn capability(&self, name: &str) -> bool {
         self.server_capabilities.get(name).is_some_and(|value| !value.is_null() && value != &Value::Bool(false))
@@ -627,6 +632,13 @@ fn mcp_transport_request(transport: &Arc<Mutex<Box<dyn AxMCPTransport>>>, next_i
     Ok(response.get("result").cloned().unwrap_or_else(|| json!({})))
 }
 
+fn ax_mcp_handle_server_request(options:&Value,elicitation:Option<&AxMCPElicitationHandler>,server_info:&Arc<Mutex<Value>>,request:Value)->Value{
+    let plan=match core_mcp(&crate::mcp_server_request_plan,&[request,options.get("roots").cloned().unwrap_or(Value::Null),json!(elicitation.is_some())]){Ok(value)=>value,Err(error)=>return json!({"jsonrpc":"2.0","id":Value::Null,"error":{"code":-32603,"message":error.to_string()}})};
+    if plan.get("action").and_then(Value::as_str)==Some("respond"){return plan.get("response").cloned().unwrap_or_else(||json!({}))}
+    let id=plan.get("id").cloned().unwrap_or(Value::Null);let namespace=options.get("namespace").and_then(Value::as_str).map(str::to_string).or_else(||server_info.lock().ok().and_then(|info|info.get("name").and_then(Value::as_str).map(str::to_string))).unwrap_or_else(||"mcp".into());
+    match elicitation{Some(handler)=>match handler(plan.get("params").cloned().unwrap_or_else(||json!({})),json!({"client":"AxMCPClient","namespace":namespace})){Ok(result)=>json!({"jsonrpc":"2.0","id":id,"result":result}),Err(error)=>json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":error.to_string()}})},None=>json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":"MCP elicitation handler unavailable"}})}
+}
+
 pub struct AxMCPStreamableHTTPTransport {
     endpoint: String,
     options: Value,
@@ -638,6 +650,7 @@ pub struct AxMCPStreamableHTTPTransport {
     pub oauth: Option<AxMCPOAuthOptions>,
     client: reqwest::blocking::Client,
     message_handler:Option<Arc<dyn Fn(Value)+Send+Sync>>,
+    request_handler:Option<AxMCPRequestHandler>,
     lifecycle_handler:Option<Arc<dyn Fn(String)+Send+Sync>>,
     listen_stop:Arc<AtomicBool>,
     listen_thread:Option<JoinHandle<()>>,
@@ -648,7 +661,7 @@ impl AxMCPStreamableHTTPTransport {
         let endpoint = ax_mcp_validate_endpoint(&endpoint.into(), options.get("ssrfProtection").unwrap_or(&Value::Null))?;
         let parsed=reqwest::Url::parse(&endpoint).map_err(|error|AxError::new("mcp",error.to_string()))?;
         let era_cache_key=format!("{}://{}",parsed.scheme(),parsed.host_str().unwrap_or_default())+&parsed.port().map(|port|format!(":{port}")).unwrap_or_default();
-        Ok(Self { endpoint, options, headers: Map::new(), session_id: None, protocol_version: None, era:None, era_cache_key, oauth: None, client: reqwest::blocking::Client::builder().timeout(Duration::from_secs(30)).build()?,message_handler:None,lifecycle_handler:None,listen_stop:Arc::new(AtomicBool::new(true)),listen_thread:None })
+        Ok(Self { endpoint, options, headers: Map::new(), session_id: None, protocol_version: None, era:None, era_cache_key, oauth: None, client: reqwest::blocking::Client::builder().timeout(Duration::from_secs(30)).build()?,message_handler:None,request_handler:None,lifecycle_handler:None,listen_stop:Arc::new(AtomicBool::new(true)),listen_thread:None })
     }
 
     pub fn set_session_id(&mut self, value: impl Into<String>) { self.session_id = Some(value.into()); }
@@ -737,7 +750,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
             return Ok(json!({"jsonrpc": "2.0", "id": request_id, "result": {}}));
         }
         if content_type.contains("text/event-stream") {
-            return Ok(ax_mcp_select_sse_response(crate::parse_sse_events(&body)?, &request_id,self.message_handler.as_ref()));
+            let mut fallback=None;let mut matched=None;for inbound in crate::parse_sse_events(&body)?{if inbound.get("id")==Some(&request_id){matched=Some(inbound);continue}if inbound.get("id").is_some()&&inbound.get("method").is_some(){if let Some(handler)=self.request_handler.clone(){let response=handler(inbound.clone());self.send_response(response)?;}}else if let Some(handler)=self.message_handler.clone(){handler(inbound.clone())}fallback=Some(inbound);}return Ok(matched.or(fallback).unwrap_or_else(||json!({"jsonrpc":"2.0","id":request_id,"result":{}})));
         }
         Ok(serde_json::from_str(&body)?)
     }
@@ -747,11 +760,12 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
     fn set_era(&mut self,era:&str){self.era=Some(era.into());if era=="modern"{self.session_id=None;self.protocol_version=Some("2026-07-28".into())}else if self.protocol_version.as_deref()==Some("2026-07-28"){self.protocol_version=None}}
     fn era_cache_key(&self)->Option<String>{Some(self.era_cache_key.clone())}
     fn set_message_handler(&mut self,handler:Arc<dyn Fn(Value)+Send+Sync>){self.message_handler=Some(handler)}
+    fn set_request_handler(&mut self,handler:AxMCPRequestHandler){self.request_handler=Some(handler)}
     fn set_lifecycle_handler(&mut self,handler:Arc<dyn Fn(String)+Send+Sync>){self.lifecycle_handler=Some(handler)}
     fn start_listening(&mut self)->AxResult<()>{
         if self.era.as_deref()==Some("modern"){return Err(AxError::new("mcp","Modern MCP uses subscriptions/listen via openRequestStream, not HTTP GET"))}
         if self.listen_thread.as_ref().is_some_and(|thread|!thread.is_finished()){return Ok(())}
-        let stop=Arc::new(AtomicBool::new(false));self.listen_stop=stop.clone();let endpoint=self.endpoint.clone();let headers=self.build_headers(Map::new(),true);let handler=self.message_handler.clone();let lifecycle=self.lifecycle_handler.clone();
+        let stop=Arc::new(AtomicBool::new(false));self.listen_stop=stop.clone();let endpoint=self.endpoint.clone();let headers=self.build_headers(Map::new(),true);let handler=self.message_handler.clone();let request_handler=self.request_handler.clone();let lifecycle=self.lifecycle_handler.clone();
         let delay=self.options.get("reconnectDelayMs").and_then(Value::as_u64).unwrap_or(100);let timeout=self.options.get("listenTimeoutMs").and_then(Value::as_u64).unwrap_or(1000);
         self.listen_thread=Some(thread::spawn(move||{
             let client=match reqwest::blocking::Client::builder().timeout(Duration::from_millis(timeout)).build(){Ok(value)=>value,Err(_)=>return};let mut connected_once=false;let mut last_event_id=None::<String>;
@@ -761,7 +775,7 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
                     Ok(response) if response.status().is_success()=>{
                         if connected_once{if let Some(callback)=&lifecycle{callback("reconnected".into())}}connected_once=true;
                         let reader=BufReader::new(response);let mut data=Vec::<String>::new();let mut event_id=None::<String>;
-                        for line in reader.lines(){if stop.load(Ordering::SeqCst){break}let Ok(line)=line else{break};if line.is_empty(){if let Some(value)=event_id.take(){last_event_id=Some(value)}if !data.is_empty(){if let Ok(message)=serde_json::from_str::<Value>(&data.join("\n")){if let Some(callback)=&handler{callback(message)}}data.clear()}}else if let Some(value)=line.strip_prefix("id:"){event_id=Some(value.trim().to_string())}else if let Some(value)=line.strip_prefix("data:"){data.push(value.trim_start().to_string())}}
+                        for line in reader.lines(){if stop.load(Ordering::SeqCst){break}let Ok(line)=line else{break};if line.is_empty(){if let Some(value)=event_id.take(){last_event_id=Some(value)}if !data.is_empty(){if let Ok(message)=serde_json::from_str::<Value>(&data.join("\n")){if message.get("id").is_some()&&message.get("method").is_some(){if let Some(callback)=&request_handler{let response=callback(message);let mut post=client.post(&endpoint).header("Content-Type","application/json").json(&response);for(key,value)in &headers{if let Some(text)=value.as_str(){post=post.header(key,text)}}let _=post.send();}}else if let Some(callback)=&handler{callback(message)}}data.clear()}}else if let Some(value)=line.strip_prefix("id:"){event_id=Some(value.trim().to_string())}else if let Some(value)=line.strip_prefix("data:"){data.push(value.trim_start().to_string())}}
                         if !stop.load(Ordering::SeqCst){if let Some(callback)=&lifecycle{callback("disconnected".into())}}
                     }
                     _=>{}
@@ -772,8 +786,8 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
     }
     fn open_request_stream(&mut self,message:Value)->AxResult<()>{
         if self.era.as_deref()!=Some("modern"){return Err(AxError::new("mcp","Request streams are only available for modern MCP"))}
-        let _=self.close_request_stream();let stop=Arc::new(AtomicBool::new(false));self.listen_stop=stop.clone();let endpoint=self.endpoint.clone();let client=self.client.clone();let method=message.get("method").and_then(Value::as_str).unwrap_or_default().to_string();let headers=self.build_request_headers(Map::new(),true,&method,message.get("params").unwrap_or(&Value::Null),&Map::new());let handler=self.message_handler.clone();let lifecycle=self.lifecycle_handler.clone();
-        self.listen_thread=Some(thread::spawn(move||{let mut request=client.post(endpoint).json(&message);for(key,value)in headers{if let Some(text)=value.as_str(){request=request.header(key,text)}}if let Ok(response)=request.send(){if response.status().is_success(){let reader=BufReader::new(response);let mut data=Vec::<String>::new();for line in reader.lines(){if stop.load(Ordering::SeqCst){break}let Ok(line)=line else{break};if line.is_empty(){if !data.is_empty(){if let Ok(message)=serde_json::from_str::<Value>(&data.join("\n")){if let Some(callback)=&handler{callback(message)}}data.clear()}}else if let Some(value)=line.strip_prefix("data:"){data.push(value.trim_start().to_string())}}}}if !stop.load(Ordering::SeqCst){if let Some(callback)=lifecycle{callback("disconnected".into())}}}));Ok(())
+        let _=self.close_request_stream();let stop=Arc::new(AtomicBool::new(false));self.listen_stop=stop.clone();let endpoint=self.endpoint.clone();let client=self.client.clone();let method=message.get("method").and_then(Value::as_str).unwrap_or_default().to_string();let headers=self.build_request_headers(Map::new(),true,&method,message.get("params").unwrap_or(&Value::Null),&Map::new());let handler=self.message_handler.clone();let request_handler=self.request_handler.clone();let lifecycle=self.lifecycle_handler.clone();
+        self.listen_thread=Some(thread::spawn(move||{let mut request=client.post(&endpoint).json(&message);for(key,value)in &headers{if let Some(text)=value.as_str(){request=request.header(key,text)}}if let Ok(response)=request.send(){if response.status().is_success(){let reader=BufReader::new(response);let mut data=Vec::<String>::new();for line in reader.lines(){if stop.load(Ordering::SeqCst){break}let Ok(line)=line else{break};if line.is_empty(){if !data.is_empty(){if let Ok(message)=serde_json::from_str::<Value>(&data.join("\n")){if message.get("id").is_some()&&message.get("method").is_some(){if let Some(callback)=&request_handler{let response=callback(message);let mut post=client.post(&endpoint).header("Content-Type","application/json").json(&response);for(key,value)in &headers{if let Some(text)=value.as_str(){post=post.header(key,text)}}let _=post.send();}}else if let Some(callback)=&handler{callback(message)}}data.clear()}}else if let Some(value)=line.strip_prefix("data:"){data.push(value.trim_start().to_string())}}}}if !stop.load(Ordering::SeqCst){if let Some(callback)=lifecycle{callback("disconnected".into())}}}));Ok(())
     }
     fn close_request_stream(&mut self)->AxResult<()>{self.listen_stop.store(true,Ordering::SeqCst);let _=self.listen_thread.take();Ok(())}
     fn close(&mut self)->AxResult<()>{self.listen_stop.store(true,Ordering::SeqCst);if self.era.as_deref()==Some("modern"){let _=self.listen_thread.take();}else if let Some(thread)=self.listen_thread.take(){let _=thread.join();}Ok(())}
@@ -803,6 +817,8 @@ pub struct AxMCPStdioTransport {
     stdin: ChildStdin,
     stdout: BufReader<std::process::ChildStdout>,
     protocol_version: Option<String>,
+    message_handler:Option<Arc<dyn Fn(Value)+Send+Sync>>,
+    request_handler:Option<AxMCPRequestHandler>,
 }
 
 impl AxMCPStdioTransport {
@@ -810,7 +826,7 @@ impl AxMCPStdioTransport {
         let mut child = Command::new(command.into()).args(args.into_iter().map(Into::into)).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
         let stdin = child.stdin.take().ok_or_else(|| AxError::new("mcp", "missing MCP stdio stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| AxError::new("mcp", "missing MCP stdio stdout"))?;
-        Ok(Self { child, stdin, stdout: BufReader::new(stdout), protocol_version: None })
+        Ok(Self { child, stdin, stdout: BufReader::new(stdout), protocol_version: None,message_handler:None,request_handler:None })
     }
 }
 
@@ -829,6 +845,7 @@ impl AxMCPTransport for AxMCPStdioTransport {
             self.stdout.read_line(&mut line)?;
             let parsed = ax_mcp_stdio_decode(&line)?;
             if parsed.get("id") == message.get("id") { return Ok(parsed); }
+            if parsed.get("id").is_some()&&parsed.get("method").is_some(){if let Some(handler)=&self.request_handler{let response=handler(parsed);self.send_response(response)?;}}else if let Some(handler)=&self.message_handler{handler(parsed)}
         }
     }
 
@@ -839,6 +856,8 @@ impl AxMCPTransport for AxMCPStdioTransport {
     }
 
     fn set_protocol_version(&mut self, protocol_version: &str) { self.protocol_version = Some(protocol_version.to_string()); }
+    fn set_message_handler(&mut self,handler:Arc<dyn Fn(Value)+Send+Sync>){self.message_handler=Some(handler)}
+    fn set_request_handler(&mut self,handler:AxMCPRequestHandler){self.request_handler=Some(handler)}
 }
 
 pub struct AxMCPScriptedTransport {
@@ -851,11 +870,12 @@ pub struct AxMCPScriptedTransport {
     protocol_version: Option<String>,
     era:Option<String>,
     message_handler:Option<Arc<dyn Fn(Value)+Send+Sync>>,
+    request_handler:Option<AxMCPRequestHandler>,
 }
 
 impl AxMCPScriptedTransport {
     pub fn new(responses: Vec<Value>) -> Self {
-        Self { responses, requests: Vec::new(), notifications: Vec::new(), sent_responses: Vec::new(), request_headers:Vec::new(), request_streams:Vec::new(), protocol_version: None,era:None,message_handler:None }
+        Self { responses, requests: Vec::new(), notifications: Vec::new(), sent_responses: Vec::new(), request_headers:Vec::new(), request_streams:Vec::new(), protocol_version: None,era:None,message_handler:None,request_handler:None }
     }
 }
 
@@ -879,6 +899,7 @@ impl AxMCPTransport for AxMCPScriptedTransport {
     fn set_protocol_version(&mut self, protocol_version: &str) { self.protocol_version = Some(protocol_version.to_string()); }
     fn set_era(&mut self,era:&str){self.era=Some(era.into())}
     fn set_message_handler(&mut self,handler:Arc<dyn Fn(Value)+Send+Sync>){self.message_handler=Some(handler)}
+    fn set_request_handler(&mut self,handler:AxMCPRequestHandler){self.request_handler=Some(handler)}
     fn open_request_stream(&mut self,message:Value)->AxResult<()>{if self.era.as_deref()!=Some("modern"){return Err(AxError::new("mcp","Request streams are only available for modern MCP"))}self.request_streams.push(message.clone());if let Some(handler)=&self.message_handler{handler(json!({"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{"notifications":message.get("params").and_then(|params|params.get("notifications")).cloned().unwrap_or_else(||json!({})),"_meta":{"io.modelcontextprotocol/subscriptionId":message.get("id").cloned().unwrap_or(Value::Null)}}}))}Ok(())}
     fn sent_notifications(&self) -> Vec<Value> { self.notifications.clone() }
     fn sent_requests(&self)->Vec<Value>{self.requests.clone()}
@@ -1255,7 +1276,7 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
         _ => {
             let responses = fixture.get("responses").or_else(|| fixture.get("transport_responses")).and_then(Value::as_array).cloned().unwrap_or_default();
             let mut client = AxMCPClient::new(Box::new(AxMCPScriptedTransport::new(responses)), fixture.get("client_options").cloned().unwrap_or(Value::Null));
-            let elicitation_calls=Arc::new(Mutex::new(Vec::<(Value,Value)>::new()));if operation=="mrtr_elicitation"{let captured=elicitation_calls.clone();let response=fixture.get("elicitation_result").cloned().unwrap_or_else(||json!({}));client.set_elicitation_handler(move|params,context|{captured.lock().unwrap().push((params,context));Ok(response.clone())});}
+            let elicitation_calls=Arc::new(Mutex::new(Vec::<(Value,Value)>::new()));if matches!(operation,"mrtr_elicitation"|"tasks_v2_input_required"|"server_requests_legacy"){let captured=elicitation_calls.clone();let response=fixture.get("elicitation_result").cloned().unwrap_or_else(||json!({}));client.set_elicitation_handler(move|params,context|{if params.get("fail").and_then(Value::as_bool)==Some(true){return Err(AxError::new("mcp","fixture handler failed"))}captured.lock().unwrap().push((params,context));Ok(response.clone())});}
             client.init()?;
             if let Some(expected) = fixture.get("expected_protocol_version").and_then(Value::as_str) {
                 if operation!="client_discovery"&&client.protocol_version().as_deref() != Some(expected) { return Err(AxError::new("fixture", "protocol version mismatch")); }
@@ -1269,6 +1290,8 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                 }
                 "read_cache"=>{client.refresh_with_force(false)?;let catalogs=client.transport.lock().unwrap().sent_requests().into_iter().filter(|request|matches!(request.get("method").and_then(Value::as_str),Some("resources/list")|Some("resources/templates/list"))).count();if catalogs!=fixture.get("expected_catalog_requests_after_fresh_refresh").and_then(Value::as_u64).unwrap_or_default() as usize{return Err(AxError::new("fixture","fresh catalog issued extra requests"));}let uri=fixture.get("uri").and_then(Value::as_str).unwrap_or_default();let first=client.read_resource(uri)?;let second=client.read_resource(uri)?;expect_subset("first resource read",&first,fixture.get("expected_first").unwrap_or(&Value::Null))?;expect_subset("cached resource read",&second,fixture.get("expected_first").unwrap_or(&Value::Null))?;client.inbound_messages.lock().unwrap().push(fixture.get("notification").cloned().unwrap_or_else(||json!({})));client.drain_inbound();let after=client.read_resource(uri)?;expect_subset("resource read after update",&after,fixture.get("expected_after_update").unwrap_or(&Value::Null))?;let reads=client.transport.lock().unwrap().sent_requests().into_iter().filter(|request|request.get("method").and_then(Value::as_str)==Some("resources/read")).count();if reads!=fixture.get("expected_read_requests").and_then(Value::as_u64).unwrap_or_default() as usize{return Err(AxError::new("fixture","resource read request count mismatch"));}Ok(())}
                 "tasks_v2_modern"=>{let result=client.call_tool("slow",json!({}))?;expect_subset("task call result",&result,fixture.get("expected_call_result").unwrap_or(&Value::Null))?;client.provide_task_input("task-1",json!({}))?;client.cancel_task("task-1")?;match client.list_tasks(None){Err(error)if error.to_string().contains(fixture.get("expected_list_error").and_then(Value::as_str).unwrap_or_default())=>{},_=>return Err(AxError::new("fixture","missing modern tasks/list rejection"))}match client.get_task_result("task-1"){Err(error)if error.to_string().contains(fixture.get("expected_result_error").and_then(Value::as_str).unwrap_or_default())=>{},_=>return Err(AxError::new("fixture","missing modern tasks/result rejection"))}let methods=Value::Array(client.transport.lock().unwrap().sent_requests().into_iter().map(|request|request.get("method").cloned().unwrap_or(Value::Null)).collect());if &methods!=fixture.get("expected_methods").unwrap_or(&Value::Null){return Err(AxError::new("fixture","task request methods mismatch"))}Ok(())}
+                "tasks_v2_input_required"=>{let result=client.call_tool("slow",json!({}))?;expect_subset("task input-required result",&result,fixture.get("expected_result").unwrap_or(&Value::Null))?;let calls=elicitation_calls.lock().unwrap();if calls.len()!=1{return Err(AxError::new("fixture","task elicitation handler count mismatch"))}expect_subset("task elicitation params",&calls[0].0,fixture.get("expected_elicitation_params").unwrap_or(&Value::Null))?;expect_subset("task elicitation context",&calls[0].1,fixture.get("expected_context").unwrap_or(&Value::Null))?;drop(calls);let requests=client.transport.lock().unwrap().sent_requests();let update=requests.iter().find(|request|request.get("method").and_then(Value::as_str)==Some("tasks/update")).ok_or_else(||AxError::new("fixture","missing tasks/update"))?;expect_subset("task update params",update.get("params").unwrap_or(&Value::Null),fixture.get("expected_update_params").unwrap_or(&Value::Null))?;let methods=Value::Array(requests.iter().map(|request|request.get("method").cloned().unwrap_or(Value::Null)).collect());if &methods!=fixture.get("expected_methods").unwrap_or(&Value::Null){return Err(AxError::new("fixture","task input-required methods mismatch"))}Ok(())}
+                "server_requests_legacy"=>{let mut responses=Vec::new();for request in fixture.get("server_requests").and_then(Value::as_array).cloned().unwrap_or_default(){responses.push(client.handle_server_request(request))}for(index,expected)in fixture.get("expected_responses").and_then(Value::as_array).cloned().unwrap_or_default().iter().enumerate(){expect_subset("server response",&responses[index],expected)?}let calls=elicitation_calls.lock().unwrap();if calls.len()!=1{return Err(AxError::new("fixture","legacy elicitation handler count mismatch"))}expect_subset("legacy elicitation params",&calls[0].0,fixture.get("expected_elicitation_params").unwrap_or(&Value::Null))?;expect_subset("legacy elicitation context",&calls[0].1,fixture.get("expected_context").unwrap_or(&Value::Null))?;drop(calls);let requests=client.transport.lock().unwrap().sent_requests();let initialize=requests.iter().find(|request|request.get("method").and_then(Value::as_str)==Some("initialize")).ok_or_else(||AxError::new("fixture","missing initialize"))?;expect_subset("legacy client capabilities",initialize.get("params").and_then(|params|params.get("capabilities")).unwrap_or(&Value::Null),fixture.get("expected_legacy_capabilities").unwrap_or(&Value::Null))?;Ok(())}
                 "mrtr_elicitation"=>{let result=client.call_tool("work",json!({"value":1}))?;expect_subset("MRTR elicitation result",&result,fixture.get("expected_result").unwrap_or(&Value::Null))?;let calls=elicitation_calls.lock().unwrap();if calls.len()!=1{return Err(AxError::new("fixture","MRTR elicitation handler count mismatch"))}expect_subset("MRTR elicitation params",&calls[0].0,fixture.get("expected_elicitation_params").unwrap_or(&Value::Null))?;expect_subset("MRTR elicitation context",&calls[0].1,fixture.get("expected_context").unwrap_or(&Value::Null))?;drop(calls);let requests=client.transport.lock().unwrap().sent_requests();let tool_calls=requests.iter().filter(|request|request.get("method").and_then(Value::as_str)==Some("tools/call")).collect::<Vec<_>>();for(index,expected)in fixture.get("expected_call_params").and_then(Value::as_array).cloned().unwrap_or_default().iter().enumerate(){expect_subset("MRTR elicitation call params",tool_calls[index].get("params").unwrap_or(&Value::Null),expected)?}let capabilities=requests.first().and_then(|request|request.get("params")).and_then(|params|params.get("_meta")).and_then(|meta|meta.get("io.modelcontextprotocol/clientCapabilities")).cloned().unwrap_or_else(||json!({}));if capabilities.get("elicitation").is_none()||capabilities.get("sampling").is_some(){return Err(AxError::new("fixture","dishonest MRTR capabilities"))}let mut bad=AxMCPClient::new(Box::new(AxMCPScriptedTransport::new(vec![])),json!({"era":"modern","sampling":true}));match bad.init(){Err(error)if error.to_string().contains("sampling is not supported")=>Ok(()),_=>Err(AxError::new("fixture","truthy sampling option was accepted"))}}
                 "mrtr_roots"=>{let result=client.call_tool("work",json!({"value":1}))?;expect_subset("MRTR tool result",&result,fixture.get("expected_call_result").unwrap_or(&Value::Null))?;let prompt=client.get_prompt("ask",json!({}))?;expect_subset("MRTR prompt result",&prompt,fixture.get("expected_prompt_result").unwrap_or(&Value::Null))?;let resource=client.read_resource("file:///resource")?;expect_subset("MRTR resource result",&resource,fixture.get("expected_resource_result").unwrap_or(&Value::Null))?;let requests=client.transport.lock().unwrap().sent_requests();let methods=Value::Array(requests.iter().map(|request|request.get("method").cloned().unwrap_or(Value::Null)).collect());if &methods!=fixture.get("expected_methods").unwrap_or(&Value::Null){return Err(AxError::new("fixture","MRTR request methods mismatch"))}let tool_calls=requests.iter().filter(|request|request.get("method").and_then(Value::as_str)==Some("tools/call")).collect::<Vec<_>>();let mut ids=tool_calls.iter().map(|request|request.get("id").and_then(Value::as_str).unwrap_or_default().to_string()).collect::<Vec<_>>();let id_count=ids.len();ids.sort();ids.dedup();if ids.len()!=id_count{return Err(AxError::new("fixture","MRTR rounds reused a request id"))}for(index,expected)in fixture.get("expected_tool_call_params").and_then(Value::as_array).cloned().unwrap_or_default().iter().enumerate(){let params=tool_calls[index].get("params").unwrap_or(&Value::Null);expect_subset("MRTR tool params",params,expected)?;if expected.get("inputResponses").is_none(){if params.get("inputResponses").is_some()||params.get("requestState").is_some(){return Err(AxError::new("fixture","initial MRTR request included round state"))}}else{let actual=params.get("inputResponses").and_then(Value::as_object).cloned().unwrap_or_default();let wanted=expected.get("inputResponses").and_then(Value::as_object).cloned().unwrap_or_default();if actual.len()!=wanted.len()||wanted.keys().any(|key|!actual.contains_key(key)){return Err(AxError::new("fixture","MRTR request retained stale input responses"))}}if expected.get("requestState").is_none()&&params.get("requestState").is_some(){return Err(AxError::new("fixture","MRTR request retained stale requestState"))}}Ok(())}
                 "subscriptions_listen"=>{for item in fixture.get("semantic_cases").and_then(Value::as_array).cloned().unwrap_or_default(){let actual=core_mcp(&crate::mcp_listen_interests,&[item.get("subscribed_uris").cloned().unwrap_or_else(||json!([])),item.get("filters").cloned().unwrap_or_else(||json!({}))])?;if actual!=item.get("expected").cloned().unwrap_or_else(||json!({})){return Err(AxError::new("fixture","listen interests mismatch"))}}let delivered=Arc::new(Mutex::new(Vec::<Value>::new()));let captured=delivered.clone();client.add_notification_listener(move|message|captured.lock().unwrap().push(message));client.start_listening()?;let streams=client.transport.lock().unwrap().sent_request_streams();if streams.len()!=1{return Err(AxError::new("fixture","initial subscriptions/listen stream missing"))}let first=streams[0].clone();expect_subset("initial listen interests",first.get("params").and_then(|params|params.get("notifications")).unwrap_or(&Value::Null),fixture.get("expected_first_notifications").unwrap_or(&Value::Null))?;client.acquire_resource_subscription(fixture.get("uri").and_then(Value::as_str).unwrap_or_default(),"fixture")?;let streams=client.transport.lock().unwrap().sent_request_streams();if streams.len()!=fixture.get("expected_stream_count").and_then(Value::as_u64).unwrap_or_default()as usize{return Err(AxError::new("fixture","subscription interest change did not restart request stream"))}let second=streams.last().cloned().unwrap_or(Value::Null);if first.get("id")==second.get("id"){return Err(AxError::new("fixture","subscriptions/listen restart reused its request id"))}expect_subset("updated listen interests",second.get("params").and_then(|params|params.get("notifications")).unwrap_or(&Value::Null),fixture.get("expected_second_notifications").unwrap_or(&Value::Null))?;let count_updates=||delivered.lock().unwrap().iter().filter(|item|item.get("method").and_then(Value::as_str)==Some("notifications/resources/updated")).count();let before=count_updates();let mut notification=fixture.get("delivered_notification").cloned().unwrap_or_else(||json!({}));notification["params"]["_meta"]=json!({"io.modelcontextprotocol/subscriptionId":"other"});client.inbound_messages.lock().unwrap().push(notification.clone());client.drain_inbound();if count_updates()!=before{return Err(AxError::new("fixture","cross-subscription notification was delivered"))}notification["params"]["_meta"]["io.modelcontextprotocol/subscriptionId"]=second.get("id").cloned().unwrap_or(Value::Null);client.inbound_messages.lock().unwrap().push(notification);client.drain_inbound();if count_updates()!=before+1{return Err(AxError::new("fixture","active subscription notification was not delivered"))}if delivered.lock().unwrap().last().and_then(|item|item.get("params")).and_then(|params|params.get("_meta")).is_some(){return Err(AxError::new("fixture","subscription id leaked to notification consumer"))}let requests=client.transport.lock().unwrap().sent_requests();for forbidden in fixture.get("expected_forbidden_methods").and_then(Value::as_array).cloned().unwrap_or_default(){if requests.iter().any(|request|request.get("method")==Some(&forbidden)){return Err(AxError::new("fixture","modern subscription emitted legacy method"))}}Ok(())}
@@ -1301,7 +1324,7 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                     let last = notifications.last().ok_or_else(|| AxError::new("fixture", "expected a cancel notification"))?;
                     expect_subset("cancel notification", last, fixture.get("expected_notification").unwrap_or(&Value::Null))
                 }
-                "roots_notifications" => Ok(()),
+                "roots_notifications" => {let response=client.handle_server_request(json!({"jsonrpc":"2.0","id":"server-1","method":"roots/list"}));expect_subset("roots response",&response,fixture.get("expected_roots_response").unwrap_or(&Value::Null))}
                 _ => Err(AxError::new("fixture", format!("unsupported MCP conformance operation {operation}"))),
             }
         }
