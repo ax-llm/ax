@@ -13,6 +13,9 @@ public final class AxMCPOAuthOptions {
   public TokenStore tokenStore;
   public Map<String, Object> ssrfProtection = Map.of();
   public boolean requireIss;
+  public String grantType = "authorization_code";
+  public String resource;
+  public Map<String, Object> authorizationServerMetadata;
 
   public interface TokenStore {
     AxMCPTokenSet getToken(String key);

@@ -23009,6 +23009,530 @@ final class Core {
     return out;
   }
 
+  static Object mcp_oauth_parse_www_authenticate(Object www_authenticate) {
+    axirCoverageMark("mcp_oauth_parse_www_authenticate");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object scopes = new java.util.ArrayList<Object>();
+    Core.set(out, "scopes", scopes);
+    Object parts = Core.stringSplit(www_authenticate, ",");
+    for (Object raw : Core.iter(parts)) {
+      Object part = Core.stringTrim(raw);
+      Object lower = Core.stringLower(part);
+      Object bearer = Core.stringStartsWith(lower, "bearer ");
+      if (Core.truthy(bearer)) {
+        part = Core.stringSlice(part, 7);
+        part = Core.stringTrim(part);
+      }
+      Object pair = Core.stringSplitOnce(part, "=");
+      Object found = Core.get(pair, "found", Boolean.FALSE);
+      if (Core.truthy(found)) {
+        Object name = Core.get(pair, "left", "");
+        name = Core.stringTrim(name);
+        name = Core.stringLower(name);
+        Object value = Core.get(pair, "right", "");
+        value = Core.stringTrim(value);
+        value = Core.stringReplace(value, "\"", "");
+        Object is_resource = Core.eq(name, "resource_metadata");
+        if (Core.truthy(is_resource)) {
+          Core.set(out, "resourceMetadata", value);
+        }
+        Object is_scope = Core.eq(name, "scope");
+        if (Core.truthy(is_scope)) {
+          scopes = Core.stringSplitTrimNonEmpty(value, " ");
+          Core.set(out, "scopes", scopes);
+        }
+      }
+    }
+    return out;
+  }
+
+  static Object mcp_oauth_discovery_endpoints(Object requested_url, Object issuer, Object resource_metadata_url) {
+    axirCoverageMark("mcp_oauth_discovery_endpoints");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object resource_endpoints = new java.util.ArrayList<Object>();
+    Object as_endpoints = new java.util.ArrayList<Object>();
+    Core.set(out, "resourceMetadataEndpoints", resource_endpoints);
+    Core.set(out, "authorizationServerMetadataEndpoints", as_endpoints);
+    Object requested_scheme = Core.stringSplitOnce(requested_url, "://");
+    Object requested_valid = Core.get(requested_scheme, "found", Boolean.FALSE);
+    if (Core.truthy(requested_valid)) {
+      // empty
+    }
+    if (!Core.truthy(requested_valid)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", "OAuth requested URL is invalid");
+      return out;
+    }
+    Object requested_rest = Core.get(requested_scheme, "right", "");
+    Object requested_scheme_name = Core.get(requested_scheme, "left", "");
+    Object requested_parts = Core.stringSplitOnce(requested_rest, "/");
+    Object requested_authority = Core.get(requested_parts, "left", "");
+    Object requested_origin = Core.stringFormat("{}://{}", requested_scheme_name, requested_authority);
+    Object requested_path_raw = Core.get(requested_parts, "right", "");
+    Object requested_query = Core.stringSplitOnce(requested_path_raw, "?");
+    requested_path_raw = Core.get(requested_query, "left", "");
+    Object requested_path = Core.stringFormat("/{}", requested_path_raw);
+    Object requested_trim = Core.stringRemoveSuffix(requested_path, "/");
+    requested_path = Core.get(requested_trim, "value", "");
+    Object has_header_endpoint = Core.truthyValue(resource_metadata_url);
+    if (Core.truthy(has_header_endpoint)) {
+      Core.append(resource_endpoints, resource_metadata_url);
+    }
+    if (!Core.truthy(has_header_endpoint)) {
+      Object has_path = Core.truthyValue(requested_path);
+      if (Core.truthy(has_path)) {
+        Object path_endpoint = Core.stringFormat("{}/.well-known/oauth-protected-resource{}", requested_origin, requested_path);
+        Core.append(resource_endpoints, path_endpoint);
+      }
+      Object root_endpoint = Core.stringFormat("{}/.well-known/oauth-protected-resource", requested_origin);
+      Core.append(resource_endpoints, root_endpoint);
+    }
+    Object has_issuer = Core.truthyValue(issuer);
+    if (Core.truthy(has_issuer)) {
+      Object issuer_scheme = Core.stringSplitOnce(issuer, "://");
+      Object issuer_valid = Core.get(issuer_scheme, "found", Boolean.FALSE);
+      if (Core.truthy(issuer_valid)) {
+        // empty
+      }
+      if (!Core.truthy(issuer_valid)) {
+        Core.set(out, "ok", Boolean.FALSE);
+        Core.set(out, "message", "OAuth issuer URL is invalid");
+        return out;
+      }
+      Object issuer_rest = Core.get(issuer_scheme, "right", "");
+      Object issuer_scheme_name = Core.get(issuer_scheme, "left", "");
+      Object issuer_parts = Core.stringSplitOnce(issuer_rest, "/");
+      Object issuer_authority = Core.get(issuer_parts, "left", "");
+      Object issuer_origin = Core.stringFormat("{}://{}", issuer_scheme_name, issuer_authority);
+      Object issuer_path_raw = Core.get(issuer_parts, "right", "");
+      Object issuer_query = Core.stringSplitOnce(issuer_path_raw, "?");
+      issuer_path_raw = Core.get(issuer_query, "left", "");
+      Object issuer_path = Core.stringFormat("/{}", issuer_path_raw);
+      Object issuer_trim = Core.stringRemoveSuffix(issuer_path, "/");
+      issuer_path = Core.get(issuer_trim, "value", "");
+      Object issuer_has_path = Core.truthyValue(issuer_path);
+      if (Core.truthy(issuer_has_path)) {
+        Object oauth_path = Core.stringFormat("{}/.well-known/oauth-authorization-server{}", issuer_origin, issuer_path);
+        Object oidc_path = Core.stringFormat("{}/.well-known/openid-configuration{}", issuer_origin, issuer_path);
+        Object oidc_suffix = Core.stringFormat("{}{}{}", issuer_origin, issuer_path, "/.well-known/openid-configuration");
+        Core.append(as_endpoints, oauth_path);
+        Core.append(as_endpoints, oidc_path);
+        Core.append(as_endpoints, oidc_suffix);
+      }
+      if (!Core.truthy(issuer_has_path)) {
+        Object oauth_root = Core.stringFormat("{}/.well-known/oauth-authorization-server", issuer_origin);
+        Object oidc_root = Core.stringFormat("{}/.well-known/openid-configuration", issuer_origin);
+        Core.append(as_endpoints, oauth_root);
+        Core.append(as_endpoints, oidc_root);
+      }
+    }
+    Core.set(out, "ok", Boolean.TRUE);
+    return out;
+  }
+
+  static Object mcp_oauth_validate_resource_coverage(Object requested_url, Object metadata) {
+    axirCoverageMark("mcp_oauth_validate_resource_coverage");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object resource = Core.get(metadata, "resource", null);
+    Object resource_string = Core.typeIs(resource, "string");
+    if (Core.truthy(resource_string)) {
+      // empty
+    }
+    if (!Core.truthy(resource_string)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", "Protected resource metadata is missing resource");
+      return out;
+    }
+    Object resource_trim = Core.stringRemoveSuffix(resource, "/");
+    resource = Core.get(resource_trim, "value", resource);
+    Object requested_trim = Core.stringRemoveSuffix(requested_url, "/");
+    Object requested = Core.get(requested_trim, "value", requested_url);
+    Object exact = Core.eq(requested, resource);
+    Object resource_prefix = Core.stringFormat("{}/", resource);
+    Object nested = Core.stringStartsWith(requested, resource_prefix);
+    Object covered = Core.or(exact, nested);
+    if (Core.truthy(covered)) {
+      // empty
+    }
+    if (!Core.truthy(covered)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Object message = Core.stringFormat("Protected resource metadata resource {} does not cover requested URL {}", resource, requested_url);
+      Core.set(out, "message", message);
+      return out;
+    }
+    Object issuers = Core.get(metadata, "authorization_servers", null);
+    Object issuers_list = Core.typeIs(issuers, "list");
+    if (Core.truthy(issuers_list)) {
+      // empty
+    }
+    if (!Core.truthy(issuers_list)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", "No authorization_servers advertised by protected resource");
+      return out;
+    }
+    Object issuer_count = Core.len(issuers);
+    Object has_issuers = Core.gt(issuer_count, 0);
+    if (Core.truthy(has_issuers)) {
+      // empty
+    }
+    if (!Core.truthy(has_issuers)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", "No authorization_servers advertised by protected resource");
+      return out;
+    }
+    Object clean_issuers = new java.util.ArrayList<Object>();
+    for (Object issuer : Core.iter(issuers)) {
+      Object issuer_string = Core.typeIs(issuer, "string");
+      if (Core.truthy(issuer_string)) {
+        Core.append(clean_issuers, issuer);
+      }
+      if (!Core.truthy(issuer_string)) {
+        Core.set(out, "ok", Boolean.FALSE);
+        Core.set(out, "message", "Protected resource metadata authorization_servers must contain strings");
+        return out;
+      }
+    }
+    Core.set(out, "ok", Boolean.TRUE);
+    Core.set(out, "resource", resource);
+    Core.set(out, "issuers", clean_issuers);
+    return out;
+  }
+
+  static Object mcp_oauth_validate_as_metadata(Object metadata, Object expected_issuer, Object require_authorization, Object client_auth_method) {
+    axirCoverageMark("mcp_oauth_validate_as_metadata");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object none_auth = Core.eq(client_auth_method, "none");
+    Object secret_post = Core.eq(client_auth_method, "client_secret_post");
+    Object auth_supported = Core.or(none_auth, secret_post);
+    if (Core.truthy(auth_supported)) {
+      // empty
+    }
+    if (!Core.truthy(auth_supported)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", "OAuth client auth method must be none or client_secret_post");
+      return out;
+    }
+    Object issuer = Core.get(metadata, "issuer", null);
+    Object issuer_string = Core.typeIs(issuer, "string");
+    Object token_endpoint = Core.get(metadata, "token_endpoint", null);
+    Object token_string = Core.typeIs(token_endpoint, "string");
+    Object base_valid = Core.and(issuer_string, token_string);
+    if (Core.truthy(base_valid)) {
+      // empty
+    }
+    if (!Core.truthy(base_valid)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", "Authorization server metadata is missing issuer or token_endpoint");
+      return out;
+    }
+    Object issuer_matches = Core.eq(issuer, expected_issuer);
+    if (Core.truthy(issuer_matches)) {
+      // empty
+    }
+    if (!Core.truthy(issuer_matches)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Object message = Core.stringFormat("OAuth AS metadata issuer mismatch: expected {}, received {}", expected_issuer, issuer);
+      Core.set(out, "message", message);
+      return out;
+    }
+    Object advertised_auth = Core.get(metadata, "token_endpoint_auth_methods_supported", null);
+    Object advertised_list = Core.typeIs(advertised_auth, "list");
+    if (Core.truthy(advertised_list)) {
+      Object method_advertised = Core.contains(advertised_auth, client_auth_method);
+      if (Core.truthy(method_advertised)) {
+        // empty
+      }
+      if (!Core.truthy(method_advertised)) {
+        Core.set(out, "ok", Boolean.FALSE);
+        Object message = Core.stringFormat("Authorization server does not advertise token endpoint auth method {}", client_auth_method);
+        Core.set(out, "message", message);
+        return out;
+      }
+    }
+    Object authorization_endpoint = Core.get(metadata, "authorization_endpoint", null);
+    if (Core.truthy(require_authorization)) {
+      Object authorization_string = Core.typeIs(authorization_endpoint, "string");
+      if (Core.truthy(authorization_string)) {
+        // empty
+      }
+      if (!Core.truthy(authorization_string)) {
+        Core.set(out, "ok", Boolean.FALSE);
+        Core.set(out, "message", "Authorization server metadata is missing authorization_endpoint");
+        return out;
+      }
+      Object challenge_methods = Core.get(metadata, "code_challenge_methods_supported", null);
+      Object challenge_list = Core.typeIs(challenge_methods, "list");
+      if (Core.truthy(challenge_list)) {
+        Object has_s256 = Core.contains(challenge_methods, "S256");
+        if (Core.truthy(has_s256)) {
+          // empty
+        }
+        if (!Core.truthy(has_s256)) {
+          Core.set(out, "ok", Boolean.FALSE);
+          Core.set(out, "message", "Authorization server does not advertise PKCE S256 support");
+          return out;
+        }
+      }
+      if (!Core.truthy(challenge_list)) {
+        Core.set(out, "ok", Boolean.FALSE);
+        Core.set(out, "message", "Authorization server does not advertise PKCE S256 support");
+        return out;
+      }
+    }
+    Core.set(out, "ok", Boolean.TRUE);
+    Core.set(out, "issuer", issuer);
+    Core.set(out, "tokenEndpoint", token_endpoint);
+    if (Core.truthy(require_authorization)) {
+      Core.set(out, "authorizationEndpoint", authorization_endpoint);
+    }
+    Object require_iss = Core.get(metadata, "authorization_response_iss_parameter_supported", Boolean.FALSE);
+    Core.set(out, "requireIss", require_iss);
+    return out;
+  }
+
+  static Object mcp_oauth_authorization_request_params(Object client_id, Object redirect_uri, Object scopes, Object resource, Object state, Object code_challenge) {
+    axirCoverageMark("mcp_oauth_authorization_request_params");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "response_type", "code");
+    Core.set(out, "client_id", client_id);
+    Core.set(out, "redirect_uri", redirect_uri);
+    Core.set(out, "state", state);
+    Core.set(out, "code_challenge", code_challenge);
+    Core.set(out, "code_challenge_method", "S256");
+    Object scope_count = Core.len(scopes);
+    Object has_scopes = Core.gt(scope_count, 0);
+    if (Core.truthy(has_scopes)) {
+      Object scope = Core.stringJoin(" ", scopes);
+      Core.set(out, "scope", scope);
+    }
+    Object has_resource = Core.truthyValue(resource);
+    if (Core.truthy(has_resource)) {
+      Core.set(out, "resource", resource);
+    }
+    return out;
+  }
+
+  static Object mcp_oauth_grant_body(Object grant_type, Object client_id, Object client_secret, Object client_auth_method, Object resource, Object scopes, Object code, Object redirect_uri, Object code_verifier, Object refresh_token) {
+    axirCoverageMark("mcp_oauth_grant_body");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object body = new java.util.LinkedHashMap<String, Object>();
+    Object none_auth = Core.eq(client_auth_method, "none");
+    Object secret_post = Core.eq(client_auth_method, "client_secret_post");
+    Object auth_supported = Core.or(none_auth, secret_post);
+    if (Core.truthy(auth_supported)) {
+      // empty
+    }
+    if (!Core.truthy(auth_supported)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", "OAuth client auth method must be none or client_secret_post");
+      return out;
+    }
+    Object has_client_id = Core.truthyValue(client_id);
+    if (Core.truthy(has_client_id)) {
+      // empty
+    }
+    if (!Core.truthy(has_client_id)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", "OAuth client ID required");
+      return out;
+    }
+    Core.set(body, "grant_type", grant_type);
+    Core.set(body, "client_id", client_id);
+    if (Core.truthy(secret_post)) {
+      Object has_secret = Core.truthyValue(client_secret);
+      if (Core.truthy(has_secret)) {
+        Core.set(body, "client_secret", client_secret);
+      }
+      if (!Core.truthy(has_secret)) {
+        Core.set(out, "ok", Boolean.FALSE);
+        Core.set(out, "message", "OAuth client secret required");
+        return out;
+      }
+    }
+    Object is_code = Core.eq(grant_type, "authorization_code");
+    Object is_refresh = Core.eq(grant_type, "refresh_token");
+    Object is_client = Core.eq(grant_type, "client_credentials");
+    if (Core.truthy(is_code)) {
+      Object has_code = Core.truthyValue(code);
+      Object has_redirect = Core.truthyValue(redirect_uri);
+      Object has_verifier = Core.truthyValue(code_verifier);
+      Object code_a = Core.and(has_code, has_redirect);
+      Object code_valid = Core.and(code_a, has_verifier);
+      if (Core.truthy(code_valid)) {
+        Core.set(body, "code", code);
+        Core.set(body, "redirect_uri", redirect_uri);
+        Core.set(body, "code_verifier", code_verifier);
+      }
+      if (!Core.truthy(code_valid)) {
+        Core.set(out, "ok", Boolean.FALSE);
+        Core.set(out, "message", "OAuth authorization_code grant requires code, redirect_uri, and code_verifier");
+        return out;
+      }
+    }
+    if (!Core.truthy(is_code)) {
+      if (Core.truthy(is_refresh)) {
+        Object has_refresh = Core.truthyValue(refresh_token);
+        if (Core.truthy(has_refresh)) {
+          Core.set(body, "refresh_token", refresh_token);
+        }
+        if (!Core.truthy(has_refresh)) {
+          Core.set(out, "ok", Boolean.FALSE);
+          Core.set(out, "message", "OAuth refresh_token grant requires refresh_token");
+          return out;
+        }
+      }
+      if (!Core.truthy(is_refresh)) {
+        if (Core.truthy(is_client)) {
+          // empty
+        }
+        if (!Core.truthy(is_client)) {
+          Core.set(out, "ok", Boolean.FALSE);
+          Object message = Core.stringFormat("OAuth unsupported grant type {}", grant_type);
+          Core.set(out, "message", message);
+          return out;
+        }
+      }
+    }
+    Object has_resource = Core.truthyValue(resource);
+    if (Core.truthy(has_resource)) {
+      Core.set(body, "resource", resource);
+    }
+    Object scope_count = Core.len(scopes);
+    Object has_scopes = Core.gt(scope_count, 0);
+    if (Core.truthy(has_scopes)) {
+      Object scope = Core.stringJoin(" ", scopes);
+      Core.set(body, "scope", scope);
+    }
+    Core.set(out, "ok", Boolean.TRUE);
+    Core.set(out, "body", body);
+    return out;
+  }
+
+  static Object mcp_oauth_parse_token_response(Object response, Object now_ms, Object previous_refresh_token, Object issuer) {
+    axirCoverageMark("mcp_oauth_parse_token_response");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object access_token = Core.get(response, "access_token", null);
+    Object access_string = Core.typeIs(access_token, "string");
+    if (Core.truthy(access_string)) {
+      // empty
+    }
+    if (!Core.truthy(access_string)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", "OAuth token response is missing access_token");
+      return out;
+    }
+    Object token_type = Core.get(response, "token_type", null);
+    Object token_type_string = Core.typeIs(token_type, "string");
+    if (Core.truthy(token_type_string)) {
+      // empty
+    }
+    if (!Core.truthy(token_type_string)) {
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", "OAuth token response is missing token_type");
+      return out;
+    }
+    Object token_type_lower = Core.stringLower(token_type);
+    Object bearer = Core.eq(token_type_lower, "bearer");
+    if (Core.truthy(bearer)) {
+      // empty
+    }
+    if (!Core.truthy(bearer)) {
+      Object message = Core.stringFormat("OAuth returned unsupported token_type {}", token_type);
+      Core.set(out, "ok", Boolean.FALSE);
+      Core.set(out, "message", message);
+      return out;
+    }
+    Object token = new java.util.LinkedHashMap<String, Object>();
+    Core.set(token, "accessToken", access_token);
+    Core.set(token, "tokenType", "Bearer");
+    Object refresh_token = Core.get(response, "refresh_token", null);
+    Object refresh_string = Core.typeIs(refresh_token, "string");
+    if (Core.truthy(refresh_string)) {
+      Core.set(token, "refreshToken", refresh_token);
+    }
+    if (!Core.truthy(refresh_string)) {
+      Object has_previous = Core.truthyValue(previous_refresh_token);
+      if (Core.truthy(has_previous)) {
+        Core.set(token, "refreshToken", previous_refresh_token);
+      }
+    }
+    Object expires_in = Core.get(response, "expires_in", null);
+    Object expires_number = Core.typeIs(expires_in, "number");
+    if (Core.truthy(expires_number)) {
+      Object expires_nonnegative = Core.gte(expires_in, 0);
+      if (Core.truthy(expires_nonnegative)) {
+        Object expires_ms = Core.mul(expires_in, 1000);
+        Object expires_at = Core.add(now_ms, expires_ms);
+        Core.set(token, "expiresAt", expires_at);
+      }
+      if (!Core.truthy(expires_nonnegative)) {
+        Core.set(out, "ok", Boolean.FALSE);
+        Core.set(out, "message", "OAuth token response expires_in must be non-negative");
+        return out;
+      }
+    }
+    Object scope = Core.get(response, "scope", null);
+    Object scope_string = Core.typeIs(scope, "string");
+    if (Core.truthy(scope_string)) {
+      Core.set(token, "scope", scope);
+    }
+    Object has_issuer = Core.truthyValue(issuer);
+    if (Core.truthy(has_issuer)) {
+      Core.set(token, "issuer", issuer);
+    }
+    Core.set(out, "ok", Boolean.TRUE);
+    Core.set(out, "token", token);
+    return out;
+  }
+
+  static Object mcp_oauth_plan_ensure_token(Object token, Object now_ms, Object force_refresh, Object grant_type, Object has_on_auth_code) {
+    axirCoverageMark("mcp_oauth_plan_ensure_token");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object token_object = Core.typeIs(token, "object");
+    if (Core.truthy(token_object)) {
+      Object access_token = Core.get(token, "accessToken", null);
+      Object has_access = Core.truthyValue(access_token);
+      Object fresh = Boolean.TRUE;
+      Object expires_at = Core.get(token, "expiresAt", null);
+      Object expires_number = Core.typeIs(expires_at, "number");
+      if (Core.truthy(expires_number)) {
+        Object refresh_at = Core.add(expires_at, -60000);
+        fresh = Core.lt(now_ms, refresh_at);
+      }
+      Object not_forced = Core.not(force_refresh);
+      Object usable_a = Core.and(has_access, fresh);
+      Object usable = Core.and(usable_a, not_forced);
+      if (Core.truthy(usable)) {
+        Core.set(out, "ok", Boolean.TRUE);
+        Core.set(out, "action", "cached");
+        Core.set(out, "token", token);
+        return out;
+      }
+      Object refresh_token = Core.get(token, "refreshToken", null);
+      Object has_refresh = Core.truthyValue(refresh_token);
+      if (Core.truthy(has_refresh)) {
+        Core.set(out, "ok", Boolean.TRUE);
+        Core.set(out, "action", "refresh");
+        Core.set(out, "refreshToken", refresh_token);
+        return out;
+      }
+    }
+    Object client_credentials = Core.eq(grant_type, "client_credentials");
+    if (Core.truthy(client_credentials)) {
+      Core.set(out, "ok", Boolean.TRUE);
+      Core.set(out, "action", "client_credentials");
+      return out;
+    }
+    if (Core.truthy(has_on_auth_code)) {
+      Core.set(out, "ok", Boolean.TRUE);
+      Core.set(out, "action", "authorize");
+      return out;
+    }
+    Core.set(out, "ok", Boolean.FALSE);
+    Core.set(out, "message", "Authorization required. Provide oauth.onAuthCode to complete the flow");
+    return out;
+  }
+
   static Object mcp_oauth_validate_issuer(Object response, Object expected_issuer, Object require_iss) {
     axirCoverageMark("mcp_oauth_validate_issuer");
     Object state = Core.get(response, "state", null);

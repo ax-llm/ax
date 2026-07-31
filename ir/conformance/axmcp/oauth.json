@@ -1,7 +1,17 @@
 {
-  "name": "mcp oauth pkce host callback token flow",
+  "name": "mcp oauth PKCE and endpoint-keyed cached token flow",
   "kind": "mcp",
   "operation": "oauth",
   "endpoint": "https://example.com/mcp",
-  "verifier": "test-verifier"
+  "verifier": "test-verifier",
+  "expected_challenge": "JBbiqONGWPaAmwXk_8bT6UnlPfrn65D32eZlJS-zGG0",
+  "stored_token": {
+    "accessToken": "cached-access",
+    "refreshToken": "cached-refresh",
+    "expiresAt": 4102444800000,
+    "issuer": "https://auth.example.com",
+    "tokenType": "Bearer",
+    "scope": "files:read"
+  },
+  "expected_authorization": "Bearer cached-access"
 }

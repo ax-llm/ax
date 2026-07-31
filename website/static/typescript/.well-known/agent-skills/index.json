@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM build correct native Model Context Protocol integrations with @ax-llm/ax. Use when the user asks about AxMCPClient, MCP transports, tools, prompts, resources, subscriptions, tasks, sampling, elicitation, roots, authentication, OAuth, MCP Apps, recording/replay, or MCP integration with AxGen, AxAgent, AxFlow, chat, optimization, and AxEventRuntime.",
       "url": "ax-mcp/SKILL.md",
-      "digest": "sha256:382a17909629c0d03386471969536d0731c3251a26055e723c27159aecaa97ab"
+      "digest": "sha256:c952ef01629793ef27d44e4ceeb69b8550e8ca6b1b9f89b63c0e246ea732efef"
     },
     {
       "name": "ax-flow",

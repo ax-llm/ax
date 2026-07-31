@@ -23,6 +23,8 @@ struct AxMCPTokenSet {
   std::string refreshToken;
   long expiresAt = 0;
   std::string issuer;
+  std::string tokenType;
+  std::string scope;
 };
 
 struct AxMCPOAuthOptions {
@@ -33,8 +35,12 @@ struct AxMCPOAuthOptions {
   std::function<Value(const std::string&)> onAuthCode;
   std::function<Value(const std::string&)> getToken;
   std::function<void(const std::string&, Value)> setToken;
+  std::function<void(const std::string&)> clearToken;
   Value ssrfProtection = Value::object();
   bool requireIss = false;
+  std::string grantType = "authorization_code";
+  std::string resource;
+  Value authorizationServerMetadata;
 };
 
 class AxMCPTransport {
@@ -343,7 +349,7 @@ class AxMCPStreamableHTTPTransport : public AxMCPTransport {
                       const std::string& method = "", Value params = Value::object(),
                       Value extra_headers = Value::object()) const;
   void terminate_session();
-  bool apply_oauth();
+  bool apply_oauth(const std::string& www_authenticate = "");
   Value headers() const { return headers_; }
   AxMCPOAuthOptions oauth;
 

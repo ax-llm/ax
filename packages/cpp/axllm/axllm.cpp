@@ -24024,6 +24024,530 @@ Value Core::mcp_notification_subscription_filter(Value message, Value active_sub
   return out;
 }
 
+Value Core::mcp_oauth_parse_www_authenticate(Value www_authenticate) {
+  axir_coverage_mark("mcp_oauth_parse_www_authenticate");
+  Value out = Value::object();
+  Value scopes = Value::array();
+  Core::set(out, Value("scopes"), scopes);
+  Value parts = Core::string_split(www_authenticate, Value(","));
+  for (auto raw : Core::iter(parts)) {
+    Value part = Core::string_trim(raw);
+    Value lower = Core::string_lower(part);
+    Value bearer = Core::string_starts_with(lower, Value("bearer "));
+    if (Core::truthy(bearer)) {
+      part = Core::string_slice(part, Value(7));
+      part = Core::string_trim(part);
+    }
+    Value pair = Core::string_split_once(part, Value("="));
+    Value found = Core::get(pair, Value("found"), Value(false));
+    if (Core::truthy(found)) {
+      Value name = Core::get(pair, Value("left"), Value(""));
+      name = Core::string_trim(name);
+      name = Core::string_lower(name);
+      Value value = Core::get(pair, Value("right"), Value(""));
+      value = Core::string_trim(value);
+      value = Core::string_replace(value, Value("\""), Value(""));
+      Value is_resource = Core::eq(name, Value("resource_metadata"));
+      if (Core::truthy(is_resource)) {
+        Core::set(out, Value("resourceMetadata"), value);
+      }
+      Value is_scope = Core::eq(name, Value("scope"));
+      if (Core::truthy(is_scope)) {
+        scopes = Core::string_split_trim_nonempty(value, Value(" "));
+        Core::set(out, Value("scopes"), scopes);
+      }
+    }
+  }
+  return out;
+}
+
+Value Core::mcp_oauth_discovery_endpoints(Value requested_url, Value issuer, Value resource_metadata_url) {
+  axir_coverage_mark("mcp_oauth_discovery_endpoints");
+  Value out = Value::object();
+  Value resource_endpoints = Value::array();
+  Value as_endpoints = Value::array();
+  Core::set(out, Value("resourceMetadataEndpoints"), resource_endpoints);
+  Core::set(out, Value("authorizationServerMetadataEndpoints"), as_endpoints);
+  Value requested_scheme = Core::string_split_once(requested_url, Value("://"));
+  Value requested_valid = Core::get(requested_scheme, Value("found"), Value(false));
+  if (Core::truthy(requested_valid)) {
+    // empty
+  }
+  if (!Core::truthy(requested_valid)) {
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), Value("OAuth requested URL is invalid"));
+    return out;
+  }
+  Value requested_rest = Core::get(requested_scheme, Value("right"), Value(""));
+  Value requested_scheme_name = Core::get(requested_scheme, Value("left"), Value(""));
+  Value requested_parts = Core::string_split_once(requested_rest, Value("/"));
+  Value requested_authority = Core::get(requested_parts, Value("left"), Value(""));
+  Value requested_origin = Core::string_format(Value("{}://{}"), requested_scheme_name, requested_authority);
+  Value requested_path_raw = Core::get(requested_parts, Value("right"), Value(""));
+  Value requested_query = Core::string_split_once(requested_path_raw, Value("?"));
+  requested_path_raw = Core::get(requested_query, Value("left"), Value(""));
+  Value requested_path = Core::string_format(Value("/{}"), requested_path_raw);
+  Value requested_trim = Core::string_remove_suffix(requested_path, Value("/"));
+  requested_path = Core::get(requested_trim, Value("value"), Value(""));
+  Value has_header_endpoint = Core::truthy_value(resource_metadata_url);
+  if (Core::truthy(has_header_endpoint)) {
+    Core::append(resource_endpoints, resource_metadata_url);
+  }
+  if (!Core::truthy(has_header_endpoint)) {
+    Value has_path = Core::truthy_value(requested_path);
+    if (Core::truthy(has_path)) {
+      Value path_endpoint = Core::string_format(Value("{}/.well-known/oauth-protected-resource{}"), requested_origin, requested_path);
+      Core::append(resource_endpoints, path_endpoint);
+    }
+    Value root_endpoint = Core::string_format(Value("{}/.well-known/oauth-protected-resource"), requested_origin);
+    Core::append(resource_endpoints, root_endpoint);
+  }
+  Value has_issuer = Core::truthy_value(issuer);
+  if (Core::truthy(has_issuer)) {
+    Value issuer_scheme = Core::string_split_once(issuer, Value("://"));
+    Value issuer_valid = Core::get(issuer_scheme, Value("found"), Value(false));
+    if (Core::truthy(issuer_valid)) {
+      // empty
+    }
+    if (!Core::truthy(issuer_valid)) {
+      Core::set(out, Value("ok"), Value(false));
+      Core::set(out, Value("message"), Value("OAuth issuer URL is invalid"));
+      return out;
+    }
+    Value issuer_rest = Core::get(issuer_scheme, Value("right"), Value(""));
+    Value issuer_scheme_name = Core::get(issuer_scheme, Value("left"), Value(""));
+    Value issuer_parts = Core::string_split_once(issuer_rest, Value("/"));
+    Value issuer_authority = Core::get(issuer_parts, Value("left"), Value(""));
+    Value issuer_origin = Core::string_format(Value("{}://{}"), issuer_scheme_name, issuer_authority);
+    Value issuer_path_raw = Core::get(issuer_parts, Value("right"), Value(""));
+    Value issuer_query = Core::string_split_once(issuer_path_raw, Value("?"));
+    issuer_path_raw = Core::get(issuer_query, Value("left"), Value(""));
+    Value issuer_path = Core::string_format(Value("/{}"), issuer_path_raw);
+    Value issuer_trim = Core::string_remove_suffix(issuer_path, Value("/"));
+    issuer_path = Core::get(issuer_trim, Value("value"), Value(""));
+    Value issuer_has_path = Core::truthy_value(issuer_path);
+    if (Core::truthy(issuer_has_path)) {
+      Value oauth_path = Core::string_format(Value("{}/.well-known/oauth-authorization-server{}"), issuer_origin, issuer_path);
+      Value oidc_path = Core::string_format(Value("{}/.well-known/openid-configuration{}"), issuer_origin, issuer_path);
+      Value oidc_suffix = Core::string_format(Value("{}{}{}"), issuer_origin, issuer_path, Value("/.well-known/openid-configuration"));
+      Core::append(as_endpoints, oauth_path);
+      Core::append(as_endpoints, oidc_path);
+      Core::append(as_endpoints, oidc_suffix);
+    }
+    if (!Core::truthy(issuer_has_path)) {
+      Value oauth_root = Core::string_format(Value("{}/.well-known/oauth-authorization-server"), issuer_origin);
+      Value oidc_root = Core::string_format(Value("{}/.well-known/openid-configuration"), issuer_origin);
+      Core::append(as_endpoints, oauth_root);
+      Core::append(as_endpoints, oidc_root);
+    }
+  }
+  Core::set(out, Value("ok"), Value(true));
+  return out;
+}
+
+Value Core::mcp_oauth_validate_resource_coverage(Value requested_url, Value metadata) {
+  axir_coverage_mark("mcp_oauth_validate_resource_coverage");
+  Value out = Value::object();
+  Value resource = Core::get(metadata, Value("resource"), Value());
+  Value resource_string = Core::type_is(resource, Value("string"));
+  if (Core::truthy(resource_string)) {
+    // empty
+  }
+  if (!Core::truthy(resource_string)) {
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), Value("Protected resource metadata is missing resource"));
+    return out;
+  }
+  Value resource_trim = Core::string_remove_suffix(resource, Value("/"));
+  resource = Core::get(resource_trim, Value("value"), resource);
+  Value requested_trim = Core::string_remove_suffix(requested_url, Value("/"));
+  Value requested = Core::get(requested_trim, Value("value"), requested_url);
+  Value exact = Core::eq(requested, resource);
+  Value resource_prefix = Core::string_format(Value("{}/"), resource);
+  Value nested = Core::string_starts_with(requested, resource_prefix);
+  Value covered = Core::or_(exact, nested);
+  if (Core::truthy(covered)) {
+    // empty
+  }
+  if (!Core::truthy(covered)) {
+    Core::set(out, Value("ok"), Value(false));
+    Value message = Core::string_format(Value("Protected resource metadata resource {} does not cover requested URL {}"), resource, requested_url);
+    Core::set(out, Value("message"), message);
+    return out;
+  }
+  Value issuers = Core::get(metadata, Value("authorization_servers"), Value());
+  Value issuers_list = Core::type_is(issuers, Value("list"));
+  if (Core::truthy(issuers_list)) {
+    // empty
+  }
+  if (!Core::truthy(issuers_list)) {
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), Value("No authorization_servers advertised by protected resource"));
+    return out;
+  }
+  Value issuer_count = Core::len(issuers);
+  Value has_issuers = Core::gt(issuer_count, Value(0));
+  if (Core::truthy(has_issuers)) {
+    // empty
+  }
+  if (!Core::truthy(has_issuers)) {
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), Value("No authorization_servers advertised by protected resource"));
+    return out;
+  }
+  Value clean_issuers = Value::array();
+  for (auto issuer : Core::iter(issuers)) {
+    Value issuer_string = Core::type_is(issuer, Value("string"));
+    if (Core::truthy(issuer_string)) {
+      Core::append(clean_issuers, issuer);
+    }
+    if (!Core::truthy(issuer_string)) {
+      Core::set(out, Value("ok"), Value(false));
+      Core::set(out, Value("message"), Value("Protected resource metadata authorization_servers must contain strings"));
+      return out;
+    }
+  }
+  Core::set(out, Value("ok"), Value(true));
+  Core::set(out, Value("resource"), resource);
+  Core::set(out, Value("issuers"), clean_issuers);
+  return out;
+}
+
+Value Core::mcp_oauth_validate_as_metadata(Value metadata, Value expected_issuer, Value require_authorization, Value client_auth_method) {
+  axir_coverage_mark("mcp_oauth_validate_as_metadata");
+  Value out = Value::object();
+  Value none_auth = Core::eq(client_auth_method, Value("none"));
+  Value secret_post = Core::eq(client_auth_method, Value("client_secret_post"));
+  Value auth_supported = Core::or_(none_auth, secret_post);
+  if (Core::truthy(auth_supported)) {
+    // empty
+  }
+  if (!Core::truthy(auth_supported)) {
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), Value("OAuth client auth method must be none or client_secret_post"));
+    return out;
+  }
+  Value issuer = Core::get(metadata, Value("issuer"), Value());
+  Value issuer_string = Core::type_is(issuer, Value("string"));
+  Value token_endpoint = Core::get(metadata, Value("token_endpoint"), Value());
+  Value token_string = Core::type_is(token_endpoint, Value("string"));
+  Value base_valid = Core::and_(issuer_string, token_string);
+  if (Core::truthy(base_valid)) {
+    // empty
+  }
+  if (!Core::truthy(base_valid)) {
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), Value("Authorization server metadata is missing issuer or token_endpoint"));
+    return out;
+  }
+  Value issuer_matches = Core::eq(issuer, expected_issuer);
+  if (Core::truthy(issuer_matches)) {
+    // empty
+  }
+  if (!Core::truthy(issuer_matches)) {
+    Core::set(out, Value("ok"), Value(false));
+    Value message = Core::string_format(Value("OAuth AS metadata issuer mismatch: expected {}, received {}"), expected_issuer, issuer);
+    Core::set(out, Value("message"), message);
+    return out;
+  }
+  Value advertised_auth = Core::get(metadata, Value("token_endpoint_auth_methods_supported"), Value());
+  Value advertised_list = Core::type_is(advertised_auth, Value("list"));
+  if (Core::truthy(advertised_list)) {
+    Value method_advertised = Core::contains(advertised_auth, client_auth_method);
+    if (Core::truthy(method_advertised)) {
+      // empty
+    }
+    if (!Core::truthy(method_advertised)) {
+      Core::set(out, Value("ok"), Value(false));
+      Value message = Core::string_format(Value("Authorization server does not advertise token endpoint auth method {}"), client_auth_method);
+      Core::set(out, Value("message"), message);
+      return out;
+    }
+  }
+  Value authorization_endpoint = Core::get(metadata, Value("authorization_endpoint"), Value());
+  if (Core::truthy(require_authorization)) {
+    Value authorization_string = Core::type_is(authorization_endpoint, Value("string"));
+    if (Core::truthy(authorization_string)) {
+      // empty
+    }
+    if (!Core::truthy(authorization_string)) {
+      Core::set(out, Value("ok"), Value(false));
+      Core::set(out, Value("message"), Value("Authorization server metadata is missing authorization_endpoint"));
+      return out;
+    }
+    Value challenge_methods = Core::get(metadata, Value("code_challenge_methods_supported"), Value());
+    Value challenge_list = Core::type_is(challenge_methods, Value("list"));
+    if (Core::truthy(challenge_list)) {
+      Value has_s256 = Core::contains(challenge_methods, Value("S256"));
+      if (Core::truthy(has_s256)) {
+        // empty
+      }
+      if (!Core::truthy(has_s256)) {
+        Core::set(out, Value("ok"), Value(false));
+        Core::set(out, Value("message"), Value("Authorization server does not advertise PKCE S256 support"));
+        return out;
+      }
+    }
+    if (!Core::truthy(challenge_list)) {
+      Core::set(out, Value("ok"), Value(false));
+      Core::set(out, Value("message"), Value("Authorization server does not advertise PKCE S256 support"));
+      return out;
+    }
+  }
+  Core::set(out, Value("ok"), Value(true));
+  Core::set(out, Value("issuer"), issuer);
+  Core::set(out, Value("tokenEndpoint"), token_endpoint);
+  if (Core::truthy(require_authorization)) {
+    Core::set(out, Value("authorizationEndpoint"), authorization_endpoint);
+  }
+  Value require_iss = Core::get(metadata, Value("authorization_response_iss_parameter_supported"), Value(false));
+  Core::set(out, Value("requireIss"), require_iss);
+  return out;
+}
+
+Value Core::mcp_oauth_authorization_request_params(Value client_id, Value redirect_uri, Value scopes, Value resource, Value state, Value code_challenge) {
+  axir_coverage_mark("mcp_oauth_authorization_request_params");
+  Value out = Value::object();
+  Core::set(out, Value("response_type"), Value("code"));
+  Core::set(out, Value("client_id"), client_id);
+  Core::set(out, Value("redirect_uri"), redirect_uri);
+  Core::set(out, Value("state"), state);
+  Core::set(out, Value("code_challenge"), code_challenge);
+  Core::set(out, Value("code_challenge_method"), Value("S256"));
+  Value scope_count = Core::len(scopes);
+  Value has_scopes = Core::gt(scope_count, Value(0));
+  if (Core::truthy(has_scopes)) {
+    Value scope = Core::string_join(Value(" "), scopes);
+    Core::set(out, Value("scope"), scope);
+  }
+  Value has_resource = Core::truthy_value(resource);
+  if (Core::truthy(has_resource)) {
+    Core::set(out, Value("resource"), resource);
+  }
+  return out;
+}
+
+Value Core::mcp_oauth_grant_body(Value grant_type, Value client_id, Value client_secret, Value client_auth_method, Value resource, Value scopes, Value code, Value redirect_uri, Value code_verifier, Value refresh_token) {
+  axir_coverage_mark("mcp_oauth_grant_body");
+  Value out = Value::object();
+  Value body = Value::object();
+  Value none_auth = Core::eq(client_auth_method, Value("none"));
+  Value secret_post = Core::eq(client_auth_method, Value("client_secret_post"));
+  Value auth_supported = Core::or_(none_auth, secret_post);
+  if (Core::truthy(auth_supported)) {
+    // empty
+  }
+  if (!Core::truthy(auth_supported)) {
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), Value("OAuth client auth method must be none or client_secret_post"));
+    return out;
+  }
+  Value has_client_id = Core::truthy_value(client_id);
+  if (Core::truthy(has_client_id)) {
+    // empty
+  }
+  if (!Core::truthy(has_client_id)) {
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), Value("OAuth client ID required"));
+    return out;
+  }
+  Core::set(body, Value("grant_type"), grant_type);
+  Core::set(body, Value("client_id"), client_id);
+  if (Core::truthy(secret_post)) {
+    Value has_secret = Core::truthy_value(client_secret);
+    if (Core::truthy(has_secret)) {
+      Core::set(body, Value("client_secret"), client_secret);
+    }
+    if (!Core::truthy(has_secret)) {
+      Core::set(out, Value("ok"), Value(false));
+      Core::set(out, Value("message"), Value("OAuth client secret required"));
+      return out;
+    }
+  }
+  Value is_code = Core::eq(grant_type, Value("authorization_code"));
+  Value is_refresh = Core::eq(grant_type, Value("refresh_token"));
+  Value is_client = Core::eq(grant_type, Value("client_credentials"));
+  if (Core::truthy(is_code)) {
+    Value has_code = Core::truthy_value(code);
+    Value has_redirect = Core::truthy_value(redirect_uri);
+    Value has_verifier = Core::truthy_value(code_verifier);
+    Value code_a = Core::and_(has_code, has_redirect);
+    Value code_valid = Core::and_(code_a, has_verifier);
+    if (Core::truthy(code_valid)) {
+      Core::set(body, Value("code"), code);
+      Core::set(body, Value("redirect_uri"), redirect_uri);
+      Core::set(body, Value("code_verifier"), code_verifier);
+    }
+    if (!Core::truthy(code_valid)) {
+      Core::set(out, Value("ok"), Value(false));
+      Core::set(out, Value("message"), Value("OAuth authorization_code grant requires code, redirect_uri, and code_verifier"));
+      return out;
+    }
+  }
+  if (!Core::truthy(is_code)) {
+    if (Core::truthy(is_refresh)) {
+      Value has_refresh = Core::truthy_value(refresh_token);
+      if (Core::truthy(has_refresh)) {
+        Core::set(body, Value("refresh_token"), refresh_token);
+      }
+      if (!Core::truthy(has_refresh)) {
+        Core::set(out, Value("ok"), Value(false));
+        Core::set(out, Value("message"), Value("OAuth refresh_token grant requires refresh_token"));
+        return out;
+      }
+    }
+    if (!Core::truthy(is_refresh)) {
+      if (Core::truthy(is_client)) {
+        // empty
+      }
+      if (!Core::truthy(is_client)) {
+        Core::set(out, Value("ok"), Value(false));
+        Value message = Core::string_format(Value("OAuth unsupported grant type {}"), grant_type);
+        Core::set(out, Value("message"), message);
+        return out;
+      }
+    }
+  }
+  Value has_resource = Core::truthy_value(resource);
+  if (Core::truthy(has_resource)) {
+    Core::set(body, Value("resource"), resource);
+  }
+  Value scope_count = Core::len(scopes);
+  Value has_scopes = Core::gt(scope_count, Value(0));
+  if (Core::truthy(has_scopes)) {
+    Value scope = Core::string_join(Value(" "), scopes);
+    Core::set(body, Value("scope"), scope);
+  }
+  Core::set(out, Value("ok"), Value(true));
+  Core::set(out, Value("body"), body);
+  return out;
+}
+
+Value Core::mcp_oauth_parse_token_response(Value response, Value now_ms, Value previous_refresh_token, Value issuer) {
+  axir_coverage_mark("mcp_oauth_parse_token_response");
+  Value out = Value::object();
+  Value access_token = Core::get(response, Value("access_token"), Value());
+  Value access_string = Core::type_is(access_token, Value("string"));
+  if (Core::truthy(access_string)) {
+    // empty
+  }
+  if (!Core::truthy(access_string)) {
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), Value("OAuth token response is missing access_token"));
+    return out;
+  }
+  Value token_type = Core::get(response, Value("token_type"), Value());
+  Value token_type_string = Core::type_is(token_type, Value("string"));
+  if (Core::truthy(token_type_string)) {
+    // empty
+  }
+  if (!Core::truthy(token_type_string)) {
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), Value("OAuth token response is missing token_type"));
+    return out;
+  }
+  Value token_type_lower = Core::string_lower(token_type);
+  Value bearer = Core::eq(token_type_lower, Value("bearer"));
+  if (Core::truthy(bearer)) {
+    // empty
+  }
+  if (!Core::truthy(bearer)) {
+    Value message = Core::string_format(Value("OAuth returned unsupported token_type {}"), token_type);
+    Core::set(out, Value("ok"), Value(false));
+    Core::set(out, Value("message"), message);
+    return out;
+  }
+  Value token = Value::object();
+  Core::set(token, Value("accessToken"), access_token);
+  Core::set(token, Value("tokenType"), Value("Bearer"));
+  Value refresh_token = Core::get(response, Value("refresh_token"), Value());
+  Value refresh_string = Core::type_is(refresh_token, Value("string"));
+  if (Core::truthy(refresh_string)) {
+    Core::set(token, Value("refreshToken"), refresh_token);
+  }
+  if (!Core::truthy(refresh_string)) {
+    Value has_previous = Core::truthy_value(previous_refresh_token);
+    if (Core::truthy(has_previous)) {
+      Core::set(token, Value("refreshToken"), previous_refresh_token);
+    }
+  }
+  Value expires_in = Core::get(response, Value("expires_in"), Value());
+  Value expires_number = Core::type_is(expires_in, Value("number"));
+  if (Core::truthy(expires_number)) {
+    Value expires_nonnegative = Core::gte(expires_in, Value(0));
+    if (Core::truthy(expires_nonnegative)) {
+      Value expires_ms = Core::mul(expires_in, Value(1000));
+      Value expires_at = Core::add(now_ms, expires_ms);
+      Core::set(token, Value("expiresAt"), expires_at);
+    }
+    if (!Core::truthy(expires_nonnegative)) {
+      Core::set(out, Value("ok"), Value(false));
+      Core::set(out, Value("message"), Value("OAuth token response expires_in must be non-negative"));
+      return out;
+    }
+  }
+  Value scope = Core::get(response, Value("scope"), Value());
+  Value scope_string = Core::type_is(scope, Value("string"));
+  if (Core::truthy(scope_string)) {
+    Core::set(token, Value("scope"), scope);
+  }
+  Value has_issuer = Core::truthy_value(issuer);
+  if (Core::truthy(has_issuer)) {
+    Core::set(token, Value("issuer"), issuer);
+  }
+  Core::set(out, Value("ok"), Value(true));
+  Core::set(out, Value("token"), token);
+  return out;
+}
+
+Value Core::mcp_oauth_plan_ensure_token(Value token, Value now_ms, Value force_refresh, Value grant_type, Value has_on_auth_code) {
+  axir_coverage_mark("mcp_oauth_plan_ensure_token");
+  Value out = Value::object();
+  Value token_object = Core::type_is(token, Value("object"));
+  if (Core::truthy(token_object)) {
+    Value access_token = Core::get(token, Value("accessToken"), Value());
+    Value has_access = Core::truthy_value(access_token);
+    Value fresh = Value(true);
+    Value expires_at = Core::get(token, Value("expiresAt"), Value());
+    Value expires_number = Core::type_is(expires_at, Value("number"));
+    if (Core::truthy(expires_number)) {
+      Value refresh_at = Core::add(expires_at, Value(-60000));
+      fresh = Core::lt(now_ms, refresh_at);
+    }
+    Value not_forced = Core::not_(force_refresh);
+    Value usable_a = Core::and_(has_access, fresh);
+    Value usable = Core::and_(usable_a, not_forced);
+    if (Core::truthy(usable)) {
+      Core::set(out, Value("ok"), Value(true));
+      Core::set(out, Value("action"), Value("cached"));
+      Core::set(out, Value("token"), token);
+      return out;
+    }
+    Value refresh_token = Core::get(token, Value("refreshToken"), Value());
+    Value has_refresh = Core::truthy_value(refresh_token);
+    if (Core::truthy(has_refresh)) {
+      Core::set(out, Value("ok"), Value(true));
+      Core::set(out, Value("action"), Value("refresh"));
+      Core::set(out, Value("refreshToken"), refresh_token);
+      return out;
+    }
+  }
+  Value client_credentials = Core::eq(grant_type, Value("client_credentials"));
+  if (Core::truthy(client_credentials)) {
+    Core::set(out, Value("ok"), Value(true));
+    Core::set(out, Value("action"), Value("client_credentials"));
+    return out;
+  }
+  if (Core::truthy(has_on_auth_code)) {
+    Core::set(out, Value("ok"), Value(true));
+    Core::set(out, Value("action"), Value("authorize"));
+    return out;
+  }
+  Core::set(out, Value("ok"), Value(false));
+  Core::set(out, Value("message"), Value("Authorization required. Provide oauth.onAuthCode to complete the flow"));
+  return out;
+}
+
 Value Core::mcp_oauth_validate_issuer(Value response, Value expected_issuer, Value require_iss) {
   axir_coverage_mark("mcp_oauth_validate_issuer");
   Value state = Core::get(response, Value("state"), Value());

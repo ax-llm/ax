@@ -695,7 +695,7 @@
       ],
       "completedAt": "2026-07-30",
       "completedByCommit": "82272c59",
-      "verification": "oauth-issuer.json and existing oauth.json passed in generated Python, Java, C++, Go, and Rust; shared state/issuer validation runs before token fabrication; full authorization-code flow remains a host boundary"
+      "verification": "oauth-issuer.json and oauth.json pass in generated Python, Java, C++, Go, and Rust; shared state/issuer validation is now consumed by real authorization-code flows, with host interaction isolated to onAuthCode(url)"
     },
     {
       "id": "axir-2026-07-29-port-mcp-tasks-extension-v2",
@@ -825,6 +825,25 @@
         "Reuse the portable MRTR fulfillment planner for task inputRequests.",
         "Add tasks/update request construction and continuation semantics to all generated clients.",
         "Prove roots and elicitation task fulfillment plus missing-handler and sampling violations in five-language fixtures and live smoke."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-07-31-port-mcp-oauth-discovery-grants-and-refresh",
+      "status": "open",
+      "title": "Port MCP OAuth discovery, grants, and refresh",
+      "createdAt": "2026-07-31",
+      "sourcePR": null,
+      "sourceCommit": "9e4f3ed15f28dcc891556cc611ed7da997bb9aac",
+      "tsPaths": ["src/ax/mcp/oauth/oauthHelper.ts"],
+      "portableSurface": "axmcp",
+      "impact": "Generated Python, Java, C++, Go, and Rust OAuth transports fabricate bearer tokens instead of performing RFC 9728 discovery, PKCE authorization-code or client-credentials exchange, 60-second-skew refresh, RFC 8707 resource binding, and RFC 9207 issuer validation against the discovered authorization server.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
       ],
       "completedAt": null,
       "completedByCommit": null,

@@ -1,0 +1,50 @@
+{
+  "name": "mcp oauth protected-resource and AS discovery planning",
+  "kind": "mcp",
+  "operation": "oauth_discovery",
+  "www_authenticate": "Bearer realm=\"mcp\", resource_metadata=\"https://api.example.com/.well-known/oauth-protected-resource/mcp\", scope=\"files:read files:write\"",
+  "expected_parse": {
+    "resourceMetadata": "https://api.example.com/.well-known/oauth-protected-resource/mcp",
+    "scopes": ["files:read", "files:write"]
+  },
+  "requested_url": "https://api.example.com/mcp",
+  "issuer": "https://auth.example.com/tenant",
+  "resource_metadata_url": "",
+  "expected_endpoints": {
+    "ok": true,
+    "resourceMetadataEndpoints": [
+      "https://api.example.com/.well-known/oauth-protected-resource/mcp",
+      "https://api.example.com/.well-known/oauth-protected-resource"
+    ],
+    "authorizationServerMetadataEndpoints": [
+      "https://auth.example.com/.well-known/oauth-authorization-server/tenant",
+      "https://auth.example.com/.well-known/openid-configuration/tenant",
+      "https://auth.example.com/tenant/.well-known/openid-configuration"
+    ]
+  },
+  "coverage_cases": [
+    {
+      "requested_url": "https://api.example.com/mcp/tools",
+      "metadata": {
+        "resource": "https://api.example.com/mcp/",
+        "authorization_servers": ["https://auth.example.com/tenant"]
+      },
+      "expected": {
+        "ok": true,
+        "resource": "https://api.example.com/mcp",
+        "issuers": ["https://auth.example.com/tenant"]
+      }
+    },
+    {
+      "requested_url": "https://api.example.com/mcp",
+      "metadata": {
+        "resource": "https://attacker.example/mcp",
+        "authorization_servers": ["https://auth.example.com/tenant"]
+      },
+      "expected": {
+        "ok": false,
+        "message": "Protected resource metadata resource https://attacker.example/mcp does not cover requested URL https://api.example.com/mcp"
+      }
+    }
+  ]
+}
