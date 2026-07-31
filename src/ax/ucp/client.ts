@@ -101,6 +101,9 @@ export class AxUCPClient {
       this.mcpTransport = transport;
       this.mcpClient = new AxMCPClient(transport, {
         namespace: 'ucp',
+        // The current UCP MCP binding targets the stateful MCP lifecycle.
+        // TODO: move to auto/modern when a UCP spec revision declares support
+        // for the MCP 2026-07-28 stateless era.
         era: 'legacy',
       });
       if (!this.options.skipMCPInitialization) await this.mcpClient.init();

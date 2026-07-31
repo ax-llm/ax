@@ -1,0 +1,174 @@
+{
+  "name": "mcp oauth authorization parameters grants tokens and refresh planning",
+  "kind": "mcp",
+  "operation": "oauth_token",
+  "authorization": {
+    "args": [
+      "client-1",
+      "http://127.0.0.1/callback",
+      ["files:read", "files:write"],
+      "https://api.example.com/mcp",
+      "state-1",
+      "challenge-1"
+    ],
+    "expected": {
+      "response_type": "code",
+      "client_id": "client-1",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scope": "files:read files:write",
+      "resource": "https://api.example.com/mcp",
+      "state": "state-1",
+      "code_challenge": "challenge-1",
+      "code_challenge_method": "S256"
+    }
+  },
+  "grant_cases": [
+    {
+      "args": [
+        "authorization_code",
+        "client-1",
+        "",
+        "none",
+        "https://api.example.com/mcp",
+        ["files:read"],
+        "code-1",
+        "http://127.0.0.1/callback",
+        "verifier-1",
+        ""
+      ],
+      "expected": {
+        "ok": true,
+        "body": {
+          "grant_type": "authorization_code",
+          "client_id": "client-1",
+          "code": "code-1",
+          "redirect_uri": "http://127.0.0.1/callback",
+          "code_verifier": "verifier-1",
+          "resource": "https://api.example.com/mcp",
+          "scope": "files:read"
+        }
+      }
+    },
+    {
+      "args": [
+        "refresh_token",
+        "client-1",
+        "secret-1",
+        "client_secret_post",
+        "https://api.example.com/mcp",
+        [],
+        "",
+        "",
+        "",
+        "refresh-1"
+      ],
+      "expected": {
+        "ok": true,
+        "body": {
+          "grant_type": "refresh_token",
+          "client_id": "client-1",
+          "client_secret": "secret-1",
+          "refresh_token": "refresh-1",
+          "resource": "https://api.example.com/mcp"
+        }
+      }
+    },
+    {
+      "args": [
+        "client_credentials",
+        "client-1",
+        "secret-1",
+        "client_secret_post",
+        "https://api.example.com/mcp",
+        ["machine"],
+        "",
+        "",
+        "",
+        ""
+      ],
+      "expected": {
+        "ok": true,
+        "body": {
+          "grant_type": "client_credentials",
+          "client_id": "client-1",
+          "client_secret": "secret-1",
+          "resource": "https://api.example.com/mcp",
+          "scope": "machine"
+        }
+      }
+    }
+  ],
+  "token_cases": [
+    {
+      "response": {
+        "access_token": "access-1",
+        "refresh_token": "refresh-2",
+        "token_type": "bearer",
+        "expires_in": 120,
+        "scope": "files:read"
+      },
+      "now_ms": 1000000,
+      "previous_refresh_token": "refresh-1",
+      "issuer": "https://auth.example.com",
+      "expected": {
+        "ok": true,
+        "token": {
+          "accessToken": "access-1",
+          "refreshToken": "refresh-2",
+          "expiresAt": 1120000,
+          "issuer": "https://auth.example.com",
+          "tokenType": "Bearer",
+          "scope": "files:read"
+        }
+      }
+    },
+    {
+      "response": { "access_token": "access-2", "token_type": "DPoP" },
+      "now_ms": 1000000,
+      "previous_refresh_token": "",
+      "issuer": "https://auth.example.com",
+      "expected": {
+        "ok": false,
+        "message": "OAuth returned unsupported token_type DPoP"
+      }
+    }
+  ],
+  "plan_cases": [
+    {
+      "token": { "accessToken": "cached", "expiresAt": 1200000 },
+      "now_ms": 1000000,
+      "force_refresh": false,
+      "grant_type": "authorization_code",
+      "has_on_auth_code": true,
+      "expected": { "ok": true, "action": "cached" }
+    },
+    {
+      "token": {
+        "accessToken": "stale",
+        "refreshToken": "refresh",
+        "expiresAt": 1050000
+      },
+      "now_ms": 1000000,
+      "force_refresh": false,
+      "grant_type": "authorization_code",
+      "has_on_auth_code": true,
+      "expected": { "ok": true, "action": "refresh", "refreshToken": "refresh" }
+    },
+    {
+      "token": null,
+      "now_ms": 1000000,
+      "force_refresh": false,
+      "grant_type": "client_credentials",
+      "has_on_auth_code": false,
+      "expected": { "ok": true, "action": "client_credentials" }
+    },
+    {
+      "token": null,
+      "now_ms": 1000000,
+      "force_refresh": false,
+      "grant_type": "authorization_code",
+      "has_on_auth_code": true,
+      "expected": { "ok": true, "action": "authorize" }
+    }
+  ]
+}

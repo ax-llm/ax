@@ -15,6 +15,12 @@ const SERVER_INFO_META_KEY = 'io.modelcontextprotocol/serverInfo';
 
 export interface AxMCPEventDemoServerOptions {
   era?: 'dual' | 'modern' | 'legacy';
+  protectedResource?: {
+    authorizationServer: string;
+    discovery: 'well-known' | 'challenge';
+    scope?: string;
+    validateAccessToken: (token: string) => boolean;
+  };
 }
 
 type JsonRpcRequest = {
@@ -259,6 +265,23 @@ export class AxMCPEventDemoServer {
     request: IncomingMessage,
     response: ServerResponse
   ): Promise<void> {
+    if (
+      request.url === '/.well-known/oauth-protected-resource/mcp' ||
+      request.url === '/.well-known/oauth-protected-resource'
+    ) {
+      const protectedResource = this.options.protectedResource;
+      if (!protectedResource || !this.endpoint) {
+        response.writeHead(404).end();
+        return;
+      }
+      this.writeJSON(response, {
+        resource: this.endpoint,
+        authorization_servers: [protectedResource.authorizationServer],
+        scopes_supported: [protectedResource.scope ?? 'mcp:read'],
+        bearer_methods_supported: ['header'],
+      });
+      return;
+    }
     if (request.url?.startsWith('/control/')) {
       await this.control(request, response);
       return;
@@ -281,6 +304,7 @@ export class AxMCPEventDemoServer {
       response.writeHead(405).end();
       return;
     }
+    if (!this.authorize(request, response)) return;
     try {
       const message = JSON.parse(
         await this.readBody(request)
@@ -330,6 +354,35 @@ export class AxMCPEventDemoServer {
       response.writeHead(500, { 'Content-Type': 'application/json' });
       response.end(body);
     }
+  }
+
+  private authorize(
+    request: IncomingMessage,
+    response: ServerResponse
+  ): boolean {
+    const protectedResource = this.options.protectedResource;
+    if (!protectedResource) return true;
+    const authorization = request.headers.authorization ?? '';
+    const token = authorization.startsWith('Bearer ')
+      ? authorization.slice('Bearer '.length)
+      : '';
+    if (token && protectedResource.validateAccessToken(token)) return true;
+    const challenge = [
+      'Bearer',
+      `scope="${protectedResource.scope ?? 'mcp:read'}"`,
+    ];
+    if (protectedResource.discovery === 'challenge' && this.endpoint) {
+      challenge.push(
+        `resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', this.endpoint).href}"`
+      );
+    }
+    request.resume();
+    response.writeHead(401, {
+      'WWW-Authenticate': challenge.join(', '),
+      'Content-Length': '0',
+    });
+    response.end();
+    return false;
   }
 
   private isModernRequest(

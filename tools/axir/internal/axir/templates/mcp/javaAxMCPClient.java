@@ -373,39 +373,43 @@ public final class AxMCPClient {
         assertSubset(stdioDecode(encoded), fixture.get("message"), "stdio decoded");
         return;
       }
+      if ("oauth_discovery".equals(operation)) {
+        assertSubset(Core.mcp_oauth_parse_www_authenticate(fixture.getOrDefault("www_authenticate", "")), fixture.getOrDefault("expected_parse", Map.of()), "OAuth WWW-Authenticate parsing");
+        assertSubset(Core.mcp_oauth_discovery_endpoints(fixture.getOrDefault("requested_url", ""), fixture.getOrDefault("issuer", ""), fixture.getOrDefault("resource_metadata_url", "")), fixture.getOrDefault("expected_endpoints", Map.of()), "OAuth discovery endpoints");
+        for (Object raw : Core.asList(fixture.get("coverage_cases"))) { Map<String,Object> testCase = Core.asMap(raw); assertSubset(Core.mcp_oauth_validate_resource_coverage(testCase.getOrDefault("requested_url", ""), testCase.getOrDefault("metadata", Map.of())), testCase.getOrDefault("expected", Map.of()), "OAuth resource coverage"); }
+        return;
+      }
+      if ("oauth_as_metadata".equals(operation)) {
+        for (Object raw : Core.asList(fixture.get("cases"))) { Map<String,Object> testCase = Core.asMap(raw); assertSubset(Core.mcp_oauth_validate_as_metadata(testCase.getOrDefault("metadata", Map.of()), testCase.getOrDefault("expected_issuer", ""), testCase.getOrDefault("require_authorization", false), testCase.getOrDefault("client_auth_method", "none")), testCase.getOrDefault("expected", Map.of()), "OAuth AS metadata"); }
+        return;
+      }
+      if ("oauth_token".equals(operation)) {
+        Map<String,Object> authorization = Core.asMap(fixture.get("authorization")); List<Object> args = Core.asList(authorization.get("args"));
+        assertSubset(Core.mcp_oauth_authorization_request_params(args.get(0), args.get(1), args.get(2), args.get(3), args.get(4), args.get(5)), authorization.getOrDefault("expected", Map.of()), "OAuth authorization params");
+        for (Object raw : Core.asList(fixture.get("grant_cases"))) { Map<String,Object> testCase = Core.asMap(raw); args = Core.asList(testCase.get("args")); assertSubset(Core.mcp_oauth_grant_body(args.get(0), args.get(1), args.get(2), args.get(3), args.get(4), args.get(5), args.get(6), args.get(7), args.get(8), args.get(9)), testCase.getOrDefault("expected", Map.of()), "OAuth grant body"); }
+        for (Object raw : Core.asList(fixture.get("token_cases"))) { Map<String,Object> testCase = Core.asMap(raw); assertSubset(Core.mcp_oauth_parse_token_response(testCase.getOrDefault("response", Map.of()), testCase.getOrDefault("now_ms", 0), testCase.getOrDefault("previous_refresh_token", ""), testCase.getOrDefault("issuer", "")), testCase.getOrDefault("expected", Map.of()), "OAuth token response"); }
+        for (Object raw : Core.asList(fixture.get("plan_cases"))) { Map<String,Object> testCase = Core.asMap(raw); assertSubset(Core.mcp_oauth_plan_ensure_token(testCase.get("token"), testCase.getOrDefault("now_ms", 0), testCase.getOrDefault("force_refresh", false), testCase.getOrDefault("grant_type", "authorization_code"), testCase.getOrDefault("has_on_auth_code", false)), testCase.getOrDefault("expected", Map.of()), "OAuth token plan"); }
+        return;
+      }
       if ("oauth_issuer".equals(operation)) {
         for (Object raw : Core.asList(fixture.get("cases"))) {
           Map<String, Object> testCase = Core.asMap(raw);
           Object actual = Core.mcp_oauth_validate_issuer(testCase.getOrDefault("response", Map.of()), testCase.getOrDefault("expected_issuer", ""), testCase.getOrDefault("require_iss", false));
           assertSubset(actual, testCase.getOrDefault("expected", Map.of()), "OAuth issuer validation");
         }
-        String endpoint = String.valueOf(fixture.getOrDefault("endpoint", "https://auth.example"));
-        AxMCPOAuthOptions oauth = new AxMCPOAuthOptions();
-        oauth.requireIss = true;
-        oauth.onAuthCode = url -> {
-          String state = "";
-          for (String part : URI.create(url).getQuery().split("&")) if (part.startsWith("state=")) state = part.substring("state=".length());
-          return Map.of("code", "abc", "state", state, "iss", endpoint);
-        };
-        AxMCPStreamableHTTPTransport transport = new AxMCPStreamableHTTPTransport(endpoint, Map.of("oauth", oauth));
-        if (!transport.applyOAuth()) throw new AssertionError("OAuth issuer-validating stub did not produce a token");
-        if (!String.valueOf(fixture.get("stub_expected_authorization")).equals(transport.headers().get("Authorization"))) throw new AssertionError("OAuth issuer-validating stub did not set Authorization");
         return;
       }
       if ("oauth".equals(operation)) {
         String challenge = pkceChallenge(String.valueOf(fixture.getOrDefault("verifier", "test-verifier")));
         if (fixture.get("expected_challenge") != null && !challenge.equals(fixture.get("expected_challenge"))) throw new AssertionError("PKCE challenge mismatch");
+        String endpoint = String.valueOf(fixture.getOrDefault("endpoint", "https://example.com/mcp")); Map<String,Object> stored = Core.asMap(fixture.get("stored_token"));
         MapTokenStore store = new MapTokenStore();
+        store.setToken(endpoint, new AxMCPTokenSet(String.valueOf(stored.get("accessToken")), String.valueOf(stored.get("refreshToken")), ((Number)stored.get("expiresAt")).longValue(), String.valueOf(stored.get("issuer"))));
         AxMCPOAuthOptions oauth = new AxMCPOAuthOptions();
         oauth.tokenStore = store;
-        oauth.onAuthCode = url -> {
-          String state = "";
-          for (String part : URI.create(url).getQuery().split("&")) if (part.startsWith("state=")) state = part.substring("state=".length());
-          return Map.of("code", "abc", "state", state);
-        };
-        AxMCPStreamableHTTPTransport transport = new AxMCPStreamableHTTPTransport(String.valueOf(fixture.getOrDefault("endpoint", "https://example.com/mcp")), Map.of("oauth", oauth));
+        AxMCPStreamableHTTPTransport transport = new AxMCPStreamableHTTPTransport(endpoint, Map.of("oauth", oauth));
         if (!transport.applyOAuth()) throw new AssertionError("OAuth flow did not produce a token");
-        if (!transport.headers().containsKey("Authorization")) throw new AssertionError("OAuth flow did not set Authorization");
+        if (!String.valueOf(fixture.get("expected_authorization")).equals(transport.headers().get("Authorization"))) throw new AssertionError("OAuth cached token did not set Authorization");
         return;
       }
       if ("discover".equals(operation)) {

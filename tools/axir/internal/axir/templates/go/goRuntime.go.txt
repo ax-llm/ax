@@ -739,6 +739,10 @@ func coreTypeIs(value Value, typeName Value) Value {
 			return true
 		}
 		_, ok = value.(int)
+		if ok {
+			return true
+		}
+		_, ok = value.(int64)
 		return ok
 	case "boolean":
 		_, ok := value.(bool)

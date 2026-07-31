@@ -73140,6 +73140,1054 @@ fn mcp_notification_subscription_filter(args: &[CoreValue]) -> Result<CoreValue,
     unreachable_code,
     clippy::all
 )]
+fn mcp_oauth_parse_www_authenticate(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_oauth_parse_www_authenticate");
+    let mut v_www_authenticate = core_arg(args, 0);
+    let mut v_bearer = CoreValue::Null;
+    let mut v_found = CoreValue::Null;
+    let mut v_is_resource = CoreValue::Null;
+    let mut v_is_scope = CoreValue::Null;
+    let mut v_lower = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_pair = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_raw = CoreValue::Null;
+    let mut v_scopes = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_scopes = CoreValue::new_list();
+    core_set(&v_out, CoreValue::from("scopes"), v_scopes.clone())?;
+    v_parts = core_string_split(&[v_www_authenticate.clone(), CoreValue::from(",")])?;
+    for v_raw in core_iter(&v_parts)? {
+        let mut v_raw = v_raw;
+        v_part = core_string_trim(&v_raw);
+        v_lower = core_string_lower(&[v_part.clone()])?;
+        v_bearer = core_string_starts_with(&[v_lower.clone(), CoreValue::from("bearer ")])?;
+        if core_truthy(&v_bearer) {
+            v_part = core_string_slice(&[v_part.clone(), CoreValue::Num(7f64)])?;
+            v_part = core_string_trim(&v_part);
+        }
+        v_pair = core_string_split_once(&[v_part.clone(), CoreValue::from("=")])?;
+        v_found = core_get(&v_pair, &CoreValue::from("found"), CoreValue::Bool(false));
+        if core_truthy(&v_found) {
+            v_name = core_get(&v_pair, &CoreValue::from("left"), CoreValue::from(""));
+            v_name = core_string_trim(&v_name);
+            v_name = core_string_lower(&[v_name.clone()])?;
+            v_value = core_get(&v_pair, &CoreValue::from("right"), CoreValue::from(""));
+            v_value = core_string_trim(&v_value);
+            v_value = core_string_replace(&[
+                v_value.clone(),
+                CoreValue::from("\""),
+                CoreValue::from(""),
+            ])?;
+            v_is_resource = core_eq(&[v_name.clone(), CoreValue::from("resource_metadata")])?;
+            if core_truthy(&v_is_resource) {
+                core_set(&v_out, CoreValue::from("resourceMetadata"), v_value.clone())?;
+            }
+            v_is_scope = core_eq(&[v_name.clone(), CoreValue::from("scope")])?;
+            if core_truthy(&v_is_scope) {
+                v_scopes =
+                    core_string_split_trim_nonempty(&[v_value.clone(), CoreValue::from(" ")])?;
+                core_set(&v_out, CoreValue::from("scopes"), v_scopes.clone())?;
+            }
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_oauth_discovery_endpoints(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_oauth_discovery_endpoints");
+    let mut v_requested_url = core_arg(args, 0);
+    let mut v_issuer = core_arg(args, 1);
+    let mut v_resource_metadata_url = core_arg(args, 2);
+    let mut v_as_endpoints = CoreValue::Null;
+    let mut v_has_header_endpoint = CoreValue::Null;
+    let mut v_has_issuer = CoreValue::Null;
+    let mut v_has_path = CoreValue::Null;
+    let mut v_issuer_authority = CoreValue::Null;
+    let mut v_issuer_has_path = CoreValue::Null;
+    let mut v_issuer_origin = CoreValue::Null;
+    let mut v_issuer_parts = CoreValue::Null;
+    let mut v_issuer_path = CoreValue::Null;
+    let mut v_issuer_path_raw = CoreValue::Null;
+    let mut v_issuer_query = CoreValue::Null;
+    let mut v_issuer_rest = CoreValue::Null;
+    let mut v_issuer_scheme = CoreValue::Null;
+    let mut v_issuer_scheme_name = CoreValue::Null;
+    let mut v_issuer_trim = CoreValue::Null;
+    let mut v_issuer_valid = CoreValue::Null;
+    let mut v_oauth_path = CoreValue::Null;
+    let mut v_oauth_root = CoreValue::Null;
+    let mut v_oidc_path = CoreValue::Null;
+    let mut v_oidc_root = CoreValue::Null;
+    let mut v_oidc_suffix = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_path_endpoint = CoreValue::Null;
+    let mut v_requested_authority = CoreValue::Null;
+    let mut v_requested_origin = CoreValue::Null;
+    let mut v_requested_parts = CoreValue::Null;
+    let mut v_requested_path = CoreValue::Null;
+    let mut v_requested_path_raw = CoreValue::Null;
+    let mut v_requested_query = CoreValue::Null;
+    let mut v_requested_rest = CoreValue::Null;
+    let mut v_requested_scheme = CoreValue::Null;
+    let mut v_requested_scheme_name = CoreValue::Null;
+    let mut v_requested_trim = CoreValue::Null;
+    let mut v_requested_valid = CoreValue::Null;
+    let mut v_resource_endpoints = CoreValue::Null;
+    let mut v_root_endpoint = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_resource_endpoints = CoreValue::new_list();
+    v_as_endpoints = CoreValue::new_list();
+    core_set(
+        &v_out,
+        CoreValue::from("resourceMetadataEndpoints"),
+        v_resource_endpoints.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("authorizationServerMetadataEndpoints"),
+        v_as_endpoints.clone(),
+    )?;
+    v_requested_scheme =
+        core_string_split_once(&[v_requested_url.clone(), CoreValue::from("://")])?;
+    v_requested_valid = core_get(
+        &v_requested_scheme,
+        &CoreValue::from("found"),
+        CoreValue::Bool(false),
+    );
+    if core_truthy(&v_requested_valid) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("OAuth requested URL is invalid"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_requested_rest = core_get(
+        &v_requested_scheme,
+        &CoreValue::from("right"),
+        CoreValue::from(""),
+    );
+    v_requested_scheme_name = core_get(
+        &v_requested_scheme,
+        &CoreValue::from("left"),
+        CoreValue::from(""),
+    );
+    v_requested_parts = core_string_split_once(&[v_requested_rest.clone(), CoreValue::from("/")])?;
+    v_requested_authority = core_get(
+        &v_requested_parts,
+        &CoreValue::from("left"),
+        CoreValue::from(""),
+    );
+    v_requested_origin = core_string_format(&[
+        CoreValue::from("{}://{}"),
+        v_requested_scheme_name.clone(),
+        v_requested_authority.clone(),
+    ])?;
+    v_requested_path_raw = core_get(
+        &v_requested_parts,
+        &CoreValue::from("right"),
+        CoreValue::from(""),
+    );
+    v_requested_query =
+        core_string_split_once(&[v_requested_path_raw.clone(), CoreValue::from("?")])?;
+    v_requested_path_raw = core_get(
+        &v_requested_query,
+        &CoreValue::from("left"),
+        CoreValue::from(""),
+    );
+    v_requested_path = core_string_format(&[CoreValue::from("/{}"), v_requested_path_raw.clone()])?;
+    v_requested_trim =
+        core_string_remove_suffix(&[v_requested_path.clone(), CoreValue::from("/")])?;
+    v_requested_path = core_get(
+        &v_requested_trim,
+        &CoreValue::from("value"),
+        CoreValue::from(""),
+    );
+    v_has_header_endpoint = core_truthy_value(&[v_resource_metadata_url.clone()])?;
+    if core_truthy(&v_has_header_endpoint) {
+        core_append(&v_resource_endpoints, v_resource_metadata_url.clone())?;
+    } else {
+        v_has_path = core_truthy_value(&[v_requested_path.clone()])?;
+        if core_truthy(&v_has_path) {
+            v_path_endpoint = core_string_format(&[
+                CoreValue::from("{}/.well-known/oauth-protected-resource{}"),
+                v_requested_origin.clone(),
+                v_requested_path.clone(),
+            ])?;
+            core_append(&v_resource_endpoints, v_path_endpoint.clone())?;
+        }
+        v_root_endpoint = core_string_format(&[
+            CoreValue::from("{}/.well-known/oauth-protected-resource"),
+            v_requested_origin.clone(),
+        ])?;
+        core_append(&v_resource_endpoints, v_root_endpoint.clone())?;
+    }
+    v_has_issuer = core_truthy_value(&[v_issuer.clone()])?;
+    if core_truthy(&v_has_issuer) {
+        v_issuer_scheme = core_string_split_once(&[v_issuer.clone(), CoreValue::from("://")])?;
+        v_issuer_valid = core_get(
+            &v_issuer_scheme,
+            &CoreValue::from("found"),
+            CoreValue::Bool(false),
+        );
+        if core_truthy(&v_issuer_valid) {
+        } else {
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+            core_set(
+                &v_out,
+                CoreValue::from("message"),
+                CoreValue::from("OAuth issuer URL is invalid"),
+            )?;
+            return Ok(v_out.clone());
+        }
+        v_issuer_rest = core_get(
+            &v_issuer_scheme,
+            &CoreValue::from("right"),
+            CoreValue::from(""),
+        );
+        v_issuer_scheme_name = core_get(
+            &v_issuer_scheme,
+            &CoreValue::from("left"),
+            CoreValue::from(""),
+        );
+        v_issuer_parts = core_string_split_once(&[v_issuer_rest.clone(), CoreValue::from("/")])?;
+        v_issuer_authority = core_get(
+            &v_issuer_parts,
+            &CoreValue::from("left"),
+            CoreValue::from(""),
+        );
+        v_issuer_origin = core_string_format(&[
+            CoreValue::from("{}://{}"),
+            v_issuer_scheme_name.clone(),
+            v_issuer_authority.clone(),
+        ])?;
+        v_issuer_path_raw = core_get(
+            &v_issuer_parts,
+            &CoreValue::from("right"),
+            CoreValue::from(""),
+        );
+        v_issuer_query =
+            core_string_split_once(&[v_issuer_path_raw.clone(), CoreValue::from("?")])?;
+        v_issuer_path_raw = core_get(
+            &v_issuer_query,
+            &CoreValue::from("left"),
+            CoreValue::from(""),
+        );
+        v_issuer_path = core_string_format(&[CoreValue::from("/{}"), v_issuer_path_raw.clone()])?;
+        v_issuer_trim = core_string_remove_suffix(&[v_issuer_path.clone(), CoreValue::from("/")])?;
+        v_issuer_path = core_get(
+            &v_issuer_trim,
+            &CoreValue::from("value"),
+            CoreValue::from(""),
+        );
+        v_issuer_has_path = core_truthy_value(&[v_issuer_path.clone()])?;
+        if core_truthy(&v_issuer_has_path) {
+            v_oauth_path = core_string_format(&[
+                CoreValue::from("{}/.well-known/oauth-authorization-server{}"),
+                v_issuer_origin.clone(),
+                v_issuer_path.clone(),
+            ])?;
+            v_oidc_path = core_string_format(&[
+                CoreValue::from("{}/.well-known/openid-configuration{}"),
+                v_issuer_origin.clone(),
+                v_issuer_path.clone(),
+            ])?;
+            v_oidc_suffix = core_string_format(&[
+                CoreValue::from("{}{}{}"),
+                v_issuer_origin.clone(),
+                v_issuer_path.clone(),
+                CoreValue::from("/.well-known/openid-configuration"),
+            ])?;
+            core_append(&v_as_endpoints, v_oauth_path.clone())?;
+            core_append(&v_as_endpoints, v_oidc_path.clone())?;
+            core_append(&v_as_endpoints, v_oidc_suffix.clone())?;
+        } else {
+            v_oauth_root = core_string_format(&[
+                CoreValue::from("{}/.well-known/oauth-authorization-server"),
+                v_issuer_origin.clone(),
+            ])?;
+            v_oidc_root = core_string_format(&[
+                CoreValue::from("{}/.well-known/openid-configuration"),
+                v_issuer_origin.clone(),
+            ])?;
+            core_append(&v_as_endpoints, v_oauth_root.clone())?;
+            core_append(&v_as_endpoints, v_oidc_root.clone())?;
+        }
+    }
+    core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_oauth_validate_resource_coverage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_oauth_validate_resource_coverage");
+    let mut v_requested_url = core_arg(args, 0);
+    let mut v_metadata = core_arg(args, 1);
+    let mut v_clean_issuers = CoreValue::Null;
+    let mut v_covered = CoreValue::Null;
+    let mut v_exact = CoreValue::Null;
+    let mut v_has_issuers = CoreValue::Null;
+    let mut v_issuer = CoreValue::Null;
+    let mut v_issuer_count = CoreValue::Null;
+    let mut v_issuer_string = CoreValue::Null;
+    let mut v_issuers = CoreValue::Null;
+    let mut v_issuers_list = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_nested = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_requested = CoreValue::Null;
+    let mut v_requested_trim = CoreValue::Null;
+    let mut v_resource = CoreValue::Null;
+    let mut v_resource_prefix = CoreValue::Null;
+    let mut v_resource_string = CoreValue::Null;
+    let mut v_resource_trim = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_resource = core_get(&v_metadata, &CoreValue::from("resource"), CoreValue::Null);
+    v_resource_string = core_type_is(&v_resource, CoreValue::from("string"));
+    if core_truthy(&v_resource_string) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("Protected resource metadata is missing resource"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_resource_trim = core_string_remove_suffix(&[v_resource.clone(), CoreValue::from("/")])?;
+    v_resource = core_get(
+        &v_resource_trim,
+        &CoreValue::from("value"),
+        v_resource.clone(),
+    );
+    v_requested_trim = core_string_remove_suffix(&[v_requested_url.clone(), CoreValue::from("/")])?;
+    v_requested = core_get(
+        &v_requested_trim,
+        &CoreValue::from("value"),
+        v_requested_url.clone(),
+    );
+    v_exact = core_eq(&[v_requested.clone(), v_resource.clone()])?;
+    v_resource_prefix = core_string_format(&[CoreValue::from("{}/"), v_resource.clone()])?;
+    v_nested = core_string_starts_with(&[v_requested.clone(), v_resource_prefix.clone()])?;
+    v_covered = core_or(&[v_exact.clone(), v_nested.clone()])?;
+    if core_truthy(&v_covered) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        v_message = core_string_format(&[
+            CoreValue::from(
+                "Protected resource metadata resource {} does not cover requested URL {}",
+            ),
+            v_resource.clone(),
+            v_requested_url.clone(),
+        ])?;
+        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_issuers = core_get(
+        &v_metadata,
+        &CoreValue::from("authorization_servers"),
+        CoreValue::Null,
+    );
+    v_issuers_list = core_type_is(&v_issuers, CoreValue::from("list"));
+    if core_truthy(&v_issuers_list) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("No authorization_servers advertised by protected resource"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_issuer_count = core_len(&[v_issuers.clone()])?;
+    v_has_issuers = core_gt(&[v_issuer_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_issuers) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("No authorization_servers advertised by protected resource"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_clean_issuers = CoreValue::new_list();
+    for v_issuer in core_iter(&v_issuers)? {
+        let mut v_issuer = v_issuer;
+        v_issuer_string = core_type_is(&v_issuer, CoreValue::from("string"));
+        if core_truthy(&v_issuer_string) {
+            core_append(&v_clean_issuers, v_issuer.clone())?;
+        } else {
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+            core_set(
+                &v_out,
+                CoreValue::from("message"),
+                CoreValue::from(
+                    "Protected resource metadata authorization_servers must contain strings",
+                ),
+            )?;
+            return Ok(v_out.clone());
+        }
+    }
+    core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+    core_set(&v_out, CoreValue::from("resource"), v_resource.clone())?;
+    core_set(&v_out, CoreValue::from("issuers"), v_clean_issuers.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_oauth_validate_as_metadata(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_oauth_validate_as_metadata");
+    let mut v_metadata = core_arg(args, 0);
+    let mut v_expected_issuer = core_arg(args, 1);
+    let mut v_require_authorization = core_arg(args, 2);
+    let mut v_client_auth_method = core_arg(args, 3);
+    let mut v_advertised_auth = CoreValue::Null;
+    let mut v_advertised_list = CoreValue::Null;
+    let mut v_auth_supported = CoreValue::Null;
+    let mut v_authorization_endpoint = CoreValue::Null;
+    let mut v_authorization_string = CoreValue::Null;
+    let mut v_base_valid = CoreValue::Null;
+    let mut v_challenge_list = CoreValue::Null;
+    let mut v_challenge_methods = CoreValue::Null;
+    let mut v_has_s256 = CoreValue::Null;
+    let mut v_issuer = CoreValue::Null;
+    let mut v_issuer_matches = CoreValue::Null;
+    let mut v_issuer_string = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_method_advertised = CoreValue::Null;
+    let mut v_none_auth = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_require_iss = CoreValue::Null;
+    let mut v_secret_post = CoreValue::Null;
+    let mut v_token_endpoint = CoreValue::Null;
+    let mut v_token_string = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_none_auth = core_eq(&[v_client_auth_method.clone(), CoreValue::from("none")])?;
+    v_secret_post = core_eq(&[
+        v_client_auth_method.clone(),
+        CoreValue::from("client_secret_post"),
+    ])?;
+    v_auth_supported = core_or(&[v_none_auth.clone(), v_secret_post.clone()])?;
+    if core_truthy(&v_auth_supported) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("OAuth client auth method must be none or client_secret_post"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_issuer = core_get(&v_metadata, &CoreValue::from("issuer"), CoreValue::Null);
+    v_issuer_string = core_type_is(&v_issuer, CoreValue::from("string"));
+    v_token_endpoint = core_get(
+        &v_metadata,
+        &CoreValue::from("token_endpoint"),
+        CoreValue::Null,
+    );
+    v_token_string = core_type_is(&v_token_endpoint, CoreValue::from("string"));
+    v_base_valid = core_and(&[v_issuer_string.clone(), v_token_string.clone()])?;
+    if core_truthy(&v_base_valid) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("Authorization server metadata is missing issuer or token_endpoint"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_issuer_matches = core_eq(&[v_issuer.clone(), v_expected_issuer.clone()])?;
+    if core_truthy(&v_issuer_matches) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        v_message = core_string_format(&[
+            CoreValue::from("OAuth AS metadata issuer mismatch: expected {}, received {}"),
+            v_expected_issuer.clone(),
+            v_issuer.clone(),
+        ])?;
+        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_advertised_auth = core_get(
+        &v_metadata,
+        &CoreValue::from("token_endpoint_auth_methods_supported"),
+        CoreValue::Null,
+    );
+    v_advertised_list = core_type_is(&v_advertised_auth, CoreValue::from("list"));
+    if core_truthy(&v_advertised_list) {
+        v_method_advertised =
+            core_contains(&[v_advertised_auth.clone(), v_client_auth_method.clone()])?;
+        if core_truthy(&v_method_advertised) {
+        } else {
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+            v_message = core_string_format(&[
+                CoreValue::from(
+                    "Authorization server does not advertise token endpoint auth method {}",
+                ),
+                v_client_auth_method.clone(),
+            ])?;
+            core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+            return Ok(v_out.clone());
+        }
+    }
+    v_authorization_endpoint = core_get(
+        &v_metadata,
+        &CoreValue::from("authorization_endpoint"),
+        CoreValue::Null,
+    );
+    if core_truthy(&v_require_authorization) {
+        v_authorization_string = core_type_is(&v_authorization_endpoint, CoreValue::from("string"));
+        if core_truthy(&v_authorization_string) {
+        } else {
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+            core_set(
+                &v_out,
+                CoreValue::from("message"),
+                CoreValue::from("Authorization server metadata is missing authorization_endpoint"),
+            )?;
+            return Ok(v_out.clone());
+        }
+        v_challenge_methods = core_get(
+            &v_metadata,
+            &CoreValue::from("code_challenge_methods_supported"),
+            CoreValue::Null,
+        );
+        v_challenge_list = core_type_is(&v_challenge_methods, CoreValue::from("list"));
+        if core_truthy(&v_challenge_list) {
+            v_has_s256 = core_contains(&[v_challenge_methods.clone(), CoreValue::from("S256")])?;
+            if core_truthy(&v_has_s256) {
+            } else {
+                core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+                core_set(
+                    &v_out,
+                    CoreValue::from("message"),
+                    CoreValue::from("Authorization server does not advertise PKCE S256 support"),
+                )?;
+                return Ok(v_out.clone());
+            }
+        } else {
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+            core_set(
+                &v_out,
+                CoreValue::from("message"),
+                CoreValue::from("Authorization server does not advertise PKCE S256 support"),
+            )?;
+            return Ok(v_out.clone());
+        }
+    }
+    core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+    core_set(&v_out, CoreValue::from("issuer"), v_issuer.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("tokenEndpoint"),
+        v_token_endpoint.clone(),
+    )?;
+    if core_truthy(&v_require_authorization) {
+        core_set(
+            &v_out,
+            CoreValue::from("authorizationEndpoint"),
+            v_authorization_endpoint.clone(),
+        )?;
+    }
+    v_require_iss = core_get(
+        &v_metadata,
+        &CoreValue::from("authorization_response_iss_parameter_supported"),
+        CoreValue::Bool(false),
+    );
+    core_set(&v_out, CoreValue::from("requireIss"), v_require_iss.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_oauth_authorization_request_params(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_oauth_authorization_request_params");
+    let mut v_client_id = core_arg(args, 0);
+    let mut v_redirect_uri = core_arg(args, 1);
+    let mut v_scopes = core_arg(args, 2);
+    let mut v_resource = core_arg(args, 3);
+    let mut v_state = core_arg(args, 4);
+    let mut v_code_challenge = core_arg(args, 5);
+    let mut v_has_resource = CoreValue::Null;
+    let mut v_has_scopes = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_scope = CoreValue::Null;
+    let mut v_scope_count = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("response_type"),
+        CoreValue::from("code"),
+    )?;
+    core_set(&v_out, CoreValue::from("client_id"), v_client_id.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("redirect_uri"),
+        v_redirect_uri.clone(),
+    )?;
+    core_set(&v_out, CoreValue::from("state"), v_state.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("code_challenge"),
+        v_code_challenge.clone(),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("code_challenge_method"),
+        CoreValue::from("S256"),
+    )?;
+    v_scope_count = core_len(&[v_scopes.clone()])?;
+    v_has_scopes = core_gt(&[v_scope_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_scopes) {
+        v_scope = core_string_join_intrinsic(&[CoreValue::from(" "), v_scopes.clone()])?;
+        core_set(&v_out, CoreValue::from("scope"), v_scope.clone())?;
+    }
+    v_has_resource = core_truthy_value(&[v_resource.clone()])?;
+    if core_truthy(&v_has_resource) {
+        core_set(&v_out, CoreValue::from("resource"), v_resource.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_oauth_grant_body(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_oauth_grant_body");
+    let mut v_grant_type = core_arg(args, 0);
+    let mut v_client_id = core_arg(args, 1);
+    let mut v_client_secret = core_arg(args, 2);
+    let mut v_client_auth_method = core_arg(args, 3);
+    let mut v_resource = core_arg(args, 4);
+    let mut v_scopes = core_arg(args, 5);
+    let mut v_code = core_arg(args, 6);
+    let mut v_redirect_uri = core_arg(args, 7);
+    let mut v_code_verifier = core_arg(args, 8);
+    let mut v_refresh_token = core_arg(args, 9);
+    let mut v_auth_supported = CoreValue::Null;
+    let mut v_body = CoreValue::Null;
+    let mut v_code_a = CoreValue::Null;
+    let mut v_code_valid = CoreValue::Null;
+    let mut v_has_client_id = CoreValue::Null;
+    let mut v_has_code = CoreValue::Null;
+    let mut v_has_redirect = CoreValue::Null;
+    let mut v_has_refresh = CoreValue::Null;
+    let mut v_has_resource = CoreValue::Null;
+    let mut v_has_scopes = CoreValue::Null;
+    let mut v_has_secret = CoreValue::Null;
+    let mut v_has_verifier = CoreValue::Null;
+    let mut v_is_client = CoreValue::Null;
+    let mut v_is_code = CoreValue::Null;
+    let mut v_is_refresh = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_none_auth = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_scope = CoreValue::Null;
+    let mut v_scope_count = CoreValue::Null;
+    let mut v_secret_post = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_body = CoreValue::new_map();
+    v_none_auth = core_eq(&[v_client_auth_method.clone(), CoreValue::from("none")])?;
+    v_secret_post = core_eq(&[
+        v_client_auth_method.clone(),
+        CoreValue::from("client_secret_post"),
+    ])?;
+    v_auth_supported = core_or(&[v_none_auth.clone(), v_secret_post.clone()])?;
+    if core_truthy(&v_auth_supported) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("OAuth client auth method must be none or client_secret_post"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_has_client_id = core_truthy_value(&[v_client_id.clone()])?;
+    if core_truthy(&v_has_client_id) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("OAuth client ID required"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    core_set(&v_body, CoreValue::from("grant_type"), v_grant_type.clone())?;
+    core_set(&v_body, CoreValue::from("client_id"), v_client_id.clone())?;
+    if core_truthy(&v_secret_post) {
+        v_has_secret = core_truthy_value(&[v_client_secret.clone()])?;
+        if core_truthy(&v_has_secret) {
+            core_set(
+                &v_body,
+                CoreValue::from("client_secret"),
+                v_client_secret.clone(),
+            )?;
+        } else {
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+            core_set(
+                &v_out,
+                CoreValue::from("message"),
+                CoreValue::from("OAuth client secret required"),
+            )?;
+            return Ok(v_out.clone());
+        }
+    }
+    v_is_code = core_eq(&[v_grant_type.clone(), CoreValue::from("authorization_code")])?;
+    v_is_refresh = core_eq(&[v_grant_type.clone(), CoreValue::from("refresh_token")])?;
+    v_is_client = core_eq(&[v_grant_type.clone(), CoreValue::from("client_credentials")])?;
+    if core_truthy(&v_is_code) {
+        v_has_code = core_truthy_value(&[v_code.clone()])?;
+        v_has_redirect = core_truthy_value(&[v_redirect_uri.clone()])?;
+        v_has_verifier = core_truthy_value(&[v_code_verifier.clone()])?;
+        v_code_a = core_and(&[v_has_code.clone(), v_has_redirect.clone()])?;
+        v_code_valid = core_and(&[v_code_a.clone(), v_has_verifier.clone()])?;
+        if core_truthy(&v_code_valid) {
+            core_set(&v_body, CoreValue::from("code"), v_code.clone())?;
+            core_set(
+                &v_body,
+                CoreValue::from("redirect_uri"),
+                v_redirect_uri.clone(),
+            )?;
+            core_set(
+                &v_body,
+                CoreValue::from("code_verifier"),
+                v_code_verifier.clone(),
+            )?;
+        } else {
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+            core_set(
+                &v_out,
+                CoreValue::from("message"),
+                CoreValue::from(
+                    "OAuth authorization_code grant requires code, redirect_uri, and code_verifier",
+                ),
+            )?;
+            return Ok(v_out.clone());
+        }
+    } else {
+        if core_truthy(&v_is_refresh) {
+            v_has_refresh = core_truthy_value(&[v_refresh_token.clone()])?;
+            if core_truthy(&v_has_refresh) {
+                core_set(
+                    &v_body,
+                    CoreValue::from("refresh_token"),
+                    v_refresh_token.clone(),
+                )?;
+            } else {
+                core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+                core_set(
+                    &v_out,
+                    CoreValue::from("message"),
+                    CoreValue::from("OAuth refresh_token grant requires refresh_token"),
+                )?;
+                return Ok(v_out.clone());
+            }
+        } else {
+            if core_truthy(&v_is_client) {
+            } else {
+                core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+                v_message = core_string_format(&[
+                    CoreValue::from("OAuth unsupported grant type {}"),
+                    v_grant_type.clone(),
+                ])?;
+                core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+                return Ok(v_out.clone());
+            }
+        }
+    }
+    v_has_resource = core_truthy_value(&[v_resource.clone()])?;
+    if core_truthy(&v_has_resource) {
+        core_set(&v_body, CoreValue::from("resource"), v_resource.clone())?;
+    }
+    v_scope_count = core_len(&[v_scopes.clone()])?;
+    v_has_scopes = core_gt(&[v_scope_count.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_scopes) {
+        v_scope = core_string_join_intrinsic(&[CoreValue::from(" "), v_scopes.clone()])?;
+        core_set(&v_body, CoreValue::from("scope"), v_scope.clone())?;
+    }
+    core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+    core_set(&v_out, CoreValue::from("body"), v_body.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_oauth_parse_token_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_oauth_parse_token_response");
+    let mut v_response = core_arg(args, 0);
+    let mut v_now_ms = core_arg(args, 1);
+    let mut v_previous_refresh_token = core_arg(args, 2);
+    let mut v_issuer = core_arg(args, 3);
+    let mut v_access_string = CoreValue::Null;
+    let mut v_access_token = CoreValue::Null;
+    let mut v_bearer = CoreValue::Null;
+    let mut v_expires_at = CoreValue::Null;
+    let mut v_expires_in = CoreValue::Null;
+    let mut v_expires_ms = CoreValue::Null;
+    let mut v_expires_nonnegative = CoreValue::Null;
+    let mut v_expires_number = CoreValue::Null;
+    let mut v_has_issuer = CoreValue::Null;
+    let mut v_has_previous = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_refresh_string = CoreValue::Null;
+    let mut v_refresh_token = CoreValue::Null;
+    let mut v_scope = CoreValue::Null;
+    let mut v_scope_string = CoreValue::Null;
+    let mut v_token = CoreValue::Null;
+    let mut v_token_type = CoreValue::Null;
+    let mut v_token_type_lower = CoreValue::Null;
+    let mut v_token_type_string = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_access_token = core_get(
+        &v_response,
+        &CoreValue::from("access_token"),
+        CoreValue::Null,
+    );
+    v_access_string = core_type_is(&v_access_token, CoreValue::from("string"));
+    if core_truthy(&v_access_string) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("OAuth token response is missing access_token"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_token_type = core_get(&v_response, &CoreValue::from("token_type"), CoreValue::Null);
+    v_token_type_string = core_type_is(&v_token_type, CoreValue::from("string"));
+    if core_truthy(&v_token_type_string) {
+    } else {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(
+            &v_out,
+            CoreValue::from("message"),
+            CoreValue::from("OAuth token response is missing token_type"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_token_type_lower = core_string_lower(&[v_token_type.clone()])?;
+    v_bearer = core_eq(&[v_token_type_lower.clone(), CoreValue::from("bearer")])?;
+    if core_truthy(&v_bearer) {
+    } else {
+        v_message = core_string_format(&[
+            CoreValue::from("OAuth returned unsupported token_type {}"),
+            v_token_type.clone(),
+        ])?;
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+        core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_token = CoreValue::new_map();
+    core_set(
+        &v_token,
+        CoreValue::from("accessToken"),
+        v_access_token.clone(),
+    )?;
+    core_set(
+        &v_token,
+        CoreValue::from("tokenType"),
+        CoreValue::from("Bearer"),
+    )?;
+    v_refresh_token = core_get(
+        &v_response,
+        &CoreValue::from("refresh_token"),
+        CoreValue::Null,
+    );
+    v_refresh_string = core_type_is(&v_refresh_token, CoreValue::from("string"));
+    if core_truthy(&v_refresh_string) {
+        core_set(
+            &v_token,
+            CoreValue::from("refreshToken"),
+            v_refresh_token.clone(),
+        )?;
+    } else {
+        v_has_previous = core_truthy_value(&[v_previous_refresh_token.clone()])?;
+        if core_truthy(&v_has_previous) {
+            core_set(
+                &v_token,
+                CoreValue::from("refreshToken"),
+                v_previous_refresh_token.clone(),
+            )?;
+        }
+    }
+    v_expires_in = core_get(&v_response, &CoreValue::from("expires_in"), CoreValue::Null);
+    v_expires_number = core_type_is(&v_expires_in, CoreValue::from("number"));
+    if core_truthy(&v_expires_number) {
+        v_expires_nonnegative = core_gte(&[v_expires_in.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_expires_nonnegative) {
+            v_expires_ms = core_mul(&[v_expires_in.clone(), CoreValue::Num(1000f64)])?;
+            v_expires_at = core_add(&[v_now_ms.clone(), v_expires_ms.clone()])?;
+            core_set(&v_token, CoreValue::from("expiresAt"), v_expires_at.clone())?;
+        } else {
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+            core_set(
+                &v_out,
+                CoreValue::from("message"),
+                CoreValue::from("OAuth token response expires_in must be non-negative"),
+            )?;
+            return Ok(v_out.clone());
+        }
+    }
+    v_scope = core_get(&v_response, &CoreValue::from("scope"), CoreValue::Null);
+    v_scope_string = core_type_is(&v_scope, CoreValue::from("string"));
+    if core_truthy(&v_scope_string) {
+        core_set(&v_token, CoreValue::from("scope"), v_scope.clone())?;
+    }
+    v_has_issuer = core_truthy_value(&[v_issuer.clone()])?;
+    if core_truthy(&v_has_issuer) {
+        core_set(&v_token, CoreValue::from("issuer"), v_issuer.clone())?;
+    }
+    core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+    core_set(&v_out, CoreValue::from("token"), v_token.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn mcp_oauth_plan_ensure_token(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_oauth_plan_ensure_token");
+    let mut v_token = core_arg(args, 0);
+    let mut v_now_ms = core_arg(args, 1);
+    let mut v_force_refresh = core_arg(args, 2);
+    let mut v_grant_type = core_arg(args, 3);
+    let mut v_has_on_auth_code = core_arg(args, 4);
+    let mut v_access_token = CoreValue::Null;
+    let mut v_client_credentials = CoreValue::Null;
+    let mut v_expires_at = CoreValue::Null;
+    let mut v_expires_number = CoreValue::Null;
+    let mut v_fresh = CoreValue::Null;
+    let mut v_has_access = CoreValue::Null;
+    let mut v_has_refresh = CoreValue::Null;
+    let mut v_not_forced = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_refresh_at = CoreValue::Null;
+    let mut v_refresh_token = CoreValue::Null;
+    let mut v_token_object = CoreValue::Null;
+    let mut v_usable = CoreValue::Null;
+    let mut v_usable_a = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_token_object = core_type_is(&v_token, CoreValue::from("object"));
+    if core_truthy(&v_token_object) {
+        v_access_token = core_get(&v_token, &CoreValue::from("accessToken"), CoreValue::Null);
+        v_has_access = core_truthy_value(&[v_access_token.clone()])?;
+        v_fresh = CoreValue::Bool(true);
+        v_expires_at = core_get(&v_token, &CoreValue::from("expiresAt"), CoreValue::Null);
+        v_expires_number = core_type_is(&v_expires_at, CoreValue::from("number"));
+        if core_truthy(&v_expires_number) {
+            v_refresh_at = core_add(&[v_expires_at.clone(), CoreValue::Num(-60000f64)])?;
+            v_fresh = core_lt(&[v_now_ms.clone(), v_refresh_at.clone()])?;
+        }
+        v_not_forced = core_not(&[v_force_refresh.clone()])?;
+        v_usable_a = core_and(&[v_has_access.clone(), v_fresh.clone()])?;
+        v_usable = core_and(&[v_usable_a.clone(), v_not_forced.clone()])?;
+        if core_truthy(&v_usable) {
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+            core_set(&v_out, CoreValue::from("action"), CoreValue::from("cached"))?;
+            core_set(&v_out, CoreValue::from("token"), v_token.clone())?;
+            return Ok(v_out.clone());
+        }
+        v_refresh_token = core_get(&v_token, &CoreValue::from("refreshToken"), CoreValue::Null);
+        v_has_refresh = core_truthy_value(&[v_refresh_token.clone()])?;
+        if core_truthy(&v_has_refresh) {
+            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+            core_set(
+                &v_out,
+                CoreValue::from("action"),
+                CoreValue::from("refresh"),
+            )?;
+            core_set(
+                &v_out,
+                CoreValue::from("refreshToken"),
+                v_refresh_token.clone(),
+            )?;
+            return Ok(v_out.clone());
+        }
+    }
+    v_client_credentials = core_eq(&[v_grant_type.clone(), CoreValue::from("client_credentials")])?;
+    if core_truthy(&v_client_credentials) {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+        core_set(
+            &v_out,
+            CoreValue::from("action"),
+            CoreValue::from("client_credentials"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    if core_truthy(&v_has_on_auth_code) {
+        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
+        core_set(
+            &v_out,
+            CoreValue::from("action"),
+            CoreValue::from("authorize"),
+        )?;
+        return Ok(v_out.clone());
+    }
+    core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+    core_set(
+        &v_out,
+        CoreValue::from("message"),
+        CoreValue::from("Authorization required. Provide oauth.onAuthCode to complete the flow"),
+    )?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_oauth_validate_issuer(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_oauth_validate_issuer");
     let mut v_response = core_arg(args, 0);
@@ -73204,4 +74252,4 @@ fn mcp_oauth_validate_issuer(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (550 of 550 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (558 of 558 core functions)

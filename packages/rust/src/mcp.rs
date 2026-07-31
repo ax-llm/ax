@@ -24,6 +24,8 @@ pub struct AxMCPTokenSet {
     pub refresh_token: Option<String>,
     pub expires_at: Option<i64>,
     pub issuer: Option<String>,
+    pub token_type: Option<String>,
+    pub scope: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -36,12 +38,32 @@ pub struct AxMCPOAuthOptions {
     pub token_store: Option<Arc<Mutex<dyn AxMCPTokenStore + Send + Sync>>>,
     pub ssrf_protection: Value,
     pub require_iss: bool,
+    pub grant_type: Option<String>,
+    pub resource: Option<String>,
+    pub authorization_server_metadata: Option<Value>,
 }
 
 pub trait AxMCPTokenStore {
     fn get_token(&mut self, key: &str) -> AxResult<Option<AxMCPTokenSet>>;
     fn set_token(&mut self, key: &str, token: AxMCPTokenSet) -> AxResult<()>;
     fn clear_token(&mut self, _key: &str) -> AxResult<()> {
+        Ok(())
+    }
+}
+
+struct AxMCPFixtureTokenStore {
+    tokens: HashMap<String, AxMCPTokenSet>,
+}
+impl AxMCPTokenStore for AxMCPFixtureTokenStore {
+    fn get_token(&mut self, key: &str) -> AxResult<Option<AxMCPTokenSet>> {
+        Ok(self.tokens.get(key).cloned())
+    }
+    fn set_token(&mut self, key: &str, token: AxMCPTokenSet) -> AxResult<()> {
+        self.tokens.insert(key.to_string(), token);
+        Ok(())
+    }
+    fn clear_token(&mut self, key: &str) -> AxResult<()> {
+        self.tokens.remove(key);
         Ok(())
     }
 }
@@ -3603,6 +3625,38 @@ fn mcp_now_ms() -> i64 {
         .unwrap_or_default()
         .as_millis() as i64
 }
+fn ax_mcp_oauth_token_value(token: Option<&AxMCPTokenSet>) -> Value {
+    let Some(token) = token else {
+        return Value::Null;
+    };
+    json!({"accessToken":token.access_token,"refreshToken":token.refresh_token,"expiresAt":token.expires_at,"issuer":token.issuer,"tokenType":token.token_type,"scope":token.scope})
+}
+fn ax_mcp_oauth_token_set(value: &Value) -> AxMCPTokenSet {
+    AxMCPTokenSet {
+        access_token: value
+            .get("accessToken")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        refresh_token: value
+            .get("refreshToken")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        expires_at: value.get("expiresAt").and_then(Value::as_i64),
+        issuer: value
+            .get("issuer")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        token_type: value
+            .get("tokenType")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        scope: value
+            .get("scope")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }
+}
 
 fn mcp_transport_request(
     transport: &Arc<Mutex<Box<dyn AxMCPTransport>>>,
@@ -3743,67 +3797,462 @@ impl AxMCPStreamableHTTPTransport {
         out
     }
 
-    pub fn apply_oauth(&mut self) -> AxResult<bool> {
-        let Some(oauth) = &self.oauth else {
-            return Ok(false);
-        };
-        if let Some(store) = &oauth.token_store {
-            if let Ok(Some(token)) = store.lock().unwrap().get_token(&self.endpoint) {
-                self.headers.insert(
-                    "Authorization".to_string(),
-                    json!(format!("Bearer {}", token.access_token)),
-                );
-                return Ok(true);
-            }
-        }
-        let Some(callback) = &oauth.on_auth_code else {
-            return Ok(false);
-        };
-        let verifier = ax_mcp_pkce_verifier();
-        let challenge = ax_mcp_pkce_challenge(&verifier);
-        let state = ax_mcp_pkce_verifier();
-        let auth = callback(format!(
-            "{}?response_type=code&code_challenge={}&code_challenge_method=S256&state={}",
-            self.endpoint,
-            ax_mcp_url_encode(&challenge),
-            ax_mcp_url_encode(&state)
-        ))?;
-        let Some(code) = auth.get("code").and_then(Value::as_str) else {
-            return Ok(false);
-        };
-        let mut response = auth.clone();
-        response.insert("expectedState".into(), json!(state));
-        let validation = core_mcp(
-            &crate::mcp_oauth_validate_issuer,
-            &[
-                Value::Object(response),
-                json!(self.endpoint),
-                json!(oauth.require_iss),
-            ],
-        )?;
-        if validation.get("ok").and_then(Value::as_bool) != Some(true) {
+    fn oauth_get_json(&self, endpoint: &str, oauth: &AxMCPOAuthOptions) -> AxResult<Value> {
+        let checked = ax_mcp_validate_endpoint(endpoint, &oauth.ssrf_protection)?;
+        let response = self
+            .client
+            .get(checked)
+            .header("Accept", "application/json")
+            .send()?;
+        if !response.status().is_success() {
             return Err(AxError::new(
                 "mcp",
-                validation
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("OAuth authorization response validation failed"),
+                format!("OAuth discovery HTTP error {}", response.status().as_u16()),
             ));
         }
-        let token = AxMCPTokenSet {
-            access_token: format!("mcp-auth-code-{code}"),
-            refresh_token: None,
-            expires_at: None,
-            issuer: Some(self.endpoint.clone()),
+        Ok(response.json()?)
+    }
+    fn oauth_post_token(
+        &self,
+        endpoint: &str,
+        body: &Value,
+        oauth: &AxMCPOAuthOptions,
+    ) -> AxResult<Value> {
+        let checked = ax_mcp_validate_endpoint(endpoint, &oauth.ssrf_protection)?;
+        let form = body
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(key, _)| key.as_str() != "__order")
+            .map(|(key, value)| {
+                (
+                    key.clone(),
+                    value
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| value.to_string()),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let response = self
+            .client
+            .post(checked)
+            .header("Accept", "application/json")
+            .form(&form)
+            .send()?;
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            let detail = response.text().unwrap_or_default();
+            return Err(AxError::new(
+                "mcp",
+                format!("OAuth token HTTP error {status}: {detail}"),
+            ));
+        }
+        Ok(response.json()?)
+    }
+    pub fn apply_oauth(&mut self) -> AxResult<bool> {
+        self.apply_oauth_with_challenge("")
+    }
+    fn apply_oauth_with_challenge(&mut self, www_authenticate: &str) -> AxResult<bool> {
+        let Some(oauth) = self.oauth.clone() else {
+            return Ok(false);
         };
+        let stored = if let Some(store) = &oauth.token_store {
+            store.lock().unwrap().get_token(&self.endpoint)?
+        } else {
+            None
+        };
+        let grant_type = oauth
+            .grant_type
+            .clone()
+            .unwrap_or_else(|| "authorization_code".into());
+        let plan = core_mcp(
+            &crate::mcp_oauth_plan_ensure_token,
+            &[
+                ax_mcp_oauth_token_value(stored.as_ref()),
+                json!(mcp_now_ms()),
+                json!(false),
+                json!(grant_type),
+                json!(oauth.on_auth_code.is_some()),
+            ],
+        )?;
+        if plan.get("ok").and_then(Value::as_bool) != Some(true) {
+            return Err(AxError::new(
+                "mcp",
+                plan.get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("OAuth token planning failed"),
+            ));
+        }
+        let mut action = plan
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if action == "cached" {
+            let token = ax_mcp_oauth_token_set(plan.get("token").unwrap_or(&Value::Null));
+            self.headers.insert(
+                "Authorization".into(),
+                json!(format!("Bearer {}", token.access_token)),
+            );
+            return Ok(true);
+        }
+        let parsed_challenge = core_mcp(
+            &crate::mcp_oauth_parse_www_authenticate,
+            &[json!(www_authenticate)],
+        )?;
+        let mut resource = oauth.resource.clone().unwrap_or_default();
+        let mut as_metadata = oauth.authorization_server_metadata.clone();
+        let mut issuer = as_metadata
+            .as_ref()
+            .and_then(|value| value.get("issuer"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if as_metadata.is_none() {
+            let discovery = core_mcp(
+                &crate::mcp_oauth_discovery_endpoints,
+                &[
+                    json!(self.endpoint),
+                    json!(""),
+                    parsed_challenge
+                        .get("resourceMetadata")
+                        .cloned()
+                        .unwrap_or_else(|| json!("")),
+                ],
+            )?;
+            let mut resource_metadata = None;
+            let mut last_error = None;
+            for endpoint in discovery
+                .get("resourceMetadataEndpoints")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                match self.oauth_get_json(endpoint.as_str().unwrap_or_default(), &oauth) {
+                    Ok(value) => {
+                        resource_metadata = Some(value);
+                        break;
+                    }
+                    Err(error) => last_error = Some(error),
+                }
+            }
+            let Some(resource_metadata) = resource_metadata else {
+                return Err(last_error.unwrap_or_else(|| {
+                    AxError::new("mcp", "Failed to resolve protected resource metadata")
+                }));
+            };
+            let coverage = core_mcp(
+                &crate::mcp_oauth_validate_resource_coverage,
+                &[json!(self.endpoint), resource_metadata],
+            )?;
+            if coverage.get("ok").and_then(Value::as_bool) != Some(true) {
+                return Err(AxError::new(
+                    "mcp",
+                    coverage
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("OAuth resource coverage validation failed"),
+                ));
+            }
+            if resource.is_empty() {
+                resource = coverage
+                    .get("resource")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            }
+            issuer = coverage
+                .get("issuers")
+                .and_then(Value::as_array)
+                .and_then(|values| values.first())
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let discovery = core_mcp(
+                &crate::mcp_oauth_discovery_endpoints,
+                &[json!(self.endpoint), json!(issuer), json!("")],
+            )?;
+            last_error = None;
+            let client_auth = if oauth
+                .client_secret
+                .as_deref()
+                .unwrap_or_default()
+                .is_empty()
+            {
+                "none"
+            } else {
+                "client_secret_post"
+            };
+            for endpoint in discovery
+                .get("authorizationServerMetadataEndpoints")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                match self.oauth_get_json(endpoint.as_str().unwrap_or_default(), &oauth) {
+                    Ok(candidate) => {
+                        let validation = core_mcp(
+                            &crate::mcp_oauth_validate_as_metadata,
+                            &[
+                                candidate.clone(),
+                                json!(issuer),
+                                json!(grant_type != "client_credentials"),
+                                json!(client_auth),
+                            ],
+                        )?;
+                        if validation.get("ok").and_then(Value::as_bool) == Some(true) {
+                            as_metadata = Some(candidate);
+                            break;
+                        }
+                        last_error = Some(AxError::new(
+                            "mcp",
+                            validation
+                                .get("message")
+                                .and_then(Value::as_str)
+                                .unwrap_or("OAuth AS metadata validation failed"),
+                        ))
+                    }
+                    Err(error) => last_error = Some(error),
+                }
+            }
+            if as_metadata.is_none() {
+                return Err(last_error.unwrap_or_else(|| {
+                    AxError::new("mcp", "Failed to discover authorization server metadata")
+                }));
+            }
+        }
+        let as_metadata = as_metadata.unwrap_or_else(|| json!({}));
+        if resource.is_empty() {
+            resource = self.endpoint.clone()
+        }
+        if issuer.is_empty() {
+            issuer = as_metadata
+                .get("issuer")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        }
+        let client_auth = if oauth
+            .client_secret
+            .as_deref()
+            .unwrap_or_default()
+            .is_empty()
+        {
+            "none"
+        } else {
+            "client_secret_post"
+        };
+        let metadata_validation = core_mcp(
+            &crate::mcp_oauth_validate_as_metadata,
+            &[
+                as_metadata.clone(),
+                json!(issuer),
+                json!(grant_type != "client_credentials"),
+                json!(client_auth),
+            ],
+        )?;
+        if metadata_validation.get("ok").and_then(Value::as_bool) != Some(true) {
+            return Err(AxError::new(
+                "mcp",
+                metadata_validation
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("OAuth AS metadata validation failed"),
+            ));
+        }
+        if let Some(configured) = self.oauth.as_mut() {
+            configured.authorization_server_metadata = Some(as_metadata.clone());
+            configured.resource = Some(resource.clone());
+        }
+        let mut scopes = parsed_challenge
+            .get("scopes")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if scopes.is_empty() {
+            scopes = oauth.scopes.iter().map(|scope| json!(scope)).collect()
+        }
+        if scopes.is_empty() {
+            scopes = as_metadata
+                .get("scopes_supported")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        }
+        let client_id = oauth
+            .client_id
+            .clone()
+            .unwrap_or_else(|| "ax-mcp-client".into());
+        let client_secret = oauth.client_secret.clone().unwrap_or_default();
+        let redirect_uri = oauth
+            .redirect_uri
+            .clone()
+            .unwrap_or_else(|| "http://localhost:8787/callback".into());
+        let exchange = |selected_grant: &str,
+                        code: &str,
+                        verifier: &str,
+                        refresh_token: &str|
+         -> AxResult<AxMCPTokenSet> {
+            let grant = core_mcp(
+                &crate::mcp_oauth_grant_body,
+                &[
+                    json!(selected_grant),
+                    json!(client_id),
+                    json!(client_secret),
+                    json!(client_auth),
+                    json!(resource),
+                    Value::Array(scopes.clone()),
+                    json!(code),
+                    json!(redirect_uri),
+                    json!(verifier),
+                    json!(refresh_token),
+                ],
+            )?;
+            if grant.get("ok").and_then(Value::as_bool) != Some(true) {
+                return Err(AxError::new(
+                    "mcp",
+                    grant
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("OAuth grant planning failed"),
+                ));
+            }
+            let raw = self.oauth_post_token(
+                as_metadata
+                    .get("token_endpoint")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                grant.get("body").unwrap_or(&Value::Null),
+                &oauth,
+            )?;
+            let parsed = core_mcp(
+                &crate::mcp_oauth_parse_token_response,
+                &[
+                    raw,
+                    json!(mcp_now_ms()),
+                    json!(refresh_token),
+                    json!(issuer),
+                ],
+            )?;
+            if parsed.get("ok").and_then(Value::as_bool) != Some(true) {
+                return Err(AxError::new(
+                    "mcp",
+                    parsed
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("OAuth token response validation failed"),
+                ));
+            }
+            Ok(ax_mcp_oauth_token_set(
+                parsed.get("token").unwrap_or(&Value::Null),
+            ))
+        };
+        let mut token = None;
+        if action == "refresh" {
+            match exchange(
+                "refresh_token",
+                "",
+                "",
+                plan.get("refreshToken")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            ) {
+                Ok(value) => token = Some(value),
+                Err(_) => {
+                    if let Some(store) = &oauth.token_store {
+                        let _ = store.lock().unwrap().clear_token(&self.endpoint);
+                    }
+                    action = if grant_type == "client_credentials" {
+                        "client_credentials".into()
+                    } else {
+                        "authorize".into()
+                    }
+                }
+            }
+        }
+        if action == "client_credentials" {
+            token = Some(exchange("client_credentials", "", "", "")?)
+        } else if action == "authorize" {
+            let Some(callback) = &oauth.on_auth_code else {
+                return Err(AxError::new(
+                    "mcp",
+                    "Authorization required. Provide oauth.onAuthCode to complete the flow",
+                ));
+            };
+            let verifier = ax_mcp_pkce_verifier();
+            let challenge = ax_mcp_pkce_challenge(&verifier);
+            let state = ax_mcp_pkce_verifier();
+            let params = core_mcp(
+                &crate::mcp_oauth_authorization_request_params,
+                &[
+                    json!(client_id),
+                    json!(redirect_uri),
+                    Value::Array(scopes.clone()),
+                    json!(resource),
+                    json!(state),
+                    json!(challenge),
+                ],
+            )?;
+            let checked = ax_mcp_validate_endpoint(
+                as_metadata
+                    .get("authorization_endpoint")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                &oauth.ssrf_protection,
+            )?;
+            let mut auth_url = reqwest::Url::parse(&checked)
+                .map_err(|error| AxError::new("mcp", error.to_string()))?;
+            for (key, value) in params
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter(|(key, _)| key.as_str() != "__order")
+            {
+                auth_url
+                    .query_pairs_mut()
+                    .append_pair(key, value.as_str().unwrap_or_default());
+            }
+            let auth = callback(auth_url.to_string())?;
+            let Some(code) = auth.get("code").and_then(Value::as_str) else {
+                return Ok(false);
+            };
+            let mut response = auth.clone();
+            response.insert("expectedState".into(), json!(state));
+            let validation = core_mcp(
+                &crate::mcp_oauth_validate_issuer,
+                &[
+                    Value::Object(response),
+                    json!(issuer),
+                    json!(
+                        oauth.require_iss
+                            || metadata_validation
+                                .get("requireIss")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false)
+                    ),
+                ],
+            )?;
+            if validation.get("ok").and_then(Value::as_bool) != Some(true) {
+                return Err(AxError::new(
+                    "mcp",
+                    validation
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("OAuth authorization response validation failed"),
+                ));
+            }
+            token = Some(exchange("authorization_code", code, &verifier, "")?)
+        }
+        let token = token.ok_or_else(|| AxError::new("mcp", "OAuth flow produced no token"))?;
         if let Some(store) = &oauth.token_store {
-            let _ = store
+            store
                 .lock()
                 .unwrap()
-                .set_token(&self.endpoint, token.clone());
+                .set_token(&self.endpoint, token.clone())?
         }
         self.headers.insert(
-            "Authorization".to_string(),
+            "Authorization".into(),
             json!(format!("Bearer {}", token.access_token)),
         );
         Ok(true)
@@ -3846,8 +4295,16 @@ impl AxMCPTransport for AxMCPStreamableHTTPTransport {
             }
         }
         let response = request.send()?;
-        if response.status().as_u16() == 401 && self.apply_oauth()? {
-            return self.send_with_headers(message, extra_headers);
+        if response.status().as_u16() == 401 {
+            let challenge = response
+                .headers()
+                .get("www-authenticate")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            if self.apply_oauth_with_challenge(&challenge)? {
+                return self.send_with_headers(message, extra_headers);
+            }
         }
         if !response.status().is_success() {
             return Err(AxError::new(
@@ -4546,6 +5003,178 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                 fixture.get("message").unwrap_or(&Value::Null),
             )
         }
+        "oauth_discovery" => {
+            let actual = core_mcp(
+                &crate::mcp_oauth_parse_www_authenticate,
+                &[fixture
+                    .get("www_authenticate")
+                    .cloned()
+                    .unwrap_or_else(|| json!(""))],
+            )?;
+            expect_subset(
+                "OAuth WWW-Authenticate parsing",
+                &actual,
+                fixture.get("expected_parse").unwrap_or(&Value::Null),
+            )?;
+            let actual = core_mcp(
+                &crate::mcp_oauth_discovery_endpoints,
+                &[
+                    fixture
+                        .get("requested_url")
+                        .cloned()
+                        .unwrap_or_else(|| json!("")),
+                    fixture.get("issuer").cloned().unwrap_or_else(|| json!("")),
+                    fixture
+                        .get("resource_metadata_url")
+                        .cloned()
+                        .unwrap_or_else(|| json!("")),
+                ],
+            )?;
+            expect_subset(
+                "OAuth discovery endpoints",
+                &actual,
+                fixture.get("expected_endpoints").unwrap_or(&Value::Null),
+            )?;
+            for case in fixture
+                .get("coverage_cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = core_mcp(
+                    &crate::mcp_oauth_validate_resource_coverage,
+                    &[
+                        case.get("requested_url")
+                            .cloned()
+                            .unwrap_or_else(|| json!("")),
+                        case.get("metadata").cloned().unwrap_or_else(|| json!({})),
+                    ],
+                )?;
+                expect_subset(
+                    "OAuth resource coverage",
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            Ok(())
+        }
+        "oauth_as_metadata" => {
+            for case in fixture
+                .get("cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = core_mcp(
+                    &crate::mcp_oauth_validate_as_metadata,
+                    &[
+                        case.get("metadata").cloned().unwrap_or_else(|| json!({})),
+                        case.get("expected_issuer")
+                            .cloned()
+                            .unwrap_or_else(|| json!("")),
+                        case.get("require_authorization")
+                            .cloned()
+                            .unwrap_or_else(|| json!(false)),
+                        case.get("client_auth_method")
+                            .cloned()
+                            .unwrap_or_else(|| json!("none")),
+                    ],
+                )?;
+                expect_subset(
+                    "OAuth AS metadata",
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            Ok(())
+        }
+        "oauth_token" => {
+            let authorization = fixture
+                .get("authorization")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let args = authorization
+                .get("args")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let actual = core_mcp(&crate::mcp_oauth_authorization_request_params, &args)?;
+            expect_subset(
+                "OAuth authorization params",
+                &actual,
+                authorization.get("expected").unwrap_or(&Value::Null),
+            )?;
+            for case in fixture
+                .get("grant_cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let args = case
+                    .get("args")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let actual = core_mcp(&crate::mcp_oauth_grant_body, &args)?;
+                expect_subset(
+                    "OAuth grant body",
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            for case in fixture
+                .get("token_cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = core_mcp(
+                    &crate::mcp_oauth_parse_token_response,
+                    &[
+                        case.get("response").cloned().unwrap_or_else(|| json!({})),
+                        case.get("now_ms").cloned().unwrap_or_else(|| json!(0)),
+                        case.get("previous_refresh_token")
+                            .cloned()
+                            .unwrap_or_else(|| json!("")),
+                        case.get("issuer").cloned().unwrap_or_else(|| json!("")),
+                    ],
+                )?;
+                expect_subset(
+                    "OAuth token response",
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            for case in fixture
+                .get("plan_cases")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let actual = core_mcp(
+                    &crate::mcp_oauth_plan_ensure_token,
+                    &[
+                        case.get("token").cloned().unwrap_or(Value::Null),
+                        case.get("now_ms").cloned().unwrap_or_else(|| json!(0)),
+                        case.get("force_refresh")
+                            .cloned()
+                            .unwrap_or_else(|| json!(false)),
+                        case.get("grant_type")
+                            .cloned()
+                            .unwrap_or_else(|| json!("authorization_code")),
+                        case.get("has_on_auth_code")
+                            .cloned()
+                            .unwrap_or_else(|| json!(false)),
+                    ],
+                )?;
+                expect_subset(
+                    "OAuth token plan",
+                    &actual,
+                    case.get("expected").unwrap_or(&Value::Null),
+                )?;
+            }
+            Ok(())
+        }
         "oauth_issuer" => {
             for case in fixture
                 .get("cases")
@@ -4571,38 +5200,6 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                     case.get("expected").unwrap_or(&Value::Null),
                 )?;
             }
-            let endpoint = fixture
-                .get("endpoint")
-                .and_then(Value::as_str)
-                .unwrap_or("https://auth.example")
-                .to_string();
-            let callback_endpoint = endpoint.clone();
-            let mut transport = AxMCPStreamableHTTPTransport::new(&endpoint, Value::Null)?;
-            transport.oauth = Some(AxMCPOAuthOptions {
-                require_iss: true,
-                on_auth_code: Some(Arc::new(move |raw_url| {
-                    let state = raw_url
-                        .split("state=")
-                        .nth(1)
-                        .and_then(|value| value.split('&').next())
-                        .unwrap_or_default();
-                    Ok(Map::from_iter([
-                        ("code".to_string(), json!("abc")),
-                        ("state".to_string(), json!(state)),
-                        ("iss".to_string(), json!(callback_endpoint)),
-                    ]))
-                })),
-                ..Default::default()
-            });
-            if !transport.apply_oauth()?
-                || transport.headers.get("Authorization")
-                    != fixture.get("stub_expected_authorization")
-            {
-                return Err(AxError::new(
-                    "fixture",
-                    "OAuth issuer-validating stub did not set Authorization",
-                ));
-            }
             Ok(())
         }
         "oauth" => {
@@ -4617,31 +5214,27 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                     return Err(AxError::new("fixture", "PKCE challenge mismatch"));
                 }
             }
-            let mut transport = AxMCPStreamableHTTPTransport::new(
-                fixture
-                    .get("endpoint")
-                    .and_then(Value::as_str)
-                    .unwrap_or("https://example.com/mcp"),
-                Value::Null,
-            )?;
+            let endpoint = fixture
+                .get("endpoint")
+                .and_then(Value::as_str)
+                .unwrap_or("https://example.com/mcp")
+                .to_string();
+            let stored =
+                ax_mcp_oauth_token_set(fixture.get("stored_token").unwrap_or(&Value::Null));
+            let store = AxMCPFixtureTokenStore {
+                tokens: HashMap::from([(endpoint.clone(), stored)]),
+            };
+            let mut transport = AxMCPStreamableHTTPTransport::new(&endpoint, Value::Null)?;
             transport.oauth = Some(AxMCPOAuthOptions {
-                on_auth_code: Some(Arc::new(|raw_url| {
-                    let state = raw_url
-                        .split("state=")
-                        .nth(1)
-                        .and_then(|value| value.split('&').next())
-                        .unwrap_or_default();
-                    Ok(Map::from_iter([
-                        ("code".to_string(), json!("abc")),
-                        ("state".to_string(), json!(state)),
-                    ]))
-                })),
+                token_store: Some(Arc::new(Mutex::new(store))),
                 ..Default::default()
             });
-            if !transport.apply_oauth()? || transport.headers.get("Authorization").is_none() {
+            if !transport.apply_oauth()?
+                || transport.headers.get("Authorization") != fixture.get("expected_authorization")
+            {
                 return Err(AxError::new(
                     "fixture",
-                    "OAuth flow did not set Authorization",
+                    "OAuth cached token did not set Authorization",
                 ));
             }
             Ok(())

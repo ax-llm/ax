@@ -113,7 +113,7 @@ source/test cell:
 | UCP | RFC 9421 request signatures and content digest | Implemented | `ucp/signing.ts` and deterministic signature test |
 | UCP | Response verification, key rotation, replay protection | Implemented | built-in RFC 9421 ES256/ES384 verification, raw digest, profile key refresh, time windows, and replay cache |
 | Languages | Python, Java, C++, Go, Rust native raw MCP bindings | Implemented | generator templates, committed packages, and five-target conformance fixture |
-| Languages | Foreign-server era, catalog, headers, and tool-call interoperability | Implemented | `scripts/test-mcp-interop.ts` runs TypeScript over stdio and HTTP plus Python, Java, C++, Go, and Rust over HTTP against exact-pinned `@modelcontextprotocol/server-everything@2026.7.4`; the shipped foreign server is legacy-era, so the harness asserts auto fallback, `2025-11-25` session/protocol headers, cache-metadata absence handling, catalog discovery, and `echo`; `scripts/mcp-interop-production.ts` manually checks Pipedream, DeepWiki, and Cloudflare Docs without invoking mutating tools |
+| Languages | Foreign-server era, catalog, headers, and tool-call interoperability | Implemented | `scripts/test-mcp-interop.ts` runs TypeScript over stdio and HTTP plus Python, Java, C++, Go, and Rust over HTTP against exact-pinned `@modelcontextprotocol/server-everything@2026.7.4`; the shipped foreign server is legacy-era, so the harness asserts auto fallback, `2025-11-25` session/protocol headers, cache-metadata absence handling, catalog discovery, and `echo`. Manual production evidence on 2026-07-30: Pipedream was reachable and classified as legacy `2024-11-05`, but its otherwise visible tools/resources catalog remained incomplete because `resources/templates/list` returned `-32601`; DeepWiki passed as legacy `2025-11-25` with 3 tools; Cloudflare Docs passed as modern `2026-07-28` with 2 tools and 1 prompt. The production script invokes no mutating tools. |
 | Languages | Dual-era MCP bindings | Implemented | `axmcp/initialize.json` and `axmcp/discover-modern.json`; the Python, Java, C++, Go, and Rust localhost harness in `scripts/test-generated-mcp-events.ts` runs both legacy and modern eras against the same server |
 | Languages | Modern `2026-07-28` discovery, metadata, and stateless request lifecycle | Implemented | `axmcp/era-classification.json`, `axmcp/discover-modern.json`, `axmcp/request-meta.json`, and `axmcp/modern-transport-headers.json`; the five-language modern localhost smoke proves `auto` selects modern, sends no initialize notification, refreshes per-request `serverInfo`, and retains no session state |
 | Languages | Modern Tasks v2 | Implemented | `axmcp/tasks-v2-modern.json` and `axmcp/tasks-v2-violations.json`; the five-language modern localhost smoke completes `tools/call` through `tasks/get` and consumes the flattened terminal result |
@@ -121,10 +121,34 @@ source/test cell:
 | Languages | Era-scoped subscriptions and listen reconnect | Implemented | `axmcp/subscriptions-listen.json`; the five-language legacy/modern localhost harness proves legacy subscribe plus resumable GET/SSE and modern `subscriptions/listen` POST restart, dropped-stream reconnect, resource updates, and close cleanup |
 | Languages | Modern cacheable catalog and resource results | Implemented | `axmcp/cache-fold.json` and `axmcp/read-cache.json`; the five-language modern localhost smoke proves catalog `ttlMs`/`cacheScope` reuse and refresh behavior without a redundant list request |
 | Languages | Modern method, name, and schema-derived parameter headers | Implemented | `axmcp/modern-headers.json`, `axmcp/modern-transport-headers.json`, and `axmcp/param-headers.json`; the five-language modern localhost smoke proves `Mcp-Param-Scope: all` reaches the server on `start_reindex` |
+| Languages | OAuth discovery, grants, refresh, and issuer binding | Implemented | `axmcp/oauth-discovery.json`, `axmcp/oauth-as-metadata.json`, `axmcp/oauth-token.json`, `axmcp/oauth-issuer.json`, and `scripts/test-mcp-oauth.ts`; Python, Java, C++, Go, and Rust each pass well-known and 401-challenge discovery through PKCE exchange and 60-second-skew refresh, plus wrong-`iss` rejection |
 | Languages | Full shared execution context and UCP parity | Implemented | AxIR declares `AxExecutionContext`, continuation state, `AxUCPBinding`, profile/outcome semantics, and `AxUCPClient`; generated Python/Java/C++/Go/Rust packages compile and pass `execution-context-ucp.json` |
 | Languages | Signature-aware event input mapping | Implemented | `event_map_input` and path descriptors in `ir/axcore/event.axir`, `axevent/mapping.json`, TypeScript fluent mapping tests, generated idiomatic path/input/target/route builders, and five generated lifecycle runners proving pre-invocation type rejection |
 | Languages | Event runtime lifecycle baseline | Implemented | All five generated lifecycle runners prove automatic dispatch, strict delayed-retry ordering, signature-normalized input, continuations, cancellation, backpressure, output-before-sink ordering, and redrive; `npm run test:axir` passes release verification. |
 | Languages | MCP event source wake/resume and subscription discovery | Implemented | Five generated lifecycle runners prove explicit/all/selector planning and ownership; the real localhost HTTP/SSE matrix for Python, Java, C++, Go, and Rust proves dual-era discovery, dynamic list changes, reconnect/resubscribe, Agent wake, task progress, Flow resume, and close cleanup. |
+
+The generated-language OAuth surface is deliberately the middle tier:
+protected-resource and authorization-server discovery, PKCE S256,
+authorization-code, refresh, and client-credentials grants, RFC 8707 resource
+indicators, RFC 9207 `iss`, and `none`/`client_secret_post` client
+authentication. DPoP, CIMD/DCR, JAR, PAR, RAR, mTLS, revocation,
+introspection, JWT validation, and enterprise-managed authorization remain
+TypeScript-only. Generated token stores key by MCP endpoint for their
+single-server client handles; TypeScript keys by `resource::issuer`. Client
+registration issuer-keying is not applicable to generated ports because the
+host supplies `clientId` and those ports do not register clients.
+
+## Watch items
+
+- Track the MCP Apps extension revision and update negotiation, resource
+  validation, and bridge-policy fixtures together when it changes.
+- Begin the approximately July 2027 deprecation-window review for the legacy
+  SSE transport and the legacy roots, sampling, and logging server-request
+  trio. Preserve compatibility until published MCP timelines make removal
+  safe.
+- Revisit dynamic client registration when the MCP authorization profile
+  establishes its post-2026-07-28 direction. Generated ports intentionally use
+  host-provided client identifiers today.
 
 ## Completion gates
 

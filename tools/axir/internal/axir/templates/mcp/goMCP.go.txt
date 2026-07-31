@@ -34,6 +34,8 @@ type AxMCPTokenSet struct {
 	RefreshToken string
 	ExpiresAt int64
 	Issuer string
+	TokenType string
+	Scope string
 }
 
 type AxMCPOAuthOptions struct {
@@ -45,6 +47,9 @@ type AxMCPOAuthOptions struct {
 	TokenStore AxMCPTokenStore
 	SSRFProtection map[string]Value
 	RequireIss bool
+	GrantType string
+	Resource string
+	AuthorizationServerMetadata map[string]Value
 }
 
 type AxMCPTokenStore interface {
@@ -707,7 +712,7 @@ func (t *AxMCPStreamableHTTPTransport) SendWithHeaders(message map[string]Value,
 	if err != nil { return nil, err }
 	defer res.Body.Close()
 	if sid := res.Header.Get("MCP-Session-Id"); t.Era != "modern" && sid != "" { t.SessionID = sid }
-	if res.StatusCode == 401 { applied, oauthErr := t.ApplyOAuth(); if oauthErr != nil { return nil, oauthErr }; if applied { return t.SendWithHeaders(message, extraHeaders) } }
+	if res.StatusCode == 401 { challenge := res.Header.Get("WWW-Authenticate"); _, _ = io.Copy(io.Discard, res.Body); _ = res.Body.Close(); applied, oauthErr := t.ApplyOAuth(challenge); if oauthErr != nil { return nil, oauthErr }; if applied { return t.SendWithHeaders(message, extraHeaders) } }
 	if res.StatusCode < 200 || res.StatusCode >= 300 { return nil, AxError{Category:"mcp", Message:fmt.Sprintf("HTTP error %d", res.StatusCode)} }
 	data, _ := io.ReadAll(res.Body)
 	if len(strings.TrimSpace(string(data))) == 0 { return map[string]Value{"jsonrpc":"2.0", "id":coreGet(message, "id", nil), "result":map[string]Value{}}, nil }
@@ -856,26 +861,76 @@ func (t *AxMCPStreamableHTTPTransport) BuildHeaders(base map[string]string, incl
 func axMCPEncodeHeaderValue(value string) string { plan := asMap(mustCore(mcp_header_value_plan(value))); if display(coreGet(plan, "mode", "plain")) == "plain" { return value }; return "=?base64?"+base64.StdEncoding.EncodeToString([]byte(value))+"?=" }
 func (t *AxMCPStreamableHTTPTransport) TerminateSession() error { if t.Era == "modern" || t.SessionID == "" { return nil }; t.SessionID = ""; return nil }
 
-func (t *AxMCPStreamableHTTPTransport) ApplyOAuth() (bool, error) {
+func axMCPOAuthTokenValue(token *AxMCPTokenSet) Value {
+	if token == nil { return nil }
+	out := map[string]Value{"accessToken":token.AccessToken}
+	if token.RefreshToken != "" { out["refreshToken"] = token.RefreshToken }
+	if token.ExpiresAt != 0 { out["expiresAt"] = token.ExpiresAt }
+	if token.Issuer != "" { out["issuer"] = token.Issuer }
+	if token.TokenType != "" { out["tokenType"] = token.TokenType }
+	if token.Scope != "" { out["scope"] = token.Scope }
+	return out
+}
+
+func axMCPOAuthTokenSet(value Value) AxMCPTokenSet {
+	token := asMap(value)
+	return AxMCPTokenSet{AccessToken:display(coreGet(token,"accessToken","")),RefreshToken:display(coreGet(token,"refreshToken","")),ExpiresAt:int64(num(coreGet(token,"expiresAt",0))),Issuer:display(coreGet(token,"issuer","")),TokenType:display(coreGet(token,"tokenType","Bearer")),Scope:display(coreGet(token,"scope",""))}
+}
+
+func (t *AxMCPStreamableHTTPTransport) oauthGetJSON(endpoint string) (map[string]Value, error) {
+	checked, err := AxMCPValidateEndpoint(endpoint, t.OAuth.SSRFProtection); if err != nil { return nil, err }
+	req, err := http.NewRequest("GET", checked, nil); if err != nil { return nil, err }; req.Header.Set("Accept","application/json")
+	res, err := t.client.Do(req); if err != nil { return nil, err }; defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 { return nil, fmt.Errorf("OAuth discovery HTTP error %d", res.StatusCode) }
+	var out map[string]Value; if err := json.NewDecoder(res.Body).Decode(&out); err != nil { return nil, err }; return out, nil
+}
+
+func (t *AxMCPStreamableHTTPTransport) oauthPostToken(endpoint string, body map[string]Value) (map[string]Value, error) {
+	checked, err := AxMCPValidateEndpoint(endpoint, t.OAuth.SSRFProtection); if err != nil { return nil, err }
+	form := url.Values{}; for key, value := range body { if key != "__order" { form.Set(key, display(value)) } }
+	req, err := http.NewRequest("POST", checked, strings.NewReader(form.Encode())); if err != nil { return nil, err }; req.Header.Set("Accept","application/json"); req.Header.Set("Content-Type","application/x-www-form-urlencoded")
+	res, err := t.client.Do(req); if err != nil { return nil, err }; defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 { data,_:=io.ReadAll(res.Body); return nil, fmt.Errorf("OAuth token HTTP error %d: %s",res.StatusCode,strings.TrimSpace(string(data))) }
+	var out map[string]Value; if err := json.NewDecoder(res.Body).Decode(&out); err != nil { return nil, err }; return out, nil
+}
+
+func (t *AxMCPStreamableHTTPTransport) ApplyOAuth(wwwAuthenticate ...string) (bool, error) {
 	if t.OAuth == nil { return false, nil }
+	challenge := ""; if len(wwwAuthenticate) > 0 { challenge = wwwAuthenticate[0] }
+	var stored *AxMCPTokenSet
 	if t.OAuth.TokenStore != nil {
-		token, _ := t.OAuth.TokenStore.GetToken(t.Endpoint)
-		if token != nil && token.AccessToken != "" {
-			t.Headers["Authorization"] = "Bearer " + token.AccessToken
-			return true, nil
-		}
+		stored, _ = t.OAuth.TokenStore.GetToken(t.Endpoint)
 	}
-	if t.OAuth.OnAuthCode == nil { return false, nil }
-	verifier := AxMCPPKCEVerifier()
-	challenge := AxMCPPKCEChallenge(verifier)
-	state := AxMCPPKCEVerifier()
-	auth, err := t.OAuth.OnAuthCode(t.Endpoint+"?response_type=code&code_challenge="+url.QueryEscape(challenge)+"&code_challenge_method=S256&state="+url.QueryEscape(state))
-	if err != nil { return false, err }
-	if auth["code"] == "" { return false, nil }
-	response := map[string]Value{}; for key, value := range auth { response[key] = value }; response["expectedState"] = state
-	validationValue, err := mcp_oauth_validate_issuer(response, t.Endpoint, t.OAuth.RequireIss); if err != nil { return false, err }
-	validation := asMap(validationValue); if !coreTruthy(coreGet(validation, "ok", false)) { return false, fmt.Errorf("%s", display(coreGet(validation, "message", "OAuth authorization response validation failed"))) }
-	token := AxMCPTokenSet{AccessToken:"mcp-auth-code-"+auth["code"], Issuer:t.Endpoint}
+	grantType := t.OAuth.GrantType; if grantType == "" { grantType = "authorization_code" }
+	planValue, err := mcp_oauth_plan_ensure_token(axMCPOAuthTokenValue(stored), time.Now().UnixMilli(), false, grantType, t.OAuth.OnAuthCode != nil); if err != nil { return false, err }
+	plan := asMap(planValue); if !coreTruthy(coreGet(plan,"ok",false)) { return false, fmt.Errorf("%s",display(coreGet(plan,"message","OAuth token planning failed"))) }
+	action := display(coreGet(plan,"action",""))
+	if action == "cached" { token := axMCPOAuthTokenSet(coreGet(plan,"token",axMCPOAuthTokenValue(stored))); t.Headers["Authorization"] = "Bearer "+token.AccessToken; return true,nil }
+	parsedValue, err := mcp_oauth_parse_www_authenticate(challenge); if err != nil { return false,err }; parsed := asMap(parsedValue)
+	resource := t.OAuth.Resource
+	asMetadata := t.OAuth.AuthorizationServerMetadata
+	issuer := display(coreGet(asMetadata,"issuer",""))
+	if asMetadata == nil {
+		discoveryValue, callErr := mcp_oauth_discovery_endpoints(t.Endpoint,"",display(coreGet(parsed,"resourceMetadata",""))); if callErr != nil { return false,callErr }; discovery := asMap(discoveryValue)
+		var resourceMetadata map[string]Value; var lastErr error
+		for _, endpoint := range asSlice(coreGet(discovery,"resourceMetadataEndpoints",Array())) { resourceMetadata,lastErr=t.oauthGetJSON(display(endpoint)); if lastErr==nil { break } }
+		if resourceMetadata == nil { return false,fmt.Errorf("failed to resolve protected resource metadata: %w",lastErr) }
+		coverageValue,callErr:=mcp_oauth_validate_resource_coverage(t.Endpoint,resourceMetadata);if callErr!=nil{return false,callErr};coverage:=asMap(coverageValue);if !coreTruthy(coreGet(coverage,"ok",false)){return false,fmt.Errorf("%s",display(coreGet(coverage,"message","OAuth resource coverage validation failed")))}
+		if resource==""{resource=display(coreGet(coverage,"resource",""))}; issuers:=asSlice(coreGet(coverage,"issuers",Array()));if len(issuers)==0{return false,fmt.Errorf("no OAuth authorization server discovered")};issuer=display(issuers[0])
+		discoveryValue,callErr=mcp_oauth_discovery_endpoints(t.Endpoint,issuer,"");if callErr!=nil{return false,callErr};discovery=asMap(discoveryValue);lastErr=nil
+		for _, endpoint := range asSlice(coreGet(discovery,"authorizationServerMetadataEndpoints",Array())) { candidate,getErr:=t.oauthGetJSON(display(endpoint));if getErr!=nil{lastErr=getErr;continue};validationValue,validateErr:=mcp_oauth_validate_as_metadata(candidate,issuer,grantType!="client_credentials",func()string{if t.OAuth.ClientSecret!=""{return "client_secret_post"};return "none"}());if validateErr!=nil{lastErr=validateErr;continue};validation:=asMap(validationValue);if !coreTruthy(coreGet(validation,"ok",false)){lastErr=fmt.Errorf("%s",display(coreGet(validation,"message","OAuth AS metadata validation failed")));continue};asMetadata=candidate;break }
+		if asMetadata==nil{return false,fmt.Errorf("failed to discover authorization server metadata: %w",lastErr)}
+	}
+	if resource==""{resource=t.Endpoint};if issuer==""{issuer=display(coreGet(asMetadata,"issuer",""))}
+	clientAuth:="none";if t.OAuth.ClientSecret!=""{clientAuth="client_secret_post"}
+	metadataValidationValue,err:=mcp_oauth_validate_as_metadata(asMetadata,issuer,grantType!="client_credentials",clientAuth);if err!=nil{return false,err};metadataValidation:=asMap(metadataValidationValue);if !coreTruthy(coreGet(metadataValidation,"ok",false)){return false,fmt.Errorf("%s",display(coreGet(metadataValidation,"message","OAuth AS metadata validation failed")))}
+	t.OAuth.AuthorizationServerMetadata=asMetadata;t.OAuth.Resource=resource
+	scopes:=Array();for _,scope:=range asSlice(coreGet(parsed,"scopes",Array())){scopes=append(scopes,scope)};if len(scopes)==0{for _,scope:=range t.OAuth.Scopes{scopes=append(scopes,scope)}};if len(scopes)==0{for _,scope:=range asSlice(coreGet(asMetadata,"scopes_supported",Array())){scopes=append(scopes,scope)}}
+	clientID:=t.OAuth.ClientID;if clientID==""{clientID="ax-mcp-client"};redirectURI:=t.OAuth.RedirectURI;if redirectURI==""{redirectURI="http://localhost:8787/callback"}
+	exchange:=func(selectedGrant,code,verifier,refreshToken string)(AxMCPTokenSet,error){grantValue,grantErr:=mcp_oauth_grant_body(selectedGrant,clientID,t.OAuth.ClientSecret,clientAuth,resource,scopes,code,redirectURI,verifier,refreshToken);if grantErr!=nil{return AxMCPTokenSet{},grantErr};grant:=asMap(grantValue);if !coreTruthy(coreGet(grant,"ok",false)){return AxMCPTokenSet{},fmt.Errorf("%s",display(coreGet(grant,"message","OAuth grant planning failed")))};raw,postErr:=t.oauthPostToken(display(coreGet(asMetadata,"token_endpoint","")),asMap(coreGet(grant,"body",Object())));if postErr!=nil{return AxMCPTokenSet{},postErr};parsedTokenValue,parseErr:=mcp_oauth_parse_token_response(raw,time.Now().UnixMilli(),refreshToken,issuer);if parseErr!=nil{return AxMCPTokenSet{},parseErr};parsedToken:=asMap(parsedTokenValue);if !coreTruthy(coreGet(parsedToken,"ok",false)){return AxMCPTokenSet{},fmt.Errorf("%s",display(coreGet(parsedToken,"message","OAuth token response validation failed")))};return axMCPOAuthTokenSet(coreGet(parsedToken,"token",Object())),nil}
+	var token AxMCPTokenSet
+	if action=="refresh"{token,err=exchange("refresh_token","","",display(coreGet(plan,"refreshToken","")));if err!=nil{if t.OAuth.TokenStore!=nil{_ = t.OAuth.TokenStore.ClearToken(t.Endpoint)};if grantType=="client_credentials"{action="client_credentials"}else{action="authorize"}}}
+	if action=="client_credentials"{token,err=exchange("client_credentials","","","");if err!=nil{return false,err}}else if action=="authorize"{if t.OAuth.OnAuthCode==nil{return false,fmt.Errorf("Authorization required. Provide oauth.onAuthCode to complete the flow")};verifier:=AxMCPPKCEVerifier();codeChallenge:=AxMCPPKCEChallenge(verifier);state:=AxMCPPKCEVerifier();paramsValue,callErr:=mcp_oauth_authorization_request_params(clientID,redirectURI,scopes,resource,state,codeChallenge);if callErr!=nil{return false,callErr};authorizationEndpoint,validateErr:=AxMCPValidateEndpoint(display(coreGet(asMetadata,"authorization_endpoint","")),t.OAuth.SSRFProtection);if validateErr!=nil{return false,validateErr};parsedURL,parseErr:=url.Parse(authorizationEndpoint);if parseErr!=nil{return false,parseErr};query:=parsedURL.Query();for key,value:=range asMap(paramsValue){if key!="__order"{query.Set(key,display(value))}};parsedURL.RawQuery=query.Encode();auth,callbackErr:=t.OAuth.OnAuthCode(parsedURL.String());if callbackErr!=nil{return false,callbackErr};if auth["code"]==""{return false,nil};response:=map[string]Value{"expectedState":state};for key,value:=range auth{response[key]=value};issuerValidationValue,callErr:=mcp_oauth_validate_issuer(response,issuer,t.OAuth.RequireIss||coreTruthy(coreGet(metadataValidation,"requireIss",false)));if callErr!=nil{return false,callErr};issuerValidation:=asMap(issuerValidationValue);if !coreTruthy(coreGet(issuerValidation,"ok",false)){return false,fmt.Errorf("%s",display(coreGet(issuerValidation,"message","OAuth authorization response validation failed")))};token,err=exchange("authorization_code",auth["code"],verifier,"");if err!=nil{return false,err}}
 	if t.OAuth.TokenStore != nil { _ = t.OAuth.TokenStore.SetToken(t.Endpoint, token) }
 	t.Headers["Authorization"] = "Bearer " + token.AccessToken
 	return true, nil
@@ -1013,21 +1068,37 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		assertSubset(decoded, msg, "stdio decoded")
 		return
 	}
+	if op == "oauth_discovery" {
+		actual := mustCore(mcp_oauth_parse_www_authenticate(coreGet(fixture, "www_authenticate", "")))
+		assertSubset(actual, coreGet(fixture, "expected_parse", Object()), "OAuth WWW-Authenticate parsing")
+		actual = mustCore(mcp_oauth_discovery_endpoints(coreGet(fixture, "requested_url", ""), coreGet(fixture, "issuer", ""), coreGet(fixture, "resource_metadata_url", "")))
+		assertSubset(actual, coreGet(fixture, "expected_endpoints", Object()), "OAuth discovery endpoints")
+		for _, raw := range asSlice(coreGet(fixture, "coverage_cases", Array())) { c := asMap(raw); actual = mustCore(mcp_oauth_validate_resource_coverage(coreGet(c, "requested_url", ""), coreGet(c, "metadata", Object()))); assertSubset(actual, coreGet(c, "expected", Object()), "OAuth resource coverage") }
+		return
+	}
+	if op == "oauth_as_metadata" {
+		for _, raw := range asSlice(coreGet(fixture, "cases", Array())) { c := asMap(raw); actual := mustCore(mcp_oauth_validate_as_metadata(coreGet(c, "metadata", Object()), coreGet(c, "expected_issuer", ""), coreGet(c, "require_authorization", false), coreGet(c, "client_auth_method", "none"))); assertSubset(actual, coreGet(c, "expected", Object()), "OAuth AS metadata") }
+		return
+	}
+	if op == "oauth_token" {
+		authorization := asMap(coreGet(fixture, "authorization", Object())); args := asSlice(coreGet(authorization, "args", Array())); actual := mustCore(mcp_oauth_authorization_request_params(args...)); assertSubset(actual, coreGet(authorization, "expected", Object()), "OAuth authorization params")
+		for _, raw := range asSlice(coreGet(fixture, "grant_cases", Array())) { c := asMap(raw); actual = mustCore(mcp_oauth_grant_body(asSlice(coreGet(c, "args", Array()))...)); assertSubset(actual, coreGet(c, "expected", Object()), "OAuth grant body") }
+		for _, raw := range asSlice(coreGet(fixture, "token_cases", Array())) { c := asMap(raw); actual = mustCore(mcp_oauth_parse_token_response(coreGet(c, "response", Object()), coreGet(c, "now_ms", 0), coreGet(c, "previous_refresh_token", ""), coreGet(c, "issuer", ""))); assertSubset(actual, coreGet(c, "expected", Object()), "OAuth token response") }
+		for _, raw := range asSlice(coreGet(fixture, "plan_cases", Array())) { c := asMap(raw); actual = mustCore(mcp_oauth_plan_ensure_token(coreGet(c, "token", nil), coreGet(c, "now_ms", 0), coreGet(c, "force_refresh", false), coreGet(c, "grant_type", "authorization_code"), coreGet(c, "has_on_auth_code", false))); assertSubset(actual, coreGet(c, "expected", Object()), "OAuth token plan") }
+		return
+	}
 	if op == "oauth_issuer" {
 		for _, raw := range asSlice(coreGet(fixture, "cases", Array())) { c := asMap(raw); actual := mustCore(mcp_oauth_validate_issuer(coreGet(c, "response", Object()), coreGet(c, "expected_issuer", ""), coreGet(c, "require_iss", false))); assertSubset(actual, coreGet(c, "expected", Object()), "OAuth issuer validation") }
-		endpoint := display(coreGet(fixture, "endpoint", "https://auth.example")); transport, err := NewAxMCPStreamableHTTPTransport(endpoint, nil); if err != nil { panic(err) }
-		transport.OAuth = &AxMCPOAuthOptions{RequireIss:true, OnAuthCode:func(rawURL string)(map[string]string,error){ parsed, parseErr := url.Parse(rawURL); if parseErr != nil { return nil, parseErr }; return map[string]string{"code":"abc", "state":parsed.Query().Get("state"), "iss":endpoint}, nil }}
-		applied, err := transport.ApplyOAuth(); if err != nil { panic(err) }; if !applied { panic("OAuth issuer-validating stub did not produce a token") }; if transport.Headers["Authorization"] != display(coreGet(fixture, "stub_expected_authorization", "")) { panic("OAuth issuer-validating stub did not set Authorization") }
 		return
 	}
 	if op == "oauth" {
 		challenge := AxMCPPKCEChallenge(display(coreGet(fixture, "verifier", "test-verifier")))
 		if want := display(coreGet(fixture, "expected_challenge", "")); want != "" && challenge != want { panic("PKCE challenge mismatch") }
-		store := &mcpMapTokenStore{tokens:map[string]AxMCPTokenSet{}}
-		t, err := NewAxMCPStreamableHTTPTransport(display(coreGet(fixture, "endpoint", "https://example.com/mcp")), nil); if err != nil { panic(err) }
-		t.OAuth = &AxMCPOAuthOptions{TokenStore:store, OnAuthCode:func(rawURL string)(map[string]string,error){ parsed, parseErr := url.Parse(rawURL); if parseErr != nil { return nil, parseErr }; return map[string]string{"code":"abc", "state":parsed.Query().Get("state")}, nil }}
+		endpoint := display(coreGet(fixture, "endpoint", "https://example.com/mcp")); stored := asMap(coreGet(fixture, "stored_token", Object())); store := &mcpMapTokenStore{tokens:map[string]AxMCPTokenSet{endpoint:{AccessToken:display(coreGet(stored,"accessToken","")),RefreshToken:display(coreGet(stored,"refreshToken","")),ExpiresAt:int64(num(coreGet(stored,"expiresAt",0))),Issuer:display(coreGet(stored,"issuer",""))}}}
+		t, err := NewAxMCPStreamableHTTPTransport(endpoint, nil); if err != nil { panic(err) }
+		t.OAuth = &AxMCPOAuthOptions{TokenStore:store}
 		applied, err := t.ApplyOAuth(); if err != nil { panic(err) }; if !applied { panic("OAuth flow did not produce a token") }
-		if t.Headers["Authorization"] == "" { panic("OAuth flow did not set Authorization") }
+		if t.Headers["Authorization"] != display(coreGet(fixture,"expected_authorization","")) { panic("OAuth cached token did not set Authorization") }
 		return
 	}
 	if op == "discover" {

@@ -156,6 +156,55 @@ example manually, start `src/examples/mcp-event-demo-server.ts`, set
 examples wait on target/sink completion and close their source, runtime, and
 client in order; they do not use `waitForIdle()` as an ingress detector.
 
+Generated Streamable HTTP transports also implement the portable OAuth middle
+tier. Each language accepts the same host boundaries: an endpoint-keyed token
+store and an authorization callback that receives the authorization URL and
+returns `code`, `state`, and `iss`. The transport performs protected-resource
+and authorization-server discovery, validates PKCE S256 metadata, sends the
+RFC 8707 `resource` parameter on authorization and token requests, refreshes
+with a 60-second skew, and checks RFC 9207 `iss` against the discovered issuer.
+
+```python
+transport = AxMCPStreamableHTTPTransport(endpoint, {"oauth": {
+    "clientId": "my-client", "tokenStore": tokens,
+    "onAuthCode": authorize, "requireIss": True,
+}})
+```
+
+```go
+transport.OAuth = &ax.AxMCPOAuthOptions{
+    ClientID: "my-client", TokenStore: tokens,
+    OnAuthCode: authorize, RequireIss: true,
+}
+```
+
+```java
+AxMCPOAuthOptions oauth = new AxMCPOAuthOptions();
+oauth.clientId = "my-client"; oauth.tokenStore = tokens;
+oauth.onAuthCode = authorize; oauth.requireIss = true;
+var transport = new AxMCPStreamableHTTPTransport(endpoint, Map.of("oauth", oauth));
+```
+
+```cpp
+transport.oauth.clientId = "my-client";
+transport.oauth.getToken = get_token; transport.oauth.setToken = set_token;
+transport.oauth.onAuthCode = authorize; transport.oauth.requireIss = true;
+```
+
+```rust
+transport.oauth = Some(AxMCPOAuthOptions {
+    client_id: Some("my-client".into()), token_store: Some(tokens),
+    on_auth_code: Some(authorize), require_iss: true, ..Default::default()
+});
+```
+
+Here `authorize` is host policy: a test host may fetch the headless demo URL,
+while an interactive application opens it for the user and returns the
+redirect parameters. Keep remote SSRF defaults enabled. The deterministic
+five-language proof is `npm run test:mcp-oauth`; DPoP, CIMD/DCR, JAR, PAR, RAR,
+mTLS, and other advanced TypeScript OAuth features are outside the generated
+port surface.
+
 - Sampling: pass `sampling(params, { client, namespace })` to the client and
   return a typed `sampling/createMessage` result.
 - Elicitation: pass `elicitation` and validate both form and URL-mode requests

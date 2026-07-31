@@ -53,6 +53,5 @@
       "require_iss": true,
       "expected": { "ok": false, "message": "OAuth state mismatch" }
     }
-  ],
-  "stub_expected_authorization": "Bearer mcp-auth-code-abc"
+  ]
 }
