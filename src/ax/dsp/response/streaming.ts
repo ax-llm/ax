@@ -224,8 +224,11 @@ async function* processStreamingResult<OUT extends AxGenOut>({
             };
           }
         }
-        return;
       }
+      // Complex fields use structured JSON (or the function-call fallback),
+      // so prompt extraction must not re-parse the same content and emit a
+      // second, independently tracked set of array deltas.
+      return;
     }
 
     const skip = streamingExtractValues(

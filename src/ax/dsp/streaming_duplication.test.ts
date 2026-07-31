@@ -184,6 +184,71 @@ describe('Streaming Duplication Reproduction', () => {
     expect(finalResult.val).toBe('ABC');
     expect(finalResult.action).toBe('go'); // 'go' was re-emitted in new version snapshot
   });
+  it('should not duplicate object array items when streaming structured output (#564)', async () => {
+    const sig = f()
+      .input('prompt', f.string())
+      .output(
+        'profiles',
+        f.object({ id: f.string(), name: f.string(), role: f.string() }).array()
+      )
+      .useStructured()
+      .build();
+
+    const gen = ax(sig);
+
+    const fullJson =
+      '{"profiles":[{"id":"1","name":"A","role":"x"},{"id":"2","name":"B","role":"y"},{"id":"3","name":"C","role":"z"},{"id":"4","name":"D","role":"w"}]}';
+
+    const makeStream = (chunkLen: number) => {
+      const rawChunks =
+        fullJson.match(new RegExp(`.{1,${chunkLen}}`, 'g')) || [];
+      const mockAI = new AxMockAIService<string>({
+        name: 'mock-array',
+        features: { functions: true, streaming: true, structuredOutputs: true },
+      });
+      mockAI.chat = async (_req, options) => {
+        if (options?.stream) {
+          return new ReadableStream({
+            async start(controller) {
+              for (const chunk of rawChunks) {
+                controller.enqueue({ results: [{ index: 0, content: chunk }] });
+                await new Promise((r) => setTimeout(r, 2));
+              }
+              controller.close();
+            },
+          }) as any;
+        }
+        return { results: [] };
+      };
+      return mockAI;
+    };
+
+    const expected = [
+      { id: '1', name: 'A', role: 'x' },
+      { id: '2', name: 'B', role: 'y' },
+      { id: '3', name: 'C', role: 'z' },
+      { id: '4', name: 'D', role: 'w' },
+    ];
+
+    // forward() aggregates the stream — the object returned to the caller must
+    // hold exactly the four distinct objects, not duplicated ones.
+    const result: any = await gen.forward(
+      makeStream(4),
+      { prompt: 'test' },
+      { stream: true }
+    );
+    expect(result.profiles).toEqual(expected);
+
+    // The delta stream itself must never re-emit an already-yielded item.
+    const collected: any[] = [];
+    for await (const chunk of gen.streamingForward(makeStream(3), {
+      prompt: 'test',
+    })) {
+      const d = (chunk.delta as any).profiles;
+      if (Array.isArray(d)) collected.push(...d);
+    }
+    expect(collected).toEqual(expected);
+  });
   it('should handle versioning correctly during extension', async () => {
     const sig = f().input('in', f.string()).output('val', f.string()).build();
     const gen = ax(sig);

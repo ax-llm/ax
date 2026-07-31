@@ -43,6 +43,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/dsp/extract.test.ts`, `src/ax/dsp/extract/fieldValue.ts`, `src/ax/dsp/extract/structuredJson.ts`, `src/ax/dsp/structured.test.ts`
   - Impact: Generated Python, Java, C++, Go, and Rust validators may still validate URL arrays as scalar values or skip per-item URL checks, diverging from TypeScript extraction and structured-output validation.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-07-31-port-structured-object-array-streaming-deduplication` [axgen] Port structured object-array streaming deduplication
+  - Status: open
+  - Source PR: #565
+  - Source commit: `e29c3316a7cbc1d06959eceb58b0d099882d8c52`
+  - TS paths: `src/ax/dsp/response/streaming.ts`, `src/ax/dsp/streaming_duplication.test.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust streaming runtimes may still run prompt extraction after structured JSON parsing for complex fields, re-emitting object-array items and returning duplicated results.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
