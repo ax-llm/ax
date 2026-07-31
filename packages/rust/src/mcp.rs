@@ -46,6 +46,8 @@ pub trait AxMCPTokenStore {
     }
 }
 
+pub type AxMCPElicitationHandler = Arc<dyn Fn(Value, Value) -> AxResult<Value> + Send + Sync>;
+
 pub trait AxMCPTransport: Send {
     fn send(&mut self, message: Value) -> AxResult<Value>;
     fn send_with_headers(
@@ -141,6 +143,7 @@ pub struct AxMCPClient {
     active_subscription_id: Option<String>,
     subscription_ready: bool,
     catalog_revision: u64,
+    elicitation_handler: Option<AxMCPElicitationHandler>,
     initialized: bool,
 }
 
@@ -171,13 +174,31 @@ impl AxMCPClient {
             active_subscription_id: None,
             subscription_ready: false,
             catalog_revision: 0,
+            elicitation_handler: None,
             initialized: false,
         }
+    }
+
+    pub fn set_elicitation_handler(
+        &mut self,
+        handler: impl Fn(Value, Value) -> AxResult<Value> + Send + Sync + 'static,
+    ) {
+        self.elicitation_handler = Some(Arc::new(handler));
     }
 
     pub fn init(&mut self) -> AxResult<()> {
         if self.initialized {
             return Ok(());
+        }
+        if self
+            .options
+            .get("sampling")
+            .is_some_and(|value| !value.is_null() && value != &Value::Bool(false))
+        {
+            return Err(AxError::new(
+                "mcp",
+                "MCP sampling is not supported by the generated Rust client",
+            ));
         }
         self.transport.lock().unwrap().connect()?;
         let inbound_messages = self.inbound_messages.clone();
@@ -1289,8 +1310,15 @@ impl AxMCPClient {
                 if let Some(requests) = plan.get("inputRequests").filter(|value| value.is_object())
                 {
                     let roots = self.options.get("roots").cloned().unwrap_or(Value::Null);
-                    let fulfillment =
-                        core_mcp(&crate::mcp_mrtr_fulfill_roots, &[requests.clone(), roots])?;
+                    let fulfillment = core_mcp(
+                        &crate::mcp_mrtr_plan_fulfillment,
+                        &[
+                            requests.clone(),
+                            roots,
+                            json!(self.elicitation_handler.is_some()),
+                            json!(false),
+                        ],
+                    )?;
                     if fulfillment.get("ok").and_then(Value::as_bool) != Some(true) {
                         return Err(AxError::new(
                             "mcp",
@@ -1300,10 +1328,34 @@ impl AxMCPClient {
                                 .unwrap_or("MCP protocol violation"),
                         ));
                     }
-                    input_responses = fulfillment
+                    let mut responses = fulfillment
                         .get("responses")
+                        .and_then(Value::as_object)
                         .cloned()
-                        .unwrap_or_else(|| json!({}));
+                        .unwrap_or_default();
+                    for (key, pending) in fulfillment
+                        .get("pending")
+                        .and_then(Value::as_object)
+                        .cloned()
+                        .unwrap_or_default()
+                    {
+                        let pending_method = pending
+                            .get("method")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        if pending_method != "elicitation/create" {
+                            return Err(AxError::new("mcp",format!("MCP protocol violation: unsupported pending MRTR input request method {pending_method}")));
+                        }
+                        let handler=self.elicitation_handler.as_ref().ok_or_else(||AxError::new("mcp","MCP protocol violation: server requested elicitation/create without a matching client handler"))?;
+                        responses.insert(
+                            key,
+                            handler(
+                                pending.get("params").cloned().unwrap_or_else(|| json!({})),
+                                json!({"namespace":self.namespace()}),
+                            )?,
+                        );
+                    }
+                    input_responses = Value::Object(responses);
                 }
             }
             let request_state =
@@ -1410,12 +1462,14 @@ impl AxMCPClient {
             .get("capabilities")
             .cloned()
             .unwrap_or_else(|| json!({}));
+        let has_elicitation =
+            self.era.as_deref() == Some("modern") && self.elicitation_handler.is_some();
         let derived = core_mcp(
             &crate::mcp_client_capabilities,
             &[
                 json!(self.options.get("roots").is_some()),
-                json!(self.options.get("sampling").is_some()),
-                json!(self.options.get("elicitation").is_some()),
+                json!(false),
+                json!(has_elicitation),
                 json!(self.era.as_deref().unwrap_or("legacy")),
                 json!(self
                     .options
@@ -1428,6 +1482,10 @@ impl AxMCPClient {
         if let (Some(target), Some(source)) = (out.as_object_mut(), derived.as_object()) {
             for (key, value) in source {
                 target.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+            target.remove("sampling");
+            if !has_elicitation {
+                target.remove("elicitation");
             }
         }
         out
@@ -5103,16 +5161,22 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                 .unwrap_or_default()
             {
                 let actual = core_mcp(
-                    &crate::mcp_mrtr_fulfill_roots,
+                    &crate::mcp_mrtr_plan_fulfillment,
                     &[
                         case.get("input_requests")
                             .cloned()
                             .unwrap_or_else(|| json!({})),
                         case.get("roots").cloned().unwrap_or(Value::Null),
+                        case.get("has_elicitation")
+                            .cloned()
+                            .unwrap_or_else(|| json!(false)),
+                        case.get("has_sampling")
+                            .cloned()
+                            .unwrap_or_else(|| json!(false)),
                     ],
                 )?;
                 expect_subset(
-                    "MRTR roots fulfillment",
+                    "MRTR fulfillment plan",
                     &actual,
                     case.get("expected").unwrap_or(&Value::Null),
                 )?;
@@ -5344,6 +5408,18 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                     .cloned()
                     .unwrap_or(Value::Null),
             );
+            let elicitation_calls = Arc::new(Mutex::new(Vec::<(Value, Value)>::new()));
+            if operation == "mrtr_elicitation" {
+                let captured = elicitation_calls.clone();
+                let response = fixture
+                    .get("elicitation_result")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                client.set_elicitation_handler(move |params, context| {
+                    captured.lock().unwrap().push((params, context));
+                    Ok(response.clone())
+                });
+            }
             client.init()?;
             if let Some(expected) = fixture
                 .get("expected_protocol_version")
@@ -5580,6 +5656,80 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                         return Err(AxError::new("fixture", "task request methods mismatch"));
                     }
                     Ok(())
+                }
+                "mrtr_elicitation" => {
+                    let result = client.call_tool("work", json!({"value":1}))?;
+                    expect_subset(
+                        "MRTR elicitation result",
+                        &result,
+                        fixture.get("expected_result").unwrap_or(&Value::Null),
+                    )?;
+                    let calls = elicitation_calls.lock().unwrap();
+                    if calls.len() != 1 {
+                        return Err(AxError::new(
+                            "fixture",
+                            "MRTR elicitation handler count mismatch",
+                        ));
+                    }
+                    expect_subset(
+                        "MRTR elicitation params",
+                        &calls[0].0,
+                        fixture
+                            .get("expected_elicitation_params")
+                            .unwrap_or(&Value::Null),
+                    )?;
+                    expect_subset(
+                        "MRTR elicitation context",
+                        &calls[0].1,
+                        fixture.get("expected_context").unwrap_or(&Value::Null),
+                    )?;
+                    drop(calls);
+                    let requests = client.transport.lock().unwrap().sent_requests();
+                    let tool_calls = requests
+                        .iter()
+                        .filter(|request| {
+                            request.get("method").and_then(Value::as_str) == Some("tools/call")
+                        })
+                        .collect::<Vec<_>>();
+                    for (index, expected) in fixture
+                        .get("expected_call_params")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                        .iter()
+                        .enumerate()
+                    {
+                        expect_subset(
+                            "MRTR elicitation call params",
+                            tool_calls[index].get("params").unwrap_or(&Value::Null),
+                            expected,
+                        )?
+                    }
+                    let capabilities = requests
+                        .first()
+                        .and_then(|request| request.get("params"))
+                        .and_then(|params| params.get("_meta"))
+                        .and_then(|meta| meta.get("io.modelcontextprotocol/clientCapabilities"))
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    if capabilities.get("elicitation").is_none()
+                        || capabilities.get("sampling").is_some()
+                    {
+                        return Err(AxError::new("fixture", "dishonest MRTR capabilities"));
+                    }
+                    let mut bad = AxMCPClient::new(
+                        Box::new(AxMCPScriptedTransport::new(vec![])),
+                        json!({"era":"modern","sampling":true}),
+                    );
+                    match bad.init() {
+                        Err(error) if error.to_string().contains("sampling is not supported") => {
+                            Ok(())
+                        }
+                        _ => Err(AxError::new(
+                            "fixture",
+                            "truthy sampling option was accepted",
+                        )),
+                    }
                 }
                 "mrtr_roots" => {
                     let result = client.call_tool("work", json!({"value":1}))?;

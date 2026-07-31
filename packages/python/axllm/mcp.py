@@ -1359,10 +1359,11 @@ def mcp_mrtr_plan_round(result: Any, era: str, method: str, round: number, max_r
     return out
 
 
-def mcp_mrtr_fulfill_roots(input_requests: Any, roots: Any) -> Any:
-    _core_coverage_mark("mcp_mrtr_fulfill_roots")
+def mcp_mrtr_plan_fulfillment(input_requests: Any, roots: Any, has_elicitation: bool, has_sampling: bool) -> Any:
+    _core_coverage_mark("mcp_mrtr_plan_fulfillment")
     out = {}
     responses = {}
+    pending = {}
     keys = _core_map_keys(input_requests)
     for key in keys:
         request = _core_get(input_requests, key, None)
@@ -1384,24 +1385,29 @@ def mcp_mrtr_fulfill_roots(input_requests: Any, roots: Any) -> Any:
         else:
             is_sampling = _core_eq(method, "sampling/createMessage")
             if is_sampling:
-                out["ok"] = False
-                out["message"] = "MCP protocol violation: server requested sampling/createMessage without a matching client handler"
-                return out
+                if has_sampling:
+                    pending[key] = request
+                else:
+                    out["ok"] = False
+                    out["message"] = "MCP protocol violation: server requested sampling/createMessage without a matching client handler"
+                    return out
             else:
-                pass
-            is_elicitation = _core_eq(method, "elicitation/create")
-            if is_elicitation:
-                out["ok"] = False
-                out["message"] = "MCP protocol violation: server requested elicitation/create without a matching client handler"
-                return out
-            else:
-                pass
-            out["ok"] = False
-            message = _core_string_format("MCP protocol violation: unsupported MRTR input request method {}", method)
-            out["message"] = message
-            return out
+                is_elicitation = _core_eq(method, "elicitation/create")
+                if is_elicitation:
+                    if has_elicitation:
+                        pending[key] = request
+                    else:
+                        out["ok"] = False
+                        out["message"] = "MCP protocol violation: server requested elicitation/create without a matching client handler"
+                        return out
+                else:
+                    out["ok"] = False
+                    message = _core_string_format("MCP protocol violation: unsupported MRTR input request method {}", method)
+                    out["message"] = message
+                    return out
     out["ok"] = True
     out["responses"] = responses
+    out["pending"] = pending
     return out
 
 
@@ -2586,6 +2592,8 @@ class AxMCPClient:
     def init(self) -> None:
         if self._initialized:
             return
+        if self.options.get("sampling"):
+            raise AxMCPError("MCP sampling is not supported by the generated Python client")
         self.transport.connect()
         configured = str(self.options.get("era", "auto"))
         key = self.transport.era_cache_key
@@ -3059,10 +3067,19 @@ class AxMCPClient:
             requests = plan.get("inputRequests")
             if plan.get("hasInputRequests") and isinstance(requests, dict):
                 roots = self.options.get("roots") if "roots" in self.options else None
-                fulfillment = mcp_mrtr_fulfill_roots(requests, roots)
+                elicitation = self.options.get("elicitation")
+                has_elicitation = callable(elicitation)
+                fulfillment = mcp_mrtr_plan_fulfillment(requests, roots, has_elicitation, False)
                 if not fulfillment.get("ok"):
                     raise AxMCPError(str(fulfillment.get("message", "MCP protocol violation")))
-                input_responses = fulfillment.get("responses")
+                input_responses = dict(fulfillment.get("responses") or {})
+                for key, pending in (fulfillment.get("pending") or {}).items():
+                    if pending.get("method") != "elicitation/create":
+                        raise AxMCPError(f"MCP protocol violation: unsupported pending MRTR input request method {pending.get('method')}")
+                    input_responses[key] = elicitation(
+                        pending.get("params") or {},
+                        {"client": self, "namespace": self.namespace()},
+                    )
             request_state = plan.get("requestState") if plan.get("hasRequestState") else None
             params = mcp_mrtr_next_params(base_params, input_responses, request_state)
             round_index += 1
@@ -3111,9 +3128,13 @@ class AxMCPClient:
 
     def _client_capabilities(self) -> dict[str, Any]:
         capabilities = dict(self.options.get("capabilities") or {})
-        derived = mcp_client_capabilities(bool(self.options.get("roots")), bool(self.options.get("sampling")), bool(self.options.get("elicitation")), self.era or "legacy", self.options.get("tasksExtension") is not False)
+        has_elicitation = self.era == "modern" and callable(self.options.get("elicitation"))
+        derived = mcp_client_capabilities(bool(self.options.get("roots")), False, has_elicitation, self.era or "legacy", self.options.get("tasksExtension") is not False)
         for key, value in derived.items():
             capabilities.setdefault(key, value)
+        capabilities.pop("sampling", None)
+        if not has_elicitation:
+            capabilities.pop("elicitation", None)
         return capabilities
 
     def _capability(self, name: str) -> bool:
@@ -4059,8 +4080,8 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
                 actual = mcp_mrtr_plan_round(case.get("result") or {}, case.get("era", "legacy"), case.get("method", "tools/call"), case.get("round", 0), case.get("max_rounds"))
                 _assert_subset(actual, case.get("expected") or {}, "MRTR round plan")
             for case in fixture.get("fulfill_cases") or []:
-                actual = mcp_mrtr_fulfill_roots(case.get("input_requests") or {}, case.get("roots"))
-                _assert_subset(actual, case.get("expected") or {}, "MRTR roots fulfillment")
+                actual = mcp_mrtr_plan_fulfillment(case.get("input_requests") or {}, case.get("roots"), bool(case.get("has_elicitation")), bool(case.get("has_sampling")))
+                _assert_subset(actual, case.get("expected") or {}, "MRTR fulfillment plan")
             for case in fixture.get("next_params_cases") or []:
                 actual = mcp_mrtr_next_params(case.get("base_params") or {}, case.get("input_responses"), case.get("request_state"))
                 if actual != (case.get("expected") or {}):
@@ -4125,7 +4146,14 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             return
 
         transport = AxMCPScriptedTransport(fixture.get("responses") or fixture.get("transport_responses") or [])
-        client = AxMCPClient(transport, fixture.get("client_options") or {})
+        client_options = dict(fixture.get("client_options") or {})
+        elicitation_calls: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        if operation == "mrtr_elicitation":
+            def fixture_elicitation(params, context):
+                elicitation_calls.append((params, context))
+                return dict(fixture.get("elicitation_result") or {})
+            client_options["elicitation"] = fixture_elicitation
+        client = AxMCPClient(transport, client_options)
         if operation == "protocol_negotiation":
             client.init()
             if fixture.get("expected_protocol_version") and client.negotiated_protocol_version != fixture["expected_protocol_version"]:
@@ -4191,6 +4219,29 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             methods = [request.get("method") for request in transport.requests]
             if methods != (fixture.get("expected_methods") or []):
                 raise AssertionError(f"task request methods mismatch: {methods!r}")
+            return
+        if operation == "mrtr_elicitation":
+            result = client.call_tool("work", {"value": 1})
+            _assert_subset(result, fixture.get("expected_result") or {}, "MRTR elicitation result")
+            if len(elicitation_calls) != 1:
+                raise AssertionError(f"MRTR elicitation handler count mismatch: {len(elicitation_calls)}")
+            _assert_subset(elicitation_calls[0][0], fixture.get("expected_elicitation_params") or {}, "MRTR elicitation params")
+            _assert_subset(elicitation_calls[0][1], fixture.get("expected_context") or {}, "MRTR elicitation context")
+            tool_calls = [request for request in transport.requests if request.get("method") == "tools/call"]
+            for index, expected in enumerate(fixture.get("expected_call_params") or []):
+                _assert_subset(tool_calls[index].get("params") or {}, expected, f"MRTR elicitation call params {index}")
+            discover_meta = (transport.requests[0].get("params") or {}).get("_meta") or {}
+            capabilities = discover_meta.get("io.modelcontextprotocol/clientCapabilities") or {}
+            if "elicitation" not in capabilities or "sampling" in capabilities:
+                raise AssertionError(f"dishonest MRTR capabilities: {capabilities!r}")
+            bad = AxMCPClient(AxMCPScriptedTransport([]), {"era": "modern", "sampling": True})
+            try:
+                bad.init()
+            except Exception as error:
+                if "sampling is not supported" not in str(error):
+                    raise
+            else:
+                raise AssertionError("truthy sampling option was accepted")
             return
         if operation == "mrtr_roots":
             result = client.call_tool("work", {"value": 1})

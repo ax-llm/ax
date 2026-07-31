@@ -46457,10 +46457,12 @@ func mcp_mrtr_plan_round(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func mcp_mrtr_fulfill_roots(args ...Value) (Value, error) {
-	axirCoverageMark("mcp_mrtr_fulfill_roots")
+func mcp_mrtr_plan_fulfillment(args ...Value) (Value, error) {
+	axirCoverageMark("mcp_mrtr_plan_fulfillment")
 	var v_input_requests Value
 	var v_roots Value
+	var v_has_elicitation Value
+	var v_has_sampling Value
 	var v_is_elicitation Value
 	var v_is_roots Value
 	var v_is_sampling Value
@@ -46469,6 +46471,7 @@ func mcp_mrtr_fulfill_roots(args ...Value) (Value, error) {
 	var v_message Value
 	var v_method Value
 	var v_out Value
+	var v_pending Value
 	var v_request Value
 	var v_response Value
 	var v_responses Value
@@ -46479,6 +46482,10 @@ func mcp_mrtr_fulfill_roots(args ...Value) (Value, error) {
 	_ = v_input_requests
 	if len(args) > 1 { v_roots = args[1] }
 	_ = v_roots
+	if len(args) > 2 { v_has_elicitation = args[2] }
+	_ = v_has_elicitation
+	if len(args) > 3 { v_has_sampling = args[3] }
+	_ = v_has_sampling
 	_ = v_is_elicitation
 	_ = v_is_roots
 	_ = v_is_sampling
@@ -46487,6 +46494,7 @@ func mcp_mrtr_fulfill_roots(args ...Value) (Value, error) {
 	_ = v_message
 	_ = v_method
 	_ = v_out
+	_ = v_pending
 	_ = v_request
 	_ = v_response
 	_ = v_responses
@@ -46495,6 +46503,7 @@ func mcp_mrtr_fulfill_roots(args ...Value) (Value, error) {
 	_ = v_roots_text
 	v_out = Object()
 	v_responses = Object()
+	v_pending = Object()
 	v_keys = _core_map_keys(v_input_requests)
 	for _, v_key = range coreIter(v_keys) {
 		v_request = coreGet(v_input_requests, v_key, nil)
@@ -46517,28 +46526,35 @@ func mcp_mrtr_fulfill_roots(args ...Value) (Value, error) {
 		} else {
 			v_is_sampling = _core_eq(v_method, "sampling/createMessage")
 			if coreTruthy(v_is_sampling) {
-				if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
-				if err := coreSet(v_out, "message", "MCP protocol violation: server requested sampling/createMessage without a matching client handler"); err != nil { return nil, err }
-				return v_out, nil
+				if coreTruthy(v_has_sampling) {
+					if err := coreSet(v_pending, v_key, v_request); err != nil { return nil, err }
+				} else {
+					if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
+					if err := coreSet(v_out, "message", "MCP protocol violation: server requested sampling/createMessage without a matching client handler"); err != nil { return nil, err }
+					return v_out, nil
+				}
 			} else {
-			// empty
+				v_is_elicitation = _core_eq(v_method, "elicitation/create")
+				if coreTruthy(v_is_elicitation) {
+					if coreTruthy(v_has_elicitation) {
+						if err := coreSet(v_pending, v_key, v_request); err != nil { return nil, err }
+					} else {
+						if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
+						if err := coreSet(v_out, "message", "MCP protocol violation: server requested elicitation/create without a matching client handler"); err != nil { return nil, err }
+						return v_out, nil
+					}
+				} else {
+					if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
+					v_message = _core_string_format("MCP protocol violation: unsupported MRTR input request method {}", v_method)
+					if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
+					return v_out, nil
+				}
 			}
-			v_is_elicitation = _core_eq(v_method, "elicitation/create")
-			if coreTruthy(v_is_elicitation) {
-				if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
-				if err := coreSet(v_out, "message", "MCP protocol violation: server requested elicitation/create without a matching client handler"); err != nil { return nil, err }
-				return v_out, nil
-			} else {
-			// empty
-			}
-			if err := coreSet(v_out, "ok", false); err != nil { return nil, err }
-			v_message = _core_string_format("MCP protocol violation: unsupported MRTR input request method {}", v_method)
-			if err := coreSet(v_out, "message", v_message); err != nil { return nil, err }
-			return v_out, nil
 		}
 	}
 	if err := coreSet(v_out, "ok", true); err != nil { return nil, err }
 	if err := coreSet(v_out, "responses", v_responses); err != nil { return nil, err }
+	if err := coreSet(v_out, "pending", v_pending); err != nil { return nil, err }
 	return v_out, nil
 }
 

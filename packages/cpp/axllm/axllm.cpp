@@ -23649,10 +23649,11 @@ Value Core::mcp_mrtr_plan_round(Value result, Value era, Value method, Value rou
   return out;
 }
 
-Value Core::mcp_mrtr_fulfill_roots(Value input_requests, Value roots) {
-  axir_coverage_mark("mcp_mrtr_fulfill_roots");
+Value Core::mcp_mrtr_plan_fulfillment(Value input_requests, Value roots, Value has_elicitation, Value has_sampling) {
+  axir_coverage_mark("mcp_mrtr_plan_fulfillment");
   Value out = Value::object();
   Value responses = Value::object();
+  Value pending = Value::object();
   Value keys = Core::map_keys(input_requests);
   for (auto key : Core::iter(keys)) {
     Value request = Core::get(input_requests, key, Value());
@@ -23674,24 +23675,39 @@ Value Core::mcp_mrtr_fulfill_roots(Value input_requests, Value roots) {
     if (!Core::truthy(is_roots)) {
       Value is_sampling = Core::eq(method, Value("sampling/createMessage"));
       if (Core::truthy(is_sampling)) {
-        Core::set(out, Value("ok"), Value(false));
-        Core::set(out, Value("message"), Value("MCP protocol violation: server requested sampling/createMessage without a matching client handler"));
-        return out;
+        if (Core::truthy(has_sampling)) {
+          Core::set(pending, key, request);
+        }
+        if (!Core::truthy(has_sampling)) {
+          Core::set(out, Value("ok"), Value(false));
+          Core::set(out, Value("message"), Value("MCP protocol violation: server requested sampling/createMessage without a matching client handler"));
+          return out;
+        }
       }
-      Value is_elicitation = Core::eq(method, Value("elicitation/create"));
-      if (Core::truthy(is_elicitation)) {
-        Core::set(out, Value("ok"), Value(false));
-        Core::set(out, Value("message"), Value("MCP protocol violation: server requested elicitation/create without a matching client handler"));
-        return out;
+      if (!Core::truthy(is_sampling)) {
+        Value is_elicitation = Core::eq(method, Value("elicitation/create"));
+        if (Core::truthy(is_elicitation)) {
+          if (Core::truthy(has_elicitation)) {
+            Core::set(pending, key, request);
+          }
+          if (!Core::truthy(has_elicitation)) {
+            Core::set(out, Value("ok"), Value(false));
+            Core::set(out, Value("message"), Value("MCP protocol violation: server requested elicitation/create without a matching client handler"));
+            return out;
+          }
+        }
+        if (!Core::truthy(is_elicitation)) {
+          Core::set(out, Value("ok"), Value(false));
+          Value message = Core::string_format(Value("MCP protocol violation: unsupported MRTR input request method {}"), method);
+          Core::set(out, Value("message"), message);
+          return out;
+        }
       }
-      Core::set(out, Value("ok"), Value(false));
-      Value message = Core::string_format(Value("MCP protocol violation: unsupported MRTR input request method {}"), method);
-      Core::set(out, Value("message"), message);
-      return out;
     }
   }
   Core::set(out, Value("ok"), Value(true));
   Core::set(out, Value("responses"), responses);
+  Core::set(out, Value("pending"), pending);
   return out;
 }
 

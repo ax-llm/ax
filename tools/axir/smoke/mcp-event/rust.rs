@@ -26,7 +26,7 @@ fn main() -> AxResult<()> {
             "listenTimeoutMs": 1000
         }),
     )?;
-    let client = Arc::new(Mutex::new(AxMCPClient::new(
+    let mut raw_client = AxMCPClient::new(
         Box::new(transport),
         json!({
             "namespace": "inventory",
@@ -34,7 +34,9 @@ fn main() -> AxResult<()> {
             "roots": [{"uri":"file:///workspace","name":"workspace"}],
             "subscriptionFilters": {"resourcesListChanged":true}
         }),
-    )));
+    );
+    raw_client.set_elicitation_handler(|_, _| Ok(json!({"action":"accept","content":{"confirmed":true}})));
+    let client = Arc::new(Mutex::new(raw_client));
     let state = Arc::new((Mutex::new(State::default()), Condvar::new()));
     let progress_state = state.clone();
     client
@@ -57,6 +59,12 @@ fn main() -> AxResult<()> {
         if result["structuredContent"]["indexed"] != json!(42) { panic!("modern task result was not flattened: {result}"); }
         let roots_result = client.lock().unwrap().call_tool("mrtr_roots_round", json!({}))?;
         if roots_result["structuredContent"]["indexed"] != json!(42) { panic!("modern roots MRTR failed: {roots_result}"); }
+        let elicitation_result = client.lock().unwrap().call_tool("mrtr_one_round", json!({}))?;
+        if elicitation_result["structuredContent"]["indexed"] != json!(42) { panic!("modern elicitation MRTR failed: {elicitation_result}"); }
+        match client.lock().unwrap().call_tool("mrtr_two_round", json!({})) {
+            Err(error) if error.to_string() == "MCP protocol violation: server requested sampling/createMessage without a matching client handler" => {}
+            other => panic!("modern sampling MRTR violation mismatch: {other:?}"),
+        }
         let refreshed = client.lock().unwrap().inspect_catalog(false)?;
         let version = refreshed.server_info.get("version").and_then(Value::as_str).unwrap_or_default();
         if version.is_empty() || version == "2.0.0" { panic!("modern serverInfo was not refreshed: {}", refreshed.server_info); }

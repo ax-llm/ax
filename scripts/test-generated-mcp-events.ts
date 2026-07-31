@@ -150,8 +150,10 @@ async function runSmoke(
         throw new Error(
           'modern task result was not flattened through tasks/get'
         );
-      if (server.getMethodCount('tools/call') < 3)
-        throw new Error('modern roots-only MRTR round did not complete');
+      if (server.getMethodCount('tools/call') < 6)
+        throw new Error(
+          'modern roots and elicitation MRTR rounds or sampling violation probe did not complete'
+        );
     }
     server.addResource();
     await server.waitForSubscription('demo://alerts');

@@ -582,6 +582,22 @@
           "const mrtr = await mcp.callTool('mrtr_one_round');"
         ]
       },
+      "mrtrElicitation": {
+        "sourcePath": "src/examples/typescript/mcp/modern-dual-era-client.ts",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "const client = new AxMCPClient(transport, {",
+          "  era: 'modern',",
+          "  roots: [{ uri: 'file:///workspace', name: 'workspace' }],",
+          "  elicitation: async (params, context) => ({",
+          "    action: 'accept',",
+          "    content: { confirmed: true },",
+          "  }),",
+          "});",
+          "const result = await client.callTool('mrtr_one_round');"
+        ]
+      },
       "native": {
         "sourcePath": "src/examples/typescript/mcp/native-mcp-tools.ts",
         "code": [

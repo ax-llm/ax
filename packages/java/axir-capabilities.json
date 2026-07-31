@@ -211,6 +211,7 @@
     "axmcp-cacheable-results",
     "axmcp-tasks-v2",
     "axmcp-mrtr-roots",
+    "axmcp-mrtr-elicitation",
     "axmcp-subscriptions-listen",
     "axmcp-json-rpc-lifecycle",
     "axmcp-protocol-negotiation",

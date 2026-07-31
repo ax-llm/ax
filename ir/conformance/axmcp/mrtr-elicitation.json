@@ -1,0 +1,93 @@
+{
+  "name": "modern MCP MRTR roots and elicitation fulfillment",
+  "kind": "mcp",
+  "operation": "mrtr_elicitation",
+  "client_options": {
+    "era": "modern",
+    "namespace": "fixture",
+    "roots": [{ "uri": "file:///workspace", "name": "workspace" }]
+  },
+  "elicitation_result": {
+    "action": "accept",
+    "content": { "confirmed": true }
+  },
+  "responses": [
+    {
+      "method": "server/discover",
+      "result": {
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": { "tools": {} },
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "tools/list",
+      "result": {
+        "resultType": "complete",
+        "tools": [{ "name": "work", "inputSchema": { "type": "object" } }],
+        "ttlMs": 60000,
+        "cacheScope": "private"
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "input_required",
+        "inputRequests": {
+          "workspace": { "method": "roots/list" },
+          "confirmation": {
+            "method": "elicitation/create",
+            "params": {
+              "mode": "form",
+              "message": "Run the fixture?",
+              "requestedSchema": {
+                "type": "object",
+                "properties": { "confirmed": { "type": "boolean" } },
+                "required": ["confirmed"]
+              }
+            }
+          }
+        },
+        "requestState": "\u0000fixture-state-🔥"
+      }
+    },
+    {
+      "method": "tools/call",
+      "result": {
+        "resultType": "complete",
+        "content": [{ "type": "text", "text": "done" }],
+        "structuredContent": { "done": true }
+      }
+    }
+  ],
+  "expected_result": { "structuredContent": { "done": true } },
+  "expected_elicitation_params": {
+    "mode": "form",
+    "message": "Run the fixture?",
+    "requestedSchema": {
+      "type": "object",
+      "properties": { "confirmed": { "type": "boolean" } },
+      "required": ["confirmed"]
+    }
+  },
+  "expected_context": { "namespace": "fixture" },
+  "expected_call_params": [
+    { "name": "work", "arguments": { "value": 1 } },
+    {
+      "name": "work",
+      "arguments": { "value": 1 },
+      "inputResponses": {
+        "workspace": {
+          "roots": [{ "uri": "file:///workspace", "name": "workspace" }]
+        },
+        "confirmation": {
+          "action": "accept",
+          "content": { "confirmed": true }
+        }
+      },
+      "requestState": "\u0000fixture-state-🔥"
+    }
+  ]
+}

@@ -25,6 +25,7 @@ func main() {
 	client := ax.NewAxMCPClient(transport, map[string]ax.Value{
 		"namespace": "inventory", "era": clientEra,
 		"roots": ax.Array(map[string]ax.Value{"uri":"file:///workspace", "name":"workspace"}),
+		"elicitation": func(_ map[string]ax.Value, _ map[string]ax.Value) (map[string]ax.Value, error) { return map[string]ax.Value{"action":"accept", "content":map[string]ax.Value{"confirmed":true}}, nil },
 		"subscriptionFilters": map[string]ax.Value{"resourcesListChanged":true},
 	})
 
@@ -58,6 +59,9 @@ func main() {
 		structured, _ := result["structuredContent"].(map[string]ax.Value); if fmt.Sprint(structured["indexed"]) != "42" { panic(fmt.Sprintf("modern task result was not flattened: %#v", result)) }
 		rootsResult, err := client.CallTool("mrtr_roots_round", map[string]ax.Value{}); if err != nil { panic(err) }
 		rootsStructured, _ := rootsResult["structuredContent"].(map[string]ax.Value); if fmt.Sprint(rootsStructured["indexed"]) != "42" { panic(fmt.Sprintf("modern roots MRTR failed: %#v", rootsResult)) }
+		elicitationResult, err := client.CallTool("mrtr_one_round", map[string]ax.Value{}); if err != nil { panic(err) }
+		elicitationStructured, _ := elicitationResult["structuredContent"].(map[string]ax.Value); if fmt.Sprint(elicitationStructured["indexed"]) != "42" { panic(fmt.Sprintf("modern elicitation MRTR failed: %#v", elicitationResult)) }
+		if _, err = client.CallTool("mrtr_two_round", map[string]ax.Value{}); err == nil || err.Error() != "MCP protocol violation: server requested sampling/createMessage without a matching client handler" { panic(fmt.Sprintf("modern sampling MRTR violation mismatch: %v", err)) }
 		refreshed, err := client.InspectCatalog(false); if err != nil { panic(err) }; version := fmt.Sprint(refreshed.ServerInfo["version"]); if version == "" || version == "2.0.0" { panic(fmt.Sprintf("modern serverInfo was not refreshed: %#v", refreshed.ServerInfo)) }
 	} else {
 		result, err := client.CallTool("start_reindex", map[string]ax.Value{"scope": "all"}); if err != nil { panic(err) }

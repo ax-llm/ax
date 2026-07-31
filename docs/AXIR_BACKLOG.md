@@ -18,7 +18,24 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks` [axmcp] Port MCP MRTR elicitation host callbacks
+  - Status: open
+  - Source commit: `4f0d018f`
+  - TS paths: `src/ax/mcp/mrtr.ts`, `src/ax/mcp/client.ts`
+  - Impact: The generated Python, Java, C++, Go, and Rust clients can fulfill roots-only modern MRTR rounds but lack host elicitation callbacks and can advertise sampling or elicitation option keys they cannot execute.
+  - Suggested AxIR work: Replace the roots-only fulfillment op with a shared roots and pending-host-request planner.; Add real elicitation callback surfaces and honest modern capability advertisement to every generated client.; Prove mixed roots and elicitation, requestState echo, sampling rejection, generated package lockstep, and five-language localhost event smoke.
+- `axir-2026-07-30-port-legacy-inbound-mcp-elicitation` [axmcp] Port legacy inbound MCP elicitation
+  - Status: open
+  - Source commit: `4f0d018f`
+  - TS paths: `src/ax/mcp/client.ts`
+  - Impact: TypeScript can dispatch a legacy server-initiated elicitation/create request through the host handler, while generated clients currently expose elicitation only inside modern MRTR input rounds; Rust and C++ also lack general inbound server-request plumbing.
+  - Suggested AxIR work: Define a portable inbound server-request dispatch contract and transport boundary.; Add legacy elicitation fixtures and explicit runner arms for all generated languages.; Advertise legacy elicitation only on ports whose transports can receive and answer the request.
+- `axir-2026-07-30-port-task-input-required-fulfillment` [axmcp] Port MCP Tasks v2 input required fulfillment
+  - Status: open
+  - Source commit: `4f0d018f`
+  - TS paths: `src/ax/mcp/client.ts`
+  - Impact: TypeScript can fulfill input_required task status through tasks/update and continue polling, while generated clients currently auto-await only working and terminal task states and do not run the input-request fulfillment loop.
+  - Suggested AxIR work: Reuse the portable MRTR fulfillment planner for task inputRequests.; Add tasks/update request construction and continuation semantics to all generated clients.; Prove roots and elicitation task fulfillment plus missing-handler and sampling violations in five-language fixtures and live smoke.
 
 ## Done
 
@@ -331,8 +348,8 @@ No entries.
   - Status: done
   - Source commit: `4d479b97f933b977c6c79d98fe2fc4b984fb7b96`
   - TS paths: `src/ax/mcp/mrtr.ts`
-  - Impact: Generated Python, Java, C++, Go, and Rust clients cannot fulfill modern input_required rounds. The first portable tranche is roots-only because generated clients do not yet expose sampling or elicitation host handlers.
+  - Impact: Generated Python, Java, C++, Go, and Rust clients initially could not fulfill modern input_required rounds. This completed first tranche deliberately covered roots only and is superseded by the MRTR elicitation host-callback tranche; sampling remains outside the generated-port scope.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-30
   - Completed by: `09354114`
-  - Verification: `mrtr-roots + mrtr-violations across Python/Go/Java/C++/Rust; fresh IDs, byte-exact requestState, current-round-only inputs; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check`
+  - Verification: `mrtr-roots + mrtr-violations across Python/Go/Java/C++/Rust; fresh IDs, byte-exact requestState, current-round-only inputs; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check; superseded by axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks`

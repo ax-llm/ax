@@ -22,6 +22,7 @@ int main() {
       {"namespace", "inventory"}, {"era", client_era},
       {"roots", array({object({{"uri", "file:///workspace"}, {"name", "workspace"}})})},
       {"subscriptionFilters", object({{"resourcesListChanged", true}})}}));
+  client->set_elicitation_handler([](Value, Value) { return object({{"action", "accept"}, {"content", object({{"confirmed", true}})}}); });
 
   std::mutex mutex;
   std::condition_variable changed;
@@ -45,6 +46,10 @@ int main() {
     if (display(Core::get(Core::get(task_result, "structuredContent", Value::object()), "indexed", "")) != "42") throw std::runtime_error("modern task result was not flattened");
     auto roots_result = client->call_tool("mrtr_roots_round", Value::object());
     if (display(Core::get(Core::get(roots_result, "structuredContent", Value::object()), "indexed", "")) != "42") throw std::runtime_error("modern roots MRTR failed");
+    auto elicitation_result = client->call_tool("mrtr_one_round", Value::object());
+    if (display(Core::get(Core::get(elicitation_result, "structuredContent", Value::object()), "indexed", "")) != "42") throw std::runtime_error("modern elicitation MRTR failed");
+    try { client->call_tool("mrtr_two_round", Value::object()); throw std::runtime_error("modern sampling MRTR request was accepted"); }
+    catch (const AxError& error) { if (std::string(error.what()) != "MCP protocol violation: server requested sampling/createMessage without a matching client handler") throw; }
     auto refreshed = client->inspect_catalog();
     auto version = display(Core::get(refreshed.server_info, "version", ""));
     if (version.empty() || version == "2.0.0") throw std::runtime_error("modern serverInfo was not refreshed");

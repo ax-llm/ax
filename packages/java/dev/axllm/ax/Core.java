@@ -22634,10 +22634,11 @@ final class Core {
     return out;
   }
 
-  static Object mcp_mrtr_fulfill_roots(Object input_requests, Object roots) {
-    axirCoverageMark("mcp_mrtr_fulfill_roots");
+  static Object mcp_mrtr_plan_fulfillment(Object input_requests, Object roots, Object has_elicitation, Object has_sampling) {
+    axirCoverageMark("mcp_mrtr_plan_fulfillment");
     Object out = new java.util.LinkedHashMap<String, Object>();
     Object responses = new java.util.LinkedHashMap<String, Object>();
+    Object pending = new java.util.LinkedHashMap<String, Object>();
     Object keys = Core.mapKeys(input_requests);
     for (Object key : Core.iter(keys)) {
       Object request = Core.get(input_requests, key, null);
@@ -22659,24 +22660,39 @@ final class Core {
       if (!Core.truthy(is_roots)) {
         Object is_sampling = Core.eq(method, "sampling/createMessage");
         if (Core.truthy(is_sampling)) {
-          Core.set(out, "ok", Boolean.FALSE);
-          Core.set(out, "message", "MCP protocol violation: server requested sampling/createMessage without a matching client handler");
-          return out;
+          if (Core.truthy(has_sampling)) {
+            Core.set(pending, key, request);
+          }
+          if (!Core.truthy(has_sampling)) {
+            Core.set(out, "ok", Boolean.FALSE);
+            Core.set(out, "message", "MCP protocol violation: server requested sampling/createMessage without a matching client handler");
+            return out;
+          }
         }
-        Object is_elicitation = Core.eq(method, "elicitation/create");
-        if (Core.truthy(is_elicitation)) {
-          Core.set(out, "ok", Boolean.FALSE);
-          Core.set(out, "message", "MCP protocol violation: server requested elicitation/create without a matching client handler");
-          return out;
+        if (!Core.truthy(is_sampling)) {
+          Object is_elicitation = Core.eq(method, "elicitation/create");
+          if (Core.truthy(is_elicitation)) {
+            if (Core.truthy(has_elicitation)) {
+              Core.set(pending, key, request);
+            }
+            if (!Core.truthy(has_elicitation)) {
+              Core.set(out, "ok", Boolean.FALSE);
+              Core.set(out, "message", "MCP protocol violation: server requested elicitation/create without a matching client handler");
+              return out;
+            }
+          }
+          if (!Core.truthy(is_elicitation)) {
+            Core.set(out, "ok", Boolean.FALSE);
+            Object message = Core.stringFormat("MCP protocol violation: unsupported MRTR input request method {}", method);
+            Core.set(out, "message", message);
+            return out;
+          }
         }
-        Core.set(out, "ok", Boolean.FALSE);
-        Object message = Core.stringFormat("MCP protocol violation: unsupported MRTR input request method {}", method);
-        Core.set(out, "message", message);
-        return out;
       }
     }
     Core.set(out, "ok", Boolean.TRUE);
     Core.set(out, "responses", responses);
+    Core.set(out, "pending", pending);
     return out;
   }
 

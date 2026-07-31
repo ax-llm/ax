@@ -107,6 +107,7 @@ class AxMCPClient {
   Value resource_templates() const;
   std::string namespace_name() const;
   Value request(const std::string& method, Value params = Value::object());
+  void set_elicitation_handler(std::function<Value(Value, Value)> handler);
   std::string get_era() const { return era_; }
   Value discover();
   int add_notification_listener(std::function<void(Value)> listener){int id=next_listener_id_++;notification_listeners_[id]=std::move(listener);return id;}
@@ -141,6 +142,7 @@ class AxMCPClient {
   int next_listener_id_=1;
   std::map<int,std::function<void(Value)>> notification_listeners_;
   std::map<int,std::function<void(std::string)>> lifecycle_listeners_;
+  std::function<Value(Value,Value)> elicitation_handler_;
   bool initialized_=false;
 
   bool capability(const std::string& name) const;

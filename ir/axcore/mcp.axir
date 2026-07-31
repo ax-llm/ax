@@ -970,15 +970,16 @@ module @ax.mcp version "0.1" {
     }
   }
 
-  op ax.mcp.semantic @mcp_mrtr_fulfill_roots {
+  op ax.mcp.semantic @mcp_mrtr_plan_fulfillment {
     attr body_source = "core"
     attr core_kind = "func"
     attr emit_module = "mcp"
-    tag "axmcp-mrtr-roots"
-    type signature = "(input_requests:json, roots:json) -> json"
-    body @entry(%input_requests: json, %roots: json) {
+    tag "axmcp-mrtr-elicitation"
+    type signature = "(input_requests:json, roots:json, has_elicitation:bool, has_sampling:bool) -> json"
+    body @entry(%input_requests: json, %roots: json, %has_elicitation: bool, %has_sampling: bool) {
       %out = core.map
       %responses = core.map
+      %pending = core.map
       %keys = core.call intrinsic.map.keys(%input_requests)
       core.for %key in %keys {
         %request = core.get %input_requests[%key] default null
@@ -999,24 +1000,35 @@ module @ax.mcp version "0.1" {
         } else {
           %is_sampling = core.call intrinsic.eq(%method, "sampling/createMessage")
           core.if %is_sampling {
-            core.set %out["ok"] = false
-            core.set %out["message"] = "MCP protocol violation: server requested sampling/createMessage without a matching client handler"
-            core.return %out
+            core.if %has_sampling {
+              core.set %pending[%key] = %request
+            } else {
+              core.set %out["ok"] = false
+              core.set %out["message"] = "MCP protocol violation: server requested sampling/createMessage without a matching client handler"
+              core.return %out
+            }
+          } else {
+            %is_elicitation = core.call intrinsic.eq(%method, "elicitation/create")
+            core.if %is_elicitation {
+              core.if %has_elicitation {
+                core.set %pending[%key] = %request
+              } else {
+                core.set %out["ok"] = false
+                core.set %out["message"] = "MCP protocol violation: server requested elicitation/create without a matching client handler"
+                core.return %out
+              }
+            } else {
+              core.set %out["ok"] = false
+              %message = core.call intrinsic.string.format("MCP protocol violation: unsupported MRTR input request method {}", %method)
+              core.set %out["message"] = %message
+              core.return %out
+            }
           }
-          %is_elicitation = core.call intrinsic.eq(%method, "elicitation/create")
-          core.if %is_elicitation {
-            core.set %out["ok"] = false
-            core.set %out["message"] = "MCP protocol violation: server requested elicitation/create without a matching client handler"
-            core.return %out
-          }
-          core.set %out["ok"] = false
-          %message = core.call intrinsic.string.format("MCP protocol violation: unsupported MRTR input request method {}", %method)
-          core.set %out["message"] = %message
-          core.return %out
         }
       }
       core.set %out["ok"] = true
       core.set %out["responses"] = %responses
+      core.set %out["pending"] = %pending
       core.return %out
     }
   }

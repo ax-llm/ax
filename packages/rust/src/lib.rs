@@ -72527,10 +72527,12 @@ fn mcp_mrtr_plan_round(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn mcp_mrtr_fulfill_roots(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("mcp_mrtr_fulfill_roots");
+fn mcp_mrtr_plan_fulfillment(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_mrtr_plan_fulfillment");
     let mut v_input_requests = core_arg(args, 0);
     let mut v_roots = core_arg(args, 1);
+    let mut v_has_elicitation = core_arg(args, 2);
+    let mut v_has_sampling = core_arg(args, 3);
     let mut v_is_elicitation = CoreValue::Null;
     let mut v_is_roots = CoreValue::Null;
     let mut v_is_sampling = CoreValue::Null;
@@ -72539,6 +72541,7 @@ fn mcp_mrtr_fulfill_roots(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_message = CoreValue::Null;
     let mut v_method = CoreValue::Null;
     let mut v_out = CoreValue::Null;
+    let mut v_pending = CoreValue::Null;
     let mut v_request = CoreValue::Null;
     let mut v_response = CoreValue::Null;
     let mut v_responses = CoreValue::Null;
@@ -72547,6 +72550,7 @@ fn mcp_mrtr_fulfill_roots(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_roots_text = CoreValue::Null;
     v_out = CoreValue::new_map();
     v_responses = CoreValue::new_map();
+    v_pending = CoreValue::new_map();
     v_keys = core_map_keys(&[v_input_requests.clone()])?;
     for v_key in core_iter(&v_keys)? {
         let mut v_key = v_key;
@@ -72569,27 +72573,41 @@ fn mcp_mrtr_fulfill_roots(args: &[CoreValue]) -> Result<CoreValue, AxError> {
             v_is_sampling =
                 core_eq(&[v_method.clone(), CoreValue::from("sampling/createMessage")])?;
             if core_truthy(&v_is_sampling) {
-                core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
-                core_set(&v_out, CoreValue::from("message"), CoreValue::from("MCP protocol violation: server requested sampling/createMessage without a matching client handler"))?;
-                return Ok(v_out.clone());
+                if core_truthy(&v_has_sampling) {
+                    core_set(&v_pending, v_key.clone(), v_request.clone())?;
+                } else {
+                    core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+                    core_set(&v_out, CoreValue::from("message"), CoreValue::from("MCP protocol violation: server requested sampling/createMessage without a matching client handler"))?;
+                    return Ok(v_out.clone());
+                }
+            } else {
+                v_is_elicitation =
+                    core_eq(&[v_method.clone(), CoreValue::from("elicitation/create")])?;
+                if core_truthy(&v_is_elicitation) {
+                    if core_truthy(&v_has_elicitation) {
+                        core_set(&v_pending, v_key.clone(), v_request.clone())?;
+                    } else {
+                        core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+                        core_set(&v_out, CoreValue::from("message"), CoreValue::from("MCP protocol violation: server requested elicitation/create without a matching client handler"))?;
+                        return Ok(v_out.clone());
+                    }
+                } else {
+                    core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
+                    v_message = core_string_format(&[
+                        CoreValue::from(
+                            "MCP protocol violation: unsupported MRTR input request method {}",
+                        ),
+                        v_method.clone(),
+                    ])?;
+                    core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+                    return Ok(v_out.clone());
+                }
             }
-            v_is_elicitation = core_eq(&[v_method.clone(), CoreValue::from("elicitation/create")])?;
-            if core_truthy(&v_is_elicitation) {
-                core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
-                core_set(&v_out, CoreValue::from("message"), CoreValue::from("MCP protocol violation: server requested elicitation/create without a matching client handler"))?;
-                return Ok(v_out.clone());
-            }
-            core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(false))?;
-            v_message = core_string_format(&[
-                CoreValue::from("MCP protocol violation: unsupported MRTR input request method {}"),
-                v_method.clone(),
-            ])?;
-            core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
-            return Ok(v_out.clone());
         }
     }
     core_set(&v_out, CoreValue::from("ok"), CoreValue::Bool(true))?;
     core_set(&v_out, CoreValue::from("responses"), v_responses.clone())?;
+    core_set(&v_out, CoreValue::from("pending"), v_pending.clone())?;
     return Ok(v_out.clone());
 }
 

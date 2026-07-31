@@ -99,6 +99,16 @@ type AxMCPClient struct {
 	initialized bool
 }
 
+type AxMCPElicitationHandler func(params, context map[string]Value) (map[string]Value, error)
+
+func (c *AxMCPClient) elicitationHandler() (AxMCPElicitationHandler, bool) {
+	switch handler:=c.options["elicitation"].(type){
+	case AxMCPElicitationHandler:return handler,true
+	case func(map[string]Value,map[string]Value)(map[string]Value,error):return AxMCPElicitationHandler(handler),true
+	default:return nil,false
+	}
+}
+
 type AxMCPProtocolError struct { Code int; Message string; Data Value }
 func (e AxMCPProtocolError) Error() string { return e.Message }
 var axMCPEraCache = struct{sync.Mutex; values map[string]string}{values:map[string]string{}}
@@ -113,6 +123,7 @@ func NewAxMCPClient(transport AxMCPTransport, options map[string]Value) *AxMCPCl
 
 func (c *AxMCPClient) Init() error {
 	if c.initialized { return nil }
+	if coreTruthy(coreGet(c.options,"sampling",nil)) { return fmt.Errorf("MCP sampling is not supported by the generated Go client") }
 	if err := c.transport.Connect(); err != nil { return err }
 	configured:=display(coreGet(c.options,"era","auto"));key:=c.transport.EraCacheKey();cached:="";axMCPEraCache.Lock();cached=axMCPEraCache.values[key];axMCPEraCache.Unlock();stored:="";switch store:=c.options["eraStore"].(type){case map[string]string:stored=store[key];case map[string]Value:stored=display(store[key])}
 	resolution:=asMap(mustCore(mcp_resolve_known_era(configured,c.transport.EraHint(),cached,stored)));resolved:=display(coreGet(resolution,"era","modern"))
@@ -527,7 +538,25 @@ func ResolveAxExecutionContext(options map[string]Value,parent *AxExecutionConte
 func (c *AxMCPClient) request(method string, params map[string]Value) (map[string]Value, error) {
 	return c.requestWithHeaders(method,params,nil,true)
 }
-func(c *AxMCPClient)requestWithInputRounds(method string,baseParams map[string]Value,headers map[string]string)(map[string]Value,error){params:=cloneMCPMap(baseParams);maxRounds:=coreGet(c.options,"maxInputRounds",nil);for round:=0;;round++{result,err:=c.requestWithHeaders(method,params,headers,true);if err!=nil{return nil,err};rawPlan,err:=mcp_mrtr_plan_round(result,c.era,method,round,maxRounds);if err!=nil{return nil,err};plan:=asMap(rawPlan);switch display(plan["action"]){case "complete":return result,nil;case "violation":return nil,fmt.Errorf("%s",display(plan["message"]))};var inputResponses Value;if coreTruthy(plan["hasInputRequests"]){if rawRequests:=coreGet(plan,"inputRequests",nil);rawRequests!=nil{rawFulfillment,fulfillErr:=mcp_mrtr_fulfill_roots(asMap(rawRequests),coreGet(c.options,"roots",nil));if fulfillErr!=nil{return nil,fulfillErr};fulfillment:=asMap(rawFulfillment);if !coreTruthy(fulfillment["ok"]){return nil,fmt.Errorf("%s",display(fulfillment["message"]))};inputResponses=coreGet(fulfillment,"responses",Object())}};var requestState Value;if coreTruthy(plan["hasRequestState"]){requestState=coreGet(plan,"requestState",nil)};rawNext,nextErr:=mcp_mrtr_next_params(baseParams,inputResponses,requestState);if nextErr!=nil{return nil,nextErr};params=asMap(rawNext)}}
+func(c *AxMCPClient)requestWithInputRounds(method string,baseParams map[string]Value,headers map[string]string)(map[string]Value,error){
+	params:=cloneMCPMap(baseParams);maxRounds:=coreGet(c.options,"maxInputRounds",nil)
+	for round:=0;;round++{
+		result,err:=c.requestWithHeaders(method,params,headers,true);if err!=nil{return nil,err}
+		rawPlan,err:=mcp_mrtr_plan_round(result,c.era,method,round,maxRounds);if err!=nil{return nil,err};plan:=asMap(rawPlan)
+		switch display(plan["action"]){case "complete":return result,nil;case "violation":return nil,fmt.Errorf("%s",display(plan["message"]))}
+		var inputResponses Value
+		if coreTruthy(plan["hasInputRequests"]){if rawRequests:=coreGet(plan,"inputRequests",nil);rawRequests!=nil{
+			handler,hasHandler:=c.elicitationHandler()
+			rawFulfillment,fulfillErr:=mcp_mrtr_plan_fulfillment(asMap(rawRequests),coreGet(c.options,"roots",nil),hasHandler,false);if fulfillErr!=nil{return nil,fulfillErr};fulfillment:=asMap(rawFulfillment)
+			if !coreTruthy(fulfillment["ok"]){return nil,fmt.Errorf("%s",display(fulfillment["message"]))}
+			responses:=asMap(coreGet(fulfillment,"responses",Object()))
+			for key,rawPending:=range asMap(coreGet(fulfillment,"pending",Object())){if key=="__order"{continue};request:=asMap(rawPending);if display(coreGet(request,"method",""))!="elicitation/create"{return nil,fmt.Errorf("MCP protocol violation: unsupported pending MRTR input request method %s",display(coreGet(request,"method","")))};response,handlerErr:=handler(asMap(coreGet(request,"params",Object())),map[string]Value{"client":c,"namespace":c.Namespace()});if handlerErr!=nil{return nil,handlerErr};responses[key]=response}
+			inputResponses=responses
+		}}
+		var requestState Value;if coreTruthy(plan["hasRequestState"]){requestState=coreGet(plan,"requestState",nil)}
+		rawNext,nextErr:=mcp_mrtr_next_params(baseParams,inputResponses,requestState);if nextErr!=nil{return nil,nextErr};params=asMap(rawNext)
+	}
+}
 func (c *AxMCPClient) requestWithHeaders(method string, params map[string]Value, headers map[string]string, allowVersionRetry bool) (map[string]Value, error) {
 	id := fmt.Sprintf("%d", c.nextID); c.nextID++
 	msg := map[string]Value{"jsonrpc":"2.0", "id":id, "method":method}
@@ -545,7 +574,7 @@ func (c *AxMCPClient) requestWithHeaders(method string, params map[string]Value,
 func (c *AxMCPClient) clientCapabilities() map[string]Value {
 	out := map[string]Value{}
 	for key, value := range asMap(coreGet(c.options, "capabilities", Object())) { out[key] = value }
-	tasksExtension:=true;if value,ok:=c.options["tasksExtension"];ok{tasksExtension=coreTruthy(value)};derived:=asMap(mustCore(mcp_client_capabilities(coreGet(c.options,"roots",nil)!=nil,coreGet(c.options,"sampling",nil)!=nil,coreGet(c.options,"elicitation",nil)!=nil,c.era,tasksExtension)));for key,value:=range derived{if _,ok:=out[key];!ok{out[key]=value}}
+	tasksExtension:=true;if value,ok:=c.options["tasksExtension"];ok{tasksExtension=coreTruthy(value)};_,hasElicitation:=c.elicitationHandler();hasElicitation=hasElicitation&&c.era=="modern";derived:=asMap(mustCore(mcp_client_capabilities(coreGet(c.options,"roots",nil)!=nil,false,hasElicitation,c.era,tasksExtension)));for key,value:=range derived{if _,ok:=out[key];!ok{out[key]=value}};delete(out,"sampling");if !hasElicitation{delete(out,"elicitation")}
 	return out
 }
 
@@ -1089,7 +1118,7 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		return
 	}
 	if op=="tasks_v2_violations"{for _,raw:=range asSlice(coreGet(fixture,"validation_cases",Array())){c:=asMap(raw);actual:=coreTruthy(mustCore(mcp_validate_modern_task(coreGet(c,"task",Object()))));if actual!=coreTruthy(coreGet(c,"expected_valid",false)){panic("modern task validation mismatch")}};for _,raw:=range asSlice(coreGet(fixture,"terminal_cases",Array())){c:=asMap(raw);assertSubset(mustCore(mcp_task_terminal_outcome(coreGet(c,"task",Object()))),coreGet(c,"expected",Object()),"task terminal outcome")};for _,raw:=range asSlice(coreGet(fixture,"scenarios",Array())){scenario:=asMap(raw);transport:=NewAxMCPScriptedTransport(asSlice(coreGet(scenario,"responses",Array())));client:=NewAxMCPClient(transport,asMap(coreGet(scenario,"client_options",Object())));if err:=client.Init();err!=nil{panic(err)};_,err:=client.CallTool("slow",map[string]Value{});if err==nil||!strings.Contains(err.Error(),display(coreGet(scenario,"expected_error",""))){panic("expected Tasks v2 protocol violation")}};return}
-	if op=="mrtr_violations"{for _,raw:=range asSlice(coreGet(fixture,"plan_cases",Array())){c:=asMap(raw);actual:=mustCore(mcp_mrtr_plan_round(coreGet(c,"result",Object()),coreGet(c,"era","legacy"),coreGet(c,"method","tools/call"),coreGet(c,"round",0),coreGet(c,"max_rounds",nil)));assertSubset(actual,coreGet(c,"expected",Object()),"MRTR round plan")};for _,raw:=range asSlice(coreGet(fixture,"fulfill_cases",Array())){c:=asMap(raw);actual:=mustCore(mcp_mrtr_fulfill_roots(coreGet(c,"input_requests",Object()),coreGet(c,"roots",nil)));assertSubset(actual,coreGet(c,"expected",Object()),"MRTR roots fulfillment")};for _,raw:=range asSlice(coreGet(fixture,"next_params_cases",Array())){c:=asMap(raw);actual:=mustCore(mcp_mrtr_next_params(coreGet(c,"base_params",Object()),coreGet(c,"input_responses",nil),coreGet(c,"request_state",nil)));assertEqual(actual,coreGet(c,"expected",Object()),"MRTR next params")};return}
+	if op=="mrtr_violations"{for _,raw:=range asSlice(coreGet(fixture,"plan_cases",Array())){c:=asMap(raw);actual:=mustCore(mcp_mrtr_plan_round(coreGet(c,"result",Object()),coreGet(c,"era","legacy"),coreGet(c,"method","tools/call"),coreGet(c,"round",0),coreGet(c,"max_rounds",nil)));assertSubset(actual,coreGet(c,"expected",Object()),"MRTR round plan")};for _,raw:=range asSlice(coreGet(fixture,"fulfill_cases",Array())){c:=asMap(raw);actual:=mustCore(mcp_mrtr_plan_fulfillment(coreGet(c,"input_requests",Object()),coreGet(c,"roots",nil),coreGet(c,"has_elicitation",false),coreGet(c,"has_sampling",false)));assertSubset(actual,coreGet(c,"expected",Object()),"MRTR fulfillment plan")};for _,raw:=range asSlice(coreGet(fixture,"next_params_cases",Array())){c:=asMap(raw);actual:=mustCore(mcp_mrtr_next_params(coreGet(c,"base_params",Object()),coreGet(c,"input_responses",nil),coreGet(c,"request_state",nil)));assertEqual(actual,coreGet(c,"expected",Object()),"MRTR next params")};return}
 	if op == "http_session_headers" {
 		t, err := NewAxMCPStreamableHTTPTransport(display(coreGet(fixture, "endpoint", "https://example.com/mcp")), asMap(coreGet(fixture, "transport_options", Object()))); if err != nil { panic(err) }
 		t.SessionID = display(coreGet(fixture, "session_id", "session-1"))
@@ -1120,7 +1149,9 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		state:=context.ContinuationState();if state.CatalogFingerprint==""||len(state.Namespaces)!=len(actual){panic("invalid execution context continuation state")};return
 	}
 	transport := NewAxMCPScriptedTransport(asSlice(coreGet(fixture, "responses", coreGet(fixture, "transport_responses", Array()))))
-	client := NewAxMCPClient(transport, asMap(coreGet(fixture, "client_options", Object())))
+	clientOptions:=asMap(coreGet(fixture,"client_options",Object()));elicitationParams:=map[string]Value{};elicitationContext:=map[string]Value{};elicitationCalls:=0
+	if op=="mrtr_elicitation"{clientOptions["elicitation"]=AxMCPElicitationHandler(func(params,context map[string]Value)(map[string]Value,error){elicitationCalls++;elicitationParams=cloneMCPMap(params);elicitationContext=context;return asMap(coreGet(fixture,"elicitation_result",Object())),nil})}
+	client := NewAxMCPClient(transport, clientOptions)
 	if err := client.Init(); err != nil { panic(err) }
 	if want := display(coreGet(fixture, "expected_protocol_version", "")); op!="client_discovery"&&want != "" && client.ProtocolVersion() != want { panic("protocol version mismatch") }
 	switch op {
@@ -1136,6 +1167,8 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		if err:=client.RefreshWithOptions(false);err!=nil{panic(err)};catalogRequests:=0;for _,request:=range transport.Requests{method:=display(coreGet(request,"method",""));if method=="resources/list"||method=="resources/templates/list"{catalogRequests++}};if catalogRequests!=mcpInt(coreGet(fixture,"expected_catalog_requests_after_fresh_refresh",0)){panic("fresh catalog issued extra requests")};uri:=display(coreGet(fixture,"uri",""));first,err:=client.ReadResource(uri);if err!=nil{panic(err)};second,err:=client.ReadResource(uri);if err!=nil{panic(err)};assertSubset(first,coreGet(fixture,"expected_first",Object()),"first resource read");assertSubset(second,coreGet(fixture,"expected_first",Object()),"cached resource read");transport.Emit(asMap(coreGet(fixture,"notification",Object())));after,err:=client.ReadResource(uri);if err!=nil{panic(err)};assertSubset(after,coreGet(fixture,"expected_after_update",Object()),"resource read after update");reads:=0;for _,request:=range transport.Requests{if display(coreGet(request,"method",""))=="resources/read"{reads++}};if reads!=mcpInt(coreGet(fixture,"expected_read_requests",0)){panic("resource read request count mismatch")}
 	case "tasks_v2_modern":
 		result,err:=client.CallTool("slow",map[string]Value{});if err!=nil{panic(err)};assertSubset(result,coreGet(fixture,"expected_call_result",Object()),"task call result");if err=client.ProvideTaskInput("task-1",map[string]Value{});err!=nil{panic(err)};if _,err=client.CancelTask("task-1");err!=nil{panic(err)};if _,err=client.ListTasks("");err==nil||!strings.Contains(err.Error(),display(coreGet(fixture,"expected_list_error",""))){panic("missing modern tasks/list rejection")};if _,err=client.GetTaskResult("task-1");err==nil||!strings.Contains(err.Error(),display(coreGet(fixture,"expected_result_error",""))){panic("missing modern tasks/result rejection")};methods:=[]Value{};for _,request:=range transport.Requests{methods=append(methods,display(coreGet(request,"method","")))};assertEqual(methods,coreGet(fixture,"expected_methods",Array()),"task request methods")
+	case "mrtr_elicitation":
+		result,err:=client.CallTool("work",map[string]Value{"value":1});if err!=nil{panic(err)};assertSubset(result,coreGet(fixture,"expected_result",Object()),"MRTR elicitation result");if elicitationCalls!=1{panic("MRTR elicitation handler count mismatch")};assertSubset(elicitationParams,coreGet(fixture,"expected_elicitation_params",Object()),"MRTR elicitation params");assertSubset(elicitationContext,coreGet(fixture,"expected_context",Object()),"MRTR elicitation context");toolCalls:=[]map[string]Value{};for _,request:=range transport.Requests{if display(coreGet(request,"method",""))=="tools/call"{toolCalls=append(toolCalls,request)}};for index,expected:=range asSlice(coreGet(fixture,"expected_call_params",Array())){assertSubset(coreGet(toolCalls[index],"params",Object()),expected,fmt.Sprintf("MRTR elicitation call params %d",index))};meta:=asMap(coreGet(coreGet(transport.Requests[0],"params",Object()),"_meta",Object()));capabilities:=asMap(coreGet(meta,"io.modelcontextprotocol/clientCapabilities",Object()));if _,ok:=capabilities["elicitation"];!ok{panic("elicitation capability missing")};if _,ok:=capabilities["sampling"];ok{panic("sampling capability advertised")};bad:=NewAxMCPClient(NewAxMCPScriptedTransport(nil),map[string]Value{"era":"modern","sampling":true});if err:=bad.Init();err==nil||!strings.Contains(err.Error(),"sampling is not supported"){panic("truthy sampling option was accepted")}
 	case "mrtr_roots":
 		result,err:=client.CallTool("work",map[string]Value{"value":1});if err!=nil{panic(err)};assertSubset(result,coreGet(fixture,"expected_call_result",Object()),"MRTR tool result");prompt,err:=client.GetPrompt("ask",map[string]Value{});if err!=nil{panic(err)};assertSubset(prompt,coreGet(fixture,"expected_prompt_result",Object()),"MRTR prompt result");resource,err:=client.ReadResource("file:///resource");if err!=nil{panic(err)};assertSubset(resource,coreGet(fixture,"expected_resource_result",Object()),"MRTR resource result");methods:=[]Value{};toolCalls:=[]map[string]Value{};ids:=map[string]bool{};for _,request:=range transport.Requests{method:=display(coreGet(request,"method",""));methods=append(methods,method);if method=="tools/call"{toolCalls=append(toolCalls,request);id:=display(coreGet(request,"id",""));if ids[id]{panic("MRTR rounds reused a request id")};ids[id]=true}};assertEqual(methods,coreGet(fixture,"expected_methods",Array()),"MRTR request methods");for index,raw:=range asSlice(coreGet(fixture,"expected_tool_call_params",Array())){expected:=asMap(raw);params:=asMap(coreGet(toolCalls[index],"params",Object()));assertSubset(params,expected,fmt.Sprintf("MRTR tool params %d",index));expectedResponses:=coreGet(expected,"inputResponses",nil);if expectedResponses==nil{if _,ok:=params["inputResponses"];ok{panic("initial MRTR request included inputResponses")};if _,ok:=params["requestState"];ok{panic("initial MRTR request included requestState")}}else{actualKeys:=asMap(coreGet(params,"inputResponses",Object()));expectedKeys:=asMap(expectedResponses);if len(actualKeys)!=len(expectedKeys){panic("MRTR request retained stale input responses")};for key:=range expectedKeys{if _,ok:=actualKeys[key];!ok{panic("MRTR request retained stale input responses")}}};if _,wanted:=expected["requestState"];!wanted{if _,present:=params["requestState"];present{panic("MRTR request retained stale requestState")}}}
 	case "subscriptions_listen":

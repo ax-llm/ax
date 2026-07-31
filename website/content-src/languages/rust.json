@@ -295,7 +295,7 @@
         "sourcePath": "src/examples/rust/mcp/native_mcp_tools.rs",
         "illustrative": true,
         "notes": [
-          "Current generated-package lifecycle. MCP 2026-07-28 era classification and discovery are tracked for a future port."
+          "Generated Rust supports automatic dual-era classification and modern discovery."
         ],
         "code": [
           "let mcp = Arc::new(Mutex::new(AxMCPClient::new(",
@@ -303,6 +303,25 @@
           "        json!({\"namespace\":\"inventory\"}),",
           ")));",
           "let catalog = mcp.lock().unwrap().inspect_catalog(false)?;"
+        ]
+      },
+      "mrtrElicitation": {
+        "illustrative": true,
+        "notes": [
+          "The setter installs a real host callback before initialization; sampling remains unsupported."
+        ],
+        "code": [
+          "let mut client = AxMCPClient::new(transport, json!({",
+          "    \"era\": \"modern\",",
+          "    \"roots\": [{ \"uri\": \"file:///workspace\" }],",
+          "}));",
+          "client.set_elicitation_handler(|params, context| {",
+          "    Ok(json!({",
+          "        \"action\": \"accept\",",
+          "        \"content\": { \"confirmed\": true },",
+          "    }))",
+          "});",
+          "let result = client.call_tool(\"mrtr_one_round\", json!({}))?;"
         ]
       },
       "native": {

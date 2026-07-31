@@ -211,6 +211,12 @@ elicitation requests through the same host handlers used by legacy server
 requests, then repeats the original operation with the latest input responses
 and byte-exact `requestState`.
 
+The generated Python, Java, C++, Go, and Rust clients fulfill roots and
+host-callback elicitation in modern MRTR rounds. They advertise elicitation only
+when a real handler is installed, never advertise sampling, and reject a truthy
+sampling option during initialization. Legacy inbound elicitation and MRTR
+sampling remain TypeScript-only.
+
 Configure only handlers the host can enforce. Ax limits the loop to five input
 rounds by default; use `maxInputRounds` for a stricter policy. A missing handler
 or exhausted round limit is a protocol error. The tool concurrency slot stays
