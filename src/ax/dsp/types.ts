@@ -113,7 +113,11 @@ export type AxFieldValue =
   | null
   | undefined
   | { mimeType: string; data: string }
-  | { mimeType: string; data: string }[]
+  | { mimeType: string; fileUri: string }
+  | (
+      | { mimeType: string; data: string }
+      | { mimeType: string; fileUri: string }
+    )[]
   | {
       format?: string;
       data?: string;

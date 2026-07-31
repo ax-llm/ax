@@ -117,7 +117,7 @@ export async function axProcessContentForProvider(
           } else if (item.altText) {
             // Fallback to alt text
             processedContent.push({ type: 'text', text: item.altText });
-          } else if (options.imageToText) {
+          } else if (options.imageToText && 'image' in item) {
             // Use AI vision service to describe image
             try {
               const description = await options.imageToText(item.image);
