@@ -7,6 +7,10 @@ import { AxSignature } from './dsp/sig.js';
 import type { AxExamples } from './dsp/types.js';
 import {
   type AxAgentFunction,
+  type AxAIOpenAIChatRequest,
+  type AxAIOpenAIConfig,
+  type AxAIOpenAIResponsesConfig,
+  type AxAIOpenAIResponsesRequest,
   type AxAIService,
   type AxFunction,
   type AxFunctionHandler,
@@ -544,3 +548,32 @@ const arrayFlow = flow<{ items: string[] }>().map((state) => ({
   uppercaseItems: state.items.map((item) => item.toUpperCase()),
 }));
 void arrayFlow.forward;
+
+// === OpenAI reasoning effort surfaces ===
+// `max` exists only on the Responses API. Chat Completions answers a chat
+// request carrying it with a 400, so the chat types must not offer it while the
+// Responses ones must.
+const chatReqTopEffort: AxAIOpenAIChatRequest<string>['reasoning_effort'] =
+  'xhigh';
+void chatReqTopEffort;
+
+// @ts-expect-error `max` is Responses-only; Chat Completions rejects it
+const chatReqMaxEffort: AxAIOpenAIChatRequest<string>['reasoning_effort'] =
+  'max';
+void chatReqMaxEffort;
+
+// @ts-expect-error same for the config that feeds the chat request
+const chatConfigMaxEffort: AxAIOpenAIConfig<string, string>['reasoningEffort'] =
+  'max';
+void chatConfigMaxEffort;
+
+const responsesReqMaxEffort: NonNullable<
+  AxAIOpenAIResponsesRequest<string>['reasoning']
+>['effort'] = 'max';
+void responsesReqMaxEffort;
+
+const responsesConfigMaxEffort: AxAIOpenAIResponsesConfig<
+  string,
+  string
+>['reasoningEffort'] = 'max';
+void responsesConfigMaxEffort;

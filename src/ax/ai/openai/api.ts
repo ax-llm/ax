@@ -47,7 +47,7 @@ import {
   type AxAIOpenAIEmbedResponse,
   AxAIOpenAIModel,
 } from './chat_types.js';
-import { axResolveOpenAIReasoningEffort } from './effort.js';
+import { axResolveOpenAIChatReasoningEffort } from './effort.js';
 import { axModelInfoOpenAI } from './info.js';
 import {
   axAIOpenAIRealtimeDefaultConfig,
@@ -423,7 +423,7 @@ class AxAIOpenAIImpl<
 
     // Then, override based on prompt-specific config
     if (config?.thinkingTokenBudget) {
-      reqValue.reasoning_effort = axResolveOpenAIReasoningEffort(
+      reqValue.reasoning_effort = axResolveOpenAIChatReasoningEffort(
         model,
         config.thinkingTokenBudget
       );

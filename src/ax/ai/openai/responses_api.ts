@@ -16,7 +16,7 @@ import type {
   AxModelConfig,
   AxTokenUsage,
 } from '../types.js';
-import { axResolveOpenAIReasoningEffort } from './effort.js';
+import { axResolveOpenAIResponsesReasoningEffort } from './effort.js';
 import type {
   AxAIOpenAIResponsesCodeInterpreterToolCall,
   AxAIOpenAIResponsesComputerToolCall,
@@ -387,7 +387,7 @@ export class AxAIOpenAIResponsesImpl<
 
     // Handle thinkingTokenBudget config parameter
     if (config?.thinkingTokenBudget) {
-      reasoningEffort = axResolveOpenAIReasoningEffort(
+      reasoningEffort = axResolveOpenAIResponsesReasoningEffort(
         model,
         config.thinkingTokenBudget
       );

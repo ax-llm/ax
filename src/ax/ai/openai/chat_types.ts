@@ -92,14 +92,7 @@ export type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<
   logprobs?: number;
   echo?: boolean;
   dimensions?: number;
-  reasoningEffort?:
-    | 'none'
-    | 'minimal'
-    | 'low'
-    | 'medium'
-    | 'high'
-    | 'xhigh'
-    | 'max';
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   store?: boolean;
   serviceTier?: 'auto' | 'default' | 'flex';
   webSearchOptions?: {
@@ -151,14 +144,9 @@ export interface AxAIOpenAIResponseDelta<T> {
 
 export type AxAIOpenAIChatRequest<TModel> = {
   model: TModel;
-  reasoning_effort?:
-    | 'none'
-    | 'minimal'
-    | 'low'
-    | 'medium'
-    | 'high'
-    | 'xhigh'
-    | 'max';
+  // `max` is absent on purpose: Chat Completions rejects it even on the models
+  // whose Responses endpoint serves it. See effort.ts for the ladders.
+  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   store?: boolean;
   modalities?: readonly ('text' | 'audio')[];
   audio?: {

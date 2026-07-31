@@ -33,8 +33,8 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 - `axir-2026-07-30-port-the-gpt-5-6-reasoning-effort-ladder` [axai] Port the GPT-5.6 reasoning-effort ladder
   - Status: open
   - Source commit: `cbaf70906d76c8534373451780b240e190a0f22c`
-  - TS paths: `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/responses_api.ts`
-  - Impact: Generated Python/Java/C++/Go/Rust clients have no OpenAI thinkingTokenBudget -> reasoning.effort mapping; AxIR models only the DeepSeek and Grok quirk blocks, so the GPT-5.6 1:1 ladder and its max rung are TS-only.
+  - TS paths: `src/ax/ai/openai/chat_types.ts`, `src/ax/ai/openai/effort.ts`, `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/responses_api.ts`
+  - Impact: Generated Python/Java/C++/Go/Rust clients have no OpenAI thinkingTokenBudget -> reasoning.effort mapping; AxIR models only the DeepSeek and Grok quirk blocks, so the GPT-5.6 ladder is TS-only. The ladder is per API surface: highest reaches xhigh on Chat Completions, which rejects max, and max only on the Responses API.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-07-31-port-per-item-url-array-validation` [axgen] Port per-item URL array validation
   - Status: open
