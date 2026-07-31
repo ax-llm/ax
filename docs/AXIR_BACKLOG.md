@@ -30,12 +30,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/mcp/client.ts`
   - Impact: TypeScript can fulfill input_required task status through tasks/update and continue polling, while generated clients currently auto-await only working and terminal task states and do not run the input-request fulfillment loop.
   - Suggested AxIR work: Reuse the portable MRTR fulfillment planner for task inputRequests.; Add tasks/update request construction and continuation semantics to all generated clients.; Prove roots and elicitation task fulfillment plus missing-handler and sampling violations in five-language fixtures and live smoke.
-- `axir-2026-07-31-port-mcp-oauth-discovery-grants-and-refresh` [axmcp] Port MCP OAuth discovery, grants, and refresh
-  - Status: open
-  - Source commit: `9e4f3ed15f28dcc891556cc611ed7da997bb9aac`
-  - TS paths: `src/ax/mcp/oauth/oauthHelper.ts`
-  - Impact: Generated Python, Java, C++, Go, and Rust OAuth transports fabricate bearer tokens instead of performing RFC 9728 discovery, PKCE authorization-code or client-credentials exchange, 60-second-skew refresh, RFC 8707 resource binding, and RFC 9207 issuer validation against the discovered authorization server.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
@@ -362,3 +356,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-30
   - Completed by: `f053c737`
   - Verification: `npm test; npm run axir:backlog:validate; generated five-language conformance release verifier; legacy and modern five-language MCP event smoke; TypeScript stdio and HTTP plus five-port foreign-server interop`
+- `axir-2026-07-31-port-mcp-oauth-discovery-grants-and-refresh` [axmcp] Port MCP OAuth discovery, grants, and refresh
+  - Status: done
+  - Source commit: `9e4f3ed15f28dcc891556cc611ed7da997bb9aac`
+  - TS paths: `src/ax/mcp/oauth/oauthHelper.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust OAuth transports fabricate bearer tokens instead of performing RFC 9728 discovery, PKCE authorization-code or client-credentials exchange, 60-second-skew refresh, RFC 8707 resource binding, and RFC 9207 issuer validation against the discovered authorization server.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-07-31
+  - Completed by: `ca8619226fe91d893f0e5b51c3ce76a774057456`
+  - Verification: `npm test; npm run website:build; npm run website:check; Python, Java, C++, Go, and Rust passed well-known and 401-challenge authorization-code flows, refresh with 60-second skew, client credentials conformance, and wrong-iss rejection`

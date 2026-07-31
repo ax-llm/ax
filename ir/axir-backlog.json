@@ -832,7 +832,7 @@
     },
     {
       "id": "axir-2026-07-31-port-mcp-oauth-discovery-grants-and-refresh",
-      "status": "open",
+      "status": "done",
       "title": "Port MCP OAuth discovery, grants, and refresh",
       "createdAt": "2026-07-31",
       "sourcePR": null,
@@ -845,9 +845,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-31",
+      "completedByCommit": "ca8619226fe91d893f0e5b51c3ce76a774057456",
+      "verification": "npm test; npm run website:build; npm run website:check; Python, Java, C++, Go, and Rust passed well-known and 401-challenge authorization-code flows, refresh with 60-second skew, client credentials conformance, and wrong-iss rejection"
     }
   ],
   "nonPortableExemptions": [
