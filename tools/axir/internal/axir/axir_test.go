@@ -1122,6 +1122,11 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("%s conformance coverage missing kind %q: %#v", tc.target, want, coverage.Suites)
 				}
 			}
+			for _, want := range []string{"server_requests_legacy", "tasks_v2_input_required"} {
+				if !conformanceCoverageContainsOperation(coverage, "axmcp", want) {
+					t.Fatalf("%s conformance coverage missing AxMCP operation %q: %#v", tc.target, want, coverage.Suites)
+				}
+			}
 			apiData, err := os.ReadFile(filepath.Join(dir, "axir-api.json"))
 			if err != nil {
 				t.Fatal(err)
@@ -1167,7 +1172,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("manifest missing GEPA feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
 			}
-			for _, want := range []string{"axagent-stage-instructions", "axagent-evidence-citations", "axagent-playbook-config", "axagent-run-end-playbook-learning", "axagent-playbook-verified-evolve", "axoptimize-ace-bullet-tag-normalization", "axoptimize-ace-updated-bullet-ids", "axoptimize-ace-empty-render", "anthropic-adaptive-thinking-display", "anthropic-adaptive-sampling-suppression"} {
+			for _, want := range []string{"axagent-stage-instructions", "axagent-evidence-citations", "axagent-playbook-config", "axagent-run-end-playbook-learning", "axagent-playbook-verified-evolve", "axoptimize-ace-bullet-tag-normalization", "axoptimize-ace-updated-bullet-ids", "axoptimize-ace-empty-render", "anthropic-adaptive-thinking-display", "anthropic-adaptive-sampling-suppression", "axmcp-server-requests", "axmcp-tasks-v2-input-fulfillment", "openai-reasoning-effort", "validation-url-array-items", "structured-stream-routing", "structured-stream-delta"} {
 				if !containsString(manifest.CoreOwnedFeatureGroups, want) {
 					t.Fatalf("manifest missing cleared-backlog feature %s: %#v", want, manifest.CoreOwnedFeatureGroups)
 				}
@@ -1700,6 +1705,15 @@ func conformanceCoverageContainsKind(coverage ConformanceCoverageManifest, kind 
 			if entry.Kind == kind && entry.Category != "explicitly-not-claimed" {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func conformanceCoverageContainsOperation(coverage ConformanceCoverageManifest, suite, operation string) bool {
+	for _, entry := range coverage.Suites[suite] {
+		if entry.Operation == operation && entry.Category != "explicitly-not-claimed" {
+			return true
 		}
 	}
 	return false

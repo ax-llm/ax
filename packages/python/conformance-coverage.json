@@ -383,9 +383,23 @@
       {
         "suite": "axmcp",
         "kind": "mcp",
+        "operation": "tasks_v2_input_required",
+        "runner": "python:axmcp.tasks_v2_input_required",
+        "category": "transport-boundary"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
         "operation": "tasks_v2_violations",
         "runner": "python:axmcp.tasks_v2_violations",
         "category": "semantic"
+      },
+      {
+        "suite": "axmcp",
+        "kind": "mcp",
+        "operation": "server_requests_legacy",
+        "runner": "python:axmcp.server_requests_legacy",
+        "category": "transport-boundary"
       },
       {
         "suite": "axmcp",
