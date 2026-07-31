@@ -1,0 +1,120 @@
+{
+  "name": "legacy MCP inbound server requests",
+  "kind": "mcp",
+  "operation": "server_requests_legacy",
+  "client_options": {
+    "era": "legacy",
+    "namespace": "fixture",
+    "roots": [
+      {
+        "uri": "file:///workspace",
+        "name": "workspace"
+      }
+    ]
+  },
+  "responses": [
+    {
+      "method": "initialize",
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {},
+        "serverInfo": {
+          "name": "scripted-mcp",
+          "version": "1.0.0"
+        }
+      }
+    }
+  ],
+  "elicitation_result": {
+    "action": "accept",
+    "content": {
+      "confirmed": true
+    }
+  },
+  "server_requests": [
+    {
+      "jsonrpc": "2.0",
+      "id": "ping-1",
+      "method": "ping"
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": "roots-1",
+      "method": "roots/list"
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": "elicit-1",
+      "method": "elicitation/create",
+      "params": {
+        "mode": "form",
+        "message": "Continue?"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": "unknown-1",
+      "method": "unknown/request"
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": "elicit-fail",
+      "method": "elicitation/create",
+      "params": {
+        "fail": true
+      }
+    }
+  ],
+  "expected_responses": [
+    {
+      "id": "ping-1",
+      "result": {}
+    },
+    {
+      "id": "roots-1",
+      "result": {
+        "roots": [
+          {
+            "uri": "file:///workspace",
+            "name": "workspace"
+          }
+        ]
+      }
+    },
+    {
+      "id": "elicit-1",
+      "result": {
+        "action": "accept",
+        "content": {
+          "confirmed": true
+        }
+      }
+    },
+    {
+      "id": "unknown-1",
+      "error": {
+        "code": -32601,
+        "message": "Unsupported server request: unknown/request"
+      }
+    },
+    {
+      "id": "elicit-fail",
+      "error": {
+        "code": -32603
+      }
+    }
+  ],
+  "expected_elicitation_params": {
+    "mode": "form",
+    "message": "Continue?"
+  },
+  "expected_context": {
+    "namespace": "fixture"
+  },
+  "expected_legacy_capabilities": {
+    "elicitation": {
+      "form": {},
+      "url": {}
+    }
+  }
+}

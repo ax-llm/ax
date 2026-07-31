@@ -828,6 +828,74 @@ module @ax.mcp version "0.1" {
     }
   }
 
+  op ax.mcp.semantic @mcp_server_request_plan {
+    attr body_source = "core"
+    attr core_kind = "func"
+    attr emit_module = "mcp"
+    tag "axmcp-server-requests"
+    type signature = "(request:json, roots:json, has_elicitation:bool) -> json"
+    body @entry(%request: json, %roots: json, %has_elicitation: bool) {
+      %out = core.map
+      %id = core.get %request["id"] default null
+      %method = core.get %request["method"] default ""
+      %params = core.get %request["params"] default null
+      %ping = core.call intrinsic.eq(%method, "ping")
+      core.if %ping {
+        %response = core.map
+        %result = core.map
+        core.set %response["jsonrpc"] = "2.0"
+        core.set %response["id"] = %id
+        core.set %response["result"] = %result
+        core.set %out["action"] = "respond"
+        core.set %out["response"] = %response
+        core.return %out
+      }
+      %roots_list = core.call intrinsic.eq(%method, "roots/list")
+      core.if %roots_list {
+        %roots_missing = core.call intrinsic.is_none(%roots)
+        core.if %roots_missing {
+        } else {
+          %roots_text = core.call intrinsic.json.stringify(%roots)
+          %roots_copy = core.call intrinsic.json.parse(%roots_text)
+          %result = core.map
+          core.set %result["roots"] = %roots_copy
+          %response = core.map
+          core.set %response["jsonrpc"] = "2.0"
+          core.set %response["id"] = %id
+          core.set %response["result"] = %result
+          core.set %out["action"] = "respond"
+          core.set %out["response"] = %response
+          core.return %out
+        }
+      }
+      %elicitation = core.call intrinsic.eq(%method, "elicitation/create")
+      %can_elicit = core.call intrinsic.and(%elicitation, %has_elicitation)
+      core.if %can_elicit {
+        core.set %out["action"] = "elicitation"
+        core.set %out["id"] = %id
+        %params_missing = core.call intrinsic.is_none(%params)
+        core.if %params_missing {
+          %empty = core.map
+          core.set %out["params"] = %empty
+        } else {
+          core.set %out["params"] = %params
+        }
+        core.return %out
+      }
+      %error = core.map
+      core.set %error["code"] = -32601
+      %message = core.call intrinsic.string.format("Unsupported server request: {}", %method)
+      core.set %error["message"] = %message
+      %response = core.map
+      core.set %response["jsonrpc"] = "2.0"
+      core.set %response["id"] = %id
+      core.set %response["error"] = %error
+      core.set %out["action"] = "respond"
+      core.set %out["response"] = %response
+      core.return %out
+    }
+  }
+
   op ax.mcp.semantic @mcp_task_terminal_outcome {
     attr body_source = "core"
     attr core_kind = "func"
@@ -884,6 +952,20 @@ module @ax.mcp version "0.1" {
         core.set %out["kind"] = "cancelled"
         %message = core.call intrinsic.string.format("MCP task {} cancelled", %task_id)
         core.set %out["message"] = %message
+        core.return %out
+      }
+      %input_required = core.call intrinsic.eq(%status, "input_required")
+      core.if %input_required {
+        %has_requests = core.call intrinsic.map.contains(%task, "inputRequests")
+        core.if %has_requests {
+          core.set %out["kind"] = "input_required"
+          %requests = core.get %task["inputRequests"] default null
+          core.set %out["inputRequests"] = %requests
+        } else {
+          core.set %out["kind"] = "violation"
+          %message = core.call intrinsic.string.format("MCP protocol violation: input_required task {} omitted inputRequests", %task_id)
+          core.set %out["message"] = %message
+        }
         core.return %out
       }
       core.set %out["kind"] = "pending"

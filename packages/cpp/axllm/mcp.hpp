@@ -51,6 +51,7 @@ class AxMCPTransport {
   virtual void send_notification(Value message) = 0;
   virtual void send_response(Value message) { send_notification(std::move(message)); }
   virtual void set_message_handler(std::function<void(Value)>) {}
+  virtual void set_request_handler(std::function<Value(Value)> handler) { request_handler_=std::move(handler); }
   virtual void set_lifecycle_handler(std::function<void(std::string)>) {}
   virtual void set_protocol_version(const std::string&) {}
   virtual void set_era(const std::string&) {}
@@ -61,6 +62,16 @@ class AxMCPTransport {
   virtual void open_request_stream(Value) { throw AxError("mcp", "Request streams are only available for modern MCP"); }
   virtual void close_request_stream() {}
   virtual void close() {}
+
+ protected:
+  bool dispatch_inbound_request(const Value& message) {
+    if(request_handler_&&!Core::get(message,"id",Value()).is_null()&&!display(Core::get(message,"method","")).empty()){
+      send_response(request_handler_(message));
+      return true;
+    }
+    return false;
+  }
+  std::function<Value(Value)> request_handler_;
 };
 
 struct AxMCPCatalogSnapshot {
@@ -166,6 +177,7 @@ class AxMCPClient {
   bool catalog_cache_fresh(const std::string& name) const;
   bool has_tasks_capability() const;
   Value await_modern_task(const std::string& task_id);
+  Value handle_server_request(Value request);
   Tool tool_to_function(Value spec);
   Tool prompt_to_function(Value spec);
   Tool resource_to_function(Value spec);
@@ -391,7 +403,7 @@ class AxMCPScriptedTransport : public AxMCPTransport {
   void set_message_handler(std::function<void(Value)> handler) override {handler_=std::move(handler);}
   void set_era(const std::string& era) override {era_=era;}
   void open_request_stream(Value message) override;
-  void emit(Value message){if(handler_)handler_(std::move(message));}
+  void emit(Value message){if(!dispatch_inbound_request(message)&&handler_)handler_(std::move(message));}
   void set_protocol_version(const std::string& protocol_version) override;
   std::vector<Value> requests;
   std::vector<Value> notifications;

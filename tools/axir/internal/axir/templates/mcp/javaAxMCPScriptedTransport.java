@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 public final class AxMCPScriptedTransport implements AxMCPTransport {
   public final List<Object> responses;
@@ -14,6 +15,7 @@ public final class AxMCPScriptedTransport implements AxMCPTransport {
   public final List<Map<String, String>> requestHeaders = new ArrayList<>();
   public final List<Map<String, Object>> requestStreams = new ArrayList<>();
   private Consumer<Map<String, Object>> handler;
+  private Function<Map<String, Object>, Map<String, Object>> requestHandler;
   public String protocolVersion;
   public String era;
 
@@ -43,8 +45,9 @@ public final class AxMCPScriptedTransport implements AxMCPTransport {
   public void sendNotification(Map<String, Object> message) { notifications.add(new LinkedHashMap<>(message)); }
   public void sendResponse(Map<String, Object> message) { sentResponses.add(new LinkedHashMap<>(message)); }
   public void setMessageHandler(Consumer<Map<String, Object>> handler) { this.handler = handler; }
+  public void setRequestHandler(Function<Map<String, Object>, Map<String, Object>> handler) { this.requestHandler = handler; }
   public void setProtocolVersion(String protocolVersion) { this.protocolVersion = protocolVersion; }
   public void setEra(String era) { this.era = era; }
   public void openRequestStream(Map<String,Object> message){if(!"modern".equals(era))throw new AxMCPError("Request streams are only available for modern MCP");Map<String,Object> request=new LinkedHashMap<>(message);requestStreams.add(request);Map<String,Object> params=Core.asMap(request.get("params"));emit(new LinkedHashMap<>(Map.of("jsonrpc","2.0","method","notifications/subscriptions/acknowledged","params",new LinkedHashMap<>(Map.of("notifications",params.getOrDefault("notifications",Map.of()),"_meta",Map.of("io.modelcontextprotocol/subscriptionId",request.get("id")))))));}
-  public void emit(Map<String, Object> message) { if (handler != null) handler.accept(message); }
+  public void emit(Map<String, Object> message) { if(message.containsKey("id")&&message.containsKey("method")&&requestHandler!=null){sendResponse(requestHandler.apply(message));return;}if (handler != null) handler.accept(message); }
 }

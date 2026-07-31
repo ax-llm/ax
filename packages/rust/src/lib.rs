@@ -72273,6 +72273,126 @@ fn mcp_validate_modern_task(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn mcp_server_request_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("mcp_server_request_plan");
+    let mut v_request = core_arg(args, 0);
+    let mut v_roots = core_arg(args, 1);
+    let mut v_has_elicitation = core_arg(args, 2);
+    let mut v_can_elicit = CoreValue::Null;
+    let mut v_elicitation = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_method = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_params_missing = CoreValue::Null;
+    let mut v_ping = CoreValue::Null;
+    let mut v_response = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_roots_copy = CoreValue::Null;
+    let mut v_roots_list = CoreValue::Null;
+    let mut v_roots_missing = CoreValue::Null;
+    let mut v_roots_text = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    v_id = core_get(&v_request, &CoreValue::from("id"), CoreValue::Null);
+    v_method = core_get(&v_request, &CoreValue::from("method"), CoreValue::from(""));
+    v_params = core_get(&v_request, &CoreValue::from("params"), CoreValue::Null);
+    v_ping = core_eq(&[v_method.clone(), CoreValue::from("ping")])?;
+    if core_truthy(&v_ping) {
+        v_response = CoreValue::new_map();
+        v_result = CoreValue::new_map();
+        core_set(
+            &v_response,
+            CoreValue::from("jsonrpc"),
+            CoreValue::from("2.0"),
+        )?;
+        core_set(&v_response, CoreValue::from("id"), v_id.clone())?;
+        core_set(&v_response, CoreValue::from("result"), v_result.clone())?;
+        core_set(
+            &v_out,
+            CoreValue::from("action"),
+            CoreValue::from("respond"),
+        )?;
+        core_set(&v_out, CoreValue::from("response"), v_response.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_roots_list = core_eq(&[v_method.clone(), CoreValue::from("roots/list")])?;
+    if core_truthy(&v_roots_list) {
+        v_roots_missing = core_is_none(&[v_roots.clone()])?;
+        if core_truthy(&v_roots_missing) {
+        } else {
+            v_roots_text = core_json_stringify(&[v_roots.clone()])?;
+            v_roots_copy = core_json_parse(&[v_roots_text.clone()])?;
+            v_result = CoreValue::new_map();
+            core_set(&v_result, CoreValue::from("roots"), v_roots_copy.clone())?;
+            v_response = CoreValue::new_map();
+            core_set(
+                &v_response,
+                CoreValue::from("jsonrpc"),
+                CoreValue::from("2.0"),
+            )?;
+            core_set(&v_response, CoreValue::from("id"), v_id.clone())?;
+            core_set(&v_response, CoreValue::from("result"), v_result.clone())?;
+            core_set(
+                &v_out,
+                CoreValue::from("action"),
+                CoreValue::from("respond"),
+            )?;
+            core_set(&v_out, CoreValue::from("response"), v_response.clone())?;
+            return Ok(v_out.clone());
+        }
+    }
+    v_elicitation = core_eq(&[v_method.clone(), CoreValue::from("elicitation/create")])?;
+    v_can_elicit = core_and(&[v_elicitation.clone(), v_has_elicitation.clone()])?;
+    if core_truthy(&v_can_elicit) {
+        core_set(
+            &v_out,
+            CoreValue::from("action"),
+            CoreValue::from("elicitation"),
+        )?;
+        core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+        v_params_missing = core_is_none(&[v_params.clone()])?;
+        if core_truthy(&v_params_missing) {
+            v_empty = CoreValue::new_map();
+            core_set(&v_out, CoreValue::from("params"), v_empty.clone())?;
+        } else {
+            core_set(&v_out, CoreValue::from("params"), v_params.clone())?;
+        }
+        return Ok(v_out.clone());
+    }
+    v_error = CoreValue::new_map();
+    core_set(&v_error, CoreValue::from("code"), CoreValue::Num(-32601f64))?;
+    v_message = core_string_format(&[
+        CoreValue::from("Unsupported server request: {}"),
+        v_method.clone(),
+    ])?;
+    core_set(&v_error, CoreValue::from("message"), v_message.clone())?;
+    v_response = CoreValue::new_map();
+    core_set(
+        &v_response,
+        CoreValue::from("jsonrpc"),
+        CoreValue::from("2.0"),
+    )?;
+    core_set(&v_response, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_response, CoreValue::from("error"), v_error.clone())?;
+    core_set(
+        &v_out,
+        CoreValue::from("action"),
+        CoreValue::from("respond"),
+    )?;
+    core_set(&v_out, CoreValue::from("response"), v_response.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn mcp_task_terminal_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("mcp_task_terminal_outcome");
     let mut v_task = core_arg(args, 0);
@@ -72286,10 +72406,13 @@ fn mcp_task_terminal_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_error_object = CoreValue::Null;
     let mut v_failed = CoreValue::Null;
     let mut v_has_data = CoreValue::Null;
+    let mut v_has_requests = CoreValue::Null;
     let mut v_has_result = CoreValue::Null;
+    let mut v_input_required = CoreValue::Null;
     let mut v_message = CoreValue::Null;
     let mut v_message_string = CoreValue::Null;
     let mut v_out = CoreValue::Null;
+    let mut v_requests = CoreValue::Null;
     let mut v_result = CoreValue::Null;
     let mut v_status = CoreValue::Null;
     let mut v_task_id = CoreValue::Null;
@@ -72360,6 +72483,33 @@ fn mcp_task_terminal_outcome(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_message =
             core_string_format(&[CoreValue::from("MCP task {} cancelled"), v_task_id.clone()])?;
         core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_input_required = core_eq(&[v_status.clone(), CoreValue::from("input_required")])?;
+    if core_truthy(&v_input_required) {
+        v_has_requests = core_map_contains(&[v_task.clone(), CoreValue::from("inputRequests")])?;
+        if core_truthy(&v_has_requests) {
+            core_set(
+                &v_out,
+                CoreValue::from("kind"),
+                CoreValue::from("input_required"),
+            )?;
+            v_requests = core_get(&v_task, &CoreValue::from("inputRequests"), CoreValue::Null);
+            core_set(&v_out, CoreValue::from("inputRequests"), v_requests.clone())?;
+        } else {
+            core_set(
+                &v_out,
+                CoreValue::from("kind"),
+                CoreValue::from("violation"),
+            )?;
+            v_message = core_string_format(&[
+                CoreValue::from(
+                    "MCP protocol violation: input_required task {} omitted inputRequests",
+                ),
+                v_task_id.clone(),
+            ])?;
+            core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+        }
         return Ok(v_out.clone());
     }
     core_set(&v_out, CoreValue::from("kind"), CoreValue::from("pending"))?;
@@ -74252,4 +74402,4 @@ fn mcp_oauth_validate_issuer(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (558 of 558 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (559 of 559 core functions)

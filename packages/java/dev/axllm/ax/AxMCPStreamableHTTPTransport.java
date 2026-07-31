@@ -27,6 +27,7 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   private String era;
   private final String eraCacheKey;
   private java.util.function.Consumer<Map<String, Object>> handler;
+  private java.util.function.Function<Map<String, Object>,Map<String,Object>> requestHandler;
   private Consumer<String> lifecycleHandler;
   private final Map<String, String> headers = new LinkedHashMap<>();
   private Map<String, String> lastHeaders = new LinkedHashMap<>();
@@ -113,7 +114,7 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
         response = msg;
         continue;
       }
-      if (handler != null) handler.accept(msg);
+      dispatchInbound(msg);
     }
     if (response != null) return response;
     if (!messages.isEmpty()) return messages.get(messages.size() - 1);
@@ -125,6 +126,8 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
   }
 
   public void setMessageHandler(java.util.function.Consumer<Map<String, Object>> handler) { this.handler = handler; }
+  public void setRequestHandler(java.util.function.Function<Map<String,Object>,Map<String,Object>> handler){this.requestHandler=handler;}
+  private void dispatchInbound(Map<String,Object> message){if(message.containsKey("id")&&message.containsKey("method")&&requestHandler!=null){sendResponse(requestHandler.apply(message));return;}if(handler!=null)handler.accept(message);}
   public void setLifecycleHandler(Consumer<String> handler) { this.lifecycleHandler = handler; }
   public void setProtocolVersion(String protocolVersion) { this.protocolVersion = protocolVersion; }
   public void setEra(String era) { this.era = era; if ("modern".equals(era)) { sessionId = null; protocolVersion = "2026-07-28"; } else if ("2026-07-28".equals(protocolVersion)) protocolVersion = null; }
@@ -158,7 +161,7 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     }catch(Exception ignored){}finally{if(connection!=null)connection.disconnect();if(requestStreamStop==stop){requestStreamBody=null;requestStreamConnection=null;requestStreamThread=null;}if(!stop.get()&&lifecycleHandler!=null)new Thread(()->lifecycleHandler.accept("disconnected"),"ax-mcp-listen-lifecycle").start();}
   }
 
-  private void consumeRequestSse(InputStream body,AtomicBoolean stop)throws Exception{BufferedReader reader=new BufferedReader(new InputStreamReader(body,java.nio.charset.StandardCharsets.UTF_8));List<String> data=new ArrayList<>();String line;while(!stop.get()&&(line=reader.readLine())!=null){if(line.isEmpty()){if(!data.isEmpty()&&handler!=null)handler.accept(Core.asMap(Json.parse(String.join("\n",data))));data.clear();}else if(line.startsWith("data:"))data.add(line.substring(5).stripLeading());}}
+  private void consumeRequestSse(InputStream body,AtomicBoolean stop)throws Exception{BufferedReader reader=new BufferedReader(new InputStreamReader(body,java.nio.charset.StandardCharsets.UTF_8));List<String> data=new ArrayList<>();String line;while(!stop.get()&&(line=reader.readLine())!=null){if(line.isEmpty()){if(!data.isEmpty())dispatchInbound(Core.asMap(Json.parse(String.join("\n",data))));data.clear();}else if(line.startsWith("data:"))data.add(line.substring(5).stripLeading());}}
 
   public synchronized void closeRequestStream(){AtomicBoolean stop=requestStreamStop;Thread thread=requestStreamThread;InputStream body=requestStreamBody;HttpURLConnection connection=requestStreamConnection;requestStreamStop=null;requestStreamThread=null;requestStreamBody=null;requestStreamConnection=null;if(stop!=null)stop.set(true);if(thread!=null)thread.interrupt();if(connection!=null||body!=null){Thread cleanup=new Thread(()->{if(connection!=null)connection.disconnect();if(body!=null)try{body.close();}catch(Exception ignored){}},"ax-mcp-request-stream-close");cleanup.setDaemon(true);cleanup.start();}}
 
@@ -202,7 +205,7 @@ public final class AxMCPStreamableHTTPTransport implements AxMCPTransport {
     while (!listenStop.get() && (line = reader.readLine()) != null) {
       if (line.isEmpty()) {
         if (eventId != null) lastEventId = eventId;
-        if (!data.isEmpty() && handler != null) handler.accept(Core.asMap(Json.parse(String.join("\n", data))));
+        if (!data.isEmpty()) dispatchInbound(Core.asMap(Json.parse(String.join("\n", data))));
         data.clear(); eventId = null;
       } else if (line.startsWith("id:")) eventId = line.substring(3).trim();
       else if (line.startsWith("data:")) data.add(line.substring(5).stripLeading());

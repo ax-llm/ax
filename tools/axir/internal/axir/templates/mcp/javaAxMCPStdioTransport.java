@@ -13,6 +13,7 @@ public final class AxMCPStdioTransport implements AxMCPTransport {
   private final BufferedReader reader;
   private final BufferedWriter writer;
   private java.util.function.Consumer<Map<String, Object>> handler;
+  private java.util.function.Function<Map<String, Object>,Map<String,Object>> requestHandler;
   private String protocolVersion;
 
   public AxMCPStdioTransport(String command, List<String> args) {
@@ -37,7 +38,7 @@ public final class AxMCPStdioTransport implements AxMCPTransport {
         if (line == null) throw new AxMCPError("MCP stdio process closed");
         Map<String, Object> parsed = AxMCPClient.stdioDecode(line);
         if (String.valueOf(parsed.get("id")).equals(String.valueOf(message.get("id")))) return parsed;
-        if (handler != null) handler.accept(parsed);
+        if(parsed.containsKey("id")&&parsed.containsKey("method")&&requestHandler!=null)sendResponse(requestHandler.apply(parsed));else if (handler != null) handler.accept(parsed);
       }
     } catch (AxMCPError error) {
       throw error;
@@ -56,6 +57,7 @@ public final class AxMCPStdioTransport implements AxMCPTransport {
   }
 
   public void setMessageHandler(java.util.function.Consumer<Map<String, Object>> handler) { this.handler = handler; }
+  public void setRequestHandler(java.util.function.Function<Map<String,Object>,Map<String,Object>> handler){this.requestHandler=handler;}
   public void setProtocolVersion(String protocolVersion) { this.protocolVersion = protocolVersion; }
   public void close() { process.destroy(); }
 }

@@ -2558,6 +2558,8 @@ public final class Conformance {
 	    else {
 	      if (actual == null || expected == null) {
 	        if (actual != expected) throw new FixtureError(label + " expected " + expected + ", got " + actual);
+	      } else if (actual instanceof Number actualNumber && expected instanceof Number expectedNumber) {
+	        if (Double.compare(actualNumber.doubleValue(), expectedNumber.doubleValue()) != 0) throw new FixtureError(label + " expected " + expected + ", got " + actual);
 	      } else if (!canonical(actual).equals(canonical(expected))) throw new FixtureError(label + " expected " + expected + ", got " + actual);
 	    }
 	  }

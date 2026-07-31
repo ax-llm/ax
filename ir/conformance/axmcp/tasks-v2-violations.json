@@ -76,6 +76,16 @@
         "message": "index failed",
         "data": { "shard": 3 }
       }
+    },
+    {
+      "task": {
+        "taskId": "needs-input",
+        "status": "input_required"
+      },
+      "expected": {
+        "kind": "violation",
+        "message": "MCP protocol violation: input_required task needs-input omitted inputRequests"
+      }
     }
   ],
   "scenarios": [
@@ -145,6 +155,100 @@
         }
       ],
       "expected_error": "MCP protocol violation: invalid CreateTaskResult"
+    },
+    {
+      "client_options": { "era": "modern" },
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "capabilities": {
+              "tools": {},
+              "extensions": { "io.modelcontextprotocol/tasks": {} }
+            },
+            "ttlMs": 60000,
+            "cacheScope": "private"
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": { "tools": [{ "name": "slow", "inputSchema": {} }] }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-sampling",
+            "status": "working",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000
+          }
+        },
+        {
+          "method": "tasks/get",
+          "result": {
+            "taskId": "task-sampling",
+            "status": "input_required",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:02Z",
+            "ttlMs": 60000,
+            "inputRequests": {
+              "sample": { "method": "sampling/createMessage", "params": {} }
+            }
+          }
+        }
+      ],
+      "expected_error": "server requested sampling/createMessage without a matching client handler"
+    },
+    {
+      "client_options": { "era": "modern" },
+      "responses": [
+        {
+          "method": "server/discover",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "capabilities": {
+              "tools": {},
+              "extensions": { "io.modelcontextprotocol/tasks": {} }
+            },
+            "ttlMs": 60000,
+            "cacheScope": "private"
+          }
+        },
+        {
+          "method": "tools/list",
+          "result": { "tools": [{ "name": "slow", "inputSchema": {} }] }
+        },
+        {
+          "method": "tools/call",
+          "result": {
+            "resultType": "task",
+            "taskId": "task-elicit",
+            "status": "working",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:01Z",
+            "ttlMs": 60000
+          }
+        },
+        {
+          "method": "tasks/get",
+          "result": {
+            "taskId": "task-elicit",
+            "status": "input_required",
+            "createdAt": "2026-07-28T00:00:00Z",
+            "lastUpdatedAt": "2026-07-28T00:00:02Z",
+            "ttlMs": 60000,
+            "inputRequests": {
+              "confirmation": { "method": "elicitation/create", "params": {} }
+            }
+          }
+        }
+      ],
+      "expected_error": "server requested elicitation/create without a matching client handler"
     }
   ]
 }

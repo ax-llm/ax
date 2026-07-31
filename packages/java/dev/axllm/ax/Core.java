@@ -22500,6 +22500,71 @@ final class Core {
     return Boolean.FALSE;
   }
 
+  static Object mcp_server_request_plan(Object request, Object roots, Object has_elicitation) {
+    axirCoverageMark("mcp_server_request_plan");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Object id = Core.get(request, "id", null);
+    Object method = Core.get(request, "method", "");
+    Object params = Core.get(request, "params", null);
+    Object ping = Core.eq(method, "ping");
+    if (Core.truthy(ping)) {
+      Object response = new java.util.LinkedHashMap<String, Object>();
+      Object result = new java.util.LinkedHashMap<String, Object>();
+      Core.set(response, "jsonrpc", "2.0");
+      Core.set(response, "id", id);
+      Core.set(response, "result", result);
+      Core.set(out, "action", "respond");
+      Core.set(out, "response", response);
+      return out;
+    }
+    Object roots_list = Core.eq(method, "roots/list");
+    if (Core.truthy(roots_list)) {
+      Object roots_missing = Core.isNone(roots);
+      if (Core.truthy(roots_missing)) {
+        // empty
+      }
+      if (!Core.truthy(roots_missing)) {
+        Object roots_text = Core.jsonStringify(roots);
+        Object roots_copy = Core.jsonParse(roots_text);
+        Object result = new java.util.LinkedHashMap<String, Object>();
+        Core.set(result, "roots", roots_copy);
+        Object response = new java.util.LinkedHashMap<String, Object>();
+        Core.set(response, "jsonrpc", "2.0");
+        Core.set(response, "id", id);
+        Core.set(response, "result", result);
+        Core.set(out, "action", "respond");
+        Core.set(out, "response", response);
+        return out;
+      }
+    }
+    Object elicitation = Core.eq(method, "elicitation/create");
+    Object can_elicit = Core.and(elicitation, has_elicitation);
+    if (Core.truthy(can_elicit)) {
+      Core.set(out, "action", "elicitation");
+      Core.set(out, "id", id);
+      Object params_missing = Core.isNone(params);
+      if (Core.truthy(params_missing)) {
+        Object empty = new java.util.LinkedHashMap<String, Object>();
+        Core.set(out, "params", empty);
+      }
+      if (!Core.truthy(params_missing)) {
+        Core.set(out, "params", params);
+      }
+      return out;
+    }
+    Object error = new java.util.LinkedHashMap<String, Object>();
+    Core.set(error, "code", -32601);
+    Object message = Core.stringFormat("Unsupported server request: {}", method);
+    Core.set(error, "message", message);
+    Object response = new java.util.LinkedHashMap<String, Object>();
+    Core.set(response, "jsonrpc", "2.0");
+    Core.set(response, "id", id);
+    Core.set(response, "error", error);
+    Core.set(out, "action", "respond");
+    Core.set(out, "response", response);
+    return out;
+  }
+
   static Object mcp_task_terminal_outcome(Object task) {
     axirCoverageMark("mcp_task_terminal_outcome");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -22552,6 +22617,21 @@ final class Core {
       Core.set(out, "kind", "cancelled");
       Object message = Core.stringFormat("MCP task {} cancelled", task_id);
       Core.set(out, "message", message);
+      return out;
+    }
+    Object input_required = Core.eq(status, "input_required");
+    if (Core.truthy(input_required)) {
+      Object has_requests = Core.mapContains(task, "inputRequests");
+      if (Core.truthy(has_requests)) {
+        Core.set(out, "kind", "input_required");
+        Object requests = Core.get(task, "inputRequests", null);
+        Core.set(out, "inputRequests", requests);
+      }
+      if (!Core.truthy(has_requests)) {
+        Core.set(out, "kind", "violation");
+        Object message = Core.stringFormat("MCP protocol violation: input_required task {} omitted inputRequests", task_id);
+        Core.set(out, "message", message);
+      }
       return out;
     }
     Core.set(out, "kind", "pending");
