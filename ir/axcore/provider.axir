@@ -165,7 +165,7 @@ module @ax.provider version "0.1" {
       %has_budget = core.call intrinsic.is_not_none(%budget)
       core.if %has_budget {
         %model = core.get %payload["model"] default ""
-        %effort = core.call @openai_reasoning_effort(%model, %budget)
+        %effort = core.call @openai_chat_reasoning_effort(%model, %budget)
         %has_effort = core.call intrinsic.is_not_none(%effort)
         core.if %has_effort {
           core.set %payload["reasoning_effort"] = %effort
@@ -237,6 +237,21 @@ module @ax.provider version "0.1" {
         core.return "xhigh"
       }
       core.return "high"
+    }
+  }
+
+  op ax.provider.semantic @openai_chat_reasoning_effort {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "openai-chat-reasoning-effort"
+    type signature = "(model:string, budget:json) -> json"
+    body @entry(%model: string, %budget: json) {
+      %effort = core.call @openai_reasoning_effort(%model, %budget)
+      %is_max = core.call intrinsic.eq(%effort, "max")
+      core.if %is_max {
+        core.return "xhigh"
+      }
+      core.return %effort
     }
   }
 

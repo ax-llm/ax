@@ -3225,7 +3225,7 @@ final class Core {
     Object has_budget = Core.isNotNone(budget);
     if (Core.truthy(has_budget)) {
       Object model = Core.get(payload, "model", "");
-      Object effort = Core.openai_reasoning_effort(model, budget);
+      Object effort = Core.openai_chat_reasoning_effort(model, budget);
       Object has_effort = Core.isNotNone(effort);
       if (Core.truthy(has_effort)) {
         Core.set(payload, "reasoning_effort", effort);
@@ -3326,14 +3326,14 @@ final class Core {
     return response;
   }
 
-  static Object _openai_copy_config_key_impl(Object payload, Object model_config, Object source, Object target) {
-    axirCoverageMark("_openai_copy_config_key_impl");
-    Object has_source = Core.mapContains(model_config, source);
-    if (Core.truthy(has_source)) {
-      Object value = Core.get(model_config, source, null);
-      Core.set(payload, target, value);
+  static Object openai_chat_reasoning_effort(Object model, Object budget) {
+    axirCoverageMark("openai_chat_reasoning_effort");
+    Object effort = Core.openai_reasoning_effort(model, budget);
+    Object is_max = Core.eq(effort, "max");
+    if (Core.truthy(is_max)) {
+      return "xhigh";
     }
-    return null;
+    return effort;
   }
 
   static Object normalize_token_usage(Object usage) {
@@ -3387,6 +3387,16 @@ final class Core {
       Core.set(out, "speed", speed);
     }
     return out;
+  }
+
+  static Object _openai_copy_config_key_impl(Object payload, Object model_config, Object source, Object target) {
+    axirCoverageMark("_openai_copy_config_key_impl");
+    Object has_source = Core.mapContains(model_config, source);
+    if (Core.truthy(has_source)) {
+      Object value = Core.get(model_config, source, null);
+      Core.set(payload, target, value);
+    }
+    return null;
   }
 
   static Object _openai_message_impl(Object message) {
@@ -3620,30 +3630,6 @@ final class Core {
     return out;
   }
 
-  static Object _openai_tool_call_to_provider_impl(Object call) {
-    axirCoverageMark("_openai_tool_call_to_provider_impl");
-    Object fn = Core.get(call, "function", null);
-    Object params = Core.get(fn, "params", null);
-    Object params_is_string = Core.typeIs(params, "string");
-    if (Core.truthy(params_is_string)) {
-      // empty
-    }
-    if (!Core.truthy(params_is_string)) {
-      Object params_json = Core.jsonStringify(params);
-      params = params_json;
-    }
-    Object id = Core.get(call, "id", null);
-    Object name = Core.get(fn, "name", null);
-    Object function = new java.util.LinkedHashMap<String, Object>();
-    Core.set(function, "name", name);
-    Core.set(function, "arguments", params);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "id", id);
-    Core.set(out, "type", "function");
-    Core.set(out, "function", function);
-    return out;
-  }
-
   static Object chat_response_to_completion(Object response) {
     axirCoverageMark("chat_response_to_completion");
     Object empty_results = new java.util.ArrayList<Object>();
@@ -3671,6 +3657,30 @@ final class Core {
     Core.set(out, "content", content);
     Core.set(out, "function_calls", calls);
     Core.set(out, "usage", usage);
+    return out;
+  }
+
+  static Object _openai_tool_call_to_provider_impl(Object call) {
+    axirCoverageMark("_openai_tool_call_to_provider_impl");
+    Object fn = Core.get(call, "function", null);
+    Object params = Core.get(fn, "params", null);
+    Object params_is_string = Core.typeIs(params, "string");
+    if (Core.truthy(params_is_string)) {
+      // empty
+    }
+    if (!Core.truthy(params_is_string)) {
+      Object params_json = Core.jsonStringify(params);
+      params = params_json;
+    }
+    Object id = Core.get(call, "id", null);
+    Object name = Core.get(fn, "name", null);
+    Object function = new java.util.LinkedHashMap<String, Object>();
+    Core.set(function, "name", name);
+    Core.set(function, "arguments", params);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "id", id);
+    Core.set(out, "type", "function");
+    Core.set(out, "function", function);
     return out;
   }
 
@@ -3739,6 +3749,18 @@ final class Core {
     return payload;
   }
 
+  static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
+    axirCoverageMark("ai_context_cache_expiry");
+    Object is_number = Core.typeIs(provider_expire_time, "number");
+    if (Core.truthy(is_number)) {
+      Object future = Core.gt(provider_expire_time, now);
+      if (Core.truthy(future)) {
+        return provider_expire_time;
+      }
+    }
+    return 0;
+  }
+
   static Object openai_normalize_chat_response(Object raw, Object ai_name, Object model) {
     axirCoverageMark("openai_normalize_chat_response");
     Object raw_is_object = Core.typeIs(raw, "object");
@@ -3776,18 +3798,6 @@ final class Core {
     Core.set(out, "remote_id", remote_id);
     Core.set(out, "model_usage", model_usage);
     return out;
-  }
-
-  static Object ai_context_cache_expiry(Object provider_expire_time, Object now) {
-    axirCoverageMark("ai_context_cache_expiry");
-    Object is_number = Core.typeIs(provider_expire_time, "number");
-    if (Core.truthy(is_number)) {
-      Object future = Core.gt(provider_expire_time, now);
-      if (Core.truthy(future)) {
-        return provider_expire_time;
-      }
-    }
-    return 0;
   }
 
   static Object ai_context_cache_plan(Object configured, Object supported, Object explicit_name, Object existing, Object now, Object refresh_window_ms, Object create_eligible) {

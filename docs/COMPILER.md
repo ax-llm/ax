@@ -204,9 +204,10 @@ consumer wiring are part of the change.
 See [`docs/RELEASE.md`](./RELEASE.md) for the publishable package names,
 versioning rule, and local release smoke workflow.
 
-OpenAI-compatible request builders share the Core
-`openai_reasoning_effort` resolver. It owns the GPT-5.6 low/medium/high/max
-ladder, explicit `none`, and the established legacy-model ladder; budget
+OpenAI-compatible request builders share the Core reasoning-effort ladder, with
+a Chat Completions adapter for the GPT-5.6 surface split. On GPT-5.6,
+`highest` maps to `xhigh` for Chat Completions and `max` for Responses;
+explicit `none` and the established legacy-model ladder remain shared. Budget
 configuration overrides raw effort configuration. Provider-specific DeepSeek
 and Grok wire-shape adjustments remain later profile steps.
 
