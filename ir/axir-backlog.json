@@ -775,7 +775,7 @@
     },
     {
       "id": "axir-2026-07-30-port-legacy-inbound-mcp-elicitation",
-      "status": "open",
+      "status": "done",
       "title": "Port legacy inbound MCP elicitation",
       "createdAt": "2026-07-30",
       "sourcePR": null,
@@ -788,9 +788,9 @@
         "Add legacy elicitation fixtures and explicit runner arms for all generated languages.",
         "Advertise legacy elicitation only on ports whose transports can receive and answer the request."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-31",
+      "completedByCommit": "670cc126",
+      "verification": "npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run website:check; npm run axir:gate:ledger"
     },
     {
       "id": "axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks",
@@ -813,7 +813,7 @@
     },
     {
       "id": "axir-2026-07-30-port-task-input-required-fulfillment",
-      "status": "open",
+      "status": "done",
       "title": "Port MCP Tasks v2 input required fulfillment",
       "createdAt": "2026-07-30",
       "sourcePR": null,
@@ -826,13 +826,13 @@
         "Add tasks/update request construction and continuation semantics to all generated clients.",
         "Prove roots and elicitation task fulfillment plus missing-handler and sampling violations in five-language fixtures and live smoke."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-31",
+      "completedByCommit": "670cc126",
+      "verification": "npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run website:check; npm run axir:gate:ledger"
     },
     {
       "id": "axir-2026-07-30-port-the-gpt-5-6-reasoning-effort-ladder",
-      "status": "open",
+      "status": "done",
       "title": "Port the GPT-5.6 reasoning-effort ladder",
       "createdAt": "2026-07-30",
       "sourcePR": null,
@@ -853,9 +853,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-31",
+      "completedByCommit": "52f434db",
+      "verification": "npx vitest run src/ax/ai/openai/api.reasoning.test.ts; npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run website:check; npm run axir:gate:ledger"
     },
     {
       "id": "axir-2026-07-31-port-mcp-oauth-discovery-grants-and-refresh",
@@ -878,7 +878,7 @@
     },
     {
       "id": "axir-2026-07-31-port-per-item-url-array-validation",
-      "status": "open",
+      "status": "done",
       "title": "Port per-item URL array validation",
       "createdAt": "2026-07-31",
       "sourcePR": 567,
@@ -896,13 +896,13 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-31",
+      "completedByCommit": "25c64534",
+      "verification": "npx vitest run src/ax/dsp/structured.test.ts; npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run website:check; npm run axir:gate:ledger"
     },
     {
       "id": "axir-2026-07-31-port-structured-object-array-streaming-deduplication",
-      "status": "open",
+      "status": "done",
       "title": "Port structured object-array streaming deduplication",
       "createdAt": "2026-07-31",
       "sourcePR": 565,
@@ -918,9 +918,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-07-31",
+      "completedByCommit": "25c64534",
+      "verification": "npx vitest run src/ax/dsp/streaming_duplication.test.ts src/ax/dsp/structured.test.ts; npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run website:check; npm run axir:gate:ledger"
     }
   ],
   "nonPortableExemptions": [
