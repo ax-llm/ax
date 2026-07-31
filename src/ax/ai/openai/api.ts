@@ -47,6 +47,7 @@ import {
   type AxAIOpenAIEmbedResponse,
   AxAIOpenAIModel,
 } from './chat_types.js';
+import { axResolveOpenAIReasoningEffort } from './effort.js';
 import { axModelInfoOpenAI } from './info.js';
 import {
   axAIOpenAIRealtimeDefaultConfig,
@@ -422,46 +423,10 @@ class AxAIOpenAIImpl<
 
     // Then, override based on prompt-specific config
     if (config?.thinkingTokenBudget) {
-      switch (config.thinkingTokenBudget) {
-        case 'none':
-          reqValue.reasoning_effort = undefined; // Explicitly set to undefined
-          break;
-        case 'minimal':
-          reqValue.reasoning_effort = 'minimal';
-          break;
-        case 'low':
-          reqValue.reasoning_effort = 'medium';
-          break;
-        case 'medium':
-          reqValue.reasoning_effort = 'high';
-          break;
-        case 'high':
-          reqValue.reasoning_effort = 'high';
-          break;
-        case 'highest':
-          reqValue.reasoning_effort = 'xhigh';
-          break;
-      }
-    }
-
-    // If a per-model key mapped numeric thinking budget to an Ax level via models[],
-    // set reasoning_effort accordingly when not overridden above
-    if (!reqValue.reasoning_effort && (config as any)?.thinkingTokenBudget) {
-      switch ((config as any).thinkingTokenBudget) {
-        case 'minimal':
-          reqValue.reasoning_effort = 'minimal';
-          break;
-        case 'low':
-          reqValue.reasoning_effort = 'medium';
-          break;
-        case 'medium':
-        case 'high':
-          reqValue.reasoning_effort = 'high';
-          break;
-        case 'highest':
-          reqValue.reasoning_effort = 'xhigh';
-          break;
-      }
+      reqValue.reasoning_effort = axResolveOpenAIReasoningEffort(
+        model,
+        config.thinkingTokenBudget
+      );
     }
 
     if (this.chatReqUpdater) {

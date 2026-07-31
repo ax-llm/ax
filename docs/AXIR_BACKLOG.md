@@ -30,6 +30,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/mcp/client.ts`
   - Impact: TypeScript can fulfill input_required task status through tasks/update and continue polling, while generated clients currently auto-await only working and terminal task states and do not run the input-request fulfillment loop.
   - Suggested AxIR work: Reuse the portable MRTR fulfillment planner for task inputRequests.; Add tasks/update request construction and continuation semantics to all generated clients.; Prove roots and elicitation task fulfillment plus missing-handler and sampling violations in five-language fixtures and live smoke.
+- `axir-2026-07-30-port-the-gpt-5-6-reasoning-effort-ladder` [axai] Port the GPT-5.6 reasoning-effort ladder
+  - Status: open
+  - Source commit: `cbaf70906d76c8534373451780b240e190a0f22c`
+  - TS paths: `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/responses_api.ts`
+  - Impact: Generated Python/Java/C++/Go/Rust clients have no OpenAI thinkingTokenBudget -> reasoning.effort mapping; AxIR models only the DeepSeek and Grok quirk blocks, so the GPT-5.6 1:1 ladder and its max rung are TS-only.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

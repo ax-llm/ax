@@ -16,6 +16,7 @@ import type {
   AxModelConfig,
   AxTokenUsage,
 } from '../types.js';
+import { axResolveOpenAIReasoningEffort } from './effort.js';
 import type {
   AxAIOpenAIResponsesCodeInterpreterToolCall,
   AxAIOpenAIResponsesComputerToolCall,
@@ -386,24 +387,10 @@ export class AxAIOpenAIResponsesImpl<
 
     // Handle thinkingTokenBudget config parameter
     if (config?.thinkingTokenBudget) {
-      switch (config.thinkingTokenBudget) {
-        case 'none':
-          reasoningEffort = undefined;
-          break;
-        case 'minimal':
-          reasoningEffort = 'minimal';
-          break;
-        case 'low':
-          reasoningEffort = 'medium';
-          break;
-        case 'medium':
-        case 'high':
-          reasoningEffort = 'high';
-          break;
-        case 'highest':
-          reasoningEffort = 'xhigh';
-          break;
-      }
+      reasoningEffort = axResolveOpenAIReasoningEffort(
+        model,
+        config.thinkingTokenBudget
+      );
     }
 
     const mutableReq: Mutable<AxAIOpenAIResponsesRequest<TModel>> = {
@@ -454,7 +441,11 @@ export class AxAIOpenAIResponsesImpl<
         ? {
             reasoning: {
               effort: reasoningEffort,
-              summary: reasoningSummary,
+              // Summarizing reasoning that was explicitly disabled is
+              // contradictory, so 'none' carries no summary.
+              ...(reasoningEffort === 'none'
+                ? {}
+                : { summary: reasoningSummary }),
             },
           }
         : {}),
@@ -515,53 +506,10 @@ export class AxAIOpenAIResponsesImpl<
       throw new Error('Responses API request must have input or instructions.');
     }
 
-    let currentReasoning = mutableReq.reasoning ?? {};
-    if (this.config.reasoningEffort) {
-      currentReasoning = {
-        ...currentReasoning,
-        effort: this.config.reasoningEffort,
-      };
-    }
-
-    // Handle thinkingTokenBudget config parameter
-    if (config?.thinkingTokenBudget) {
-      switch (config.thinkingTokenBudget) {
-        case 'none':
-          // When thinkingTokenBudget is 'none', remove reasoning entirely
-          currentReasoning = {};
-          break;
-        case 'minimal':
-          currentReasoning = {
-            ...currentReasoning,
-            effort: 'minimal',
-          };
-          break;
-        case 'low':
-          currentReasoning = {
-            ...currentReasoning,
-            effort: 'medium',
-          };
-          break;
-        case 'medium':
-        case 'high':
-          currentReasoning = {
-            ...currentReasoning,
-            effort: 'high',
-          };
-          break;
-        case 'highest':
-          currentReasoning = {
-            ...currentReasoning,
-            effort: 'xhigh',
-          };
-          break;
-      }
-    }
-
-    if (Object.keys(currentReasoning).length > 0 && currentReasoning.effort) {
-      mutableReq.reasoning = currentReasoning;
-    } else {
-      mutableReq.reasoning = undefined; // Ensure reasoning is not sent if empty or only has non-effort keys by mistake
+    // The effort was resolved once above; drop the object outright when none
+    // survived so an effortless `reasoning` never reaches the wire.
+    if (!mutableReq.reasoning?.effort) {
+      mutableReq.reasoning = undefined;
     }
 
     let finalReqToProcess: Readonly<AxAIOpenAIResponsesRequest<TModel>> =

@@ -1054,7 +1054,10 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": ["deepseek-chat", "deepseek-reasoner"],
+            "aliases": [
+              "deepseek-chat",
+              "deepseek-reasoner"
+            ],
             "cacheReadTokenCostPer1M": 0.0028,
             "capabilities": {
               "audioInput": false,
@@ -1177,6 +1180,39 @@
             "provider": "openai",
             "supported": {
               "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.02,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 1.2,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.04,
+            "longContextCompletionTokenCostPer1M": 1.8,
+            "longContextPromptTokenCostPer1M": 0.4,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-5.6-luna",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 0.2,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputs": true,
+              "thinkingBudget": true
             },
             "type": "text"
           },
@@ -1625,6 +1661,39 @@
             "type": "text"
           },
           {
+            "cacheReadTokenCostPer1M": 0.2,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 12,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.4,
+            "longContextCompletionTokenCostPer1M": 18,
+            "longContextPromptTokenCostPer1M": 4,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-5.6-terra",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 2,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -1765,6 +1834,42 @@
             "longContextPromptTokenCostPer1M": 10,
             "longContextThreshold": 272000,
             "name": "gpt-5.5",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 5,
+            "provider": "openai",
+            "supported": {
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "aliases": [
+              "gpt-5.6"
+            ],
+            "cacheReadTokenCostPer1M": 0.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": false,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 30,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 1,
+            "longContextCompletionTokenCostPer1M": 45,
+            "longContextPromptTokenCostPer1M": 10,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-5.6-sol",
             "notSupported": {
               "temperature": true,
               "topP": true
@@ -1993,6 +2098,40 @@
             "provider": "openai-responses",
             "supported": {
               "structuredOutputs": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.02,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 1.2,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.04,
+            "longContextCompletionTokenCostPer1M": 1.8,
+            "longContextPromptTokenCostPer1M": 0.4,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-5.6-luna",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 0.2,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
             },
             "type": "text"
           },
@@ -2471,6 +2610,40 @@
             "type": "text"
           },
           {
+            "cacheReadTokenCostPer1M": 0.2,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 12,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 0.4,
+            "longContextCompletionTokenCostPer1M": 18,
+            "longContextPromptTokenCostPer1M": 4,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-5.6-terra",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 2,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -2619,6 +2792,43 @@
             "longContextPromptTokenCostPer1M": 10,
             "longContextThreshold": 272000,
             "name": "gpt-5.5",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 5,
+            "provider": "openai-responses",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "aliases": [
+              "gpt-5.6"
+            ],
+            "cacheReadTokenCostPer1M": 0.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "completionTokenCostPer1M": 30,
+            "contextWindow": 1050000,
+            "currency": "usd",
+            "isDefault": false,
+            "longContextCacheReadTokenCostPer1M": 1,
+            "longContextCompletionTokenCostPer1M": 45,
+            "longContextPromptTokenCostPer1M": 10,
+            "longContextThreshold": 272000,
+            "maxTokens": 128000,
+            "name": "gpt-5.6-sol",
             "notSupported": {
               "temperature": true,
               "topP": true
@@ -2837,7 +3047,9 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": ["grok-4-1-fast-non-reasoning-latest"],
+            "aliases": [
+              "grok-4-1-fast-non-reasoning-latest"
+            ],
             "cacheReadTokenCostPer1M": 0.05,
             "capabilities": {
               "audioInput": false,
@@ -2861,7 +3073,9 @@
             "type": "text"
           },
           {
-            "aliases": ["grok-4-1-fast-reasoning-latest"],
+            "aliases": [
+              "grok-4-1-fast-reasoning-latest"
+            ],
             "cacheReadTokenCostPer1M": 0.05,
             "capabilities": {
               "audioInput": false,
@@ -2989,7 +3203,10 @@
             "type": "text"
           },
           {
-            "aliases": ["grok-4.3-latest", "grok-latest"],
+            "aliases": [
+              "grok-4.3-latest",
+              "grok-latest"
+            ],
             "cacheReadTokenCostPer1M": 0.2,
             "capabilities": {
               "audioInput": false,
@@ -4140,9 +4357,12 @@
         "name": "azure-openai"
       }
     ],
-    "modelCount": 170,
+    "modelCount": 176,
     "openaiFirstModel": "gpt-5-nano",
-    "openaiModelTypes": ["code", "text"],
+    "openaiModelTypes": [
+      "code",
+      "text"
+    ],
     "providerCount": 11,
     "providerNames": [
       "google-gemini",
