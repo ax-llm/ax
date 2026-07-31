@@ -5851,8 +5851,14 @@ func _openai_apply_model_config_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_apply_model_config_impl")
 	var v_payload Value
 	var v_model_config Value
+	var v_budget Value
+	var v_budget_snake Value
+	var v_effort Value
+	var v_has_budget Value
+	var v_has_effort Value
 	var v_has_stop Value
 	var v_is_stream Value
+	var v_model Value
 	var v_stop Value
 	var v_stop_snake Value
 	var v_stream Value
@@ -5861,8 +5867,14 @@ func _openai_apply_model_config_impl(args ...Value) (Value, error) {
 	_ = v_payload
 	if len(args) > 1 { v_model_config = args[1] }
 	_ = v_model_config
+	_ = v_budget
+	_ = v_budget_snake
+	_ = v_effort
+	_ = v_has_budget
+	_ = v_has_effort
 	_ = v_has_stop
 	_ = v_is_stream
+	_ = v_model
 	_ = v_stop
 	_ = v_stop_snake
 	_ = v_stream
@@ -5877,6 +5889,23 @@ func _openai_apply_model_config_impl(args ...Value) (Value, error) {
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "presencePenalty", "presence_penalty"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "frequency_penalty", "frequency_penalty"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "frequencyPenalty", "frequency_penalty"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "reasoning_effort", "reasoning_effort"); err != nil { return nil, err }
+	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "reasoningEffort", "reasoning_effort"); err != nil { return nil, err }
+	v_budget_snake = coreGet(v_model_config, "thinking_token_budget", nil)
+	v_budget = coreGet(v_model_config, "thinkingTokenBudget", v_budget_snake)
+	v_has_budget = _core_is_not_none(v_budget)
+	if coreTruthy(v_has_budget) {
+		v_model = coreGet(v_payload, "model", "")
+		{ v, err := openai_reasoning_effort(v_model, v_budget); if err != nil { return nil, err }; v_effort = v }
+		v_has_effort = _core_is_not_none(v_effort)
+		if coreTruthy(v_has_effort) {
+			if err := coreSet(v_payload, "reasoning_effort", v_effort); err != nil { return nil, err }
+		} else {
+			_core_map_delete(v_payload, "reasoning_effort")
+		}
+	} else {
+	// empty
+	}
 	v_stop_snake = coreGet(v_model_config, "stop_sequences", nil)
 	v_stop = coreGet(v_model_config, "stopSequences", v_stop_snake)
 	v_has_stop = _core_truthy(v_stop)
@@ -5896,6 +5925,165 @@ func _openai_apply_model_config_impl(args ...Value) (Value, error) {
 	// empty
 	}
 	return nil, nil
+}
+
+func build_chat_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_chat_request")
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
+	{ v, err := openai_build_chat_request(v_request); if err != nil { return nil, err }; v_payload = v }
+	return v_payload, nil
+}
+
+func openai_reasoning_effort(args ...Value) (Value, error) {
+	axirCoverageMark("openai_reasoning_effort")
+	var v_model Value
+	var v_budget Value
+	var v_is_gpt56 Value
+	var v_is_gpt56_alias Value
+	var v_is_gpt56_suffix Value
+	var v_is_highest Value
+	var v_is_low Value
+	var v_is_medium Value
+	var v_is_minimal Value
+	var v_is_none Value
+	var v_none Value
+	if len(args) > 0 { v_model = args[0] }
+	_ = v_model
+	if len(args) > 1 { v_budget = args[1] }
+	_ = v_budget
+	_ = v_is_gpt56
+	_ = v_is_gpt56_alias
+	_ = v_is_gpt56_suffix
+	_ = v_is_highest
+	_ = v_is_low
+	_ = v_is_medium
+	_ = v_is_minimal
+	_ = v_is_none
+	_ = v_none
+	v_is_gpt56_alias = _core_eq(v_model, "gpt-5.6")
+	v_is_gpt56_suffix = _core_string_starts_with(v_model, "gpt-5.6-")
+	v_is_gpt56 = _core_or(v_is_gpt56_alias, v_is_gpt56_suffix)
+	v_is_none = _core_eq(v_budget, "none")
+	if coreTruthy(v_is_none) {
+		if coreTruthy(v_is_gpt56) {
+			return "none", nil
+		} else {
+		// empty
+		}
+		v_none = _core_none()
+		return v_none, nil
+	} else {
+	// empty
+	}
+	v_is_minimal = _core_eq(v_budget, "minimal")
+	v_is_low = _core_eq(v_budget, "low")
+	v_is_medium = _core_eq(v_budget, "medium")
+	v_is_highest = _core_eq(v_budget, "highest")
+	if coreTruthy(v_is_gpt56) {
+		if coreTruthy(v_is_minimal) {
+			return "low", nil
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_low) {
+			return "low", nil
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_medium) {
+			return "medium", nil
+		} else {
+		// empty
+		}
+		if coreTruthy(v_is_highest) {
+			return "max", nil
+		} else {
+		// empty
+		}
+		return "high", nil
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_minimal) {
+		return "minimal", nil
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_low) {
+		return "medium", nil
+	} else {
+	// empty
+	}
+	if coreTruthy(v_is_highest) {
+		return "xhigh", nil
+	} else {
+	// empty
+	}
+	return "high", nil
+}
+
+func normalize_chat_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_chat_response")
+	var v_raw Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_response
+	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
+func normalize_stream_delta(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_stream_delta")
+	var v_raw Value
+	var v_state Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_state = args[1] }
+	_ = v_state
+	_ = v_response
+	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
+}
+
+func build_embed_request(args ...Value) (Value, error) {
+	axirCoverageMark("build_embed_request")
+	var v_service Value
+	var v_request Value
+	var v_options Value
+	var v_payload Value
+	if len(args) > 0 { v_service = args[0] }
+	_ = v_service
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	if len(args) > 2 { v_options = args[2] }
+	_ = v_options
+	_ = v_payload
+	{ v, err := openai_build_embed_request(v_request); if err != nil { return nil, err }; v_payload = v }
+	return v_payload, nil
+}
+
+func normalize_embed_response(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_embed_response")
+	var v_raw Value
+	var v_response Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	_ = v_response
+	{ v, err := openai_normalize_embed_response(v_raw); if err != nil { return nil, err }; v_response = v }
+	return v_response, nil
 }
 
 func _openai_copy_config_key_impl(args ...Value) (Value, error) {
@@ -5926,22 +6114,126 @@ func _openai_copy_config_key_impl(args ...Value) (Value, error) {
 	return nil, nil
 }
 
-func build_chat_request(args ...Value) (Value, error) {
-	axirCoverageMark("build_chat_request")
-	var v_service Value
-	var v_request Value
-	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_payload
-	if _, err := validate_chat_request(v_request); err != nil { return nil, err }
-	{ v, err := openai_build_chat_request(v_request); if err != nil { return nil, err }; v_payload = v }
-	return v_payload, nil
+func normalize_token_usage(args ...Value) (Value, error) {
+	axirCoverageMark("normalize_token_usage")
+	var v_usage Value
+	var v_cache_creation_tokens Value
+	var v_cache_creation_tokens_snake Value
+	var v_cache_read_tokens Value
+	var v_cache_read_tokens_snake Value
+	var v_completion_tokens Value
+	var v_completion_tokens_snake Value
+	var v_computed_total_tokens Value
+	var v_has_cache_creation Value
+	var v_has_cache_read Value
+	var v_has_reasoning Value
+	var v_has_service_tier Value
+	var v_has_speed Value
+	var v_has_thoughts Value
+	var v_input_tokens Value
+	var v_out Value
+	var v_output_tokens Value
+	var v_prompt_tokens Value
+	var v_prompt_tokens_snake Value
+	var v_reasoning_tokens Value
+	var v_reasoning_tokens_snake Value
+	var v_service_tier Value
+	var v_service_tier_snake Value
+	var v_speed Value
+	var v_thoughts_tokens Value
+	var v_thoughts_tokens_snake Value
+	var v_total_tokens Value
+	var v_total_tokens_snake Value
+	if len(args) > 0 { v_usage = args[0] }
+	_ = v_usage
+	_ = v_cache_creation_tokens
+	_ = v_cache_creation_tokens_snake
+	_ = v_cache_read_tokens
+	_ = v_cache_read_tokens_snake
+	_ = v_completion_tokens
+	_ = v_completion_tokens_snake
+	_ = v_computed_total_tokens
+	_ = v_has_cache_creation
+	_ = v_has_cache_read
+	_ = v_has_reasoning
+	_ = v_has_service_tier
+	_ = v_has_speed
+	_ = v_has_thoughts
+	_ = v_input_tokens
+	_ = v_out
+	_ = v_output_tokens
+	_ = v_prompt_tokens
+	_ = v_prompt_tokens_snake
+	_ = v_reasoning_tokens
+	_ = v_reasoning_tokens_snake
+	_ = v_service_tier
+	_ = v_service_tier_snake
+	_ = v_speed
+	_ = v_thoughts_tokens
+	_ = v_thoughts_tokens_snake
+	_ = v_total_tokens
+	_ = v_total_tokens_snake
+	v_out = Object()
+	v_input_tokens = coreGet(v_usage, "input_tokens", 0)
+	v_prompt_tokens_snake = coreGet(v_usage, "prompt_tokens", v_input_tokens)
+	v_prompt_tokens = coreGet(v_usage, "promptTokens", v_prompt_tokens_snake)
+	v_output_tokens = coreGet(v_usage, "output_tokens", 0)
+	v_completion_tokens_snake = coreGet(v_usage, "completion_tokens", v_output_tokens)
+	v_completion_tokens = coreGet(v_usage, "completionTokens", v_completion_tokens_snake)
+	v_computed_total_tokens = _core_add(v_prompt_tokens, v_completion_tokens)
+	v_total_tokens_snake = coreGet(v_usage, "total_tokens", v_computed_total_tokens)
+	v_total_tokens = coreGet(v_usage, "totalTokens", v_total_tokens_snake)
+	if err := coreSet(v_out, "prompt_tokens", v_prompt_tokens); err != nil { return nil, err }
+	if err := coreSet(v_out, "completion_tokens", v_completion_tokens); err != nil { return nil, err }
+	if err := coreSet(v_out, "total_tokens", v_total_tokens); err != nil { return nil, err }
+	v_thoughts_tokens_snake = coreGet(v_usage, "thoughts_tokens", nil)
+	v_thoughts_tokens = coreGet(v_usage, "thoughtsTokens", v_thoughts_tokens_snake)
+	v_has_thoughts = _core_is_not_none(v_thoughts_tokens)
+	if coreTruthy(v_has_thoughts) {
+		if err := coreSet(v_out, "thoughts_tokens", v_thoughts_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_reasoning_tokens_snake = coreGet(v_usage, "reasoning_tokens", nil)
+	v_reasoning_tokens = coreGet(v_usage, "reasoningTokens", v_reasoning_tokens_snake)
+	v_has_reasoning = _core_is_not_none(v_reasoning_tokens)
+	if coreTruthy(v_has_reasoning) {
+		if err := coreSet(v_out, "reasoning_tokens", v_reasoning_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_cache_read_tokens_snake = coreGet(v_usage, "cache_read_tokens", nil)
+	v_cache_read_tokens = coreGet(v_usage, "cacheReadTokens", v_cache_read_tokens_snake)
+	v_has_cache_read = _core_is_not_none(v_cache_read_tokens)
+	if coreTruthy(v_has_cache_read) {
+		if err := coreSet(v_out, "cache_read_tokens", v_cache_read_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_cache_creation_tokens_snake = coreGet(v_usage, "cache_creation_tokens", nil)
+	v_cache_creation_tokens = coreGet(v_usage, "cacheCreationTokens", v_cache_creation_tokens_snake)
+	v_has_cache_creation = _core_is_not_none(v_cache_creation_tokens)
+	if coreTruthy(v_has_cache_creation) {
+		if err := coreSet(v_out, "cache_creation_tokens", v_cache_creation_tokens); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_service_tier_snake = coreGet(v_usage, "service_tier", nil)
+	v_service_tier = coreGet(v_usage, "serviceTier", v_service_tier_snake)
+	v_has_service_tier = _core_is_not_none(v_service_tier)
+	if coreTruthy(v_has_service_tier) {
+		if err := coreSet(v_out, "service_tier", v_service_tier); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	v_speed = coreGet(v_usage, "speed", nil)
+	v_has_speed = _core_is_not_none(v_speed)
+	if coreTruthy(v_has_speed) {
+		if err := coreSet(v_out, "speed", v_speed); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
 }
 
 func _openai_message_impl(args ...Value) (Value, error) {
@@ -6085,307 +6377,6 @@ func _openai_message_impl(args ...Value) (Value, error) {
 	}
 	v_message_text = _core_string_format("Invalid role: {}", v_role)
 	v_error = _core_ai_error_response(v_message_text)
-	return nil, asAxError(v_error)
-}
-
-func normalize_chat_response(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_chat_response")
-	var v_raw Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_response
-	{ v, err := openai_normalize_chat_response(v_raw); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
-}
-
-func normalize_stream_delta(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_stream_delta")
-	var v_raw Value
-	var v_state Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_state = args[1] }
-	_ = v_state
-	_ = v_response
-	{ v, err := openai_normalize_stream_delta(v_raw, v_state); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
-}
-
-func build_embed_request(args ...Value) (Value, error) {
-	axirCoverageMark("build_embed_request")
-	var v_service Value
-	var v_request Value
-	var v_options Value
-	var v_payload Value
-	if len(args) > 0 { v_service = args[0] }
-	_ = v_service
-	if len(args) > 1 { v_request = args[1] }
-	_ = v_request
-	if len(args) > 2 { v_options = args[2] }
-	_ = v_options
-	_ = v_payload
-	{ v, err := openai_build_embed_request(v_request); if err != nil { return nil, err }; v_payload = v }
-	return v_payload, nil
-}
-
-func normalize_embed_response(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_embed_response")
-	var v_raw Value
-	var v_response Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	_ = v_response
-	{ v, err := openai_normalize_embed_response(v_raw); if err != nil { return nil, err }; v_response = v }
-	return v_response, nil
-}
-
-func normalize_token_usage(args ...Value) (Value, error) {
-	axirCoverageMark("normalize_token_usage")
-	var v_usage Value
-	var v_cache_creation_tokens Value
-	var v_cache_creation_tokens_snake Value
-	var v_cache_read_tokens Value
-	var v_cache_read_tokens_snake Value
-	var v_completion_tokens Value
-	var v_completion_tokens_snake Value
-	var v_computed_total_tokens Value
-	var v_has_cache_creation Value
-	var v_has_cache_read Value
-	var v_has_reasoning Value
-	var v_has_service_tier Value
-	var v_has_speed Value
-	var v_has_thoughts Value
-	var v_input_tokens Value
-	var v_out Value
-	var v_output_tokens Value
-	var v_prompt_tokens Value
-	var v_prompt_tokens_snake Value
-	var v_reasoning_tokens Value
-	var v_reasoning_tokens_snake Value
-	var v_service_tier Value
-	var v_service_tier_snake Value
-	var v_speed Value
-	var v_thoughts_tokens Value
-	var v_thoughts_tokens_snake Value
-	var v_total_tokens Value
-	var v_total_tokens_snake Value
-	if len(args) > 0 { v_usage = args[0] }
-	_ = v_usage
-	_ = v_cache_creation_tokens
-	_ = v_cache_creation_tokens_snake
-	_ = v_cache_read_tokens
-	_ = v_cache_read_tokens_snake
-	_ = v_completion_tokens
-	_ = v_completion_tokens_snake
-	_ = v_computed_total_tokens
-	_ = v_has_cache_creation
-	_ = v_has_cache_read
-	_ = v_has_reasoning
-	_ = v_has_service_tier
-	_ = v_has_speed
-	_ = v_has_thoughts
-	_ = v_input_tokens
-	_ = v_out
-	_ = v_output_tokens
-	_ = v_prompt_tokens
-	_ = v_prompt_tokens_snake
-	_ = v_reasoning_tokens
-	_ = v_reasoning_tokens_snake
-	_ = v_service_tier
-	_ = v_service_tier_snake
-	_ = v_speed
-	_ = v_thoughts_tokens
-	_ = v_thoughts_tokens_snake
-	_ = v_total_tokens
-	_ = v_total_tokens_snake
-	v_out = Object()
-	v_input_tokens = coreGet(v_usage, "input_tokens", 0)
-	v_prompt_tokens_snake = coreGet(v_usage, "prompt_tokens", v_input_tokens)
-	v_prompt_tokens = coreGet(v_usage, "promptTokens", v_prompt_tokens_snake)
-	v_output_tokens = coreGet(v_usage, "output_tokens", 0)
-	v_completion_tokens_snake = coreGet(v_usage, "completion_tokens", v_output_tokens)
-	v_completion_tokens = coreGet(v_usage, "completionTokens", v_completion_tokens_snake)
-	v_computed_total_tokens = _core_add(v_prompt_tokens, v_completion_tokens)
-	v_total_tokens_snake = coreGet(v_usage, "total_tokens", v_computed_total_tokens)
-	v_total_tokens = coreGet(v_usage, "totalTokens", v_total_tokens_snake)
-	if err := coreSet(v_out, "prompt_tokens", v_prompt_tokens); err != nil { return nil, err }
-	if err := coreSet(v_out, "completion_tokens", v_completion_tokens); err != nil { return nil, err }
-	if err := coreSet(v_out, "total_tokens", v_total_tokens); err != nil { return nil, err }
-	v_thoughts_tokens_snake = coreGet(v_usage, "thoughts_tokens", nil)
-	v_thoughts_tokens = coreGet(v_usage, "thoughtsTokens", v_thoughts_tokens_snake)
-	v_has_thoughts = _core_is_not_none(v_thoughts_tokens)
-	if coreTruthy(v_has_thoughts) {
-		if err := coreSet(v_out, "thoughts_tokens", v_thoughts_tokens); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_reasoning_tokens_snake = coreGet(v_usage, "reasoning_tokens", nil)
-	v_reasoning_tokens = coreGet(v_usage, "reasoningTokens", v_reasoning_tokens_snake)
-	v_has_reasoning = _core_is_not_none(v_reasoning_tokens)
-	if coreTruthy(v_has_reasoning) {
-		if err := coreSet(v_out, "reasoning_tokens", v_reasoning_tokens); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_cache_read_tokens_snake = coreGet(v_usage, "cache_read_tokens", nil)
-	v_cache_read_tokens = coreGet(v_usage, "cacheReadTokens", v_cache_read_tokens_snake)
-	v_has_cache_read = _core_is_not_none(v_cache_read_tokens)
-	if coreTruthy(v_has_cache_read) {
-		if err := coreSet(v_out, "cache_read_tokens", v_cache_read_tokens); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_cache_creation_tokens_snake = coreGet(v_usage, "cache_creation_tokens", nil)
-	v_cache_creation_tokens = coreGet(v_usage, "cacheCreationTokens", v_cache_creation_tokens_snake)
-	v_has_cache_creation = _core_is_not_none(v_cache_creation_tokens)
-	if coreTruthy(v_has_cache_creation) {
-		if err := coreSet(v_out, "cache_creation_tokens", v_cache_creation_tokens); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_service_tier_snake = coreGet(v_usage, "service_tier", nil)
-	v_service_tier = coreGet(v_usage, "serviceTier", v_service_tier_snake)
-	v_has_service_tier = _core_is_not_none(v_service_tier)
-	if coreTruthy(v_has_service_tier) {
-		if err := coreSet(v_out, "service_tier", v_service_tier); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	v_speed = coreGet(v_usage, "speed", nil)
-	v_has_speed = _core_is_not_none(v_speed)
-	if coreTruthy(v_has_speed) {
-		if err := coreSet(v_out, "speed", v_speed); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_out, nil
-}
-
-func _openai_content_part_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_content_part_impl")
-	var v_part Value
-	var v_audio_alt Value
-	var v_audio_error Value
-	var v_audio_message Value
-	var v_data Value
-	var v_details Value
-	var v_error Value
-	var v_format Value
-	var v_format_ok Value
-	var v_image Value
-	var v_image_raw Value
-	var v_image_url Value
-	var v_image_value Value
-	var v_input_audio Value
-	var v_is_audio Value
-	var v_is_data_url Value
-	var v_is_image Value
-	var v_is_mp3 Value
-	var v_is_text Value
-	var v_is_wav Value
-	var v_message Value
-	var v_mime Value
-	var v_mime_raw Value
-	var v_mime_snake Value
-	var v_out Value
-	var v_text Value
-	var v_type Value
-	var v_url Value
-	if len(args) > 0 { v_part = args[0] }
-	_ = v_part
-	_ = v_audio_alt
-	_ = v_audio_error
-	_ = v_audio_message
-	_ = v_data
-	_ = v_details
-	_ = v_error
-	_ = v_format
-	_ = v_format_ok
-	_ = v_image
-	_ = v_image_raw
-	_ = v_image_url
-	_ = v_image_value
-	_ = v_input_audio
-	_ = v_is_audio
-	_ = v_is_data_url
-	_ = v_is_image
-	_ = v_is_mp3
-	_ = v_is_text
-	_ = v_is_wav
-	_ = v_message
-	_ = v_mime
-	_ = v_mime_raw
-	_ = v_mime_snake
-	_ = v_out
-	_ = v_text
-	_ = v_type
-	_ = v_url
-	v_type = coreGet(v_part, "type", nil)
-	v_is_text = _core_eq(v_type, "text")
-	if coreTruthy(v_is_text) {
-		v_text = coreGet(v_part, "text", "")
-		v_out = Object()
-		if err := coreSet(v_out, "type", "text"); err != nil { return nil, err }
-		if err := coreSet(v_out, "text", v_text); err != nil { return nil, err }
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_is_image = _core_eq(v_type, "image")
-	if coreTruthy(v_is_image) {
-		v_mime_snake = coreGet(v_part, "mime_type", nil)
-		v_mime_raw = coreGet(v_part, "mimeType", v_mime_snake)
-		v_mime = _core_coalesce(v_mime_raw, "image/png")
-		v_image_value = coreGet(v_part, "image", nil)
-		v_image_raw = coreGet(v_part, "data", v_image_value)
-		v_image = _core_coalesce(v_image_raw, "")
-		v_is_data_url = _core_string_starts_with(v_image, "data:")
-		v_url = ""
-		if coreTruthy(v_is_data_url) {
-			v_url = v_image
-		} else {
-			v_url = _core_string_format("data:{};base64,{}", v_mime, v_image)
-		}
-		v_details = coreGet(v_part, "details", "auto")
-		v_image_url = Object()
-		if err := coreSet(v_image_url, "url", v_url); err != nil { return nil, err }
-		if err := coreSet(v_image_url, "detail", v_details); err != nil { return nil, err }
-		v_out = Object()
-		if err := coreSet(v_out, "type", "image_url"); err != nil { return nil, err }
-		if err := coreSet(v_out, "image_url", v_image_url); err != nil { return nil, err }
-		return v_out, nil
-	} else {
-	// empty
-	}
-	v_is_audio = _core_eq(v_type, "audio")
-	if coreTruthy(v_is_audio) {
-		v_audio_alt = coreGet(v_part, "audio", nil)
-		v_data = coreGet(v_part, "data", v_audio_alt)
-		v_format = coreGet(v_part, "format", nil)
-		v_is_wav = _core_eq(v_format, "wav")
-		v_is_mp3 = _core_eq(v_format, "mp3")
-		v_format_ok = _core_or(v_is_wav, v_is_mp3)
-		if coreTruthy(v_format_ok) {
-			v_out = Object()
-			if err := coreSet(v_out, "type", "input_audio"); err != nil { return nil, err }
-			v_input_audio = Object()
-			if err := coreSet(v_input_audio, "data", v_data); err != nil { return nil, err }
-			if err := coreSet(v_input_audio, "format", v_format); err != nil { return nil, err }
-			if err := coreSet(v_out, "input_audio", v_input_audio); err != nil { return nil, err }
-			return v_out, nil
-		} else {
-		// empty
-		}
-		v_audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", v_format)
-		v_audio_error = _core_ai_error_unsupported(v_audio_message)
-		return nil, asAxError(v_audio_error)
-	} else {
-	// empty
-	}
-	v_message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", v_type)
-	v_error = _core_ai_error_unsupported(v_message)
 	return nil, asAxError(v_error)
 }
 
@@ -6580,6 +6571,169 @@ func build_usage_event(args ...Value) (Value, error) {
 	return v_event, nil
 }
 
+func _openai_content_part_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_content_part_impl")
+	var v_part Value
+	var v_audio_alt Value
+	var v_audio_error Value
+	var v_audio_message Value
+	var v_data Value
+	var v_details Value
+	var v_error Value
+	var v_format Value
+	var v_format_ok Value
+	var v_image Value
+	var v_image_raw Value
+	var v_image_url Value
+	var v_image_value Value
+	var v_input_audio Value
+	var v_is_audio Value
+	var v_is_data_url Value
+	var v_is_image Value
+	var v_is_mp3 Value
+	var v_is_text Value
+	var v_is_wav Value
+	var v_message Value
+	var v_mime Value
+	var v_mime_raw Value
+	var v_mime_snake Value
+	var v_out Value
+	var v_text Value
+	var v_type Value
+	var v_url Value
+	if len(args) > 0 { v_part = args[0] }
+	_ = v_part
+	_ = v_audio_alt
+	_ = v_audio_error
+	_ = v_audio_message
+	_ = v_data
+	_ = v_details
+	_ = v_error
+	_ = v_format
+	_ = v_format_ok
+	_ = v_image
+	_ = v_image_raw
+	_ = v_image_url
+	_ = v_image_value
+	_ = v_input_audio
+	_ = v_is_audio
+	_ = v_is_data_url
+	_ = v_is_image
+	_ = v_is_mp3
+	_ = v_is_text
+	_ = v_is_wav
+	_ = v_message
+	_ = v_mime
+	_ = v_mime_raw
+	_ = v_mime_snake
+	_ = v_out
+	_ = v_text
+	_ = v_type
+	_ = v_url
+	v_type = coreGet(v_part, "type", nil)
+	v_is_text = _core_eq(v_type, "text")
+	if coreTruthy(v_is_text) {
+		v_text = coreGet(v_part, "text", "")
+		v_out = Object()
+		if err := coreSet(v_out, "type", "text"); err != nil { return nil, err }
+		if err := coreSet(v_out, "text", v_text); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_is_image = _core_eq(v_type, "image")
+	if coreTruthy(v_is_image) {
+		v_mime_snake = coreGet(v_part, "mime_type", nil)
+		v_mime_raw = coreGet(v_part, "mimeType", v_mime_snake)
+		v_mime = _core_coalesce(v_mime_raw, "image/png")
+		v_image_value = coreGet(v_part, "image", nil)
+		v_image_raw = coreGet(v_part, "data", v_image_value)
+		v_image = _core_coalesce(v_image_raw, "")
+		v_is_data_url = _core_string_starts_with(v_image, "data:")
+		v_url = ""
+		if coreTruthy(v_is_data_url) {
+			v_url = v_image
+		} else {
+			v_url = _core_string_format("data:{};base64,{}", v_mime, v_image)
+		}
+		v_details = coreGet(v_part, "details", "auto")
+		v_image_url = Object()
+		if err := coreSet(v_image_url, "url", v_url); err != nil { return nil, err }
+		if err := coreSet(v_image_url, "detail", v_details); err != nil { return nil, err }
+		v_out = Object()
+		if err := coreSet(v_out, "type", "image_url"); err != nil { return nil, err }
+		if err := coreSet(v_out, "image_url", v_image_url); err != nil { return nil, err }
+		return v_out, nil
+	} else {
+	// empty
+	}
+	v_is_audio = _core_eq(v_type, "audio")
+	if coreTruthy(v_is_audio) {
+		v_audio_alt = coreGet(v_part, "audio", nil)
+		v_data = coreGet(v_part, "data", v_audio_alt)
+		v_format = coreGet(v_part, "format", nil)
+		v_is_wav = _core_eq(v_format, "wav")
+		v_is_mp3 = _core_eq(v_format, "mp3")
+		v_format_ok = _core_or(v_is_wav, v_is_mp3)
+		if coreTruthy(v_format_ok) {
+			v_out = Object()
+			if err := coreSet(v_out, "type", "input_audio"); err != nil { return nil, err }
+			v_input_audio = Object()
+			if err := coreSet(v_input_audio, "data", v_data); err != nil { return nil, err }
+			if err := coreSet(v_input_audio, "format", v_format); err != nil { return nil, err }
+			if err := coreSet(v_out, "input_audio", v_input_audio); err != nil { return nil, err }
+			return v_out, nil
+		} else {
+		// empty
+		}
+		v_audio_message = _core_string_format("OpenAI audio chat input supports only wav and mp3 audio, received {}", v_format)
+		v_audio_error = _core_ai_error_unsupported(v_audio_message)
+		return nil, asAxError(v_audio_error)
+	} else {
+	// empty
+	}
+	v_message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", v_type)
+	v_error = _core_ai_error_unsupported(v_message)
+	return nil, asAxError(v_error)
+}
+
+func _ai_model_usage_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_ai_model_usage_impl")
+	var v_ai_name Value
+	var v_model Value
+	var v_usage Value
+	var v_has_usage Value
+	var v_missing_usage Value
+	var v_none Value
+	var v_out Value
+	var v_tokens Value
+	if len(args) > 0 { v_ai_name = args[0] }
+	_ = v_ai_name
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_usage = args[2] }
+	_ = v_usage
+	_ = v_has_usage
+	_ = v_missing_usage
+	_ = v_none
+	_ = v_out
+	_ = v_tokens
+	v_has_usage = _core_truthy(v_usage)
+	v_missing_usage = _core_not(v_has_usage)
+	if coreTruthy(v_missing_usage) {
+		v_none = _core_none()
+		return v_none, nil
+	} else {
+	// empty
+	}
+	{ v, err := normalize_token_usage(v_usage); if err != nil { return nil, err }; v_tokens = v }
+	v_out = Object()
+	if err := coreSet(v_out, "ai", v_ai_name); err != nil { return nil, err }
+	if err := coreSet(v_out, "model", v_model); err != nil { return nil, err }
+	if err := coreSet(v_out, "tokens", v_tokens); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_tool_call_to_provider_impl")
 	var v_call Value
@@ -6622,6 +6776,73 @@ func _openai_tool_call_to_provider_impl(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
+func chat_response_to_completion(args ...Value) (Value, error) {
+	axirCoverageMark("chat_response_to_completion")
+	var v_response Value
+	var v_call Value
+	var v_calls Value
+	var v_compat_call Value
+	var v_content Value
+	var v_empty_calls Value
+	var v_empty_result Value
+	var v_empty_results Value
+	var v_fn Value
+	var v_function_calls Value
+	var v_id Value
+	var v_model_usage Value
+	var v_name Value
+	var v_out Value
+	var v_params Value
+	var v_result Value
+	var v_results Value
+	var v_usage Value
+	if len(args) > 0 { v_response = args[0] }
+	_ = v_response
+	_ = v_call
+	_ = v_calls
+	_ = v_compat_call
+	_ = v_content
+	_ = v_empty_calls
+	_ = v_empty_result
+	_ = v_empty_results
+	_ = v_fn
+	_ = v_function_calls
+	_ = v_id
+	_ = v_model_usage
+	_ = v_name
+	_ = v_out
+	_ = v_params
+	_ = v_result
+	_ = v_results
+	_ = v_usage
+	v_empty_results = MutableArray()
+	v_results = coreGet(v_response, "results", v_empty_results)
+	v_empty_result = Object()
+	v_result = _core_list_get(v_results, 0, v_empty_result)
+	v_content = coreGet(v_result, "content", "")
+	v_calls = MutableArray()
+	v_empty_calls = MutableArray()
+	v_function_calls = coreGet(v_result, "function_calls", v_empty_calls)
+	for _, v_call = range coreIter(v_function_calls) {
+		v_fn = coreGet(v_call, "function", nil)
+		v_id = coreGet(v_call, "id", nil)
+		v_name = coreGet(v_fn, "name", nil)
+		v_params = coreGet(v_fn, "params", nil)
+		v_compat_call = Object()
+		if err := coreSet(v_compat_call, "id", v_id); err != nil { return nil, err }
+		if err := coreSet(v_compat_call, "name", v_name); err != nil { return nil, err }
+		if err := coreSet(v_compat_call, "params", v_params); err != nil { return nil, err }
+		v_calls = coreAppend(v_calls, v_compat_call)
+	}
+	v_model_usage = coreGet(v_response, "model_usage", nil)
+	v_usage = coreGet(v_model_usage, "tokens", nil)
+	v_out = Object()
+	if err := coreSet(v_out, "content", v_content); err != nil { return nil, err }
+	if err := coreSet(v_out, "function_calls", v_calls); err != nil { return nil, err }
+	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func _openai_tool_spec_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_tool_spec_impl")
 	var v_fn Value
@@ -6654,6 +6875,92 @@ func _openai_tool_spec_impl(args ...Value) (Value, error) {
 	v_out = Object()
 	if err := coreSet(v_out, "type", "function"); err != nil { return nil, err }
 	if err := coreSet(v_out, "function", v_function); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func ai_context_cache_rejection(args ...Value) (Value, error) {
+	axirCoverageMark("ai_context_cache_rejection")
+	var v_status Value
+	var v_body_json Value
+	var v_body_lower Value
+	var v_body_text Value
+	var v_cache_rejection Value
+	var v_expired Value
+	var v_has_cache Value
+	var v_invalid Value
+	var v_invalid_cache Value
+	var v_invalid_left Value
+	var v_invalid_reason Value
+	var v_invalid_right Value
+	var v_is_400 Value
+	var v_is_404 Value
+	var v_missing Value
+	var v_names_cache Value
+	var v_names_compact Value
+	var v_names_left Value
+	var v_names_resource Value
+	var v_names_spaced Value
+	var v_not_found Value
+	var v_out Value
+	var v_status_400_max Value
+	var v_status_400_min Value
+	var v_status_404_max Value
+	var v_status_404_min Value
+	var v_valid_status Value
+	if len(args) > 0 { v_status = args[0] }
+	_ = v_status
+	if len(args) > 1 { v_body_json = args[1] }
+	_ = v_body_json
+	_ = v_body_lower
+	_ = v_body_text
+	_ = v_cache_rejection
+	_ = v_expired
+	_ = v_has_cache
+	_ = v_invalid
+	_ = v_invalid_cache
+	_ = v_invalid_left
+	_ = v_invalid_reason
+	_ = v_invalid_right
+	_ = v_is_400
+	_ = v_is_404
+	_ = v_missing
+	_ = v_names_cache
+	_ = v_names_compact
+	_ = v_names_left
+	_ = v_names_resource
+	_ = v_names_spaced
+	_ = v_not_found
+	_ = v_out
+	_ = v_status_400_max
+	_ = v_status_400_min
+	_ = v_status_404_max
+	_ = v_status_404_min
+	_ = v_valid_status
+	v_status_400_min = _core_gte(v_status, 400)
+	v_status_400_max = _core_lte(v_status, 400)
+	v_is_400 = _core_and(v_status_400_min, v_status_400_max)
+	v_status_404_min = _core_gte(v_status, 404)
+	v_status_404_max = _core_lte(v_status, 404)
+	v_is_404 = _core_and(v_status_404_min, v_status_404_max)
+	v_valid_status = _core_or(v_is_400, v_is_404)
+	v_body_text = _core_json_stringify(v_body_json)
+	v_body_lower = _core_string_lower(v_body_text)
+	v_names_compact = _core_contains(v_body_lower, "cachedcontent")
+	v_names_spaced = _core_contains(v_body_lower, "cached content")
+	v_names_resource = _core_contains(v_body_lower, "cachedcontents/")
+	v_names_left = _core_or(v_names_compact, v_names_spaced)
+	v_names_cache = _core_or(v_names_left, v_names_resource)
+	v_has_cache = _core_contains(v_body_lower, "cache")
+	v_expired = _core_contains(v_body_lower, "expired")
+	v_not_found = _core_contains(v_body_lower, "not found")
+	v_missing = _core_contains(v_body_lower, "does not exist")
+	v_invalid = _core_contains(v_body_lower, "invalid")
+	v_invalid_left = _core_or(v_expired, v_not_found)
+	v_invalid_right = _core_or(v_missing, v_invalid)
+	v_invalid_reason = _core_or(v_invalid_left, v_invalid_right)
+	v_invalid_cache = _core_and(v_has_cache, v_invalid_reason)
+	v_cache_rejection = _core_or(v_names_cache, v_invalid_cache)
+	v_out = _core_and(v_valid_status, v_cache_rejection)
 	return v_out, nil
 }
 
@@ -6691,43 +6998,6 @@ func openai_build_embed_request(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_payload, nil
-}
-
-func _ai_model_usage_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_ai_model_usage_impl")
-	var v_ai_name Value
-	var v_model Value
-	var v_usage Value
-	var v_has_usage Value
-	var v_missing_usage Value
-	var v_none Value
-	var v_out Value
-	var v_tokens Value
-	if len(args) > 0 { v_ai_name = args[0] }
-	_ = v_ai_name
-	if len(args) > 1 { v_model = args[1] }
-	_ = v_model
-	if len(args) > 2 { v_usage = args[2] }
-	_ = v_usage
-	_ = v_has_usage
-	_ = v_missing_usage
-	_ = v_none
-	_ = v_out
-	_ = v_tokens
-	v_has_usage = _core_truthy(v_usage)
-	v_missing_usage = _core_not(v_has_usage)
-	if coreTruthy(v_missing_usage) {
-		v_none = _core_none()
-		return v_none, nil
-	} else {
-	// empty
-	}
-	{ v, err := normalize_token_usage(v_usage); if err != nil { return nil, err }; v_tokens = v }
-	v_out = Object()
-	if err := coreSet(v_out, "ai", v_ai_name); err != nil { return nil, err }
-	if err := coreSet(v_out, "model", v_model); err != nil { return nil, err }
-	if err := coreSet(v_out, "tokens", v_tokens); err != nil { return nil, err }
-	return v_out, nil
 }
 
 func openai_normalize_chat_response(args ...Value) (Value, error) {
@@ -6820,233 +7090,6 @@ func openai_normalize_chat_response(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func chat_response_to_completion(args ...Value) (Value, error) {
-	axirCoverageMark("chat_response_to_completion")
-	var v_response Value
-	var v_call Value
-	var v_calls Value
-	var v_compat_call Value
-	var v_content Value
-	var v_empty_calls Value
-	var v_empty_result Value
-	var v_empty_results Value
-	var v_fn Value
-	var v_function_calls Value
-	var v_id Value
-	var v_model_usage Value
-	var v_name Value
-	var v_out Value
-	var v_params Value
-	var v_result Value
-	var v_results Value
-	var v_usage Value
-	if len(args) > 0 { v_response = args[0] }
-	_ = v_response
-	_ = v_call
-	_ = v_calls
-	_ = v_compat_call
-	_ = v_content
-	_ = v_empty_calls
-	_ = v_empty_result
-	_ = v_empty_results
-	_ = v_fn
-	_ = v_function_calls
-	_ = v_id
-	_ = v_model_usage
-	_ = v_name
-	_ = v_out
-	_ = v_params
-	_ = v_result
-	_ = v_results
-	_ = v_usage
-	v_empty_results = MutableArray()
-	v_results = coreGet(v_response, "results", v_empty_results)
-	v_empty_result = Object()
-	v_result = _core_list_get(v_results, 0, v_empty_result)
-	v_content = coreGet(v_result, "content", "")
-	v_calls = MutableArray()
-	v_empty_calls = MutableArray()
-	v_function_calls = coreGet(v_result, "function_calls", v_empty_calls)
-	for _, v_call = range coreIter(v_function_calls) {
-		v_fn = coreGet(v_call, "function", nil)
-		v_id = coreGet(v_call, "id", nil)
-		v_name = coreGet(v_fn, "name", nil)
-		v_params = coreGet(v_fn, "params", nil)
-		v_compat_call = Object()
-		if err := coreSet(v_compat_call, "id", v_id); err != nil { return nil, err }
-		if err := coreSet(v_compat_call, "name", v_name); err != nil { return nil, err }
-		if err := coreSet(v_compat_call, "params", v_params); err != nil { return nil, err }
-		v_calls = coreAppend(v_calls, v_compat_call)
-	}
-	v_model_usage = coreGet(v_response, "model_usage", nil)
-	v_usage = coreGet(v_model_usage, "tokens", nil)
-	v_out = Object()
-	if err := coreSet(v_out, "content", v_content); err != nil { return nil, err }
-	if err := coreSet(v_out, "function_calls", v_calls); err != nil { return nil, err }
-	if err := coreSet(v_out, "usage", v_usage); err != nil { return nil, err }
-	return v_out, nil
-}
-
-func ai_context_cache_rejection(args ...Value) (Value, error) {
-	axirCoverageMark("ai_context_cache_rejection")
-	var v_status Value
-	var v_body_json Value
-	var v_body_lower Value
-	var v_body_text Value
-	var v_cache_rejection Value
-	var v_expired Value
-	var v_has_cache Value
-	var v_invalid Value
-	var v_invalid_cache Value
-	var v_invalid_left Value
-	var v_invalid_reason Value
-	var v_invalid_right Value
-	var v_is_400 Value
-	var v_is_404 Value
-	var v_missing Value
-	var v_names_cache Value
-	var v_names_compact Value
-	var v_names_left Value
-	var v_names_resource Value
-	var v_names_spaced Value
-	var v_not_found Value
-	var v_out Value
-	var v_status_400_max Value
-	var v_status_400_min Value
-	var v_status_404_max Value
-	var v_status_404_min Value
-	var v_valid_status Value
-	if len(args) > 0 { v_status = args[0] }
-	_ = v_status
-	if len(args) > 1 { v_body_json = args[1] }
-	_ = v_body_json
-	_ = v_body_lower
-	_ = v_body_text
-	_ = v_cache_rejection
-	_ = v_expired
-	_ = v_has_cache
-	_ = v_invalid
-	_ = v_invalid_cache
-	_ = v_invalid_left
-	_ = v_invalid_reason
-	_ = v_invalid_right
-	_ = v_is_400
-	_ = v_is_404
-	_ = v_missing
-	_ = v_names_cache
-	_ = v_names_compact
-	_ = v_names_left
-	_ = v_names_resource
-	_ = v_names_spaced
-	_ = v_not_found
-	_ = v_out
-	_ = v_status_400_max
-	_ = v_status_400_min
-	_ = v_status_404_max
-	_ = v_status_404_min
-	_ = v_valid_status
-	v_status_400_min = _core_gte(v_status, 400)
-	v_status_400_max = _core_lte(v_status, 400)
-	v_is_400 = _core_and(v_status_400_min, v_status_400_max)
-	v_status_404_min = _core_gte(v_status, 404)
-	v_status_404_max = _core_lte(v_status, 404)
-	v_is_404 = _core_and(v_status_404_min, v_status_404_max)
-	v_valid_status = _core_or(v_is_400, v_is_404)
-	v_body_text = _core_json_stringify(v_body_json)
-	v_body_lower = _core_string_lower(v_body_text)
-	v_names_compact = _core_contains(v_body_lower, "cachedcontent")
-	v_names_spaced = _core_contains(v_body_lower, "cached content")
-	v_names_resource = _core_contains(v_body_lower, "cachedcontents/")
-	v_names_left = _core_or(v_names_compact, v_names_spaced)
-	v_names_cache = _core_or(v_names_left, v_names_resource)
-	v_has_cache = _core_contains(v_body_lower, "cache")
-	v_expired = _core_contains(v_body_lower, "expired")
-	v_not_found = _core_contains(v_body_lower, "not found")
-	v_missing = _core_contains(v_body_lower, "does not exist")
-	v_invalid = _core_contains(v_body_lower, "invalid")
-	v_invalid_left = _core_or(v_expired, v_not_found)
-	v_invalid_right = _core_or(v_missing, v_invalid)
-	v_invalid_reason = _core_or(v_invalid_left, v_invalid_right)
-	v_invalid_cache = _core_and(v_has_cache, v_invalid_reason)
-	v_cache_rejection = _core_or(v_names_cache, v_invalid_cache)
-	v_out = _core_and(v_valid_status, v_cache_rejection)
-	return v_out, nil
-}
-
-func _openai_normalize_choice_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_normalize_choice_impl")
-	var v_choice Value
-	var v_raw Value
-	var v_content Value
-	var v_content_raw Value
-	var v_empty_calls Value
-	var v_empty_message Value
-	var v_error Value
-	var v_finish_reason Value
-	var v_finish_reason_raw Value
-	var v_function_calls Value
-	var v_has_content Value
-	var v_has_refusal Value
-	var v_id Value
-	var v_index Value
-	var v_message Value
-	var v_out Value
-	var v_refusal Value
-	var v_tool_calls Value
-	if len(args) > 0 { v_choice = args[0] }
-	_ = v_choice
-	if len(args) > 1 { v_raw = args[1] }
-	_ = v_raw
-	_ = v_content
-	_ = v_content_raw
-	_ = v_empty_calls
-	_ = v_empty_message
-	_ = v_error
-	_ = v_finish_reason
-	_ = v_finish_reason_raw
-	_ = v_function_calls
-	_ = v_has_content
-	_ = v_has_refusal
-	_ = v_id
-	_ = v_index
-	_ = v_message
-	_ = v_out
-	_ = v_refusal
-	_ = v_tool_calls
-	v_empty_message = Object()
-	v_message = coreGet(v_choice, "message", v_empty_message)
-	v_refusal = coreGet(v_message, "refusal", nil)
-	v_has_refusal = _core_truthy(v_refusal)
-	if coreTruthy(v_has_refusal) {
-		v_error = _core_ai_error_refusal(v_refusal, v_raw)
-		return nil, asAxError(v_error)
-	} else {
-	// empty
-	}
-	v_index = coreGet(v_choice, "index", 0)
-	v_id = _core_string_str(v_index)
-	v_content_raw = coreGet(v_message, "content", nil)
-	v_content = _core_none()
-	v_has_content = _core_truthy(v_content_raw)
-	if coreTruthy(v_has_content) {
-		v_content = v_content_raw
-	} else {
-		v_content = _core_none()
-	}
-	v_empty_calls = MutableArray()
-	v_tool_calls = coreGet(v_message, "tool_calls", v_empty_calls)
-	{ v, err := _openai_normalize_tool_calls_impl(v_tool_calls); if err != nil { return nil, err }; v_function_calls = v }
-	v_finish_reason_raw = coreGet(v_choice, "finish_reason", nil)
-	{ v, err := _openai_finish_reason_impl(v_finish_reason_raw); if err != nil { return nil, err }; v_finish_reason = v }
-	v_out = Object()
-	if err := coreSet(v_out, "index", v_index); err != nil { return nil, err }
-	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
-	if err := coreSet(v_out, "content", v_content); err != nil { return nil, err }
-	if err := coreSet(v_out, "function_calls", v_function_calls); err != nil { return nil, err }
-	if err := coreSet(v_out, "finish_reason", v_finish_reason); err != nil { return nil, err }
-	return v_out, nil
-}
-
 func ai_context_cache_expiry(args ...Value) (Value, error) {
 	axirCoverageMark("ai_context_cache_expiry")
 	var v_provider_expire_time Value
@@ -7071,68 +7114,6 @@ func ai_context_cache_expiry(args ...Value) (Value, error) {
 	// empty
 	}
 	return 0, nil
-}
-
-func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_normalize_tool_calls_impl")
-	var v_calls Value
-	var v_call Value
-	var v_fn Value
-	var v_function Value
-	var v_id Value
-	var v_name Value
-	var v_normalized Value
-	var v_out Value
-	var v_params Value
-	var v_params_is_string Value
-	var v_parse_error Value
-	var v_parsed_params Value
-	if len(args) > 0 { v_calls = args[0] }
-	_ = v_calls
-	_ = v_call
-	_ = v_fn
-	_ = v_function
-	_ = v_id
-	_ = v_name
-	_ = v_normalized
-	_ = v_out
-	_ = v_params
-	_ = v_params_is_string
-	_ = v_parse_error
-	_ = v_parsed_params
-	v_out = MutableArray()
-	for _, v_call = range coreIter(v_calls) {
-		v_fn = coreGet(v_call, "function", nil)
-		v_params = coreGet(v_fn, "arguments", nil)
-		v_params_is_string = coreTypeIs(v_params, "string")
-		if coreTruthy(v_params_is_string) {
-			{
-				__flow, __err := func() (coreFlow, error) {
-					{ v, err := _core_json_parse(v_params); if err != nil { return coreFlow{}, err }; v_parsed_params = v }
-					v_params = v_parsed_params
-					return coreFlow{}, nil
-				}()
-				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
-				if __err != nil {
-					v_parse_error = errorValue(__err)
-				// empty
-				}
-			}
-		} else {
-		// empty
-		}
-		v_id = coreGet(v_call, "id", nil)
-		v_name = coreGet(v_fn, "name", nil)
-		v_function = Object()
-		if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
-		if err := coreSet(v_function, "params", v_params); err != nil { return nil, err }
-		v_normalized = Object()
-		if err := coreSet(v_normalized, "id", v_id); err != nil { return nil, err }
-		if err := coreSet(v_normalized, "type", "function"); err != nil { return nil, err }
-		if err := coreSet(v_normalized, "function", v_function); err != nil { return nil, err }
-		v_out = coreAppend(v_out, v_normalized)
-	}
-	return v_out, nil
 }
 
 func ai_context_cache_plan(args ...Value) (Value, error) {
@@ -7239,53 +7220,78 @@ func ai_context_cache_plan(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func _openai_finish_reason_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_openai_finish_reason_impl")
-	var v_value Value
-	var v_is_call Value
-	var v_is_content_filter Value
-	var v_is_function_call Value
-	var v_is_length Value
-	var v_is_stop Value
-	var v_is_tool_calls Value
-	var v_none Value
-	if len(args) > 0 { v_value = args[0] }
-	_ = v_value
-	_ = v_is_call
-	_ = v_is_content_filter
-	_ = v_is_function_call
-	_ = v_is_length
-	_ = v_is_stop
-	_ = v_is_tool_calls
-	_ = v_none
-	v_is_stop = _core_eq(v_value, "stop")
-	if coreTruthy(v_is_stop) {
-		return "stop", nil
+func _openai_normalize_choice_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_normalize_choice_impl")
+	var v_choice Value
+	var v_raw Value
+	var v_content Value
+	var v_content_raw Value
+	var v_empty_calls Value
+	var v_empty_message Value
+	var v_error Value
+	var v_finish_reason Value
+	var v_finish_reason_raw Value
+	var v_function_calls Value
+	var v_has_content Value
+	var v_has_refusal Value
+	var v_id Value
+	var v_index Value
+	var v_message Value
+	var v_out Value
+	var v_refusal Value
+	var v_tool_calls Value
+	if len(args) > 0 { v_choice = args[0] }
+	_ = v_choice
+	if len(args) > 1 { v_raw = args[1] }
+	_ = v_raw
+	_ = v_content
+	_ = v_content_raw
+	_ = v_empty_calls
+	_ = v_empty_message
+	_ = v_error
+	_ = v_finish_reason
+	_ = v_finish_reason_raw
+	_ = v_function_calls
+	_ = v_has_content
+	_ = v_has_refusal
+	_ = v_id
+	_ = v_index
+	_ = v_message
+	_ = v_out
+	_ = v_refusal
+	_ = v_tool_calls
+	v_empty_message = Object()
+	v_message = coreGet(v_choice, "message", v_empty_message)
+	v_refusal = coreGet(v_message, "refusal", nil)
+	v_has_refusal = _core_truthy(v_refusal)
+	if coreTruthy(v_has_refusal) {
+		v_error = _core_ai_error_refusal(v_refusal, v_raw)
+		return nil, asAxError(v_error)
 	} else {
 	// empty
 	}
-	v_is_length = _core_eq(v_value, "length")
-	if coreTruthy(v_is_length) {
-		return "length", nil
+	v_index = coreGet(v_choice, "index", 0)
+	v_id = _core_string_str(v_index)
+	v_content_raw = coreGet(v_message, "content", nil)
+	v_content = _core_none()
+	v_has_content = _core_truthy(v_content_raw)
+	if coreTruthy(v_has_content) {
+		v_content = v_content_raw
 	} else {
-	// empty
+		v_content = _core_none()
 	}
-	v_is_content_filter = _core_eq(v_value, "content_filter")
-	if coreTruthy(v_is_content_filter) {
-		return "error", nil
-	} else {
-	// empty
-	}
-	v_is_tool_calls = _core_eq(v_value, "tool_calls")
-	v_is_function_call = _core_eq(v_value, "function_call")
-	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
-	if coreTruthy(v_is_call) {
-		return "function_call", nil
-	} else {
-	// empty
-	}
-	v_none = _core_none()
-	return v_none, nil
+	v_empty_calls = MutableArray()
+	v_tool_calls = coreGet(v_message, "tool_calls", v_empty_calls)
+	{ v, err := _openai_normalize_tool_calls_impl(v_tool_calls); if err != nil { return nil, err }; v_function_calls = v }
+	v_finish_reason_raw = coreGet(v_choice, "finish_reason", nil)
+	{ v, err := _openai_finish_reason_impl(v_finish_reason_raw); if err != nil { return nil, err }; v_finish_reason = v }
+	v_out = Object()
+	if err := coreSet(v_out, "index", v_index); err != nil { return nil, err }
+	if err := coreSet(v_out, "id", v_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "content", v_content); err != nil { return nil, err }
+	if err := coreSet(v_out, "function_calls", v_function_calls); err != nil { return nil, err }
+	if err := coreSet(v_out, "finish_reason", v_finish_reason); err != nil { return nil, err }
+	return v_out, nil
 }
 
 func ai_context_cache_recovery(args ...Value) (Value, error) {
@@ -7337,55 +7343,65 @@ func ai_context_cache_recovery(args ...Value) (Value, error) {
 	return v_out, nil
 }
 
-func openai_normalize_embed_response(args ...Value) (Value, error) {
-	axirCoverageMark("openai_normalize_embed_response")
-	var v_raw Value
-	var v_ai_name Value
-	var v_model Value
-	var v_data Value
-	var v_embedding Value
-	var v_embeddings Value
-	var v_empty_data Value
-	var v_item Value
-	var v_model_usage Value
+func _openai_normalize_tool_calls_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_normalize_tool_calls_impl")
+	var v_calls Value
+	var v_call Value
+	var v_fn Value
+	var v_function Value
+	var v_id Value
+	var v_name Value
+	var v_normalized Value
 	var v_out Value
-	var v_raw_model Value
-	var v_remote_id Value
-	var v_usage Value
-	var v_used_model Value
-	if len(args) > 0 { v_raw = args[0] }
-	_ = v_raw
-	if len(args) > 1 { v_ai_name = args[1] }
-	_ = v_ai_name
-	if len(args) > 2 { v_model = args[2] }
-	_ = v_model
-	_ = v_data
-	_ = v_embedding
-	_ = v_embeddings
-	_ = v_empty_data
-	_ = v_item
-	_ = v_model_usage
+	var v_params Value
+	var v_params_is_string Value
+	var v_parse_error Value
+	var v_parsed_params Value
+	if len(args) > 0 { v_calls = args[0] }
+	_ = v_calls
+	_ = v_call
+	_ = v_fn
+	_ = v_function
+	_ = v_id
+	_ = v_name
+	_ = v_normalized
 	_ = v_out
-	_ = v_raw_model
-	_ = v_remote_id
-	_ = v_usage
-	_ = v_used_model
-	v_embeddings = MutableArray()
-	v_empty_data = MutableArray()
-	v_data = coreGet(v_raw, "data", v_empty_data)
-	for _, v_item = range coreIter(v_data) {
-		v_embedding = coreGet(v_item, "embedding", nil)
-		v_embeddings = coreAppend(v_embeddings, v_embedding)
+	_ = v_params
+	_ = v_params_is_string
+	_ = v_parse_error
+	_ = v_parsed_params
+	v_out = MutableArray()
+	for _, v_call = range coreIter(v_calls) {
+		v_fn = coreGet(v_call, "function", nil)
+		v_params = coreGet(v_fn, "arguments", nil)
+		v_params_is_string = coreTypeIs(v_params, "string")
+		if coreTruthy(v_params_is_string) {
+			{
+				__flow, __err := func() (coreFlow, error) {
+					{ v, err := _core_json_parse(v_params); if err != nil { return coreFlow{}, err }; v_parsed_params = v }
+					v_params = v_parsed_params
+					return coreFlow{}, nil
+				}()
+				if __err == nil && __flow.kind == coreFlowReturn { return __flow.value, nil }
+				if __err != nil {
+					v_parse_error = errorValue(__err)
+				// empty
+				}
+			}
+		} else {
+		// empty
+		}
+		v_id = coreGet(v_call, "id", nil)
+		v_name = coreGet(v_fn, "name", nil)
+		v_function = Object()
+		if err := coreSet(v_function, "name", v_name); err != nil { return nil, err }
+		if err := coreSet(v_function, "params", v_params); err != nil { return nil, err }
+		v_normalized = Object()
+		if err := coreSet(v_normalized, "id", v_id); err != nil { return nil, err }
+		if err := coreSet(v_normalized, "type", "function"); err != nil { return nil, err }
+		if err := coreSet(v_normalized, "function", v_function); err != nil { return nil, err }
+		v_out = coreAppend(v_out, v_normalized)
 	}
-	v_raw_model = coreGet(v_raw, "model", nil)
-	v_used_model = _core_coalesce(v_raw_model, v_model)
-	v_usage = coreGet(v_raw, "usage", nil)
-	{ v, err := _ai_model_usage_impl(v_ai_name, v_used_model, v_usage); if err != nil { return nil, err }; v_model_usage = v }
-	v_remote_id = coreGet(v_raw, "id", nil)
-	v_out = Object()
-	if err := coreSet(v_out, "embeddings", v_embeddings); err != nil { return nil, err }
-	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
-	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -7493,6 +7509,107 @@ func ai_gemini_cache_ops(args ...Value) (Value, error) {
 	if err := coreSet(v_out, "create", v_create); err != nil { return nil, err }
 	if err := coreSet(v_out, "update", v_update); err != nil { return nil, err }
 	if err := coreSet(v_out, "delete", v_delete_op); err != nil { return nil, err }
+	return v_out, nil
+}
+
+func _openai_finish_reason_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_finish_reason_impl")
+	var v_value Value
+	var v_is_call Value
+	var v_is_content_filter Value
+	var v_is_function_call Value
+	var v_is_length Value
+	var v_is_stop Value
+	var v_is_tool_calls Value
+	var v_none Value
+	if len(args) > 0 { v_value = args[0] }
+	_ = v_value
+	_ = v_is_call
+	_ = v_is_content_filter
+	_ = v_is_function_call
+	_ = v_is_length
+	_ = v_is_stop
+	_ = v_is_tool_calls
+	_ = v_none
+	v_is_stop = _core_eq(v_value, "stop")
+	if coreTruthy(v_is_stop) {
+		return "stop", nil
+	} else {
+	// empty
+	}
+	v_is_length = _core_eq(v_value, "length")
+	if coreTruthy(v_is_length) {
+		return "length", nil
+	} else {
+	// empty
+	}
+	v_is_content_filter = _core_eq(v_value, "content_filter")
+	if coreTruthy(v_is_content_filter) {
+		return "error", nil
+	} else {
+	// empty
+	}
+	v_is_tool_calls = _core_eq(v_value, "tool_calls")
+	v_is_function_call = _core_eq(v_value, "function_call")
+	v_is_call = _core_or(v_is_tool_calls, v_is_function_call)
+	if coreTruthy(v_is_call) {
+		return "function_call", nil
+	} else {
+	// empty
+	}
+	v_none = _core_none()
+	return v_none, nil
+}
+
+func openai_normalize_embed_response(args ...Value) (Value, error) {
+	axirCoverageMark("openai_normalize_embed_response")
+	var v_raw Value
+	var v_ai_name Value
+	var v_model Value
+	var v_data Value
+	var v_embedding Value
+	var v_embeddings Value
+	var v_empty_data Value
+	var v_item Value
+	var v_model_usage Value
+	var v_out Value
+	var v_raw_model Value
+	var v_remote_id Value
+	var v_usage Value
+	var v_used_model Value
+	if len(args) > 0 { v_raw = args[0] }
+	_ = v_raw
+	if len(args) > 1 { v_ai_name = args[1] }
+	_ = v_ai_name
+	if len(args) > 2 { v_model = args[2] }
+	_ = v_model
+	_ = v_data
+	_ = v_embedding
+	_ = v_embeddings
+	_ = v_empty_data
+	_ = v_item
+	_ = v_model_usage
+	_ = v_out
+	_ = v_raw_model
+	_ = v_remote_id
+	_ = v_usage
+	_ = v_used_model
+	v_embeddings = MutableArray()
+	v_empty_data = MutableArray()
+	v_data = coreGet(v_raw, "data", v_empty_data)
+	for _, v_item = range coreIter(v_data) {
+		v_embedding = coreGet(v_item, "embedding", nil)
+		v_embeddings = coreAppend(v_embeddings, v_embedding)
+	}
+	v_raw_model = coreGet(v_raw, "model", nil)
+	v_used_model = _core_coalesce(v_raw_model, v_model)
+	v_usage = coreGet(v_raw, "usage", nil)
+	{ v, err := _ai_model_usage_impl(v_ai_name, v_used_model, v_usage); if err != nil { return nil, err }; v_model_usage = v }
+	v_remote_id = coreGet(v_raw, "id", nil)
+	v_out = Object()
+	if err := coreSet(v_out, "embeddings", v_embeddings); err != nil { return nil, err }
+	if err := coreSet(v_out, "remote_id", v_remote_id); err != nil { return nil, err }
+	if err := coreSet(v_out, "model_usage", v_model_usage); err != nil { return nil, err }
 	return v_out, nil
 }
 
@@ -12595,7 +12712,6 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 	v_model_config = coreGet(v_request, "model_config", v_empty_model_config)
 	v_stream = coreGet(v_model_config, "stream", false)
 	if err := coreSet(v_payload, "stream", v_stream); err != nil { return nil, err }
-	if _, err := _openai_responses_apply_model_config_impl(v_payload, v_model_config); err != nil { return nil, err }
 	v_reasoning = coreGet(v_model_config, "reasoning", nil)
 	v_has_reasoning = _core_truthy(v_reasoning)
 	if coreTruthy(v_has_reasoning) {
@@ -12603,6 +12719,7 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 	} else {
 	// empty
 	}
+	if _, err := _openai_responses_apply_model_config_impl(v_payload, v_model_config); err != nil { return nil, err }
 	v_include = coreGet(v_model_config, "include", nil)
 	v_has_include = _core_truthy(v_include)
 	if coreTruthy(v_has_include) {
@@ -12624,10 +12741,28 @@ func _openai_responses_apply_model_config_impl(args ...Value) (Value, error) {
 	axirCoverageMark("_openai_responses_apply_model_config_impl")
 	var v_payload Value
 	var v_model_config Value
+	var v_budget Value
+	var v_budget_snake Value
+	var v_effort Value
+	var v_empty_reasoning Value
+	var v_has_budget Value
+	var v_has_effort Value
+	var v_is_none Value
+	var v_model Value
+	var v_reasoning Value
 	if len(args) > 0 { v_payload = args[0] }
 	_ = v_payload
 	if len(args) > 1 { v_model_config = args[1] }
 	_ = v_model_config
+	_ = v_budget
+	_ = v_budget_snake
+	_ = v_effort
+	_ = v_empty_reasoning
+	_ = v_has_budget
+	_ = v_has_effort
+	_ = v_is_none
+	_ = v_model
+	_ = v_reasoning
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "maxTokens", "max_output_tokens"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "max_tokens", "max_output_tokens"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "temperature", "temperature"); err != nil { return nil, err }
@@ -12637,6 +12772,30 @@ func _openai_responses_apply_model_config_impl(args ...Value) (Value, error) {
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "presence_penalty", "presence_penalty"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "frequencyPenalty", "frequency_penalty"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "frequency_penalty", "frequency_penalty"); err != nil { return nil, err }
+	v_budget_snake = coreGet(v_model_config, "thinking_token_budget", nil)
+	v_budget = coreGet(v_model_config, "thinkingTokenBudget", v_budget_snake)
+	v_has_budget = _core_is_not_none(v_budget)
+	if coreTruthy(v_has_budget) {
+		v_model = coreGet(v_payload, "model", "")
+		{ v, err := openai_reasoning_effort(v_model, v_budget); if err != nil { return nil, err }; v_effort = v }
+		v_has_effort = _core_is_not_none(v_effort)
+		if coreTruthy(v_has_effort) {
+			v_empty_reasoning = Object()
+			v_reasoning = coreGet(v_payload, "reasoning", v_empty_reasoning)
+			if err := coreSet(v_reasoning, "effort", v_effort); err != nil { return nil, err }
+			v_is_none = _core_eq(v_effort, "none")
+			if coreTruthy(v_is_none) {
+				_core_map_delete(v_reasoning, "summary")
+			} else {
+			// empty
+			}
+			if err := coreSet(v_payload, "reasoning", v_reasoning); err != nil { return nil, err }
+		} else {
+			_core_map_delete(v_payload, "reasoning")
+		}
+	} else {
+	// empty
+	}
 	return nil, nil
 }
 

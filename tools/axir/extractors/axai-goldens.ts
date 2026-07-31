@@ -22,6 +22,7 @@ import { AxAIGoogleGeminiEmbedModel } from '../../../src/ax/ai/google-gemini/typ
 import { axAIMistralDefaultConfig } from '../../../src/ax/ai/mistral/api.js';
 import { AxMultiServiceRouter } from '../../../src/ax/ai/multiservice.js';
 import { AxAIOpenAIModel } from '../../../src/ax/ai/openai/chat_types.js';
+import { axResolveOpenAIReasoningEffort } from '../../../src/ax/ai/openai/effort.js';
 import { axAIOpenAIResponsesDefaultConfig } from '../../../src/ax/ai/openai/responses_api_base.js';
 import { axAIRekaDefaultConfig } from '../../../src/ax/ai/reka/api.js';
 import { AxProviderRouter } from '../../../src/ax/ai/router.js';
@@ -2293,6 +2294,164 @@ writeFixture('grok-openai-compatible-chat', {
       },
     },
   },
+});
+
+const openAIReasoningBudgets = [
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'highest',
+  'none',
+] as const;
+const openAIReasoningModels = [
+  'gpt-5.6',
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
+] as const;
+
+for (const [index, budget] of openAIReasoningBudgets.entries()) {
+  const model = openAIReasoningModels[index % openAIReasoningModels.length]!;
+  const effort = axResolveOpenAIReasoningEffort(model, budget);
+  writeFixture(`openai-gpt-5-6-chat-reasoning-${budget}`, {
+    kind: 'ai_chat',
+    provider: 'openai-compatible',
+    model,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'reason' }],
+      model_config: {
+        stream: false,
+        reasoningEffort: 'xhigh',
+        thinkingTokenBudget: budget,
+      },
+    },
+    transport_responses: [compatibleResponse(`chat_${budget}`, model)],
+    expected_transport_request: {
+      method: 'POST',
+      url: 'https://api.openai.com/v1/chat/completions',
+      json: {
+        model,
+        messages: [{ role: 'user', content: 'reason' }],
+        reasoning_effort: effort,
+      },
+    },
+  });
+
+  writeFixture(`openai-gpt-5-6-responses-reasoning-${budget}`, {
+    kind: 'ai_chat',
+    provider: 'openai-responses',
+    model,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'reason' }],
+      model_config: {
+        stream: false,
+        reasoning: { effort: 'xhigh', summary: 'auto' },
+        thinkingTokenBudget: budget,
+      },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          id: `resp_${budget}`,
+          model,
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          output: [
+            {
+              id: `msg_${budget}`,
+              type: 'message',
+              content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+            },
+          ],
+        },
+      },
+    ],
+    expected_transport_request: {
+      method: 'POST',
+      url: 'https://api.openai.com/v1/responses',
+      json: {
+        model,
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: 'reason' }],
+          },
+        ],
+        reasoning: effort === 'none' ? { effort } : { effort, summary: 'auto' },
+        stream: false,
+      },
+    },
+    ...(effort === 'none'
+      ? { expected_transport_json_absent: ['reasoning.summary'] }
+      : {}),
+  });
+}
+
+writeFixture('openai-legacy-reasoning-control', {
+  kind: 'ai_chat',
+  provider: 'openai-compatible',
+  model: 'gpt-5.5',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'reason' }],
+    model_config: { stream: false, thinkingTokenBudget: 'low' },
+  },
+  transport_responses: [compatibleResponse('chat_legacy', 'gpt-5.5')],
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.openai.com/v1/chat/completions',
+    json: {
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'reason' }],
+      reasoning_effort: axResolveOpenAIReasoningEffort('gpt-5.5', 'low'),
+    },
+  },
+});
+
+writeFixture('openai-legacy-reasoning-none-control', {
+  kind: 'ai_chat',
+  provider: 'openai-responses',
+  model: 'gpt-5.5',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'reason' }],
+    model_config: {
+      stream: false,
+      reasoning: { effort: 'high', summary: 'auto' },
+      thinkingTokenBudget: 'none',
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'resp_legacy_none',
+        model: 'gpt-5.5',
+        usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        output: [
+          {
+            id: 'msg_legacy_none',
+            type: 'message',
+            content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+          },
+        ],
+      },
+    },
+  ],
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.openai.com/v1/responses',
+    json: {
+      model: 'gpt-5.5',
+      input: [
+        {
+          role: 'user',
+          content: [{ type: 'input_text', text: 'reason' }],
+        },
+      ],
+      stream: false,
+    },
+  },
+  expected_transport_json_absent: ['reasoning'],
 });
 
 writeFixture('responses-simple-chat', {

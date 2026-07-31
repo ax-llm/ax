@@ -158,6 +158,21 @@ module @ax.provider version "0.1" {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "presencePenalty", "presence_penalty")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "frequency_penalty", "frequency_penalty")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "frequencyPenalty", "frequency_penalty")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "reasoning_effort", "reasoning_effort")
+      core.call @openai_copy_config_key_impl(%payload, %model_config, "reasoningEffort", "reasoning_effort")
+      %budget_snake = core.get %model_config["thinking_token_budget"]
+      %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
+      %has_budget = core.call intrinsic.is_not_none(%budget)
+      core.if %has_budget {
+        %model = core.get %payload["model"] default ""
+        %effort = core.call @openai_reasoning_effort(%model, %budget)
+        %has_effort = core.call intrinsic.is_not_none(%effort)
+        core.if %has_effort {
+          core.set %payload["reasoning_effort"] = %effort
+        } else {
+          core.call intrinsic.map.delete(%payload, "reasoning_effort")
+        }
+      }
       %stop_snake = core.get %model_config["stop_sequences"]
       %stop = core.get %model_config["stopSequences"] default %stop_snake
       %has_stop = core.call intrinsic.truthy(%stop)
@@ -173,6 +188,55 @@ module @ax.provider version "0.1" {
         core.set %payload["stream_options"] = %stream_options
       }
       core.return
+    }
+  }
+
+  op ax.provider.semantic @openai_reasoning_effort {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "openai-reasoning-effort"
+    type signature = "(model:string, budget:json) -> json"
+    body @entry(%model: string, %budget: json) {
+      %is_gpt56_alias = core.call intrinsic.eq(%model, "gpt-5.6")
+      %is_gpt56_suffix = core.call intrinsic.string.starts_with(%model, "gpt-5.6-")
+      %is_gpt56 = core.call intrinsic.or(%is_gpt56_alias, %is_gpt56_suffix)
+      %is_none = core.call intrinsic.eq(%budget, "none")
+      core.if %is_none {
+        core.if %is_gpt56 {
+          core.return "none"
+        }
+        %none = core.call intrinsic.none()
+        core.return %none
+      }
+      %is_minimal = core.call intrinsic.eq(%budget, "minimal")
+      %is_low = core.call intrinsic.eq(%budget, "low")
+      %is_medium = core.call intrinsic.eq(%budget, "medium")
+      %is_highest = core.call intrinsic.eq(%budget, "highest")
+      core.if %is_gpt56 {
+        core.if %is_minimal {
+          core.return "low"
+        }
+        core.if %is_low {
+          core.return "low"
+        }
+        core.if %is_medium {
+          core.return "medium"
+        }
+        core.if %is_highest {
+          core.return "max"
+        }
+        core.return "high"
+      }
+      core.if %is_minimal {
+        core.return "minimal"
+      }
+      core.if %is_low {
+        core.return "medium"
+      }
+      core.if %is_highest {
+        core.return "xhigh"
+      }
+      core.return "high"
     }
   }
 
@@ -3338,12 +3402,12 @@ module @ax.provider version "0.1" {
       %model_config = core.get %request["model_config"] default %empty_model_config
       %stream = core.get %model_config["stream"] default false
       core.set %payload["stream"] = %stream
-      core.call @openai_responses_apply_model_config_impl(%payload, %model_config)
       %reasoning = core.get %model_config["reasoning"]
       %has_reasoning = core.call intrinsic.truthy(%reasoning)
       core.if %has_reasoning {
         core.set %payload["reasoning"] = %reasoning
       }
+      core.call @openai_responses_apply_model_config_impl(%payload, %model_config)
       %include = core.get %model_config["include"]
       %has_include = core.call intrinsic.truthy(%include)
       core.if %has_include {
@@ -3374,6 +3438,26 @@ module @ax.provider version "0.1" {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "presence_penalty", "presence_penalty")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "frequencyPenalty", "frequency_penalty")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "frequency_penalty", "frequency_penalty")
+      %budget_snake = core.get %model_config["thinking_token_budget"]
+      %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
+      %has_budget = core.call intrinsic.is_not_none(%budget)
+      core.if %has_budget {
+        %model = core.get %payload["model"] default ""
+        %effort = core.call @openai_reasoning_effort(%model, %budget)
+        %has_effort = core.call intrinsic.is_not_none(%effort)
+        core.if %has_effort {
+          %empty_reasoning = core.map
+          %reasoning = core.get %payload["reasoning"] default %empty_reasoning
+          core.set %reasoning["effort"] = %effort
+          %is_none = core.call intrinsic.eq(%effort, "none")
+          core.if %is_none {
+            core.call intrinsic.map.delete(%reasoning, "summary")
+          }
+          core.set %payload["reasoning"] = %reasoning
+        } else {
+          core.call intrinsic.map.delete(%payload, "reasoning")
+        }
+      }
       core.return
     }
   }

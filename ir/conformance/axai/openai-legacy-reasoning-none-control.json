@@ -1,0 +1,69 @@
+{
+  "expected_transport_json_absent": ["reasoning"],
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "content": [
+            {
+              "text": "reason",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "gpt-5.5",
+      "stream": false
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5.5",
+  "name": "openai-legacy-reasoning-none-control",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "reason",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "reasoning": {
+        "effort": "high",
+        "summary": "auto"
+      },
+      "stream": false,
+      "thinkingTokenBudget": "none"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_legacy_none",
+        "model": "gpt-5.5",
+        "output": [
+          {
+            "content": [
+              {
+                "annotations": [],
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_legacy_none",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

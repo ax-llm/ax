@@ -1,0 +1,72 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "content": [
+            {
+              "text": "reason",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "gpt-5.6",
+      "reasoning": {
+        "effort": "max",
+        "summary": "auto"
+      },
+      "stream": false
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/responses"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5.6",
+  "name": "openai-gpt-5-6-responses-reasoning-highest",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "reason",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "reasoning": {
+        "effort": "xhigh",
+        "summary": "auto"
+      },
+      "stream": false,
+      "thinkingTokenBudget": "highest"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_highest",
+        "model": "gpt-5.6",
+        "output": [
+          {
+            "content": [
+              {
+                "annotations": [],
+                "text": "ok",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_highest",
+            "type": "message"
+          }
+        ],
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "total_tokens": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}
