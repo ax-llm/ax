@@ -18,12 +18,6 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks` [axmcp] Port MCP MRTR elicitation host callbacks
-  - Status: open
-  - Source commit: `4f0d018f`
-  - TS paths: `src/ax/mcp/mrtr.ts`, `src/ax/mcp/client.ts`
-  - Impact: The generated Python, Java, C++, Go, and Rust clients can fulfill roots-only modern MRTR rounds but lack host elicitation callbacks and can advertise sampling or elicitation option keys they cannot execute.
-  - Suggested AxIR work: Replace the roots-only fulfillment op with a shared roots and pending-host-request planner.; Add real elicitation callback surfaces and honest modern capability advertisement to every generated client.; Prove mixed roots and elicitation, requestState echo, sampling rejection, generated package lockstep, and five-language localhost event smoke.
 - `axir-2026-07-30-port-legacy-inbound-mcp-elicitation` [axmcp] Port legacy inbound MCP elicitation
   - Status: open
   - Source commit: `4f0d018f`
@@ -353,3 +347,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-30
   - Completed by: `09354114`
   - Verification: `mrtr-roots + mrtr-violations across Python/Go/Java/C++/Rust; fresh IDs, byte-exact requestState, current-round-only inputs; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check; superseded by axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks`
+- `axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks` [axmcp] Port MCP MRTR elicitation host callbacks
+  - Status: done
+  - Source commit: `4f0d018f`
+  - TS paths: `src/ax/mcp/mrtr.ts`, `src/ax/mcp/client.ts`
+  - Impact: The generated Python, Java, C++, Go, and Rust clients can fulfill roots-only modern MRTR rounds but lack host elicitation callbacks and can advertise sampling or elicitation option keys they cannot execute.
+  - Suggested AxIR work: Replace the roots-only fulfillment op with a shared roots and pending-host-request planner.; Add real elicitation callback surfaces and honest modern capability advertisement to every generated client.; Prove mixed roots and elicitation, requestState echo, sampling rejection, generated package lockstep, and five-language localhost event smoke.
+  - Completed at: 2026-07-30
+  - Completed by: `f053c737`
+  - Verification: `npm test; npm run axir:backlog:validate; generated five-language conformance release verifier; legacy and modern five-language MCP event smoke; TypeScript stdio and HTTP plus five-port foreign-server interop`

@@ -774,25 +774,6 @@
       "verification": "mrtr-roots + mrtr-violations across Python/Go/Java/C++/Rust; fresh IDs, byte-exact requestState, current-round-only inputs; npm run test:axir; npm run axir:check-packages; npm run axir:conformance:check; superseded by axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks"
     },
     {
-      "id": "axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks",
-      "status": "open",
-      "title": "Port MCP MRTR elicitation host callbacks",
-      "createdAt": "2026-07-30",
-      "sourcePR": null,
-      "sourceCommit": "4f0d018f",
-      "tsPaths": ["src/ax/mcp/mrtr.ts", "src/ax/mcp/client.ts"],
-      "portableSurface": "axmcp",
-      "impact": "The generated Python, Java, C++, Go, and Rust clients can fulfill roots-only modern MRTR rounds but lack host elicitation callbacks and can advertise sampling or elicitation option keys they cannot execute.",
-      "suggestedAxirWork": [
-        "Replace the roots-only fulfillment op with a shared roots and pending-host-request planner.",
-        "Add real elicitation callback surfaces and honest modern capability advertisement to every generated client.",
-        "Prove mixed roots and elicitation, requestState echo, sampling rejection, generated package lockstep, and five-language localhost event smoke."
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
-    },
-    {
       "id": "axir-2026-07-30-port-legacy-inbound-mcp-elicitation",
       "status": "open",
       "title": "Port legacy inbound MCP elicitation",
@@ -810,6 +791,25 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks",
+      "status": "done",
+      "title": "Port MCP MRTR elicitation host callbacks",
+      "createdAt": "2026-07-30",
+      "sourcePR": null,
+      "sourceCommit": "4f0d018f",
+      "tsPaths": ["src/ax/mcp/mrtr.ts", "src/ax/mcp/client.ts"],
+      "portableSurface": "axmcp",
+      "impact": "The generated Python, Java, C++, Go, and Rust clients can fulfill roots-only modern MRTR rounds but lack host elicitation callbacks and can advertise sampling or elicitation option keys they cannot execute.",
+      "suggestedAxirWork": [
+        "Replace the roots-only fulfillment op with a shared roots and pending-host-request planner.",
+        "Add real elicitation callback surfaces and honest modern capability advertisement to every generated client.",
+        "Prove mixed roots and elicitation, requestState echo, sampling rejection, generated package lockstep, and five-language localhost event smoke."
+      ],
+      "completedAt": "2026-07-30",
+      "completedByCommit": "f053c737",
+      "verification": "npm test; npm run axir:backlog:validate; generated five-language conformance release verifier; legacy and modern five-language MCP event smoke; TypeScript stdio and HTTP plus five-port foreign-server interop"
     },
     {
       "id": "axir-2026-07-30-port-task-input-required-fulfillment",
