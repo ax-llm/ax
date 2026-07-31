@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import { AxMockAIService } from '../ai/mock/api.js';
+import { validateStructuredOutputValues } from './extract/structuredJson.js';
 import { f } from './sig.js';
 import { ax } from './template.js';
 
@@ -1231,5 +1232,33 @@ describe('Structured Outputs', () => {
 
     // NOTE: Assertions ARE called for structured outputs at processResponse.ts:775
     // after JSON parsing and validation. This is confirmed by code review.
+  });
+
+  describe('validateStructuredOutputValues', () => {
+    it('accepts a url array', () => {
+      const sig = f()
+        .input('question', f.string())
+        .output('links', f.url().array())
+        .build();
+
+      expect(() =>
+        validateStructuredOutputValues(sig, {
+          links: ['https://a.com', 'https://b.com'],
+        })
+      ).not.toThrow();
+    });
+
+    it('rejects an invalid url inside a url array', () => {
+      const sig = f()
+        .input('question', f.string())
+        .output('links', f.url().array())
+        .build();
+
+      expect(() =>
+        validateStructuredOutputValues(sig, {
+          links: ['https://a.com', 'not a url'],
+        })
+      ).toThrow(/Invalid URL/);
+    });
   });
 });

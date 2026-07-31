@@ -98,6 +98,26 @@ multi-line content for field 2`;
     expect(values).toEqual({ modelAnswer1: ['test', 'test2'] });
   });
 
+  test('extracts url[] arrays', () => {
+    const sig = AxSignature.from('userQuestion -> sourceLinks:url[]');
+    const values: Record<string, unknown> = {};
+    const content = 'Source Links: ["https://a.com", "https://b.com"]';
+
+    extractValues(sig, values, content);
+
+    expect(values).toEqual({
+      sourceLinks: ['https://a.com', 'https://b.com'],
+    });
+  });
+
+  test('rejects an invalid url inside a url[] array', () => {
+    const sig = AxSignature.from('userQuestion -> sourceLinks:url[]');
+    const values: Record<string, unknown> = {};
+    const content = 'Source Links: ["https://a.com", "not a url"]';
+
+    expect(() => extractValues(sig, values, content)).toThrow(/Invalid URL/);
+  });
+
   // New test cases
   test('handles nested JSON objects', () => {
     const sig = AxSignature.from('userQuestion -> modelAnswer1:json');
