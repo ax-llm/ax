@@ -789,7 +789,7 @@
         "Advertise legacy elicitation only on ports whose transports can receive and answer the request."
       ],
       "completedAt": "2026-07-31",
-      "completedByCommit": "670cc126",
+      "completedByCommit": "085e3747",
       "verification": "npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run website:check; npm run axir:gate:ledger"
     },
     {
@@ -827,7 +827,7 @@
         "Prove roots and elicitation task fulfillment plus missing-handler and sampling violations in five-language fixtures and live smoke."
       ],
       "completedAt": "2026-07-31",
-      "completedByCommit": "670cc126",
+      "completedByCommit": "085e3747",
       "verification": "npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run website:check; npm run axir:gate:ledger"
     },
     {
@@ -854,7 +854,7 @@
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
       "completedAt": "2026-07-31",
-      "completedByCommit": "52f434db",
+      "completedByCommit": "38f1c438",
       "verification": "npx vitest run src/ax/ai/openai/api.reasoning.test.ts; npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run website:check; npm run axir:gate:ledger"
     },
     {
@@ -897,7 +897,7 @@
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
       "completedAt": "2026-07-31",
-      "completedByCommit": "25c64534",
+      "completedByCommit": "4229ba73",
       "verification": "npx vitest run src/ax/dsp/structured.test.ts; npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run website:check; npm run axir:gate:ledger"
     },
     {
@@ -919,7 +919,7 @@
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
       "completedAt": "2026-07-31",
-      "completedByCommit": "25c64534",
+      "completedByCommit": "4229ba73",
       "verification": "npx vitest run src/ax/dsp/streaming_duplication.test.ts src/ax/dsp/structured.test.ts; npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run website:check; npm run axir:gate:ledger"
     }
   ],

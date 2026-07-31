@@ -343,7 +343,7 @@ No entries.
   - Impact: TypeScript can dispatch a legacy server-initiated elicitation/create request through the host handler, while generated clients currently expose elicitation only inside modern MRTR input rounds; Rust and C++ also lack general inbound server-request plumbing.
   - Suggested AxIR work: Define a portable inbound server-request dispatch contract and transport boundary.; Add legacy elicitation fixtures and explicit runner arms for all generated languages.; Advertise legacy elicitation only on ports whose transports can receive and answer the request.
   - Completed at: 2026-07-31
-  - Completed by: `670cc126`
+  - Completed by: `085e3747`
   - Verification: `npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run website:check; npm run axir:gate:ledger`
 - `axir-2026-07-30-port-mcp-mrtr-elicitation-host-callbacks` [axmcp] Port MCP MRTR elicitation host callbacks
   - Status: done
@@ -361,16 +361,16 @@ No entries.
   - Impact: TypeScript can fulfill input_required task status through tasks/update and continue polling, while generated clients currently auto-await only working and terminal task states and do not run the input-request fulfillment loop.
   - Suggested AxIR work: Reuse the portable MRTR fulfillment planner for task inputRequests.; Add tasks/update request construction and continuation semantics to all generated clients.; Prove roots and elicitation task fulfillment plus missing-handler and sampling violations in five-language fixtures and live smoke.
   - Completed at: 2026-07-31
-  - Completed by: `670cc126`
+  - Completed by: `085e3747`
   - Verification: `npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir:tools; npm run website:check; npm run axir:gate:ledger`
 - `axir-2026-07-30-port-the-gpt-5-6-reasoning-effort-ladder` [axai] Port the GPT-5.6 reasoning-effort ladder
   - Status: done
   - Source commit: `cbaf70906d76c8534373451780b240e190a0f22c`
-  - TS paths: `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/responses_api.ts`
-  - Impact: Generated Python/Java/C++/Go/Rust clients have no OpenAI thinkingTokenBudget -> reasoning.effort mapping; AxIR models only the DeepSeek and Grok quirk blocks, so the GPT-5.6 1:1 ladder and its max rung are TS-only.
+  - TS paths: `src/ax/ai/openai/chat_types.ts`, `src/ax/ai/openai/effort.ts`, `src/ax/ai/openai/effort.test.ts`, `src/ax/ai/openai/api.ts`, `src/ax/ai/openai/api.reasoning.test.ts`, `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.phase.test.ts`
+  - Impact: Generated Python/Java/C++/Go/Rust clients have no OpenAI thinkingTokenBudget -> reasoning.effort mapping; AxIR models only the DeepSeek and Grok quirk blocks, so the GPT-5.6 ladder is TS-only. The ladder is per API surface: highest reaches xhigh on Chat Completions, which rejects max, and max only on the Responses API.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-31
-  - Completed by: `52f434db`
+  - Completed by: `38f1c438`
   - Verification: `npx vitest run src/ax/ai/openai/api.reasoning.test.ts; npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run website:check; npm run axir:gate:ledger`
 - `axir-2026-07-31-port-mcp-oauth-discovery-grants-and-refresh` [axmcp] Port MCP OAuth discovery, grants, and refresh
   - Status: done
@@ -389,7 +389,7 @@ No entries.
   - Impact: Generated Python, Java, C++, Go, and Rust validators may still validate URL arrays as scalar values or skip per-item URL checks, diverging from TypeScript extraction and structured-output validation.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-31
-  - Completed by: `25c64534`
+  - Completed by: `4229ba73`
   - Verification: `npx vitest run src/ax/dsp/structured.test.ts; npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run website:check; npm run axir:gate:ledger`
 - `axir-2026-07-31-port-structured-object-array-streaming-deduplication` [axgen] Port structured object-array streaming deduplication
   - Status: done
@@ -399,5 +399,5 @@ No entries.
   - Impact: Generated Python, Java, C++, Go, and Rust streaming runtimes may still run prompt extraction after structured JSON parsing for complex fields, re-emitting object-array items and returning duplicated results.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-07-31
-  - Completed by: `25c64534`
+  - Completed by: `4229ba73`
   - Verification: `npx vitest run src/ax/dsp/streaming_duplication.test.ts src/ax/dsp/structured.test.ts; npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run website:check; npm run axir:gate:ledger`
