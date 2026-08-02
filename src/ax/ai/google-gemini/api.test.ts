@@ -277,6 +277,44 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     );
   });
 
+  it('routes Vertex chat requests through the US multi-region endpoint', async () => {
+    const capture: { calls: Array<{ url: string; body?: any }> } = {
+      calls: [],
+    };
+    const fetch = createSequencedMockFetch(
+      [
+        {
+          candidates: [
+            {
+              content: { parts: [{ text: 'multi-region ok' }] },
+              finishReason: 'STOP',
+            },
+          ],
+        },
+      ],
+      capture
+    );
+
+    const ai = new AxAIGoogleGemini({
+      apiKey: async () => 'vertex-token',
+      projectId: 'demo-project',
+      region: 'us',
+      config: { model: AxAIGoogleGeminiModel.Gemini31FlashLite },
+      options: { fetch },
+    });
+
+    await ai.chat(
+      {
+        chatPrompt: [{ role: 'user', content: 'hi multi-region' }],
+      },
+      { stream: false }
+    );
+
+    expect(capture.calls[0]?.url).toBe(
+      'https://aiplatform.us.rep.googleapis.com/v1/projects/demo-project/locations/us/publishers/google/models/gemini-3.1-flash-lite:generateContent'
+    );
+  });
+
   it('routes Vertex embedding requests for pre-3.1 models to v1', async () => {
     const capture: { calls: Array<{ url: string; body?: any }> } = {
       calls: [],
@@ -1919,6 +1957,58 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       const generateReq = capture.calls[1]?.body;
       expect(generateReq.cachedContent).toBe(
         'projects/demo-project/locations/us-central1/cachedContents/abc123'
+      );
+    });
+
+    it('routes Vertex cache creation through the EU multi-region endpoint', async () => {
+      const ai = new AxAIGoogleGemini({
+        apiKey: async () => 'vertex-token',
+        projectId: 'demo-project',
+        region: 'eu',
+        config: { model: AxAIGoogleGeminiModel.Gemini31FlashLite },
+        models: [],
+      });
+
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createSequencedMockFetch(
+        [
+          {
+            ...cacheCreateResponse,
+            name: 'projects/demo-project/locations/eu/cachedContents/abc123',
+          },
+          generateResponse,
+        ],
+        capture
+      );
+      const { registry } = createRegistry();
+
+      ai.setOptions({ fetch });
+
+      await ai.chat(
+        {
+          chatPrompt: [
+            { role: 'system', content: 'You are a router', cache: true },
+            { role: 'user', content: 'route this request' },
+          ],
+        },
+        {
+          stream: false,
+          contextCache: {
+            minTokens: 0,
+            registry,
+          },
+        }
+      );
+
+      expect(capture.calls).toHaveLength(2);
+      expect(capture.calls[0]?.url).toBe(
+        'https://aiplatform.eu.rep.googleapis.com/v1/projects/demo-project/locations/eu/cachedContents'
+      );
+      expect(capture.calls[0]?.body?.model).toBe(
+        `projects/demo-project/locations/eu/publishers/google/models/${AxAIGoogleGeminiModel.Gemini31FlashLite}`
+      );
+      expect(capture.calls[1]?.body?.cachedContent).toBe(
+        'projects/demo-project/locations/eu/cachedContents/abc123'
       );
     });
 

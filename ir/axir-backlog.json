@@ -921,6 +921,29 @@
       "completedAt": "2026-07-31",
       "completedByCommit": "4229ba73",
       "verification": "npx vitest run src/ax/dsp/streaming_duplication.test.ts src/ax/dsp/structured.test.ts; npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run website:check; npm run axir:gate:ledger"
+    },
+    {
+      "id": "axir-2026-08-02-port-vertex-ai-multi-region-endpoint-routing",
+      "status": "open",
+      "title": "Port Vertex AI multi-region endpoint routing",
+      "createdAt": "2026-08-02",
+      "sourcePR": null,
+      "sourceCommit": null,
+      "tsPaths": [
+        "src/ax/ai/vertex.ts",
+        "src/ax/ai/google-gemini/api.ts",
+        "src/ax/ai/anthropic/api.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript now maps Vertex AI global, us/eu multi-region, and standard regional locations to their documented hosts for Gemini and Anthropic, including Gemini cache operations. Generated Python/Java/C++/Go/Rust providers do not expose equivalent project/region-aware Vertex endpoint selection.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

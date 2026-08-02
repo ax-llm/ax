@@ -18,6 +18,7 @@ import type {
   AxThoughtBlockItem,
   AxTokenUsage,
 } from '../types.js';
+import { resolveVertexAIHost } from '../vertex.js';
 import { axModelInfoAnthropic } from './info.js';
 import {
   type AxAIAnthropicChatError,
@@ -1162,7 +1163,7 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
     let apiURL: string;
     let headers: () => Promise<Record<string, string>>;
 
-    if (isVertex) {
+    if (projectId !== undefined && region !== undefined) {
       if (!apiKey) {
         throw new Error('Anthropic Vertex API key not set');
       }
@@ -1171,8 +1172,8 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
           'Anthropic Vertex API key must be a function for token-based authentication'
         );
       }
-      const tld = region === 'global' ? 'aiplatform' : `${region}-aiplatform`;
-      apiURL = `https://${tld}.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
+      const host = resolveVertexAIHost(region);
+      apiURL = `https://${host}/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
       headers = async () => ({
         Authorization: `Bearer ${await apiKey()}`,
         'anthropic-beta': 'web-search-2025-03-05',

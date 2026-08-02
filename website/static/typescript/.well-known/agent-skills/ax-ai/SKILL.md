@@ -1,7 +1,7 @@
 ---
 name: ax-ai
 description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
-version: "23.0.6"
+version: "23.0.9"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -293,6 +293,11 @@ console.log(res.results[0]?.content);
 | `'high'` | 20,000 | 10,000 |
 | `'highest'` | 32,000 | 24,500 |
 
+For GPT-5.6, these map to `none`, `low`, `low`, `medium`, `high`, and a top rung
+that depends on the API surface: `xhigh` on Chat Completions, which rejects
+`max`, and `max` on the Responses API, which is the only place it is served.
+Earlier OpenAI models retain their existing mapping.
+
 ### Anthropic Model-Specific Behavior
 
 - Opus 4.8, 4.7, and 4.6 plus Sonnet 5: adaptive thinking, no manual
@@ -351,6 +356,19 @@ const { embeddings } = await llm.embed({
   embedModel: 'text-embedding-005',
 });
 ```
+
+## Vertex AI Locations
+
+When `projectId` and `region` are set for Google Gemini or Anthropic on Vertex
+AI, Ax selects the service hostname from the location automatically:
+
+- `global` uses `aiplatform.googleapis.com`
+- `us` and `eu` use the multi-region `.rep.googleapis.com` endpoints
+- regional locations such as `us-central1` use
+  `{region}-aiplatform.googleapis.com`
+
+Pass the canonical lower-case Vertex location ID. Ax preserves the supplied
+value and does not normalize or validate it.
 
 ## Context Caching
 

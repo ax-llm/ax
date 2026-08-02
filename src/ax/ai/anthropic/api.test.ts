@@ -6,7 +6,7 @@ import {
   AxAIServiceStatusError,
 } from '../../util/apicall.js';
 import { AxAIAnthropic } from './api.js';
-import { AxAIAnthropicModel } from './types.js';
+import { AxAIAnthropicModel, AxAIAnthropicVertexModel } from './types.js';
 
 function createMockFetch(body: unknown) {
   return vi.fn().mockResolvedValue(
@@ -37,6 +37,36 @@ function createMockStreamFetch(chunks: readonly unknown[]) {
     });
   });
 }
+
+describe('AxAIAnthropic Vertex URL composition', () => {
+  it('routes requests through the US multi-region endpoint', async () => {
+    const fetch = createMockFetch({
+      id: 'id',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'ok' }],
+      model: AxAIAnthropicVertexModel.Claude48Opus,
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    const ai = new AxAIAnthropic({
+      apiKey: async () => 'vertex-token',
+      projectId: 'demo-project',
+      region: 'us',
+      config: { model: AxAIAnthropicVertexModel.Claude48Opus },
+      options: { fetch },
+    });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      'https://aiplatform.us.rep.googleapis.com/v1/projects/demo-project/locations/us/publishers/anthropic/models/claude-opus-4-8:rawPredict'
+    );
+  });
+});
 
 describe('AxAIAnthropic model key preset merging', () => {
   it('preserves message ids on streaming chunks', async () => {

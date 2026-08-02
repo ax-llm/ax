@@ -18,7 +18,11 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-08-02-port-vertex-ai-multi-region-endpoint-routing` [axai] Port Vertex AI multi-region endpoint routing
+  - Status: open
+  - TS paths: `src/ax/ai/vertex.ts`, `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/anthropic/api.ts`
+  - Impact: TypeScript now maps Vertex AI global, us/eu multi-region, and standard regional locations to their documented hosts for Gemini and Anthropic, including Gemini cache operations. Generated Python/Java/C++/Go/Rust providers do not expose equivalent project/region-aware Vertex endpoint selection.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

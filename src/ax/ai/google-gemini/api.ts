@@ -9,6 +9,7 @@ import {
   axBaseAIDefaultConfig,
   axBaseAIDefaultCreativeConfig,
 } from '../base.js';
+import { resolveVertexAIHost } from '../vertex.js';
 
 /**
  * Check if a model is a Gemini 3 model
@@ -544,10 +545,7 @@ class AxAIGoogleGeminiImpl
     | undefined {
     if (!this.vertexConfig) return undefined;
     const { projectId, region } = this.vertexConfig;
-    const host =
-      region === 'global'
-        ? 'aiplatform.googleapis.com'
-        : `${region}-aiplatform.googleapis.com`;
+    const host = resolveVertexAIHost(region);
     const baseUrl = `https://${host}/v1`;
     const parent = `projects/${projectId}/locations/${region}`;
     return {
@@ -2191,7 +2189,6 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       projectId !== undefined && region !== undefined
         ? { projectId, region }
         : undefined;
-    const isVertex = vertexConfig !== undefined;
     const Config = {
       ...axAIGoogleGeminiDefaultConfig(),
       ...config,
@@ -2203,7 +2200,8 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       | ((model: string, beta?: boolean) => string)
       | undefined;
 
-    if (isVertex) {
+    if (vertexConfig) {
+      const { projectId, region } = vertexConfig;
       if (!apiKey) {
         throw new Error('GoogleGemini Vertex API key not set');
       }
@@ -2220,9 +2218,9 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
         path = 'publishers/google';
       }
 
-      const tld = region === 'global' ? 'aiplatform' : `${region}-aiplatform`;
+      const host = resolveVertexAIHost(region);
       buildVertexApiURL = (model: string, beta?: boolean) =>
-        `https://${tld}.googleapis.com/${getVertexGeminiAPIVersion(model, beta)}/projects/${projectId}/locations/${region}/${path}`;
+        `https://${host}/${getVertexGeminiAPIVersion(model, beta)}/projects/${projectId}/locations/${region}/${path}`;
       apiURL = buildVertexApiURL(Config.model);
       headers = async () => ({
         Authorization: `Bearer ${typeof apiKey === 'function' ? await apiKey() : apiKey}`,

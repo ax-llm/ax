@@ -357,6 +357,19 @@ const { embeddings } = await llm.embed({
 });
 ```
 
+## Vertex AI Locations
+
+When `projectId` and `region` are set for Google Gemini or Anthropic on Vertex
+AI, Ax selects the service hostname from the location automatically:
+
+- `global` uses `aiplatform.googleapis.com`
+- `us` and `eu` use the multi-region `.rep.googleapis.com` endpoints
+- regional locations such as `us-central1` use
+  `{region}-aiplatform.googleapis.com`
+
+Pass the canonical lower-case Vertex location ID. Ax preserves the supplied
+value and does not normalize or validate it.
+
 ## Context Caching
 
 ```typescript
