@@ -109,6 +109,14 @@ export async function validateAcademyCourse(
       if (!Number.isFinite(topic.minutes) || topic.minutes <= 0) {
         failures.push(`topic ${topic.id} needs a positive minute estimate`);
       }
+      if (topic.examplePath) {
+        await validatePath(
+          topic.examplePath,
+          `${topic.id} example`,
+          repoRoot,
+          failures
+        );
+      }
       validateExercises(topic, exerciseIds, failures, { publicExports });
       for (const symbol of topic.apiSymbols ?? []) {
         if (publicExports && !publicExports.has(symbol)) {
@@ -747,6 +755,8 @@ function renderTopic(course, manifest, unit, topic) {
   const previous = index > 0 ? course.topicOrder[index - 1] : null;
   const next =
     index + 1 < course.topicOrder.length ? course.topicOrder[index + 1] : null;
+  const examplePath = topic.examplePath ?? unit.examplePaths[0];
+
   return academyShell(
     manifest,
     'topic',
@@ -774,7 +784,7 @@ function renderTopic(course, manifest, unit, topic) {
           </ol>`
               : ''
           }
-            <div class="academy-run-example"><span class="academy-label">Run it</span><strong>In your own project</strong>${codeBlock(`${course.install}\n\n${course.quickStart}`)}<p>Set <code>OPENAI_APIKEY</code> in your environment before running provider-backed code.</p><strong>In the ax repo</strong><p>From a clone of the ax repo:</p>${codeBlock(`npm run example -- ${course.language} ${unit.examplePaths[0]}`)}</div>
+            <div class="academy-run-example"><span class="academy-label">Run it</span><strong>In your own project</strong>${codeBlock(`${course.install}\n\n${course.quickStart}`)}<p>Set <code>OPENAI_APIKEY</code> in your environment before running provider-backed code.</p><strong>In the ax repo</strong><p>From a clone of the ax repo:</p>${codeBlock(`npm run example -- ${course.language} ${examplePath}`)}</div>
         </section>
         <section class="academy-practice" aria-labelledby="practice-title">
           <div class="academy-section-heading"><div><span class="academy-label">Active practice</span><h2 id="practice-title">Show that you can use it</h2></div><span data-academy-practice-count>Answer 2 in a row to learn this · attempt 1</span></div>
@@ -782,7 +792,7 @@ function renderTopic(course, manifest, unit, topic) {
         </section>
         <section class="academy-sources" aria-labelledby="sources-title">
           <span class="academy-label">Keep exploring</span><h2 id="sources-title">Source-backed follow-up</h2>
-          <ul>${unit.sourceRefs.map((source) => renderSourceLink(source, course.language)).join('')}${unit.examplePaths.length ? `<li><a href="${githubSource(unit.examplePaths[0])}">Source on GitHub</a></li>` : ''}</ul>
+          <ul>${unit.sourceRefs.map((source) => renderSourceLink(source, course.language)).join('')}${examplePath ? `<li><a href="${githubSource(examplePath)}">Source on GitHub</a></li>` : ''}</ul>
         </section>
         <nav class="academy-lesson-nav" aria-label="Course lessons">
           ${previous ? `<a href="${topicHref(previous, course.language)}">← Previous</a>` : '<span></span>'}
