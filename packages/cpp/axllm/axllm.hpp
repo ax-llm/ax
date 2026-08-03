@@ -678,7 +678,7 @@ struct Core {
   static Value _normalize_agent_completion_payload(Value output);
   static Value _throw_agent_clarification(Value payload, Value state);
   static Value _merge_agent_chat_log(Value state, Value distiller, Value executor, Value responder);
-  static Value _merge_agent_usage(Value state);
+  static Value _merge_agent_usage(Value state, Value distiller, Value executor, Value responder);
   static Value _agent_get_state(Value state);
   static Value _agent_set_state(Value state, Value runtime_state);
   static Value _agent_stage_options(Value state, Value stage, Value forward_options);
@@ -1591,6 +1591,7 @@ class AxAgent : public AxProgram {
   std::unique_ptr<AxPlaybook> playbook_handle_;
   std::function<void(Value)> citations_observer_;
   std::function<void(Value)> playbook_observer_;
+  void refresh_observability() const;
   void ensure_configured_playbook(AIClient& client);
   void learn_playbook_failures(Value output);
 };

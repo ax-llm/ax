@@ -1682,22 +1682,30 @@ class AxAgent:
     def set_state(self, state):
         return _agent_set_state(self.state, state or {})
 
+    def _refresh_observability(self):
+        _merge_agent_chat_log(self.state, self.distiller, self.executor, self.responder)
+        _merge_agent_usage(self.state, self.distiller, self.executor, self.responder)
+
     def get_chat_log(self):
+        self._refresh_observability()
         return list(_core_get(self.state, "chat_log", []) or [])
 
     def get_action_log(self):
         return list(_core_get(self.state, "action_log", []) or [])
 
     def get_trace(self):
+        self._refresh_observability()
         return _agent_export_trace(self.state)
 
     def export_trace(self):
+        self._refresh_observability()
         return _agent_export_trace(self.state)
 
     def replay_trace(self, trace, fixtures: dict[str, Any] | None = None):
         return _agent_replay_trace(trace or {}, fixtures or {})
 
     def get_usage(self):
+        self._refresh_observability()
         return dict(_core_get(self.state, "usage", {}) or {})
 
     def get_runtime_contract(self):
@@ -9586,13 +9594,26 @@ def _merge_agent_chat_log(state: Any, distiller: Any, executor: Any, responder: 
     return logs
 
 
-def _merge_agent_usage(state: Any) -> Any:
+def _merge_agent_usage(state: Any, distiller: Any, executor: Any, responder: Any) -> Any:
     _core_coverage_mark("_merge_agent_usage")
     empty_list = []
     chat_log = _core_get(state, "chat_log", empty_list)
     count = _core_len(chat_log)
+    actor = []
+    distiller_usage = _core_agent_stage_usage(distiller)
+    for entry in distiller_usage:
+        actor.append(entry)
+    executor_usage = _core_agent_stage_usage(executor)
+    for entry in executor_usage:
+        actor.append(entry)
+    responder_usage = []
+    responder_stage_usage = _core_agent_stage_usage(responder)
+    for entry in responder_stage_usage:
+        responder_usage.append(entry)
     usage = {}
     usage["chat_log_entries"] = count
+    usage["actor"] = actor
+    usage["responder"] = responder_usage
     state["usage"] = usage
     return usage
 
@@ -10643,7 +10664,7 @@ def _agent_forward(state: Any, distiller: Any, executor: Any, responder: Any, cl
     responder_response_event["component_id"] = "agent.stage.responder"
     _agent_record_trace_event(state, "stage_response", responder_response_event)
     logs = _merge_agent_chat_log(state, distiller, executor, responder)
-    usage = _merge_agent_usage(state)
+    usage = _merge_agent_usage(state, distiller, executor, responder)
     state["last_output"] = responder_output
     state["chat_log"] = logs
     state["usage"] = usage

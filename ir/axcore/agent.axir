@@ -7766,13 +7766,29 @@ module @ax.agent version "0.1" {
     attr core_kind = "func"
     attr emit_module = "agent"
     attr private = true
-    type signature = "(json) -> json"
-    body @entry(%state: json) {
+    type signature = "(json, json, json, json) -> json"
+    body @entry(%state: json, %distiller: json, %executor: json, %responder: json) {
       %empty_list = core.list
       %chat_log = core.get %state["chat_log"] default %empty_list
       %count = core.call intrinsic.len(%chat_log)
+      %actor = core.list
+      %distiller_usage = core.call intrinsic.agent.stage_usage(%distiller)
+      core.for %entry in %distiller_usage {
+        core.append %actor, %entry
+      }
+      %executor_usage = core.call intrinsic.agent.stage_usage(%executor)
+      core.for %entry in %executor_usage {
+        core.append %actor, %entry
+      }
+      %responder_usage = core.list
+      %responder_stage_usage = core.call intrinsic.agent.stage_usage(%responder)
+      core.for %entry in %responder_stage_usage {
+        core.append %responder_usage, %entry
+      }
       %usage = core.map
       core.set %usage["chat_log_entries"] = %count
+      core.set %usage["actor"] = %actor
+      core.set %usage["responder"] = %responder_usage
       core.set %state["usage"] = %usage
       core.return %usage
     }
@@ -8904,7 +8920,7 @@ module @ax.agent version "0.1" {
       core.set %responder_response_event["component_id"] = "agent.stage.responder"
       core.call @agent_record_trace_event(%state, "stage_response", %responder_response_event)
       %logs = core.call @merge_agent_chat_log(%state, %distiller, %executor, %responder)
-      %usage = core.call @merge_agent_usage(%state)
+      %usage = core.call @merge_agent_usage(%state, %distiller, %executor, %responder)
       core.set %state["last_output"] = %responder_output
       core.set %state["chat_log"] = %logs
       core.set %state["usage"] = %usage

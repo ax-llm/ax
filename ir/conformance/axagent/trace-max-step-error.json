@@ -1,5 +1,40 @@
 {
   "expected_error_contains": "agent actor loop exceeded max steps",
+  "expected_chat_log_length": 2,
+  "expected_trace_subset": {
+    "usage": {
+      "actor": [
+        {
+          "completion_tokens": 3,
+          "prompt_tokens": 11,
+          "total_tokens": 14
+        },
+        {
+          "completion_tokens": 5,
+          "prompt_tokens": 17,
+          "total_tokens": 22
+        }
+      ],
+      "chat_log_entries": 2,
+      "responder": []
+    }
+  },
+  "expected_usage_subset": {
+    "actor": [
+      {
+        "completion_tokens": 3,
+        "prompt_tokens": 11,
+        "total_tokens": 14
+      },
+      {
+        "completion_tokens": 5,
+        "prompt_tokens": 17,
+        "total_tokens": 22
+      }
+    ],
+    "chat_log_entries": 2,
+    "responder": []
+  },
   "expected_trace_event_kinds": [
     "stage_request",
     "stage_response",
@@ -29,10 +64,20 @@
   "replay_trace": true,
   "responses": [
     {
-      "content": "{\"pythonCode\": \"final(\\\"Try runtime\\\", {})\"}"
+      "content": "{\"pythonCode\": \"final(\\\"Try runtime\\\", {})\"}",
+      "usage": {
+        "completion_tokens": 3,
+        "prompt_tokens": 11,
+        "total_tokens": 14
+      }
     },
     {
-      "content": "{\"pythonCode\":\"reportSuccess(\\\"still working\\\")\"}"
+      "content": "{\"pythonCode\":\"reportSuccess(\\\"still working\\\")\"}",
+      "usage": {
+        "completion_tokens": 5,
+        "prompt_tokens": 17,
+        "total_tokens": 22
+      }
     }
   ],
   "runtime_script": [

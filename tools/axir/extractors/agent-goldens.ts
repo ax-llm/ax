@@ -2880,9 +2880,11 @@ writeFixture('trace-max-step-error', {
   responses: [
     {
       content: '{"completion":{"type":"final","args":["Try runtime",{}]}}',
+      usage: { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14 },
     },
     {
       content: '{"pythonCode":"reportSuccess(\\"still working\\")"}',
+      usage: { prompt_tokens: 17, completion_tokens: 5, total_tokens: 22 },
     },
   ],
   runtime_script: [
@@ -2895,6 +2897,25 @@ writeFixture('trace-max-step-error', {
     },
   ],
   expected_error_contains: 'agent actor loop exceeded max steps',
+  expected_chat_log_length: 2,
+  expected_usage_subset: {
+    chat_log_entries: 2,
+    actor: [
+      { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14 },
+      { prompt_tokens: 17, completion_tokens: 5, total_tokens: 22 },
+    ],
+    responder: [],
+  },
+  expected_trace_subset: {
+    usage: {
+      chat_log_entries: 2,
+      actor: [
+        { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14 },
+        { prompt_tokens: 17, completion_tokens: 5, total_tokens: 22 },
+      ],
+      responder: [],
+    },
+  },
   expected_trace_event_kinds: [
     'stage_request',
     'stage_response',

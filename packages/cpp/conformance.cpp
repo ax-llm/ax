@@ -1611,6 +1611,8 @@ static void run_agent_forward(Value fixture) {
 }
 
 static void assert_agent_trace(AxAgent& ag, Value fixture) {
+  if (!Core::get(fixture, "expected_usage_subset").is_null()) assert_subset(ag.get_usage(), Core::get(fixture, "expected_usage_subset"), "agent usage");
+  if (!Core::get(fixture, "expected_chat_log_length").is_null()) assert_equal(Value(static_cast<double>(Core::iter(ag.get_chat_log()).size())), Core::get(fixture, "expected_chat_log_length"), "agent chat log length");
   Value trace = ag.export_trace();
   if (!Core::get(fixture, "expected_trace_subset").is_null()) assert_subset(trace, Core::get(fixture, "expected_trace_subset"), "agent trace");
   if (!Core::get(fixture, "expected_trace_event_kinds").is_null()) {

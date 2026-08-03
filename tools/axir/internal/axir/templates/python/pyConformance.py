@@ -1939,6 +1939,10 @@ def _run_agent_forward(fixture):
 
 
 def _assert_agent_trace(ag, fixture):
+    if "expected_usage_subset" in fixture:
+        _assert_subset(ag.get_usage(), fixture["expected_usage_subset"], "agent usage")
+    if "expected_chat_log_length" in fixture:
+        _assert_equal(len(ag.get_chat_log()), fixture["expected_chat_log_length"], "agent chat log length")
     trace = ag.export_trace()
     if "expected_trace_subset" in fixture:
         _assert_subset(trace, fixture["expected_trace_subset"], "agent trace")

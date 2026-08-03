@@ -1394,6 +1394,8 @@ public final class Conformance {
   }
 
   static void assertAgentTrace(AxAgent agent, Map<String, Object> fixture) {
+    if (fixture.containsKey("expected_usage_subset")) assertSubset(agent.getUsage(), fixture.get("expected_usage_subset"), "agent usage");
+    if (fixture.containsKey("expected_chat_log_length")) assertEqual(agent.getChatLog().size(), fixture.get("expected_chat_log_length"), "agent chat log length");
     Map<String, Object> trace = agent.exportTrace();
     if (fixture.containsKey("expected_trace_subset")) assertSubset(trace, fixture.get("expected_trace_subset"), "agent trace");
     if (fixture.containsKey("expected_trace_event_kinds")) {

@@ -1680,22 +1680,30 @@ class AxAgent:
     def set_state(self, state):
         return _agent_set_state(self.state, state or {})
 
+    def _refresh_observability(self):
+        _merge_agent_chat_log(self.state, self.distiller, self.executor, self.responder)
+        _merge_agent_usage(self.state, self.distiller, self.executor, self.responder)
+
     def get_chat_log(self):
+        self._refresh_observability()
         return list(_core_get(self.state, "chat_log", []) or [])
 
     def get_action_log(self):
         return list(_core_get(self.state, "action_log", []) or [])
 
     def get_trace(self):
+        self._refresh_observability()
         return _agent_export_trace(self.state)
 
     def export_trace(self):
+        self._refresh_observability()
         return _agent_export_trace(self.state)
 
     def replay_trace(self, trace, fixtures: dict[str, Any] | None = None):
         return _agent_replay_trace(trace or {}, fixtures or {})
 
     def get_usage(self):
+        self._refresh_observability()
         return dict(_core_get(self.state, "usage", {}) or {})
 
     def get_runtime_contract(self):

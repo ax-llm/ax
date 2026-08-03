@@ -5160,12 +5160,28 @@ Value AxAgent::close_runtime_session() {
 
 Value AxAgent::get_state() const { return Core::_agent_get_state(state_); }
 void AxAgent::set_state(Value state) { Core::_agent_set_state(state_, std::move(state)); }
-Value AxAgent::get_chat_log() const { return Core::get(state_, "chat_log", Value::array()); }
+void AxAgent::refresh_observability() const {
+  Core::_merge_agent_chat_log(state_, Core::agent_stage_ref(*distiller_), Core::agent_stage_ref(*executor_), Core::agent_stage_ref(*responder_));
+  Core::_merge_agent_usage(state_, Core::agent_stage_ref(*distiller_), Core::agent_stage_ref(*executor_), Core::agent_stage_ref(*responder_));
+}
+Value AxAgent::get_chat_log() const {
+  refresh_observability();
+  return Core::get(state_, "chat_log", Value::array());
+}
 Value AxAgent::get_action_log() const { return Core::get(state_, "action_log", Value::array()); }
-Value AxAgent::get_trace() const { return Core::_agent_export_trace(state_); }
-Value AxAgent::export_trace() const { return Core::_agent_export_trace(state_); }
+Value AxAgent::get_trace() const {
+  refresh_observability();
+  return Core::_agent_export_trace(state_);
+}
+Value AxAgent::export_trace() const {
+  refresh_observability();
+  return Core::_agent_export_trace(state_);
+}
 Value AxAgent::replay_trace(Value trace, Value fixtures) const { return Core::_agent_replay_trace(std::move(trace), std::move(fixtures)); }
-Value AxAgent::get_usage() const { return Core::get(state_, "usage", Value::object()); }
+Value AxAgent::get_usage() const {
+  refresh_observability();
+  return Core::get(state_, "usage", Value::object());
+}
 Value AxAgent::get_runtime_contract() const { return Core::get(state_, "runtime_contract", Value::object()); }
 Value AxAgent::get_policy() const { return Core::get(state_, "policy", Value::object()); }
 Value AxAgent::get_policy_registry() const { return Core::get(state_, "policy_registry", Value::object()); }

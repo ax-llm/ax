@@ -18298,13 +18298,29 @@ final class Core {
     return logs;
   }
 
-  static Object _merge_agent_usage(Object state) {
+  static Object _merge_agent_usage(Object state, Object distiller, Object executor, Object responder) {
     axirCoverageMark("_merge_agent_usage");
     Object empty_list = new java.util.ArrayList<Object>();
     Object chat_log = Core.get(state, "chat_log", empty_list);
     Object count = Core.len(chat_log);
+    Object actor = new java.util.ArrayList<Object>();
+    Object distiller_usage = Core.agentStageUsage(distiller);
+    for (Object entry : Core.iter(distiller_usage)) {
+      Core.append(actor, entry);
+    }
+    Object executor_usage = Core.agentStageUsage(executor);
+    for (Object entry : Core.iter(executor_usage)) {
+      Core.append(actor, entry);
+    }
+    Object responder_usage = new java.util.ArrayList<Object>();
+    Object responder_stage_usage = Core.agentStageUsage(responder);
+    for (Object entry : Core.iter(responder_stage_usage)) {
+      Core.append(responder_usage, entry);
+    }
     Object usage = new java.util.LinkedHashMap<String, Object>();
     Core.set(usage, "chat_log_entries", count);
+    Core.set(usage, "actor", actor);
+    Core.set(usage, "responder", responder_usage);
     Core.set(state, "usage", usage);
     return usage;
   }
@@ -19329,7 +19345,7 @@ final class Core {
     Core.set(responder_response_event, "component_id", "agent.stage.responder");
     Core._agent_record_trace_event(state, "stage_response", responder_response_event);
     Object logs = Core._merge_agent_chat_log(state, distiller, executor, responder);
-    Object usage = Core._merge_agent_usage(state);
+    Object usage = Core._merge_agent_usage(state, distiller, executor, responder);
     Core.set(state, "last_output", responder_output);
     Core.set(state, "chat_log", logs);
     Core.set(state, "usage", usage);

@@ -3258,7 +3258,23 @@ impl AxAgent {
         core_value_to_json(&core_get(&self.state, &CoreValue::from(key), CoreValue::Null))
     }
 
+    fn refresh_observability(&self) {
+        let _ = _merge_agent_chat_log(&[
+            self.state.clone(),
+            self.distiller.clone(),
+            self.executor.clone(),
+            self.responder.clone(),
+        ]);
+        let _ = _merge_agent_usage(&[
+            self.state.clone(),
+            self.distiller.clone(),
+            self.executor.clone(),
+            self.responder.clone(),
+        ]);
+    }
+
     pub fn get_usage(&self) -> Value {
+        self.refresh_observability();
         self.state_json("usage")
     }
 
@@ -3500,10 +3516,12 @@ impl AxAgent {
     }
 
     pub fn export_trace(&self) -> AxResult<Value> {
+        self.refresh_observability();
         Ok(core_value_to_json(&_agent_export_trace(&[self.state.clone()])?))
     }
 
     pub fn get_chat_log(&self) -> Vec<Value> {
+        self.refresh_observability();
         match core_value_to_json(&core_get(&self.state, &CoreValue::from("chat_log"), CoreValue::Null)) {
             Value::Array(items) => items,
             _ => Vec::new(),
@@ -9069,6 +9087,12 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
 }
 
 fn assert_agent_trace(agent: &mut AxAgent, fixture: &Value) -> AxResult<()> {
+    if let Some(expected) = fixture.get("expected_usage_subset") {
+        expect_json_subset("agent usage", &agent.get_usage(), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_chat_log_length") {
+        expect_json_equal("agent chat log length", &json!(agent.get_chat_log().len()), expected)?;
+    }
     let trace = agent.export_trace()?;
     if let Some(expected) = fixture.get("expected_trace_subset") {
         expect_json_subset("agent trace", &trace, expected)?;
@@ -11906,12 +11930,16 @@ impl AxAIClient for FixtureClient {
         if response.get("results").is_some() {
             return Ok(response);
         }
-        Ok(json!({
+        let mut out = json!({
             "results": [{
                 "content": response.get("content").cloned().unwrap_or_else(|| json!("")),
                 "function_calls": normalize_fixture_function_calls(response.get("function_calls").or_else(|| response.get("tool_calls")).cloned().unwrap_or_else(|| json!([])))
             }]
-        }))
+        });
+        if let Some(usage) = response.get("usage") {
+            out["model_usage"] = json!({"tokens": usage.clone()});
+        }
+        Ok(out)
     }
 }
 

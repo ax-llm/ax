@@ -19310,13 +19310,29 @@ Value Core::_merge_agent_chat_log(Value state, Value distiller, Value executor, 
   return logs;
 }
 
-Value Core::_merge_agent_usage(Value state) {
+Value Core::_merge_agent_usage(Value state, Value distiller, Value executor, Value responder) {
   axir_coverage_mark("_merge_agent_usage");
   Value empty_list = Value::array();
   Value chat_log = Core::get(state, Value("chat_log"), empty_list);
   Value count = Core::len(chat_log);
+  Value actor = Value::array();
+  Value distiller_usage = Core::agent_stage_usage(distiller);
+  for (auto entry : Core::iter(distiller_usage)) {
+    Core::append(actor, entry);
+  }
+  Value executor_usage = Core::agent_stage_usage(executor);
+  for (auto entry : Core::iter(executor_usage)) {
+    Core::append(actor, entry);
+  }
+  Value responder_usage = Value::array();
+  Value responder_stage_usage = Core::agent_stage_usage(responder);
+  for (auto entry : Core::iter(responder_stage_usage)) {
+    Core::append(responder_usage, entry);
+  }
   Value usage = Value::object();
   Core::set(usage, Value("chat_log_entries"), count);
+  Core::set(usage, Value("actor"), actor);
+  Core::set(usage, Value("responder"), responder_usage);
   Core::set(state, Value("usage"), usage);
   return usage;
 }
@@ -20341,7 +20357,7 @@ Value Core::_agent_forward(Value state, Value distiller, Value executor, Value r
   Core::set(responder_response_event, Value("component_id"), Value("agent.stage.responder"));
   Core::_agent_record_trace_event(state, Value("stage_response"), responder_response_event);
   Value logs = Core::_merge_agent_chat_log(state, distiller, executor, responder);
-  Value usage = Core::_merge_agent_usage(state);
+  Value usage = Core::_merge_agent_usage(state, distiller, executor, responder);
   Core::set(state, Value("last_output"), responder_output);
   Core::set(state, Value("chat_log"), logs);
   Core::set(state, Value("usage"), usage);
@@ -27990,12 +28006,28 @@ Value AxAgent::close_runtime_session() {
 
 Value AxAgent::get_state() const { return Core::_agent_get_state(state_); }
 void AxAgent::set_state(Value state) { Core::_agent_set_state(state_, std::move(state)); }
-Value AxAgent::get_chat_log() const { return Core::get(state_, "chat_log", Value::array()); }
+void AxAgent::refresh_observability() const {
+  Core::_merge_agent_chat_log(state_, Core::agent_stage_ref(*distiller_), Core::agent_stage_ref(*executor_), Core::agent_stage_ref(*responder_));
+  Core::_merge_agent_usage(state_, Core::agent_stage_ref(*distiller_), Core::agent_stage_ref(*executor_), Core::agent_stage_ref(*responder_));
+}
+Value AxAgent::get_chat_log() const {
+  refresh_observability();
+  return Core::get(state_, "chat_log", Value::array());
+}
 Value AxAgent::get_action_log() const { return Core::get(state_, "action_log", Value::array()); }
-Value AxAgent::get_trace() const { return Core::_agent_export_trace(state_); }
-Value AxAgent::export_trace() const { return Core::_agent_export_trace(state_); }
+Value AxAgent::get_trace() const {
+  refresh_observability();
+  return Core::_agent_export_trace(state_);
+}
+Value AxAgent::export_trace() const {
+  refresh_observability();
+  return Core::_agent_export_trace(state_);
+}
 Value AxAgent::replay_trace(Value trace, Value fixtures) const { return Core::_agent_replay_trace(std::move(trace), std::move(fixtures)); }
-Value AxAgent::get_usage() const { return Core::get(state_, "usage", Value::object()); }
+Value AxAgent::get_usage() const {
+  refresh_observability();
+  return Core::get(state_, "usage", Value::object());
+}
 Value AxAgent::get_runtime_contract() const { return Core::get(state_, "runtime_contract", Value::object()); }
 Value AxAgent::get_policy() const { return Core::get(state_, "policy", Value::object()); }
 Value AxAgent::get_policy_registry() const { return Core::get(state_, "policy_registry", Value::object()); }

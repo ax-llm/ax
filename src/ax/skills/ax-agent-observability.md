@@ -300,6 +300,12 @@ onFunctionCall?: (call: {
 
 `AxAgent` exposes actor and responder sub-programs. `getChatLog()` returns the same flat `AxChatLogEntry[]` shape as `AxGen` and `AxFlow`; use each entry's optional `name` field to distinguish `distiller`, `executor`, and `responder`. `getUsage()` returns token usage split by actor/responder.
 
+`getChatLog()`, `getUsage()`, and trace export refresh the agent-level snapshot
+from the distiller, executor, and responder before returning. This remains true
+after `forward()` throws, so successful model calls made before an actor limit,
+provider error, cancellation, or responder error are still observable and are
+not silently dropped from usage accounting.
+
 ### getChatLog()
 
 Returns the full normalized chat history after any `.forward()` call. Each entry is one `ai.chat()` round-trip. Actor stages accumulate one entry per turn; the responder typically has one entry.

@@ -37315,21 +37315,58 @@ func _merge_agent_chat_log(args ...Value) (Value, error) {
 func _merge_agent_usage(args ...Value) (Value, error) {
 	axirCoverageMark("_merge_agent_usage")
 	var v_state Value
+	var v_distiller Value
+	var v_executor Value
+	var v_responder Value
+	var v_actor Value
 	var v_chat_log Value
 	var v_count Value
+	var v_distiller_usage Value
 	var v_empty_list Value
+	var v_entry Value
+	var v_executor_usage Value
+	var v_responder_stage_usage Value
+	var v_responder_usage Value
 	var v_usage Value
 	if len(args) > 0 { v_state = args[0] }
 	_ = v_state
+	if len(args) > 1 { v_distiller = args[1] }
+	_ = v_distiller
+	if len(args) > 2 { v_executor = args[2] }
+	_ = v_executor
+	if len(args) > 3 { v_responder = args[3] }
+	_ = v_responder
+	_ = v_actor
 	_ = v_chat_log
 	_ = v_count
+	_ = v_distiller_usage
 	_ = v_empty_list
+	_ = v_entry
+	_ = v_executor_usage
+	_ = v_responder_stage_usage
+	_ = v_responder_usage
 	_ = v_usage
 	v_empty_list = MutableArray()
 	v_chat_log = coreGet(v_state, "chat_log", v_empty_list)
 	v_count = _core_len(v_chat_log)
+	v_actor = MutableArray()
+	v_distiller_usage = _core_agent_stage_usage(v_distiller)
+	for _, v_entry = range coreIter(v_distiller_usage) {
+		v_actor = coreAppend(v_actor, v_entry)
+	}
+	v_executor_usage = _core_agent_stage_usage(v_executor)
+	for _, v_entry = range coreIter(v_executor_usage) {
+		v_actor = coreAppend(v_actor, v_entry)
+	}
+	v_responder_usage = MutableArray()
+	v_responder_stage_usage = _core_agent_stage_usage(v_responder)
+	for _, v_entry = range coreIter(v_responder_stage_usage) {
+		v_responder_usage = coreAppend(v_responder_usage, v_entry)
+	}
 	v_usage = Object()
 	if err := coreSet(v_usage, "chat_log_entries", v_count); err != nil { return nil, err }
+	if err := coreSet(v_usage, "actor", v_actor); err != nil { return nil, err }
+	if err := coreSet(v_usage, "responder", v_responder_usage); err != nil { return nil, err }
 	if err := coreSet(v_state, "usage", v_usage); err != nil { return nil, err }
 	return v_usage, nil
 }
@@ -39491,7 +39528,7 @@ func _agent_forward(args ...Value) (Value, error) {
 	if err := coreSet(v_responder_response_event, "component_id", "agent.stage.responder"); err != nil { return nil, err }
 	if _, err := _agent_record_trace_event(v_state, "stage_response", v_responder_response_event); err != nil { return nil, err }
 	{ v, err := _merge_agent_chat_log(v_state, v_distiller, v_executor, v_responder); if err != nil { return nil, err }; v_logs = v }
-	{ v, err := _merge_agent_usage(v_state); if err != nil { return nil, err }; v_usage = v }
+	{ v, err := _merge_agent_usage(v_state, v_distiller, v_executor, v_responder); if err != nil { return nil, err }; v_usage = v }
 	if err := coreSet(v_state, "last_output", v_responder_output); err != nil { return nil, err }
 	if err := coreSet(v_state, "chat_log", v_logs); err != nil { return nil, err }
 	if err := coreSet(v_state, "usage", v_usage); err != nil { return nil, err }
@@ -51519,13 +51556,26 @@ func (a *AxAgent) CloseRuntimeSession() Value {
 }
 func (a *AxAgent) GetState() Value            { return mustCore(_agent_get_state(a.State)) }
 func (a *AxAgent) SetState(state Value) Value { return mustCore(_agent_set_state(a.State, state)) }
-func (a *AxAgent) GetChatLog() Value          { return coreGet(a.State, "chat_log", Array()) }
+func (a *AxAgent) refreshObservability() {
+	_, _ = _merge_agent_chat_log(a.State, a.Distiller, a.Executor, a.Responder)
+	_, _ = _merge_agent_usage(a.State, a.Distiller, a.Executor, a.Responder)
+}
+func (a *AxAgent) GetChatLog() Value {
+	a.refreshObservability()
+	return coreGet(a.State, "chat_log", Array())
+}
 func (a *AxAgent) GetActionLog() Value        { return coreGet(a.State, "action_log", Array()) }
-func (a *AxAgent) ExportTrace() Value         { return mustCore(_agent_export_trace(a.State)) }
+func (a *AxAgent) ExportTrace() Value {
+	a.refreshObservability()
+	return mustCore(_agent_export_trace(a.State))
+}
 func (a *AxAgent) ReplayTrace(trace Value, fixtures Value) Value {
 	return mustCore(_agent_replay_trace(trace, fixtures))
 }
-func (a *AxAgent) GetUsage() Value           { return coreGet(a.State, "usage", Object()) }
+func (a *AxAgent) GetUsage() Value {
+	a.refreshObservability()
+	return coreGet(a.State, "usage", Object())
+}
 func (a *AxAgent) GetRuntimeContract() Value { return coreGet(a.State, "runtime_contract", Object()) }
 func (a *AxAgent) GetPolicy() Value          { return coreGet(a.State, "policy", Object()) }
 func (a *AxAgent) GetPolicyRegistry() Value  { return coreGet(a.State, "policy_registry", Object()) }
@@ -57834,6 +57884,12 @@ func runConformanceAgentForward(fixture map[string]Value) {
 }
 
 func assertAgentTrace(ag *AxAgent, fixture map[string]Value) {
+	if expected := coreGet(fixture, "expected_usage_subset", nil); expected != nil {
+		assertSubset(ag.GetUsage(), expected, "agent usage")
+	}
+	if expected := coreGet(fixture, "expected_chat_log_length", nil); expected != nil {
+		assertEqual(float64(len(asSlice(ag.GetChatLog()))), expected, "agent chat log length")
+	}
 	trace := ag.ExportTrace()
 	if expected := coreGet(fixture, "expected_trace_subset", nil); expected != nil {
 		assertSubset(trace, expected, "agent trace")

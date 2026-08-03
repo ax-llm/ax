@@ -1027,6 +1027,7 @@ class AxAgent : public AxProgram {
   std::unique_ptr<AxPlaybook> playbook_handle_;
   std::function<void(Value)> citations_observer_;
   std::function<void(Value)> playbook_observer_;
+  void refresh_observability() const;
   void ensure_configured_playbook(AIClient& client);
   void learn_playbook_failures(Value output);
 };

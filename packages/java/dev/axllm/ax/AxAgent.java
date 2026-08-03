@@ -203,7 +203,13 @@ public final class AxAgent implements AxProgram {
     return Core._agent_set_state(state, newState == null ? Map.of() : newState);
   }
 
+  private void refreshObservability() {
+    Core._merge_agent_chat_log(state, distiller, executor, responder);
+    Core._merge_agent_usage(state, distiller, executor, responder);
+  }
+
   public List<Object> getChatLog() {
+    refreshObservability();
     return Core.asList(Core.get(state, "chat_log", List.of()));
   }
 
@@ -212,10 +218,12 @@ public final class AxAgent implements AxProgram {
   }
 
   public Map<String, Object> getTrace() {
+    refreshObservability();
     return Core.asMap(Core._agent_export_trace(state));
   }
 
   public Map<String, Object> exportTrace() {
+    refreshObservability();
     return Core.asMap(Core._agent_export_trace(state));
   }
 
@@ -224,6 +232,7 @@ public final class AxAgent implements AxProgram {
   }
 
   public Map<String, Object> getUsage() {
+    refreshObservability();
     return Core.asMap(Core.get(state, "usage", Map.of()));
   }
 

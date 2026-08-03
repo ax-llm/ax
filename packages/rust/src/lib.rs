@@ -3879,7 +3879,23 @@ impl AxAgent {
         ))
     }
 
+    fn refresh_observability(&self) {
+        let _ = _merge_agent_chat_log(&[
+            self.state.clone(),
+            self.distiller.clone(),
+            self.executor.clone(),
+            self.responder.clone(),
+        ]);
+        let _ = _merge_agent_usage(&[
+            self.state.clone(),
+            self.distiller.clone(),
+            self.executor.clone(),
+            self.responder.clone(),
+        ]);
+    }
+
     pub fn get_usage(&self) -> Value {
+        self.refresh_observability();
         self.state_json("usage")
     }
 
@@ -4151,12 +4167,14 @@ impl AxAgent {
     }
 
     pub fn export_trace(&self) -> AxResult<Value> {
+        self.refresh_observability();
         Ok(core_value_to_json(&_agent_export_trace(&[self
             .state
             .clone()])?))
     }
 
     pub fn get_chat_log(&self) -> Vec<Value> {
+        self.refresh_observability();
         match core_value_to_json(&core_get(
             &self.state,
             &CoreValue::from("chat_log"),
@@ -12495,6 +12513,16 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
 }
 
 fn assert_agent_trace(agent: &mut AxAgent, fixture: &Value) -> AxResult<()> {
+    if let Some(expected) = fixture.get("expected_usage_subset") {
+        expect_json_subset("agent usage", &agent.get_usage(), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_chat_log_length") {
+        expect_json_equal(
+            "agent chat log length",
+            &json!(agent.get_chat_log().len()),
+            expected,
+        )?;
+    }
     let trace = agent.export_trace()?;
     if let Some(expected) = fixture.get("expected_trace_subset") {
         expect_json_subset("agent trace", &trace, expected)?;
@@ -15800,12 +15828,16 @@ impl AxAIClient for FixtureClient {
         if response.get("results").is_some() {
             return Ok(response);
         }
-        Ok(json!({
+        let mut out = json!({
             "results": [{
                 "content": response.get("content").cloned().unwrap_or_else(|| json!("")),
                 "function_calls": normalize_fixture_function_calls(response.get("function_calls").or_else(|| response.get("tool_calls")).cloned().unwrap_or_else(|| json!([])))
             }]
-        }))
+        });
+        if let Some(usage) = response.get("usage") {
+            out["model_usage"] = json!({"tokens": usage.clone()});
+        }
+        Ok(out)
     }
 }
 
@@ -62964,18 +62996,50 @@ fn _merge_agent_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> {
 fn _merge_agent_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_merge_agent_usage");
     let mut v_state = core_arg(args, 0);
+    let mut v_distiller = core_arg(args, 1);
+    let mut v_executor = core_arg(args, 2);
+    let mut v_responder = core_arg(args, 3);
+    let mut v_actor = CoreValue::Null;
     let mut v_chat_log = CoreValue::Null;
     let mut v_count = CoreValue::Null;
+    let mut v_distiller_usage = CoreValue::Null;
     let mut v_empty_list = CoreValue::Null;
+    let mut v_entry = CoreValue::Null;
+    let mut v_executor_usage = CoreValue::Null;
+    let mut v_responder_stage_usage = CoreValue::Null;
+    let mut v_responder_usage = CoreValue::Null;
     let mut v_usage = CoreValue::Null;
     v_empty_list = CoreValue::new_list();
     v_chat_log = core_get(&v_state, &CoreValue::from("chat_log"), v_empty_list.clone());
     v_count = core_len(&[v_chat_log.clone()])?;
+    v_actor = CoreValue::new_list();
+    v_distiller_usage = core_agent_stage_usage(&[v_distiller.clone()])?;
+    for v_entry in core_iter(&v_distiller_usage)? {
+        let mut v_entry = v_entry;
+        core_append(&v_actor, v_entry.clone())?;
+    }
+    v_executor_usage = core_agent_stage_usage(&[v_executor.clone()])?;
+    for v_entry in core_iter(&v_executor_usage)? {
+        let mut v_entry = v_entry;
+        core_append(&v_actor, v_entry.clone())?;
+    }
+    v_responder_usage = CoreValue::new_list();
+    v_responder_stage_usage = core_agent_stage_usage(&[v_responder.clone()])?;
+    for v_entry in core_iter(&v_responder_stage_usage)? {
+        let mut v_entry = v_entry;
+        core_append(&v_responder_usage, v_entry.clone())?;
+    }
     v_usage = CoreValue::new_map();
     core_set(
         &v_usage,
         CoreValue::from("chat_log_entries"),
         v_count.clone(),
+    )?;
+    core_set(&v_usage, CoreValue::from("actor"), v_actor.clone())?;
+    core_set(
+        &v_usage,
+        CoreValue::from("responder"),
+        v_responder_usage.clone(),
     )?;
     core_set(&v_state, CoreValue::from("usage"), v_usage.clone())?;
     return Ok(v_usage.clone());
@@ -65599,7 +65663,12 @@ fn _agent_forward(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         v_executor.clone(),
         v_responder.clone(),
     ])?;
-    v_usage = _merge_agent_usage(&[v_state.clone()])?;
+    v_usage = _merge_agent_usage(&[
+        v_state.clone(),
+        v_distiller.clone(),
+        v_executor.clone(),
+        v_responder.clone(),
+    ])?;
     core_set(
         &v_state,
         CoreValue::from("last_output"),

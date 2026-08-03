@@ -4189,13 +4189,26 @@ func (a *AxAgent) CloseRuntimeSession() Value {
 }
 func (a *AxAgent) GetState() Value            { return mustCore(_agent_get_state(a.State)) }
 func (a *AxAgent) SetState(state Value) Value { return mustCore(_agent_set_state(a.State, state)) }
-func (a *AxAgent) GetChatLog() Value          { return coreGet(a.State, "chat_log", Array()) }
+func (a *AxAgent) refreshObservability() {
+	_, _ = _merge_agent_chat_log(a.State, a.Distiller, a.Executor, a.Responder)
+	_, _ = _merge_agent_usage(a.State, a.Distiller, a.Executor, a.Responder)
+}
+func (a *AxAgent) GetChatLog() Value {
+	a.refreshObservability()
+	return coreGet(a.State, "chat_log", Array())
+}
 func (a *AxAgent) GetActionLog() Value        { return coreGet(a.State, "action_log", Array()) }
-func (a *AxAgent) ExportTrace() Value         { return mustCore(_agent_export_trace(a.State)) }
+func (a *AxAgent) ExportTrace() Value {
+	a.refreshObservability()
+	return mustCore(_agent_export_trace(a.State))
+}
 func (a *AxAgent) ReplayTrace(trace Value, fixtures Value) Value {
 	return mustCore(_agent_replay_trace(trace, fixtures))
 }
-func (a *AxAgent) GetUsage() Value           { return coreGet(a.State, "usage", Object()) }
+func (a *AxAgent) GetUsage() Value {
+	a.refreshObservability()
+	return coreGet(a.State, "usage", Object())
+}
 func (a *AxAgent) GetRuntimeContract() Value { return coreGet(a.State, "runtime_contract", Object()) }
 func (a *AxAgent) GetPolicy() Value          { return coreGet(a.State, "policy", Object()) }
 func (a *AxAgent) GetPolicyRegistry() Value  { return coreGet(a.State, "policy_registry", Object()) }
@@ -10504,6 +10517,12 @@ func runConformanceAgentForward(fixture map[string]Value) {
 }
 
 func assertAgentTrace(ag *AxAgent, fixture map[string]Value) {
+	if expected := coreGet(fixture, "expected_usage_subset", nil); expected != nil {
+		assertSubset(ag.GetUsage(), expected, "agent usage")
+	}
+	if expected := coreGet(fixture, "expected_chat_log_length", nil); expected != nil {
+		assertEqual(float64(len(asSlice(ag.GetChatLog()))), expected, "agent chat log length")
+	}
 	trace := ag.ExportTrace()
 	if expected := coreGet(fixture, "expected_trace_subset", nil); expected != nil {
 		assertSubset(trace, expected, "agent trace")
