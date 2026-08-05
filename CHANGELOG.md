@@ -1,5 +1,30 @@
 # Changelog
 
+## [23.0.10](https://github.com/ax-llm/ax/compare/23.0.8...23.0.9) (2026-08-05)
+
+### Features
+
+* **openai:** cache breakpoints on GPT-5.6+ and cache write tokens ([#573](https://github.com/ax-llm/ax/issues/573)) ([c05b3e8](https://github.com/ax-llm/ax/commit/c05b3e8c6945c590f5114f7bb6a6ef12e9c38f3f))
+
+### Bug Fixes
+
+* **agent:** preserve usage after failed runs ([d67fced](https://github.com/ax-llm/ax/commit/d67fced2ea766f6ec392cdd98687b4f051fd8f45))
+* **ai:** route Vertex multi-region endpoints ([5d56a88](https://github.com/ax-llm/ax/commit/5d56a887e56c30d91ed86dde92d1d9e159e96c1f))
+* **util:** browser SSE streams end with a spurious network error ([#571](https://github.com/ax-llm/ax/issues/571)) ([ae0dcee](https://github.com/ax-llm/ax/commit/ae0dceed41fdcd20958942b0a090c22580333712))
+
+## [23.0.9](https://github.com/ax-llm/ax/compare/23.0.8...23.0.9) (2026-07-31)
+
+### Features
+
+* **axir:** map GPT-5.6 reasoning effort ([f9d6ae3](https://github.com/ax-llm/ax/commit/f9d6ae3affdc505cf0c0880a8173a057b512c9d2))
+* **axir:** port MCP inbound requests and task input ([09a14ad](https://github.com/ax-llm/ax/commit/09a14addf945ac4c91abb824113c358f966f2e70))
+* **axir:** port URL arrays and structured stream deltas ([65b1432](https://github.com/ax-llm/ax/commit/65b14323c079975575823722214e0ecdf0bec61f))
+
+### Bug Fixes
+
+* **axir:** publish cleared backlog capabilities ([87ef028](https://github.com/ax-llm/ax/commit/87ef028ca533de39f27185d4d7b1b120a8d71b1c))
+* **axir:** split GPT-5.6 reasoning surfaces ([f76a950](https://github.com/ax-llm/ax/commit/f76a950d40fdadb0ae401445a4229157595fb43e))
+
 ## [23.0.9](https://github.com/ax-llm/ax/compare/23.0.7...23.0.8) (2026-07-31)
 
 ### Features
