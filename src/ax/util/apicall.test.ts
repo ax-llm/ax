@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   type AxAIServiceError,
@@ -422,6 +422,77 @@ describe('apiCall', () => {
         expect(errorString).not.toContain('Request Body:');
         expect(errorString).not.toContain('largeBase64');
       }
+    });
+  });
+
+  describe('browser SSE streaming', () => {
+    // apicall.ts switches to its browser-optimized SSE reader when both
+    // `window` and `EventSource` are defined. Vitest runs in a node
+    // environment, so stub them to reach that branch.
+    const stubBrowserGlobals = () => {
+      vi.stubGlobal('window', {});
+      vi.stubGlobal('EventSource', vi.fn());
+    };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const sseResponse = (events: string): Response =>
+      new Response(events, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+
+    const collectStream = async (events: string) => {
+      const mockFetch = vi.fn().mockResolvedValue(sseResponse(events));
+
+      const stream = (await apiCall<{ test: string }, { index: number }>(
+        {
+          url: 'https://api.example.com/test',
+          fetch: mockFetch,
+          stream: true,
+        },
+        { test: 'data' }
+      )) as ReadableStream<{ index: number }>;
+
+      const reader = stream.getReader();
+      const chunks: { index: number }[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        chunks.push(value);
+      }
+      return chunks;
+    };
+
+    it('ends the stream when the provider sends no [DONE] sentinel', async () => {
+      stubBrowserGlobals();
+
+      await expect(
+        collectStream('data: {"index":0}\n\ndata: {"index":1}\n\n')
+      ).resolves.toEqual([{ index: 0 }, { index: 1 }]);
+    });
+
+    it('ends the stream when the last event has no trailing blank line', async () => {
+      stubBrowserGlobals();
+
+      await expect(
+        collectStream('data: {"index":0}\n\ndata: {"index":1}')
+      ).resolves.toEqual([{ index: 0 }, { index: 1 }]);
+    });
+
+    it.each([
+      ['terminated by a blank line', 'data: [DONE]\n\n'],
+      ['sent as a trailing event', 'data: [DONE]'],
+    ])('stops at the [DONE] sentinel %s', async (_label, sentinel) => {
+      stubBrowserGlobals();
+
+      await expect(
+        collectStream(`data: {"index":0}\n\ndata: {"index":1}\n\n${sentinel}`)
+      ).resolves.toEqual([{ index: 0 }, { index: 1 }]);
     });
   });
 });

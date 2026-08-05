@@ -985,12 +985,16 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                     // Providers are allowed to end the stream without a final
                     // blank line; the Node SSEParser path handles this via
                     // handleFlush, so match that behavior here.
+                    let sawDone = false;
                     if (buffer.length > 0) {
-                      processEvent(buffer);
+                      sawDone = processEvent(buffer);
                       buffer = '';
                     }
-                    closed = true;
-                    controller.close();
+                    // processEvent already closed the controller if it saw
+                    // the [DONE] sentinel, so only close it here if it did not.
+                    if (!sawDone) {
+                      controller.close();
+                    }
                     break;
                   }
 
