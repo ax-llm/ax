@@ -122,10 +122,58 @@ export type AxAIOpenAIUsage = {
   total_tokens: number;
   prompt_tokens_details?: {
     cached_tokens?: number;
+    /**
+     * Prompt tokens written to the cache on this request, billed at a premium
+     * over uncached input. Sits alongside `cached_tokens`, and `prompt_tokens`
+     * includes both — see usage.ts, which subtracts them back out.
+     */
+    cache_write_tokens?: number;
   };
   completion_tokens_details?: {
     reasoning_tokens?: number;
   };
+};
+
+/**
+ * Marks a cache breakpoint on the content block that carries it. The marker is
+ * part of the block, so moving it between requests changes the serialized
+ * prefix and voids the entry it wrote — see caching.ts.
+ */
+export type AxAIOpenAIPromptCacheBreakpoint = { mode: 'explicit' };
+
+/**
+ * A content block in a Chat Completions message. Chat Completions accepts a
+ * `prompt_cache_breakpoint` on `text`, `image_url`, `input_audio`, `file` and
+ * `refusal` blocks; Ax never emits `refusal` on a request, so it is absent here.
+ */
+export type AxAIOpenAIChatContentPart = (
+  | {
+      type: string;
+      text: string;
+    }
+  | {
+      type: 'image_url';
+      image_url: { url: string; details?: 'high' | 'low' | 'auto' };
+    }
+  | {
+      type: 'input_audio';
+      input_audio: {
+        data: string;
+        format: 'wav' | 'mp3' | 'pcm16';
+        mimeType?: string;
+        sampleRate?: number;
+        channels?: number;
+      };
+    }
+  | {
+      type: 'file';
+      file: {
+        file_data: string;
+        filename: string;
+      };
+    }
+) & {
+  prompt_cache_breakpoint?: AxAIOpenAIPromptCacheBreakpoint;
 };
 
 export interface AxAIOpenAIResponseDelta<T> {
@@ -147,6 +195,17 @@ export type AxAIOpenAIChatRequest<TModel> = {
   // `max` is absent on purpose: Chat Completions rejects it even on the models
   // whose Responses endpoint serves it. See effort.ts for the ladders.
   reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  /**
+   * Stable per-conversation key that routes the request to the shard its cache
+   * lives on. GPT-5.6+ requires it for reliable matching; earlier families
+   * predate it and reject it with a 400.
+   */
+  prompt_cache_key?: string;
+  /**
+   * `implicit` (the default) also places a breakpoint at the newest user or tool
+   * message; `explicit` uses only caller-provided breakpoints.
+   */
+  prompt_cache_options?: { mode?: 'implicit' | 'explicit' };
   store?: boolean;
   modalities?: readonly ('text' | 'audio')[];
   audio?: {
@@ -154,38 +213,10 @@ export type AxAIOpenAIChatRequest<TModel> = {
     voice: string | { id: string };
   };
   messages: (
-    | { role: 'system'; content: string }
+    | { role: 'system'; content: string | AxAIOpenAIChatContentPart[] }
     | {
         role: 'user';
-        content:
-          | string
-          | (
-              | {
-                  type: string;
-                  text: string;
-                }
-              | {
-                  type: 'image_url';
-                  image_url: { url: string; details?: 'high' | 'low' | 'auto' };
-                }
-              | {
-                  type: 'input_audio';
-                  input_audio: {
-                    data: string;
-                    format: 'wav' | 'mp3' | 'pcm16';
-                    mimeType?: string;
-                    sampleRate?: number;
-                    channels?: number;
-                  };
-                }
-              | {
-                  type: 'file';
-                  file: {
-                    file_data: string;
-                    filename: string;
-                  };
-                }
-            )[];
+        content: string | AxAIOpenAIChatContentPart[];
         name?: string;
       }
     | {
@@ -195,7 +226,8 @@ export type AxAIOpenAIChatRequest<TModel> = {
           | {
               type: string;
               text: string;
-            };
+            }
+          | AxAIOpenAIChatContentPart[];
         name?: string;
         audio?: { id: string };
       }
@@ -206,7 +238,8 @@ export type AxAIOpenAIChatRequest<TModel> = {
           | {
               type: string;
               text: string;
-            };
+            }
+          | AxAIOpenAIChatContentPart[];
         name?: string;
         tool_calls: {
           type: 'function';
@@ -217,7 +250,11 @@ export type AxAIOpenAIChatRequest<TModel> = {
           };
         }[];
       }
-    | { role: 'tool'; content: string; tool_call_id: string }
+    | {
+        role: 'tool';
+        content: string | AxAIOpenAIChatContentPart[];
+        tool_call_id: string;
+      }
   )[];
   tools?: {
     type: 'function';

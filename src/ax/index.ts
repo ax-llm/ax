@@ -445,6 +445,7 @@ import {
 } from './ai/openai/audio.js';
 import {
   type AxAIOpenAIAnnotation,
+  type AxAIOpenAIChatContentPart,
   type AxAIOpenAIChatRequest,
   type AxAIOpenAIChatResponse,
   type AxAIOpenAIChatResponseDelta,
@@ -454,6 +455,7 @@ import {
   type AxAIOpenAIEmbedResponse,
   type AxAIOpenAILogprob,
   AxAIOpenAIModel,
+  type AxAIOpenAIPromptCacheBreakpoint,
   type AxAIOpenAIResponseDelta,
   type AxAIOpenAIUrlCitation,
   type AxAIOpenAIUsage,
@@ -1738,6 +1740,7 @@ export type { AxAIModels };
 export type { AxAIOpenAIAnnotation };
 export type { AxAIOpenAIArgs };
 export type { AxAIOpenAIBaseArgs };
+export type { AxAIOpenAIChatContentPart };
 export type { AxAIOpenAIChatRequest };
 export type { AxAIOpenAIChatResponse };
 export type { AxAIOpenAIChatResponseDelta };
@@ -1745,6 +1748,7 @@ export type { AxAIOpenAIConfig };
 export type { AxAIOpenAIEmbedRequest };
 export type { AxAIOpenAIEmbedResponse };
 export type { AxAIOpenAILogprob };
+export type { AxAIOpenAIPromptCacheBreakpoint };
 export type { AxAIOpenAIResponseDelta };
 export type { AxAIOpenAIResponsesArgs };
 export type { AxAIOpenAIResponsesCodeInterpreterToolCall };

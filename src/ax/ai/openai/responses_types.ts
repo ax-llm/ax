@@ -331,9 +331,11 @@ export interface AxAIOpenAIResponsesResponse {
     readonly total_tokens?: number;
     readonly prompt_tokens_details?: {
       readonly cached_tokens?: number;
+      readonly cache_write_tokens?: number;
     };
     readonly input_tokens_details?: {
       readonly cached_tokens?: number;
+      readonly cache_write_tokens?: number;
     };
     readonly completion_tokens_details?: {
       readonly reasoning_tokens?: number;
@@ -781,9 +783,11 @@ export interface OpenAIResponsesResponseDelta {
     readonly total_tokens?: number;
     readonly prompt_tokens_details?: {
       readonly cached_tokens?: number;
+      readonly cache_write_tokens?: number;
     };
     readonly input_tokens_details?: {
       readonly cached_tokens?: number;
+      readonly cache_write_tokens?: number;
     };
     readonly completion_tokens_details?: {
       readonly reasoning_tokens?: number;

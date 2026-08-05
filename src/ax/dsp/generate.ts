@@ -905,6 +905,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   }>) {
     const {
       sessionId,
+      promptCacheKey,
       model,
       rateLimiter,
       stream,
@@ -1088,6 +1089,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       },
       {
         sessionId,
+        promptCacheKey: promptCacheKey ?? this.options?.promptCacheKey,
         rateLimiter,
         stream,
         debug,

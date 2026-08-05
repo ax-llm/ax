@@ -391,6 +391,37 @@ Provider behavior:
   failed refreshes recreate or fall back uncached, and rejected Ax-managed
   caches retry once without the cache
 - Anthropic: implicit via `cache_control` markers
+- OpenAI: explicit `prompt_cache_breakpoint` markers, **GPT-5.6+ only**. Earlier
+  families cache automatically and predate the parameters, so nothing is sent to
+  them. Only the `openai` provider opts in — Azure OpenAI shares the request
+  builder and the same model enum, so a `gpt-5.6-*` deployment sends nothing,
+  and `openai-responses` does not send breakpoints either (it does report
+  `cacheCreationTokens`, which is provider-wide)
+
+### OpenAI prompt cache keys
+
+GPT-5.6+ needs a key that is stable per conversation to match reliably; it routes
+the request to the shard the cache lives on. Set `promptCacheKey`, or let it fall
+back to `sessionId`. Keep it under roughly 15 requests/minute per key.
+
+```typescript
+const result = await gen.forward(llm, values, {
+  mem,
+  promptCacheKey: `review:${pullRequestId}`,
+  contextCache: {},
+});
+```
+
+**Markers must not move.** A breakpoint marker is part of its content block, so
+marking only "the newest stable message" each turn un-marks what the previous
+turn marked, changing the prefix and voiding the entry that turn wrote. Ax marks
+by absolute index from the front, which is stable for an append-only
+conversation. Anything that rewrites the front of the history — dynamically added
+functions changing the system prompt, or `mem.rewindToTag` — costs a cache miss.
+
+**Keep caching on for the whole conversation.** The provider marks all or
+nothing, so a turn that omits `contextCache` sends the prompt unmarked and the
+next turn rewrites the cache from scratch.
 
 ### External Registry (serverless)
 

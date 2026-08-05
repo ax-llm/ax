@@ -1,5 +1,6 @@
 import type { AxAIServiceOptions } from '../types.js';
 import type { AxAIOpenAIChatRequest } from './chat_types.js';
+import { axIsGPT56Family } from './model_family.js';
 import type { AxAIOpenAIResponsesRequest } from './responses_types.js';
 
 /**
@@ -85,20 +86,13 @@ const LEGACY_LADDER: EffortLadder<AxAIOpenAIChatReasoningEffort> = {
   highest: 'xhigh',
 };
 
-/** Matches `gpt-5.6` and every tier suffix (`-sol`, `-terra`, `-luna`). */
-const GPT56_MODELS = /^gpt-5\.6($|-)/;
-
-function isGPT56(model: unknown): boolean {
-  return GPT56_MODELS.test(typeof model === 'string' ? model : '');
-}
-
 /**
  * GPT-5.6 defaults an omitted effort to `medium`, so disabling reasoning
  * requires an explicit `none`. Every other model and OpenAI-compatible provider
  * keeps the historical omission.
  */
 function resolveNone(model: unknown): 'none' | undefined {
-  return isGPT56(model) ? 'none' : undefined;
+  return axIsGPT56Family(model) ? 'none' : undefined;
 }
 
 /**
@@ -112,7 +106,9 @@ export function axResolveOpenAIChatReasoningEffort(
   if (budget === 'none') {
     return resolveNone(model);
   }
-  return isGPT56(model) ? GPT56_CHAT_LADDER[budget] : LEGACY_LADDER[budget];
+  return axIsGPT56Family(model)
+    ? GPT56_CHAT_LADDER[budget]
+    : LEGACY_LADDER[budget];
 }
 
 /**
@@ -127,7 +123,7 @@ export function axResolveOpenAIResponsesReasoningEffort(
   if (budget === 'none') {
     return resolveNone(model);
   }
-  return isGPT56(model)
+  return axIsGPT56Family(model)
     ? GPT56_RESPONSES_LADDER[budget]
     : LEGACY_LADDER[budget];
 }

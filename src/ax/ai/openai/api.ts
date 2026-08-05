@@ -30,6 +30,12 @@ import type {
   AxTranscriptionResponse,
 } from '../types.js';
 import {
+  axApplyOpenAIPromptCacheBreakpoints,
+  axIsOpenAIPromptCachingEnabled,
+  axResolveOpenAIPromptCacheKey,
+} from './caching.js';
+import { axIsGPT56Family } from './model_family.js';
+import {
   axAIOpenAIAudioDefaultConfig,
   axApplyOpenAIChatAudioRequest,
   axIsOpenAIChatAudioModel,
@@ -191,6 +197,13 @@ export interface AxAIOpenAIBaseArgs<
   chatRespProcessor?: ChatRespProcessor;
   chatStreamRespProcessor?: ChatStreamRespProcessor;
   realtime?: RealtimeAdapter<TModel>;
+  /**
+   * Opt in to OpenAI prompt caching on GPT-5.6+ models. Off by default because
+   * this request builder is shared: Azure OpenAI is typed on the same model
+   * enum, so a `gpt-5.6-*` deployment would otherwise pick up parameters its API
+   * version may reject. Only `AxAIOpenAI` sets it today.
+   */
+  promptCaching?: boolean;
   supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures);
 }
 
@@ -219,8 +232,20 @@ class AxAIOpenAIImpl<
     private readonly chatReqUpdater?: ChatReqUpdater<TModel, TChatReq>,
     private readonly chatRespProcessor?: ChatRespProcessor,
     private readonly chatStreamRespProcessor?: ChatStreamRespProcessor,
-    private readonly realtime?: RealtimeAdapter<TModel>
+    private readonly realtime?: RealtimeAdapter<TModel>,
+    private readonly promptCaching: boolean = false
   ) {}
+
+  /**
+   * Declaring implicit caching support is what stops `AxBaseAI` throwing
+   * `Context caching is not supported by this provider/model` when a caller
+   * passes `contextCache` — which is the very option that makes
+   * `AxPromptTemplate` set the `cache: true` flags this provider reads. The
+   * `promptCaching` conjunct keeps Azure and the other OpenAI-compatible
+   * providers throwing exactly as they do today.
+   */
+  supportsImplicitCaching = (model: TModel): boolean =>
+    this.promptCaching && axIsGPT56Family(model);
 
   getTokenUsage(): AxTokenUsage | undefined {
     return this.tokensUsed;
@@ -278,7 +303,37 @@ class AxAIOpenAIImpl<
         ? 'auto'
         : req.functionCall;
 
-    const messages = createMessages(req, useRealtime);
+    let messages = createMessages(req, useRealtime);
+
+    // Prompt caching. `messages` is index-aligned with `req.chatPrompt` because
+    // createMessages is a plain map, which is what makes the absolute-index
+    // breakpoint scheme in caching.ts stable across turns.
+    const promptCachingEnabled = axIsOpenAIPromptCachingEnabled(
+      req,
+      config,
+      this.promptCaching
+    );
+    let promptCacheKey: string | undefined;
+    let breakpointCount = 0;
+    if (promptCachingEnabled) {
+      const applied = axApplyOpenAIPromptCacheBreakpoints(
+        messages,
+        req.chatPrompt
+      );
+      messages = applied.messages;
+      breakpointCount = applied.markerCount;
+      // The key helps implicit matching too, so it is sent whenever caching was
+      // asked for — even when no message could take a marker.
+      promptCacheKey = axResolveOpenAIPromptCacheKey(config, this.options);
+      if (!promptCacheKey) {
+        (config.logger ?? this.options?.logger)?.({
+          name: 'Notification',
+          id: 'openai-prompt-cache-key-missing',
+          value:
+            'OpenAI prompt caching is enabled but neither promptCacheKey nor sessionId is set. GPT-5.6+ needs a key that is stable per conversation for reliable cache matching.',
+        });
+      }
+    }
 
     const frequencyPenalty =
       req.modelConfig?.frequencyPenalty ?? this.config.frequencyPenalty;
@@ -348,6 +403,13 @@ class AxAIOpenAIImpl<
       ...(stream && this.streamingUsage
         ? { stream: true, stream_options: { include_usage: true } }
         : {}),
+      // `explicit` deliberately drops the implicit breakpoint at the newest
+      // user/tool message: that entry covers the volatile trailing message and
+      // so is written but never read back.
+      ...(breakpointCount > 0
+        ? { prompt_cache_options: { mode: 'explicit' as const } }
+        : {}),
+      ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
       ...(store ? { store: store } : {}),
       ...(this.config.serviceTier
         ? { service_tier: this.config.serviceTier }
@@ -782,6 +844,7 @@ export class AxAIOpenAIBase<
     chatRespProcessor,
     chatStreamRespProcessor,
     realtime,
+    promptCaching,
     supportFor,
   }: Readonly<
     Omit<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TModelKey, TChatReq>, 'name'>
@@ -798,7 +861,8 @@ export class AxAIOpenAIBase<
       chatReqUpdater,
       chatRespProcessor,
       chatStreamRespProcessor,
-      realtime
+      realtime,
+      promptCaching ?? false
     );
 
     const resolvedApiURL = apiURL ? apiURL : 'https://api.openai.com/v1';
@@ -990,8 +1054,15 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
           },
         },
         caching: {
-          supported: false,
-          types: [],
+          // GPT-5.6+ caches only at explicit breakpoints; earlier families
+          // predate the parameters entirely. `cacheBreakpoints` is inert today
+          // (callers only test for `=== false`) but records that this provider
+          // needs positional markers rather than Anthropic's auto-lookback.
+          supported: axIsGPT56Family(model),
+          types: axIsGPT56Family(model)
+            ? (['ephemeral'] as ('ephemeral' | 'persistent')[])
+            : [],
+          cacheBreakpoints: true,
         },
         thinking: mi?.supported?.thinkingBudget ?? false,
         multiTurn: true,
@@ -1066,6 +1137,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
       options,
       modelInfo,
       models: normalizedModels ?? models,
+      promptCaching: true,
       supportFor,
     });
 
