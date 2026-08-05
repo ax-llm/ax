@@ -1185,6 +1185,7 @@
           },
           {
             "cacheReadTokenCostPer1M": 0.02,
+            "cacheWriteTokenCostPer1M": 0.25,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -1662,6 +1663,7 @@
           },
           {
             "cacheReadTokenCostPer1M": 0.2,
+            "cacheWriteTokenCostPer1M": 2.5,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -1851,6 +1853,7 @@
               "gpt-5.6"
             ],
             "cacheReadTokenCostPer1M": 0.5,
+            "cacheWriteTokenCostPer1M": 6.25,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -2103,6 +2106,7 @@
           },
           {
             "cacheReadTokenCostPer1M": 0.02,
+            "cacheWriteTokenCostPer1M": 0.25,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -2611,6 +2615,7 @@
           },
           {
             "cacheReadTokenCostPer1M": 0.2,
+            "cacheWriteTokenCostPer1M": 2.5,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,
@@ -2810,6 +2815,7 @@
               "gpt-5.6"
             ],
             "cacheReadTokenCostPer1M": 0.5,
+            "cacheWriteTokenCostPer1M": 6.25,
             "capabilities": {
               "audioInput": false,
               "audioOutput": false,

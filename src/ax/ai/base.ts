@@ -1283,8 +1283,13 @@ export class AxBaseAI<
       speed,
     } = modelUsage.tokens;
 
-    // Determine if long-context rates apply based on total input tokens
-    const totalInputTokens = promptTokens + cacheReadTokens;
+    // Determine if long-context rates apply based on total input tokens.
+    // promptTokens counts uncached input only, so cached reads and cache writes
+    // both have to be added back to recover the size of the prompt the provider
+    // actually measured its tier against. Omitting writes would drop a cold
+    // long-context request — everything written, nothing read — to base rates.
+    const totalInputTokens =
+      promptTokens + cacheReadTokens + cacheCreationTokens;
     const isLongContext =
       modelInfo.longContextThreshold !== undefined &&
       totalInputTokens > modelInfo.longContextThreshold;

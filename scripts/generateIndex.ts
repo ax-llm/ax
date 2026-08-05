@@ -23,7 +23,11 @@ interface ExportInfo {
  * Checks if a symbol name starts with the expected prefixes (ax or Ax) or is a special case
  */
 const internalExportNames = new Set([
+  // Renamed when the GPT-5.6 reasoning surfaces were split; the old single name
+  // is kept so this list still covers what it was written to cover.
   'AxAIOpenAIReasoningEffort',
+  'AxAIOpenAIChatReasoningEffort',
+  'AxAIOpenAIResponsesReasoningEffort',
   'AxAIOpenAIResponsesImpl',
   'AxAgentInternalCompletionPayload',
   'AxAppliedProposal',
@@ -56,6 +60,14 @@ const internalExportNames = new Set([
   'AxResponseHandlerArgs',
   'AxStepContextImpl',
   'axResolveOpenAIReasoningEffort',
+  'axResolveOpenAIChatReasoningEffort',
+  'axResolveOpenAIResponsesReasoningEffort',
+  // OpenAI prompt-caching internals. The breakpoint marker and content-part
+  // types stay public because AxAIOpenAIChatRequest is built out of them.
+  'axApplyOpenAIPromptCacheBreakpoints',
+  'axIsOpenAIPromptCachingEnabled',
+  'axResolveOpenAIPromptCacheKey',
+  'axIsGPT56Family',
 ]);
 
 function hasValidPrefix(name: string): boolean {

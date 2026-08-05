@@ -23,6 +23,18 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/vertex.ts`, `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/anthropic/api.ts`
   - Impact: TypeScript now maps Vertex AI global, us/eu multi-region, and standard regional locations to their documented hosts for Gemini and Anthropic, including Gemini cache operations. Generated Python/Java/C++/Go/Rust providers do not expose equivalent project/region-aware Vertex endpoint selection.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-08-05-forward-promptcachekey-from-axgen-options-to-the-provider` [axgen] Forward promptCacheKey from AxGen options to the provider
+  - Status: open
+  - Source commit: `d67fced2ea766f6ec392cdd98687b4f051fd8f45`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.promptCacheKey.test.ts`
+  - Impact: AxGen builds the ai.chat options object field by field; promptCacheKey set in forward options was dropped, so generated Python/Java/C++/Go/Rust ports that mirror this list will also silently drop it and lose OpenAI prompt-cache key routing
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-08-05-openai-prompt-caching-explicit-cache-breakpoints-and-cache-write` [axai] OpenAI prompt caching: explicit cache breakpoints and cache_write_tokens
+  - Status: open
+  - Source commit: `d67fced2ea766f6ec392cdd98687b4f051fd8f45`
+  - TS paths: `src/ax/ai/openai`, `src/ax/ai/base.ts`, `src/ax/ai/types.ts`
+  - Impact: AxAIOpenAI on GPT-5.6+ emits prompt_cache_key, prompt_cache_options and per-message prompt_cache_breakpoint markers when caching is requested; axNormalizeOpenAIUsage maps cache_write_tokens to cacheCreationTokens and excludes it from promptTokens; getEstimatedCost counts cacheCreationTokens toward the long-context threshold; AxAIServiceOptions gains promptCacheKey
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

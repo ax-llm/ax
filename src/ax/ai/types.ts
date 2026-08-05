@@ -974,6 +974,20 @@ export type AxAIServiceOptions = {
   sessionId?: string;
 
   /**
+   * Stable per-conversation key for OpenAI prompt caching.
+   *
+   * Routes the request to the shard its cache lives on, so it must stay the same
+   * for every turn of a conversation and differ between unrelated ones. OpenAI
+   * advises staying under roughly 15 requests/minute per key.
+   *
+   * Falls back to `sessionId` when unset.
+   *
+   * **Currently used by:** OpenAI, on GPT-5.6 and later models. Earlier families
+   * predate the parameter and it is not sent to them.
+   */
+  promptCacheKey?: string;
+
+  /**
    * Request-scoped attribution included in normalized usage events.
    *
    * Per-call values override service defaults. Custom attributes are
