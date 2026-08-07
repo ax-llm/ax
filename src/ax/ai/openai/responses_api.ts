@@ -534,6 +534,11 @@ export class AxAIOpenAIResponsesImpl<
 
     const currentResult: Partial<AxChatResponseResult> = {};
 
+    // /v1/responses returns one output item per parallel tool call, so these
+    // have to accumulate across the loop instead of overwriting each other.
+    const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> =
+      [];
+
     for (const item of output ?? []) {
       switch (item.type) {
         case 'message':
@@ -679,19 +684,21 @@ export class AxAIOpenAIResponsesImpl<
           break;
         case 'function_call':
           currentResult.id = item.id;
-          currentResult.functionCalls = [
-            {
-              id: item.id,
-              type: 'function' as const,
-              function: {
-                name: item.name,
-                params: item.arguments,
-              },
+          functionCalls.push({
+            id: item.id,
+            type: 'function' as const,
+            function: {
+              name: item.name,
+              params: item.arguments,
             },
-          ];
+          });
           currentResult.finishReason = 'function_call';
           break;
       }
+    }
+
+    if (functionCalls.length > 0) {
+      currentResult.functionCalls = functionCalls;
     }
 
     return {
