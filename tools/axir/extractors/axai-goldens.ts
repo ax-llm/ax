@@ -4330,3 +4330,439 @@ writeFixture('http-method-descriptor', {
     },
   },
 });
+
+writeFixture('vertex-gemini-us-resolved-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'google-gemini',
+  options: { projectId: 'demo-project', region: 'us' },
+  expected_output: {
+    auth: 'bearer',
+    baseUrl: 'https://aiplatform.us.rep.googleapis.com/v1',
+    vertex: true,
+    vertexParent: 'projects/demo-project/locations/us',
+    vertexCacheBaseUrl: 'https://aiplatform.us.rep.googleapis.com/v1',
+    operations: {
+      chat: {
+        path: '/projects/demo-project/locations/us/publishers/google/models/{model}:generateContent',
+      },
+      stream_chat: {
+        path: '/projects/demo-project/locations/us/publishers/google/models/{model}:streamGenerateContent?alt=sse',
+      },
+      embed: {
+        path: '/projects/demo-project/locations/us/publishers/google/models/{model}:predict',
+      },
+    },
+  },
+});
+
+writeFixture('vertex-gemini-global-resolved-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'google-gemini',
+  options: { project_id: 'demo-project', region: 'global' },
+  expected_output: {
+    baseUrl: 'https://aiplatform.googleapis.com/v1',
+    vertexParent: 'projects/demo-project/locations/global',
+  },
+});
+
+writeFixture('vertex-gemini-endpoint-and-base-url-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'google-gemini',
+  options: {
+    project_id: 'demo-project',
+    region: 'europe-west4',
+    endpoint_id: 'endpoint-42',
+    base_url: 'https://vertex.test/v1',
+  },
+  expected_output: {
+    baseUrl: 'https://vertex.test/v1',
+    vertexCacheBaseUrl: 'https://vertex.test/v1',
+    operations: {
+      chat: {
+        path: '/projects/demo-project/locations/europe-west4/endpoints/endpoint-42:generateContent',
+      },
+      embed: {
+        path: '/projects/demo-project/locations/europe-west4/endpoints/endpoint-42:predict',
+      },
+    },
+  },
+});
+
+writeFixture('vertex-anthropic-eu-resolved-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'anthropic',
+  options: { projectId: 'demo-project', region: 'eu' },
+  expected_output: {
+    auth: 'bearer',
+    baseUrl: 'https://aiplatform.eu.rep.googleapis.com/v1',
+    vertex: true,
+    headers: { 'anthropic-beta': 'web-search-2025-03-05' },
+    operations: {
+      chat: {
+        path: '/projects/demo-project/locations/eu/publishers/anthropic/models/{model}:rawPredict',
+      },
+      stream_chat: {
+        path: '/projects/demo-project/locations/eu/publishers/anthropic/models/{model}:streamRawPredict?alt=sse',
+      },
+    },
+  },
+});
+
+writeFixture('vertex-gemini-us-chat', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.1-flash-lite',
+  service_options: { projectId: 'demo-project', region: 'us' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi multi-region' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        responseId: 'vertex-gemini-1',
+        modelVersion: 'gemini-3.1-flash-lite',
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'multi-region ok' }] },
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 2,
+          candidatesTokenCount: 2,
+          totalTokenCount: 4,
+        },
+      },
+    },
+  ],
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://aiplatform.us.rep.googleapis.com/v1/projects/demo-project/locations/us/publishers/google/models/gemini-3.1-flash-lite:generateContent',
+    headers: { Authorization: 'Bearer test-key' },
+    json: {
+      contents: [{ role: 'user', parts: [{ text: 'hi multi-region' }] }],
+    },
+  },
+});
+
+writeFixture('vertex-gemini-regional-endpoint-embed', {
+  kind: 'ai_embed',
+  provider: 'google-gemini',
+  embed_model: 'gemini-embedding-001',
+  service_options: {
+    project_id: 'demo-project',
+    region: 'us-central1',
+    endpoint_id: 'endpoint-42',
+  },
+  request: { texts: ['hello world'] },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        predictions: [{ embeddings: { values: [0.1, 0.2, 0.3] } }],
+      },
+    },
+  ],
+  expected_output: { embeddings: [[0.1, 0.2, 0.3]] },
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://us-central1-aiplatform.googleapis.com/v1/projects/demo-project/locations/us-central1/endpoints/endpoint-42:predict',
+    headers: { Authorization: 'Bearer test-key' },
+    json: { instances: [{ content: 'hello world' }] },
+  },
+});
+
+writeFixture('vertex-anthropic-us-chat', {
+  kind: 'ai_chat',
+  provider: 'anthropic',
+  model: 'claude-opus-4-8',
+  service_options: { projectId: 'demo-project', region: 'us' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'hi vertex anthropic' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'vertex-anthropic-1',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'ok' }],
+        model: 'claude-opus-4-8',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      },
+    },
+  ],
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://aiplatform.us.rep.googleapis.com/v1/projects/demo-project/locations/us/publishers/anthropic/models/claude-opus-4-8:rawPredict',
+    headers: {
+      Authorization: 'Bearer test-key',
+      'anthropic-beta': 'web-search-2025-03-05',
+    },
+    json: {
+      anthropic_version: 'vertex-2023-10-16',
+      messages: [{ role: 'user', content: 'hi vertex anthropic' }],
+    },
+  },
+  expected_transport_json_absent: ['model'],
+});
+
+writeFixture('vertex-gemini-eu-cache-operations', {
+  kind: 'ai_context_cache',
+  operation: 'gemini_ops',
+  args: [
+    'projects/demo-project/locations/eu/cachedContents/cache-1',
+    3600,
+    'vertex-token',
+    'gemini-3.1-flash-lite',
+    { systemInstruction: { parts: [{ text: 'stable context' }] } },
+    { projectId: 'demo-project', region: 'eu' },
+  ],
+  expected: {
+    create: {
+      method: 'POST',
+      base_url: 'https://aiplatform.eu.rep.googleapis.com/v1',
+      path: '/projects/demo-project/locations/eu/cachedContents',
+      request: {
+        model:
+          'projects/demo-project/locations/eu/publishers/google/models/gemini-3.1-flash-lite',
+        systemInstruction: { parts: [{ text: 'stable context' }] },
+        ttl: '3600s',
+      },
+    },
+    update: {
+      method: 'PATCH',
+      base_url: 'https://aiplatform.eu.rep.googleapis.com/v1',
+      path: '/projects/demo-project/locations/eu/cachedContents/cache-1?updateMask=ttl',
+      request: { ttl: '3600s' },
+    },
+    delete: {
+      method: 'DELETE',
+      base_url: 'https://aiplatform.eu.rep.googleapis.com/v1',
+      path: '/projects/demo-project/locations/eu/cachedContents/cache-1',
+      request: {},
+    },
+  },
+});
+
+const openAIPromptCacheRequest = {
+  chat_prompt: [
+    { role: 'system', content: 'SYS', cache: true },
+    { role: 'assistant', content: 'stable answer', functionCalls: [] },
+    { role: 'user', content: 'VOLATILE' },
+  ],
+  model_config: { stream: false },
+};
+
+writeFixture('openai-gpt-5-6-prompt-cache-breakpoints', {
+  kind: 'ai_chat',
+  provider: 'openai-compatible',
+  model: 'gpt-5.6-luna',
+  service_options: {
+    contextCache: {},
+    promptCacheKey: 'conversation-42',
+    sessionId: 'loses',
+  },
+  request: openAIPromptCacheRequest,
+  expected_request_after: openAIPromptCacheRequest,
+  transport_responses: [compatibleResponse('chatcmpl_cache', 'gpt-5.6-luna')],
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.openai.com/v1/chat/completions',
+    json: {
+      model: 'gpt-5.6-luna',
+      prompt_cache_key: 'conversation-42',
+      prompt_cache_options: { mode: 'explicit' },
+      messages: [
+        {
+          role: 'system',
+          content: [
+            {
+              type: 'text',
+              text: 'SYS',
+              prompt_cache_breakpoint: { mode: 'explicit' },
+            },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: 'stable answer',
+              prompt_cache_breakpoint: { mode: 'explicit' },
+            },
+          ],
+        },
+        { role: 'user', content: 'VOLATILE' },
+      ],
+    },
+  },
+});
+
+writeFixture('openai-gpt-5-6-explicit-tail-cache-breakpoint', {
+  kind: 'ai_chat',
+  provider: 'openai-compatible',
+  model: 'gpt-5.6-luna',
+  service_options: { prompt_cache_key: 'tail-key' },
+  request: {
+    chat_prompt: [
+      { role: 'system', content: 'SYS', cache: true },
+      { role: 'user', content: 'TAIL', cache: true },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_tail_cache', 'gpt-5.6-luna'),
+  ],
+  expected_transport_request: {
+    json: {
+      prompt_cache_key: 'tail-key',
+      prompt_cache_options: { mode: 'explicit' },
+      messages: [
+        {
+          role: 'system',
+          content: [
+            {
+              type: 'text',
+              text: 'SYS',
+              prompt_cache_breakpoint: { mode: 'explicit' },
+            },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'TAIL',
+              prompt_cache_breakpoint: { mode: 'explicit' },
+            },
+          ],
+        },
+      ],
+    },
+  },
+});
+
+writeFixture('openai-legacy-prompt-cache-disabled', {
+  kind: 'ai_chat',
+  provider: 'openai-compatible',
+  model: 'gpt-5.5',
+  service_options: { contextCache: {}, promptCacheKey: 'must-not-send' },
+  request: openAIPromptCacheRequest,
+  transport_responses: [compatibleResponse('chatcmpl_legacy_cache', 'gpt-5.5')],
+  expected_transport_json_absent: [
+    'prompt_cache_key',
+    'prompt_cache_options',
+    'messages.0.content.0.prompt_cache_breakpoint',
+  ],
+});
+
+writeFixture('azure-openai-prompt-cache-disabled', {
+  kind: 'ai_chat',
+  provider: 'azure-openai',
+  model: 'gpt-5.6-luna',
+  resource_name: 'example',
+  deployment_name: 'deployment',
+  api_version: 'api-version=2024-02-15-preview',
+  service_options: { contextCache: {}, promptCacheKey: 'must-not-send' },
+  request: openAIPromptCacheRequest,
+  transport_responses: [
+    compatibleResponse('chatcmpl_azure_cache', 'gpt-5.6-luna'),
+  ],
+  expected_transport_json_absent: ['prompt_cache_key', 'prompt_cache_options'],
+});
+
+writeFixture('openai-responses-prompt-cache-disabled', {
+  kind: 'ai_chat',
+  provider: 'openai-responses',
+  model: 'gpt-5.6-luna',
+  service_options: { contextCache: {}, promptCacheKey: 'must-not-send' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'responses stays unchanged' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'resp_cache_disabled',
+        model: 'gpt-5.6-luna',
+        usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        output: [
+          {
+            id: 'msg_cache_disabled',
+            type: 'message',
+            content: [{ type: 'output_text', text: 'ok', annotations: [] }],
+          },
+        ],
+      },
+    },
+  ],
+  expected_transport_json_absent: ['prompt_cache_key', 'prompt_cache_options'],
+});
+
+writeFixture('openai-cache-write-usage-and-long-context-cost', {
+  kind: 'ai_chat',
+  provider: 'openai-compatible',
+  model: 'gpt-5.6-luna',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'measure cache write' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'chatcmpl_cache_usage',
+        object: 'chat.completion',
+        model: 'gpt-5.6-luna',
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'ok', refusal: null },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 300000,
+          completion_tokens: 100,
+          total_tokens: 300100,
+          prompt_tokens_details: {
+            cached_tokens: 0,
+            cache_write_tokens: 100000,
+          },
+        },
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: '0',
+        content: 'ok',
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    remote_id: 'chatcmpl_cache_usage',
+    model_usage: {
+      ai: 'openai',
+      model: 'gpt-5.6-luna',
+      tokens: {
+        prompt_tokens: 200000,
+        completion_tokens: 100,
+        total_tokens: 300100,
+        cache_creation_tokens: 100000,
+      },
+    },
+  },
+  expected_estimated_cost: 0.10518,
+});

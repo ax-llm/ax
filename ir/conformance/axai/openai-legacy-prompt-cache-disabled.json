@@ -1,0 +1,62 @@
+{
+  "expected_transport_json_absent": [
+    "prompt_cache_key",
+    "prompt_cache_options",
+    "messages.0.content.0.prompt_cache_breakpoint"
+  ],
+  "kind": "ai_chat",
+  "model": "gpt-5.5",
+  "name": "openai-legacy-prompt-cache-disabled",
+  "provider": "openai-compatible",
+  "request": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": "SYS",
+        "role": "system"
+      },
+      {
+        "content": "stable answer",
+        "functionCalls": [],
+        "role": "assistant"
+      },
+      {
+        "content": "VOLATILE",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "contextCache": {},
+    "promptCacheKey": "must-not-send"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_legacy_cache",
+        "model": "gpt-5.5",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

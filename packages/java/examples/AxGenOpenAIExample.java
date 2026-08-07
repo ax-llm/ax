@@ -10,13 +10,13 @@ public final class AxGenOpenAIExample {
     }
     OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
       "api_key", apiKey,
-      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"),
+      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.6-luna"),
       "model_config", Map.of("temperature", 0.0)
     ));
     AxGen program = Ax.ax("question:string -> answer:string");
     Map<String, Object> out = program.forward(client, Map.of(
       "question", "In one sentence, explain Ax as a language-agnostic LLM programming library."
-    ));
+    ), Map.of("promptCacheKey", "ax-openai-example", "contextCache", Map.of()));
     System.out.println(out);
   }
 }

@@ -103,6 +103,48 @@ func main() {
 }
 `
 
+const goVertexGeminiExample = `package main
+
+import (
+  "context"
+  "encoding/json"
+  "fmt"
+  "os"
+  "time"
+
+  ax "github.com/ax-llm/ax/packages/go"
+)
+
+func required(name string) string {
+  value := os.Getenv(name)
+  if value == "" {
+    fmt.Fprintf(os.Stderr, "Set %s to run this Vertex provider API example.\n", name)
+    os.Exit(2)
+  }
+  return value
+}
+
+func main() {
+  model := os.Getenv("AX_VERTEX_MODEL")
+  if model == "" { model = "gemini-3.5-flash" }
+  client := ax.NewGoogleGeminiClient(map[string]ax.Value{
+    "api_key": required("GOOGLE_VERTEX_ACCESS_TOKEN"),
+    "project_id": required("GOOGLE_PROJECT_ID"),
+    "region": required("GOOGLE_REGION"),
+    "model": model,
+  })
+  ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+  defer cancel()
+  output, err := client.Chat(ctx, map[string]ax.Value{
+    "chat_prompt": ax.Array(ax.Object("role", "user", "content", "Reply with the word ready.")),
+  }, nil)
+  if err != nil { panic(err) }
+  data, err := json.MarshalIndent(output, "", "  ")
+  if err != nil { panic(err) }
+  fmt.Println(string(data))
+}
+`
+
 const javaContextCacheRecoveryExample = `import dev.axllm.ax.GoogleGeminiClient;
 import dev.axllm.ax.OpenAICompatibleClient;
 import java.util.ArrayDeque;
@@ -152,6 +194,30 @@ fn main()->AxResult<()>{
  let refresh=Script::new(vec![cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),cache("cachedContents/new",3600),success("recreated")]);let mut refresh_client=service(refresh.clone());refresh_client.chat(request.clone())?;refresh_client.chat(request.clone())?;assert_eq!(refresh.methods(),vec!["POST","POST","PATCH","POST","POST"]);
  let fallback=Script::new(vec![cache("cachedContents/old",1),success("old"),failure(500,"refresh failed"),failure(500,"recreate failed"),success("uncached fallback")]);let mut fallback_client=service(fallback.clone());fallback_client.chat(request.clone())?;fallback_client.chat(request)?;assert_eq!(fallback.methods(),vec!["POST","POST","PATCH","POST","POST"]);
  println!("rust-context-cache-recovery-ok");Ok(())
+}
+`
+
+const rustVertexGeminiExample = `use axllm::{ai, AxAIClient, AxError, AxResult};
+use serde_json::json;
+use std::env;
+
+fn required(name: &str) -> AxResult<String> {
+    env::var(name).map_err(|_| AxError::runtime(format!("Set {name} to run this Vertex provider API example.")))
+}
+
+fn main() -> AxResult<()> {
+    let model = env::var("AX_VERTEX_MODEL").unwrap_or_else(|_| "gemini-3.5-flash".to_string());
+    let mut client = ai("google-gemini", json!({
+        "api_key": required("GOOGLE_VERTEX_ACCESS_TOKEN")?,
+        "project_id": required("GOOGLE_PROJECT_ID")?,
+        "region": required("GOOGLE_REGION")?,
+        "model": model,
+    }))?;
+    let output = client.chat(json!({
+        "chat_prompt": [{"role": "user", "content": "Reply with the word ready."}]
+    }))?;
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
 }
 `
 
@@ -235,7 +301,7 @@ if not api_key:
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.6-luna"),
     model_config={"temperature": 0},
 )
 program = ax("question:string -> answer:string")
@@ -244,6 +310,32 @@ out = program.forward(
     {
         "question": "In one sentence, explain Ax as a language-agnostic LLM programming library."
     },
+    {"promptCacheKey": "ax-openai-example", "contextCache": {}},
+)
+print(json.dumps(out, indent=2, sort_keys=True))
+`
+
+const pyVertexGeminiExample = `import json
+import os
+
+from axllm import GoogleGeminiClient
+
+
+def required(name):
+    value = os.getenv(name)
+    if not value:
+        raise SystemExit(f"Set {name} to run this Vertex provider API example.")
+    return value
+
+
+client = GoogleGeminiClient(
+    api_key=required("GOOGLE_VERTEX_ACCESS_TOKEN"),
+    project_id=required("GOOGLE_PROJECT_ID"),
+    region=required("GOOGLE_REGION"),
+    model=os.getenv("AX_VERTEX_MODEL", "gemini-3.5-flash"),
+)
+out = client.chat(
+    {"chat_prompt": [{"role": "user", "content": "Reply with the word ready."}]}
 )
 print(json.dumps(out, indent=2, sort_keys=True))
 `
@@ -657,14 +749,41 @@ public final class AxGenOpenAIExample {
     }
     OpenAICompatibleClient client = new OpenAICompatibleClient(Map.of(
       "api_key", apiKey,
-      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"),
+      "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.6-luna"),
       "model_config", Map.of("temperature", 0.0)
     ));
     AxGen program = Ax.ax("question:string -> answer:string");
     Map<String, Object> out = program.forward(client, Map.of(
       "question", "In one sentence, explain Ax as a language-agnostic LLM programming library."
-    ));
+    ), Map.of("promptCacheKey", "ax-openai-example", "contextCache", Map.of()));
     System.out.println(out);
+  }
+}
+`
+
+const javaVertexGeminiExample = `import dev.axllm.ax.*;
+import java.util.*;
+
+public final class VertexGeminiExample {
+  private static String required(String name) {
+    String value = System.getenv(name);
+    if (value == null || value.isBlank()) {
+      throw new IllegalStateException("Set " + name + " to run this Vertex provider API example.");
+    }
+    return value;
+  }
+
+  public static void main(String[] args) throws Exception {
+    GoogleGeminiClient client = new GoogleGeminiClient(Map.of(
+      "api_key", required("GOOGLE_VERTEX_ACCESS_TOKEN"),
+      "project_id", required("GOOGLE_PROJECT_ID"),
+      "region", required("GOOGLE_REGION"),
+      "model", System.getenv().getOrDefault("AX_VERTEX_MODEL", "gemini-3.5-flash")
+    ));
+    Map<String, Object> out = client.chat(Map.of(
+      "chat_prompt", List.of(Map.of("role", "user", "content", "Reply with the word ready."))
+    ));
+    System.out.println(Json.stringify(out));
   }
 }
 `
@@ -964,12 +1083,46 @@ int main() {
 
   axllm::OpenAICompatibleClient client(axllm::object({
     {"api_key", key},
-    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-5.4-mini"},
+    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-5.6-luna"},
     {"model_config", axllm::object({{"temperature", 0}})}
   }));
   auto program = axllm::ax("question:string -> answer:string");
   axllm::Value out = program.forward(client, axllm::object({
     {"question", "In one sentence, explain Ax as a language-agnostic LLM programming library."}
+  }), axllm::object({
+    {"promptCacheKey", "ax-openai-example"},
+    {"contextCache", axllm::object({})}
+  }));
+  std::cout << axllm::stringify(out) << "\n";
+}
+`
+
+const cppVertexGeminiExample = `#include "axllm/axllm.hpp"
+#include <cstdlib>
+#include <iostream>
+#include <string>
+
+const char* required(const char* name) {
+  const char* value = std::getenv(name);
+  if (value == nullptr || std::string(value).empty()) {
+    std::cerr << "Set " << name << " to run this Vertex provider API example.\n";
+    std::exit(2);
+  }
+  return value;
+}
+
+int main() {
+  const char* model = std::getenv("AX_VERTEX_MODEL");
+  axllm::GoogleGeminiClient client(axllm::object({
+    {"api_key", required("GOOGLE_VERTEX_ACCESS_TOKEN")},
+    {"project_id", required("GOOGLE_PROJECT_ID")},
+    {"region", required("GOOGLE_REGION")},
+    {"model", model == nullptr || std::string(model).empty() ? "gemini-3.5-flash" : model}
+  }));
+  axllm::Value out = client.chat(axllm::object({
+    {"chat_prompt", axllm::array({
+      axllm::object({{"role", "user"}, {"content", "Reply with the word ready."}})
+    })}
   }));
   std::cout << axllm::stringify(out) << "\n";
 }

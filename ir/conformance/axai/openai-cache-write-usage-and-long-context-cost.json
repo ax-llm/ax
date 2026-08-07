@@ -1,0 +1,70 @@
+{
+  "expected_estimated_cost": 0.10518,
+  "expected_output": {
+    "model_usage": {
+      "ai": "openai",
+      "model": "gpt-5.6-luna",
+      "tokens": {
+        "cache_creation_tokens": 100000,
+        "completion_tokens": 100,
+        "prompt_tokens": 200000,
+        "total_tokens": 300100
+      }
+    },
+    "remote_id": "chatcmpl_cache_usage",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5.6-luna",
+  "name": "openai-cache-write-usage-and-long-context-cost",
+  "provider": "openai-compatible",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "measure cache write",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_cache_usage",
+        "model": "gpt-5.6-luna",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 100,
+          "prompt_tokens": 300000,
+          "prompt_tokens_details": {
+            "cache_write_tokens": 100000,
+            "cached_tokens": 0
+          },
+          "total_tokens": 300100
+        }
+      },
+      "status": 200
+    }
+  ]
+}

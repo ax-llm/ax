@@ -1,0 +1,64 @@
+{
+  "api_version": "api-version=2024-02-15-preview",
+  "deployment_name": "deployment",
+  "expected_transport_json_absent": [
+    "prompt_cache_key",
+    "prompt_cache_options"
+  ],
+  "kind": "ai_chat",
+  "model": "gpt-5.6-luna",
+  "name": "azure-openai-prompt-cache-disabled",
+  "provider": "azure-openai",
+  "request": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": "SYS",
+        "role": "system"
+      },
+      {
+        "content": "stable answer",
+        "functionCalls": [],
+        "role": "assistant"
+      },
+      {
+        "content": "VOLATILE",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "resource_name": "example",
+  "service_options": {
+    "contextCache": {},
+    "promptCacheKey": "must-not-send"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_azure_cache",
+        "model": "gpt-5.6-luna",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

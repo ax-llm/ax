@@ -248,6 +248,10 @@ class AIClient {
   virtual ~AIClient() = default;
   virtual Value complete(Value request) = 0;
   virtual Value chat(Value request);
+  virtual Value chat(Value request, Value options) {
+    (void)options;
+    return chat(std::move(request));
+  }
   // Default so intrinsic.agent.transcribe can call transcribe through an AIClient* (the agent's
   // scripted client extends the base AIClient). AxAIService and the scripted client override it.
   virtual Value transcribe(Value request, Value options) {
@@ -263,7 +267,7 @@ class AxAIService : public AIClient {
   virtual std::string get_id();
   virtual std::string get_name();
   Value chat(Value request) override;
-  virtual Value chat(Value request, Value options);
+  Value chat(Value request, Value options) override;
   virtual std::vector<Value> stream(Value request);
   virtual Value embed(Value request, Value options);
   virtual Value embed(Value request) = 0;
@@ -544,6 +548,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value realtime_audio_setup(Value request);
   Value realtime_audio_input(Value request);
   Value realtime_chat(Value request, RealtimeTransport* transport = nullptr);
+  double get_estimated_cost(Value model_usage) override;
   OpenAICompatibleClient& context_cache_registry(AxContextCacheRegistry* registry);
 
  protected:
@@ -553,9 +558,9 @@ class OpenAICompatibleClient : public AxBaseAI {
 
  private:
   std::string profile_;
+  Value descriptor_;
   std::string base_url_;
   std::string api_key_;
-  Value descriptor_;
   std::string api_version_;
   double timeout_seconds_;
   std::unique_ptr<Transport> owned_transport_;

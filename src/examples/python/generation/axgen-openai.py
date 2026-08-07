@@ -1,7 +1,7 @@
 # ax-example:start
-# title: Python Typed Generation
+# title: Python Prompt-Cached Generation
 # group: generation
-# description: Runs a small typed generation program against OpenAI.
+# description: Runs GPT-5.6 structured generation with stable OpenAI prompt-cache affinity.
 # provider: openai
 # env: OPENAI_API_KEY, OPENAI_APIKEY
 # level: beginner
@@ -20,9 +20,13 @@ if not api_key:
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.6-luna"),
     model_config={"temperature": 0},
 )
 program = ax('question:string -> answer:string')
-out = program.forward(client, {"question": "In one sentence, explain Ax as a language-agnostic LLM programming library."})
+out = program.forward(
+    client,
+    {"question": "In one sentence, explain Ax as a language-agnostic LLM programming library."},
+    {"promptCacheKey": "ax-openai-example", "contextCache": {}},
+)
 print(json.dumps(out, indent=2, sort_keys=True))

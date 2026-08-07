@@ -46,7 +46,7 @@ module @ax.ai version "0.1" {
   op ax.ai.record @AxAIServiceOptions {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,sessionId?:string,usageContext?:AxUsageContext"
+    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,sessionId?:string,promptCacheKey?:string,contextCache?:json,usageContext?:AxUsageContext"
   }
 
   op ax.ai.record @AxTokenUsage {
@@ -195,7 +195,7 @@ module @ax.ai version "0.1" {
     type signature = "(AxAIService, AxChatRequest, AxAIServiceOptions?) -> json throws"
     body @entry(%service: AxAIService, %request: AxChatRequest, %options: json) {
       core.call @validate_chat_request(%request)
-      %payload = core.call @openai_build_chat_request(%request)
+      %payload = core.call @openai_build_chat_request(%request, %options, true)
       core.return %payload
     }
   }
@@ -256,7 +256,22 @@ module @ax.ai version "0.1" {
       %out = core.map
       %input_tokens = core.get %usage["input_tokens"] default 0
       %prompt_tokens_snake = core.get %usage["prompt_tokens"] default %input_tokens
-      %prompt_tokens = core.get %usage["promptTokens"] default %prompt_tokens_snake
+      %prompt_tokens_raw = core.get %usage["promptTokens"] default %prompt_tokens_snake
+      %prompt_details_snake = core.get %usage["prompt_tokens_details"]
+      %prompt_details = core.get %usage["input_tokens_details"] default %prompt_details_snake
+      %cached_from_details = core.get %prompt_details["cached_tokens"]
+      %cache_write_from_details = core.get %prompt_details["cache_write_tokens"]
+      %cached_for_math = core.call intrinsic.coalesce(%cached_from_details, 0)
+      %cache_write_for_math = core.call intrinsic.coalesce(%cache_write_from_details, 0)
+      %negative_cached = core.call intrinsic.mul(%cached_for_math, -1)
+      %prompt_without_cached = core.call intrinsic.add(%prompt_tokens_raw, %negative_cached)
+      %negative_cache_write = core.call intrinsic.mul(%cache_write_for_math, -1)
+      %prompt_after_cache = core.call intrinsic.add(%prompt_without_cached, %negative_cache_write)
+      %prompt_is_negative = core.call intrinsic.lt(%prompt_after_cache, 0)
+      %prompt_tokens = core.let %prompt_after_cache
+      core.if %prompt_is_negative {
+        %prompt_tokens = core.let 0
+      }
       %output_tokens = core.get %usage["output_tokens"] default 0
       %completion_tokens_snake = core.get %usage["completion_tokens"] default %output_tokens
       %completion_tokens = core.get %usage["completionTokens"] default %completion_tokens_snake
@@ -272,21 +287,32 @@ module @ax.ai version "0.1" {
       core.if %has_thoughts {
         core.set %out["thoughts_tokens"] = %thoughts_tokens
       }
-      %reasoning_tokens_snake = core.get %usage["reasoning_tokens"]
+      %completion_details_snake = core.get %usage["completion_tokens_details"]
+      %completion_details = core.get %usage["output_tokens_details"] default %completion_details_snake
+      %reasoning_from_details = core.get %completion_details["reasoning_tokens"]
+      %reasoning_tokens_snake = core.get %usage["reasoning_tokens"] default %reasoning_from_details
       %reasoning_tokens = core.get %usage["reasoningTokens"] default %reasoning_tokens_snake
       %has_reasoning = core.call intrinsic.is_not_none(%reasoning_tokens)
       core.if %has_reasoning {
         core.set %out["reasoning_tokens"] = %reasoning_tokens
       }
-      %cache_read_tokens_snake = core.get %usage["cache_read_tokens"]
-      %cache_read_tokens = core.get %usage["cacheReadTokens"] default %cache_read_tokens_snake
-      %has_cache_read = core.call intrinsic.is_not_none(%cache_read_tokens)
+      %direct_cache_read_snake = core.get %usage["cache_read_tokens"]
+      %direct_cache_read = core.get %usage["cacheReadTokens"] default %direct_cache_read_snake
+      %cache_read_tokens = core.call intrinsic.coalesce(%direct_cache_read, %cached_from_details)
+      %cache_read_for_compare = core.call intrinsic.coalesce(%cache_read_tokens, 0)
+      %has_direct_cache_read = core.call intrinsic.is_not_none(%direct_cache_read)
+      %has_positive_cache_read = core.call intrinsic.gt(%cache_read_for_compare, 0)
+      %has_cache_read = core.call intrinsic.or(%has_direct_cache_read, %has_positive_cache_read)
       core.if %has_cache_read {
         core.set %out["cache_read_tokens"] = %cache_read_tokens
       }
-      %cache_creation_tokens_snake = core.get %usage["cache_creation_tokens"]
-      %cache_creation_tokens = core.get %usage["cacheCreationTokens"] default %cache_creation_tokens_snake
-      %has_cache_creation = core.call intrinsic.is_not_none(%cache_creation_tokens)
+      %direct_cache_creation_snake = core.get %usage["cache_creation_tokens"]
+      %direct_cache_creation = core.get %usage["cacheCreationTokens"] default %direct_cache_creation_snake
+      %cache_creation_tokens = core.call intrinsic.coalesce(%direct_cache_creation, %cache_write_from_details)
+      %cache_creation_for_compare = core.call intrinsic.coalesce(%cache_creation_tokens, 0)
+      %has_direct_cache_creation = core.call intrinsic.is_not_none(%direct_cache_creation)
+      %has_positive_cache_creation = core.call intrinsic.gt(%cache_creation_for_compare, 0)
+      %has_cache_creation = core.call intrinsic.or(%has_direct_cache_creation, %has_positive_cache_creation)
       core.if %has_cache_creation {
         core.set %out["cache_creation_tokens"] = %cache_creation_tokens
       }
@@ -591,21 +617,32 @@ module @ax.ai version "0.1" {
     attr emit_module = "ai"
     tag "src/ax/ai/google-gemini/api.ts"
     tag "axai-context-cache-recovery"
-    type signature = "(cache_name:string, ttl_seconds:number, api_key:string, model:string, create_body:json) -> json"
-    body @entry(%cache_name: string, %ttl_seconds: number, %api_key: string, %model: string, %create_body: json) {
+    type signature = "(cache_name:string, ttl_seconds:number, api_key:string, model:string, create_body:json, options?:json) -> json"
+    body @entry(%cache_name: string, %ttl_seconds: number, %api_key: string, %model: string, %create_body: json, %options: json) {
       %ttl = core.call intrinsic.string.format("{}s", %ttl_seconds)
+      %descriptor = core.call @provider_resolve_descriptor("google-gemini", %options)
+      %is_vertex = core.get %descriptor["vertex"] default false
       %api_key_length = core.call intrinsic.len(%api_key)
       %has_key = core.call intrinsic.gt(%api_key_length, 0)
       %create_path = core.let "/cachedContents"
       %update_path = core.call intrinsic.string.format("/{}?updateMask=ttl", %cache_name)
       %delete_path = core.call intrinsic.string.format("/{}", %cache_name)
-      core.if %has_key {
+      %vertex_with_key = core.call intrinsic.and(%has_key, %is_vertex)
+      %not_vertex = core.call intrinsic.not(%vertex_with_key)
+      %developer_with_key = core.call intrinsic.and(%has_key, %not_vertex)
+      core.if %developer_with_key {
         %create_with_key = core.call intrinsic.string.format("/cachedContents?key={}", %api_key)
         %update_with_key = core.call intrinsic.string.format("/{}?updateMask=ttl&key={}", %cache_name, %api_key)
         %delete_with_key = core.call intrinsic.string.format("/{}?key={}", %cache_name, %api_key)
         %create_path = core.let %create_with_key
         %update_path = core.let %update_with_key
         %delete_path = core.let %delete_with_key
+      }
+      core.if %is_vertex {
+        %parent = core.get %descriptor["vertexParent"] default ""
+        %create_path = core.call intrinsic.string.format("/{}/cachedContents", %parent)
+        %update_path = core.call intrinsic.string.format("/{}?updateMask=ttl", %cache_name)
+        %delete_path = core.call intrinsic.string.format("/{}", %cache_name)
       }
       %create_request = core.map
       %create_is_object = core.type_is %create_body type "object"
@@ -615,6 +652,10 @@ module @ax.ai version "0.1" {
         %create_request = core.let %create_copy
       }
       %model_resource = core.call intrinsic.string.format("models/{}", %model)
+      core.if %is_vertex {
+        %parent = core.get %descriptor["vertexParent"] default ""
+        %model_resource = core.call intrinsic.string.format("{}/publishers/google/models/{}", %parent, %model)
+      }
       core.set %create_request["model"] = %model_resource
       core.set %create_request["ttl"] = %ttl
       %update_request = core.map
@@ -624,14 +665,25 @@ module @ax.ai version "0.1" {
       core.set %create["method"] = "POST"
       core.set %create["path"] = %create_path
       core.set %create["request"] = %create_request
+      %cache_base_url = core.get %descriptor["vertexCacheBaseUrl"]
+      %has_cache_base_url = core.call intrinsic.truthy(%cache_base_url)
+      core.if %has_cache_base_url {
+        core.set %create["base_url"] = %cache_base_url
+      }
       %update = core.map
       core.set %update["method"] = "PATCH"
       core.set %update["path"] = %update_path
       core.set %update["request"] = %update_request
+      core.if %has_cache_base_url {
+        core.set %update["base_url"] = %cache_base_url
+      }
       %delete_op = core.map
       core.set %delete_op["method"] = "DELETE"
       core.set %delete_op["path"] = %delete_path
       core.set %delete_op["request"] = %empty_request
+      core.if %has_cache_base_url {
+        core.set %delete_op["base_url"] = %cache_base_url
+      }
       %out = core.map
       core.set %out["create"] = %create
       core.set %out["update"] = %update

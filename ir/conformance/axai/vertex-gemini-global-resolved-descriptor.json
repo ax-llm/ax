@@ -1,0 +1,13 @@
+{
+  "expected_output": {
+    "baseUrl": "https://aiplatform.googleapis.com/v1",
+    "vertexParent": "projects/demo-project/locations/global"
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "vertex-gemini-global-resolved-descriptor",
+  "options": {
+    "project_id": "demo-project",
+    "region": "global"
+  },
+  "provider": "google-gemini"
+}

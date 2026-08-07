@@ -1,0 +1,56 @@
+{
+  "args": [
+    "projects/demo-project/locations/eu/cachedContents/cache-1",
+    3600,
+    "vertex-token",
+    "gemini-3.1-flash-lite",
+    {
+      "systemInstruction": {
+        "parts": [
+          {
+            "text": "stable context"
+          }
+        ]
+      }
+    },
+    {
+      "projectId": "demo-project",
+      "region": "eu"
+    }
+  ],
+  "expected": {
+    "create": {
+      "base_url": "https://aiplatform.eu.rep.googleapis.com/v1",
+      "method": "POST",
+      "path": "/projects/demo-project/locations/eu/cachedContents",
+      "request": {
+        "model": "projects/demo-project/locations/eu/publishers/google/models/gemini-3.1-flash-lite",
+        "systemInstruction": {
+          "parts": [
+            {
+              "text": "stable context"
+            }
+          ]
+        },
+        "ttl": "3600s"
+      }
+    },
+    "delete": {
+      "base_url": "https://aiplatform.eu.rep.googleapis.com/v1",
+      "method": "DELETE",
+      "path": "/projects/demo-project/locations/eu/cachedContents/cache-1",
+      "request": {}
+    },
+    "update": {
+      "base_url": "https://aiplatform.eu.rep.googleapis.com/v1",
+      "method": "PATCH",
+      "path": "/projects/demo-project/locations/eu/cachedContents/cache-1?updateMask=ttl",
+      "request": {
+        "ttl": "3600s"
+      }
+    }
+  },
+  "kind": "ai_context_cache",
+  "name": "vertex-gemini-eu-cache-operations",
+  "operation": "gemini_ops"
+}

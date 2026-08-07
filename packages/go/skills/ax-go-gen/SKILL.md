@@ -31,6 +31,10 @@ program := ax.NewAx("question:string -> answer:string", nil)
 out := program.Forward(llm, map[string]ax.Value{"question": "What is Ax?"}, nil)
 ```
 
+## Provider Forward Options
+
+AxGen merges constructor and per-call forward options before invoking the provider. Provider-facing keys such as `promptCacheKey`, `sessionId`, and `contextCache` therefore reach the chat request without being copied into program inputs. Per-call values override constructor defaults.
+
 ## Relevant API Surface
 
 - AxGen: `axllm.NewAx`, `axllm.AxGen`

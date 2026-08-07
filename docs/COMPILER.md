@@ -182,7 +182,8 @@ language. The runner uses the committed package source under
 data under `src/examples/.generated/`. Internal fixtures cover signatures,
 AxGen, AxAgent, AxFlow, OpenAI Responses audio mapping,
 Grok/Gemini realtime event folding, MCP scripted transports, runtime adapters,
-optimizer artifacts, and GEPA.
+optimizer artifacts, GEPA, OpenAI prompt-cached generation, and Vertex Gemini
+routing.
 
 When compiler output changes, run `npm run axir:generate-packages` and commit
 the refreshed package trees. CI runs `npm run axir:check-packages` so stale
@@ -240,6 +241,21 @@ Provider behavior is descriptor-backed. OpenAI-compatible, OpenAI Responses,
 Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok
 clients use shared Core operation descriptors rather than provider-specific
 target templates.
+
+Core also owns Vertex routing for Gemini and Anthropic. Generated clients accept
+project, region, and optional endpoint identifiers; resolve `global`, `us`,
+`eu`, and regional hosts; preserve explicit base-URL precedence; and use the
+supplied API-key option as a bearer access token. Automatic ADC discovery and
+token refresh remain host responsibilities. The generated provider examples
+use `GOOGLE_VERTEX_ACCESS_TOKEN`, `GOOGLE_PROJECT_ID`, and `GOOGLE_REGION`.
+
+OpenAI Chat prompt caching is Core-owned for GPT-5.6 models. Opted-in requests
+receive stable explicit breakpoints and a prompt cache key, while older models,
+Azure, Responses, and non-caching requests keep their previous shapes. AxGen
+threads merged forward options such as `promptCacheKey` through every generated
+client. Normalized usage and catalog-backed cost estimation distinguish
+uncached prompt, cache-read, and cache-write tokens, including long-context
+pricing thresholds.
 
 Audio and realtime are modeled as provider operations. Core owns request shape,
 audio metadata, event grammar folding, usage folding, error normalization, and

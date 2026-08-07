@@ -1,0 +1,66 @@
+{
+  "expected_transport_request": {
+    "headers": {
+      "Authorization": "Bearer test-key"
+    },
+    "json": {
+      "contents": [
+        {
+          "parts": [
+            {
+              "text": "hi multi-region"
+            }
+          ],
+          "role": "user"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://aiplatform.us.rep.googleapis.com/v1/projects/demo-project/locations/us/publishers/google/models/gemini-3.1-flash-lite:generateContent"
+  },
+  "kind": "ai_chat",
+  "model": "gemini-3.1-flash-lite",
+  "name": "vertex-gemini-us-chat",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi multi-region",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "projectId": "demo-project",
+    "region": "us"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "multi-region ok"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "modelVersion": "gemini-3.1-flash-lite",
+        "responseId": "vertex-gemini-1",
+        "usageMetadata": {
+          "candidatesTokenCount": 2,
+          "promptTokenCount": 2,
+          "totalTokenCount": 4
+        }
+      },
+      "status": 200
+    }
+  ]
+}

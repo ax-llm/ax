@@ -22,7 +22,7 @@ func main() {
 
 	model := os.Getenv("AX_OPENAI_MODEL")
 	if model == "" {
-		model = "gpt-5.4-mini"
+		model = "gpt-5.6-luna"
 	}
 
 	client := ax.NewOpenAICompatibleClient(map[string]ax.Value{
@@ -39,7 +39,10 @@ func main() {
 
 	output, err := program.Forward(ctx, client, map[string]ax.Value{
 		"question": "In one sentence, explain Ax as a language-agnostic LLM programming library.",
-	}, nil)
+	}, map[string]ax.Value{
+		"promptCacheKey": "ax-openai-example",
+		"contextCache":   ax.Object(),
+	})
 	if err != nil {
 		panic(err)
 	}

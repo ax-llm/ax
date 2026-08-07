@@ -61,7 +61,8 @@ public class OpenAICompatibleClient extends AxBaseAI {
       Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))))
     );
     this.profile = profile == null || profile.isBlank() ? "openai-compatible" : profile;
-    this.descriptor = Core.asMap(Core.provider_descriptor(this.profile));
+    Map<String, Object> resolvedOptions = Core.asMap(Core.mapMerge(options, Core.asMap(options.get("options"))));
+    this.descriptor = Core.asMap(Core.provider_resolve_descriptor(this.profile, resolvedOptions));
     String descriptorBaseUrl = String.valueOf(this.descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1"));
     this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", System.getenv().getOrDefault("OPENAI_BASE_URL", descriptorBaseUrl)))).replaceAll("/+$", "");
     this.apiKey = String.valueOf(options.getOrDefault("api_key", options.getOrDefault("apiKey", System.getenv("OPENAI_API_KEY"))));
@@ -71,12 +72,17 @@ public class OpenAICompatibleClient extends AxBaseAI {
     this.transport = options.get("transport") instanceof Transport t ? t : null;
   }
 
+  @Override
+  public double getEstimatedCost(Map<String, Object> modelUsage) {
+    return Core.asDouble(Core.provider_estimate_cost(modelUsage == null ? Map.of() : modelUsage));
+  }
+
   protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) throws Exception {
     Object realtimeModel = request.getOrDefault("model", model);
     if (Boolean.TRUE.equals(Core.provider_should_use_realtime(profile, String.valueOf(realtimeModel), request))) {
       return realtimeChat(request, null);
     }
-    Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, request));
+    Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, request, options));
     Object stream = payload.get("stream");
     if (Boolean.TRUE.equals(stream)) {
       Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
@@ -89,7 +95,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) throws Exception {
-    Map<String, Object> payload = Core.asMap(Core.provider_build_embed_request(profile, request));
+    Map<String, Object> payload = Core.asMap(Core.provider_build_embed_request(profile, request, options));
     Object modelName = request.getOrDefault("embed_model", request.getOrDefault("embedModel", payload.getOrDefault("model", embedModel)));
     Object raw = requestJson(operationPath("embed", modelName), payload, false, "json", false, operationMethod("embed"));
     return Core.asMap(Core.provider_normalize_embed_response(profile, raw, name, modelName));
@@ -148,12 +154,16 @@ public class OpenAICompatibleClient extends AxBaseAI {
     };
     java.util.function.Function<Object,Object> callOp = value -> {
       Map<String,Object> op = Core.asMap(value);
-      try { return requestJson(String.valueOf(op.get("path")), Core.asMap(op.get("request")), false, "json", false, String.valueOf(op.getOrDefault("method", "POST"))); }
+      try {
+        String endpoint = String.valueOf(op.get("path"));
+        if (op.get("base_url") != null) endpoint = String.valueOf(op.get("base_url")).replaceAll("/+$", "") + endpoint;
+        return requestJson(endpoint, Core.asMap(op.get("request")), false, "json", false, String.valueOf(op.getOrDefault("method", "POST")));
+      }
       catch (Exception error) { if (error instanceof RuntimeException runtime) throw runtime; throw new RuntimeException(error); }
     };
     java.util.function.BooleanSupplier create = () -> {
       try {
-        Map<String,Object> ops = Core.asMap(Core.ai_gemini_cache_ops("", ttlSeconds, apiKey, String.valueOf(modelName), cacheBody));
+        Map<String,Object> ops = Core.asMap(Core.ai_gemini_cache_ops("", ttlSeconds, apiKey, String.valueOf(modelName), cacheBody, options));
         Object created = callOp.apply(ops.get("create"));
         cacheName[0] = String.valueOf(Core.asMap(created).getOrDefault("name", ""));
         long expiresAt = expiry.apply(created);
@@ -165,7 +175,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     String action = String.valueOf(plan.getOrDefault("action", "none"));
     if ("refresh".equals(action)) {
       try {
-        Map<String,Object> ops = Core.asMap(Core.ai_gemini_cache_ops(cacheName[0], ttlSeconds, apiKey, String.valueOf(modelName), cacheBody));
+        Map<String,Object> ops = Core.asMap(Core.ai_gemini_cache_ops(cacheName[0], ttlSeconds, apiKey, String.valueOf(modelName), cacheBody, options));
         Object refreshed = callOp.apply(ops.get("update"));
         long expiresAt = expiry.apply(refreshed);
         if (expiresAt == 0) throw new AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", refreshed);
@@ -231,10 +241,10 @@ public class OpenAICompatibleClient extends AxBaseAI {
     modelConfig.put("stream", true);
     req.put("model", req.getOrDefault("model", model));
     req.put("model_config", modelConfig);
-    Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req));
+    Map<String, Object> streamOptions = mergedOptions(Map.of("stream", true));
+    Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req, streamOptions));
     Object modelName = req.getOrDefault("model", payload.getOrDefault("model", model));
     List<Map<String, Object>> events = streamEvents(payload, modelName);
-    Map<String, Object> streamOptions = mergedOptions(Map.of("stream", true));
     AxGlobals.emitUsage("chat", Map.of("results", events), streamOptions, true);
     return events;
   }
@@ -458,14 +468,15 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   private String operationMethod(String operation) {
-    return String.valueOf(Core.asMap(Core.provider_operation_descriptor(profile, operation)).getOrDefault("method", "POST")).toUpperCase(Locale.ROOT);
+    return String.valueOf(Core.asMap(Core.asMap(descriptor.get("operations")).get(operation)).getOrDefault("method", "POST")).toUpperCase(Locale.ROOT);
   }
 
   private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey, boolean binaryResponse, String method) throws Exception {
     Map<String, Object> call = new LinkedHashMap<>();
     method = method == null || method.isBlank() ? "POST" : method.toUpperCase(Locale.ROOT);
     call.put("method", method);
-    call.put("url", baseUrl + endpoint);
+    String requestUrl = endpoint.startsWith("http://") || endpoint.startsWith("https://") ? endpoint : baseUrl + endpoint;
+    call.put("url", requestUrl);
     call.put("headers", headers());
     String resolvedBodyKey = bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey;
     call.put(resolvedBodyKey, payload);
@@ -473,7 +484,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     if (transport != null) return transportResult(transport.call(call), call);
     if (apiKey == null || apiKey.isBlank() || "null".equals(apiKey)) throw new AxAIServiceAuthenticationError("OPENAI_API_KEY is required", null, null, null, call);
     HttpRequest.Builder builder = HttpRequest.newBuilder()
-      .uri(URI.create(baseUrl + endpoint))
+      .uri(URI.create(requestUrl))
       .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)));
     Map<String, Object> requestHeaders = headers();
     HttpRequest.BodyPublisher bodyPublisher;
@@ -581,7 +592,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   private String operationPath(String operation, Object modelName) {
-    Map<String, Object> desc = Core.asMap(Core.provider_operation_descriptor(profile, operation));
+    Map<String, Object> desc = Core.asMap(Core.asMap(descriptor.get("operations")).get(operation));
     String path = String.valueOf(desc.getOrDefault("path", "/" + operation));
     if (modelName != null) {
       path = path.replace("{model}", URLEncoder.encode(String.valueOf(modelName), StandardCharsets.UTF_8));

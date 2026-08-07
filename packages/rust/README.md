@@ -77,9 +77,10 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `cargo run --example mcp_modern_roundtrip`: modern MCP discovery, cache, task, and roots MRTR over an in-process HTTP loopback
 - `cargo run --example context_cache_recovery`: Gemini managed-context-cache recovery through a scripted transport
 
-`provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
+`provider-api` examples make a real provider call. OpenAI examples require `OPENAI_API_KEY`; Vertex examples require `GOOGLE_VERTEX_ACCESS_TOKEN`, `GOOGLE_PROJECT_ID`, and `GOOGLE_REGION`:
 
-- `OPENAI_API_KEY=... cargo run --example axgen_openai_api`: AxGen with a real OpenAI-compatible provider API
+- `OPENAI_API_KEY=... cargo run --example axgen_openai_api`: GPT-5.6 prompt-cached AxGen with the OpenAI Chat API
+- `GOOGLE_VERTEX_ACCESS_TOKEN=... GOOGLE_PROJECT_ID=... GOOGLE_REGION=... cargo run --example vertex_gemini_api`: Gemini through Vertex routing
 - `OPENAI_API_KEY=... cargo run --example flow_openai_api`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents

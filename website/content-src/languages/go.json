@@ -147,6 +147,21 @@
     ]
   },
   "snippetGroups": {
+    "ai": {
+      "vertex": {
+        "sourcePath": "src/examples/go/generation/vertex_gemini.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "client := ax.NewGoogleGeminiClient(map[string]ax.Value{",
+          "    \"api_key\": required(\"GOOGLE_VERTEX_ACCESS_TOKEN\"),",
+          "    \"project_id\": required(\"GOOGLE_PROJECT_ID\"),",
+          "    \"region\": required(\"GOOGLE_REGION\"),",
+          "    \"model\": model,",
+          "})"
+        ]
+      }
+    },
     "signatures": {
       "string": {
         "sourcePath": "src/examples/go/generation/basic_generation.go",

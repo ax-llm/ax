@@ -1,0 +1,45 @@
+{
+  "embed_model": "gemini-embedding-001",
+  "expected_output": {
+    "embeddings": [[0.1, 0.2, 0.3]]
+  },
+  "expected_transport_request": {
+    "headers": {
+      "Authorization": "Bearer test-key"
+    },
+    "json": {
+      "instances": [
+        {
+          "content": "hello world"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://us-central1-aiplatform.googleapis.com/v1/projects/demo-project/locations/us-central1/endpoints/endpoint-42:predict"
+  },
+  "kind": "ai_embed",
+  "name": "vertex-gemini-regional-endpoint-embed",
+  "provider": "google-gemini",
+  "request": {
+    "texts": ["hello world"]
+  },
+  "service_options": {
+    "endpoint_id": "endpoint-42",
+    "project_id": "demo-project",
+    "region": "us-central1"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "predictions": [
+          {
+            "embeddings": {
+              "values": [0.1, 0.2, 0.3]
+            }
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

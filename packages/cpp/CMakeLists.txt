@@ -71,6 +71,7 @@ if(AX_BUILD_EXAMPLES)
     signature_schema
     axgen_scripted_client_tool
     axgen_openai_api
+    vertex_gemini_api
     provider_mapping_no_key
     adaptive_balancer_no_key
     provider_stream_no_key

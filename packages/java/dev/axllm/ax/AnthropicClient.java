@@ -14,8 +14,10 @@ public final class AnthropicClient extends OpenAICompatibleClient {
 
   private static Map<String, Object> normalize(Map<String, Object> options) {
     Map<String, Object> out = new LinkedHashMap<>(options == null ? Map.of() : options);
-    out.putIfAbsent("api_key", System.getenv("ANTHROPIC_API_KEY"));
-    out.putIfAbsent("base_url", System.getenv().getOrDefault("ANTHROPIC_BASE_URL", "https://api.anthropic.com"));
+    boolean vertex = (out.get("project_id") != null || out.get("projectId") != null) && out.get("region") != null;
+    out.putIfAbsent("api_key", vertex ? System.getenv("GOOGLE_VERTEX_ACCESS_TOKEN") : System.getenv("ANTHROPIC_API_KEY"));
+    String baseUrl = System.getenv("ANTHROPIC_BASE_URL");
+    if (baseUrl != null && !baseUrl.isBlank()) out.putIfAbsent("base_url", baseUrl);
     return out;
   }
 }

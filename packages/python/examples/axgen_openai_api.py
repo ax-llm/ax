@@ -10,7 +10,7 @@ if not api_key:
 
 client = OpenAICompatibleClient(
     api_key=api_key,
-    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.4-mini"),
+    model=os.getenv("AX_OPENAI_MODEL", "gpt-5.6-luna"),
     model_config={"temperature": 0},
 )
 program = ax("question:string -> answer:string")
@@ -19,5 +19,6 @@ out = program.forward(
     {
         "question": "In one sentence, explain Ax as a language-agnostic LLM programming library."
     },
+    {"promptCacheKey": "ax-openai-example", "contextCache": {}},
 )
 print(json.dumps(out, indent=2, sort_keys=True))

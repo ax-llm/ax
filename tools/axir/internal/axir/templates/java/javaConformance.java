@@ -23,6 +23,7 @@ public final class Conformance {
     final List<Object> streamEvents;
     final List<Object> transcribeResponses = new ArrayList<>();
     final List<Map<String, Object>> requests = new ArrayList<>();
+    final List<Map<String, Object>> chatOptions = new ArrayList<>();
     int chatCalls;
 
     ConformanceScriptedAI(List<Object> responses, List<Object> streamEvents) {
@@ -34,6 +35,7 @@ public final class Conformance {
     protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) {
       chatCalls++;
       requests.add(new LinkedHashMap<>(request));
+      chatOptions.add(new LinkedHashMap<>(options));
       if (responses.isEmpty()) throw new RuntimeException("scripted client exhausted");
       return Core.legacyResponseToChatResponse(Core.asMap(responses.remove(0)));
     }
@@ -601,7 +603,7 @@ public final class Conformance {
         case "expiry" -> Core.ai_context_cache_expiry(args.get(0), args.get(1));
         case "plan" -> Core.ai_context_cache_plan(args.get(0), args.get(1), args.get(2), args.get(3), args.get(4), args.get(5), args.get(6));
         case "recovery" -> Core.ai_context_cache_recovery(args.get(0), args.get(1), args.get(2));
-        case "gemini_ops" -> Core.ai_gemini_cache_ops(args.get(0), args.get(1), args.get(2), args.get(3), args.get(4));
+        case "gemini_ops" -> Core.ai_gemini_cache_ops(args.get(0), args.get(1), args.get(2), args.get(3), args.get(4), args.size() > 5 ? args.get(5) : null);
         default -> throw new FixtureError("unsupported AI context-cache operation " + operation);
       };
       assertEqual(actual, item.get("expected"), "AI context-cache " + operation + " case " + index++);
@@ -765,6 +767,7 @@ public final class Conformance {
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
     if (Boolean.TRUE.equals(fixture.getOrDefault("expect_chat_path", true)) && client.chatCalls == 0) throw new FixtureError("expected AxGen to use AxAIService.chat()");
     if (fixture.containsKey("expected_request")) assertSubset(client.requests.get(0), fixture.get("expected_request"), "request");
+    if (fixture.containsKey("expected_chat_options_subset")) assertSubset(client.chatOptions.get(0), fixture.get("expected_chat_options_subset"), "chat options");
     if (fixture.containsKey("expected_request_contains")) {
       String text = Json.stringify(client.requests);
       for (Object item : Core.asList(fixture.get("expected_request_contains"))) if (!text.contains(String.valueOf(item))) throw new FixtureError("request missing " + item + ": " + text);
@@ -2060,6 +2063,12 @@ public final class Conformance {
     Object result;
     try { result = cf.client.chat(Core.asMap(fixture.get("request"))); } catch (Exception e) { throw Core.asRuntime(e); }
     if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai chat output");
+    if (fixture.containsKey("expected_request_after")) assertEqual(fixture.get("request"), fixture.get("expected_request_after"), "ai chat input mutation");
+    if (fixture.containsKey("expected_estimated_cost")) {
+      double actualCost = cf.client.getEstimatedCost(Core.asMap(Core.asMap(result).get("model_usage")));
+      double expectedCost = Core.asDouble(fixture.get("expected_estimated_cost"));
+      if (Math.abs(actualCost - expectedCost) > 1e-12) throw new FixtureError("estimated cost mismatch: " + actualCost + " != " + expectedCost);
+    }
     assertTransport(fixture, cf.transport);
   }
 
@@ -2140,7 +2149,10 @@ public final class Conformance {
   }
 
   static void runAIProviderDescriptor(Map<String, Object> fixture) {
-    Object descriptor = Core.provider_descriptor(String.valueOf(fixture.getOrDefault("provider", "openai-compatible")));
+    String provider = String.valueOf(fixture.getOrDefault("provider", "openai-compatible"));
+    Object descriptor = fixture.containsKey("options")
+      ? Core.provider_resolve_descriptor(provider, fixture.get("options"))
+      : Core.provider_descriptor(provider);
     if (fixture.containsKey("expected_output")) assertSubset(descriptor, fixture.get("expected_output"), "provider descriptor");
   }
 

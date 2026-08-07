@@ -152,6 +152,21 @@
     ]
   },
   "snippetGroups": {
+    "ai": {
+      "vertex": {
+        "sourcePath": "src/examples/cpp/generation/vertex_gemini.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "axllm::GoogleGeminiClient client(axllm::object({",
+          "    {\"api_key\", required(\"GOOGLE_VERTEX_ACCESS_TOKEN\")},",
+          "    {\"project_id\", required(\"GOOGLE_PROJECT_ID\")},",
+          "    {\"region\", required(\"GOOGLE_REGION\")},",
+          "    {\"model\", model == nullptr || std::string(model).empty() ? \"gemini-3.5-flash\" : model},",
+          "}));"
+        ]
+      }
+    },
     "signatures": {
       "string": {
         "sourcePath": "src/examples/cpp/generation/basic_generation.cpp",

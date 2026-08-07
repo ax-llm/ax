@@ -242,6 +242,15 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 	routingGuide := ""
 	if spec.ID == "ai" {
 		routingGuide = readmeLines(
+			"## Vertex And Prompt Caching",
+			"",
+			"- Configure Gemini or Anthropic Vertex mode with `projectId` / `project_id` and `region`; optionally select a Vertex endpoint with `endpointId` / `endpoint_id`.",
+			"- In Vertex mode, `apiKey` / `api_key` is a caller-supplied bearer access token. Generated clients may read `GOOGLE_VERTEX_ACCESS_TOKEN`, but automatic ADC and token refresh remain host-owned.",
+			"- Core resolves `global`, `us`, `eu`, and regional Vertex hosts. An explicit `baseUrl` / `base_url` takes precedence.",
+			"- OpenAI GPT-5.6 Chat explicit caching is opt-in through `contextCache` / `context_cache` or message/function cache flags. Use `promptCacheKey` / `prompt_cache_key` for stable affinity; `sessionId` / `session_id` is the fallback.",
+			"- Normalized usage separates uncached prompt, cache-read, and cache-creation tokens. `get_model_cost` / target equivalent uses the shared model catalog, including cache-write pricing and long-context thresholds.",
+			"- Start with the OpenAI prompt-caching and Vertex Gemini examples under `examples/`. Scripted AxAI fixtures verify routing without live credentials.",
+			"",
 			"## Routing And Balancing",
 			"",
 			"- Use the multi-service router when a logical model key selects a configured service or concrete model. It combines model lists; it does not learn from outcomes.",
@@ -252,6 +261,15 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"- Adaptive balancing does not measure answer quality or semantically choose a model. Only group routes that the application already accepts as substitutes.",
 			"- Generated streaming APIs are buffered: a provider error can fail over before the completed result is returned, and success latency is recorded after completion.",
 			"- Start with `examples/adaptive_balancer_no_key` for store/reducer syntax, then use the cataloged provider-backed adaptive-balancer example for a complete two-route setup.",
+			"",
+		) + "\n"
+	}
+	genForwardGuide := ""
+	if spec.ID == "gen" {
+		genForwardGuide = readmeLines(
+			"## Provider Forward Options",
+			"",
+			"AxGen merges constructor and per-call forward options before invoking the provider. Provider-facing keys such as `promptCacheKey`, `sessionId`, and `contextCache` therefore reach the chat request without being copied into program inputs. Per-call values override constructor defaults.",
 			"",
 		) + "\n"
 	}
@@ -329,7 +347,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		skillSnippet(target, spec.ID),
 		"```",
 		"",
-		expandedExamples+routingGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
+		expandedExamples+routingGuide+genForwardGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
 		"",
 		skillAPISurface(apiRef, spec.Sections),
 		"",

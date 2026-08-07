@@ -1,0 +1,25 @@
+{
+  "expected_output": {
+    "auth": "bearer",
+    "baseUrl": "https://aiplatform.eu.rep.googleapis.com/v1",
+    "headers": {
+      "anthropic-beta": "web-search-2025-03-05"
+    },
+    "operations": {
+      "chat": {
+        "path": "/projects/demo-project/locations/eu/publishers/anthropic/models/{model}:rawPredict"
+      },
+      "stream_chat": {
+        "path": "/projects/demo-project/locations/eu/publishers/anthropic/models/{model}:streamRawPredict?alt=sse"
+      }
+    },
+    "vertex": true
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "vertex-anthropic-eu-resolved-descriptor",
+  "options": {
+    "projectId": "demo-project",
+    "region": "eu"
+  },
+  "provider": "anthropic"
+}

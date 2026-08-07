@@ -1,0 +1,86 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": [
+            {
+              "prompt_cache_breakpoint": {
+                "mode": "explicit"
+              },
+              "text": "SYS",
+              "type": "text"
+            }
+          ],
+          "role": "system"
+        },
+        {
+          "content": [
+            {
+              "prompt_cache_breakpoint": {
+                "mode": "explicit"
+              },
+              "text": "TAIL",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "prompt_cache_key": "tail-key",
+      "prompt_cache_options": {
+        "mode": "explicit"
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5.6-luna",
+  "name": "openai-gpt-5-6-explicit-tail-cache-breakpoint",
+  "provider": "openai-compatible",
+  "request": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": "SYS",
+        "role": "system"
+      },
+      {
+        "cache": true,
+        "content": "TAIL",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "prompt_cache_key": "tail-key"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_tail_cache",
+        "model": "gpt-5.6-luna",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "expected_transport_json_absent": ["model"],
+  "expected_transport_request": {
+    "headers": {
+      "anthropic-beta": "web-search-2025-03-05",
+      "Authorization": "Bearer test-key"
+    },
+    "json": {
+      "anthropic_version": "vertex-2023-10-16",
+      "messages": [
+        {
+          "content": "hi vertex anthropic",
+          "role": "user"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://aiplatform.us.rep.googleapis.com/v1/projects/demo-project/locations/us/publishers/anthropic/models/claude-opus-4-8:rawPredict"
+  },
+  "kind": "ai_chat",
+  "model": "claude-opus-4-8",
+  "name": "vertex-anthropic-us-chat",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "hi vertex anthropic",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "projectId": "demo-project",
+    "region": "us"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "id": "vertex-anthropic-1",
+        "model": "claude-opus-4-8",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "type": "message",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1
+        }
+      },
+      "status": 200
+    }
+  ]
+}

@@ -1077,10 +1077,7 @@ Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
   auto it = client_registry().find(id);
   if (it == client_registry().end() || it->second == nullptr) throw AxError("runtime", "client does not implement AIClient");
-  if (auto* service = dynamic_cast<AxAIService*>(it->second)) {
-    return chat_response_to_completion(service->chat(request, options));
-  }
-  return chat_response_to_completion(it->second->chat(request));
+  return chat_response_to_completion(it->second->chat(request, options));
 }
 Value Core::agent_transcribe(Value client, Value request, Value options) {
   // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
@@ -4120,16 +4117,54 @@ Value Core::_prompt_messages_impl(Value system, Value user) {
   return messages;
 }
 
-Value Core::openai_build_chat_request(Value request) {
+Value Core::openai_build_chat_request(Value request, Value options, Value prompt_caching) {
   axir_coverage_mark("openai_build_chat_request");
   Value payload = Value::object();
   Value model = Core::get(request, Value("model"), Value());
   Core::set(payload, Value("model"), model);
   Value messages = Value::array();
   Value chat_prompt = Core::get(request, Value("chat_prompt"), Value());
+  Value message_count = Core::len(chat_prompt);
+  Value last_index = Core::add(message_count, Value(-1));
+  Value has_context_cache_snake = Core::map_contains(options, Value("context_cache"));
+  Value has_context_cache_camel = Core::map_contains(options, Value("contextCache"));
+  Value has_context_cache = Core::or_(has_context_cache_snake, has_context_cache_camel);
+  Value has_cache_flag = Value(false);
+  for (auto raw_message : Core::iter(chat_prompt)) {
+    Value raw_cache = Core::get(raw_message, Value("cache"), Value(false));
+    has_cache_flag = Core::or_(has_cache_flag, raw_cache);
+  }
+  Value empty_functions_for_cache = Value::array();
+  Value functions_for_cache = Core::get(request, Value("functions"), empty_functions_for_cache);
+  for (auto cache_fn : Core::iter(functions_for_cache)) {
+    Value fn_cache = Core::get(cache_fn, Value("cache"), Value(false));
+    has_cache_flag = Core::or_(has_cache_flag, fn_cache);
+  }
+  Value cache_requested = Core::or_(has_context_cache, has_cache_flag);
+  Value is_gpt_56_base = Core::eq(model, Value("gpt-5.6"));
+  Value is_gpt_56_tier = Core::string_starts_with(model, Value("gpt-5.6-"));
+  Value is_gpt_56 = Core::or_(is_gpt_56_base, is_gpt_56_tier);
+  Value cache_provider_and_model = Core::and_(prompt_caching, is_gpt_56);
+  Value cache_enabled = Core::and_(cache_provider_and_model, cache_requested);
+  Value message_index = Value(0);
+  Value marker_count = Value(0);
   for (auto message : Core::iter(chat_prompt)) {
     Value provider_message = Core::_openai_message_impl(message);
+    if (Core::truthy(cache_enabled)) {
+      Value is_before_last = Core::lt(message_index, last_index);
+      Value explicit_cache = Core::get(message, Value("cache"), Value(false));
+      Value should_mark = Core::or_(is_before_last, explicit_cache);
+      if (Core::truthy(should_mark)) {
+        Value marked = Core::_openai_apply_cache_breakpoint_impl(provider_message);
+        provider_message = Core::get(marked, Value("message"), provider_message);
+        Value marker_added = Core::get(marked, Value("marked"), Value(false));
+        if (Core::truthy(marker_added)) {
+          marker_count = Core::add(marker_count, Value(1));
+        }
+      }
+    }
     Core::append(messages, provider_message);
+    message_index = Core::add(message_index, Value(1));
   }
   Core::set(payload, Value("messages"), messages);
   Value empty_functions = Value::array();
@@ -4171,6 +4206,23 @@ Value Core::openai_build_chat_request(Value request) {
   }
   Value model_config = Core::get(request, Value("model_config"), Value());
   Core::_openai_apply_model_config_impl(payload, model_config);
+  if (Core::truthy(cache_enabled)) {
+    Value has_markers = Core::gt(marker_count, Value(0));
+    if (Core::truthy(has_markers)) {
+      Value prompt_cache_options = Value::object();
+      Core::set(prompt_cache_options, Value("mode"), Value("explicit"));
+      Core::set(payload, Value("prompt_cache_options"), prompt_cache_options);
+    }
+    Value prompt_key_snake = Core::get(options, Value("prompt_cache_key"), Value());
+    Value prompt_key = Core::get(options, Value("promptCacheKey"), prompt_key_snake);
+    Value session_snake = Core::get(options, Value("session_id"), Value());
+    Value session = Core::get(options, Value("sessionId"), session_snake);
+    Value resolved_key = Core::coalesce(prompt_key, session);
+    Value has_resolved_key = Core::truthy_value(resolved_key);
+    if (Core::truthy(has_resolved_key)) {
+      Core::set(payload, Value("prompt_cache_key"), resolved_key);
+    }
+  }
   return payload;
 }
 
@@ -4241,6 +4293,176 @@ Value Core::validate_chat_request(Value request) {
   return Value();
 }
 
+Value Core::build_chat_request(Value service, Value request, Value options) {
+  axir_coverage_mark("build_chat_request");
+  Core::validate_chat_request(request);
+  Value payload = Core::openai_build_chat_request(request, options, Value(true));
+  return payload;
+}
+
+Value Core::_openai_apply_cache_breakpoint_impl(Value message) {
+  axir_coverage_mark("_openai_apply_cache_breakpoint_impl");
+  Value out = Value::object();
+  Core::set(out, Value("message"), message);
+  Core::set(out, Value("marked"), Value(false));
+  Value content = Core::get(message, Value("content"), Value());
+  Value content_is_string = Core::type_is(content, Value("string"));
+  if (Core::truthy(content_is_string)) {
+    Value content_length = Core::len(content);
+    Value has_content = Core::gt(content_length, Value(0));
+    if (Core::truthy(has_content)) {
+      Value breakpoint = Value::object();
+      Core::set(breakpoint, Value("mode"), Value("explicit"));
+      Value part = Value::object();
+      Core::set(part, Value("type"), Value("text"));
+      Core::set(part, Value("text"), content);
+      Core::set(part, Value("prompt_cache_breakpoint"), breakpoint);
+      Value parts = Value::array();
+      Core::append(parts, part);
+      Value copy_seed = Value::object();
+      Value message_copy = Core::map_merge(message, copy_seed);
+      Core::set(message_copy, Value("content"), parts);
+      Core::set(out, Value("message"), message_copy);
+      Core::set(out, Value("marked"), Value(true));
+    }
+    return out;
+  }
+  Value content_is_list = Core::type_is(content, Value("list"));
+  if (Core::truthy(content_is_list)) {
+    Value part_count = Core::len(content);
+    Value has_parts = Core::gt(part_count, Value(0));
+    if (Core::truthy(has_parts)) {
+      Value last_part_index = Core::add(part_count, Value(-1));
+      Value part_index = Value(0);
+      Value parts = Value::array();
+      for (auto content_part : Core::iter(content)) {
+        Value is_last_part = Core::eq(part_index, last_part_index);
+        if (Core::truthy(is_last_part)) {
+          Value part_seed = Value::object();
+          Value part_copy = Core::map_merge(content_part, part_seed);
+          Value breakpoint = Value::object();
+          Core::set(breakpoint, Value("mode"), Value("explicit"));
+          Core::set(part_copy, Value("prompt_cache_breakpoint"), breakpoint);
+          Core::append(parts, part_copy);
+        }
+        if (!Core::truthy(is_last_part)) {
+          Core::append(parts, content_part);
+        }
+        part_index = Core::add(part_index, Value(1));
+      }
+      Value message_seed = Value::object();
+      Value message_copy = Core::map_merge(message, message_seed);
+      Core::set(message_copy, Value("content"), parts);
+      Core::set(out, Value("message"), message_copy);
+      Core::set(out, Value("marked"), Value(true));
+    }
+  }
+  return out;
+}
+
+Value Core::normalize_chat_response(Value raw) {
+  axir_coverage_mark("normalize_chat_response");
+  Value response = Core::openai_normalize_chat_response(raw);
+  return response;
+}
+
+Value Core::normalize_stream_delta(Value raw, Value state) {
+  axir_coverage_mark("normalize_stream_delta");
+  Value response = Core::openai_normalize_stream_delta(raw, state);
+  return response;
+}
+
+Value Core::build_embed_request(Value service, Value request, Value options) {
+  axir_coverage_mark("build_embed_request");
+  Value payload = Core::openai_build_embed_request(request);
+  return payload;
+}
+
+Value Core::normalize_embed_response(Value raw) {
+  axir_coverage_mark("normalize_embed_response");
+  Value response = Core::openai_normalize_embed_response(raw);
+  return response;
+}
+
+Value Core::normalize_token_usage(Value usage) {
+  axir_coverage_mark("normalize_token_usage");
+  Value out = Value::object();
+  Value input_tokens = Core::get(usage, Value("input_tokens"), Value(0));
+  Value prompt_tokens_snake = Core::get(usage, Value("prompt_tokens"), input_tokens);
+  Value prompt_tokens_raw = Core::get(usage, Value("promptTokens"), prompt_tokens_snake);
+  Value prompt_details_snake = Core::get(usage, Value("prompt_tokens_details"), Value());
+  Value prompt_details = Core::get(usage, Value("input_tokens_details"), prompt_details_snake);
+  Value cached_from_details = Core::get(prompt_details, Value("cached_tokens"), Value());
+  Value cache_write_from_details = Core::get(prompt_details, Value("cache_write_tokens"), Value());
+  Value cached_for_math = Core::coalesce(cached_from_details, Value(0));
+  Value cache_write_for_math = Core::coalesce(cache_write_from_details, Value(0));
+  Value negative_cached = Core::mul(cached_for_math, Value(-1));
+  Value prompt_without_cached = Core::add(prompt_tokens_raw, negative_cached);
+  Value negative_cache_write = Core::mul(cache_write_for_math, Value(-1));
+  Value prompt_after_cache = Core::add(prompt_without_cached, negative_cache_write);
+  Value prompt_is_negative = Core::lt(prompt_after_cache, Value(0));
+  Value prompt_tokens = prompt_after_cache;
+  if (Core::truthy(prompt_is_negative)) {
+    prompt_tokens = Value(0);
+  }
+  Value output_tokens = Core::get(usage, Value("output_tokens"), Value(0));
+  Value completion_tokens_snake = Core::get(usage, Value("completion_tokens"), output_tokens);
+  Value completion_tokens = Core::get(usage, Value("completionTokens"), completion_tokens_snake);
+  Value computed_total_tokens = Core::add(prompt_tokens, completion_tokens);
+  Value total_tokens_snake = Core::get(usage, Value("total_tokens"), computed_total_tokens);
+  Value total_tokens = Core::get(usage, Value("totalTokens"), total_tokens_snake);
+  Core::set(out, Value("prompt_tokens"), prompt_tokens);
+  Core::set(out, Value("completion_tokens"), completion_tokens);
+  Core::set(out, Value("total_tokens"), total_tokens);
+  Value thoughts_tokens_snake = Core::get(usage, Value("thoughts_tokens"), Value());
+  Value thoughts_tokens = Core::get(usage, Value("thoughtsTokens"), thoughts_tokens_snake);
+  Value has_thoughts = Core::is_not_none(thoughts_tokens);
+  if (Core::truthy(has_thoughts)) {
+    Core::set(out, Value("thoughts_tokens"), thoughts_tokens);
+  }
+  Value completion_details_snake = Core::get(usage, Value("completion_tokens_details"), Value());
+  Value completion_details = Core::get(usage, Value("output_tokens_details"), completion_details_snake);
+  Value reasoning_from_details = Core::get(completion_details, Value("reasoning_tokens"), Value());
+  Value reasoning_tokens_snake = Core::get(usage, Value("reasoning_tokens"), reasoning_from_details);
+  Value reasoning_tokens = Core::get(usage, Value("reasoningTokens"), reasoning_tokens_snake);
+  Value has_reasoning = Core::is_not_none(reasoning_tokens);
+  if (Core::truthy(has_reasoning)) {
+    Core::set(out, Value("reasoning_tokens"), reasoning_tokens);
+  }
+  Value direct_cache_read_snake = Core::get(usage, Value("cache_read_tokens"), Value());
+  Value direct_cache_read = Core::get(usage, Value("cacheReadTokens"), direct_cache_read_snake);
+  Value cache_read_tokens = Core::coalesce(direct_cache_read, cached_from_details);
+  Value cache_read_for_compare = Core::coalesce(cache_read_tokens, Value(0));
+  Value has_direct_cache_read = Core::is_not_none(direct_cache_read);
+  Value has_positive_cache_read = Core::gt(cache_read_for_compare, Value(0));
+  Value has_cache_read = Core::or_(has_direct_cache_read, has_positive_cache_read);
+  if (Core::truthy(has_cache_read)) {
+    Core::set(out, Value("cache_read_tokens"), cache_read_tokens);
+  }
+  Value direct_cache_creation_snake = Core::get(usage, Value("cache_creation_tokens"), Value());
+  Value direct_cache_creation = Core::get(usage, Value("cacheCreationTokens"), direct_cache_creation_snake);
+  Value cache_creation_tokens = Core::coalesce(direct_cache_creation, cache_write_from_details);
+  Value cache_creation_for_compare = Core::coalesce(cache_creation_tokens, Value(0));
+  Value has_direct_cache_creation = Core::is_not_none(direct_cache_creation);
+  Value has_positive_cache_creation = Core::gt(cache_creation_for_compare, Value(0));
+  Value has_cache_creation = Core::or_(has_direct_cache_creation, has_positive_cache_creation);
+  if (Core::truthy(has_cache_creation)) {
+    Core::set(out, Value("cache_creation_tokens"), cache_creation_tokens);
+  }
+  Value service_tier_snake = Core::get(usage, Value("service_tier"), Value());
+  Value service_tier = Core::get(usage, Value("serviceTier"), service_tier_snake);
+  Value has_service_tier = Core::is_not_none(service_tier);
+  if (Core::truthy(has_service_tier)) {
+    Core::set(out, Value("service_tier"), service_tier);
+  }
+  Value speed = Core::get(usage, Value("speed"), Value());
+  Value has_speed = Core::is_not_none(speed);
+  if (Core::truthy(has_speed)) {
+    Core::set(out, Value("speed"), speed);
+  }
+  return out;
+}
+
 Value Core::_openai_apply_model_config_impl(Value payload, Value model_config) {
   axir_coverage_mark("_openai_apply_model_config_impl");
   Core::_openai_copy_config_key_impl(payload, model_config, Value("max_tokens"), Value("max_completion_tokens"));
@@ -4284,13 +4506,6 @@ Value Core::_openai_apply_model_config_impl(Value payload, Value model_config) {
     Core::set(payload, Value("stream_options"), stream_options);
   }
   return Value();
-}
-
-Value Core::build_chat_request(Value service, Value request, Value options) {
-  axir_coverage_mark("build_chat_request");
-  Core::validate_chat_request(request);
-  Value payload = Core::openai_build_chat_request(request);
-  return payload;
 }
 
 Value Core::openai_reasoning_effort(Value model, Value budget) {
@@ -4337,28 +4552,83 @@ Value Core::openai_reasoning_effort(Value model, Value budget) {
   return Value("high");
 }
 
-Value Core::normalize_chat_response(Value raw) {
-  axir_coverage_mark("normalize_chat_response");
-  Value response = Core::openai_normalize_chat_response(raw);
-  return response;
+Value Core::merge_usage_context(Value defaults, Value overrides) {
+  axir_coverage_mark("merge_usage_context");
+  Value merged = Core::map_merge(defaults, overrides);
+  Value default_attributes = Core::get(defaults, Value("attributes"), Value());
+  Value override_attributes = Core::get(overrides, Value("attributes"), Value());
+  Value attributes = Core::map_merge(default_attributes, override_attributes);
+  Value has_attributes = Core::truthy_value(attributes);
+  if (Core::truthy(has_attributes)) {
+    Core::set(merged, Value("attributes"), attributes);
+  }
+  return merged;
 }
 
-Value Core::normalize_stream_delta(Value raw, Value state) {
-  axir_coverage_mark("normalize_stream_delta");
-  Value response = Core::openai_normalize_stream_delta(raw, state);
-  return response;
-}
-
-Value Core::build_embed_request(Value service, Value request, Value options) {
-  axir_coverage_mark("build_embed_request");
-  Value payload = Core::openai_build_embed_request(request);
-  return payload;
-}
-
-Value Core::normalize_embed_response(Value raw) {
-  axir_coverage_mark("normalize_embed_response");
-  Value response = Core::openai_normalize_embed_response(raw);
-  return response;
+Value Core::build_usage_event(Value operation, Value response, Value options, Value streaming) {
+  axir_coverage_mark("build_usage_event");
+  Value model_usage_snake = Core::get(response, Value("model_usage"), Value());
+  Value top_model_usage = Core::get(response, Value("modelUsage"), model_usage_snake);
+  Value model_usage = top_model_usage;
+  Value results = Core::get(response, Value("results"), Value());
+  for (auto result : Core::iter(results)) {
+    Value result_usage_snake = Core::get(result, Value("model_usage"), Value());
+    Value result_usage = Core::get(result, Value("modelUsage"), result_usage_snake);
+    Value has_result_usage = Core::truthy_value(result_usage);
+    if (Core::truthy(has_result_usage)) {
+      model_usage = result_usage;
+    }
+  }
+  Value tokens = Core::get(model_usage, Value("tokens"), Value());
+  Value has_tokens = Core::truthy_value(tokens);
+  Value missing_tokens = Core::not_(has_tokens);
+  if (Core::truthy(missing_tokens)) {
+    Value none = Core::none();
+    return none;
+  }
+  Value event = Value::object();
+  Core::set(event, Value("operation"), operation);
+  Value ai_name = Core::get(model_usage, Value("ai"), Value());
+  Value model = Core::get(model_usage, Value("model"), Value());
+  Value normalized_tokens = Core::normalize_token_usage(tokens);
+  Core::set(event, Value("ai"), ai_name);
+  Core::set(event, Value("model"), model);
+  Core::set(event, Value("tokens"), normalized_tokens);
+  Core::set(event, Value("streaming"), streaming);
+  Value usage_context_snake = Core::get(options, Value("usage_context"), Value());
+  Value usage_context = Core::get(options, Value("usageContext"), usage_context_snake);
+  Value has_context = Core::truthy_value(usage_context);
+  if (Core::truthy(has_context)) {
+    Core::set(event, Value("context"), usage_context);
+  }
+  Value option_session_snake = Core::get(options, Value("session_id"), Value());
+  Value option_session = Core::get(options, Value("sessionId"), option_session_snake);
+  Value response_session_snake = Core::get(response, Value("session_id"), Value());
+  Value response_session = Core::get(response, Value("sessionId"), response_session_snake);
+  Value session_id = Core::coalesce(response_session, option_session);
+  Value has_session_id = Core::is_not_none(session_id);
+  if (Core::truthy(has_session_id)) {
+    Core::set(event, Value("sessionId"), session_id);
+  }
+  Value remote_id_snake = Core::get(response, Value("remote_id"), Value());
+  Value remote_id = Core::get(response, Value("remoteId"), remote_id_snake);
+  Value has_remote_id = Core::is_not_none(remote_id);
+  if (Core::truthy(has_remote_id)) {
+    Core::set(event, Value("remoteId"), remote_id);
+  }
+  Value remote_request_id_snake = Core::get(response, Value("remote_request_id"), Value());
+  Value remote_request_id = Core::get(response, Value("remoteRequestId"), remote_request_id_snake);
+  Value has_remote_request_id = Core::is_not_none(remote_request_id);
+  if (Core::truthy(has_remote_request_id)) {
+    Core::set(event, Value("remoteRequestId"), remote_request_id);
+  }
+  Value remote_session_id_snake = Core::get(response, Value("remote_session_id"), Value());
+  Value remote_session_id = Core::get(response, Value("remoteSessionId"), remote_session_id_snake);
+  Value has_remote_session_id = Core::is_not_none(remote_session_id);
+  if (Core::truthy(has_remote_session_id)) {
+    Core::set(event, Value("remoteSessionId"), remote_session_id);
+  }
+  return event;
 }
 
 Value Core::openai_chat_reasoning_effort(Value model, Value budget) {
@@ -4369,59 +4639,6 @@ Value Core::openai_chat_reasoning_effort(Value model, Value budget) {
     return Value("xhigh");
   }
   return effort;
-}
-
-Value Core::normalize_token_usage(Value usage) {
-  axir_coverage_mark("normalize_token_usage");
-  Value out = Value::object();
-  Value input_tokens = Core::get(usage, Value("input_tokens"), Value(0));
-  Value prompt_tokens_snake = Core::get(usage, Value("prompt_tokens"), input_tokens);
-  Value prompt_tokens = Core::get(usage, Value("promptTokens"), prompt_tokens_snake);
-  Value output_tokens = Core::get(usage, Value("output_tokens"), Value(0));
-  Value completion_tokens_snake = Core::get(usage, Value("completion_tokens"), output_tokens);
-  Value completion_tokens = Core::get(usage, Value("completionTokens"), completion_tokens_snake);
-  Value computed_total_tokens = Core::add(prompt_tokens, completion_tokens);
-  Value total_tokens_snake = Core::get(usage, Value("total_tokens"), computed_total_tokens);
-  Value total_tokens = Core::get(usage, Value("totalTokens"), total_tokens_snake);
-  Core::set(out, Value("prompt_tokens"), prompt_tokens);
-  Core::set(out, Value("completion_tokens"), completion_tokens);
-  Core::set(out, Value("total_tokens"), total_tokens);
-  Value thoughts_tokens_snake = Core::get(usage, Value("thoughts_tokens"), Value());
-  Value thoughts_tokens = Core::get(usage, Value("thoughtsTokens"), thoughts_tokens_snake);
-  Value has_thoughts = Core::is_not_none(thoughts_tokens);
-  if (Core::truthy(has_thoughts)) {
-    Core::set(out, Value("thoughts_tokens"), thoughts_tokens);
-  }
-  Value reasoning_tokens_snake = Core::get(usage, Value("reasoning_tokens"), Value());
-  Value reasoning_tokens = Core::get(usage, Value("reasoningTokens"), reasoning_tokens_snake);
-  Value has_reasoning = Core::is_not_none(reasoning_tokens);
-  if (Core::truthy(has_reasoning)) {
-    Core::set(out, Value("reasoning_tokens"), reasoning_tokens);
-  }
-  Value cache_read_tokens_snake = Core::get(usage, Value("cache_read_tokens"), Value());
-  Value cache_read_tokens = Core::get(usage, Value("cacheReadTokens"), cache_read_tokens_snake);
-  Value has_cache_read = Core::is_not_none(cache_read_tokens);
-  if (Core::truthy(has_cache_read)) {
-    Core::set(out, Value("cache_read_tokens"), cache_read_tokens);
-  }
-  Value cache_creation_tokens_snake = Core::get(usage, Value("cache_creation_tokens"), Value());
-  Value cache_creation_tokens = Core::get(usage, Value("cacheCreationTokens"), cache_creation_tokens_snake);
-  Value has_cache_creation = Core::is_not_none(cache_creation_tokens);
-  if (Core::truthy(has_cache_creation)) {
-    Core::set(out, Value("cache_creation_tokens"), cache_creation_tokens);
-  }
-  Value service_tier_snake = Core::get(usage, Value("service_tier"), Value());
-  Value service_tier = Core::get(usage, Value("serviceTier"), service_tier_snake);
-  Value has_service_tier = Core::is_not_none(service_tier);
-  if (Core::truthy(has_service_tier)) {
-    Core::set(out, Value("service_tier"), service_tier);
-  }
-  Value speed = Core::get(usage, Value("speed"), Value());
-  Value has_speed = Core::is_not_none(speed);
-  if (Core::truthy(has_speed)) {
-    Core::set(out, Value("speed"), speed);
-  }
-  return out;
 }
 
 Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target) {
@@ -4508,83 +4725,50 @@ Value Core::_openai_message_impl(Value message) {
   throw Core::as_error(error);
 }
 
-Value Core::merge_usage_context(Value defaults, Value overrides) {
-  axir_coverage_mark("merge_usage_context");
-  Value merged = Core::map_merge(defaults, overrides);
-  Value default_attributes = Core::get(defaults, Value("attributes"), Value());
-  Value override_attributes = Core::get(overrides, Value("attributes"), Value());
-  Value attributes = Core::map_merge(default_attributes, override_attributes);
-  Value has_attributes = Core::truthy_value(attributes);
-  if (Core::truthy(has_attributes)) {
-    Core::set(merged, Value("attributes"), attributes);
-  }
-  return merged;
-}
-
-Value Core::build_usage_event(Value operation, Value response, Value options, Value streaming) {
-  axir_coverage_mark("build_usage_event");
-  Value model_usage_snake = Core::get(response, Value("model_usage"), Value());
-  Value top_model_usage = Core::get(response, Value("modelUsage"), model_usage_snake);
-  Value model_usage = top_model_usage;
-  Value results = Core::get(response, Value("results"), Value());
-  for (auto result : Core::iter(results)) {
-    Value result_usage_snake = Core::get(result, Value("model_usage"), Value());
-    Value result_usage = Core::get(result, Value("modelUsage"), result_usage_snake);
-    Value has_result_usage = Core::truthy_value(result_usage);
-    if (Core::truthy(has_result_usage)) {
-      model_usage = result_usage;
-    }
-  }
-  Value tokens = Core::get(model_usage, Value("tokens"), Value());
-  Value has_tokens = Core::truthy_value(tokens);
-  Value missing_tokens = Core::not_(has_tokens);
-  if (Core::truthy(missing_tokens)) {
+Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
+  axir_coverage_mark("_ai_model_usage_impl");
+  Value has_usage = Core::truthy_value(usage);
+  Value missing_usage = Core::not_(has_usage);
+  if (Core::truthy(missing_usage)) {
     Value none = Core::none();
     return none;
   }
-  Value event = Value::object();
-  Core::set(event, Value("operation"), operation);
-  Value ai_name = Core::get(model_usage, Value("ai"), Value());
-  Value model = Core::get(model_usage, Value("model"), Value());
-  Value normalized_tokens = Core::normalize_token_usage(tokens);
-  Core::set(event, Value("ai"), ai_name);
-  Core::set(event, Value("model"), model);
-  Core::set(event, Value("tokens"), normalized_tokens);
-  Core::set(event, Value("streaming"), streaming);
-  Value usage_context_snake = Core::get(options, Value("usage_context"), Value());
-  Value usage_context = Core::get(options, Value("usageContext"), usage_context_snake);
-  Value has_context = Core::truthy_value(usage_context);
-  if (Core::truthy(has_context)) {
-    Core::set(event, Value("context"), usage_context);
+  Value tokens = Core::normalize_token_usage(usage);
+  Value out = Value::object();
+  Core::set(out, Value("ai"), ai_name);
+  Core::set(out, Value("model"), model);
+  Core::set(out, Value("tokens"), tokens);
+  return out;
+}
+
+Value Core::chat_response_to_completion(Value response) {
+  axir_coverage_mark("chat_response_to_completion");
+  Value empty_results = Value::array();
+  Value results = Core::get(response, Value("results"), empty_results);
+  Value empty_result = Value::object();
+  Value result = Core::list_get(results, Value(0), empty_result);
+  Value content = Core::get(result, Value("content"), Value(""));
+  Value calls = Value::array();
+  Value empty_calls = Value::array();
+  Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
+  for (auto call : Core::iter(function_calls)) {
+    Value fn = Core::get(call, Value("function"), Value());
+    Value id = Core::get(call, Value("id"), Value());
+    Value name = Core::get(fn, Value("name"), Value());
+    Value params = Core::get(fn, Value("params"), Value());
+    Value compat_call = Value::object();
+    Core::set(compat_call, Value("id"), id);
+    Core::set(compat_call, Value("name"), name);
+    Core::set(compat_call, Value("params"), params);
+    Core::append(calls, compat_call);
   }
-  Value option_session_snake = Core::get(options, Value("session_id"), Value());
-  Value option_session = Core::get(options, Value("sessionId"), option_session_snake);
-  Value response_session_snake = Core::get(response, Value("session_id"), Value());
-  Value response_session = Core::get(response, Value("sessionId"), response_session_snake);
-  Value session_id = Core::coalesce(response_session, option_session);
-  Value has_session_id = Core::is_not_none(session_id);
-  if (Core::truthy(has_session_id)) {
-    Core::set(event, Value("sessionId"), session_id);
-  }
-  Value remote_id_snake = Core::get(response, Value("remote_id"), Value());
-  Value remote_id = Core::get(response, Value("remoteId"), remote_id_snake);
-  Value has_remote_id = Core::is_not_none(remote_id);
-  if (Core::truthy(has_remote_id)) {
-    Core::set(event, Value("remoteId"), remote_id);
-  }
-  Value remote_request_id_snake = Core::get(response, Value("remote_request_id"), Value());
-  Value remote_request_id = Core::get(response, Value("remoteRequestId"), remote_request_id_snake);
-  Value has_remote_request_id = Core::is_not_none(remote_request_id);
-  if (Core::truthy(has_remote_request_id)) {
-    Core::set(event, Value("remoteRequestId"), remote_request_id);
-  }
-  Value remote_session_id_snake = Core::get(response, Value("remote_session_id"), Value());
-  Value remote_session_id = Core::get(response, Value("remoteSessionId"), remote_session_id_snake);
-  Value has_remote_session_id = Core::is_not_none(remote_session_id);
-  if (Core::truthy(has_remote_session_id)) {
-    Core::set(event, Value("remoteSessionId"), remote_session_id);
-  }
-  return event;
+  Value model_usage = Core::get(response, Value("model_usage"), Value());
+  Value usage = Core::get(model_usage, Value("tokens"), Value());
+  Value out = Value::object();
+  Core::set(out, Value("content"), content);
+  Core::set(out, Value("function_calls"), calls);
+  Core::set(out, Value("usage"), usage);
+  return out;
 }
 
 Value Core::_openai_content_part_impl(Value part) {
@@ -4649,94 +4833,6 @@ Value Core::_openai_content_part_impl(Value part) {
   throw Core::as_error(error);
 }
 
-Value Core::_ai_model_usage_impl(Value ai_name, Value model, Value usage) {
-  axir_coverage_mark("_ai_model_usage_impl");
-  Value has_usage = Core::truthy_value(usage);
-  Value missing_usage = Core::not_(has_usage);
-  if (Core::truthy(missing_usage)) {
-    Value none = Core::none();
-    return none;
-  }
-  Value tokens = Core::normalize_token_usage(usage);
-  Value out = Value::object();
-  Core::set(out, Value("ai"), ai_name);
-  Core::set(out, Value("model"), model);
-  Core::set(out, Value("tokens"), tokens);
-  return out;
-}
-
-Value Core::chat_response_to_completion(Value response) {
-  axir_coverage_mark("chat_response_to_completion");
-  Value empty_results = Value::array();
-  Value results = Core::get(response, Value("results"), empty_results);
-  Value empty_result = Value::object();
-  Value result = Core::list_get(results, Value(0), empty_result);
-  Value content = Core::get(result, Value("content"), Value(""));
-  Value calls = Value::array();
-  Value empty_calls = Value::array();
-  Value function_calls = Core::get(result, Value("function_calls"), empty_calls);
-  for (auto call : Core::iter(function_calls)) {
-    Value fn = Core::get(call, Value("function"), Value());
-    Value id = Core::get(call, Value("id"), Value());
-    Value name = Core::get(fn, Value("name"), Value());
-    Value params = Core::get(fn, Value("params"), Value());
-    Value compat_call = Value::object();
-    Core::set(compat_call, Value("id"), id);
-    Core::set(compat_call, Value("name"), name);
-    Core::set(compat_call, Value("params"), params);
-    Core::append(calls, compat_call);
-  }
-  Value model_usage = Core::get(response, Value("model_usage"), Value());
-  Value usage = Core::get(model_usage, Value("tokens"), Value());
-  Value out = Value::object();
-  Core::set(out, Value("content"), content);
-  Core::set(out, Value("function_calls"), calls);
-  Core::set(out, Value("usage"), usage);
-  return out;
-}
-
-Value Core::_openai_tool_call_to_provider_impl(Value call) {
-  axir_coverage_mark("_openai_tool_call_to_provider_impl");
-  Value fn = Core::get(call, Value("function"), Value());
-  Value params = Core::get(fn, Value("params"), Value());
-  Value params_is_string = Core::type_is(params, Value("string"));
-  if (Core::truthy(params_is_string)) {
-    // empty
-  }
-  if (!Core::truthy(params_is_string)) {
-    Value params_json = Core::json_stringify(params);
-    params = params_json;
-  }
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(fn, Value("name"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("arguments"), params);
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
-}
-
-Value Core::_openai_tool_spec_impl(Value fn) {
-  axir_coverage_mark("_openai_tool_spec_impl");
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value(""));
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("description"), description);
-  Value has_parameters = Core::truthy_value(parameters);
-  if (Core::truthy(has_parameters)) {
-    Core::set(function, Value("parameters"), parameters);
-  }
-  Value out = Value::object();
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
-}
-
 Value Core::ai_context_cache_rejection(Value status, Value body_json) {
   axir_coverage_mark("ai_context_cache_rejection");
   Value status_400_min = Core::gte(status, Value(400));
@@ -4767,23 +4863,6 @@ Value Core::ai_context_cache_rejection(Value status, Value body_json) {
   return out;
 }
 
-Value Core::openai_build_embed_request(Value request) {
-  axir_coverage_mark("openai_build_embed_request");
-  Value embed_model_snake = Core::get(request, Value("embed_model"), Value());
-  Value model = Core::get(request, Value("embedModel"), embed_model_snake);
-  Value empty_texts = Value::array();
-  Value texts = Core::get(request, Value("texts"), empty_texts);
-  Value payload = Value::object();
-  Core::set(payload, Value("model"), model);
-  Core::set(payload, Value("input"), texts);
-  Value dimensions = Core::get(request, Value("dimensions"), Value());
-  Value has_dimensions = Core::truthy_value(dimensions);
-  if (Core::truthy(has_dimensions)) {
-    Core::set(payload, Value("dimensions"), dimensions);
-  }
-  return payload;
-}
-
 Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
   axir_coverage_mark("ai_context_cache_expiry");
   Value is_number = Core::type_is(provider_expire_time, Value("number"));
@@ -4794,45 +4873,6 @@ Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
     }
   }
   return Value(0);
-}
-
-Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model) {
-  axir_coverage_mark("openai_normalize_chat_response");
-  Value raw_is_object = Core::type_is(raw, Value("object"));
-  Value raw_not_object = Core::not_(raw_is_object);
-  if (Core::truthy(raw_not_object)) {
-    Value error = Core::ai_error_response(Value("provider response must be a JSON object"), raw);
-    throw Core::as_error(error);
-  }
-  Value provider_error = Core::get(raw, Value("error"), Value());
-  Value has_provider_error = Core::truthy_value(provider_error);
-  if (Core::truthy(has_provider_error)) {
-    Value message = Core::get(provider_error, Value("message"), Value("provider response error"));
-    Value error = Core::ai_error_response(message, raw);
-    throw Core::as_error(error);
-  }
-  Value choices = Core::get(raw, Value("choices"), Value());
-  Value choices_is_list = Core::type_is(choices, Value("list"));
-  Value bad_choices = Core::not_(choices_is_list);
-  if (Core::truthy(bad_choices)) {
-    Value error = Core::ai_error_response(Value("provider response missing choices"), raw);
-    throw Core::as_error(error);
-  }
-  Value results = Value::array();
-  for (auto choice : Core::iter(choices)) {
-    Value result = Core::_openai_normalize_choice_impl(choice, raw);
-    Core::append(results, result);
-  }
-  Value raw_model = Core::get(raw, Value("model"), Value());
-  Value used_model = Core::coalesce(raw_model, model);
-  Value usage = Core::get(raw, Value("usage"), Value());
-  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
-  Value remote_id = Core::get(raw, Value("id"), Value());
-  Value out = Value::object();
-  Core::set(out, Value("results"), results);
-  Core::set(out, Value("remote_id"), remote_id);
-  Core::set(out, Value("model_usage"), model_usage);
-  return out;
 }
 
 Value Core::ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible) {
@@ -4881,6 +4921,203 @@ Value Core::ai_context_cache_plan(Value configured, Value supported, Value expli
   return out;
 }
 
+Value Core::_openai_tool_call_to_provider_impl(Value call) {
+  axir_coverage_mark("_openai_tool_call_to_provider_impl");
+  Value fn = Core::get(call, Value("function"), Value());
+  Value params = Core::get(fn, Value("params"), Value());
+  Value params_is_string = Core::type_is(params, Value("string"));
+  if (Core::truthy(params_is_string)) {
+    // empty
+  }
+  if (!Core::truthy(params_is_string)) {
+    Value params_json = Core::json_stringify(params);
+    params = params_json;
+  }
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(fn, Value("name"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("arguments"), params);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
+  return out;
+}
+
+Value Core::_openai_tool_spec_impl(Value fn) {
+  axir_coverage_mark("_openai_tool_spec_impl");
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value(""));
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("description"), description);
+  Value has_parameters = Core::truthy_value(parameters);
+  if (Core::truthy(has_parameters)) {
+    Core::set(function, Value("parameters"), parameters);
+  }
+  Value out = Value::object();
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
+  return out;
+}
+
+Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry) {
+  axir_coverage_mark("ai_context_cache_recovery");
+  Value out = Value::object();
+  Core::set(out, Value("invalidated"), Value(false));
+  Core::set(out, Value("deleteInMemory"), Value(false));
+  Value entry_object = Core::type_is(current_entry, Value("object"));
+  if (Core::truthy(entry_object)) {
+    Value current_name = Core::get(current_entry, Value("cacheName"), Value(""));
+    Value matches = Core::eq(current_name, cache_name);
+    if (Core::truthy(matches)) {
+      Core::set(out, Value("invalidated"), Value(true));
+      if (Core::truthy(external_registry)) {
+        Value empty = Value::object();
+        Value tombstone = Core::map_merge(current_entry, empty);
+        Core::set(tombstone, Value("expiresAt"), Value(0));
+        Core::set(out, Value("externalEntry"), tombstone);
+      }
+      if (!Core::truthy(external_registry)) {
+        Core::set(out, Value("deleteInMemory"), Value(true));
+      }
+    }
+  }
+  return out;
+}
+
+Value Core::openai_build_embed_request(Value request) {
+  axir_coverage_mark("openai_build_embed_request");
+  Value embed_model_snake = Core::get(request, Value("embed_model"), Value());
+  Value model = Core::get(request, Value("embedModel"), embed_model_snake);
+  Value empty_texts = Value::array();
+  Value texts = Core::get(request, Value("texts"), empty_texts);
+  Value payload = Value::object();
+  Core::set(payload, Value("model"), model);
+  Core::set(payload, Value("input"), texts);
+  Value dimensions = Core::get(request, Value("dimensions"), Value());
+  Value has_dimensions = Core::truthy_value(dimensions);
+  if (Core::truthy(has_dimensions)) {
+    Core::set(payload, Value("dimensions"), dimensions);
+  }
+  return payload;
+}
+
+Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options) {
+  axir_coverage_mark("ai_gemini_cache_ops");
+  Value ttl = Core::string_format(Value("{}s"), ttl_seconds);
+  Value descriptor = Core::provider_resolve_descriptor(Value("google-gemini"), options);
+  Value is_vertex = Core::get(descriptor, Value("vertex"), Value(false));
+  Value api_key_length = Core::len(api_key);
+  Value has_key = Core::gt(api_key_length, Value(0));
+  Value create_path = Value("/cachedContents");
+  Value update_path = Core::string_format(Value("/{}?updateMask=ttl"), cache_name);
+  Value delete_path = Core::string_format(Value("/{}"), cache_name);
+  Value vertex_with_key = Core::and_(has_key, is_vertex);
+  Value not_vertex = Core::not_(vertex_with_key);
+  Value developer_with_key = Core::and_(has_key, not_vertex);
+  if (Core::truthy(developer_with_key)) {
+    Value create_with_key = Core::string_format(Value("/cachedContents?key={}"), api_key);
+    Value update_with_key = Core::string_format(Value("/{}?updateMask=ttl&key={}"), cache_name, api_key);
+    Value delete_with_key = Core::string_format(Value("/{}?key={}"), cache_name, api_key);
+    create_path = create_with_key;
+    update_path = update_with_key;
+    delete_path = delete_with_key;
+  }
+  if (Core::truthy(is_vertex)) {
+    Value parent = Core::get(descriptor, Value("vertexParent"), Value(""));
+    create_path = Core::string_format(Value("/{}/cachedContents"), parent);
+    update_path = Core::string_format(Value("/{}?updateMask=ttl"), cache_name);
+    delete_path = Core::string_format(Value("/{}"), cache_name);
+  }
+  Value create_request = Value::object();
+  Value create_is_object = Core::type_is(create_body, Value("object"));
+  if (Core::truthy(create_is_object)) {
+    Value empty = Value::object();
+    Value create_copy = Core::map_merge(create_body, empty);
+    create_request = create_copy;
+  }
+  Value model_resource = Core::string_format(Value("models/{}"), model);
+  if (Core::truthy(is_vertex)) {
+    Value parent = Core::get(descriptor, Value("vertexParent"), Value(""));
+    model_resource = Core::string_format(Value("{}/publishers/google/models/{}"), parent, model);
+  }
+  Core::set(create_request, Value("model"), model_resource);
+  Core::set(create_request, Value("ttl"), ttl);
+  Value update_request = Value::object();
+  Core::set(update_request, Value("ttl"), ttl);
+  Value empty_request = Value::object();
+  Value create = Value::object();
+  Core::set(create, Value("method"), Value("POST"));
+  Core::set(create, Value("path"), create_path);
+  Core::set(create, Value("request"), create_request);
+  Value cache_base_url = Core::get(descriptor, Value("vertexCacheBaseUrl"), Value());
+  Value has_cache_base_url = Core::truthy_value(cache_base_url);
+  if (Core::truthy(has_cache_base_url)) {
+    Core::set(create, Value("base_url"), cache_base_url);
+  }
+  Value update = Value::object();
+  Core::set(update, Value("method"), Value("PATCH"));
+  Core::set(update, Value("path"), update_path);
+  Core::set(update, Value("request"), update_request);
+  if (Core::truthy(has_cache_base_url)) {
+    Core::set(update, Value("base_url"), cache_base_url);
+  }
+  Value delete_op = Value::object();
+  Core::set(delete_op, Value("method"), Value("DELETE"));
+  Core::set(delete_op, Value("path"), delete_path);
+  Core::set(delete_op, Value("request"), empty_request);
+  if (Core::truthy(has_cache_base_url)) {
+    Core::set(delete_op, Value("base_url"), cache_base_url);
+  }
+  Value out = Value::object();
+  Core::set(out, Value("create"), create);
+  Core::set(out, Value("update"), update);
+  Core::set(out, Value("delete"), delete_op);
+  return out;
+}
+
+Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model) {
+  axir_coverage_mark("openai_normalize_chat_response");
+  Value raw_is_object = Core::type_is(raw, Value("object"));
+  Value raw_not_object = Core::not_(raw_is_object);
+  if (Core::truthy(raw_not_object)) {
+    Value error = Core::ai_error_response(Value("provider response must be a JSON object"), raw);
+    throw Core::as_error(error);
+  }
+  Value provider_error = Core::get(raw, Value("error"), Value());
+  Value has_provider_error = Core::truthy_value(provider_error);
+  if (Core::truthy(has_provider_error)) {
+    Value message = Core::get(provider_error, Value("message"), Value("provider response error"));
+    Value error = Core::ai_error_response(message, raw);
+    throw Core::as_error(error);
+  }
+  Value choices = Core::get(raw, Value("choices"), Value());
+  Value choices_is_list = Core::type_is(choices, Value("list"));
+  Value bad_choices = Core::not_(choices_is_list);
+  if (Core::truthy(bad_choices)) {
+    Value error = Core::ai_error_response(Value("provider response missing choices"), raw);
+    throw Core::as_error(error);
+  }
+  Value results = Value::array();
+  for (auto choice : Core::iter(choices)) {
+    Value result = Core::_openai_normalize_choice_impl(choice, raw);
+    Core::append(results, result);
+  }
+  Value raw_model = Core::get(raw, Value("model"), Value());
+  Value used_model = Core::coalesce(raw_model, model);
+  Value usage = Core::get(raw, Value("usage"), Value());
+  Value model_usage = Core::_ai_model_usage_impl(ai_name, used_model, usage);
+  Value remote_id = Core::get(raw, Value("id"), Value());
+  Value out = Value::object();
+  Core::set(out, Value("results"), results);
+  Core::set(out, Value("remote_id"), remote_id);
+  Core::set(out, Value("model_usage"), model_usage);
+  return out;
+}
+
 Value Core::_openai_normalize_choice_impl(Value choice, Value raw) {
   axir_coverage_mark("_openai_normalize_choice_impl");
   Value empty_message = Value::object();
@@ -4916,31 +5153,6 @@ Value Core::_openai_normalize_choice_impl(Value choice, Value raw) {
   return out;
 }
 
-Value Core::ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry) {
-  axir_coverage_mark("ai_context_cache_recovery");
-  Value out = Value::object();
-  Core::set(out, Value("invalidated"), Value(false));
-  Core::set(out, Value("deleteInMemory"), Value(false));
-  Value entry_object = Core::type_is(current_entry, Value("object"));
-  if (Core::truthy(entry_object)) {
-    Value current_name = Core::get(current_entry, Value("cacheName"), Value(""));
-    Value matches = Core::eq(current_name, cache_name);
-    if (Core::truthy(matches)) {
-      Core::set(out, Value("invalidated"), Value(true));
-      if (Core::truthy(external_registry)) {
-        Value empty = Value::object();
-        Value tombstone = Core::map_merge(current_entry, empty);
-        Core::set(tombstone, Value("expiresAt"), Value(0));
-        Core::set(out, Value("externalEntry"), tombstone);
-      }
-      if (!Core::truthy(external_registry)) {
-        Core::set(out, Value("deleteInMemory"), Value(true));
-      }
-    }
-  }
-  return out;
-}
-
 Value Core::_openai_normalize_tool_calls_impl(Value calls) {
   axir_coverage_mark("_openai_normalize_tool_calls_impl");
   Value out = Value::array();
@@ -4968,54 +5180,6 @@ Value Core::_openai_normalize_tool_calls_impl(Value calls) {
     Core::set(normalized, Value("function"), function);
     Core::append(out, normalized);
   }
-  return out;
-}
-
-Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body) {
-  axir_coverage_mark("ai_gemini_cache_ops");
-  Value ttl = Core::string_format(Value("{}s"), ttl_seconds);
-  Value api_key_length = Core::len(api_key);
-  Value has_key = Core::gt(api_key_length, Value(0));
-  Value create_path = Value("/cachedContents");
-  Value update_path = Core::string_format(Value("/{}?updateMask=ttl"), cache_name);
-  Value delete_path = Core::string_format(Value("/{}"), cache_name);
-  if (Core::truthy(has_key)) {
-    Value create_with_key = Core::string_format(Value("/cachedContents?key={}"), api_key);
-    Value update_with_key = Core::string_format(Value("/{}?updateMask=ttl&key={}"), cache_name, api_key);
-    Value delete_with_key = Core::string_format(Value("/{}?key={}"), cache_name, api_key);
-    create_path = create_with_key;
-    update_path = update_with_key;
-    delete_path = delete_with_key;
-  }
-  Value create_request = Value::object();
-  Value create_is_object = Core::type_is(create_body, Value("object"));
-  if (Core::truthy(create_is_object)) {
-    Value empty = Value::object();
-    Value create_copy = Core::map_merge(create_body, empty);
-    create_request = create_copy;
-  }
-  Value model_resource = Core::string_format(Value("models/{}"), model);
-  Core::set(create_request, Value("model"), model_resource);
-  Core::set(create_request, Value("ttl"), ttl);
-  Value update_request = Value::object();
-  Core::set(update_request, Value("ttl"), ttl);
-  Value empty_request = Value::object();
-  Value create = Value::object();
-  Core::set(create, Value("method"), Value("POST"));
-  Core::set(create, Value("path"), create_path);
-  Core::set(create, Value("request"), create_request);
-  Value update = Value::object();
-  Core::set(update, Value("method"), Value("PATCH"));
-  Core::set(update, Value("path"), update_path);
-  Core::set(update, Value("request"), update_request);
-  Value delete_op = Value::object();
-  Core::set(delete_op, Value("method"), Value("DELETE"));
-  Core::set(delete_op, Value("path"), delete_path);
-  Core::set(delete_op, Value("request"), empty_request);
-  Value out = Value::object();
-  Core::set(out, Value("create"), create);
-  Core::set(out, Value("update"), update);
-  Core::set(out, Value("delete"), delete_op);
   return out;
 }
 
@@ -5272,6 +5436,121 @@ Value Core::provider_model_catalog(Value options) {
     selected = Core::get(registry, Value("all"), Value());
   }
   return selected;
+}
+
+Value Core::provider_estimate_cost(Value model_usage) {
+  axir_coverage_mark("provider_estimate_cost");
+  Value has_usage = Core::truthy_value(model_usage);
+  if (Core::truthy(has_usage)) {
+    // empty
+  }
+  if (!Core::truthy(has_usage)) {
+    return Value(0);
+  }
+  Value model = Core::get(model_usage, Value("model"), Value(""));
+  Value model_present = Core::truthy_value(model);
+  if (Core::truthy(model_present)) {
+    // empty
+  }
+  if (!Core::truthy(model_present)) {
+    return Value(0);
+  }
+  Value ai_raw = Core::get(model_usage, Value("ai"), Value("openai"));
+  Value ai_lower = Core::string_lower(ai_raw);
+  Value provider_name = ai_lower;
+  Value is_openai_compatible = Core::eq(ai_lower, Value("openai-compatible"));
+  if (Core::truthy(is_openai_compatible)) {
+    provider_name = Value("openai");
+  }
+  Value is_google_name = Core::eq(ai_lower, Value("googlegeminiai"));
+  if (Core::truthy(is_google_name)) {
+    provider_name = Value("google-gemini");
+  }
+  Value catalog = Core::_provider_model_catalog_registry();
+  Value providers = Core::get(catalog, Value("all"), Value());
+  Value model_info = Core::none();
+  Value empty_aliases = Value::array();
+  for (auto provider : Core::iter(providers)) {
+    Value catalog_provider_name = Core::get(provider, Value("name"), Value(""));
+    Value provider_matches = Core::eq(catalog_provider_name, provider_name);
+    if (Core::truthy(provider_matches)) {
+      Value models = Core::get(provider, Value("models"), Value());
+      for (auto candidate : Core::iter(models)) {
+        Value candidate_name = Core::get(candidate, Value("name"), Value(""));
+        Value name_matches = Core::eq(candidate_name, model);
+        Value aliases = Core::get(candidate, Value("aliases"), empty_aliases);
+        Value alias_matches = Core::contains(aliases, model);
+        Value matches = Core::or_(name_matches, alias_matches);
+        if (Core::truthy(matches)) {
+          model_info = candidate;
+        }
+      }
+    }
+  }
+  Value has_model_info = Core::truthy_value(model_info);
+  if (Core::truthy(has_model_info)) {
+    // empty
+  }
+  if (!Core::truthy(has_model_info)) {
+    return Value(0);
+  }
+  Value tokens = Core::get(model_usage, Value("tokens"), Value());
+  Value has_tokens = Core::truthy_value(tokens);
+  if (Core::truthy(has_tokens)) {
+    // empty
+  }
+  if (!Core::truthy(has_tokens)) {
+    return Value(0);
+  }
+  Value prompt_snake = Core::get(tokens, Value("prompt_tokens"), Value(0));
+  Value prompt = Core::get(tokens, Value("promptTokens"), prompt_snake);
+  Value completion_snake = Core::get(tokens, Value("completion_tokens"), Value(0));
+  Value completion = Core::get(tokens, Value("completionTokens"), completion_snake);
+  Value thoughts_snake = Core::get(tokens, Value("thoughts_tokens"), Value(0));
+  Value thoughts = Core::get(tokens, Value("thoughtsTokens"), thoughts_snake);
+  Value cache_read_snake = Core::get(tokens, Value("cache_read_tokens"), Value(0));
+  Value cache_read = Core::get(tokens, Value("cacheReadTokens"), cache_read_snake);
+  Value cache_creation_snake = Core::get(tokens, Value("cache_creation_tokens"), Value(0));
+  Value cache_creation = Core::get(tokens, Value("cacheCreationTokens"), cache_creation_snake);
+  Value input_base = Core::add(prompt, cache_read);
+  Value total_input = Core::add(input_base, cache_creation);
+  Value threshold_raw = Core::get(model_info, Value("longContextThreshold"), Value());
+  Value has_threshold = Core::is_not_none(threshold_raw);
+  Value threshold = Core::coalesce(threshold_raw, Value(0));
+  Value above_threshold = Core::gt(total_input, threshold);
+  Value long_context = Core::and_(has_threshold, above_threshold);
+  Value speed = Core::get(tokens, Value("speed"), Value(""));
+  Value fast = Core::eq(speed, Value("fast"));
+  Value base_prompt_price = Core::get(model_info, Value("promptTokenCostPer1M"), Value(0));
+  Value base_completion_price = Core::get(model_info, Value("completionTokenCostPer1M"), Value(0));
+  Value prompt_price = base_prompt_price;
+  Value completion_price = base_completion_price;
+  Value cache_read_price = Core::get(model_info, Value("cacheReadTokenCostPer1M"), base_prompt_price);
+  Value cache_write_price = Core::get(model_info, Value("cacheWriteTokenCostPer1M"), base_prompt_price);
+  if (Core::truthy(long_context)) {
+    prompt_price = Core::get(model_info, Value("longContextPromptTokenCostPer1M"), base_prompt_price);
+    completion_price = Core::get(model_info, Value("longContextCompletionTokenCostPer1M"), base_completion_price);
+    cache_read_price = Core::get(model_info, Value("longContextCacheReadTokenCostPer1M"), cache_read_price);
+  }
+  if (Core::truthy(fast)) {
+    prompt_price = Core::get(model_info, Value("fastPromptTokenCostPer1M"), base_prompt_price);
+    completion_price = Core::get(model_info, Value("fastCompletionTokenCostPer1M"), base_completion_price);
+    cache_read_price = Core::get(model_info, Value("fastCacheReadTokenCostPer1M"), cache_read_price);
+    cache_write_price = Core::get(model_info, Value("fastCacheWriteTokenCostPer1M"), cache_write_price);
+  }
+  Value total_output = Core::add(completion, thoughts);
+  Value prompt_cost_raw = Core::mul(prompt, prompt_price);
+  Value prompt_cost = Core::div(prompt_cost_raw, Value(1000000));
+  Value completion_cost_raw = Core::mul(total_output, completion_price);
+  Value completion_cost = Core::div(completion_cost_raw, Value(1000000));
+  Value cache_read_cost_raw = Core::mul(cache_read, cache_read_price);
+  Value cache_read_cost = Core::div(cache_read_cost_raw, Value(1000000));
+  Value cache_write_cost_raw = Core::mul(cache_creation, cache_write_price);
+  Value cache_write_cost = Core::div(cache_write_cost_raw, Value(1000000));
+  Value input_cost = Core::add(prompt_cost, cache_read_cost);
+  Value cache_cost = Core::add(input_cost, cache_write_cost);
+  Value total_cost = Core::add(cache_cost, completion_cost);
+  return total_cost;
 }
 
 Value Core::provider_route_request_requirements(Value request) {
@@ -6449,9 +6728,132 @@ Value Core::provider_descriptor(Value profile) {
   return descriptor;
 }
 
+Value Core::provider_resolve_descriptor(Value profile, Value options) {
+  axir_coverage_mark("provider_resolve_descriptor");
+  Value descriptor = Core::provider_descriptor(profile);
+  Value provider_id = Core::provider_normalize_profile(profile);
+  Value project_snake = Core::get(options, Value("project_id"), Value());
+  Value project = Core::get(options, Value("projectId"), project_snake);
+  Value region = Core::get(options, Value("region"), Value());
+  Value project_present = Core::truthy_value(project);
+  Value region_present = Core::truthy_value(region);
+  Value is_vertex = Core::and_(project_present, region_present);
+  if (Core::truthy(is_vertex)) {
+    Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
+    Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
+    Value vertex_provider = Core::or_(is_gemini, is_anthropic);
+    if (Core::truthy(vertex_provider)) {
+      Value host = Core::resolve_vertex_ai_host(region);
+      Value base_override_snake = Core::get(options, Value("base_url"), Value());
+      Value base_override = Core::get(options, Value("baseUrl"), base_override_snake);
+      Value has_base_override = Core::truthy_value(base_override);
+      Value base_url = base_override;
+      if (Core::truthy(has_base_override)) {
+        // empty
+      }
+      if (!Core::truthy(has_base_override)) {
+        Value beta = Core::get(options, Value("beta"), Value(false));
+        Value use_beta = Core::truthy_value(beta);
+        Value version = Value("v1");
+        if (Core::truthy(use_beta)) {
+          version = Value("v1beta1");
+        }
+        base_url = Core::string_format(Value("https://{}/{}"), host, version);
+      }
+      Core::set(descriptor, Value("baseUrl"), base_url);
+      Core::set(descriptor, Value("auth"), Value("bearer"));
+      Core::map_delete(descriptor, Value("apiKeyQuery"));
+      Value operations = Core::get(descriptor, Value("operations"), Value());
+      Value resource_parent = Core::string_format(Value("projects/{}/locations/{}"), project, region);
+      Value parent = Core::string_format(Value("/{}"), resource_parent);
+      if (Core::truthy(is_gemini)) {
+        Value endpoint_snake = Core::get(options, Value("endpoint_id"), Value());
+        Value endpoint = Core::get(options, Value("endpointId"), endpoint_snake);
+        Value has_endpoint = Core::truthy_value(endpoint);
+        Value model_prefix_raw = Core::string_format(Value("{}/publishers/google/models/MODEL_TOKEN"), parent);
+        Value model_prefix = Core::string_replace(model_prefix_raw, Value("MODEL_TOKEN"), Value("{model}"));
+        Value embed_prefix = model_prefix;
+        if (Core::truthy(has_endpoint)) {
+          model_prefix = Core::string_format(Value("{}/endpoints/{}"), parent, endpoint);
+          embed_prefix = model_prefix;
+        }
+        Value chat_path = Core::string_format(Value("{}:generateContent"), model_prefix);
+        Value stream_path = Core::string_format(Value("{}:streamGenerateContent?alt=sse"), model_prefix);
+        Value embed_path = Core::string_format(Value("{}:predict"), embed_prefix);
+        Value chat = Core::get(operations, Value("chat"), Value());
+        Value stream_chat = Core::get(operations, Value("stream_chat"), Value());
+        Value embed = Core::get(operations, Value("embed"), Value());
+        Value transcribe = Core::get(operations, Value("transcribe"), Value());
+        Value speak = Core::get(operations, Value("speak"), Value());
+        Core::set(chat, Value("path"), chat_path);
+        Core::set(stream_chat, Value("path"), stream_path);
+        Core::set(embed, Value("path"), embed_path);
+        Core::set(transcribe, Value("path"), chat_path);
+        Core::set(speak, Value("path"), chat_path);
+        Value headers = Value::object();
+        Core::set(descriptor, Value("headers"), headers);
+        Core::set(descriptor, Value("vertex"), Value(true));
+        Core::set(descriptor, Value("vertexParent"), resource_parent);
+        Value cache_base_url = Core::string_format(Value("https://{}/v1"), host);
+        if (Core::truthy(has_base_override)) {
+          cache_base_url = base_override;
+        }
+        Core::set(descriptor, Value("vertexCacheBaseUrl"), cache_base_url);
+      }
+      if (!Core::truthy(is_gemini)) {
+        Value model_path_raw = Core::string_format(Value("{}/publishers/anthropic/models/MODEL_TOKEN:rawPredict"), parent);
+        Value model_path = Core::string_replace(model_path_raw, Value("MODEL_TOKEN"), Value("{model}"));
+        Value stream_model_path_raw = Core::string_format(Value("{}/publishers/anthropic/models/MODEL_TOKEN:streamRawPredict?alt=sse"), parent);
+        Value stream_model_path = Core::string_replace(stream_model_path_raw, Value("MODEL_TOKEN"), Value("{model}"));
+        Value chat = Core::get(operations, Value("chat"), Value());
+        Value stream_chat = Core::get(operations, Value("stream_chat"), Value());
+        Core::set(chat, Value("path"), model_path);
+        Core::set(stream_chat, Value("path"), stream_model_path);
+        Value headers = Value::object();
+        Core::set(headers, Value("anthropic-beta"), Value("web-search-2025-03-05"));
+        Core::set(descriptor, Value("headers"), headers);
+        Core::set(descriptor, Value("vertex"), Value(true));
+      }
+      Core::set(descriptor, Value("operations"), operations);
+    }
+  }
+  return descriptor;
+}
+
+Value Core::resolve_vertex_ai_host(Value region) {
+  axir_coverage_mark("resolve_vertex_ai_host");
+  Value is_global = Core::eq(region, Value("global"));
+  if (Core::truthy(is_global)) {
+    return Value("aiplatform.googleapis.com");
+  }
+  Value is_us = Core::eq(region, Value("us"));
+  Value is_eu = Core::eq(region, Value("eu"));
+  Value is_multi = Core::or_(is_us, is_eu);
+  if (Core::truthy(is_multi)) {
+    Value multi_host = Core::string_format(Value("aiplatform.{}.rep.googleapis.com"), region);
+    return multi_host;
+  }
+  Value regional_host = Core::string_format(Value("{}-aiplatform.googleapis.com"), region);
+  return regional_host;
+}
+
 Value Core::provider_operation_descriptor(Value profile, Value operation) {
   axir_coverage_mark("provider_operation_descriptor");
   Value descriptor = Core::provider_descriptor(profile);
+  Value operations = Core::get(descriptor, Value("operations"), Value());
+  Value operation_desc = Core::get(operations, operation, Value());
+  Value missing = Core::is_none(operation_desc);
+  if (Core::truthy(missing)) {
+    Value message = Core::string_format(Value("provider operation is not supported: {}"), operation);
+    Value error = Core::ai_error_unsupported(message);
+    throw Core::as_error(error);
+  }
+  return operation_desc;
+}
+
+Value Core::provider_resolve_operation_descriptor(Value profile, Value operation, Value options) {
+  axir_coverage_mark("provider_resolve_operation_descriptor");
+  Value descriptor = Core::provider_resolve_descriptor(profile, options);
   Value operations = Core::get(descriptor, Value("operations"), Value());
   Value operation_desc = Core::get(operations, operation, Value());
   Value missing = Core::is_none(operation_desc);
@@ -6875,7 +7277,7 @@ Value Core::_openai_realtime_content_parts_impl(Value content) {
   return parts;
 }
 
-Value Core::provider_build_chat_request(Value profile, Value request) {
+Value Core::provider_build_chat_request(Value profile, Value request, Value options) {
   axir_coverage_mark("provider_build_chat_request");
   Value provider_id = Core::provider_normalize_profile(profile);
   Value is_responses = Core::eq(provider_id, Value("openai-responses"));
@@ -6894,10 +7296,17 @@ Value Core::provider_build_chat_request(Value profile, Value request) {
     if (!Core::truthy(is_gemini)) {
       if (Core::truthy(is_anthropic)) {
         Value anthropic_payload = Core::_anthropic_build_chat_request(request);
+        Value descriptor = Core::provider_resolve_descriptor(provider_id, options);
+        Value is_vertex = Core::get(descriptor, Value("vertex"), Value(false));
+        if (Core::truthy(is_vertex)) {
+          Core::map_delete(anthropic_payload, Value("model"));
+          Core::set(anthropic_payload, Value("anthropic_version"), Value("vertex-2023-10-16"));
+        }
         payload = anthropic_payload;
       }
       if (!Core::truthy(is_anthropic)) {
-        Value compatible_payload = Core::openai_build_chat_request(request);
+        Value is_official_openai = Core::eq(provider_id, Value("openai-compatible"));
+        Value compatible_payload = Core::openai_build_chat_request(request, options, is_official_openai);
         payload = compatible_payload;
       }
     }
@@ -7152,14 +7561,24 @@ Value Core::_provider_apply_grok_chat_quirks(Value payload, Value request, Value
   return payload;
 }
 
-Value Core::provider_build_embed_request(Value profile, Value request) {
+Value Core::provider_build_embed_request(Value profile, Value request, Value options) {
   axir_coverage_mark("provider_build_embed_request");
   Value provider_id = Core::provider_normalize_profile(profile);
   Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
   Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
   Value payload = Value::object();
   if (Core::truthy(is_gemini)) {
-    Value gemini_payload = Core::_gemini_build_embed_request(request);
+    Value descriptor = Core::provider_resolve_descriptor(provider_id, options);
+    Value is_vertex = Core::get(descriptor, Value("vertex"), Value(false));
+    Value gemini_payload = Value::object();
+    if (Core::truthy(is_vertex)) {
+      Value vertex_payload = Core::_gemini_build_vertex_embed_request(request, options);
+      gemini_payload = vertex_payload;
+    }
+    if (!Core::truthy(is_vertex)) {
+      Value developer_payload = Core::_gemini_build_embed_request(request);
+      gemini_payload = developer_payload;
+    }
     payload = gemini_payload;
   }
   if (!Core::truthy(is_gemini)) {
@@ -8578,6 +8997,40 @@ Value Core::_gemini_build_embed_request(Value request) {
     Core::append(requests, item);
   }
   Core::set(payload, Value("requests"), requests);
+  return payload;
+}
+
+Value Core::_gemini_build_vertex_embed_request(Value request, Value options) {
+  axir_coverage_mark("_gemini_build_vertex_embed_request");
+  Value payload = Value::object();
+  Value instances = Value::array();
+  Value empty_texts = Value::array();
+  Value texts = Core::get(request, Value("texts"), empty_texts);
+  for (auto text : Core::iter(texts)) {
+    Value instance = Value::object();
+    Core::set(instance, Value("content"), text);
+    Value task_type_snake = Core::get(options, Value("embed_type"), Value());
+    Value task_type = Core::get(options, Value("embedType"), task_type_snake);
+    Value has_task_type = Core::truthy_value(task_type);
+    if (Core::truthy(has_task_type)) {
+      Core::set(instance, Value("taskType"), task_type);
+    }
+    Core::append(instances, instance);
+  }
+  Core::set(payload, Value("instances"), instances);
+  Value parameters = Value::object();
+  Value auto_truncate_snake = Core::get(options, Value("auto_truncate"), Value());
+  Value auto_truncate = Core::get(options, Value("autoTruncate"), auto_truncate_snake);
+  Value has_auto_truncate = Core::is_not_none(auto_truncate);
+  if (Core::truthy(has_auto_truncate)) {
+    Core::set(parameters, Value("autoTruncate"), auto_truncate);
+  }
+  Value dimensions = Core::get(request, Value("dimensions"), Value());
+  Value has_dimensions = Core::is_not_none(dimensions);
+  if (Core::truthy(has_dimensions)) {
+    Core::set(parameters, Value("outputDimensionality"), dimensions);
+  }
+  Core::set(payload, Value("parameters"), parameters);
   return payload;
 }
 
@@ -25294,8 +25747,8 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
           Core::get(options, "model_config", Value::object()),
           Core::map_merge(options, Core::get(options, "options", Value::object()))),
       profile_(std::move(profile)),
-      descriptor_(Core::provider_descriptor(profile_)),
-      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", env_or_default("OPENAI_BASE_URL", str(Core::get(Core::provider_descriptor(profile_), "baseUrl", "https://api.openai.com/v1")))))),
+      descriptor_(Core::provider_resolve_descriptor(profile_, Core::map_merge(options, Core::get(options, "options", Value::object())))),
+      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", env_or_default("OPENAI_BASE_URL", str(Core::get(descriptor_, "baseUrl", "https://api.openai.com/v1")))))),
       api_key_(option_string(options, "api_key", "apiKey", env_or_default("OPENAI_API_KEY", ""))),
       api_version_(option_string(options, "api_version", "apiVersion", str(Core::get(descriptor_, "apiVersion", "")))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),
@@ -25309,19 +25762,27 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
 OpenAIResponsesClient::OpenAIResponsesClient(Value options, Transport* transport)
     : OpenAICompatibleClient("openai-responses", "openai-responses", std::move(options), transport, "gpt-4o", "text-embedding-ada-002") {}
 
+double OpenAICompatibleClient::get_estimated_cost(Value model_usage) {
+  return num(Core::provider_estimate_cost(std::move(model_usage)));
+}
+
 GoogleGeminiClient::GoogleGeminiClient(Value options, Transport* transport)
     : OpenAICompatibleClient("google-gemini", "GoogleGeminiAI", [&]() {
         Value out = std::move(options);
-        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("GOOGLE_API_KEY", env_or_default("GEMINI_API_KEY", "")));
-        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("GOOGLE_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"));
+        bool vertex = (!Core::get(out, "project_id").is_null() || !Core::get(out, "projectId").is_null()) && !Core::get(out, "region").is_null();
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", vertex ? env_or_default("GOOGLE_VERTEX_ACCESS_TOKEN", "") : env_or_default("GOOGLE_API_KEY", env_or_default("GEMINI_API_KEY", "")));
+        std::string base = env_or_default("GOOGLE_GEMINI_BASE_URL", "");
+        if (!base.empty() && Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", base);
         return out;
       }(), transport, "gemini-2.5-flash", "gemini-embedding-2") {}
 
 AnthropicClient::AnthropicClient(Value options, Transport* transport)
     : OpenAICompatibleClient("anthropic", "anthropic", [&]() {
         Value out = std::move(options);
-        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("ANTHROPIC_API_KEY", ""));
-        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com"));
+        bool vertex = (!Core::get(out, "project_id").is_null() || !Core::get(out, "projectId").is_null()) && !Core::get(out, "region").is_null();
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", vertex ? env_or_default("GOOGLE_VERTEX_ACCESS_TOKEN", "") : env_or_default("ANTHROPIC_API_KEY", ""));
+        std::string base = env_or_default("ANTHROPIC_BASE_URL", "");
+        if (!base.empty() && Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", base);
         return out;
       }(), transport, "claude-3-7-sonnet-latest", "") {}
 
@@ -25451,10 +25912,15 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
   auto now_ms = []() { return static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()); };
   Value plan = Core::ai_context_cache_plan(true, true, "", get_entry(), now_ms(), refresh_window_ms, eligible);
   std::string cache_name = str(Core::get(plan, "cacheName", ""));
-  auto call_op = [&](Value op) { return request_json(str(Core::get(op, "path")), Core::get(op, "request", Value::object()), false, "json", false, str(Core::get(op, "method", "POST"))); };
+  auto call_op = [&](Value op) {
+    std::string endpoint = str(Core::get(op, "path"));
+    Value op_base = Core::get(op, "base_url");
+    if (!op_base.is_null()) endpoint = strip_trailing_slashes(str(op_base)) + endpoint;
+    return request_json(endpoint, Core::get(op, "request", Value::object()), false, "json", false, str(Core::get(op, "method", "POST")));
+  };
   auto create = [&]() {
     try {
-      Value ops = Core::ai_gemini_cache_ops("", ttl_seconds, api_key_, model, cache_body);
+      Value ops = Core::ai_gemini_cache_ops("", ttl_seconds, api_key_, model, cache_body, options);
       Value created = call_op(Core::get(ops, "create")); cache_name = str(Core::get(created, "name", "")); double expires_at = ax_context_cache_expiry_ms(created);
       if (cache_name.empty() || expires_at <= now_ms()) return false;
       set_entry(object({{"cacheName", cache_name}, {"expiresAt", expires_at}})); return true;
@@ -25463,7 +25929,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
   std::string action = str(Core::get(plan, "action", "none"));
   if (action == "refresh") {
     try {
-      Value ops = Core::ai_gemini_cache_ops(cache_name, ttl_seconds, api_key_, model, cache_body); Value refreshed = call_op(Core::get(ops, "update")); double expires_at = ax_context_cache_expiry_ms(refreshed);
+      Value ops = Core::ai_gemini_cache_ops(cache_name, ttl_seconds, api_key_, model, cache_body, options); Value refreshed = call_op(Core::get(ops, "update")); double expires_at = ax_context_cache_expiry_ms(refreshed);
       if (expires_at <= now_ms()) throw AxError("ai_service", "Gemini cache refresh omitted a future expireTime");
       set_entry(object({{"cacheName", cache_name}, {"expiresAt", expires_at}}));
     } catch (const AxError&) { if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat")); }
@@ -25490,8 +25956,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request))) {
     return realtime_chat(request, nullptr);
   }
-  (void)options;
-  Value payload = Core::provider_build_chat_request(profile_, request);
+  Value payload = Core::provider_build_chat_request(profile_, request, options);
   bool stream = Core::truthy(Core::get(payload, "stream"));
   if (stream) {
     Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
@@ -25510,8 +25975,8 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   return Core::provider_normalize_chat_response(profile_, raw, name_, model);
 }
 
-Value OpenAICompatibleClient::do_embed(Value request, Value) {
-  Value payload = Core::provider_build_embed_request(profile_, request);
+Value OpenAICompatibleClient::do_embed(Value request, Value options) {
+  Value payload = Core::provider_build_embed_request(profile_, request, options);
   Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
   Value raw = request_json(operation_path("embed", model), payload, false, "json", false, operation_method("embed"));
   return Core::provider_normalize_embed_response(profile_, raw, name_, model);
@@ -25524,7 +25989,7 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
   Core::set(config, "stream", true);
   Core::set(req, "model", Core::coalesce(Core::get(req, "model"), model_));
   Core::set(req, "model_config", config);
-  Value payload = Core::provider_build_chat_request(profile_, req);
+  Value payload = Core::provider_build_chat_request(profile_, req, options_);
   Value model = Core::get(req, "model", Core::get(payload, "model", model_));
   Value retry_cfg = Core::resolve_stream_retry(options_);
   int max_retries = static_cast<int>(num(Core::get(retry_cfg, "max_retries", 3)));
@@ -25799,13 +26264,15 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
 }
 
 std::string OpenAICompatibleClient::operation_method(const std::string& operation) const {
-  return str(Core::get(Core::provider_operation_descriptor(profile_, operation), "method", "POST"));
+  Value operation_descriptor = Core::get(Core::get(descriptor_, "operations", Value::object()), operation, Value::object());
+  return str(Core::get(operation_descriptor, "method", "POST"));
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
   Value call = Value::object();
   Core::set(call, "method", method.empty() ? "POST" : method);
-  Core::set(call, "url", base_url_ + endpoint);
+  bool absolute = endpoint.rfind("http://", 0) == 0 || endpoint.rfind("https://", 0) == 0;
+  Core::set(call, "url", absolute ? endpoint : base_url_ + endpoint);
   Core::set(call, "headers", headers());
   Core::set(call, body_key.empty() ? "json" : body_key, payload);
   Core::set(call, "stream", stream);
@@ -25822,7 +26289,8 @@ std::string OpenAICompatibleClient::operation_path(const std::string& operation)
 }
 
 std::string OpenAICompatibleClient::operation_path(const std::string& operation, Value model) const {
-  std::string path = str(Core::get(Core::provider_operation_descriptor(profile_, operation), "path", "/" + operation));
+  Value operation_descriptor = Core::get(Core::get(descriptor_, "operations", Value::object()), operation, Value::object());
+  std::string path = str(Core::get(operation_descriptor, "path", "/" + operation));
   if (!model.is_null()) {
     std::string token = "{model}";
     std::string::size_type pos = 0;

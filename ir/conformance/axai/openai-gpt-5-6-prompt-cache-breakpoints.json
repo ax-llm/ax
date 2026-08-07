@@ -1,0 +1,120 @@
+{
+  "expected_request_after": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": "SYS",
+        "role": "system"
+      },
+      {
+        "content": "stable answer",
+        "functionCalls": [],
+        "role": "assistant"
+      },
+      {
+        "content": "VOLATILE",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": [
+            {
+              "prompt_cache_breakpoint": {
+                "mode": "explicit"
+              },
+              "text": "SYS",
+              "type": "text"
+            }
+          ],
+          "role": "system"
+        },
+        {
+          "content": [
+            {
+              "prompt_cache_breakpoint": {
+                "mode": "explicit"
+              },
+              "text": "stable answer",
+              "type": "text"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": "VOLATILE",
+          "role": "user"
+        }
+      ],
+      "model": "gpt-5.6-luna",
+      "prompt_cache_key": "conversation-42",
+      "prompt_cache_options": {
+        "mode": "explicit"
+      }
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5.6-luna",
+  "name": "openai-gpt-5-6-prompt-cache-breakpoints",
+  "provider": "openai-compatible",
+  "request": {
+    "chat_prompt": [
+      {
+        "cache": true,
+        "content": "SYS",
+        "role": "system"
+      },
+      {
+        "content": "stable answer",
+        "functionCalls": [],
+        "role": "assistant"
+      },
+      {
+        "content": "VOLATILE",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "contextCache": {},
+    "promptCacheKey": "conversation-42",
+    "sessionId": "loses"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_cache",
+        "model": "gpt-5.6-luna",
+        "object": "chat.completion",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

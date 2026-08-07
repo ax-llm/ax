@@ -39,6 +39,18 @@ result = program.forward(client, inputs)
 - Use model catalog helpers before runtime when the UI needs provider/model selectors.
 - Use routers or balancers when provider fallback is part of the product.
 
+### Vertex routing and OpenAI prompt caching
+
+Gemini and Anthropic Vertex clients accept a project, location, and optional
+endpoint. Ax resolves global, US/EU multi-region, and regional hosts; an
+explicit base URL takes precedence. Generated packages take a caller-supplied
+bearer access token and leave ADC refresh to the host application.
+
+GPT-5.6 OpenAI Chat requests can opt into stable explicit prompt-cache
+breakpoints. Give AxGen a stable `promptCacheKey` plus `contextCache`; those
+forward options reach the provider in every language. Cache reads and writes
+are normalized separately for usage and catalog-backed cost estimates.
+
 ### Adaptive balancing
 
 `AxBalancer` keeps its existing ordered failover behavior by default. Set `strategy.type` to `adaptive` to rank equivalent providers per chat request using learned reliability, successful latency, a deadline, and estimated cost. Configure `badOutcomeCost` in the same currency or unit as the route cost estimate.

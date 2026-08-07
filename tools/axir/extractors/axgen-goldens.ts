@@ -525,3 +525,23 @@ writeFixture('unknown-tool-call-correction', {
   expected_tool_calls: [],
   expected_request_count: 2,
 });
+
+writeFixture('prompt-cache-key-forward-options', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Use the stable conversation cache' },
+  options: { promptCacheKey: 'service-fallback' },
+  forward_options: {
+    promptCacheKey: 'conversation-42',
+    sessionId: 'loses',
+    contextCache: {},
+  },
+  responses: [{ content: '{"answer":"cached"}' }],
+  expected_output: { answer: 'cached' },
+  expected_chat_options_subset: {
+    promptCacheKey: 'conversation-42',
+    sessionId: 'loses',
+    contextCache: {},
+  },
+  expected_request_count: 1,
+});

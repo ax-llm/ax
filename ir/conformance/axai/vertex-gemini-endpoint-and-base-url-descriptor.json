@@ -1,0 +1,23 @@
+{
+  "expected_output": {
+    "baseUrl": "https://vertex.test/v1",
+    "operations": {
+      "chat": {
+        "path": "/projects/demo-project/locations/europe-west4/endpoints/endpoint-42:generateContent"
+      },
+      "embed": {
+        "path": "/projects/demo-project/locations/europe-west4/endpoints/endpoint-42:predict"
+      }
+    },
+    "vertexCacheBaseUrl": "https://vertex.test/v1"
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "vertex-gemini-endpoint-and-base-url-descriptor",
+  "options": {
+    "base_url": "https://vertex.test/v1",
+    "endpoint_id": "endpoint-42",
+    "project_id": "demo-project",
+    "region": "europe-west4"
+  },
+  "provider": "google-gemini"
+}

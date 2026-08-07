@@ -1,0 +1,27 @@
+{
+  "expected_output": {
+    "auth": "bearer",
+    "baseUrl": "https://aiplatform.us.rep.googleapis.com/v1",
+    "operations": {
+      "chat": {
+        "path": "/projects/demo-project/locations/us/publishers/google/models/{model}:generateContent"
+      },
+      "embed": {
+        "path": "/projects/demo-project/locations/us/publishers/google/models/{model}:predict"
+      },
+      "stream_chat": {
+        "path": "/projects/demo-project/locations/us/publishers/google/models/{model}:streamGenerateContent?alt=sse"
+      }
+    },
+    "vertex": true,
+    "vertexCacheBaseUrl": "https://aiplatform.us.rep.googleapis.com/v1",
+    "vertexParent": "projects/demo-project/locations/us"
+  },
+  "kind": "ai_provider_descriptor",
+  "name": "vertex-gemini-us-resolved-descriptor",
+  "options": {
+    "projectId": "demo-project",
+    "region": "us"
+  },
+  "provider": "google-gemini"
+}

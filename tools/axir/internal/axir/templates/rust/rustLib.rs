@@ -1012,11 +1012,15 @@ impl OpenAICompatibleClient {
     }
 
     fn provider_transport_request(&self, operation: &str, payload: &Value, model: &str, stream: bool) -> AxResult<Value> {
-        let operation_descriptor = core_value_to_json(&provider_operation_descriptor(&[
+        let operation_descriptor = core_value_to_json(&provider_resolve_operation_descriptor(&[
             CoreValue::from(self.profile.as_str()),
             CoreValue::from(operation),
+            core_value_from_json(&self.options),
         ])?);
-        let descriptor = core_value_to_json(&provider_descriptor(&[CoreValue::from(self.profile.as_str())])?);
+        let descriptor = core_value_to_json(&provider_resolve_descriptor(&[
+            CoreValue::from(self.profile.as_str()),
+            core_value_from_json(&self.options),
+        ])?);
         let mut path = operation_descriptor
             .get("path")
             .and_then(Value::as_str)
@@ -1144,8 +1148,8 @@ impl OpenAICompatibleClient {
     }
 
     fn gemini_cache_call(&mut self, operation: &Value, model: &str) -> AxResult<Value> {
-        let descriptor = core_value_to_json(&provider_descriptor(&[CoreValue::from(self.profile.as_str())])?);
-        let base = self.base_url_override.clone().unwrap_or_else(|| descriptor.get("baseUrl").and_then(Value::as_str).unwrap_or("https://generativelanguage.googleapis.com/v1beta").to_string());
+        let descriptor = core_value_to_json(&provider_resolve_descriptor(&[CoreValue::from(self.profile.as_str()), core_value_from_json(&self.options)])?);
+        let base = operation.get("base_url").and_then(Value::as_str).map(ToString::to_string).or_else(|| self.base_url_override.clone()).unwrap_or_else(|| descriptor.get("baseUrl").and_then(Value::as_str).unwrap_or("https://generativelanguage.googleapis.com/v1beta").to_string());
         let headers_call = self.provider_transport_request("chat", &json!({}), model, false)?;
         let call = json!({
             "method": operation.get("method").and_then(Value::as_str).unwrap_or("POST"),
@@ -1160,7 +1164,7 @@ impl OpenAICompatibleClient {
     fn context_cache_chat(&mut self, request: &Value, payload: &Value, model: &str, full_call: &Value) -> AxResult<Option<Value>> {
         let cfg_value = self.options.get("contextCache").or_else(|| self.options.get("context_cache")).cloned().unwrap_or(Value::Null);
         if self.profile != "google-gemini" || cfg_value.is_null() || cfg_value == Value::Bool(false) { return Ok(None); }
-        let descriptor = core_value_to_json(&provider_descriptor(&[CoreValue::from(self.profile.as_str())])?);
+        let descriptor = core_value_to_json(&provider_resolve_descriptor(&[CoreValue::from(self.profile.as_str()), core_value_from_json(&self.options)])?);
         if !descriptor.pointer("/features/caching/supported").and_then(Value::as_bool).unwrap_or(false) { return Ok(None); }
         let cfg = cfg_value.as_object().cloned().unwrap_or_default();
         let explicit = cfg.get("name").or_else(|| cfg.get("cacheName")).or_else(|| cfg.get("cache_name")).and_then(Value::as_str).unwrap_or_default();
@@ -1198,14 +1202,14 @@ impl OpenAICompatibleClient {
         let mut cache_name = plan.get("cacheName").and_then(Value::as_str).unwrap_or_default().to_string();
         let action = plan.get("action").and_then(Value::as_str).unwrap_or("none");
         if action == "refresh" {
-            let ops = core_value_to_json(&ai_gemini_cache_ops(&[CoreValue::from(cache_name.as_str()), CoreValue::Num(ttl_seconds as f64), CoreValue::from(self.api_key.as_str()), CoreValue::from(model), core_value_from_json(&cache_body)])?);
+            let ops = core_value_to_json(&ai_gemini_cache_ops(&[CoreValue::from(cache_name.as_str()), CoreValue::Num(ttl_seconds as f64), CoreValue::from(self.api_key.as_str()), CoreValue::from(model), core_value_from_json(&cache_body), core_value_from_json(&self.options)])?);
             let refreshed = self.gemini_cache_call(&ops["update"], model);
             let expires_at = refreshed.as_ref().ok().and_then(cache_expiry_millis).filter(|value| *value > epoch_millis());
             if let Some(expires_at) = expires_at { self.context_cache_set(&namespace, &cache_key, json!({"cacheName":cache_name,"expiresAt":expires_at})); }
             else { cache_name.clear(); }
         }
         if action == "create" || (action == "refresh" && cache_name.is_empty()) {
-            let ops = core_value_to_json(&ai_gemini_cache_ops(&[CoreValue::from(""), CoreValue::Num(ttl_seconds as f64), CoreValue::from(self.api_key.as_str()), CoreValue::from(model), core_value_from_json(&cache_body)])?);
+            let ops = core_value_to_json(&ai_gemini_cache_ops(&[CoreValue::from(""), CoreValue::Num(ttl_seconds as f64), CoreValue::from(self.api_key.as_str()), CoreValue::from(model), core_value_from_json(&cache_body), core_value_from_json(&self.options)])?);
             match self.gemini_cache_call(&ops["create"], model) {
                 Ok(created) => {
                     cache_name = created.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -1445,6 +1449,7 @@ impl OpenAICompatibleClient {
         let payload = core_value_to_json(&provider_build_embed_request(&[
             CoreValue::from(profile.as_str()),
             core_value_from_json(&req),
+            core_value_from_json(&self.options),
         ])?);
         let model = string_at(&req, "embed_model")
             .or_else(|| string_at(&payload, "model"))
@@ -1863,6 +1868,12 @@ impl AxAIClient for OpenAICompatibleClient {
     fn get_model_list(&self) -> Value {
         self.options.get("modelList").or_else(|| self.options.get("model_list")).cloned().unwrap_or_else(|| json!([{"key": self.model, "model": self.model}]))
     }
+    fn get_estimated_cost(&self, usage: &Value) -> f64 {
+        provider_estimate_cost(&[core_value_from_json(usage)])
+            .ok()
+            .and_then(|value| core_value_to_json(&value).as_f64())
+            .unwrap_or(0.0)
+    }
     fn get_options(&self) -> Value { self.options.clone() }
     fn set_options(&mut self, options: Value) { self.options = options; }
     fn embed(&mut self, request: Value) -> AxResult<Value> { OpenAICompatibleClient::embed(self, request) }
@@ -1908,6 +1919,7 @@ impl AxAIClient for OpenAICompatibleClient {
         let payload = core_value_to_json(&provider_build_chat_request(&[
             CoreValue::from(self.profile.as_str()),
             core_value_from_json(&req),
+            core_value_from_json(&self.options),
         ])?);
         let model = req
             .get("model")
@@ -1929,8 +1941,17 @@ impl AxAIClient for OpenAICompatibleClient {
     }
 
     fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
-        let body = self.stream_body(&request);
-        let path = self.stream_path();
+        let mut req = self.prepare_chat_request(&request)?;
+        let mut model_config = req.get("model_config").cloned().unwrap_or_else(|| json!({}));
+        model_config["stream"] = json!(true);
+        req["model_config"] = model_config;
+        let payload = core_value_to_json(&provider_build_chat_request(&[
+            CoreValue::from(self.profile.as_str()),
+            core_value_from_json(&req),
+            core_value_from_json(&self.options),
+        ])?);
+        let model = req.get("model").and_then(Value::as_str).unwrap_or(self.model.as_str()).to_string();
+        let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
         let cfg = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(&self.options)])?);
         let max_retries = cfg.get("max_retries").and_then(Value::as_i64).unwrap_or(3);
         let initial_delay = cfg.get("initial_delay_ms").and_then(Value::as_f64).unwrap_or(1000.0);
@@ -1938,7 +1959,7 @@ impl AxAIClient for OpenAICompatibleClient {
         let backoff = cfg.get("backoff_factor").and_then(Value::as_f64).unwrap_or(2.0);
         let mut attempt: i64 = 0;
         loop {
-            let response = self.post_stream(&path, body.clone())?;
+            let response = self.dispatch_transport_request(call.clone())?;
             let events = extract_stream_events(response)?;
             // Pre-content streaming retry: peek the first raw SSE event before any stateful
             // normalize runs (so peeking has no side effects); if the provider classifies it as a
@@ -1961,7 +1982,7 @@ impl AxAIClient for OpenAICompatibleClient {
                     continue;
                 }
             }
-            let response = normalize_stream_events(&self.profile, &self.model, &events)?;
+            let response = normalize_stream_events(&self.profile, &model, &events)?;
             emit_usage_event("chat", &json!({"results": response.clone()}), &self.options, true);
             return Ok(response);
         }
@@ -1983,7 +2004,10 @@ pub type RekaClient = OpenAICompatibleClient;
 pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
     let defaults = provider_defaults(provider)
         .ok_or_else(|| AxError::validation(format!("unknown AxAI provider {provider}")))?;
+    let vertex = options.get("project_id").or_else(|| options.get("projectId")).is_some() && options.get("region").is_some();
     let api_key = string_at(&options, "api_key")
+        .or_else(|| string_at(&options, "apiKey"))
+        .or_else(|| if vertex && matches!(defaults.profile, "google-gemini" | "anthropic") { std::env::var("GOOGLE_VERTEX_ACCESS_TOKEN").ok() } else { None })
         .or_else(|| std::env::var("OPENAI_API_KEY").ok())
         .or_else(|| std::env::var("OPENAI_APIKEY").ok())
         .unwrap_or_else(|| "test-key".to_string());
@@ -7036,11 +7060,13 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
             responses: responses.clone(),
             transcribe_responses: VecDeque::new(),
             requests: Vec::new(),
+            chat_options: Vec::new(),
         }));
         let mut evaluation_client = FixtureClient {
             responses,
             transcribe_responses: VecDeque::new(),
             requests: Vec::new(),
+            chat_options: Vec::new(),
         };
         let agent_options = core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
         let script = fixture.get("runtime_script").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -7296,7 +7322,14 @@ fn conformance_ai_registry_result(kind: &str, fixture: &Value) -> AxResult<Value
                 .get("provider")
                 .and_then(Value::as_str)
                 .unwrap_or("openai-compatible");
-            Ok(core_value_to_json(&provider_descriptor(&[CoreValue::from(provider)])?))
+            if let Some(options) = fixture.get("options") {
+                Ok(core_value_to_json(&provider_resolve_descriptor(&[
+                    CoreValue::from(provider),
+                    core_value_from_json(options),
+                ])?))
+            } else {
+                Ok(core_value_to_json(&provider_descriptor(&[CoreValue::from(provider)])?))
+            }
         }
         "ai_provider_registry" => Ok(core_value_to_json(&provider_profile_registry(&[])?)),
         "ai_model_catalog_audit" => Ok(core_value_to_json(&provider_model_catalog_summary(&[])?)),
@@ -8582,6 +8615,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             .unwrap_or_default()
             .into(),
         requests: Vec::new(),
+        chat_options: Vec::new(),
     };
     let semantic_observer_transcript = Rc::new(RefCell::new(Vec::<Value>::new()));
     let semantic_observers_enabled = fixture.get("expected_observer_transcript").is_some();
@@ -10215,6 +10249,7 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         responses: responses.into(),
         transcribe_responses: VecDeque::new(),
         requests: Vec::new(),
+        chat_options: Vec::new(),
     };
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
     let mut forward_options = fixture
@@ -11910,6 +11945,7 @@ struct FixtureClient {
     responses: VecDeque<Value>,
     transcribe_responses: VecDeque<Value>,
     requests: Vec<Value>,
+    chat_options: Vec<Value>,
 }
 
 impl AxAIClient for FixtureClient {
@@ -11940,6 +11976,11 @@ impl AxAIClient for FixtureClient {
             out["model_usage"] = json!({"tokens": usage.clone()});
         }
         Ok(out)
+    }
+
+    fn chat_with_options(&mut self, request: Value, options: Value) -> AxResult<Value> {
+        self.chat_options.push(options);
+        self.chat(request)
     }
 }
 
@@ -12047,8 +12088,13 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         responses: responses.into(),
         transcribe_responses: VecDeque::new(),
         requests: Vec::new(),
+        chat_options: Vec::new(),
     };
-    let result = program.forward(&mut client, input);
+    let result = if let Some(options) = fixture.get("forward_options") {
+        program.forward_with_options(&mut client, input, options.clone())
+    } else {
+        program.forward(&mut client, input)
+    };
     if fixture.get("expected_error_contains").is_some() {
         return expect_validation_result(result.map(|_| ()), fixture);
     }
@@ -12067,6 +12113,13 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     if let Some(expected) = fixture.get("expected_request") {
         if let Some(actual) = client.requests.first() {
             expect_json_subset("forward request", actual, expected)?;
+        }
+    }
+    if let Some(expected) = fixture.get("expected_chat_options_subset") {
+        if let Some(actual) = client.chat_options.first() {
+            expect_json_subset("chat options", actual, expected)?;
+        } else {
+            return Err(AxError::runtime("fixture expected chat options but none were recorded"));
         }
     }
     if let Some(expected) = fixture.get("expected_request_contains").and_then(Value::as_array) {
@@ -12137,6 +12190,15 @@ fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
     let output = client.chat(request)?;
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("ai chat output", &output, expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_request_after") {
+        expect_json_equal("ai chat input mutation", fixture.get("request").unwrap_or(&Value::Null), expected)?;
+    }
+    if let Some(expected) = fixture.get("expected_estimated_cost").and_then(Value::as_f64) {
+        let actual = client.get_estimated_cost(output.get("model_usage").unwrap_or(&Value::Null));
+        if (actual - expected).abs() > 1e-12 {
+            return Err(AxError::runtime("estimated cost mismatch"));
+        }
     }
     expect_transport_request_subset(fixture, &requests)?;
     Ok(())

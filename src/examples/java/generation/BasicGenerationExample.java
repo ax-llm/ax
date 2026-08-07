@@ -1,7 +1,7 @@
 // ax-example:start
-// title: Java Typed Generation
+// title: Java Prompt-Cached Generation
 // group: generation
-// description: Runs a small typed generation program against OpenAI.
+// description: Runs GPT-5.6 structured generation with stable OpenAI prompt-cache affinity.
 // provider: openai
 // env: OPENAI_API_KEY, OPENAI_APIKEY
 // level: beginner
@@ -24,12 +24,15 @@ public final class BasicGenerationExample {
 
   static OpenAICompatibleClient client() {
     return new OpenAICompatibleClient(
-        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.4-mini"), "model_config", Map.of("temperature", 0.0)));
+        Map.of("api_key", apiKey(), "model", System.getenv().getOrDefault("AX_OPENAI_MODEL", "gpt-5.6-luna"), "model_config", Map.of("temperature", 0.0)));
   }
 
   public static void main(String[] args) throws Exception {
     AxGen program = Ax.ax("question:string -> answer:string");
-    Map<String, Object> output = program.forward(client(), Map.of("question", "In one sentence, explain Ax as a language-agnostic LLM programming library."));
+    Map<String, Object> output = program.forward(
+        client(),
+        Map.of("question", "In one sentence, explain Ax as a language-agnostic LLM programming library."),
+        Map.of("promptCacheKey", "ax-openai-example", "contextCache", Map.of()));
     System.out.println(Json.stringify(output));
   }
 }

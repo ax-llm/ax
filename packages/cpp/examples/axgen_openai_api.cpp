@@ -12,12 +12,15 @@ int main() {
 
   axllm::OpenAICompatibleClient client(axllm::object({
     {"api_key", key},
-    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-5.4-mini"},
+    {"model", std::getenv("AX_OPENAI_MODEL") ? std::getenv("AX_OPENAI_MODEL") : "gpt-5.6-luna"},
     {"model_config", axllm::object({{"temperature", 0}})}
   }));
   auto program = axllm::ax("question:string -> answer:string");
   axllm::Value out = program.forward(client, axllm::object({
     {"question", "In one sentence, explain Ax as a language-agnostic LLM programming library."}
+  }), axllm::object({
+    {"promptCacheKey", "ax-openai-example"},
+    {"contextCache", axllm::object({})}
   }));
   std::cout << axllm::stringify(out) << "\n";
 }

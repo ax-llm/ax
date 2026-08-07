@@ -27,6 +27,7 @@ struct ConformanceScriptedAI : AIClient {
   Array responses;
   Array transcribe_responses;
   std::vector<Value> requests;
+  std::vector<Value> chat_options;
   int chat_calls = 0;
 
   explicit ConformanceScriptedAI(Value values) : responses(as_array(values)) {}
@@ -42,6 +43,11 @@ struct ConformanceScriptedAI : AIClient {
   Value chat(Value request) override {
     ++chat_calls;
     return Core::legacy_response_to_chat_response(complete(request));
+  }
+
+  Value chat(Value request, Value options) override {
+    chat_options.push_back(options);
+    return chat(std::move(request));
   }
 
   Value transcribe(Value request, Value options) override {
@@ -677,6 +683,11 @@ static void run_forward(Value fixture) {
   if (!expected_request.is_null()) {
     if (client.requests.empty()) throw AxError("fixture", "fixture expected a request but none were sent");
     assert_subset(client.requests[0], expected_request, "request");
+  }
+  Value expected_chat_options = Core::get(fixture, "expected_chat_options_subset");
+  if (!expected_chat_options.is_null()) {
+    if (client.chat_options.empty()) throw AxError("fixture", "fixture expected chat options but none were recorded");
+    assert_subset(client.chat_options[0], expected_chat_options, "chat options");
   }
   Value expected_contains = Core::get(fixture, "expected_request_contains");
   if (!expected_contains.is_null()) {
@@ -2095,6 +2106,13 @@ static void run_ai_chat(Value fixture) {
   Value result = cf.client->chat(Core::get(fixture, "request", Value::object()));
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(result, expected, "ai chat output");
+  Value expected_request = Core::get(fixture, "expected_request_after");
+  if (!expected_request.is_null()) assert_equal(Core::get(fixture, "request"), expected_request, "ai chat input mutation");
+  Value expected_cost = Core::get(fixture, "expected_estimated_cost");
+  if (!expected_cost.is_null()) {
+    double actual_cost = cf.client->get_estimated_cost(Core::get(result, "model_usage", Value::object()));
+    if (std::abs(actual_cost - Core::number(expected_cost)) > 1e-12) throw AxError("fixture", "estimated cost mismatch");
+  }
   assert_transport(fixture, cf.transport);
 }
 
@@ -2181,7 +2199,11 @@ static void run_ai_unsupported(Value fixture) {
 }
 
 static void run_ai_provider_descriptor(Value fixture) {
-  Value descriptor = Core::provider_descriptor(Core::get(fixture, "provider", "openai-compatible"));
+  Value provider = Core::get(fixture, "provider", "openai-compatible");
+  Value options = Core::get(fixture, "options");
+  Value descriptor = !options.is_null()
+    ? Core::provider_resolve_descriptor(provider, options)
+    : Core::provider_descriptor(provider);
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_subset(descriptor, expected, "provider descriptor");
 }
@@ -2829,7 +2851,7 @@ static void run(Value fixture) {
       else if (operation == "expiry") actual = Core::ai_context_cache_expiry(args.at(0), args.at(1));
       else if (operation == "plan") actual = Core::ai_context_cache_plan(args.at(0), args.at(1), args.at(2), args.at(3), args.at(4), args.at(5), args.at(6));
       else if (operation == "recovery") actual = Core::ai_context_cache_recovery(args.at(0), args.at(1), args.at(2));
-      else if (operation == "gemini_ops") actual = Core::ai_gemini_cache_ops(args.at(0), args.at(1), args.at(2), args.at(3), args.at(4));
+      else if (operation == "gemini_ops") actual = Core::ai_gemini_cache_ops(args.at(0), args.at(1), args.at(2), args.at(3), args.at(4), args.size() > 5 ? args.at(5) : Value::object());
       else throw AxError("fixture", "unsupported AI context-cache operation " + operation);
       assert_equal(actual, Core::get(cases[index], "expected"), "AI context-cache " + operation + " case " + std::to_string(index));
     }

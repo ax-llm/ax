@@ -31,6 +31,10 @@ auto program = axllm::ax("question:string -> answer:string");
 auto out = program.forward(llm, { {"question", "What is Ax?"} });
 ```
 
+## Provider Forward Options
+
+AxGen merges constructor and per-call forward options before invoking the provider. Provider-facing keys such as `promptCacheKey`, `sessionId`, and `contextCache` therefore reach the chat request without being copied into program inputs. Per-call values override constructor defaults.
+
 ## Relevant API Surface
 
 - AxGen: `axllm::ax`, `axllm::AxGen`

@@ -1,0 +1,30 @@
+{
+  "expected_chat_options_subset": {
+    "contextCache": {},
+    "promptCacheKey": "conversation-42",
+    "sessionId": "loses"
+  },
+  "expected_output": {
+    "answer": "cached"
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "contextCache": {},
+    "promptCacheKey": "conversation-42",
+    "sessionId": "loses"
+  },
+  "input": {
+    "question": "Use the stable conversation cache"
+  },
+  "kind": "forward",
+  "name": "prompt-cache-key-forward-options",
+  "options": {
+    "promptCacheKey": "service-fallback"
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"cached\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

@@ -1077,10 +1077,7 @@ Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
   auto it = client_registry().find(id);
   if (it == client_registry().end() || it->second == nullptr) throw AxError("runtime", "client does not implement AIClient");
-  if (auto* service = dynamic_cast<AxAIService*>(it->second)) {
-    return chat_response_to_completion(service->chat(request, options));
-  }
-  return chat_response_to_completion(it->second->chat(request));
+  return chat_response_to_completion(it->second->chat(request, options));
 }
 Value Core::agent_transcribe(Value client, Value request, Value options) {
   // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
@@ -2448,8 +2445,8 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
           Core::get(options, "model_config", Value::object()),
           Core::map_merge(options, Core::get(options, "options", Value::object()))),
       profile_(std::move(profile)),
-      descriptor_(Core::provider_descriptor(profile_)),
-      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", env_or_default("OPENAI_BASE_URL", str(Core::get(Core::provider_descriptor(profile_), "baseUrl", "https://api.openai.com/v1")))))),
+      descriptor_(Core::provider_resolve_descriptor(profile_, Core::map_merge(options, Core::get(options, "options", Value::object())))),
+      base_url_(strip_trailing_slashes(option_string(options, "base_url", "baseUrl", env_or_default("OPENAI_BASE_URL", str(Core::get(descriptor_, "baseUrl", "https://api.openai.com/v1")))))),
       api_key_(option_string(options, "api_key", "apiKey", env_or_default("OPENAI_API_KEY", ""))),
       api_version_(option_string(options, "api_version", "apiVersion", str(Core::get(descriptor_, "apiVersion", "")))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),
@@ -2463,19 +2460,27 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
 OpenAIResponsesClient::OpenAIResponsesClient(Value options, Transport* transport)
     : OpenAICompatibleClient("openai-responses", "openai-responses", std::move(options), transport, "gpt-4o", "text-embedding-ada-002") {}
 
+double OpenAICompatibleClient::get_estimated_cost(Value model_usage) {
+  return num(Core::provider_estimate_cost(std::move(model_usage)));
+}
+
 GoogleGeminiClient::GoogleGeminiClient(Value options, Transport* transport)
     : OpenAICompatibleClient("google-gemini", "GoogleGeminiAI", [&]() {
         Value out = std::move(options);
-        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("GOOGLE_API_KEY", env_or_default("GEMINI_API_KEY", "")));
-        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("GOOGLE_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"));
+        bool vertex = (!Core::get(out, "project_id").is_null() || !Core::get(out, "projectId").is_null()) && !Core::get(out, "region").is_null();
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", vertex ? env_or_default("GOOGLE_VERTEX_ACCESS_TOKEN", "") : env_or_default("GOOGLE_API_KEY", env_or_default("GEMINI_API_KEY", "")));
+        std::string base = env_or_default("GOOGLE_GEMINI_BASE_URL", "");
+        if (!base.empty() && Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", base);
         return out;
       }(), transport, "gemini-2.5-flash", "gemini-embedding-2") {}
 
 AnthropicClient::AnthropicClient(Value options, Transport* transport)
     : OpenAICompatibleClient("anthropic", "anthropic", [&]() {
         Value out = std::move(options);
-        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("ANTHROPIC_API_KEY", ""));
-        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com"));
+        bool vertex = (!Core::get(out, "project_id").is_null() || !Core::get(out, "projectId").is_null()) && !Core::get(out, "region").is_null();
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", vertex ? env_or_default("GOOGLE_VERTEX_ACCESS_TOKEN", "") : env_or_default("ANTHROPIC_API_KEY", ""));
+        std::string base = env_or_default("ANTHROPIC_BASE_URL", "");
+        if (!base.empty() && Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", base);
         return out;
       }(), transport, "claude-3-7-sonnet-latest", "") {}
 
@@ -2605,10 +2610,15 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
   auto now_ms = []() { return static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()); };
   Value plan = Core::ai_context_cache_plan(true, true, "", get_entry(), now_ms(), refresh_window_ms, eligible);
   std::string cache_name = str(Core::get(plan, "cacheName", ""));
-  auto call_op = [&](Value op) { return request_json(str(Core::get(op, "path")), Core::get(op, "request", Value::object()), false, "json", false, str(Core::get(op, "method", "POST"))); };
+  auto call_op = [&](Value op) {
+    std::string endpoint = str(Core::get(op, "path"));
+    Value op_base = Core::get(op, "base_url");
+    if (!op_base.is_null()) endpoint = strip_trailing_slashes(str(op_base)) + endpoint;
+    return request_json(endpoint, Core::get(op, "request", Value::object()), false, "json", false, str(Core::get(op, "method", "POST")));
+  };
   auto create = [&]() {
     try {
-      Value ops = Core::ai_gemini_cache_ops("", ttl_seconds, api_key_, model, cache_body);
+      Value ops = Core::ai_gemini_cache_ops("", ttl_seconds, api_key_, model, cache_body, options);
       Value created = call_op(Core::get(ops, "create")); cache_name = str(Core::get(created, "name", "")); double expires_at = ax_context_cache_expiry_ms(created);
       if (cache_name.empty() || expires_at <= now_ms()) return false;
       set_entry(object({{"cacheName", cache_name}, {"expiresAt", expires_at}})); return true;
@@ -2617,7 +2627,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
   std::string action = str(Core::get(plan, "action", "none"));
   if (action == "refresh") {
     try {
-      Value ops = Core::ai_gemini_cache_ops(cache_name, ttl_seconds, api_key_, model, cache_body); Value refreshed = call_op(Core::get(ops, "update")); double expires_at = ax_context_cache_expiry_ms(refreshed);
+      Value ops = Core::ai_gemini_cache_ops(cache_name, ttl_seconds, api_key_, model, cache_body, options); Value refreshed = call_op(Core::get(ops, "update")); double expires_at = ax_context_cache_expiry_ms(refreshed);
       if (expires_at <= now_ms()) throw AxError("ai_service", "Gemini cache refresh omitted a future expireTime");
       set_entry(object({{"cacheName", cache_name}, {"expiresAt", expires_at}}));
     } catch (const AxError&) { if (!create()) return request_json(endpoint, payload, false, "json", false, operation_method("chat")); }
@@ -2644,8 +2654,7 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request))) {
     return realtime_chat(request, nullptr);
   }
-  (void)options;
-  Value payload = Core::provider_build_chat_request(profile_, request);
+  Value payload = Core::provider_build_chat_request(profile_, request, options);
   bool stream = Core::truthy(Core::get(payload, "stream"));
   if (stream) {
     Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
@@ -2664,8 +2673,8 @@ Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   return Core::provider_normalize_chat_response(profile_, raw, name_, model);
 }
 
-Value OpenAICompatibleClient::do_embed(Value request, Value) {
-  Value payload = Core::provider_build_embed_request(profile_, request);
+Value OpenAICompatibleClient::do_embed(Value request, Value options) {
+  Value payload = Core::provider_build_embed_request(profile_, request, options);
   Value model = Core::coalesce(Core::get(request, "embed_model"), Core::coalesce(Core::get(request, "embedModel"), Core::coalesce(Core::get(payload, "model"), embed_model_)));
   Value raw = request_json(operation_path("embed", model), payload, false, "json", false, operation_method("embed"));
   return Core::provider_normalize_embed_response(profile_, raw, name_, model);
@@ -2678,7 +2687,7 @@ std::vector<Value> OpenAICompatibleClient::stream(Value request) {
   Core::set(config, "stream", true);
   Core::set(req, "model", Core::coalesce(Core::get(req, "model"), model_));
   Core::set(req, "model_config", config);
-  Value payload = Core::provider_build_chat_request(profile_, req);
+  Value payload = Core::provider_build_chat_request(profile_, req, options_);
   Value model = Core::get(req, "model", Core::get(payload, "model", model_));
   Value retry_cfg = Core::resolve_stream_retry(options_);
   int max_retries = static_cast<int>(num(Core::get(retry_cfg, "max_retries", 3)));
@@ -2953,13 +2962,15 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
 }
 
 std::string OpenAICompatibleClient::operation_method(const std::string& operation) const {
-  return str(Core::get(Core::provider_operation_descriptor(profile_, operation), "method", "POST"));
+  Value operation_descriptor = Core::get(Core::get(descriptor_, "operations", Value::object()), operation, Value::object());
+  return str(Core::get(operation_descriptor, "method", "POST"));
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
   Value call = Value::object();
   Core::set(call, "method", method.empty() ? "POST" : method);
-  Core::set(call, "url", base_url_ + endpoint);
+  bool absolute = endpoint.rfind("http://", 0) == 0 || endpoint.rfind("https://", 0) == 0;
+  Core::set(call, "url", absolute ? endpoint : base_url_ + endpoint);
   Core::set(call, "headers", headers());
   Core::set(call, body_key.empty() ? "json" : body_key, payload);
   Core::set(call, "stream", stream);
@@ -2976,7 +2987,8 @@ std::string OpenAICompatibleClient::operation_path(const std::string& operation)
 }
 
 std::string OpenAICompatibleClient::operation_path(const std::string& operation, Value model) const {
-  std::string path = str(Core::get(Core::provider_operation_descriptor(profile_, operation), "path", "/" + operation));
+  Value operation_descriptor = Core::get(Core::get(descriptor_, "operations", Value::object()), operation, Value::object());
+  std::string path = str(Core::get(operation_descriptor, "path", "/" + operation));
   if (!model.is_null()) {
     std::string token = "{model}";
     std::string::size_type pos = 0;

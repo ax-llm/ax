@@ -23,14 +23,22 @@ Reference areas:
   these operations; live multipart/WebSocket transports remain host-owned.
 - `src/ax/ai/google-gemini/api.ts` and `src/ax/ai/catalog.ts` for
   descriptor-backed Gemini Developer API chat, stream, media-part, tool/schema,
-  usage, embeddings, and Gemini Live realtime-audio normalization fixtures.
-  Vertex routing, explicit context-cache resources, auth loading, and live network
-  behavior remain host-owned follow-up scope.
+  usage, embeddings, Gemini Live realtime-audio normalization, and explicit
+  context-cache resources. Deterministic fixtures cover Vertex `global`, `us`,
+  `eu`, regional, endpoint, model, embedding, and cache routing plus bearer-token
+  authentication. Automatic ADC/access-token refresh and live networking remain
+  host-owned.
 - `src/ax/ai/anthropic/api.ts` for descriptor-backed Anthropic Developer API
   chat/stream mapping, system hoisting, block-level cache control, tool-use
   shapes, thinking blocks, citations, stop reasons, and usage/cache-token
-  normalization. Vertex Anthropic, live web-search behavior, retries, auth
-  loading, and live network behavior remain host-owned follow-up scope.
+  normalization. Deterministic fixtures cover Anthropic Vertex `rawPredict` and
+  streaming path selection. Automatic access-token refresh, live web-search
+  behavior, retries, and live networking remain host-owned.
+- `src/ax/ai/openai/caching.ts`, `src/ax/ai/openai/usage.ts`, and the provider
+  model catalog for GPT-5.6 explicit prompt-cache breakpoints, prompt-cache-key
+  precedence, cache-read/cache-write usage normalization, and cache-aware cost
+  estimation. Disabled-case fixtures protect older models, Azure, Responses,
+  and requests that did not opt into caching.
 - `src/ax/ai/azure-openai/api.ts`, `src/ax/ai/deepseek/api.ts`,
   `src/ax/ai/mistral/api.ts`, `src/ax/ai/reka/api.ts`,
   `src/ax/ai/cohere/api.ts`, and `src/ax/ai/x-grok/api.ts` for

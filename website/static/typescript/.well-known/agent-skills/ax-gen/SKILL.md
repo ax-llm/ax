@@ -1,7 +1,7 @@
 ---
 name: ax-gen
 description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.
-version: "23.0.9"
+version: "23.0.10"
 ---
 
 # AxGen Codegen Rules (@ax-llm/ax)
@@ -284,6 +284,10 @@ Rules:
 
 - `cachingFunction` acts as a get/set: called with `(key)` to read, `(key, value)` to write.
 - `contextCache` enables AI provider-level prompt caching for long context.
+- Provider-facing forward options are merged with constructor defaults before
+  the chat call. This includes `promptCacheKey`, `sessionId`, and
+  `contextCache` in TypeScript and every generated language package; per-call
+  values take precedence.
 
 ## Sampling And Result Picker
 

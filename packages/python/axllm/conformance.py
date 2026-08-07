@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .ai import AnthropicClient, AzureOpenAIClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, RekaClient, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, set_usage_observer
+from .ai import AnthropicClient, AzureOpenAIClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, RekaClient, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_usage_observer
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
@@ -96,11 +96,13 @@ class ConformanceScriptedAI(AxBaseAI):
         self.stream_events = list(stream_events or [])
         self.transcribe_responses = list(transcribe_responses or [])
         self.requests = []
+        self.chat_options = []
         self.chat_calls = 0
 
     def _chat(self, request: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         self.chat_calls += 1
         self.requests.append(copy.deepcopy(request))
+        self.chat_options.append(copy.deepcopy(options or {}))
         if not self.responses:
             raise RuntimeError("scripted client exhausted")
         return _legacy_response_to_chat_response(copy.deepcopy(self.responses.pop(0)))
@@ -573,7 +575,10 @@ def _run_ai_context_cache(fixture):
         raise FixtureError(f"unsupported AI context-cache operation {operation!r}")
     cases = fixture.get("cases") or [{"args": fixture.get("args", []), "expected": fixture.get("expected")}]
     for index, case in enumerate(cases):
-        _assert_equal(fn_impl(*case.get("args", [])), case.get("expected"), f"AI context-cache {operation} case {index}")
+        args = list(case.get("args", []))
+        if operation == "gemini_ops" and len(args) == 5:
+            args.append({})
+        _assert_equal(fn_impl(*args), case.get("expected"), f"AI context-cache {operation} case {index}")
 
 
 def _run_event(fixture):
@@ -976,6 +981,10 @@ def _run_forward(fixture):
         if not client.requests:
             raise FixtureError("fixture expected a request but none were sent")
         _assert_subset(client.requests[0], fixture["expected_request"], "request")
+    if "expected_chat_options_subset" in fixture:
+        if not client.chat_options:
+            raise FixtureError("fixture expected chat options but none were recorded")
+        _assert_subset(client.chat_options[0], fixture["expected_chat_options_subset"], "chat options")
     if "expected_request_contains" in fixture:
         request_text = json.dumps(client.requests, sort_keys=True)
         for item in fixture.get("expected_request_contains") or []:
@@ -2343,6 +2352,12 @@ def _run_ai_chat(fixture):
     result = client.chat(fixture["request"], fixture.get("options"))
     if "expected_output" in fixture:
         _assert_equal(result, fixture["expected_output"], "ai chat output")
+    if "expected_request_after" in fixture:
+        _assert_equal(fixture["request"], fixture["expected_request_after"], "ai chat input mutation")
+    if "expected_estimated_cost" in fixture:
+        actual_cost = client.get_estimated_cost(result.get("model_usage"))
+        if abs(actual_cost - fixture["expected_estimated_cost"]) > 1e-12:
+            raise FixtureError(f"estimated cost mismatch: {actual_cost} != {fixture['expected_estimated_cost']}")
     _assert_transport_request(fixture, transport)
 
 
@@ -2431,7 +2446,8 @@ def _run_ai_unsupported(fixture):
 
 
 def _run_ai_provider_descriptor(fixture):
-    descriptor = provider_descriptor(fixture.get("provider", "openai-compatible"))
+    provider = fixture.get("provider", "openai-compatible")
+    descriptor = provider_resolve_descriptor(provider, fixture.get("options")) if "options" in fixture else provider_descriptor(provider)
     if "expected_output" in fixture:
         _assert_subset(descriptor, fixture["expected_output"], "provider descriptor")
 

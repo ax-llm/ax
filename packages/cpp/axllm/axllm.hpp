@@ -292,36 +292,37 @@ struct Core {
   static Value _prompt_structured_impl(Value signature, Value values, Value functions, Value options);
   static Value _prompt_user_content_impl(Value signature, Value values);
   static Value _prompt_messages_impl(Value system, Value user);
-  static Value openai_build_chat_request(Value request);
+  static Value openai_build_chat_request(Value request, Value options, Value prompt_caching);
   static Value merge_model_config(Value base, Value override, Value options);
   static Value validate_chat_request(Value request);
-  static Value _openai_apply_model_config_impl(Value payload, Value model_config);
   static Value build_chat_request(Value service, Value request, Value options);
-  static Value openai_reasoning_effort(Value model, Value budget);
+  static Value _openai_apply_cache_breakpoint_impl(Value message);
   static Value normalize_chat_response(Value raw);
   static Value normalize_stream_delta(Value raw, Value state);
   static Value build_embed_request(Value service, Value request, Value options);
   static Value normalize_embed_response(Value raw);
-  static Value openai_chat_reasoning_effort(Value model, Value budget);
   static Value normalize_token_usage(Value usage);
-  static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
-  static Value _openai_message_impl(Value message);
+  static Value _openai_apply_model_config_impl(Value payload, Value model_config);
+  static Value openai_reasoning_effort(Value model, Value budget);
   static Value merge_usage_context(Value defaults, Value overrides);
   static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
-  static Value _openai_content_part_impl(Value part);
+  static Value openai_chat_reasoning_effort(Value model, Value budget);
+  static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
+  static Value _openai_message_impl(Value message);
   static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
   static Value chat_response_to_completion(Value response);
+  static Value _openai_content_part_impl(Value part);
+  static Value ai_context_cache_rejection(Value status, Value body_json);
+  static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
+  static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
   static Value _openai_tool_call_to_provider_impl(Value call);
   static Value _openai_tool_spec_impl(Value fn);
-  static Value ai_context_cache_rejection(Value status, Value body_json);
-  static Value openai_build_embed_request(Value request);
-  static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
-  static Value openai_normalize_chat_response(Value raw, Value ai_name, Value model);
-  static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
-  static Value _openai_normalize_choice_impl(Value choice, Value raw);
   static Value ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry);
+  static Value openai_build_embed_request(Value request);
+  static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
+  static Value openai_normalize_chat_response(Value raw, Value ai_name, Value model);
+  static Value _openai_normalize_choice_impl(Value choice, Value raw);
   static Value _openai_normalize_tool_calls_impl(Value calls);
-  static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body);
   static Value _openai_finish_reason_impl(Value value);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
   static Value openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model);
@@ -333,6 +334,7 @@ struct Core {
   static Value provider_model_catalog_summary();
   static Value _provider_model_catalog_registry();
   static Value provider_model_catalog(Value options);
+  static Value provider_estimate_cost(Value model_usage);
   static Value provider_route_request_requirements(Value request);
   static Value _provider_features_support(Value features, Value path);
   static Value _provider_route_score(Value provider, Value requirements);
@@ -355,7 +357,10 @@ struct Core {
   static Value provider_balancer_rank_candidates(Value candidates);
   static Value provider_routing_stats(Value providers);
   static Value provider_descriptor(Value profile);
+  static Value provider_resolve_descriptor(Value profile, Value options);
+  static Value resolve_vertex_ai_host(Value region);
   static Value provider_operation_descriptor(Value profile, Value operation);
+  static Value provider_resolve_operation_descriptor(Value profile, Value operation, Value options);
   static Value _provider_realtime_audio_descriptor(Value profile);
   static Value provider_realtime_ws_url(Value profile, Value model, Value api_key);
   static Value provider_should_use_realtime(Value profile, Value model, Value request);
@@ -368,12 +373,12 @@ struct Core {
   static Value _realtime_request_system_instruction_impl(Value request);
   static Value _realtime_request_user_messages_impl(Value request);
   static Value _openai_realtime_content_parts_impl(Value content);
-  static Value provider_build_chat_request(Value profile, Value request);
+  static Value provider_build_chat_request(Value profile, Value request, Value options);
   static Value _provider_apply_openai_compatible_profile_quirks(Value profile, Value payload, Value request);
   static Value _provider_apply_deepseek_chat_quirks(Value payload, Value model_config);
   static Value _provider_apply_mistral_chat_quirks(Value payload);
   static Value _provider_apply_grok_chat_quirks(Value payload, Value request, Value model_config);
-  static Value provider_build_embed_request(Value profile, Value request);
+  static Value provider_build_embed_request(Value profile, Value request, Value options);
   static Value provider_normalize_chat_response(Value profile, Value raw, Value ai_name, Value model);
   static Value provider_normalize_stream_delta(Value profile, Value raw, Value state, Value ai_name, Value model);
   static Value provider_classify_stream_error_status(Value profile, Value event);
@@ -417,6 +422,7 @@ struct Core {
   static Value _gemini_function_declaration_impl(Value fn);
   static Value _gemini_tool_config_impl(Value request);
   static Value _gemini_build_embed_request(Value request);
+  static Value _gemini_build_vertex_embed_request(Value request, Value options);
   static Value _gemini_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _gemini_merge_response_part_impl(Value result, Value text_parts, Value function_calls, Value part);
   static Value _gemini_extract_citations_impl(Value candidate);
@@ -812,6 +818,10 @@ class AIClient {
   virtual ~AIClient() = default;
   virtual Value complete(Value request) = 0;
   virtual Value chat(Value request);
+  virtual Value chat(Value request, Value options) {
+    (void)options;
+    return chat(std::move(request));
+  }
   // Default so intrinsic.agent.transcribe can call transcribe through an AIClient* (the agent's
   // scripted client extends the base AIClient). AxAIService and the scripted client override it.
   virtual Value transcribe(Value request, Value options) {
@@ -827,7 +837,7 @@ class AxAIService : public AIClient {
   virtual std::string get_id();
   virtual std::string get_name();
   Value chat(Value request) override;
-  virtual Value chat(Value request, Value options);
+  Value chat(Value request, Value options) override;
   virtual std::vector<Value> stream(Value request);
   virtual Value embed(Value request, Value options);
   virtual Value embed(Value request) = 0;
@@ -1108,6 +1118,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value realtime_audio_setup(Value request);
   Value realtime_audio_input(Value request);
   Value realtime_chat(Value request, RealtimeTransport* transport = nullptr);
+  double get_estimated_cost(Value model_usage) override;
   OpenAICompatibleClient& context_cache_registry(AxContextCacheRegistry* registry);
 
  protected:
@@ -1117,9 +1128,9 @@ class OpenAICompatibleClient : public AxBaseAI {
 
  private:
   std::string profile_;
+  Value descriptor_;
   std::string base_url_;
   std::string api_key_;
-  Value descriptor_;
   std::string api_version_;
   double timeout_seconds_;
   std::unique_ptr<Transport> owned_transport_;

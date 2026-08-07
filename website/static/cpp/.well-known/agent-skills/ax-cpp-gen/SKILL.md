@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-gen"
 description: "Use when writing C++ code with `axllm` for AxGen programs, forward calls, streaming, tools, assertions, traces, usage, and output parsing."
-version: "23.0.9"
+version: "23.0.10"
 ---
 # AxGen Structured Generation For C++
 
@@ -30,6 +30,10 @@ This skill helps an agent write C++ code with the generated Ax package `axllm`. 
 auto program = axllm::ax("question:string -> answer:string");
 auto out = program.forward(llm, { {"question", "What is Ax?"} });
 ```
+
+## Provider Forward Options
+
+AxGen merges constructor and per-call forward options before invoking the provider. Provider-facing keys such as `promptCacheKey`, `sessionId`, and `contextCache` therefore reach the chat request without being copied into program inputs. Per-call values override constructor defaults.
 
 ## Relevant API Surface
 

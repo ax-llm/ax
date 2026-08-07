@@ -2217,7 +2217,11 @@ function aiProviderExamples(language) {
       '',
       snippetBlock(language, 'ai.openai'),
       '',
-      'Use the generated package examples for exact provider API runs, stream mapping, Responses audio mapping, and realtime event folding for this language.',
+      '### Vertex Gemini',
+      '',
+      snippetBlock(language, 'ai.vertex'),
+      '',
+      'Use the generated package examples for exact provider API runs, prompt-cached AxGen calls, stream mapping, Responses audio mapping, and realtime event folding for this language.',
     ].join('\n');
   }
 

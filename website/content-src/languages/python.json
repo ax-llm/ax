@@ -166,6 +166,21 @@
     ]
   },
   "snippetGroups": {
+    "ai": {
+      "vertex": {
+        "sourcePath": "src/examples/python/generation/vertex-gemini.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "client = GoogleGeminiClient(",
+          "    api_key=required(\"GOOGLE_VERTEX_ACCESS_TOKEN\"),",
+          "    project_id=required(\"GOOGLE_PROJECT_ID\"),",
+          "    region=required(\"GOOGLE_REGION\"),",
+          "    model=os.getenv(\"AX_VERTEX_MODEL\", \"gemini-3.5-flash\"),",
+          ")"
+        ]
+      }
+    },
     "signatures": {
       "string": {
         "sourcePath": "src/examples/python/generation/axgen-openai.py",

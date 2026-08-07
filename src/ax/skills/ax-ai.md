@@ -370,6 +370,12 @@ AI, Ax selects the service hostname from the location automatically:
 Pass the canonical lower-case Vertex location ID. Ax preserves the supplied
 value and does not normalize or validate it.
 
+The generated Python, Java, C++, Go, and Rust clients accept the same
+`projectId` / `project_id`, `region`, and optional `endpointId` / `endpoint_id`
+options. In generated clients, `apiKey` / `api_key` is a caller-supplied bearer
+access token (or `GOOGLE_VERTEX_ACCESS_TOKEN`); ADC discovery and automatic
+token refresh remain host-owned. An explicit `baseUrl` / `base_url` always wins.
+
 ## Context Caching
 
 ```typescript
@@ -411,6 +417,10 @@ const result = await gen.forward(llm, values, {
   contextCache: {},
 });
 ```
+
+AxGen forwards these provider options after merging program defaults with the
+per-call options. Generated language packages preserve the same
+`promptCacheKey` / `sessionId` / `contextCache` forwarding contract.
 
 **Markers must not move.** A breakpoint marker is part of its content block, so
 marking only "the newest stable message" each turn un-marks what the previous

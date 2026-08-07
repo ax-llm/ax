@@ -535,8 +535,8 @@ class ProviderOperationClient(AxBaseAI):
         usageContext: AxUsageContext | None = None,
         **runtime_options,
     ):
-        descriptor = provider_descriptor(profile)
         service_options = {**(options or {}), **runtime_options}
+        descriptor = provider_resolve_descriptor(profile, service_options)
         context = usage_context or usageContext
         if context:
             service_options["usage_context"] = copy.deepcopy(context)
@@ -564,11 +564,14 @@ class ProviderOperationClient(AxBaseAI):
     def __exit__(self, _exc_type, _exc, _tb):
         return False
 
+    def get_estimated_cost(self, model_usage: dict[str, Any] | None = None) -> float:
+        return float(provider_estimate_cost(model_usage or {}))
+
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
         realtime_model = request.get("model") or self.model
         if provider_should_use_realtime(self.profile, str(realtime_model or ""), request):
             return self.realtime_chat(request, options)
-        payload = provider_build_chat_request(self.profile, request)
+        payload = provider_build_chat_request(self.profile, request, options)
         if payload.get("stream"):
             return self._stream_chat(payload, request, options)
         model = request.get("model") or payload.get("model") or self.model
@@ -653,15 +656,15 @@ class ProviderOperationClient(AxBaseAI):
         cache_name = str(plan.get("cacheName") or "")
         try:
             if plan.get("action") == "refresh":
-                ops = ai_gemini_cache_ops(cache_name, ttl_seconds, api_key, str(model), cache_body)
-                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"])
+                ops = ai_gemini_cache_ops(cache_name, ttl_seconds, api_key, str(model), cache_body, options)
+                refreshed = self._request_json(ops["update"]["path"], ops["update"]["request"], stream=False, method=ops["update"]["method"], base_url=ops["update"].get("base_url"))
                 expires_at = expiry(refreshed)
                 if not expires_at:
                     raise AxAIServiceResponseError("Gemini cache refresh omitted a future expireTime", response_body=refreshed)
                 save({"cacheName": cache_name, "expiresAt": expires_at})
             if plan.get("action") in ("create", "refresh") and (plan.get("action") == "create" or not cache_name):
-                ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body)
-                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"])
+                ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
+                created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"))
                 cache_name = str((created or {}).get("name") or "")
                 expires_at = expiry(created)
                 if not cache_name or not expires_at:
@@ -670,8 +673,8 @@ class ProviderOperationClient(AxBaseAI):
         except AxAIServiceError:
             if plan.get("action") == "refresh":
                 try:
-                    ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body)
-                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"])
+                    ops = ai_gemini_cache_ops("", ttl_seconds, api_key, str(model), cache_body, options)
+                    created = self._request_json(ops["create"]["path"], ops["create"]["request"], stream=False, method=ops["create"]["method"], base_url=ops["create"].get("base_url"))
                     cache_name = str((created or {}).get("name") or "")
                     expires_at = expiry(created)
                     if not cache_name or not expires_at:
@@ -714,14 +717,14 @@ class ProviderOperationClient(AxBaseAI):
         req = {**req, "model": model, "model_config": model_config}
         self.last_used_chat_model = model
         self.last_used_model_config = copy.deepcopy(model_config)
-        payload = provider_build_chat_request(self.profile, req)
+        payload = provider_build_chat_request(self.profile, req, merged_options)
         yield from _usage_observed_stream(
             self._stream_chat(payload, req, merged_options),
             merged_options,
         )
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
-        payload = provider_build_embed_request(self.profile, request)
+        payload = provider_build_embed_request(self.profile, request, options)
         model = request.get("embed_model") or request.get("embedModel") or payload.get("model") or self.embed_model
         endpoint = self._operation_path("embed", model)
         raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"))
@@ -871,7 +874,7 @@ class ProviderOperationClient(AxBaseAI):
         return target.get("url", ""), headers
 
     def _operation_path(self, operation: str, model: str | None = None):
-        descriptor = provider_operation_descriptor(self.profile, operation)
+        descriptor = (self.descriptor.get("operations") or {}).get(operation) or provider_operation_descriptor(self.profile, operation)
         path = str(descriptor.get("path", "/" + operation))
         if model is not None:
             path = path.replace("{model}", urllib.parse.quote(str(model), safe=""))
@@ -885,13 +888,15 @@ class ProviderOperationClient(AxBaseAI):
         return path
 
     def _operation_method(self, operation: str) -> str:
-        return str(provider_operation_descriptor(self.profile, operation).get("method") or "POST").upper()
+        descriptor = (self.descriptor.get("operations") or {}).get(operation) or provider_operation_descriptor(self.profile, operation)
+        return str(descriptor.get("method") or "POST").upper()
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST"):
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None):
         method = str(method or "POST").upper()
+        request_base_url = (base_url or self.base_url).rstrip("/")
         call = {
             "method": method,
-            "url": self.base_url + endpoint,
+            "url": request_base_url + endpoint,
             "headers": self._headers(),
             body_key: payload,
             "stream": stream,
@@ -989,8 +994,9 @@ class GoogleGeminiClient(ProviderOperationClient):
         embed_model = options.pop("embed_model", None)
         if embed_model is None:
             embed_model = options.pop("embedModel", "gemini-embedding-2")
-        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("GOOGLE_APIKEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("GOOGLE_GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta"
+        is_vertex = bool((options.get("project_id") or options.get("projectId")) and options.get("region"))
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or (os.environ.get("GOOGLE_VERTEX_ACCESS_TOKEN") if is_vertex else None) or os.environ.get("GOOGLE_APIKEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("GOOGLE_GEMINI_BASE_URL")
         super().__init__(
             "google-gemini",
             "GoogleGeminiAI",
@@ -1004,8 +1010,9 @@ class GoogleGeminiClient(ProviderOperationClient):
 
 class AnthropicClient(ProviderOperationClient):
     def __init__(self, **options):
-        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("ANTHROPIC_API_KEY")
-        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+        is_vertex = bool((options.get("project_id") or options.get("projectId")) and options.get("region"))
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or (os.environ.get("GOOGLE_VERTEX_ACCESS_TOKEN") if is_vertex else None) or os.environ.get("ANTHROPIC_API_KEY")
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("ANTHROPIC_BASE_URL")
         super().__init__(
             "anthropic",
             "anthropic",
@@ -2084,6 +2091,10 @@ def _core_string_lower(value):
 
 def _core_string_format(template, *args):
     return str(template).format(*args)
+
+
+def _core_string_replace(value, old, new):
+    return str(value).replace(str(old), str(new))
 
 
 def _core_string_str(value):

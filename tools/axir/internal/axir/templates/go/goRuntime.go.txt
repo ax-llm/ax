@@ -1827,10 +1827,10 @@ func NewOpenAIResponsesClient(options map[string]Value) *OpenAIResponsesClient {
 	return &OpenAIResponsesClient{newProviderClient("openai-responses", "openai-responses", options, "gpt-4o", "text-embedding-ada-002")}
 }
 func NewGoogleGeminiClient(options map[string]Value) *GoogleGeminiClient {
-	return &GoogleGeminiClient{newProviderClient("google-gemini", "GoogleGeminiAI", options, "gemini-2.5-flash", "gemini-embedding-2")}
+	return &GoogleGeminiClient{newProviderClient("google-gemini", "GoogleGeminiAI", normalizeGoogleOptions(options), "gemini-2.5-flash", "gemini-embedding-2")}
 }
 func NewAnthropicClient(options map[string]Value) *AnthropicClient {
-	return &AnthropicClient{newProviderClient("anthropic", "anthropic", options, "claude-3-7-sonnet-latest", "")}
+	return &AnthropicClient{newProviderClient("anthropic", "anthropic", normalizeAnthropicOptions(options), "claude-3-7-sonnet-latest", "")}
 }
 func NewAzureOpenAIClient(options map[string]Value) *AzureOpenAIClient {
 	return &AzureOpenAIClient{newProviderClient("azure-openai", "Azure OpenAI", normalizeAzureOptions(options), "gpt-5-mini", "text-embedding-3-small")}
@@ -1901,6 +1901,35 @@ func normalizeAzureOptions(options map[string]Value) map[string]Value {
 	return options
 }
 
+func normalizeGoogleOptions(options map[string]Value) map[string]Value {
+	options = cloneMap(options)
+	vertex := coreGet(options, "project_id", coreGet(options, "projectId", nil)) != nil && coreGet(options, "region", nil) != nil
+	if coreGet(options, "api_key", coreGet(options, "apiKey", nil)) == nil {
+		key := os.Getenv("GOOGLE_API_KEY")
+		if vertex { key = os.Getenv("GOOGLE_VERTEX_ACCESS_TOKEN") }
+		if key == "" { key = os.Getenv("GEMINI_API_KEY") }
+		if key != "" { coreSet(options, "api_key", key) }
+	}
+	if coreGet(options, "base_url", coreGet(options, "baseUrl", nil)) == nil {
+		if base := os.Getenv("GOOGLE_GEMINI_BASE_URL"); base != "" { coreSet(options, "base_url", base) }
+	}
+	return options
+}
+
+func normalizeAnthropicOptions(options map[string]Value) map[string]Value {
+	options = cloneMap(options)
+	vertex := coreGet(options, "project_id", coreGet(options, "projectId", nil)) != nil && coreGet(options, "region", nil) != nil
+	if coreGet(options, "api_key", coreGet(options, "apiKey", nil)) == nil {
+		key := os.Getenv("ANTHROPIC_API_KEY")
+		if vertex { key = os.Getenv("GOOGLE_VERTEX_ACCESS_TOKEN") }
+		if key != "" { coreSet(options, "api_key", key) }
+	}
+	if coreGet(options, "base_url", coreGet(options, "baseUrl", nil)) == nil {
+		if base := os.Getenv("ANTHROPIC_BASE_URL"); base != "" { coreSet(options, "base_url", base) }
+	}
+	return options
+}
+
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	mergedOptions := mergeAIOptions(c.optionsSnapshot(), options)
 	response, err := safeValue(func() Value {
@@ -1917,7 +1946,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		}
 		config := coreGet(req, "model_config", Object())
 		c.setLastChat(model, config)
-		transportReq := c.requestJSON("chat", req, false)
+		transportReq := c.requestJSON("chat", req, false, mergedOptions)
 		if body, handled := c.contextCacheChat(ctx, req, mergedOptions, model, transportReq); handled {
 			return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model))
 		}
@@ -1939,7 +1968,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	if c.Profile != "google-gemini" || !coreTruthy(cfgValue) {
 		return nil, false
 	}
-	descriptor := mustCore(provider_descriptor(c.Profile))
+	descriptor := mustCore(provider_resolve_descriptor(c.Profile, options))
 	if !coreTruthy(coreGet(coreGet(coreGet(descriptor, "features", Object()), "caching", Object()), "supported", false)) {
 		return nil, false
 	}
@@ -2016,15 +2045,15 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	}
 	opCall := func(op Value) (Value, error) {
 		opMap := asMap(op)
-		opts := c.optionsSnapshot()
-		base := display(coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://generativelanguage.googleapis.com/v1beta"))))
+		opts := mergeAIOptions(c.optionsSnapshot(), options)
+		base := display(coreGet(opMap, "base_url", coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://generativelanguage.googleapis.com/v1beta")))))
 		call := Object("method", display(coreGet(opMap, "method", "POST")), "url", strings.TrimRight(base, "/")+display(coreGet(opMap, "path", "")), "headers", coreGet(fullCall, "headers", Object()), "json", coreGet(opMap, "request", Object()), "stream", false)
 		return tryCall(call)
 	}
 	apiKey := display(coreGet(c.optionsSnapshot(), "api_key", coreGet(c.optionsSnapshot(), "apiKey", os.Getenv("GOOGLE_APIKEY"))))
 	cacheName := display(coreGet(plan, "cacheName", ""))
 	create := func() bool {
-		ops := mustCore(ai_gemini_cache_ops("", float64(ttlSeconds), apiKey, display(model), cacheBody))
+		ops := mustCore(ai_gemini_cache_ops("", float64(ttlSeconds), apiKey, display(model), cacheBody, options))
 		created, err := opCall(coreGet(ops, "create", Object()))
 		if err != nil { return false }
 		cacheName = display(coreGet(created, "name", ""))
@@ -2035,7 +2064,7 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	}
 	switch display(coreGet(plan, "action", "none")) {
 	case "refresh":
-		ops := mustCore(ai_gemini_cache_ops(cacheName, float64(ttlSeconds), apiKey, display(model), cacheBody))
+		ops := mustCore(ai_gemini_cache_ops(cacheName, float64(ttlSeconds), apiKey, display(model), cacheBody, options))
 		refreshed, err := opCall(coreGet(ops, "update", Object()))
 		if err != nil || expiry(refreshed) == 0 {
 			if !create() { body, fullErr := tryCall(fullCall); if fullErr != nil { panic(fullErr) }; return body, true }
@@ -2074,7 +2103,7 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 		}
 		model := coreGet(req, "embed_model", coreGet(req, "embedModel", coreGet(opts, "embed_model", nil)))
 		c.setLastEmbed(model)
-		transportReq := c.requestJSON("embed", req, false)
+		transportReq := c.requestJSON("embed", req, false, mergedOptions)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
@@ -2110,7 +2139,7 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]
 		mustCore(validate_chat_request(req))
 		opts := c.optionsSnapshot()
 		model := coreGet(req, "model", coreGet(opts, "model", nil))
-		transportReq := c.requestJSON("stream_chat", req, true)
+		transportReq := c.requestJSON("stream_chat", req, true, mergedOptions)
 		maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(mergedOptions)
 		attempt := 0
 		for {
@@ -2165,8 +2194,8 @@ func (c *OpenAICompatibleClient) prepareChatRequest(request map[string]Value, op
 	coreSet(req, "model_config", config)
 	return req
 }
-func (c *OpenAICompatibleClient) requestJSON(operation string, request map[string]Value, stream bool) Value {
-	opts := c.optionsSnapshot()
+func (c *OpenAICompatibleClient) requestJSON(operation string, request map[string]Value, stream bool, options map[string]Value) Value {
+	opts := mergeAIOptions(c.optionsSnapshot(), options)
 	payload := mustCore(provider_build_chat_request(c.Profile, request, opts))
 	if operation == "embed" {
 		payload = mustCore(provider_build_embed_request(c.Profile, request, opts))
@@ -2180,9 +2209,9 @@ func (c *OpenAICompatibleClient) requestJSON(operation string, request map[strin
 	if stream {
 		coreSet(payload, "stream", true)
 	}
-	operationDescriptor := mustCore(provider_operation_descriptor(c.Profile, operation))
+	operationDescriptor := mustCore(provider_resolve_operation_descriptor(c.Profile, operation, opts))
 	path := display(coreGet(operationDescriptor, "path", "/chat/completions"))
-	descriptor := mustCore(provider_descriptor(c.Profile))
+	descriptor := mustCore(provider_resolve_descriptor(c.Profile, opts))
 	base := display(coreGet(opts, "base_url", coreGet(opts, "baseUrl", coreGet(descriptor, "baseUrl", "https://api.openai.com/v1"))))
 	headers := Object("Content-Type", "application/json")
 	apiKey := display(coreGet(opts, "api_key", coreGet(opts, "apiKey", os.Getenv("OPENAI_API_KEY"))))
@@ -2246,7 +2275,7 @@ func normalizeTransportPayload(raw Value) Value {
 
 func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	return safeValue(func() Value {
-		transportReq := c.requestJSON("transcribe", request, false)
+		transportReq := c.requestJSON("transcribe", request, false, options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
@@ -2256,7 +2285,7 @@ func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[str
 }
 func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	return safeValue(func() Value {
-		transportReq := c.requestJSON("speak", request, false)
+		transportReq := c.requestJSON("speak", request, false, options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
@@ -2521,7 +2550,9 @@ func (c *OpenAICompatibleClient) GetLastUsedModelConfig() Value {
 	defer c.mu.RUnlock()
 	return cloneValue(c.LastConfig)
 }
-func (c *OpenAICompatibleClient) GetEstimatedCost(usage map[string]Value) float64 { return 0 }
+func (c *OpenAICompatibleClient) GetEstimatedCost(usage map[string]Value) float64 {
+	return num(mustCore(provider_estimate_cost(usage)))
+}
 
 func (c *OpenAICompatibleClient) optionsSnapshot() map[string]Value {
 	c.mu.RLock()
@@ -7423,6 +7454,7 @@ type conformanceScriptedAI struct {
 	StreamEvents        []Value
 	TranscribeResponses []Value
 	Requests            []map[string]Value
+	ChatOptions         []map[string]Value
 	ChatCalls           int
 }
 
@@ -7439,6 +7471,7 @@ func (f *conformanceScriptedAI) Transcribe(ctx context.Context, request map[stri
 func (f *conformanceScriptedAI) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	f.ChatCalls++
 	f.Requests = append(f.Requests, cloneMap(request))
+	f.ChatOptions = append(f.ChatOptions, cloneMap(options))
 	if len(f.Responses) == 0 {
 		return nil, AxError{Category: "runtime", Message: "scripted client exhausted"}
 	}
@@ -7534,7 +7567,11 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAIUsageObserver(fixture)
 	case "ai_provider_descriptor":
 		profile := display(coreGet(fixture, "provider", coreGet(fixture, "profile", "")))
-		assertSubset(mustCore(provider_descriptor(profile)), coreGet(fixture, "expected_descriptor_subset", coreGet(fixture, "expected_descriptor", Object())), "provider descriptor")
+		descriptor := mustCore(provider_descriptor(profile))
+		if _, ok := fixture["options"]; ok {
+			descriptor = mustCore(provider_resolve_descriptor(profile, coreGet(fixture, "options", Object())))
+		}
+		assertSubset(descriptor, coreGet(fixture, "expected_output", coreGet(fixture, "expected_descriptor_subset", coreGet(fixture, "expected_descriptor", Object()))), "provider descriptor")
 	case "ai_provider_registry":
 		assertSubset(mustCore(provider_profile_registry()), coreGet(fixture, "expected_registry_subset", coreGet(fixture, "expected_registry", Object())), "provider registry")
 	case "ai_model_catalog_audit":
@@ -8551,6 +8588,9 @@ func runConformanceForward(fixture map[string]Value) {
 		if expected := coreGet(fixture, "expected_request", nil); expected != nil && len(client.Requests) > 0 {
 			assertSubset(client.Requests[0], expected, "request")
 		}
+		if expected := coreGet(fixture, "expected_chat_options_subset", nil); expected != nil && len(client.ChatOptions) > 0 {
+			assertSubset(client.ChatOptions[0], expected, "chat options")
+		}
 		if expected := coreGet(fixture, "expected_tool_calls", nil); expected != nil {
 			assertEqual(calls, expected, "tool calls")
 		}
@@ -8691,6 +8731,15 @@ func runConformanceAIChat(fixture map[string]Value) {
 	if coreGet(fixture, "expected_error_contains", nil) == nil {
 		if expected := coreGet(fixture, "expected_output", nil); expected != nil {
 			assertEqual(output, expected, "ai chat output")
+		}
+		if expected := coreGet(fixture, "expected_request_after", nil); expected != nil {
+			assertEqual(coreGet(fixture, "request", Object()), expected, "ai chat input mutation")
+		}
+		if expected := coreGet(fixture, "expected_estimated_cost", nil); expected != nil {
+			actual := client.GetEstimatedCost(asMap(coreGet(output, "model_usage", Object())))
+			if math.Abs(actual-num(expected)) > 1e-12 {
+				panic("estimated cost mismatch")
+			}
 		}
 		assertTransportRequest(fixture, transport)
 	}

@@ -65,9 +65,10 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `python examples/mcp_modern_roundtrip.py`: modern MCP discovery, cache, task, and roots MRTR over an in-process HTTP loopback
 - `python examples/context_cache_recovery.py`: Gemini managed-context-cache create, refresh/recreate, rejection invalidation, and uncached fallback
 
-`provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:
+`provider-api` examples make a real provider call. OpenAI examples require `OPENAI_API_KEY`; Vertex examples require `GOOGLE_VERTEX_ACCESS_TOKEN`, `GOOGLE_PROJECT_ID`, and `GOOGLE_REGION`:
 
-- `OPENAI_API_KEY=... python examples/axgen_openai_api.py`: AxGen with a real OpenAI-compatible provider API
+- `OPENAI_API_KEY=... python examples/axgen_openai_api.py`: GPT-5.6 prompt-cached AxGen with the OpenAI Chat API
+- `GOOGLE_VERTEX_ACCESS_TOKEN=... GOOGLE_PROJECT_ID=... GOOGLE_REGION=... python examples/vertex_gemini_api.py`: Gemini through Vertex routing
 - `OPENAI_API_KEY=... python examples/flow_openai_api.py`: AxFlow with a real OpenAI-compatible provider API
 
 ## Runtime Profiles And RLM Agents

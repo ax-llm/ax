@@ -284,6 +284,10 @@ Rules:
 
 - `cachingFunction` acts as a get/set: called with `(key)` to read, `(key, value)` to write.
 - `contextCache` enables AI provider-level prompt caching for long context.
+- Provider-facing forward options are merged with constructor defaults before
+  the chat call. This includes `promptCacheKey`, `sessionId`, and
+  `contextCache` in TypeScript and every generated language package; per-call
+  values take precedence.
 
 ## Sampling And Result Picker
 

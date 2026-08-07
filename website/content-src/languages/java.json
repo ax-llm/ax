@@ -148,6 +148,20 @@
     ]
   },
   "snippetGroups": {
+    "ai": {
+      "vertex": {
+        "sourcePath": "src/examples/java/generation/VertexGeminiExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "GoogleGeminiClient client = new GoogleGeminiClient(Map.of(",
+          "    \"api_key\", required(\"GOOGLE_VERTEX_ACCESS_TOKEN\"),",
+          "    \"project_id\", required(\"GOOGLE_PROJECT_ID\"),",
+          "    \"region\", required(\"GOOGLE_REGION\"),",
+          "    \"model\", System.getenv().getOrDefault(\"AX_VERTEX_MODEL\", \"gemini-3.5-flash\")));"
+        ]
+      }
+    },
     "signatures": {
       "string": {
         "sourcePath": "src/examples/java/generation/BasicGenerationExample.java",

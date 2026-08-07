@@ -133,6 +133,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/signature_schema.py":                          pySignatureSchemaExample,
 		"examples/axgen_scripted_client_tool.py":                pyAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api.py":                          pyAxGenOpenAIExample,
+		"examples/vertex_gemini_api.py":                         pyVertexGeminiExample,
 		"examples/provider_mapping_no_key.py":                   pyProviderMappingNoKeyExample,
 		"examples/adaptive_balancer_no_key.py":                  pyAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key.py":                    pyProviderStreamNoKeyExample,
@@ -159,7 +160,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/mcp_scripted_tools.py":                              pyMCPScriptedToolsExample,
 		"examples/mcp_modern_roundtrip.py":                            pyMCPModernRoundtripExample,
 		"examples/mcp_sse_roundtrip.py":                               pyMCPSseRoundtripExample,
-		"examples/context_cache_recovery.py":                         pyContextCacheRecoveryExample,
+		"examples/context_cache_recovery.py":                          pyContextCacheRecoveryExample,
 		"API.md":                                                      packageAPIReferenceMarkdown(model, "python"),
 		"README.md":                                                   packageREADME(model, "python"),
 		"LICENSE":                                                     packageLicenseText,
@@ -266,6 +267,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/SignatureSchemaExample.java":                        javaSignatureSchemaExample,
 		"examples/AxGenScriptedClientToolExample.java":                javaAxGenScriptedClientToolExample,
 		"examples/AxGenOpenAIExample.java":                            javaAxGenOpenAIExample,
+		"examples/VertexGeminiExample.java":                           javaVertexGeminiExample,
 		"examples/ProviderMappingNoKeyExample.java":                   javaProviderMappingNoKeyExample,
 		"examples/AdaptiveBalancerNoKeyExample.java":                  javaAdaptiveBalancerNoKeyExample,
 		"examples/ProviderStreamNoKeyExample.java":                    javaProviderStreamNoKeyExample,
@@ -296,10 +298,10 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/AxMCPScriptedToolsExample.java":                     javaMCPScriptedToolsExample,
 		"examples/AxMCPModernRoundtripExample.java":                   javaMCPModernRoundtripExample,
 		"examples/AxMCPSseRoundtripExample.java":                      javaMCPSseRoundtripExample,
-		"examples/ContextCacheRecoveryExample.java":                  javaContextCacheRecoveryExample,
-		"API.md":                                                      packageAPIReferenceMarkdown(model, "java"),
-		"README.md":                                                   packageREADME(model, "java"),
-		"LICENSE":                                                     packageLicenseText,
+		"examples/ContextCacheRecoveryExample.java":                   javaContextCacheRecoveryExample,
+		"API.md":    packageAPIReferenceMarkdown(model, "java"),
+		"README.md": packageREADME(model, "java"),
+		"LICENSE":   packageLicenseText,
 	}
 	addPackageSkills(files, model, "java")
 	return writeFiles(outDir, files)
@@ -329,6 +331,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/signature_schema.cpp":                         cppSignatureSchemaExample,
 		"examples/axgen_scripted_client_tool.cpp":               cppAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api.cpp":                         cppAxGenOpenAIExample,
+		"examples/vertex_gemini_api.cpp":                        cppVertexGeminiExample,
 		"examples/provider_mapping_no_key.cpp":                  cppProviderMappingNoKeyExample,
 		"examples/adaptive_balancer_no_key.cpp":                 cppAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key.cpp":                   cppProviderStreamNoKeyExample,
@@ -356,7 +359,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/mcp_scripted_tools.cpp":                       cppMCPScriptedToolsExample,
 		"examples/mcp_modern_roundtrip.cpp":                     cppMCPModernRoundtripExample,
 		"examples/mcp_sse_roundtrip.cpp":                        cppMCPSseRoundtripExample,
-		"examples/context_cache_recovery.cpp":                  cppContextCacheRecoveryExample,
+		"examples/context_cache_recovery.cpp":                   cppContextCacheRecoveryExample,
 		"API.md":                                                packageAPIReferenceMarkdown(model, "cpp"),
 		"README.md":                                             packageREADME(model, "cpp"),
 		"LICENSE":                                               packageLicenseText,
@@ -384,6 +387,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"examples/signature_schema/main.go": goSignatureSchemaExample,
 		"examples/axgen_scripted_client_tool/main.go":       goAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api/main.go":                 goAxGenOpenAIExample,
+		"examples/vertex_gemini_api/main.go":                goVertexGeminiExample,
 		"examples/provider_mapping_no_key/main.go":          goProviderMappingNoKeyExample,
 		"examples/adaptive_balancer_no_key/main.go":         goAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key/main.go":           goProviderStreamNoKeyExample,
@@ -405,10 +409,10 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"examples/mcp_scripted_tools/main.go":               goMCPScriptedToolsExample,
 		"examples/mcp_modern_roundtrip/main.go":             goMCPModernRoundtripExample,
 		"examples/mcp_sse_roundtrip/main.go":                goMCPSseRoundtripExample,
-		"examples/context_cache_recovery/main.go":          goContextCacheRecoveryExample,
-		"API.md":                                            packageAPIReferenceMarkdown(model, "go"),
-		"README.md":                                         packageREADME(model, "go"),
-		"LICENSE":                                           packageLicenseText,
+		"examples/context_cache_recovery/main.go":           goContextCacheRecoveryExample,
+		"API.md":    packageAPIReferenceMarkdown(model, "go"),
+		"README.md": packageREADME(model, "go"),
+		"LICENSE":   packageLicenseText,
 	}
 	addPackageSkills(files, model, "go")
 	return writeFiles(outDir, files)
@@ -435,6 +439,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"examples/provider_stream_no_key.rs":              rustProviderStreamNoKeyExample,
 		"examples/axgen_scripted_client_tool.rs":          rustAxGenScriptedClientToolExample,
 		"examples/axgen_openai_api.rs":                    rustAxGenOpenAIExample,
+		"examples/vertex_gemini_api.rs":                   rustVertexGeminiExample,
 		"examples/axflow_program_graph.rs":                rustAxFlowProgramGraphExample,
 		"examples/flow_mermaid.rs":                        rustFlowMermaidExample,
 		"examples/flow_openai_api.rs":                     rustAxFlowOpenAIExample,
@@ -454,7 +459,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"examples/mcp_scripted_tools.rs":                  rustMCPScriptedToolsExample,
 		"examples/mcp_modern_roundtrip.rs":                rustMCPModernRoundtripExample,
 		"examples/mcp_sse_roundtrip.rs":                   rustMCPSseRoundtripExample,
-		"examples/context_cache_recovery.rs":             rustContextCacheRecoveryExample,
+		"examples/context_cache_recovery.rs":              rustContextCacheRecoveryExample,
 		"API.md":                                          packageAPIReferenceMarkdown(model, "rust"),
 		"README.md":                                       packageREADME(model, "rust"),
 		"LICENSE":                                         packageLicenseText,
@@ -732,6 +737,7 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axgen-chat-log",
 			"axgen-examples-exact",
 			"axgen-context-cache",
+			"axgen-prompt-cache-key",
 			"axgen-callbacks",
 			"axgen-function-trace",
 			"axgen-assertions",
@@ -740,6 +746,9 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axgen-stop-functions",
 			"cache-aware-prompt-inputs",
 			"axai",
+			"axai-vertex-routing",
+			"axai-openai-prompt-caching",
+			"axai-cache-cost-accounting",
 			"axai-provider-descriptor-registry",
 			"axai-provider-alias-registry",
 			"axai-model-catalog-audit",
@@ -2114,7 +2123,7 @@ func packageREADME(model AxRuntimeModel, target string) string {
 		"",
 		cfg.NoKeyExamples,
 		"",
-		"`provider-api` examples make a real provider call and require `OPENAI_API_KEY` or `OPENAI_APIKEY`:",
+		"`provider-api` examples make a real provider call. OpenAI examples require `OPENAI_API_KEY`; Vertex examples require `GOOGLE_VERTEX_ACCESS_TOKEN`, `GOOGLE_PROJECT_ID`, and `GOOGLE_REGION`:",
 		"",
 		cfg.ProviderExamples,
 		"",
@@ -2196,7 +2205,8 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `python examples/context_cache_recovery.py`: Gemini managed-context-cache create, refresh/recreate, rejection invalidation, and uncached fallback",
 			),
 			ProviderExamples: readmeLines(
-				"- `OPENAI_API_KEY=... python examples/axgen_openai_api.py`: AxGen with a real OpenAI-compatible provider API",
+				"- `OPENAI_API_KEY=... python examples/axgen_openai_api.py`: GPT-5.6 prompt-cached AxGen with the OpenAI Chat API",
+				"- `GOOGLE_VERTEX_ACCESS_TOKEN=... GOOGLE_PROJECT_ID=... GOOGLE_REGION=... python examples/vertex_gemini_api.py`: Gemini through Vertex routing",
 				"- `OPENAI_API_KEY=... python examples/flow_openai_api.py`: AxFlow with a real OpenAI-compatible provider API",
 			),
 			RuntimeProfiles: readmeLines(
@@ -2271,7 +2281,8 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/ContextCacheRecoveryExample.java`: Gemini managed-context-cache recovery through a scripted transport",
 			),
 			ProviderExamples: readmeLines(
-				"- `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AxGenOpenAIExample.java && java -cp .:examples AxGenOpenAIExample`: AxGen with a real OpenAI-compatible provider API",
+				"- `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AxGenOpenAIExample.java && java -cp .:examples AxGenOpenAIExample`: GPT-5.6 prompt-cached AxGen with the OpenAI Chat API",
+				"- `GOOGLE_VERTEX_ACCESS_TOKEN=... GOOGLE_PROJECT_ID=... GOOGLE_REGION=... javac -cp . dev/axllm/ax/*.java examples/VertexGeminiExample.java && java -cp .:examples VertexGeminiExample`: Gemini through Vertex routing",
 				"- `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/FlowOpenAIExample.java && java -cp .:examples FlowOpenAIExample`: AxFlow with a real OpenAI-compatible provider API",
 			),
 			RuntimeProfiles: readmeLines(
@@ -2341,7 +2352,8 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/context_cache_recovery.cpp`: Gemini managed-context-cache recovery through a scripted transport",
 			),
 			ProviderExamples: readmeLines(
-				"- `OPENAI_API_KEY=... ./build/axgen_openai_api`: AxGen with a real OpenAI-compatible provider API after building examples",
+				"- `OPENAI_API_KEY=... ./build/axgen_openai_api`: GPT-5.6 prompt-cached AxGen with the OpenAI Chat API after building examples",
+				"- `GOOGLE_VERTEX_ACCESS_TOKEN=... GOOGLE_PROJECT_ID=... GOOGLE_REGION=... ./build/vertex_gemini_api`: Gemini through Vertex routing after building examples",
 				"- `OPENAI_API_KEY=... ./build/flow_openai_api`: AxFlow with a real OpenAI-compatible provider API after building examples",
 			),
 			RuntimeProfiles: readmeLines(
@@ -2406,7 +2418,8 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `go run ./examples/context_cache_recovery`: Gemini managed-context-cache recovery through a scripted transport",
 			),
 			ProviderExamples: readmeLines(
-				"- From the repo root, `OPENAI_API_KEY=... npm run example -- go axgen_openai_api.go`: AxGen with a real OpenAI-compatible provider API",
+				"- `OPENAI_API_KEY=... go run ./examples/axgen_openai_api`: GPT-5.6 prompt-cached AxGen with the OpenAI Chat API",
+				"- `GOOGLE_VERTEX_ACCESS_TOKEN=... GOOGLE_PROJECT_ID=... GOOGLE_REGION=... go run ./examples/vertex_gemini_api`: Gemini through Vertex routing",
 				"- From the repo root, `OPENAI_API_KEY=... npm run example -- go flow_openai_api.go`: AxFlow with a real OpenAI-compatible provider API",
 			),
 			RuntimeProfiles: readmeLines(
@@ -2482,7 +2495,8 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `cargo run --example context_cache_recovery`: Gemini managed-context-cache recovery through a scripted transport",
 			),
 			ProviderExamples: readmeLines(
-				"- `OPENAI_API_KEY=... cargo run --example axgen_openai_api`: AxGen with a real OpenAI-compatible provider API",
+				"- `OPENAI_API_KEY=... cargo run --example axgen_openai_api`: GPT-5.6 prompt-cached AxGen with the OpenAI Chat API",
+				"- `GOOGLE_VERTEX_ACCESS_TOKEN=... GOOGLE_PROJECT_ID=... GOOGLE_REGION=... cargo run --example vertex_gemini_api`: Gemini through Vertex routing",
 				"- `OPENAI_API_KEY=... cargo run --example flow_openai_api`: AxFlow with a real OpenAI-compatible provider API",
 			),
 			RuntimeProfiles: readmeLines(

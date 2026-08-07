@@ -87,16 +87,54 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     ref generic = @build_chat_request
     tag "src/ax/ai/openai/api.ts"
-    type signature = "(AxChatRequest) -> json throws"
-    body @entry(%request: AxChatRequest) {
+    type signature = "(AxChatRequest, options?:json, prompt_caching?:bool) -> json throws"
+    body @entry(%request: AxChatRequest, %options: json, %prompt_caching: bool) {
       %payload = core.map
       %model = core.get %request["model"]
       core.set %payload["model"] = %model
       %messages = core.list
       %chat_prompt = core.get %request["chat_prompt"]
+      %message_count = core.call intrinsic.len(%chat_prompt)
+      %last_index = core.call intrinsic.add(%message_count, -1)
+      %has_context_cache_snake = core.call intrinsic.map.contains(%options, "context_cache")
+      %has_context_cache_camel = core.call intrinsic.map.contains(%options, "contextCache")
+      %has_context_cache = core.call intrinsic.or(%has_context_cache_snake, %has_context_cache_camel)
+      %has_cache_flag = core.let false
+      core.for %raw_message in %chat_prompt {
+        %raw_cache = core.get %raw_message["cache"] default false
+        %has_cache_flag = core.call intrinsic.or(%has_cache_flag, %raw_cache)
+      }
+      %empty_functions_for_cache = core.list
+      %functions_for_cache = core.get %request["functions"] default %empty_functions_for_cache
+      core.for %cache_fn in %functions_for_cache {
+        %fn_cache = core.get %cache_fn["cache"] default false
+        %has_cache_flag = core.call intrinsic.or(%has_cache_flag, %fn_cache)
+      }
+      %cache_requested = core.call intrinsic.or(%has_context_cache, %has_cache_flag)
+      %is_gpt_56_base = core.call intrinsic.eq(%model, "gpt-5.6")
+      %is_gpt_56_tier = core.call intrinsic.string.starts_with(%model, "gpt-5.6-")
+      %is_gpt_56 = core.call intrinsic.or(%is_gpt_56_base, %is_gpt_56_tier)
+      %cache_provider_and_model = core.call intrinsic.and(%prompt_caching, %is_gpt_56)
+      %cache_enabled = core.call intrinsic.and(%cache_provider_and_model, %cache_requested)
+      %message_index = core.const 0
+      %marker_count = core.const 0
       core.for %message in %chat_prompt {
         %provider_message = core.call @openai_message_impl(%message)
+        core.if %cache_enabled {
+          %is_before_last = core.call intrinsic.lt(%message_index, %last_index)
+          %explicit_cache = core.get %message["cache"] default false
+          %should_mark = core.call intrinsic.or(%is_before_last, %explicit_cache)
+          core.if %should_mark {
+            %marked = core.call @openai_apply_cache_breakpoint_impl(%provider_message)
+            %provider_message = core.get %marked["message"] default %provider_message
+            %marker_added = core.get %marked["marked"] default false
+            core.if %marker_added {
+              %marker_count = core.call intrinsic.add(%marker_count, 1)
+            }
+          }
+        }
         core.append %messages, %provider_message
+        %message_index = core.call intrinsic.add(%message_index, 1)
       }
       core.set %payload["messages"] = %messages
       %empty_functions = core.list
@@ -137,7 +175,89 @@ module @ax.provider version "0.1" {
       }
       %model_config = core.get %request["model_config"]
       core.call @openai_apply_model_config_impl(%payload, %model_config)
+      core.if %cache_enabled {
+        %has_markers = core.call intrinsic.gt(%marker_count, 0)
+        core.if %has_markers {
+          %prompt_cache_options = core.map
+          core.set %prompt_cache_options["mode"] = "explicit"
+          core.set %payload["prompt_cache_options"] = %prompt_cache_options
+        }
+        %prompt_key_snake = core.get %options["prompt_cache_key"]
+        %prompt_key = core.get %options["promptCacheKey"] default %prompt_key_snake
+        %session_snake = core.get %options["session_id"]
+        %session = core.get %options["sessionId"] default %session_snake
+        %resolved_key = core.call intrinsic.coalesce(%prompt_key, %session)
+        %has_resolved_key = core.call intrinsic.truthy(%resolved_key)
+        core.if %has_resolved_key {
+          core.set %payload["prompt_cache_key"] = %resolved_key
+        }
+      }
       core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @openai_apply_cache_breakpoint_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-prompt-cache-breakpoint-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%message: json) {
+      %out = core.map
+      core.set %out["message"] = %message
+      core.set %out["marked"] = false
+      %content = core.get %message["content"]
+      %content_is_string = core.type_is %content type "string"
+      core.if %content_is_string {
+        %content_length = core.call intrinsic.len(%content)
+        %has_content = core.call intrinsic.gt(%content_length, 0)
+        core.if %has_content {
+          %breakpoint = core.map
+          core.set %breakpoint["mode"] = "explicit"
+          %part = core.map
+          core.set %part["type"] = "text"
+          core.set %part["text"] = %content
+          core.set %part["prompt_cache_breakpoint"] = %breakpoint
+          %parts = core.list
+          core.append %parts, %part
+          %copy_seed = core.map
+          %message_copy = core.call intrinsic.map.merge(%message, %copy_seed)
+          core.set %message_copy["content"] = %parts
+          core.set %out["message"] = %message_copy
+          core.set %out["marked"] = true
+        }
+        core.return %out
+      }
+      %content_is_list = core.type_is %content type "list"
+      core.if %content_is_list {
+        %part_count = core.call intrinsic.len(%content)
+        %has_parts = core.call intrinsic.gt(%part_count, 0)
+        core.if %has_parts {
+          %last_part_index = core.call intrinsic.add(%part_count, -1)
+          %part_index = core.const 0
+          %parts = core.list
+          core.for %content_part in %content {
+            %is_last_part = core.call intrinsic.eq(%part_index, %last_part_index)
+            core.if %is_last_part {
+              %part_seed = core.map
+              %part_copy = core.call intrinsic.map.merge(%content_part, %part_seed)
+              %breakpoint = core.map
+              core.set %breakpoint["mode"] = "explicit"
+              core.set %part_copy["prompt_cache_breakpoint"] = %breakpoint
+              core.append %parts, %part_copy
+            } else {
+              core.append %parts, %content_part
+            }
+            %part_index = core.call intrinsic.add(%part_index, 1)
+          }
+          %message_seed = core.map
+          %message_copy = core.call intrinsic.map.merge(%message, %message_seed)
+          core.set %message_copy["content"] = %parts
+          core.set %out["message"] = %message_copy
+          core.set %out["marked"] = true
+        }
+      }
+      core.return %out
     }
   }
 
@@ -928,6 +1048,119 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @provider_estimate_cost {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-model-catalog-runtime"
+    tag "axai-cache-write-cost"
+    type signature = "(model_usage?:json) -> number"
+    body @entry(%model_usage: json) {
+      %has_usage = core.call intrinsic.truthy(%model_usage)
+      core.if %has_usage {
+      } else {
+        core.return 0
+      }
+      %model = core.get %model_usage["model"] default ""
+      %model_present = core.call intrinsic.truthy(%model)
+      core.if %model_present {
+      } else {
+        core.return 0
+      }
+      %ai_raw = core.get %model_usage["ai"] default "openai"
+      %ai_lower = core.call intrinsic.string.lower(%ai_raw)
+      %provider_name = core.let %ai_lower
+      %is_openai_compatible = core.call intrinsic.eq(%ai_lower, "openai-compatible")
+      core.if %is_openai_compatible {
+        %provider_name = core.let "openai"
+      }
+      %is_google_name = core.call intrinsic.eq(%ai_lower, "googlegeminiai")
+      core.if %is_google_name {
+        %provider_name = core.let "google-gemini"
+      }
+      %catalog = core.call @provider_model_catalog_registry()
+      %providers = core.get %catalog["all"]
+      %model_info = core.call intrinsic.none()
+      %empty_aliases = core.list
+      core.for %provider in %providers {
+        %catalog_provider_name = core.get %provider["name"] default ""
+        %provider_matches = core.call intrinsic.eq(%catalog_provider_name, %provider_name)
+        core.if %provider_matches {
+          %models = core.get %provider["models"]
+          core.for %candidate in %models {
+            %candidate_name = core.get %candidate["name"] default ""
+            %name_matches = core.call intrinsic.eq(%candidate_name, %model)
+            %aliases = core.get %candidate["aliases"] default %empty_aliases
+            %alias_matches = core.call intrinsic.contains(%aliases, %model)
+            %matches = core.call intrinsic.or(%name_matches, %alias_matches)
+            core.if %matches {
+              %model_info = core.let %candidate
+            }
+          }
+        }
+      }
+      %has_model_info = core.call intrinsic.truthy(%model_info)
+      core.if %has_model_info {
+      } else {
+        core.return 0
+      }
+      %tokens = core.get %model_usage["tokens"]
+      %has_tokens = core.call intrinsic.truthy(%tokens)
+      core.if %has_tokens {
+      } else {
+        core.return 0
+      }
+      %prompt_snake = core.get %tokens["prompt_tokens"] default 0
+      %prompt = core.get %tokens["promptTokens"] default %prompt_snake
+      %completion_snake = core.get %tokens["completion_tokens"] default 0
+      %completion = core.get %tokens["completionTokens"] default %completion_snake
+      %thoughts_snake = core.get %tokens["thoughts_tokens"] default 0
+      %thoughts = core.get %tokens["thoughtsTokens"] default %thoughts_snake
+      %cache_read_snake = core.get %tokens["cache_read_tokens"] default 0
+      %cache_read = core.get %tokens["cacheReadTokens"] default %cache_read_snake
+      %cache_creation_snake = core.get %tokens["cache_creation_tokens"] default 0
+      %cache_creation = core.get %tokens["cacheCreationTokens"] default %cache_creation_snake
+      %input_base = core.call intrinsic.add(%prompt, %cache_read)
+      %total_input = core.call intrinsic.add(%input_base, %cache_creation)
+      %threshold_raw = core.get %model_info["longContextThreshold"]
+      %has_threshold = core.call intrinsic.is_not_none(%threshold_raw)
+      %threshold = core.call intrinsic.coalesce(%threshold_raw, 0)
+      %above_threshold = core.call intrinsic.gt(%total_input, %threshold)
+      %long_context = core.call intrinsic.and(%has_threshold, %above_threshold)
+      %speed = core.get %tokens["speed"] default ""
+      %fast = core.call intrinsic.eq(%speed, "fast")
+      %base_prompt_price = core.get %model_info["promptTokenCostPer1M"] default 0
+      %base_completion_price = core.get %model_info["completionTokenCostPer1M"] default 0
+      %prompt_price = core.let %base_prompt_price
+      %completion_price = core.let %base_completion_price
+      %cache_read_price = core.get %model_info["cacheReadTokenCostPer1M"] default %base_prompt_price
+      %cache_write_price = core.get %model_info["cacheWriteTokenCostPer1M"] default %base_prompt_price
+      core.if %long_context {
+        %prompt_price = core.get %model_info["longContextPromptTokenCostPer1M"] default %base_prompt_price
+        %completion_price = core.get %model_info["longContextCompletionTokenCostPer1M"] default %base_completion_price
+        %cache_read_price = core.get %model_info["longContextCacheReadTokenCostPer1M"] default %cache_read_price
+      }
+      core.if %fast {
+        %prompt_price = core.get %model_info["fastPromptTokenCostPer1M"] default %base_prompt_price
+        %completion_price = core.get %model_info["fastCompletionTokenCostPer1M"] default %base_completion_price
+        %cache_read_price = core.get %model_info["fastCacheReadTokenCostPer1M"] default %cache_read_price
+        %cache_write_price = core.get %model_info["fastCacheWriteTokenCostPer1M"] default %cache_write_price
+      }
+      %total_output = core.call intrinsic.add(%completion, %thoughts)
+      %prompt_cost_raw = core.call intrinsic.mul(%prompt, %prompt_price)
+      %prompt_cost = core.call intrinsic.div(%prompt_cost_raw, 1000000)
+      %completion_cost_raw = core.call intrinsic.mul(%total_output, %completion_price)
+      %completion_cost = core.call intrinsic.div(%completion_cost_raw, 1000000)
+      %cache_read_cost_raw = core.call intrinsic.mul(%cache_read, %cache_read_price)
+      %cache_read_cost = core.call intrinsic.div(%cache_read_cost_raw, 1000000)
+      %cache_write_cost_raw = core.call intrinsic.mul(%cache_creation, %cache_write_price)
+      %cache_write_cost = core.call intrinsic.div(%cache_write_cost_raw, 1000000)
+      %input_cost = core.call intrinsic.add(%prompt_cost, %cache_read_cost)
+      %cache_cost = core.call intrinsic.add(%input_cost, %cache_write_cost)
+      %total_cost = core.call intrinsic.add(%cache_cost, %completion_cost)
+      core.return %total_cost
+    }
+  }
+
   op ax.provider.semantic @provider_route_request_requirements {
     attr core_kind = "func"
     attr emit_module = "ai"
@@ -1557,7 +1790,7 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     tag "provider-balancer-adaptive"
     type signature = "() -> json"
-    body @entry() {
+    body @entry {
       %out = core.map
       core.set %out["version"] = 1
       core.set %out["observations"] = 0
@@ -1636,15 +1869,15 @@ module @ax.provider version "0.1" {
     attr private = "true"
     tag "provider-balancer-adaptive"
     type signature = "() -> number"
-    body @entry() {
+    body @entry {
       %value = core.call intrinsic.math.random()
       %low = core.call intrinsic.lt(%value, 0.0000000000000002220446049250313)
       core.if %low {
         core.return 0.0000000000000002220446049250313
       }
-      %high = core.call intrinsic.gt(%value, 0.9999999999999997779553950749687)
+      %high = core.call intrinsic.gt(%value, 0.9999999999999998)
       core.if %high {
-        core.return 0.9999999999999997779553950749687
+        core.return 0.9999999999999998
       }
       core.return %value
     }
@@ -1656,7 +1889,7 @@ module @ax.provider version "0.1" {
     attr private = "true"
     tag "provider-balancer-adaptive"
     type signature = "() -> number"
-    body @entry() {
+    body @entry {
       %u1 = core.call @provider_balancer_nonzero_random()
       %u2 = core.call @provider_balancer_nonzero_random()
       %log_u1 = core.call intrinsic.math.log(%u1)
@@ -2206,6 +2439,123 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @provider_resolve_descriptor {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-operation-descriptor"
+    tag "axai-vertex-routing"
+    type signature = "(profile:string, options?:json) -> json"
+    body @entry(%profile: string, %options: json) {
+      %descriptor = core.call @provider_descriptor(%profile)
+      %provider_id = core.call @provider_normalize_profile(%profile)
+      %project_snake = core.get %options["project_id"]
+      %project = core.get %options["projectId"] default %project_snake
+      %region = core.get %options["region"]
+      %project_present = core.call intrinsic.truthy(%project)
+      %region_present = core.call intrinsic.truthy(%region)
+      %is_vertex = core.call intrinsic.and(%project_present, %region_present)
+      core.if %is_vertex {
+        %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
+        %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
+        %vertex_provider = core.call intrinsic.or(%is_gemini, %is_anthropic)
+        core.if %vertex_provider {
+          %host = core.call @resolve_vertex_ai_host(%region)
+          %base_override_snake = core.get %options["base_url"]
+          %base_override = core.get %options["baseUrl"] default %base_override_snake
+          %has_base_override = core.call intrinsic.truthy(%base_override)
+          %base_url = core.let %base_override
+          core.if %has_base_override {
+          } else {
+            %beta = core.get %options["beta"] default false
+            %use_beta = core.call intrinsic.truthy(%beta)
+            %version = core.let "v1"
+            core.if %use_beta {
+              %version = core.let "v1beta1"
+            }
+            %base_url = core.call intrinsic.string.format("https://{}/{}", %host, %version)
+          }
+          core.set %descriptor["baseUrl"] = %base_url
+          core.set %descriptor["auth"] = "bearer"
+          core.call intrinsic.map.delete(%descriptor, "apiKeyQuery")
+          %operations = core.get %descriptor["operations"]
+          %resource_parent = core.call intrinsic.string.format("projects/{}/locations/{}", %project, %region)
+          %parent = core.call intrinsic.string.format("/{}", %resource_parent)
+          core.if %is_gemini {
+            %endpoint_snake = core.get %options["endpoint_id"]
+            %endpoint = core.get %options["endpointId"] default %endpoint_snake
+            %has_endpoint = core.call intrinsic.truthy(%endpoint)
+            %model_prefix_raw = core.call intrinsic.string.format("{}/publishers/google/models/MODEL_TOKEN", %parent)
+            %model_prefix = core.call intrinsic.string.replace(%model_prefix_raw, "MODEL_TOKEN", "{model}")
+            %embed_prefix = core.let %model_prefix
+            core.if %has_endpoint {
+              %model_prefix = core.call intrinsic.string.format("{}/endpoints/{}", %parent, %endpoint)
+              %embed_prefix = core.let %model_prefix
+            }
+            %chat_path = core.call intrinsic.string.format("{}:generateContent", %model_prefix)
+            %stream_path = core.call intrinsic.string.format("{}:streamGenerateContent?alt=sse", %model_prefix)
+            %embed_path = core.call intrinsic.string.format("{}:predict", %embed_prefix)
+            %chat = core.get %operations["chat"]
+            %stream_chat = core.get %operations["stream_chat"]
+            %embed = core.get %operations["embed"]
+            %transcribe = core.get %operations["transcribe"]
+            %speak = core.get %operations["speak"]
+            core.set %chat["path"] = %chat_path
+            core.set %stream_chat["path"] = %stream_path
+            core.set %embed["path"] = %embed_path
+            core.set %transcribe["path"] = %chat_path
+            core.set %speak["path"] = %chat_path
+            %headers = core.map
+            core.set %descriptor["headers"] = %headers
+            core.set %descriptor["vertex"] = true
+            core.set %descriptor["vertexParent"] = %resource_parent
+            %cache_base_url = core.call intrinsic.string.format("https://{}/v1", %host)
+            core.if %has_base_override {
+              %cache_base_url = core.let %base_override
+            }
+            core.set %descriptor["vertexCacheBaseUrl"] = %cache_base_url
+          } else {
+            %model_path_raw = core.call intrinsic.string.format("{}/publishers/anthropic/models/MODEL_TOKEN:rawPredict", %parent)
+            %model_path = core.call intrinsic.string.replace(%model_path_raw, "MODEL_TOKEN", "{model}")
+            %stream_model_path_raw = core.call intrinsic.string.format("{}/publishers/anthropic/models/MODEL_TOKEN:streamRawPredict?alt=sse", %parent)
+            %stream_model_path = core.call intrinsic.string.replace(%stream_model_path_raw, "MODEL_TOKEN", "{model}")
+            %chat = core.get %operations["chat"]
+            %stream_chat = core.get %operations["stream_chat"]
+            core.set %chat["path"] = %model_path
+            core.set %stream_chat["path"] = %stream_model_path
+            %headers = core.map
+            core.set %headers["anthropic-beta"] = "web-search-2025-03-05"
+            core.set %descriptor["headers"] = %headers
+            core.set %descriptor["vertex"] = true
+          }
+          core.set %descriptor["operations"] = %operations
+        }
+      }
+      core.return %descriptor
+    }
+  }
+
+  op ax.provider.semantic @resolve_vertex_ai_host {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "axai-vertex-routing"
+    type signature = "(region:string) -> string"
+    body @entry(%region: string) {
+      %is_global = core.call intrinsic.eq(%region, "global")
+      core.if %is_global {
+        core.return "aiplatform.googleapis.com"
+      }
+      %is_us = core.call intrinsic.eq(%region, "us")
+      %is_eu = core.call intrinsic.eq(%region, "eu")
+      %is_multi = core.call intrinsic.or(%is_us, %is_eu)
+      core.if %is_multi {
+        %multi_host = core.call intrinsic.string.format("aiplatform.{}.rep.googleapis.com", %region)
+        core.return %multi_host
+      }
+      %regional_host = core.call intrinsic.string.format("{}-aiplatform.googleapis.com", %region)
+      core.return %regional_host
+    }
+  }
+
   op ax.provider.semantic @provider_operation_descriptor {
     attr core_kind = "func"
     attr emit_module = "ai"
@@ -2213,6 +2563,27 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string, operation:string) -> json throws"
     body @entry(%profile: string, %operation: string) {
       %descriptor = core.call @provider_descriptor(%profile)
+      %operations = core.get %descriptor["operations"]
+      %operation_desc = core.get %operations[%operation]
+      %missing = core.call intrinsic.is_none(%operation_desc)
+      core.if %missing {
+        %message = core.call intrinsic.string.format("provider operation is not supported: {}", %operation)
+        %error = core.call intrinsic.ai.error.unsupported(%message)
+        core.raise %error
+      }
+      core.return %operation_desc
+    }
+  }
+
+  op ax.provider.semantic @provider_resolve_operation_descriptor {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    tag "provider-operation-descriptor"
+    tag "axai-vertex-routing"
+    type signature = "(profile:string, operation:string, options?:json) -> json throws"
+    body @entry(%profile: string, %operation: string, %options: json) {
+      %descriptor = core.call @provider_resolve_descriptor(%profile, %options)
       %operations = core.get %descriptor["operations"]
       %operation_desc = core.get %operations[%operation]
       %missing = core.call intrinsic.is_none(%operation_desc)
@@ -2238,10 +2609,6 @@ module @ax.provider version "0.1" {
     }
   }
 
-  // Build the realtime WebSocket URL + auth headers for the provider's grammar so
-  // the per-language drivers stay grammar-agnostic: gemini_live_bidi authenticates
-  // with ?key= in the URL, the openai-compatible grammars use a Bearer header and
-  // a ?model= query.
   op ax.provider.semantic @provider_realtime_ws_url {
     attr core_kind = "func"
     attr effect = "throws"
@@ -2270,10 +2637,6 @@ module @ax.provider version "0.1" {
     }
   }
 
-  // Decide whether a chat() request should be served over the realtime WebSocket
-  // transport: true when the provider exposes a realtime_audio operation, the
-  // model is a realtime/live audio model, and audio output is not explicitly
-  // disabled. Lets chat()/stream() route realtime models transparently.
   op ax.provider.semantic @provider_should_use_realtime {
     attr core_kind = "func"
     attr effect = "throws"
@@ -2581,8 +2944,6 @@ module @ax.provider version "0.1" {
           core.append %turns, %turn
           %client_content = core.map
           core.set %client_content["turns"] = %turns
-          // turnComplete is true for a text-only turn (tells Gemini to respond now);
-          // an audio turn stays open and is closed by the audioStreamEnd below.
           %turn_complete = core.call intrinsic.not(%msg_has_audio)
           core.set %client_content["turnComplete"] = %turn_complete
           %content_event = core.map
@@ -2712,8 +3073,8 @@ module @ax.provider version "0.1" {
     attr effect = "throws"
     attr emit_module = "ai"
     tag "provider-operation-dispatch"
-    type signature = "(profile:string, AxChatRequest) -> json throws"
-    body @entry(%profile: string, %request: AxChatRequest) {
+    type signature = "(profile:string, AxChatRequest, options?:json) -> json throws"
+    body @entry(%profile: string, %request: AxChatRequest, %options: json) {
       %provider_id = core.call @provider_normalize_profile(%profile)
       %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
       %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
@@ -2729,9 +3090,16 @@ module @ax.provider version "0.1" {
         } else {
           core.if %is_anthropic {
             %anthropic_payload = core.call @anthropic_build_chat_request(%request)
+            %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
+            %is_vertex = core.get %descriptor["vertex"] default false
+            core.if %is_vertex {
+              core.call intrinsic.map.delete(%anthropic_payload, "model")
+              core.set %anthropic_payload["anthropic_version"] = "vertex-2023-10-16"
+            }
             %payload = core.let %anthropic_payload
           } else {
-            %compatible_payload = core.call @openai_build_chat_request(%request)
+            %is_official_openai = core.call intrinsic.eq(%provider_id, "openai-compatible")
+            %compatible_payload = core.call @openai_build_chat_request(%request, %options, %is_official_openai)
             %payload = core.let %compatible_payload
           }
         }
@@ -3008,14 +3376,23 @@ module @ax.provider version "0.1" {
     attr core_kind = "func"
     attr emit_module = "ai"
     tag "provider-operation-dispatch"
-    type signature = "(profile:string, AxEmbedRequest) -> json throws"
-    body @entry(%profile: string, %request: AxEmbedRequest) {
+    type signature = "(profile:string, AxEmbedRequest, options?:json) -> json throws"
+    body @entry(%profile: string, %request: AxEmbedRequest, %options: json) {
       %provider_id = core.call @provider_normalize_profile(%profile)
       %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
       %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
       %payload = core.map
       core.if %is_gemini {
-        %gemini_payload = core.call @gemini_build_embed_request(%request)
+        %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
+        %is_vertex = core.get %descriptor["vertex"] default false
+        %gemini_payload = core.map
+        core.if %is_vertex {
+          %vertex_payload = core.call @gemini_build_vertex_embed_request(%request, %options)
+          %gemini_payload = core.let %vertex_payload
+        } else {
+          %developer_payload = core.call @gemini_build_embed_request(%request)
+          %gemini_payload = core.let %developer_payload
+        }
         %payload = core.let %gemini_payload
       } else {
         core.if %is_anthropic {
@@ -4654,6 +5031,47 @@ module @ax.provider version "0.1" {
         core.append %requests, %item
       }
       core.set %payload["requests"] = %requests
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @gemini_build_vertex_embed_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "src/ax/ai/google-gemini/api.ts"
+    tag "axai-vertex-routing"
+    type signature = "(AxEmbedRequest, options?:json) -> json"
+    body @entry(%request: AxEmbedRequest, %options: json) {
+      %payload = core.map
+      %instances = core.list
+      %empty_texts = core.list
+      %texts = core.get %request["texts"] default %empty_texts
+      core.for %text in %texts {
+        %instance = core.map
+        core.set %instance["content"] = %text
+        %task_type_snake = core.get %options["embed_type"]
+        %task_type = core.get %options["embedType"] default %task_type_snake
+        %has_task_type = core.call intrinsic.truthy(%task_type)
+        core.if %has_task_type {
+          core.set %instance["taskType"] = %task_type
+        }
+        core.append %instances, %instance
+      }
+      core.set %payload["instances"] = %instances
+      %parameters = core.map
+      %auto_truncate_snake = core.get %options["auto_truncate"]
+      %auto_truncate = core.get %options["autoTruncate"] default %auto_truncate_snake
+      %has_auto_truncate = core.call intrinsic.is_not_none(%auto_truncate)
+      core.if %has_auto_truncate {
+        core.set %parameters["autoTruncate"] = %auto_truncate
+      }
+      %dimensions = core.get %request["dimensions"]
+      %has_dimensions = core.call intrinsic.is_not_none(%dimensions)
+      core.if %has_dimensions {
+        core.set %parameters["outputDimensionality"] = %dimensions
+      }
+      core.set %payload["parameters"] = %parameters
       core.return %payload
     }
   }
