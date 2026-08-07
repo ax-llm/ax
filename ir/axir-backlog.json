@@ -989,6 +989,28 @@
       "completedAt": "2026-08-07",
       "completedByCommit": "486d7fbe7855be0fd50801d1d12c0acc2240252a",
       "verification": "npm run axir:check-packages; npm run axir:conformance:check; (cd tools/axir && GOCACHE=/tmp/axir-go-build go test ./internal/axir); npm run test:axir; npm run test:examples:generated; npm run axir:gate:ledger; npm run axir:gate:anti-facade; npm run axir:gate:prompt-sync; npm run skills:check; npm run website:check; npm run test:unit --workspace=@ax-llm/ax -- ai/openai/caching.test.ts ai/openai/usage.test.ts dsp/generate.promptCacheKey.test.ts ai/google-gemini/api.test.ts ai/anthropic/api.test.ts; git diff --check"
+    },
+    {
+      "id": "axir-2026-08-07-port-parallel-tool-call-accumulation-for-the-openai-responses-ap",
+      "status": "open",
+      "title": "Port parallel tool-call accumulation for the OpenAI Responses API",
+      "createdAt": "2026-08-07",
+      "sourcePR": null,
+      "sourceCommit": "ffe13983f3cf8bc8ff410f4f0a80547e595c96c5",
+      "tsPaths": [
+        "src/ax/ai/openai/responses_api.ts",
+        "src/ax/ai/openai/responses_api.tool_calls.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "The non-streaming /v1/responses mapper now keeps every function_call output item instead of overwriting currentResult.functionCalls on each loop iteration. Generated Python/Java/C++/Go/Rust clients still map only the last function_call item, so a parallel_tool_calls response there silently executes one tool instead of N, diverging from the TypeScript provider and from its own streaming path.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
