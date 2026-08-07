@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-refine"
 description: "Use when writing C++ code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns."
-version: "23.0.10"
+version: "23.0.11"
 ---
 # Ax Refinement Patterns For C++
 

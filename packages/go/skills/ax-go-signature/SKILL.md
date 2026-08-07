@@ -1,7 +1,7 @@
 ---
 name: "ax-go-signature"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes."
-version: "23.0.10"
+version: "23.0.11"
 ---
 # Ax Signatures For Go
 
