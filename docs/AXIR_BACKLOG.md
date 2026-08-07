@@ -18,23 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-08-02-port-vertex-ai-multi-region-endpoint-routing` [axai] Port Vertex AI multi-region endpoint routing
-  - Status: open
-  - TS paths: `src/ax/ai/vertex.ts`, `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/anthropic/api.ts`
-  - Impact: TypeScript now maps Vertex AI global, us/eu multi-region, and standard regional locations to their documented hosts for Gemini and Anthropic, including Gemini cache operations. Generated Python/Java/C++/Go/Rust providers do not expose equivalent project/region-aware Vertex endpoint selection.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-08-05-forward-promptcachekey-from-axgen-options-to-the-provider` [axgen] Forward promptCacheKey from AxGen options to the provider
-  - Status: open
-  - Source commit: `d67fced2ea766f6ec392cdd98687b4f051fd8f45`
-  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.promptCacheKey.test.ts`
-  - Impact: AxGen builds the ai.chat options object field by field; promptCacheKey set in forward options was dropped, so generated Python/Java/C++/Go/Rust ports that mirror this list will also silently drop it and lose OpenAI prompt-cache key routing
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-08-05-openai-prompt-caching-explicit-cache-breakpoints-and-cache-write` [axai] OpenAI prompt caching: explicit cache breakpoints and cache_write_tokens
-  - Status: open
-  - Source commit: `d67fced2ea766f6ec392cdd98687b4f051fd8f45`
-  - TS paths: `src/ax/ai/openai`, `src/ax/ai/base.ts`, `src/ax/ai/types.ts`
-  - Impact: AxAIOpenAI on GPT-5.6+ emits prompt_cache_key, prompt_cache_options and per-message prompt_cache_breakpoint markers when caching is requested; axNormalizeOpenAIUsage maps cache_write_tokens to cacheCreationTokens and excludes it from promptTokens; getEstimatedCost counts cacheCreationTokens toward the long-context threshold; AxAIServiceOptions gains promptCacheKey
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -417,3 +401,29 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-07-31
   - Completed by: `4229ba73`
   - Verification: `npx vitest run src/ax/dsp/streaming_duplication.test.ts src/ax/dsp/structured.test.ts; npm run test:axir; npm run axir:conformance:check; npm run axir:check-packages; npm run website:check; npm run axir:gate:ledger`
+- `axir-2026-08-02-port-vertex-ai-multi-region-endpoint-routing` [axai] Port Vertex AI multi-region endpoint routing
+  - Status: done
+  - TS paths: `src/ax/ai/vertex.ts`, `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/anthropic/api.ts`
+  - Impact: TypeScript now maps Vertex AI global, us/eu multi-region, and standard regional locations to their documented hosts for Gemini and Anthropic, including Gemini cache operations. Generated Python/Java/C++/Go/Rust providers do not expose equivalent project/region-aware Vertex endpoint selection.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-07
+  - Completed by: `486d7fbe7855be0fd50801d1d12c0acc2240252a`
+  - Verification: `npm run axir:check-packages; npm run axir:conformance:check; (cd tools/axir && GOCACHE=/tmp/axir-go-build go test ./internal/axir); npm run test:axir; npm run test:examples:generated; npm run axir:gate:ledger; npm run axir:gate:anti-facade; npm run axir:gate:prompt-sync; npm run skills:check; npm run website:check; npm run test:unit --workspace=@ax-llm/ax -- ai/openai/caching.test.ts ai/openai/usage.test.ts dsp/generate.promptCacheKey.test.ts ai/google-gemini/api.test.ts ai/anthropic/api.test.ts; git diff --check`
+- `axir-2026-08-05-forward-promptcachekey-from-axgen-options-to-the-provider` [axgen] Forward promptCacheKey from AxGen options to the provider
+  - Status: done
+  - Source commit: `d67fced2ea766f6ec392cdd98687b4f051fd8f45`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/generate.promptCacheKey.test.ts`
+  - Impact: AxGen builds the ai.chat options object field by field; promptCacheKey set in forward options was dropped, so generated Python/Java/C++/Go/Rust ports that mirror this list will also silently drop it and lose OpenAI prompt-cache key routing
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-07
+  - Completed by: `486d7fbe7855be0fd50801d1d12c0acc2240252a`
+  - Verification: `npm run axir:check-packages; npm run axir:conformance:check; (cd tools/axir && GOCACHE=/tmp/axir-go-build go test ./internal/axir); npm run test:axir; npm run test:examples:generated; npm run axir:gate:ledger; npm run axir:gate:anti-facade; npm run axir:gate:prompt-sync; npm run skills:check; npm run website:check; npm run test:unit --workspace=@ax-llm/ax -- ai/openai/caching.test.ts ai/openai/usage.test.ts dsp/generate.promptCacheKey.test.ts ai/google-gemini/api.test.ts ai/anthropic/api.test.ts; git diff --check`
+- `axir-2026-08-05-openai-prompt-caching-explicit-cache-breakpoints-and-cache-write` [axai] OpenAI prompt caching: explicit cache breakpoints and cache_write_tokens
+  - Status: done
+  - Source commit: `d67fced2ea766f6ec392cdd98687b4f051fd8f45`
+  - TS paths: `src/ax/ai/openai`, `src/ax/ai/base.ts`, `src/ax/ai/types.ts`
+  - Impact: AxAIOpenAI on GPT-5.6+ emits prompt_cache_key, prompt_cache_options and per-message prompt_cache_breakpoint markers when caching is requested; axNormalizeOpenAIUsage maps cache_write_tokens to cacheCreationTokens and excludes it from promptTokens; getEstimatedCost counts cacheCreationTokens toward the long-context threshold; AxAIServiceOptions gains promptCacheKey
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-07
+  - Completed by: `486d7fbe7855be0fd50801d1d12c0acc2240252a`
+  - Verification: `npm run axir:check-packages; npm run axir:conformance:check; (cd tools/axir && GOCACHE=/tmp/axir-go-build go test ./internal/axir); npm run test:axir; npm run test:examples:generated; npm run axir:gate:ledger; npm run axir:gate:anti-facade; npm run axir:gate:prompt-sync; npm run skills:check; npm run website:check; npm run test:unit --workspace=@ax-llm/ax -- ai/openai/caching.test.ts ai/openai/usage.test.ts dsp/generate.promptCacheKey.test.ts ai/google-gemini/api.test.ts ai/anthropic/api.test.ts; git diff --check`

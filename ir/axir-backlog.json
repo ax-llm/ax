@@ -924,7 +924,7 @@
     },
     {
       "id": "axir-2026-08-02-port-vertex-ai-multi-region-endpoint-routing",
-      "status": "open",
+      "status": "done",
       "title": "Port Vertex AI multi-region endpoint routing",
       "createdAt": "2026-08-02",
       "sourcePR": null,
@@ -941,13 +941,13 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-08-07",
+      "completedByCommit": "486d7fbe7855be0fd50801d1d12c0acc2240252a",
+      "verification": "npm run axir:check-packages; npm run axir:conformance:check; (cd tools/axir && GOCACHE=/tmp/axir-go-build go test ./internal/axir); npm run test:axir; npm run test:examples:generated; npm run axir:gate:ledger; npm run axir:gate:anti-facade; npm run axir:gate:prompt-sync; npm run skills:check; npm run website:check; npm run test:unit --workspace=@ax-llm/ax -- ai/openai/caching.test.ts ai/openai/usage.test.ts dsp/generate.promptCacheKey.test.ts ai/google-gemini/api.test.ts ai/anthropic/api.test.ts; git diff --check"
     },
     {
       "id": "axir-2026-08-05-forward-promptcachekey-from-axgen-options-to-the-provider",
-      "status": "open",
+      "status": "done",
       "title": "Forward promptCacheKey from AxGen options to the provider",
       "createdAt": "2026-08-05",
       "sourcePR": null,
@@ -963,13 +963,13 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-08-07",
+      "completedByCommit": "486d7fbe7855be0fd50801d1d12c0acc2240252a",
+      "verification": "npm run axir:check-packages; npm run axir:conformance:check; (cd tools/axir && GOCACHE=/tmp/axir-go-build go test ./internal/axir); npm run test:axir; npm run test:examples:generated; npm run axir:gate:ledger; npm run axir:gate:anti-facade; npm run axir:gate:prompt-sync; npm run skills:check; npm run website:check; npm run test:unit --workspace=@ax-llm/ax -- ai/openai/caching.test.ts ai/openai/usage.test.ts dsp/generate.promptCacheKey.test.ts ai/google-gemini/api.test.ts ai/anthropic/api.test.ts; git diff --check"
     },
     {
       "id": "axir-2026-08-05-openai-prompt-caching-explicit-cache-breakpoints-and-cache-write",
-      "status": "open",
+      "status": "done",
       "title": "OpenAI prompt caching: explicit cache breakpoints and cache_write_tokens",
       "createdAt": "2026-08-05",
       "sourcePR": null,
@@ -986,9 +986,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-08-07",
+      "completedByCommit": "486d7fbe7855be0fd50801d1d12c0acc2240252a",
+      "verification": "npm run axir:check-packages; npm run axir:conformance:check; (cd tools/axir && GOCACHE=/tmp/axir-go-build go test ./internal/axir); npm run test:axir; npm run test:examples:generated; npm run axir:gate:ledger; npm run axir:gate:anti-facade; npm run axir:gate:prompt-sync; npm run skills:check; npm run website:check; npm run test:unit --workspace=@ax-llm/ax -- ai/openai/caching.test.ts ai/openai/usage.test.ts dsp/generate.promptCacheKey.test.ts ai/google-gemini/api.test.ts ai/anthropic/api.test.ts; git diff --check"
     }
   ],
   "nonPortableExemptions": [
