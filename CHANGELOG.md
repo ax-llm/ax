@@ -1,5 +1,18 @@
 # Changelog
 
+## [23.0.12](https://github.com/ax-llm/ax/compare/23.0.10...23.0.11) (2026-08-12)
+
+### Bug Fixes
+
+* **anthropic:** correct Claude Sonnet 5 to its permanent token pricing ([#576](https://github.com/ax-llm/ax/issues/576)) ([526b8fc](https://github.com/ax-llm/ax/commit/526b8fc460125568ada54dbf02f29bba147ab2b4))
+* **util:** classify mid-stream caller aborts ([#577](https://github.com/ax-llm/ax/issues/577)) ([91d68cd](https://github.com/ax-llm/ax/commit/91d68cdc75c5a303fbe6f76f5821ff0c7443d6ce))
+
+## [23.0.11](https://github.com/ax-llm/ax/compare/23.0.10...23.0.11) (2026-08-07)
+
+### Features
+
+* **axir:** clear portable provider backlog ([486d7fb](https://github.com/ax-llm/ax/commit/486d7fbe7855be0fd50801d1d12c0acc2240252a))
+
 ## [23.0.11](https://github.com/ax-llm/ax/compare/23.0.9...23.0.10) (2026-08-07)
 
 ### Features
