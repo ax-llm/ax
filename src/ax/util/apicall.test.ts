@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  AxAIServiceAbortedError,
   type AxAIServiceError,
   AxAIServiceNetworkError,
   AxAIServiceStatusError,
+  AxAIServiceStreamTerminatedError,
   type AxAPIConfig,
   apiCall,
 } from './apicall.js';
@@ -421,6 +423,134 @@ describe('apiCall', () => {
         const errorString = (error as AxAIServiceError).toString();
         expect(errorString).not.toContain('Request Body:');
         expect(errorString).not.toContain('largeBase64');
+      }
+    });
+  });
+
+  describe('SSE streaming failures', () => {
+    const startStreamingCall = async (abortController?: AbortController) => {
+      let bodyController:
+        | ReadableStreamDefaultController<Uint8Array>
+        | undefined;
+      const mockFetch = vi.fn(
+        async (_input: RequestInfo | URL, init?: RequestInit) => {
+          const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+              bodyController = controller;
+              controller.enqueue(
+                new TextEncoder().encode('data: {"index":0}\n\n')
+              );
+              init?.signal?.addEventListener(
+                'abort',
+                () => controller.error(init.signal?.reason),
+                { once: true }
+              );
+            },
+          });
+
+          return new Response(body, {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' },
+          });
+        }
+      );
+
+      const stream = (await apiCall<{ test: string }, { index: number }>(
+        {
+          url: 'https://api.example.com/test',
+          fetch: mockFetch,
+          stream: true,
+          ...(abortController ? { abortSignal: abortController.signal } : {}),
+        },
+        { test: 'data' }
+      )) as ReadableStream<{ index: number }>;
+
+      if (!bodyController) {
+        throw new Error('Response body controller was not initialized');
+      }
+
+      return { bodyController, reader: stream.getReader() };
+    };
+
+    describe.each([
+      ['Node', false],
+      ['browser', true],
+    ] as const)('%s reader', (_runtime, browser) => {
+      afterEach(() => {
+        vi.unstubAllGlobals();
+      });
+
+      const configureRuntime = () => {
+        if (browser) {
+          vi.stubGlobal('window', {});
+          vi.stubGlobal('EventSource', vi.fn());
+        }
+      };
+
+      it('classifies a caller abort as AxAIServiceAbortedError', async () => {
+        configureRuntime();
+        const abortController = new AbortController();
+        const { reader } = await startStreamingCall(abortController);
+
+        await expect(reader.read()).resolves.toEqual({
+          done: false,
+          value: { index: 0 },
+        });
+
+        abortController.abort(
+          new DOMException('Caller aborted request', 'AbortError')
+        );
+
+        await expect(reader.read()).rejects.toBeInstanceOf(
+          AxAIServiceAbortedError
+        );
+      });
+
+      it('keeps a remote abort classified as AxAIServiceStreamTerminatedError', async () => {
+        configureRuntime();
+        const { bodyController, reader } = await startStreamingCall();
+
+        await expect(reader.read()).resolves.toEqual({
+          done: false,
+          value: { index: 0 },
+        });
+
+        bodyController.error(
+          new DOMException('Remote stream aborted', 'AbortError')
+        );
+
+        try {
+          await reader.read();
+          expect.fail('Expected the remote stream to terminate');
+        } catch (error) {
+          expect(error).toBeInstanceOf(AxAIServiceStreamTerminatedError);
+          expect((error as AxAIServiceStreamTerminatedError).lastChunk).toEqual(
+            { index: 0 }
+          );
+        }
+      });
+    });
+
+    it('does not orphan the Node reader rejection after a caller abort', async () => {
+      const unhandledRejection = vi.fn();
+      process.on('unhandledRejection', unhandledRejection);
+
+      try {
+        const abortController = new AbortController();
+        const { reader } = await startStreamingCall(abortController);
+
+        await reader.read();
+        abortController.abort(
+          new DOMException('Caller aborted request', 'AbortError')
+        );
+        await expect(reader.read()).rejects.toBeInstanceOf(
+          AxAIServiceAbortedError
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        expect(unhandledRejection).not.toHaveBeenCalled();
+      } finally {
+        process.off('unhandledRejection', unhandledRejection);
       }
     });
   });
