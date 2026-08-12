@@ -141,29 +141,11 @@ describe('axGetSupportedAIModels', () => {
     const claude = anthropic?.models.find(
       (model) => model.name === AxAIAnthropicModel.Claude37Sonnet
     );
-    const claude48Opus = anthropic?.models.find(
-      (model) => model.name === AxAIAnthropicModel.Claude48Opus
-    );
 
     expect(anthropic?.defaultModel).toBe(AxAIAnthropicModel.Claude37Sonnet);
     expect(claude?.capabilities).toMatchObject({
       thinkingBudget: true,
       showThoughts: true,
-    });
-    expect(claude48Opus).toMatchObject({
-      provider: 'anthropic',
-      type: 'text',
-      promptTokenCostPer1M: 5,
-      completionTokenCostPer1M: 25,
-      fastPromptTokenCostPer1M: 10,
-      fastCompletionTokenCostPer1M: 50,
-      maxTokens: 128000,
-      contextWindow: 1_000_000,
-      capabilities: {
-        thinkingBudget: true,
-        showThoughts: true,
-        structuredOutputs: true,
-      },
     });
 
     const gemini = providers.find(
@@ -277,6 +259,65 @@ describe('axGetSupportedAIModels', () => {
       completionTokenCostPer1M: 0,
     });
     // axir-nonportable:end webllm
+  });
+
+  it.each([
+    {
+      label: 'Claude 5 Sonnet',
+      name: AxAIAnthropicModel.Claude5Sonnet,
+      pricing: {
+        promptTokenCostPer1M: 2,
+        completionTokenCostPer1M: 10,
+        cacheReadTokenCostPer1M: 0.2,
+        cacheWriteTokenCostPer1M: 2.5,
+      },
+      fastPricing: undefined,
+    },
+    {
+      label: 'Claude 4.8 Opus',
+      name: AxAIAnthropicModel.Claude48Opus,
+      pricing: {
+        promptTokenCostPer1M: 5,
+        completionTokenCostPer1M: 25,
+        cacheReadTokenCostPer1M: 0.5,
+        cacheWriteTokenCostPer1M: 6.25,
+      },
+      fastPricing: {
+        fastPromptTokenCostPer1M: 10,
+        fastCompletionTokenCostPer1M: 50,
+        fastCacheReadTokenCostPer1M: 1,
+        fastCacheWriteTokenCostPer1M: 12.5,
+      },
+    },
+  ])('exposes $label token pricing', ({ name, pricing, fastPricing }) => {
+    // The Anthropic and Vertex enums share these model ids, so the catalog
+    // carries one entry per surface. Assert every copy: the catalog sorts by
+    // price, so checking only the first would let a stale duplicate through.
+    const models = axGetSupportedAIModels()
+      .find((provider) => provider.name === 'anthropic')
+      ?.models.filter((entry) => entry.name === name);
+
+    expect(models?.length).toBeGreaterThan(0);
+    for (const model of models ?? []) {
+      expect(model).toMatchObject({
+        provider: 'anthropic',
+        type: 'text',
+        currency: 'usd',
+        maxTokens: 128000,
+        contextWindow: 1_000_000,
+        capabilities: {
+          thinkingBudget: true,
+          showThoughts: true,
+          structuredOutputs: true,
+        },
+        ...pricing,
+      });
+    }
+
+    // Fast mode is first-party only, so just one of the copies carries it.
+    if (fastPricing) {
+      expect(models).toContainEqual(expect.objectContaining(fastPricing));
+    }
   });
 
   it('returns cloned metadata on each call', () => {

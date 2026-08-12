@@ -18,7 +18,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-08-12-port-claude-sonnet-5-permanent-token-pricing-to-generated-target` [axai] Port Claude Sonnet 5 permanent token pricing to generated targets
+  - Status: open
+  - Source PR: #576
+  - Source commit: `2215088b466141dc82c31b8db9206c64295ada6a`
+  - TS paths: `src/ax/ai/anthropic/info.ts`, `src/ax/ai/catalog.test.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust catalogs still embed the pre-correction Claude Sonnet 5 rates ($3/$15 per 1M, $0.30 cache read, $3.75 cache write), so cost estimates on those targets are ~50% high and cheapest-first model ordering ranks Sonnet 5 above its true cost.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 
