@@ -147,6 +147,21 @@
         },
         {
           "target_name": "go",
+          "canonical_name": "DeepSeekResponsesClient",
+          "public_name": "axllm.DeepSeekResponsesClient",
+          "kind": "type",
+          "description": "DeepSeek Responses provider mapping with stateless reasoning and function-call replay.",
+          "form": "axllm.NewDeepSeekResponsesClient(options)",
+          "important_options": [
+            "api key",
+            "model",
+            "thinking",
+            "transport"
+          ],
+          "returns": "provider client"
+        },
+        {
+          "target_name": "go",
           "canonical_name": "GoogleGeminiClient",
           "public_name": "axllm.GoogleGeminiClient",
           "kind": "type",

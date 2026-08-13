@@ -45,6 +45,7 @@ class RuntimeTransport;
 class AxAIService;
 class OpenAICompatibleClient;
 class OpenAIResponsesClient;
+class DeepSeekResponsesClient;
 class GoogleGeminiClient;
 class AnthropicClient;
 class AxBootstrapFewShot;
@@ -583,6 +584,11 @@ class OpenAICompatibleClient : public AxBaseAI {
 class OpenAIResponsesClient : public OpenAICompatibleClient {
  public:
   explicit OpenAIResponsesClient(Value options = Value::object(), Transport* transport = nullptr);
+};
+
+class DeepSeekResponsesClient : public OpenAICompatibleClient {
+ public:
+  explicit DeepSeekResponsesClient(Value options = Value::object(), Transport* transport = nullptr);
 };
 
 class GoogleGeminiClient : public OpenAICompatibleClient {

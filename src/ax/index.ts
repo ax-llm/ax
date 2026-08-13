@@ -357,6 +357,11 @@ import {
   axAIDeepSeekDefaultConfig,
 } from './ai/deepseek/api.js';
 import { axModelInfoDeepSeek } from './ai/deepseek/info.js';
+import {
+  AxAIDeepSeekResponses,
+  type AxAIDeepSeekResponsesArgs,
+  axAIDeepSeekResponsesDefaultConfig,
+} from './ai/deepseek/responses_api.js';
 import { AxAIDeepSeekModel } from './ai/deepseek/types.js';
 import {
   AxAIGoogleGemini,
@@ -507,6 +512,7 @@ import {
   type AxAIOpenAIResponsesInputImageUrlContentPart,
   type AxAIOpenAIResponsesInputItem,
   type AxAIOpenAIResponsesInputMessageItem,
+  type AxAIOpenAIResponsesInputReasoningItem,
   type AxAIOpenAIResponsesInputTextContentPart,
   type AxAIOpenAIResponsesLocalShellToolCall,
   type AxAIOpenAIResponsesMCPCallArgumentsDeltaEvent,
@@ -538,6 +544,8 @@ import {
   type AxAIOpenAIResponsesReasoningSummaryPartDoneEvent,
   type AxAIOpenAIResponsesReasoningSummaryTextDeltaEvent,
   type AxAIOpenAIResponsesReasoningSummaryTextDoneEvent,
+  type AxAIOpenAIResponsesReasoningTextDeltaEvent,
+  type AxAIOpenAIResponsesReasoningTextDoneEvent,
   type AxAIOpenAIResponsesRefusalDeltaEvent,
   type AxAIOpenAIResponsesRefusalDoneEvent,
   type AxAIOpenAIResponsesRequest,
@@ -1351,6 +1359,7 @@ export { AxAICohereEmbedModel };
 export { AxAICohereModel };
 export { AxAIDeepSeek };
 export { AxAIDeepSeekModel };
+export { AxAIDeepSeekResponses };
 export { AxAIGoogleGemini };
 export { AxAIGoogleGeminiEmbedModel };
 export { AxAIGoogleGeminiEmbedTypes };
@@ -1480,6 +1489,7 @@ export { axAICohereCreativeConfig };
 export { axAICohereDefaultConfig };
 export { axAIDeepSeekCodeConfig };
 export { axAIDeepSeekDefaultConfig };
+export { axAIDeepSeekResponsesDefaultConfig };
 export { axAIGoogleGeminiDefaultConfig };
 export { axAIGoogleGeminiDefaultCreativeConfig };
 export { axAIGoogleGeminiLiveAudioDefaultConfig };
@@ -1688,6 +1698,7 @@ export type { AxAICohereConfig };
 export type { AxAICohereEmbedRequest };
 export type { AxAICohereEmbedResponse };
 export type { AxAIDeepSeekArgs };
+export type { AxAIDeepSeekResponsesArgs };
 export type { AxAIEmbedModels };
 export type { AxAIFeatures };
 export type { AxAIGoogleGeminiArgs };
@@ -1778,6 +1789,7 @@ export type { AxAIOpenAIResponsesInputFunctionCallOutputItem };
 export type { AxAIOpenAIResponsesInputImageUrlContentPart };
 export type { AxAIOpenAIResponsesInputItem };
 export type { AxAIOpenAIResponsesInputMessageItem };
+export type { AxAIOpenAIResponsesInputReasoningItem };
 export type { AxAIOpenAIResponsesInputTextContentPart };
 export type { AxAIOpenAIResponsesLocalShellToolCall };
 export type { AxAIOpenAIResponsesMCPCallArgumentsDeltaEvent };
@@ -1808,6 +1820,8 @@ export type { AxAIOpenAIResponsesReasoningSummaryPartAddedEvent };
 export type { AxAIOpenAIResponsesReasoningSummaryPartDoneEvent };
 export type { AxAIOpenAIResponsesReasoningSummaryTextDeltaEvent };
 export type { AxAIOpenAIResponsesReasoningSummaryTextDoneEvent };
+export type { AxAIOpenAIResponsesReasoningTextDeltaEvent };
+export type { AxAIOpenAIResponsesReasoningTextDoneEvent };
 export type { AxAIOpenAIResponsesRefusalDeltaEvent };
 export type { AxAIOpenAIResponsesRefusalDoneEvent };
 export type { AxAIOpenAIResponsesRequest };

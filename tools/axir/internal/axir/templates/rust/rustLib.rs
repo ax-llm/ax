@@ -1271,7 +1271,7 @@ impl OpenAICompatibleClient {
 
     fn stream_body(&self, request: &Value) -> Value {
         match self.profile.as_str() {
-            "openai-responses" => json!({
+            "openai-responses" | "deepseek-responses" => json!({
                 "model": self.model,
                 "input": request.get("chat_prompt").or_else(|| request.get("chatPrompt")).cloned().unwrap_or_else(|| json!([])),
                 "stream": true
@@ -1308,7 +1308,7 @@ impl OpenAICompatibleClient {
 
     fn chat_path(&self) -> &'static str {
         match self.profile.as_str() {
-            "openai-responses" => "/responses",
+            "openai-responses" | "deepseek-responses" => "/responses",
             "anthropic" => "/v1/messages",
             _ => "/chat/completions",
         }
@@ -1999,6 +1999,7 @@ pub type GoogleGeminiClient = OpenAICompatibleClient;
 pub type GrokClient = OpenAICompatibleClient;
 pub type MistralClient = OpenAICompatibleClient;
 pub type OpenAIResponsesClient = OpenAICompatibleClient;
+pub type DeepSeekResponsesClient = OpenAICompatibleClient;
 pub type RekaClient = OpenAICompatibleClient;
 
 pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
@@ -2069,6 +2070,12 @@ fn provider_defaults(provider: &str) -> Option<ProviderDefaults> {
             api_url: "https://api.openai.com/v1",
             model: "gpt-4o",
             embed_model: "text-embedding-3-small",
+        }),
+        "deepseek-responses" => Some(ProviderDefaults {
+            profile: "deepseek-responses",
+            api_url: "https://api.deepseek.com",
+            model: "deepseek-v4-flash",
+            embed_model: "",
         }),
         "google-gemini" | "gemini" => Some(ProviderDefaults {
             profile: "google-gemini",

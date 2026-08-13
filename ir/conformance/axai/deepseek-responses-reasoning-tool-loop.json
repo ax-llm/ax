@@ -1,0 +1,165 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "DeepSeek Responses",
+      "model": "deepseek-v4-flash",
+      "tokens": {
+        "completion_tokens": 4,
+        "prompt_tokens": 10,
+        "reasoning_tokens": 2,
+        "total_tokens": 14
+      }
+    },
+    "remote_id": "resp_deepseek_responses",
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "function_call",
+        "function_calls": [
+          {
+            "function": {
+              "name": "query",
+              "params": {
+                "region": "East"
+              }
+            },
+            "id": "call-1",
+            "type": "function"
+          }
+        ],
+        "id": "item-1",
+        "index": 0,
+        "thought": "Use the warehouse query.",
+        "thought_blocks": [
+          {
+            "data": "Use the warehouse query.",
+            "encrypted": false
+          }
+        ]
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "content": [
+            {
+              "text": "Continue the warehouse lookup.",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        },
+        {
+          "content": "Use the warehouse query.",
+          "type": "reasoning"
+        },
+        {
+          "arguments": "{\"region\":\"North\"}",
+          "call_id": "call-0",
+          "name": "query",
+          "type": "function_call"
+        },
+        {
+          "call_id": "call-0",
+          "output": "{\"ok\":true}",
+          "type": "function_call_output"
+        }
+      ],
+      "model": "deepseek-v4-flash",
+      "reasoning": {
+        "effort": "high"
+      },
+      "stream": false,
+      "tool_choice": "auto",
+      "tools": [
+        {
+          "description": "Query warehouse",
+          "name": "query",
+          "parameters": {},
+          "type": "function"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://api.deepseek.com/responses"
+  },
+  "kind": "ai_chat",
+  "model": "deepseek-v4-flash",
+  "name": "deepseek-responses-reasoning-tool-loop",
+  "provider": "deepseek-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Continue the warehouse lookup.",
+        "role": "user"
+      },
+      {
+        "functionCalls": [
+          {
+            "function": {
+              "name": "query",
+              "params": {
+                "region": "North"
+              }
+            },
+            "id": "call-0",
+            "type": "function"
+          }
+        ],
+        "role": "assistant",
+        "thought": "Use the warehouse query."
+      },
+      {
+        "functionId": "call-0",
+        "result": "{\"ok\":true}",
+        "role": "function"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Query warehouse",
+        "name": "query",
+        "parameters": {}
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "high"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_deepseek_responses",
+        "model": "deepseek-v4-flash",
+        "output": [
+          {
+            "content": "Use the warehouse query.",
+            "id": "reasoning-1",
+            "status": "completed",
+            "type": "reasoning"
+          },
+          {
+            "arguments": "{\"region\":\"East\"}",
+            "call_id": "call-1",
+            "id": "item-1",
+            "name": "query",
+            "status": "completed",
+            "type": "function_call"
+          }
+        ],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 4,
+          "output_tokens_details": {
+            "reasoning_tokens": 2
+          },
+          "total_tokens": 14
+        }
+      },
+      "status": 200
+    }
+  ]
+}

@@ -321,6 +321,7 @@
     "AzureOpenAIClient",
     "CohereClient",
     "DeepSeekClient",
+    "DeepSeekResponsesClient",
     "GoogleGeminiClient",
     "GrokClient",
     "MistralClient",

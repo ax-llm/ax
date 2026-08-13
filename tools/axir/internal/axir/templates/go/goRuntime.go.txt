@@ -1789,6 +1789,7 @@ type AxContextCacheRegistry interface {
 	Set(namespace, key string, entry map[string]Value)
 }
 type OpenAIResponsesClient struct{ *OpenAICompatibleClient }
+type DeepSeekResponsesClient struct{ *OpenAICompatibleClient }
 type GoogleGeminiClient struct{ *OpenAICompatibleClient }
 type AnthropicClient struct{ *OpenAICompatibleClient }
 type AzureOpenAIClient struct{ *OpenAICompatibleClient }
@@ -1826,6 +1827,9 @@ func newProviderClient(profile, name string, options map[string]Value, defaultMo
 func NewOpenAIResponsesClient(options map[string]Value) *OpenAIResponsesClient {
 	return &OpenAIResponsesClient{newProviderClient("openai-responses", "openai-responses", options, "gpt-4o", "text-embedding-ada-002")}
 }
+func NewDeepSeekResponsesClient(options map[string]Value) *DeepSeekResponsesClient {
+	return &DeepSeekResponsesClient{newProviderClient("deepseek-responses", "DeepSeek Responses", options, "deepseek-v4-flash", "")}
+}
 func NewGoogleGeminiClient(options map[string]Value) *GoogleGeminiClient {
 	return &GoogleGeminiClient{newProviderClient("google-gemini", "GoogleGeminiAI", normalizeGoogleOptions(options), "gemini-2.5-flash", "gemini-embedding-2")}
 }
@@ -1855,6 +1859,8 @@ func NewAI(provider string, options map[string]Value) AIClient {
 	switch display(mustCore(provider_normalize_profile(provider))) {
 	case "openai-responses":
 		return NewOpenAIResponsesClient(options)
+	case "deepseek-responses":
+		return NewDeepSeekResponsesClient(options)
 	case "google-gemini":
 		return NewGoogleGeminiClient(options)
 	case "anthropic":
@@ -2578,6 +2584,15 @@ func (c OpenAIResponsesClient) Embed(ctx context.Context, r map[string]Value, o 
 	return c.OpenAICompatibleClient.Embed(ctx, r, o)
 }
 func (c OpenAIResponsesClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
+	return c.OpenAICompatibleClient.Stream(ctx, r, o)
+}
+func (c DeepSeekResponsesClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
+	return c.OpenAICompatibleClient.Chat(ctx, r, o)
+}
+func (c DeepSeekResponsesClient) Embed(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
+	return c.OpenAICompatibleClient.Embed(ctx, r, o)
+}
+func (c DeepSeekResponsesClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
 	return c.OpenAICompatibleClient.Stream(ctx, r, o)
 }
 func (c GoogleGeminiClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
@@ -8699,6 +8714,8 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 		return c, transport
 	case *OpenAIResponsesClient:
 		return c.OpenAICompatibleClient, transport
+	case *DeepSeekResponsesClient:
+		return c.OpenAICompatibleClient, transport
 	case *GoogleGeminiClient:
 		return c.OpenAICompatibleClient, transport
 	case *AnthropicClient:
@@ -8927,6 +8944,8 @@ func conformanceProviderName(profile string) string {
 		return "Grok"
 	case "openai-responses":
 		return "openai-responses"
+	case "deepseek-responses":
+		return "DeepSeek Responses"
 	default:
 		return "openai"
 	}
@@ -8951,6 +8970,8 @@ func conformanceProviderDefaultModel(profile string) string {
 		return "grok-4.3"
 	case "openai-responses":
 		return "gpt-4o"
+	case "deepseek-responses":
+		return "deepseek-v4-flash"
 	default:
 		return "gpt-4.1-mini"
 	}

@@ -26,6 +26,7 @@ describe('axGetSupportedAIModels', () => {
         'google-gemini',
         'cohere',
         'deepseek',
+        'deepseek-responses',
         'mistral',
         'reka',
         'grok',
@@ -35,7 +36,7 @@ describe('axGetSupportedAIModels', () => {
       ])
     );
     // axir-nonportable:start webllm
-    expect(providerNames).toHaveLength(11);
+    expect(providerNames).toHaveLength(12);
     // axir-nonportable:end webllm
   });
 

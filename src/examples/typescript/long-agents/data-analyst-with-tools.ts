@@ -1,33 +1,35 @@
 // ax-example:start
 // title: TypeScript Data Analyst (Large Context + Tools)
 // group: long-agents
-// description: Combines a large data dictionary held in contextFields with typed fn() warehouse tools, so the agent answers business questions over a big dataset it never has to inline.
-// provider: google-gemini
-// env: GOOGLE_APIKEY
+// description: Combines a large data dictionary held in contextFields with typed fn() warehouse tools, so the agent answers business questions over a big dataset it never has to inline. Set AX_DEEPSEEK_API=chat (default) or responses and AX_DEEPSEEK_MODEL=deepseek-v4-flash (default) or deepseek-v4-pro.
+// provider: deepseek
+// env: DEEPSEEK_API_KEY
 // level: advanced
 // order: 30
 // ax-example:end
-import {
-  AxAIGoogleGeminiModel,
-  AxJSRuntime,
-  agent,
-  ai,
-  f,
-  fn,
-} from '@ax-llm/ax';
+import { AxAIDeepSeekModel, AxJSRuntime, agent, ai, f, fn } from '@ax-llm/ax';
 
-const apiKey = process.env.GOOGLE_APIKEY;
+const apiKey = process.env.DEEPSEEK_API_KEY;
 if (!apiKey) {
-  throw new Error('Set GOOGLE_APIKEY to run this example.');
+  throw new Error('Set DEEPSEEK_API_KEY to run this example.');
 }
 
-const llm = ai({
-  name: 'google-gemini',
-  apiKey,
-  config: {
-    model: AxAIGoogleGeminiModel.Gemini35Flash,
-  },
-});
+const api = process.env.AX_DEEPSEEK_API ?? 'chat';
+const model = (process.env.AX_DEEPSEEK_MODEL ??
+  AxAIDeepSeekModel.DeepSeekV4Flash) as AxAIDeepSeekModel;
+
+const llm =
+  api === 'responses'
+    ? ai({
+        name: 'deepseek-responses',
+        apiKey,
+        config: { model },
+      })
+    : ai({
+        name: 'deepseek',
+        apiKey,
+        config: { model },
+      });
 
 // ---------------------------------------------------------------------------
 // The "warehouse": a few hundred rows that live in the host process and are
@@ -222,10 +224,28 @@ const analyst = agent(
   }
 );
 
-const result = await analyst.forward(llm, {
-  schema,
-  question:
-    'Which region+product had the strongest Jan->Dec revenue growth, and which products have an average return rate above the 5% review threshold?',
-});
+const result = await analyst.forward(
+  llm,
+  {
+    schema,
+    question:
+      'Which region+product had the strongest Jan->Dec revenue growth, and which products have an average return rate above the 5% review threshold?',
+  },
+  {
+    // Make the smoke exercise the reasoning/tool replay path on both APIs.
+    thinkingTokenBudget: 'low',
+    // Keep internal reasoning out of example output while still enabling it.
+    showThoughts: false,
+  }
+);
 
-console.log(JSON.stringify(result, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      answer: result.answer,
+      evidence: result.evidence,
+    },
+    null,
+    2
+  )
+);

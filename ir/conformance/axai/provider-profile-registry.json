@@ -8,6 +8,8 @@
     "cohere": "cohere",
     "compatible": "openai-compatible",
     "deepseek": "deepseek",
+    "deepseek_responses": "deepseek-responses",
+    "deepseek-responses": "deepseek-responses",
     "gemini": "google-gemini",
     "google_gemini": "google-gemini",
     "google-gemini": "google-gemini",
@@ -49,6 +51,12 @@
         "catalogStatus": "descriptor-covered",
         "generatedClient": "DeepSeekClient",
         "id": "deepseek"
+      },
+      "deepseek-responses": {
+        "aliases": ["deepseek-responses", "deepseek_responses"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "DeepSeekResponsesClient",
+        "id": "deepseek-responses"
       },
       "google-gemini": {
         "aliases": ["google-gemini", "google_gemini", "gemini"],
@@ -95,6 +103,7 @@
       "anthropic",
       "azure-openai",
       "deepseek",
+      "deepseek-responses",
       "mistral",
       "reka",
       "cohere",

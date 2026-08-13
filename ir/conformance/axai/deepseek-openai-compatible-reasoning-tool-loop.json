@@ -1,0 +1,153 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "remote_id": "chatcmpl_deepseek_reasoning",
+    "results": [
+      {
+        "content": null,
+        "finish_reason": "function_call",
+        "function_calls": [
+          {
+            "function": {
+              "name": "query",
+              "params": {
+                "region": "East"
+              }
+            },
+            "id": "call-1",
+            "type": "function"
+          }
+        ],
+        "id": "0",
+        "index": 0,
+        "thought": "Use the warehouse query.",
+        "thought_blocks": [
+          {
+            "data": "Use the warehouse query.",
+            "encrypted": false
+          }
+        ]
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": "Continue the warehouse lookup.",
+          "role": "user"
+        },
+        {
+          "reasoning_content": "Use the warehouse query.",
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "function": {
+                "arguments": "{\"region\":\"North\"}",
+                "name": "query"
+              },
+              "id": "call-0",
+              "type": "function"
+            }
+          ]
+        },
+        {
+          "content": "{\"ok\":true}",
+          "role": "tool",
+          "tool_call_id": "call-0"
+        }
+      ],
+      "model": "deepseek-v4-flash",
+      "reasoning_effort": "high",
+      "thinking": {
+        "type": "enabled"
+      },
+      "tools": [
+        {
+          "function": {
+            "description": "Query warehouse",
+            "name": "query"
+          },
+          "type": "function"
+        }
+      ]
+    },
+    "method": "POST",
+    "url": "https://api.deepseek.com/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "deepseek-v4-flash",
+  "name": "deepseek-openai-compatible-reasoning-tool-loop",
+  "provider": "deepseek",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Continue the warehouse lookup.",
+        "role": "user"
+      },
+      {
+        "functionCalls": [
+          {
+            "function": {
+              "name": "query",
+              "params": {
+                "region": "North"
+              }
+            },
+            "id": "call-0",
+            "type": "function"
+          }
+        ],
+        "role": "assistant",
+        "thought": "Use the warehouse query."
+      },
+      {
+        "functionId": "call-0",
+        "result": "{\"ok\":true}",
+        "role": "function"
+      }
+    ],
+    "functions": [
+      {
+        "description": "Query warehouse",
+        "name": "query",
+        "parameters": {}
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "high"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "reasoning_content": "Use the warehouse query.",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "function": {
+                    "arguments": "{\"region\":\"East\"}",
+                    "name": "query"
+                  },
+                  "id": "call-1",
+                  "type": "function"
+                }
+              ]
+            }
+          }
+        ],
+        "id": "chatcmpl_deepseek_reasoning",
+        "model": "deepseek-v4-flash",
+        "object": "chat.completion"
+      },
+      "status": 200
+    }
+  ]
+}

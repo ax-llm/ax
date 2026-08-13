@@ -45,6 +45,7 @@ class RuntimeTransport;
 class AxAIService;
 class OpenAICompatibleClient;
 class OpenAIResponsesClient;
+class DeepSeekResponsesClient;
 class GoogleGeminiClient;
 class AnthropicClient;
 class AxBootstrapFewShot;
@@ -311,8 +312,8 @@ struct Core {
   static Value _openai_message_impl(Value message);
   static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
   static Value chat_response_to_completion(Value response);
-  static Value _openai_content_part_impl(Value part);
   static Value ai_context_cache_rejection(Value status, Value body_json);
+  static Value _openai_content_part_impl(Value part);
   static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
   static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
   static Value _openai_tool_call_to_provider_impl(Value call);
@@ -400,6 +401,7 @@ struct Core {
   static Value _openai_responses_content_part_impl(Value part, Value role);
   static Value openai_responses_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _openai_responses_merge_output_item_impl(Value result, Value item);
+  static Value _openai_responses_reasoning_text_impl(Value item);
   static Value _openai_responses_content_to_text_impl(Value content);
   static Value _openai_responses_extract_citations_impl(Value content);
   static Value _openai_responses_function_call_impl(Value item);
@@ -1153,6 +1155,11 @@ class OpenAICompatibleClient : public AxBaseAI {
 class OpenAIResponsesClient : public OpenAICompatibleClient {
  public:
   explicit OpenAIResponsesClient(Value options = Value::object(), Transport* transport = nullptr);
+};
+
+class DeepSeekResponsesClient : public OpenAICompatibleClient {
+ public:
+  explicit DeepSeekResponsesClient(Value options = Value::object(), Transport* transport = nullptr);
 };
 
 class GoogleGeminiClient : public OpenAICompatibleClient {

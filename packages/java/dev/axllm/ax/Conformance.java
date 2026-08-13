@@ -2530,17 +2530,17 @@ public final class Conformance {
   static ClientFixture openaiClient(Map<String, Object> fixture) {
     ScriptedTransport transport = new ScriptedTransport(Core.asList(fixture.getOrDefault("transport_responses", fixture.getOrDefault("responses", List.of()))));
     String provider = String.valueOf(Core.provider_normalize_profile(String.valueOf(fixture.getOrDefault("provider", "openai-compatible"))));
-    boolean responsesProvider = provider.equals("openai-responses");
+    boolean responsesProvider = provider.equals("openai-responses") || provider.equals("deepseek-responses");
     boolean geminiProvider = provider.equals("google-gemini");
     boolean anthropicProvider = provider.equals("anthropic");
     boolean azureProvider = provider.equals("azure-openai");
-    boolean deepseekProvider = provider.equals("deepseek");
+    boolean deepseekProvider = provider.equals("deepseek") || provider.equals("deepseek-responses");
     boolean mistralProvider = provider.equals("mistral");
     boolean rekaProvider = provider.equals("reka");
     boolean cohereProvider = provider.equals("cohere");
     boolean grokProvider = provider.equals("grok");
     Map<String, Object> options = new LinkedHashMap<>();
-    String defaultModel = anthropicProvider ? "claude-3-7-sonnet-latest" : geminiProvider ? "gemini-2.5-flash" : responsesProvider ? "gpt-4o" : azureProvider ? "gpt-5-mini" : deepseekProvider ? "deepseek-v4-flash" : mistralProvider ? "mistral-small-latest" : rekaProvider ? "reka-core" : cohereProvider ? "command-r-plus" : grokProvider ? "grok-4.3" : "gpt-4.1-mini";
+    String defaultModel = anthropicProvider ? "claude-3-7-sonnet-latest" : geminiProvider ? "gemini-2.5-flash" : provider.equals("deepseek-responses") ? "deepseek-v4-flash" : responsesProvider ? "gpt-4o" : azureProvider ? "gpt-5-mini" : deepseekProvider ? "deepseek-v4-flash" : mistralProvider ? "mistral-small-latest" : rekaProvider ? "reka-core" : cohereProvider ? "command-r-plus" : grokProvider ? "grok-4.3" : "gpt-4.1-mini";
     String defaultEmbedModel = anthropicProvider || deepseekProvider || rekaProvider || grokProvider ? "" : geminiProvider ? "gemini-embedding-2" : responsesProvider ? "text-embedding-ada-002" : mistralProvider ? "mistral-embed" : cohereProvider ? "embed-english-v3.0" : "text-embedding-3-small";
     options.put("model", fixture.getOrDefault("model", defaultModel));
     options.put("embed_model", fixture.getOrDefault("embed_model", defaultEmbedModel));
@@ -2553,6 +2553,7 @@ public final class Conformance {
     }
     OpenAICompatibleClient client = geminiProvider ? new GoogleGeminiClient(options)
       : anthropicProvider ? new AnthropicClient(options)
+      : provider.equals("deepseek-responses") ? new DeepSeekResponsesClient(options)
       : responsesProvider ? new OpenAIResponsesClient(options)
       : azureProvider ? new AzureOpenAIClient(options)
       : deepseekProvider ? new DeepSeekClient(options)

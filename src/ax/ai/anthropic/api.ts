@@ -1514,6 +1514,16 @@ function createMessages(
           }
         }
 
+        // Preserve the canonical thought for callers that do not have the
+        // richer signed block form. Existing thoughtBlocks remain authoritative
+        // so Anthropic signatures are replayed unchanged when available.
+        if (preservedThinkingBlocks.length === 0 && msg.thought) {
+          preservedThinkingBlocks.push({
+            type: 'thinking',
+            thinking: msg.thought,
+          });
+        }
+
         if (typeof msg.content === 'string') {
           // If we have preserved thinking, convert to block array and append text
           if (preservedThinkingBlocks.length > 0) {

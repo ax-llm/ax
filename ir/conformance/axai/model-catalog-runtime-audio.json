@@ -267,6 +267,13 @@
         "name": "deepseek"
       },
       {
+        "defaultModel": "deepseek-v4-flash",
+        "displayName": "DeepSeek Responses",
+        "isDynamic": false,
+        "models": [],
+        "name": "deepseek-responses"
+      },
+      {
         "defaultModel": "mistral-small-latest",
         "displayName": "Mistral AI",
         "isDynamic": false,
@@ -331,7 +338,7 @@
     "modelCount": 12,
     "openaiFirstModel": "gpt-audio",
     "openaiModelTypes": ["audio"],
-    "providerCount": 11,
+    "providerCount": 12,
     "providerNames": [
       "google-gemini",
       "openai",
@@ -340,6 +347,7 @@
       "anthropic",
       "cohere",
       "deepseek",
+      "deepseek-responses",
       "mistral",
       "reka",
       "grok",
