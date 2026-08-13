@@ -4230,6 +4230,7 @@ writeFixture('gemini-simple-chat', {
 });
 
 for (const [fixtureName, model] of [
+  ['gemini-37-flash-server-managed-sampling', 'gemini-3.7-flash'],
   ['gemini-36-flash-server-managed-sampling', 'gemini-3.6-flash'],
   ['gemini-35-flash-lite-server-managed-sampling', 'gemini-3.5-flash-lite'],
 ] as const) {

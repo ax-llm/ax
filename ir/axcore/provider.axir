@@ -4863,9 +4863,11 @@ module @ax.provider version "0.1" {
       }
       core.set %payload["contents"] = %contents
       %model = core.get %request["model"] default "gemini-2.5-flash"
+      %is_gemini37_flash = core.call intrinsic.eq(%model, "gemini-3.7-flash")
       %is_gemini36_flash = core.call intrinsic.eq(%model, "gemini-3.6-flash")
       %is_gemini35_flash_lite = core.call intrinsic.eq(%model, "gemini-3.5-flash-lite")
-      %server_managed_sampling = core.call intrinsic.or(%is_gemini36_flash, %is_gemini35_flash_lite)
+      %server_managed_sampling_36 = core.call intrinsic.or(%is_gemini37_flash, %is_gemini36_flash)
+      %server_managed_sampling = core.call intrinsic.or(%server_managed_sampling_36, %is_gemini35_flash_lite)
       %generation_config = core.map
       core.set %generation_config["candidateCount"] = 1
       core.set %generation_config["responseMimeType"] = "text/plain"

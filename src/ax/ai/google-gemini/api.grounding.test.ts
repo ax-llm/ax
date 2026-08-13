@@ -124,6 +124,7 @@ describe('Gemini deprecation flags', () => {
 
 describe('Gemini new model catalog entries', () => {
   it('exposes the new GA model IDs', () => {
+    expect(AxAIGoogleGeminiModel.Gemini37Flash).toBe('gemini-3.7-flash');
     expect(AxAIGoogleGeminiModel.Gemini36Flash).toBe('gemini-3.6-flash');
     expect(AxAIGoogleGeminiModel.Gemini35FlashLite).toBe(
       'gemini-3.5-flash-lite'
@@ -131,6 +132,7 @@ describe('Gemini new model catalog entries', () => {
   });
 
   it.each([
+    AxAIGoogleGeminiModel.Gemini37Flash,
     AxAIGoogleGeminiModel.Gemini36Flash,
     AxAIGoogleGeminiModel.Gemini35FlashLite,
   ])('supports explicit context caching for %s', (model) => {
@@ -153,6 +155,11 @@ describe('Gemini new model catalog entries', () => {
   });
 
   it.each([
+    {
+      model: AxAIGoogleGeminiModel.Gemini37Flash,
+      inputCost: 1.5,
+      outputCost: 7.5,
+    },
     {
       model: AxAIGoogleGeminiModel.Gemini36Flash,
       inputCost: 1.5,

@@ -64,7 +64,7 @@ const gemini = ai({
   config: { model: 'simple' },
   models: [
     { key: 'tiny', model: AxAIGoogleGeminiModel.Gemini35FlashLite, description: 'Fast + cheap', config: { maxTokens: 1024 } },
-    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini36Flash, description: 'Balanced' },
+    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini37Flash, description: 'Balanced' },
   ],
 });
 

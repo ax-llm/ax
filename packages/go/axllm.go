@@ -15537,6 +15537,7 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 	var v_is_gemini3 Value
 	var v_is_gemini35_flash_lite Value
 	var v_is_gemini36_flash Value
+	var v_is_gemini37_flash Value
 	var v_is_json_schema Value
 	var v_is_system Value
 	var v_mapped Value
@@ -15551,6 +15552,7 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 	var v_schema Value
 	var v_schema_container Value
 	var v_server_managed_sampling Value
+	var v_server_managed_sampling_36 Value
 	var v_system_count Value
 	var v_system_instruction Value
 	var v_system_part Value
@@ -15584,6 +15586,7 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 	_ = v_is_gemini3
 	_ = v_is_gemini35_flash_lite
 	_ = v_is_gemini36_flash
+	_ = v_is_gemini37_flash
 	_ = v_is_json_schema
 	_ = v_is_system
 	_ = v_mapped
@@ -15598,6 +15601,7 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 	_ = v_schema
 	_ = v_schema_container
 	_ = v_server_managed_sampling
+	_ = v_server_managed_sampling_36
 	_ = v_system_count
 	_ = v_system_instruction
 	_ = v_system_part
@@ -15648,9 +15652,11 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 	}
 	if err := coreSet(v_payload, "contents", v_contents); err != nil { return nil, err }
 	v_model = coreGet(v_request, "model", "gemini-2.5-flash")
+	v_is_gemini37_flash = _core_eq(v_model, "gemini-3.7-flash")
 	v_is_gemini36_flash = _core_eq(v_model, "gemini-3.6-flash")
 	v_is_gemini35_flash_lite = _core_eq(v_model, "gemini-3.5-flash-lite")
-	v_server_managed_sampling = _core_or(v_is_gemini36_flash, v_is_gemini35_flash_lite)
+	v_server_managed_sampling_36 = _core_or(v_is_gemini37_flash, v_is_gemini36_flash)
+	v_server_managed_sampling = _core_or(v_server_managed_sampling_36, v_is_gemini35_flash_lite)
 	v_generation_config = Object()
 	if err := coreSet(v_generation_config, "candidateCount", 1); err != nil { return nil, err }
 	if err := coreSet(v_generation_config, "responseMimeType", "text/plain"); err != nil { return nil, err }

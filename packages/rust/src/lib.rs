@@ -37873,6 +37873,7 @@ fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_is_gemini3 = CoreValue::Null;
     let mut v_is_gemini35_flash_lite = CoreValue::Null;
     let mut v_is_gemini36_flash = CoreValue::Null;
+    let mut v_is_gemini37_flash = CoreValue::Null;
     let mut v_is_json_schema = CoreValue::Null;
     let mut v_is_system = CoreValue::Null;
     let mut v_mapped = CoreValue::Null;
@@ -37887,6 +37888,7 @@ fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     let mut v_schema = CoreValue::Null;
     let mut v_schema_container = CoreValue::Null;
     let mut v_server_managed_sampling = CoreValue::Null;
+    let mut v_server_managed_sampling_36 = CoreValue::Null;
     let mut v_system_count = CoreValue::Null;
     let mut v_system_instruction = CoreValue::Null;
     let mut v_system_part = CoreValue::Null;
@@ -37959,11 +37961,14 @@ fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         &CoreValue::from("model"),
         CoreValue::from("gemini-2.5-flash"),
     );
+    v_is_gemini37_flash = core_eq(&[v_model.clone(), CoreValue::from("gemini-3.7-flash")])?;
     v_is_gemini36_flash = core_eq(&[v_model.clone(), CoreValue::from("gemini-3.6-flash")])?;
     v_is_gemini35_flash_lite =
         core_eq(&[v_model.clone(), CoreValue::from("gemini-3.5-flash-lite")])?;
+    v_server_managed_sampling_36 =
+        core_or(&[v_is_gemini37_flash.clone(), v_is_gemini36_flash.clone()])?;
     v_server_managed_sampling = core_or(&[
-        v_is_gemini36_flash.clone(),
+        v_server_managed_sampling_36.clone(),
         v_is_gemini35_flash_lite.clone(),
     ])?;
     v_generation_config = CoreValue::new_map();

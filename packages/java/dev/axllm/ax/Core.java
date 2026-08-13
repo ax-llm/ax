@@ -7844,9 +7844,11 @@ final class Core {
     }
     Core.set(payload, "contents", contents);
     Object model = Core.get(request, "model", "gemini-2.5-flash");
+    Object is_gemini37_flash = Core.eq(model, "gemini-3.7-flash");
     Object is_gemini36_flash = Core.eq(model, "gemini-3.6-flash");
     Object is_gemini35_flash_lite = Core.eq(model, "gemini-3.5-flash-lite");
-    Object server_managed_sampling = Core.or(is_gemini36_flash, is_gemini35_flash_lite);
+    Object server_managed_sampling_36 = Core.or(is_gemini37_flash, is_gemini36_flash);
+    Object server_managed_sampling = Core.or(server_managed_sampling_36, is_gemini35_flash_lite);
     Object generation_config = new java.util.LinkedHashMap<String, Object>();
     Core.set(generation_config, "candidateCount", 1);
     Core.set(generation_config, "responseMimeType", "text/plain");

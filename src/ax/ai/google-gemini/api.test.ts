@@ -542,6 +542,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
   });
 
   it.each([
+    AxAIGoogleGeminiModel.Gemini37Flash,
     AxAIGoogleGeminiModel.Gemini36Flash,
     AxAIGoogleGeminiModel.Gemini35FlashLite,
   ])('omits deprecated sampling parameters for %s', async (model) => {

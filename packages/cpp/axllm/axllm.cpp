@@ -8862,9 +8862,11 @@ Value Core::_gemini_build_chat_request(Value request) {
   }
   Core::set(payload, Value("contents"), contents);
   Value model = Core::get(request, Value("model"), Value("gemini-2.5-flash"));
+  Value is_gemini37_flash = Core::eq(model, Value("gemini-3.7-flash"));
   Value is_gemini36_flash = Core::eq(model, Value("gemini-3.6-flash"));
   Value is_gemini35_flash_lite = Core::eq(model, Value("gemini-3.5-flash-lite"));
-  Value server_managed_sampling = Core::or_(is_gemini36_flash, is_gemini35_flash_lite);
+  Value server_managed_sampling_36 = Core::or_(is_gemini37_flash, is_gemini36_flash);
+  Value server_managed_sampling = Core::or_(server_managed_sampling_36, is_gemini35_flash_lite);
   Value generation_config = Value::object();
   Core::set(generation_config, Value("candidateCount"), Value(1));
   Core::set(generation_config, Value("responseMimeType"), Value("text/plain"));

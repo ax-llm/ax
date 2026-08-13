@@ -7018,9 +7018,11 @@ def _gemini_build_chat_request(request: AxChatRequest) -> Any:
         pass
     payload["contents"] = contents
     model = _core_get(request, "model", "gemini-2.5-flash")
+    is_gemini37_flash = _core_eq(model, "gemini-3.7-flash")
     is_gemini36_flash = _core_eq(model, "gemini-3.6-flash")
     is_gemini35_flash_lite = _core_eq(model, "gemini-3.5-flash-lite")
-    server_managed_sampling = _core_or(is_gemini36_flash, is_gemini35_flash_lite)
+    server_managed_sampling_36 = _core_or(is_gemini37_flash, is_gemini36_flash)
+    server_managed_sampling = _core_or(server_managed_sampling_36, is_gemini35_flash_lite)
     generation_config = {}
     generation_config["candidateCount"] = 1
     generation_config["responseMimeType"] = "text/plain"
