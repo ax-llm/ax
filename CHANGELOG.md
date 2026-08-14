@@ -1,5 +1,19 @@
 # Changelog
 
+## [23.0.13](https://github.com/ax-llm/ax/compare/23.0.11...23.0.12) (2026-08-14)
+
+### Bug Fixes
+
+* port Gemini 3.7 Flash to AxIR ([8cbad4e](https://github.com/ax-llm/ax/commit/8cbad4e9c33543bbb441aed7628543de7bba97c8))
+* support DeepSeek reasoning tool loops ([431a56a](https://github.com/ax-llm/ax/commit/431a56a78d9a49e9a3ff77100a0d63f93ec835b5))
+
+## [23.0.12](https://github.com/ax-llm/ax/compare/23.0.11...23.0.12) (2026-08-12)
+
+### Bug Fixes
+
+* **anthropic:** correct Claude Sonnet 5 to its permanent token pricing ([#576](https://github.com/ax-llm/ax/issues/576)) ([526b8fc](https://github.com/ax-llm/ax/commit/526b8fc460125568ada54dbf02f29bba147ab2b4))
+* **util:** classify mid-stream caller aborts ([#577](https://github.com/ax-llm/ax/issues/577)) ([91d68cd](https://github.com/ax-llm/ax/commit/91d68cdc75c5a303fbe6f76f5821ff0c7443d6ce))
+
 ## [23.0.12](https://github.com/ax-llm/ax/compare/23.0.10...23.0.11) (2026-08-12)
 
 ### Bug Fixes
