@@ -18,18 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-08-15-port-shape-aware-structured-output-fallback-and-provenance` [axgen] Port shape-aware structured-output fallback and provenance
-  - Status: open
-  - Source commit: `30ae9feee1833307577cc43408d9c0256f8693d7`
-  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/extract/structuredJson.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
-  - Impact: AxGen and Agent code stages must select native schema, validated JSON object, or the canonical __axOutput function by provider capability and output shape, preserve legacy replay, expose rung provenance, and use bounded generated-Agent validation retries.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-08-15-preserve-complete-output-contracts-when-composing-axgen-instruct` [axgen] Preserve complete output contracts when composing AxGen instructions
-  - Status: open
-  - Source commit: `30ae9feee1833307577cc43408d9c0256f8693d7`
-  - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/agent/templates/dsp/dspy.md`
-  - Impact: Custom AxGen instructions must compose with identity, tools, exact output wire keys, nested shapes, examples, and formatting rules in TypeScript and every AxIR-generated package instead of replacing the structured prompt.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -471,8 +460,26 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Status: done
   - Source commit: `3a80c93e16e0a499c971bcb58f976d73e7799da3`
   - TS paths: `src/ax/ai/deepseek/info.ts`, `src/ax/ai/deepseek/api.ts`, `src/ax/ai/deepseek/responses_api.ts`
-  - Impact: DeepSeek Chat and Responses models reject json_schema response formats, but the Responses adapter currently defaults missing structuredOutputs metadata to true. AxGen therefore sends native schema requests instead of its existing __finalResult function-call fallback, blocking complex agent outputs.
+  - Impact: DeepSeek Chat and Responses models reject json_schema response formats, so their portable provider descriptors must report structured_outputs false instead of allowing request planning to assume native schema support.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
   - Completed at: 2026-08-15
   - Completed by: `bdb08b78`
-  - Verification: `DeepSeek and DeepSeek Responses now advertise structured_outputs false in AxIR descriptors, conformance fixtures, and regenerated Python, Java, C++, Go, and Rust packages; native structured-output fallback tests and all AxIR package/conformance gates pass.`
+  - Verification: `DeepSeek and DeepSeek Responses advertise structured_outputs false in AxIR descriptors, provider conformance fixtures, and regenerated Python, Java, C++, Go, and Rust packages; descriptor, package freshness, and provider conformance gates pass.`
+- `axir-2026-08-15-port-shape-aware-structured-output-fallback-and-provenance` [axgen] Port shape-aware structured-output fallback and provenance
+  - Status: done
+  - Source commit: `30ae9feee1833307577cc43408d9c0256f8693d7`
+  - TS paths: `src/ax/dsp/generate.ts`, `src/ax/dsp/extract/structuredJson.ts`, `src/ax/agent/agentInternal/signatureBuilders.ts`
+  - Impact: AxGen and Agent code stages must select native schema, validated JSON object, or the canonical __axOutput function by provider capability and output shape, preserve legacy replay, expose rung provenance, and use bounded generated-Agent validation retries.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-15
+  - Completed by: `73f1160dfe467c3feda0feb1d15f3f411197a70e`
+  - Verification: `Shape-aware native, validated json_object, and __axOutput rungs plus provenance are implemented in AxIR and regenerated across Python, Java, C++, Go, and Rust; release conformance, package freshness, Goja, QuickJS, semantic parity, ledger, anti-facade, and focused TS tests pass.`
+- `axir-2026-08-15-preserve-complete-output-contracts-when-composing-axgen-instruct` [axgen] Preserve complete output contracts when composing AxGen instructions
+  - Status: done
+  - Source commit: `30ae9feee1833307577cc43408d9c0256f8693d7`
+  - TS paths: `src/ax/dsp/prompt.ts`, `src/ax/agent/templates/dsp/dspy.md`
+  - Impact: Custom AxGen instructions must compose with identity, tools, exact output wire keys, nested shapes, examples, and formatting rules in TypeScript and every AxIR-generated package instead of replacing the structured prompt.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-15
+  - Completed by: `73f1160dfe467c3feda0feb1d15f3f411197a70e`
+  - Verification: `Instruction composition and exact output-wire contracts are implemented in AxIR and generated prompt hosts; prompt goldens, all-language conformance, semantic parity, package freshness, focused TS tests, and documentation checks pass.`
