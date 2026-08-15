@@ -23,6 +23,7 @@ import type {
   AxAIOpenAIResponsesConfig,
   AxAIOpenAIResponsesDefineFunctionTool,
   AxAIOpenAIResponsesFileSearchToolCall,
+  AxAIOpenAIResponsesFunctionCallItem,
   AxAIOpenAIResponsesImageGenerationToolCall,
   AxAIOpenAIResponsesInputContentPart,
   AxAIOpenAIResponsesInputItem,
@@ -546,6 +547,11 @@ export class AxAIOpenAIResponsesImpl<
 
     const currentResult: Partial<AxChatResponseResult> = {};
 
+    // /v1/responses returns one output item per parallel tool call, so these
+    // have to accumulate across the loop instead of overwriting each other.
+    const functionCalls: NonNullable<AxChatResponseResult['functionCalls']> =
+      [];
+
     for (const item of output ?? []) {
       switch (item.type) {
         case 'message':
@@ -696,19 +702,21 @@ export class AxAIOpenAIResponsesImpl<
           break;
         case 'function_call':
           currentResult.id = item.id;
-          currentResult.functionCalls = [
-            {
-              id: item.id,
-              type: 'function' as const,
-              function: {
-                name: item.name,
-                params: item.arguments,
-              },
+          functionCalls.push({
+            id: item.call_id,
+            type: 'function' as const,
+            function: {
+              name: item.name,
+              params: item.arguments,
             },
-          ];
+          });
           currentResult.finishReason = 'function_call';
           break;
       }
+    }
+
+    if (functionCalls.length > 0) {
+      currentResult.functionCalls = functionCalls;
     }
 
     return {
@@ -724,7 +732,10 @@ export class AxAIOpenAIResponsesImpl<
   ): Readonly<AxChatResponse> => {
     // Handle new streaming event format
     const event = streamEvent as AxAIOpenAIResponsesStreamEvent;
-    const sstate = state as { remoteId?: string };
+    const sstate = state as {
+      remoteId?: string;
+      functionCallIds?: Map<string, string>;
+    };
 
     // Create a basic result structure
     const baseResult: AxChatResponseResult = {
@@ -763,17 +774,26 @@ export class AxAIOpenAIResponsesImpl<
             );
             break;
           case 'function_call':
-            baseResult.id = event.item.id;
-            baseResult.functionCalls = [
-              {
-                id: event.item.id,
-                type: 'function' as const,
-                function: {
-                  name: event.item.name,
-                  params: event.item.arguments,
+            {
+              const functionCallItem =
+                event.item as AxAIOpenAIResponsesFunctionCallItem;
+              sstate.functionCallIds ??= new Map();
+              sstate.functionCallIds.set(
+                functionCallItem.id,
+                functionCallItem.call_id
+              );
+              baseResult.id = event.item.id;
+              baseResult.functionCalls = [
+                {
+                  id: functionCallItem.call_id,
+                  type: 'function' as const,
+                  function: {
+                    name: functionCallItem.name,
+                    params: functionCallItem.arguments,
+                  },
                 },
-              },
-            ];
+              ];
+            }
             break;
           case 'file_search_call':
             {
@@ -956,17 +976,21 @@ export class AxAIOpenAIResponsesImpl<
 
       case 'response.function_call_arguments.delta':
         // Function call arguments delta - return delta with empty name
-        baseResult.id = event.item_id;
-        baseResult.functionCalls = [
-          {
-            id: event.item_id,
-            type: 'function' as const,
-            function: {
-              name: '',
-              params: event.delta,
+        {
+          const functionCallId =
+            sstate.functionCallIds?.get(event.item_id) ?? event.item_id;
+          baseResult.id = event.item_id;
+          baseResult.functionCalls = [
+            {
+              id: functionCallId,
+              type: 'function' as const,
+              function: {
+                name: '',
+                params: event.delta,
+              },
             },
-          },
-        ];
+          ];
+        }
         break;
 
       // case 'response.function_call_arguments.done':

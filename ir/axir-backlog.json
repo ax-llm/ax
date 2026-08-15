@@ -1027,6 +1027,29 @@
       "completedAt": "2026-08-13",
       "completedByCommit": "8cbad4e9",
       "verification": "Implemented Gemini 3.7 Flash in AxIR Gemini request mapping and conformance; regenerated Python, Java, C++, Go, and Rust packages. Verified with 310 TypeScript Gemini/catalog tests, Python AxAI conformance, Java/C++ generated compilation, axir:conformance:check, and axir:check-packages."
+    },
+    {
+      "id": "axir-2026-08-07-port-parallel-tool-call-accumulation-for-the-openai-responses-ap",
+      "status": "open",
+      "title": "Port parallel tool-call accumulation for the OpenAI Responses API",
+      "createdAt": "2026-08-07",
+      "sourcePR": 574,
+      "sourceCommit": "d0b59380",
+      "tsPaths": [
+        "src/ax/ai/openai/responses_api.ts",
+        "src/ax/ai/openai/responses_api.tool_calls.test.ts",
+        "src/ax/ai/deepseek/responses_api.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "The non-streaming and streaming OpenAI Responses mappers must preserve every function_call and its call_id so parallel tools execute and their outputs correlate correctly.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
