@@ -16,6 +16,7 @@ var coreIntrinsicGoRaising = map[CoreIntrinsic]bool{
 	IntrinsicAICompleteOnce:      true,
 	IntrinsicObjectCallMethod:    true,
 	IntrinsicJSONParse:           true,
+	IntrinsicJSONParseStrict:     true,
 	IntrinsicAxGenRunAssertions:  true,
 	IntrinsicAgentStageForward:   true,
 	IntrinsicAgentRuntimeCreate:  true,

@@ -215,7 +215,9 @@ export function buildSplitPrograms(self: any): void {
     )
   ) as any;
 
-  const actorSig = actorSigBuilder.build();
+  // Actor stages are transport-shaped programs: providers must return the
+  // exact runtime code key even though its value is only a string/code field.
+  const actorSig = actorSigBuilder.useStructured().build();
 
   const effectiveMaxSubAgentCalls =
     s.rlmConfig.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;

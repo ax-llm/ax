@@ -423,7 +423,7 @@ class AxGen:
             return
         validate_fields(self.signature.get_input_fields(), values, "input")
         stream_options = {**self.options, **(options or {}), "stream": True}
-        req = self._request(self.prompt_template.render(values), stream_options)
+        req = self._request(self.prompt_template.render(values), stream_options, client)
         chunks = []
         for event in client.stream(req):
             chunks.append(event)
@@ -435,8 +435,11 @@ class AxGen:
             output = _parse_output_impl(content)
             validate_output(self.signature.get_output_fields(), output)
 
-    def _request(self, messages, options):
-        return _build_gen_chat_request(self, messages, options or {})
+    def _request(self, messages, options, client=None):
+        request_options = options or {}
+        features = _core_ai_client_features(client, request_options.get("model")) if client is not None else {}
+        selection = _select_structured_output_rung(self.signature, features, request_options)
+        return _build_gen_chat_request(self, messages, request_options, selection)
 
     def _execute_tool(self, call):
         return _execute_tool_call(self.functions, call)
@@ -552,6 +555,10 @@ def _core_json_parse(value):
     return json.loads(text)
 
 
+def _core_json_parse_strict(value):
+    return json.loads(str(value).strip())
+
+
 def _core_json_stringify(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
@@ -639,6 +646,13 @@ def _core_ai_complete_once(client, request, options):
     if callable(complete):
         return complete(request)
     raise TypeError("AI client must implement chat() or complete()")
+
+
+def _core_ai_client_features(client, model):
+    get_features = getattr(client, "get_features", None)
+    if callable(get_features):
+        return get_features(None if model is None else str(model)) or {}
+    return {"functions": True, "structured_outputs": True}
 
 
 def _core_retry_sleep(attempt):
@@ -946,6 +960,7 @@ def _core_axgen_record_chat_log(gen, request, response):
         "session_id": _core_get(response, "session_id"),
         "usage": _core_get(response, "usage", _core_get(response, "model_usage")),
         "function_calls": _core_get(response, "function_calls", []),
+        "providerMetadata": _core_get(request, "provider_metadata", {}),
     }
     chat_log.append(entry)
     return None

@@ -32,9 +32,9 @@ DEFAULT_DSPY_TEMPLATE = (
     "<formatting_rules>\n{{ if hasStructuredOutputFunction }}\n"
     "Return the complete output by calling " + BT + "{{ structuredOutputFunctionName }}" + BT + ".\n"
     "{{ else }}{{ if hasComplexFields }}\n"
-    "Return valid JSON matching <output_fields>.\n"
+    "Return one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\n"
     "{{ else }}\n"
-    "Return one " + BT + "field name: value" + BT + " pair per line for the required output fields only.\n"
+    "Return one " + BT + "field name: value" + BT + " pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\n"
     "{{ /if }}{{ /if }}Above rules override later instructions.\n\n"
     "</formatting_rules>\n"
     "{{ if hasExampleDemonstrations }}\n\n"
@@ -281,7 +281,11 @@ def _core_prompt_get_input_fields(signature):
 
 
 def _core_prompt_get_output_fields(signature):
-    return list(getattr(signature, "output_fields", None) or signature.get_output_fields())
+    return [
+        field
+        for field in list(getattr(signature, "output_fields", None) or signature.get_output_fields())
+        if not getattr(field, "is_internal", False)
+    ]
 
 
 def _core_prompt_get_description(signature):
@@ -413,7 +417,7 @@ def _core_prompt_render_output_fields(fields, field_map: dict[str, str]) -> str:
             if description:
                 description += ". "
             description += "Allowed values: " + ", ".join(field.type.options)
-        rows.append((field.title + f": ({required})" + description).strip())
+        rows.append((field.title + f" (wire key: {BT}{field.name}{BT}): ({required})" + description).strip())
     return "\n".join(rows)
 
 
@@ -437,11 +441,17 @@ def _core_prompt_identity_section(signature, values=None) -> str:
     return f"You will be provided with the following fields: {in_args}. Your task is to generate new fields: {out_args}."
 
 
-def _core_prompt_task_definition_section(signature) -> str:
-    desc = _core_prompt_get_description(signature)
-    if not desc:
+def _core_prompt_task_definition_section(signature, options=None) -> str:
+    options = options or {}
+    instruction = str(options.get("instruction") or "").strip()
+    desc = str(_core_prompt_get_description(signature) or "").strip()
+    parts = [part for part in (instruction, desc if desc != instruction else "") if part]
+    if not parts:
         return ""
-    return _core_prompt_format_field_references(_core_prompt_format_description(desc), _core_prompt_field_name_to_title(signature))
+    return _core_prompt_format_field_references(
+        "\n\n".join(_core_prompt_format_description(part) for part in parts),
+        _core_prompt_field_name_to_title(signature),
+    )
 
 
 def _core_prompt_input_fields_section(signature, values=None) -> str:
@@ -450,28 +460,55 @@ def _core_prompt_input_fields_section(signature, values=None) -> str:
 
 
 def _core_prompt_output_fields_section(signature) -> str:
-    fields = _core_prompt_render_output_fields(_core_prompt_get_output_fields(signature), _core_prompt_field_name_to_title(signature))
-    return "**Output Fields**: You must generate the following fields:\n\n" + fields
+    output_fields = _core_prompt_get_output_fields(signature)
+    fields = _core_prompt_render_output_fields(output_fields, _core_prompt_field_name_to_title(signature))
+    shape = ""
+    if _core_prompt_has_complex_fields(signature):
+        value = {field.name: _core_prompt_output_type_placeholder(field.type) for field in output_fields}
+        shape = "\n\n**Exact JSON shape**: " + BT + json.dumps(value, separators=(",", ":")) + BT
+    return "**Output Fields**: You must generate the following fields:\n\n" + fields + shape
+
+
+def _core_prompt_output_type_placeholder(field_type):
+    name = getattr(field_type, "name", "string")
+    if name == "number": value = 0
+    elif name == "boolean": value = True
+    elif name in ("object", "json"):
+        value = {}
+        for key, nested in (getattr(field_type, "fields", None) or {}).items():
+            if getattr(nested, "is_internal", False):
+                continue
+            nested_type = getattr(nested, "type", nested)
+            value[key] = _core_prompt_output_type_placeholder(nested_type)
+    elif name == "class": value = (getattr(field_type, "options", None) or ["<allowed value>"])[0]
+    elif name == "code": value = "<complete source>"
+    elif name == "date": value = "<YYYY-MM-DD>"
+    elif name == "datetime": value = "<ISO 8601 datetime>"
+    elif name == "dateRange": value = {"start": "<YYYY-MM-DD>", "end": "<YYYY-MM-DD>"}
+    elif name == "datetimeRange": value = {"start": "<ISO 8601 datetime>", "end": "<ISO 8601 datetime>"}
+    elif name == "url": value = "<url>"
+    else: value = "<string>"
+    return [value] if getattr(field_type, "is_array", False) else value
 
 
 def _core_prompt_structured(signature, values, functions, options) -> str:
     values = values or {}
     options = options or {}
     has_complex_fields = _core_prompt_has_complex_fields(signature)
-    task_definition = _core_prompt_task_definition_section(signature)
+    task_definition = _core_prompt_task_definition_section(signature, options)
     funcs = _core_prompt_function_descriptors(functions)
     template_vars = {
         "hasFunctions": len(funcs) > 0,
         "hasTaskDefinition": bool(task_definition),
         "hasExampleDemonstrations": bool(options.get("has_example_demonstrations", options.get("hasExampleDemonstrations", False))),
-        "hasOutputFields": not has_complex_fields,
+        "hasOutputFields": bool(_core_prompt_get_output_fields(signature)),
         "hasComplexFields": has_complex_fields,
         "hasStructuredOutputFunction": bool(has_complex_fields and options.get("structured_output_function_name")),
         "identityText": _core_prompt_identity_section(signature, values),
         "taskDefinitionText": task_definition,
         "functionsList": _core_prompt_render_functions_section(funcs) if funcs else "",
         "inputFieldsSection": _core_prompt_input_fields_section(signature, values),
-        "outputFieldsSection": _core_prompt_output_fields_section(signature) if not has_complex_fields else "",
+        "outputFieldsSection": _core_prompt_output_fields_section(signature),
         "structuredOutputFunctionName": options.get("structured_output_function_name") or "",
     }
     source = options.get("custom_template")
@@ -592,18 +629,10 @@ def _template_validate_impl(source: str, context: str, required_variables: Any) 
 
 def render_prompt(signature: AxSignature, values: Any, functions: list[Any], options: Any = None) -> list[Any]:
     _core_coverage_mark("render_prompt")
-    instruction = _core_get(options, "instruction", None)
-    has_instruction = _core_is_not_none(instruction)
-    if has_instruction:
-        user_content = _prompt_user_content_impl(signature, values)
-        messages = _prompt_messages_impl(instruction, user_content)
-        return messages
-    else:
-        system_content = _prompt_structured_impl(signature, values, functions, options)
-        user_content = _prompt_user_content_impl(signature, values)
-        messages = _prompt_messages_impl(system_content, user_content)
-        return messages
-    return None
+    system_content = _prompt_structured_impl(signature, values, functions, options)
+    user_content = _prompt_user_content_impl(signature, values)
+    messages = _prompt_messages_impl(system_content, user_content)
+    return messages
 
 
 def _prompt_structured_impl(signature: AxSignature, values: Any, functions: list[Any], options: Any) -> str:

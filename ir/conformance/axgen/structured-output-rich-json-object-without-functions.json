@@ -1,0 +1,19 @@
+{
+  "name": "structured-output-rich-json-object-without-functions",
+  "kind": "forward",
+  "signature": "question:string -> answer:string, confidence:number",
+  "input": { "question": "What is Ax?" },
+  "features": { "structured_outputs": false, "functions": false },
+  "responses": [
+    { "content": "{\"answer\":\"A framework\",\"confidence\":0.9}" }
+  ],
+  "expected_output": { "answer": "A framework", "confidence": 0.9 },
+  "expected_request": {
+    "response_format": { "type": "json_object" },
+    "functions": [],
+    "provider_metadata": {
+      "ax": { "structured_output_rung": "json_object" }
+    }
+  },
+  "expected_request_count": 1
+}

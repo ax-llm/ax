@@ -393,7 +393,9 @@ async function writeSemanticParityLifecycleOracle(): Promise<void> {
           results: [
             {
               index: 0,
-              content: 'Javascript Code: final("execute", {"context":"ready"})',
+              content: JSON.stringify({
+                javascriptCode: 'final("execute", {"context":"ready"})',
+              }),
               finishReason: 'stop' as const,
             },
           ],
@@ -407,7 +409,7 @@ async function writeSemanticParityLifecycleOracle(): Promise<void> {
           results: [
             {
               index: 0,
-              content: `Javascript Code: ${code}`,
+              content: JSON.stringify({ javascriptCode: code }),
               finishReason: 'stop' as const,
             },
           ],
@@ -750,7 +752,9 @@ async function writeSemanticParityStaticDirectSkillOracle(): Promise<void> {
       requestTranscript.push({ stage, system, user });
       const content =
         stage === 'distiller'
-          ? 'Javascript Code: respond("direct", {"source":"forward-skill"})'
+          ? JSON.stringify({
+              javascriptCode: 'respond("direct", {"source":"forward-skill"})',
+            })
           : 'Answer: direct';
       return {
         results: [{ index: 0, content, finishReason: 'stop' as const }],
@@ -876,11 +880,15 @@ async function writeSemanticParityForwardResetOracle(): Promise<void> {
       if (stage === 'distiller') {
         distillerTurn++;
         const label = runLabels[distillerTurn - 1] ?? `run-${distillerTurn}`;
-        content = `Javascript Code: final("execute-${label}", {})`;
+        content = JSON.stringify({
+          javascriptCode: `final("execute-${label}", {})`,
+        });
       } else if (stage === 'executor') {
         executorTurn++;
         const label = runLabels[executorTurn - 1] ?? `run-${executorTurn}`;
-        content = `Javascript Code: final("answer-${label}", {"answer":"${label}"})`;
+        content = JSON.stringify({
+          javascriptCode: `final("answer-${label}", {"answer":"${label}"})`,
+        });
       } else {
         responderTurn++;
         const label = runLabels[responderTurn - 1] ?? `run-${responderTurn}`;
@@ -1154,9 +1162,13 @@ async function writeSemanticParityCatalogRankingOracles(): Promise<void> {
       requestTranscript.push({ stage, system, user });
       const content =
         stage === 'distiller'
-          ? `Javascript Code: ${distillerCodes[distillerIndex++]}`
+          ? JSON.stringify({
+              javascriptCode: distillerCodes[distillerIndex++],
+            })
           : stage === 'executor'
-            ? `Javascript Code: ${executorCodes[executorIndex++]}`
+            ? JSON.stringify({
+                javascriptCode: executorCodes[executorIndex++],
+              })
             : 'Answer: catalog';
       return {
         results: [{ index: 0, content, finishReason: 'stop' as const }],
@@ -1327,9 +1339,15 @@ async function writeSemanticParityCatalogRankingOracles(): Promise<void> {
       tieRequests.push({ stage, system, user });
       const content =
         stage === 'distiller'
-          ? `Javascript Code: ${['final("execute-one", {})'][tieDistiller++]}`
+          ? JSON.stringify({
+              javascriptCode: ['final("execute-one", {})'][tieDistiller++],
+            })
           : stage === 'executor'
-            ? `Javascript Code: ${['final("answer-one", {"answer":"tie"})'][tieExecutor++]}`
+            ? JSON.stringify({
+                javascriptCode: ['final("answer-one", {"answer":"tie"})'][
+                  tieExecutor++
+                ],
+              })
             : 'Answer: tie';
       return {
         results: [{ index: 0, content, finishReason: 'stop' as const }],

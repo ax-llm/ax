@@ -181,7 +181,7 @@ const complexSig = f()
   .build();
 
 fluentPrompt(
-  'complex-output-omits-output-fields',
+  'complex-output-includes-output-contract',
   {
     inputs: { document: { type: 'string', description: 'source document' } },
     outputs: {
@@ -197,6 +197,71 @@ fluentPrompt(
   complexSig,
   { document: 'Ada Lovelace <ada@example.com>' }
 );
+
+const instructedPrompt = new AxPromptTemplate(complexSig, {
+  functions: [search],
+});
+instructedPrompt.setInstruction('Prioritize verified facts from search.');
+writeFixture('instruction-retains-complete-output-contract', {
+  kind: 'prompt',
+  signature_spec: {
+    inputs: { document: { type: 'string', description: 'source document' } },
+    outputs: {
+      profile: {
+        type: 'object',
+        fields: {
+          displayName: { type: 'string', description: 'display name' },
+          email: { type: 'string', description: 'email', optional: true },
+        },
+      },
+    },
+  },
+  input: { document: 'Ada Lovelace <ada@example.com>' },
+  instruction: 'Prioritize verified facts from search.',
+  tools: [
+    {
+      name: 'search',
+      description: 'Search docs',
+      args: { query: { type: 'string' } },
+      result: {},
+    },
+  ],
+  expected_messages: instructedPrompt.render(
+    { document: 'Ada Lovelace <ada@example.com>' },
+    {}
+  ) as Json,
+});
+
+const instructionLifecycleSig = AxSignature.create(
+  '"Base task description" question:string -> exactAnswer:string'
+);
+const clearedInstructionPrompt = new AxPromptTemplate(instructionLifecycleSig);
+clearedInstructionPrompt.setInstruction('   ');
+writeFixture('instruction-cleared-preserves-output-contract', {
+  kind: 'prompt',
+  signature: '"Base task description" question:string -> exactAnswer:string',
+  input: { question: 'What is Ax?' },
+  instruction: '   ',
+  expected_messages: clearedInstructionPrompt.render(
+    { question: 'What is Ax?' },
+    {}
+  ) as Json,
+});
+
+const deduplicatedInstructionPrompt = new AxPromptTemplate(
+  instructionLifecycleSig
+);
+deduplicatedInstructionPrompt.setInstruction('Base task description');
+writeFixture('instruction-deduplicates-signature-description', {
+  kind: 'prompt',
+  signature: '"Base task description" question:string -> exactAnswer:string',
+  input: { question: 'What is Ax?' },
+  instruction: 'Base task description',
+  expected_messages: deduplicatedInstructionPrompt.render(
+    { question: 'What is Ax?' },
+    {}
+  ) as Json,
+});
 
 fluentPrompt(
   'structured-output-function-fallback',

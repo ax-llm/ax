@@ -160,7 +160,7 @@ describe('AxAIDeepSeek model defaults', () => {
 });
 
 describe('AxAIDeepSeek tool choice compatibility', () => {
-  it('lets AxGen structured fallback send __finalResult to V4 without tool_choice', async () => {
+  it('lets AxGen structured fallback send __axOutput to V4 without tool_choice', async () => {
     const sig = f()
       .input('question', f.string())
       .output(
@@ -191,7 +191,7 @@ describe('AxAIDeepSeek tool choice compatibility', () => {
                   id: 'call-1',
                   type: 'function',
                   function: {
-                    name: '__finalResult',
+                    name: '__axOutput',
                     arguments: '{"user":{"name":"Alice","age":30}}',
                   },
                 },
@@ -213,7 +213,7 @@ describe('AxAIDeepSeek tool choice compatibility', () => {
     );
 
     expect(result.user).toEqual({ name: 'Alice', age: 30 });
-    expect(toolNames).toContain('__finalResult');
+    expect(toolNames).toContain('__axOutput');
     expect(capture.lastBody?.tool_choice).toBeUndefined();
   });
 

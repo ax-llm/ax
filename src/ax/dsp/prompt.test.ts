@@ -7,6 +7,68 @@ import { AxSignature, f } from './sig.js';
 describe('AxPromptTemplate.render', () => {
   type TestExpectedMessage = { role: 'user' | 'assistant'; content: string };
 
+  const systemContent = (
+    messages: ReturnType<AxPromptTemplate['render']>
+  ): string => (messages[0] as { role: 'system'; content: string }).content;
+
+  describe('output contracts and composed instructions', () => {
+    it('keeps exact wire keys and nested shapes for forced structured primitives', () => {
+      const signature = f()
+        .input('task', f.string())
+        .output('summaryText', f.string())
+        .output('javascriptCode', f.code('javascript'))
+        .output(
+          'profile',
+          f.object({
+            displayName: f.string(),
+            role: f.class(['admin', 'viewer']),
+          })
+        )
+        .useStructured()
+        .build();
+      const template = new AxPromptTemplate(signature);
+
+      const content = systemContent(template.render({ task: 'Build it' }, {}));
+
+      expect(content).toContain('wire key: `summaryText`');
+      expect(content).toContain('wire key: `javascriptCode`');
+      expect(content).toContain('wire key: `profile`');
+      expect(content).toContain(
+        '`{"summaryText":"<string>","javascriptCode":"<complete source>","profile":{"displayName":"<string>","role":"admin"}}`'
+      );
+      expect(content).toContain('Use the exact wire keys');
+    });
+
+    it('clears and replaces instructions without dropping or duplicating the contract', () => {
+      const signature = AxSignature.from(
+        '"Base task description" question:string -> exactAnswer:string'
+      );
+      const template = new AxPromptTemplate(signature);
+
+      template.setInstruction('Replacement instruction.');
+      const replaced = systemContent(
+        template.render({ question: 'What is Ax?' }, {})
+      );
+      expect(replaced).toContain('Replacement instruction.');
+      expect(replaced).toContain('Base task description.');
+      expect(replaced.match(/wire key: `exactAnswer`/g)).toHaveLength(1);
+
+      template.setInstruction('   ');
+      const cleared = systemContent(
+        template.render({ question: 'What is Ax?' }, {})
+      );
+      expect(cleared).not.toContain('Replacement instruction.');
+      expect(cleared).toContain('Base task description.');
+      expect(cleared.match(/wire key: `exactAnswer`/g)).toHaveLength(1);
+
+      template.setInstruction('Base task description');
+      const deduplicated = systemContent(
+        template.render({ question: 'What is Ax?' }, {})
+      );
+      expect(deduplicated.match(/Base task description\./g)).toHaveLength(1);
+    });
+  });
+
   describe('Single AxGenIn input (existing behavior)', () => {
     it('should render a basic prompt with single AxGenIn', () => {
       const signature = AxSignature.from(
@@ -973,7 +1035,7 @@ describe('AxPromptTemplate.render', () => {
 
       const template = new AxPromptTemplate(signature, {
         contextCache: { ttlSeconds: 3600 },
-        structuredOutputFunctionName: '__finalResult',
+        structuredOutputFunctionName: '__axOutput',
       });
 
       const examples = [

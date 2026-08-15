@@ -1,7 +1,7 @@
 ---
 name: ax-agent
 description: This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.
-version: "23.0.12"
+version: "23.0.14"
 ---
 
 # AxAgent Codegen Rules (@ax-llm/ax)
@@ -56,6 +56,8 @@ Map user intent to agent shape before writing code:
 - Errors listed in `bubbleErrors` bypass actor-loop catch blocks and propagate directly to the caller of `.forward()`.
 - Child agents receive only the arguments the actor passes. Pass parent fields explicitly via `inputs.<field>` or use `inputUpdateCallback` when many calls need the same value.
 - Audio input fields are transcribed before agent planner/executor/responder stages by default; internal agent stages receive text transcripts, not base64 audio.
+- Actor code stages force structured generation around the exact `javascriptCode` wire key. Native-capable providers keep strict `json_schema`; providers such as DeepSeek use validated `json_object` and do not need provider-visible tools for runtime execution.
+- In generated Go, Python, Java, C++, and Rust packages, distiller/executor validation uses `validation_retries` with one correction attempt by default. Set it to `0` to fail on the first invalid response.
 
 ## Canonical Pattern
 

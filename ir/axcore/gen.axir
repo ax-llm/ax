@@ -1,13 +1,327 @@
 module @ax.gen version "0.1" {
   dialect @ax.gen version "0.1"
 
+  op ax.gen.semantic @select_structured_output_rung {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "shape-aware-structured-output-selector"
+    type signature = "(AxSignature, json, json) -> json throws"
+    body @entry(%signature: AxSignature, %features: json, %options: json) {
+      %native_snake = core.get %features["structured_outputs"]
+      %native_raw = core.get %features["structuredOutputs"] default %native_snake
+      %native_missing = core.call intrinsic.is_none(%native_raw)
+      %supports_native = core.let true
+      core.if %native_missing {
+        %supports_native = core.let true
+      } else {
+        %supports_native = core.call intrinsic.truthy(%native_raw)
+      }
+      %functions_raw = core.get %features["functions"]
+      %functions_missing = core.call intrinsic.is_none(%functions_raw)
+      %supports_functions = core.let true
+      core.if %functions_missing {
+        %supports_functions = core.let true
+      } else {
+        %supports_functions = core.call intrinsic.truthy(%functions_raw)
+      }
+      %mode_snake = core.get %options["structured_output_mode"]
+      %mode = core.get %options["structuredOutputMode"] default %mode_snake
+      %mode_missing = core.call intrinsic.is_none(%mode)
+      core.if %mode_missing {
+        %mode = core.let "auto"
+      }
+      %selection = core.map
+      %explicit_native = core.call intrinsic.eq(%mode, "native")
+      core.if %explicit_native {
+        %unsupported_native = core.call intrinsic.not(%supports_native)
+        core.if %unsupported_native {
+          core.raise "Structured output mode 'native' requires native JSON Schema support"
+        }
+        core.set %selection["rung"] = "native"
+        core.return %selection
+      }
+      %explicit_function = core.call intrinsic.eq(%mode, "function")
+      core.if %explicit_function {
+        %unsupported_functions = core.call intrinsic.not(%supports_functions)
+        core.if %unsupported_functions {
+          core.raise "Structured output mode 'function' requires function calling support"
+        }
+        core.set %selection["rung"] = "function"
+        core.return %selection
+      }
+      core.if %supports_native {
+        core.set %selection["rung"] = "native"
+        core.return %selection
+      }
+      %output_fields = core.get %signature["output_fields"]
+      %visible_fields = core.list
+      core.for %field in %output_fields {
+        %internal_snake = core.get %field["is_internal"] default false
+        %internal = core.get %field["isInternal"] default %internal_snake
+        %visible = core.call intrinsic.not(%internal)
+        core.if %visible {
+          core.append %visible_fields, %field
+        }
+      }
+      %visible_count = core.call intrinsic.len(%visible_fields)
+      %singleton = core.call intrinsic.eq(%visible_count, 1)
+      %only_field = core.call intrinsic.list.get(%visible_fields, 0, %selection)
+      %optional_snake = core.get %only_field["is_optional"] default false
+      %optional = core.get %only_field["isOptional"] default %optional_snake
+      %required = core.call intrinsic.not(%optional)
+      %field_type = core.get %only_field["type"]
+      %field_type_name = core.get %field_type["name"]
+      %is_string = core.call intrinsic.eq(%field_type_name, "string")
+      %is_code = core.call intrinsic.eq(%field_type_name, "code")
+      %string_or_code = core.call intrinsic.or(%is_string, %is_code)
+      %not_array_snake = core.get %field_type["is_array"] default false
+      %is_array = core.get %field_type["isArray"] default %not_array_snake
+      %not_array = core.call intrinsic.not(%is_array)
+      %required_singleton = core.call intrinsic.and(%singleton, %required)
+      %singleton_string = core.call intrinsic.and(%required_singleton, %string_or_code)
+      %simple_shape = core.call intrinsic.and(%singleton_string, %not_array)
+      core.if %simple_shape {
+        core.set %selection["rung"] = "json_object"
+        core.return %selection
+      }
+      core.if %supports_functions {
+        core.set %selection["rung"] = "function"
+        core.return %selection
+      }
+      core.set %selection["rung"] = "json_object"
+      core.return %selection
+    }
+  }
+
+  op ax.gen.semantic @structured_output_scalar_placeholder {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "exact-json-scalar-placeholder"
+    type signature = "(json) -> json"
+    body @entry(%typ: json) {
+      %type_name = core.get %typ["name"]
+      %is_string = core.call intrinsic.eq(%type_name, "string")
+      core.if %is_string {
+        core.return "<string>"
+      }
+      %is_code = core.call intrinsic.eq(%type_name, "code")
+      core.if %is_code {
+        core.return "<complete source>"
+      }
+      %is_number = core.call intrinsic.eq(%type_name, "number")
+      core.if %is_number {
+        core.return 0
+      }
+      %is_boolean = core.call intrinsic.eq(%type_name, "boolean")
+      core.if %is_boolean {
+        core.return true
+      }
+      %is_class = core.call intrinsic.eq(%type_name, "class")
+      core.if %is_class {
+        %options = core.get %typ["options"]
+        %class_placeholder = core.call intrinsic.list.get(%options, 0, "<allowed value>")
+        core.return %class_placeholder
+      }
+      %is_date = core.call intrinsic.eq(%type_name, "date")
+      core.if %is_date {
+        core.return "<YYYY-MM-DD>"
+      }
+      %is_datetime = core.call intrinsic.eq(%type_name, "datetime")
+      core.if %is_datetime {
+        core.return "<ISO 8601 datetime>"
+      }
+      %is_date_range = core.call intrinsic.eq(%type_name, "dateRange")
+      core.if %is_date_range {
+        %date_range = core.map
+        core.set %date_range["start"] = "<YYYY-MM-DD>"
+        core.set %date_range["end"] = "<YYYY-MM-DD>"
+        core.return %date_range
+      }
+      %is_datetime_range = core.call intrinsic.eq(%type_name, "datetimeRange")
+      core.if %is_datetime_range {
+        %datetime_range = core.map
+        core.set %datetime_range["start"] = "<ISO 8601 datetime>"
+        core.set %datetime_range["end"] = "<ISO 8601 datetime>"
+        core.return %datetime_range
+      }
+      %is_url = core.call intrinsic.eq(%type_name, "url")
+      core.if %is_url {
+        core.return "<url>"
+      }
+      %is_object = core.call intrinsic.eq(%type_name, "object")
+      core.if %is_object {
+        %object_placeholder = core.map
+        %nested_map = core.get %typ["fields"]
+        %nested_fields = core.call intrinsic.fields.from_map(%nested_map)
+        core.for %nested_field in %nested_fields {
+          %nested_internal_snake = core.get %nested_field["is_internal"] default false
+          %nested_internal = core.get %nested_field["isInternal"] default %nested_internal_snake
+          %nested_visible = core.call intrinsic.not(%nested_internal)
+          core.if %nested_visible {
+            %nested_name = core.get %nested_field["name"]
+            %nested_type = core.get %nested_field["type"] default %nested_field
+            %nested_placeholder = core.call @structured_output_type_placeholder(%nested_type)
+            core.set %object_placeholder[%nested_name] = %nested_placeholder
+          }
+        }
+        core.return %object_placeholder
+      }
+      %is_json = core.call intrinsic.eq(%type_name, "json")
+      core.if %is_json {
+        %json_placeholder = core.map
+        core.return %json_placeholder
+      }
+      core.return "<value>"
+    }
+  }
+
+  op ax.gen.semantic @structured_output_type_placeholder {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "exact-json-type-placeholder"
+    type signature = "(json) -> json"
+    body @entry(%typ: json) {
+      %placeholder = core.call @structured_output_scalar_placeholder(%typ)
+      %is_array_snake = core.get %typ["is_array"] default false
+      %is_array = core.get %typ["isArray"] default %is_array_snake
+      core.if %is_array {
+        %array_placeholder = core.list
+        core.append %array_placeholder, %placeholder
+        core.return %array_placeholder
+      }
+      core.return %placeholder
+    }
+  }
+
+  op ax.gen.semantic @structured_output_shape {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "exact-json-shape-instruction"
+    type signature = "(list<Field>) -> string"
+    body @entry(%output_fields: list<Field>) {
+      %shape = core.map
+      core.for %field in %output_fields {
+        %internal_snake = core.get %field["is_internal"] default false
+        %internal = core.get %field["isInternal"] default %internal_snake
+        %visible = core.call intrinsic.not(%internal)
+        core.if %visible {
+          %name = core.get %field["name"]
+          %typ = core.get %field["type"]
+          %placeholder = core.call @structured_output_type_placeholder(%typ)
+          core.set %shape[%name] = %placeholder
+        }
+      }
+      %shape_json = core.call intrinsic.json.stringify(%shape)
+      core.return %shape_json
+    }
+  }
+
+  op ax.gen.semantic @append_structured_output_instruction {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "structured-output-rung-prompt-contract"
+    type signature = "(list<json>, list<Field>, json) -> void"
+    body @entry(%messages: list<json>, %output_fields: list<Field>, %selection: json) {
+      %rung = core.get %selection["rung"]
+      %is_function = core.call intrinsic.eq(%rung, "function")
+      %content = core.let ""
+      core.if %is_function {
+        %content = core.let "Emit the complete structured output by calling `__axOutput` with exactly the declared wire keys."
+      } else {
+        %shape = core.call @structured_output_shape(%output_fields)
+        %parts = core.list
+        core.append %parts, "Return exactly one JSON object with this shape: `"
+        core.append %parts, %shape
+        core.append %parts, "`. Use only these exact wire keys, with no prose or Markdown fences."
+        %content = core.string_join %parts sep ""
+      }
+      %message = core.map
+      core.set %message["role"] = "user"
+      core.set %message["content"] = %content
+      core.append %messages, %message
+      core.return
+    }
+  }
+
+  op ax.gen.semantic @assert_no_reserved_output_functions {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "structured-output-reserved-function-names"
+    type signature = "(list<Tool>) -> void throws"
+    body @entry(%functions: list<Tool>) {
+      core.for %fn in %functions {
+        %name = core.get %fn["name"]
+        %canonical = core.call intrinsic.eq(%name, "__axOutput")
+        %legacy = core.call intrinsic.eq(%name, "__finalResult")
+        %reserved = core.call intrinsic.or(%canonical, %legacy)
+        core.if %reserved {
+          core.raise "Function names '__axOutput' and '__finalResult' are reserved for Ax structured-output handling"
+        }
+      }
+      core.return
+    }
+  }
+
+  op ax.gen.semantic @find_structured_output_call {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "legacy-final-result-replay-compatibility"
+    type signature = "(list<json>) -> json"
+    body @entry(%calls: list<json>) {
+      core.for %call in %calls {
+        %direct_name = core.get %call["name"]
+        %fn = core.get %call["function"]
+        %name = core.get %fn["name"] default %direct_name
+        %canonical = core.call intrinsic.eq(%name, "__axOutput")
+        %legacy = core.call intrinsic.eq(%name, "__finalResult")
+        %reserved = core.call intrinsic.or(%canonical, %legacy)
+        core.if %reserved {
+          core.return %call
+        }
+      }
+      %none = core.call intrinsic.none()
+      core.return %none
+    }
+  }
+
+  op ax.gen.semantic @structured_output_call_args {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "structured-output-function-args"
+    type signature = "(json) -> json throws"
+    body @entry(%call: json) {
+      %fn = core.get %call["function"]
+      %direct_params = core.get %call["params"]
+      %params = core.get %fn["params"] default %direct_params
+      %missing = core.call intrinsic.is_none(%params)
+      core.if %missing {
+        %arguments = core.get %call["arguments"]
+        %params = core.let %arguments
+      }
+      %is_string = core.type_is %params type "string"
+      core.if %is_string {
+        %parsed = core.call intrinsic.json.parse_strict(%params)
+        %params = core.let %parsed
+      }
+      core.return %params
+    }
+  }
+
   op ax.gen.semantic @build_gen_chat_request {
     attr core_kind = "func"
     attr emit_module = "gen"
     attr private = true
     ref prompt = @render_prompt
-    type signature = "(AxGen, list<json>, json) -> AxChatRequest throws"
-    body @entry(%gen: AxGen, %messages: list<json>, %options: json) {
+    type signature = "(AxGen, list<json>, json, json) -> AxChatRequest throws"
+    body @entry(%gen: AxGen, %messages: list<json>, %options: json, %selection: json) {
       %model_config = core.map
       %stream_value = core.get %options["stream"] default false
       %stream_bool = core.call intrinsic.truthy(%stream_value)
@@ -52,59 +366,63 @@ module @ax.gen version "0.1" {
       core.set %request["model"] = %model
       core.set %request["chat_prompt"] = %messages
       %functions = core.get %gen["functions"]
+      core.call @assert_no_reserved_output_functions(%functions)
       %function_specs = core.list
       core.for %fn in %functions {
         %spec = core.call @tool_spec_impl(%fn)
         core.append %function_specs, %spec
       }
-      core.set %request["functions"] = %function_specs
       %mode_snake = core.get %options["function_call_mode"]
       %mode_raw = core.get %options["functionCallMode"] default %mode_snake
       %mode = core.call @function_call_mode_impl(%mode_raw)
-      core.set %request["function_call"] = %mode
-      // Structured-output enforcement. A strict json_schema makes the model emit
-      // exactly the declared output fields (e.g. javascriptCode for RLM stages, or a
-      // responder's typed fields) — without it a live model picks its own keys and
-      // drifts (the responder drops required fields, an llmQuery sub-query answers
-      // off-shape), which stalls the agent loop. Mirrors TS AxGen. Only
-      // function-calling gens (no code field, functions present) keep json_object,
-      // so the model stays free to choose tool calls instead of structured output.
       %signature = core.get %gen["signature"]
       %output_fields = core.get %signature["output_fields"]
-      %has_code_field = core.let false
-      core.for %of in %output_fields {
-        %of_type = core.get %of["type"]
-        %of_type_name = core.get %of_type["name"]
-        %of_is_code = core.call intrinsic.eq(%of_type_name, "code")
-        core.if %of_is_code {
-          %has_code_field = core.let true
+      %rung = core.get %selection["rung"]
+      %fn_count = core.call intrinsic.len(%function_specs)
+      %use_function = core.call intrinsic.eq(%rung, "function")
+      core.if %use_function {
+        %schema_options = core.map
+        %function_schema = core.call @schema_to_json_schema_impl(%output_fields, "output", %schema_options)
+        %synthetic = core.map
+        core.set %synthetic["name"] = "__axOutput"
+        core.set %synthetic["description"] = "Emit the complete structured program output using the declared argument shape."
+        core.set %synthetic["parameters"] = %function_schema
+        core.append %function_specs, %synthetic
+        %no_user_functions = core.call intrinsic.eq(%fn_count, 0)
+        core.if %no_user_functions {
+          %forced_function = core.map
+          core.set %forced_function["name"] = "__axOutput"
+          %mode = core.let %forced_function
         }
       }
-      %response_format = core.map
-      %fn_count = core.call intrinsic.len(%function_specs)
-      %has_functions = core.call intrinsic.gt(%fn_count, 0)
-      %no_functions = core.call intrinsic.not(%has_functions)
-      %use_json_schema = core.call intrinsic.or(%has_code_field, %no_functions)
-      core.if %use_json_schema {
+      core.set %request["functions"] = %function_specs
+      core.set %request["function_call"] = %mode
+      %use_native = core.call intrinsic.eq(%rung, "native")
+      core.if %use_native {
         %schema_options = core.map
         core.set %schema_options["strictStructuredOutputs"] = true
-        // A freeform `json`/`json[]` output field has no declared properties, and a
-        // strict schema forces additionalProperties:false, which pins every such
-        // object to `{}` (a forensics `findings:json[]` came back as `[{}]`). Mirror
-        // TS AxGen: encode flexible-json fields as JSON strings the model CAN fill,
-        // then parse them back after the response (see @parse_json_string_fields).
         core.set %schema_options["flexibleJsonFieldsAsString"] = true
-        %code_schema = core.call @schema_to_json_schema_impl(%output_fields, "output", %schema_options)
-        %code_schema_wrap = core.map
-        core.set %code_schema_wrap["name"] = "output"
-        core.set %code_schema_wrap["strict"] = true
-        core.set %code_schema_wrap["schema"] = %code_schema
+        %output_schema = core.call @schema_to_json_schema_impl(%output_fields, "output", %schema_options)
+        %schema_wrap = core.map
+        core.set %schema_wrap["name"] = "output"
+        core.set %schema_wrap["strict"] = true
+        core.set %schema_wrap["schema"] = %output_schema
+        %response_format = core.map
         core.set %response_format["type"] = "json_schema"
-        core.set %response_format["schema"] = %code_schema_wrap
-      } else {
-        core.set %response_format["type"] = "json_object"
+        core.set %response_format["schema"] = %schema_wrap
+        core.set %request["response_format"] = %response_format
       }
-      core.set %request["response_format"] = %response_format
+      %use_json_object = core.call intrinsic.eq(%rung, "json_object")
+      core.if %use_json_object {
+        %response_format = core.map
+        core.set %response_format["type"] = "json_object"
+        core.set %request["response_format"] = %response_format
+      }
+      %ax_metadata = core.map
+      core.set %ax_metadata["structured_output_rung"] = %rung
+      %provider_metadata = core.map
+      core.set %provider_metadata["ax"] = %ax_metadata
+      core.set %request["provider_metadata"] = %provider_metadata
       core.set %request["model_config"] = %model_config
       core.return %request
     }
@@ -124,6 +442,11 @@ module @ax.gen version "0.1" {
       %base_options = core.get %gen["options"]
       %runtime_options = core.call intrinsic.map.merge(%base_options, %options)
       %signature = core.get %gen["signature"]
+      %model = core.get %runtime_options["model"]
+      %features = core.call intrinsic.ai.client_features(%client, %model)
+      %selection = core.call @select_structured_output_rung(%signature, %features, %runtime_options)
+      %selected_rung = core.get %selection["rung"]
+      %validate_exact_json = core.call intrinsic.eq(%selected_rung, "json_object")
       %input_fields = core.get %signature["input_fields"]
       core.call @validate_fields(%input_fields, %values, "input")
       %prompt_template = core.get %gen["prompt_template"]
@@ -141,6 +464,8 @@ module @ax.gen version "0.1" {
         core.append %ordered_messages, %demo_message
       }
       core.append %ordered_messages, %user_message
+      %output_fields = core.get %signature["output_fields"]
+      core.call @append_structured_output_instruction(%ordered_messages, %output_fields, %selection)
       %validation_feedback_snake = core.get %runtime_options["validation_feedback"] default ""
       %validation_feedback = core.get %runtime_options["validationFeedback"] default %validation_feedback_snake
       %has_validation_feedback = core.call intrinsic.truthy(%validation_feedback)
@@ -158,11 +483,10 @@ module @ax.gen version "0.1" {
       %infra_retries_snake = core.get %runtime_options["infra_retries"] default 2
       %infra_retries = core.get %runtime_options["infraRetries"] default %infra_retries_snake
       %attempt = core.const 0
-      %output_fields = core.get %signature["output_fields"]
       %functions = core.get %gen["functions"]
       %last_tool_result = core.call intrinsic.none()
       core.loop {
-        %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options)
+        %request = core.call @build_gen_chat_request(%gen, %messages, %runtime_options, %selection)
         %response = core.call @complete_with_retries_impl(%client, %request, %runtime_options, %infra_retries)
         core.call intrinsic.axgen.memory_add_response(%gen, %request, %response)
         core.call intrinsic.axgen.record_chat_log(%gen, %request, %response)
@@ -170,6 +494,32 @@ module @ax.gen version "0.1" {
         %call_count = core.call intrinsic.len(%calls)
         %has_calls = core.call intrinsic.gt(%call_count, 0)
         core.if %has_calls {
+          %structured_call = core.call @find_structured_output_call(%calls)
+          %has_structured_call = core.call intrinsic.is_not_none(%structured_call)
+          core.if %has_structured_call {
+            core.try {
+              %structured_args = core.call @structured_output_call_args(%structured_call)
+              core.call @validate_exact_output_keys(%output_fields, %structured_args, "output")
+              %structured_recovered = core.call @parse_json_string_fields(%output_fields, %structured_args)
+              %structured_validated = core.call @validate_output(%output_fields, %structured_recovered)
+              %structured_processed = core.call @apply_field_processors(%gen, %structured_validated)
+              core.call @run_assertions(%gen, %structured_processed)
+              %structured_public = core.call @strip_internal_fields(%output_fields, %structured_processed)
+              core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
+              core.call @record_trace(%gen, %values, %structured_public, "ok")
+              core.return %structured_public
+            } catch %structured_validation_error {
+              %structured_retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
+              core.if %structured_retries_exhausted {
+                core.raise %structured_validation_error
+              }
+              %structured_next_attempt = core.call intrinsic.add(%attempt, 1)
+              %attempt = core.let %structured_next_attempt
+              core.call @append_assertion_retry_messages(%messages, %response, %structured_validation_error)
+              core.call intrinsic.axgen.memory_add_correction(%gen, %response, %structured_validation_error)
+              core.continue
+            }
+          }
           core.call @append_tool_call_messages_impl(%messages, %response, %calls)
           core.for %call in %calls {
             core.try {
@@ -202,6 +552,9 @@ module @ax.gen version "0.1" {
           core.try {
             %content = core.get %response["content"] default ""
             %output = core.call @parse_output_impl(%content)
+            core.if %validate_exact_json {
+              core.call @validate_exact_output_keys(%output_fields, %output, "output")
+            }
             %recovered = core.call @parse_json_string_fields(%output_fields, %output)
             %validated = core.call @validate_output(%output_fields, %recovered)
             %processed = core.call @apply_field_processors(%gen, %validated)
@@ -381,16 +734,11 @@ module @ax.gen version "0.1" {
     type signature = "(string) -> json throws"
     body @entry(%content: string) {
       %text = core.string_trim %content
-      %output = core.call intrinsic.json.parse(%text)
+      %output = core.call intrinsic.json.parse_strict(%text)
       core.return %output
     }
   }
 
-  // A freeform `json`/`json[]` output field is encoded as a JSON-encoded string in
-  // the strict schema (see flexibleJsonFieldsAsString in @build_gen_chat_request),
-  // so the model can actually fill it instead of being pinned to `{}`. After the
-  // response is parsed we walk the output fields and parse those string values back
-  // into real json. Mirrors TS AxGen parseStructuredJsonFieldValues / isFlexibleJsonField.
   op ax.gen.semantic @is_flexible_json_field {
     attr core_kind = "func"
     attr emit_module = "gen"
@@ -404,8 +752,6 @@ module @ax.gen version "0.1" {
       %fields = core.get %typ["fields"]
       %has_fields = core.call intrinsic.truthy(%fields)
       %no_fields = core.call intrinsic.not(%has_fields)
-      // %flexible = is_json OR (is_object AND no_fields); nested if avoids
-      // intrinsic.and, which the gen module does not emit a helper for.
       %flexible = core.let %is_json
       core.if %is_object {
         core.if %no_fields {
@@ -469,8 +815,6 @@ module @ax.gen version "0.1" {
           }
           core.return %out
         }
-        // object[] with declared sub-fields: recurse into each item's nested
-        // flexible-json leaves (mirrors TS parseJsonStringValuesForField array branch).
         core.if %has_typ_fields {
           %rebuilt = core.list
           core.for %item in %value {
@@ -490,7 +834,6 @@ module @ax.gen version "0.1" {
         %parsed_scalar = core.call @parse_json_string_value(%value)
         core.return %parsed_scalar
       }
-      // shaped object: recurse into its nested flexible-json leaves.
       %type_name = core.get %typ["name"]
       %is_object = core.call intrinsic.eq(%type_name, "object")
       core.if %is_object {
@@ -528,9 +871,6 @@ module @ax.gen version "0.1" {
     }
   }
 
-  // Recurse into a shaped object's / object[] item's nested sub-fields and parse any
-  // flexible-json leaves back. Mirrors TS parseJsonStringValuesForFields: convert the
-  // FieldType `fields` map to a Field list, then parse each present value.
   op ax.gen.semantic @parse_json_string_for_fields {
     attr core_kind = "func"
     attr emit_module = "gen"
@@ -554,6 +894,64 @@ module @ax.gen version "0.1" {
         }
       }
       core.return %values
+    }
+  }
+
+  op ax.gen.semantic @validate_exact_output_keys {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "validated-json-object-exact-wire-keys"
+    type signature = "(list<Field>, json, string) -> void throws"
+    body @entry(%fields: list<Field>, %values: json, %context: string) {
+      %is_object = core.type_is %values type "object"
+      %not_object = core.call intrinsic.not(%is_object)
+      core.if %not_object {
+        %object_message = core.call intrinsic.string.format("{} must be one JSON object", %context)
+        %object_error = core.call intrinsic.error.validation(%object_message)
+        core.raise %object_error
+      }
+      %keys = core.call intrinsic.map.keys(%values)
+      core.for %key in %keys {
+        %known = core.let false
+        core.for %field in %fields {
+          %field_name = core.get %field["name"]
+          %matches = core.call intrinsic.eq(%field_name, %key)
+          core.if %matches {
+            %known = core.let true
+          }
+        }
+        %unknown = core.call intrinsic.not(%known)
+        core.if %unknown {
+          %unknown_message = core.call intrinsic.string.format("Unexpected field '{}' in {}. Use only the exact declared wire keys.", %key, %context)
+          %unknown_error = core.call intrinsic.error.validation(%unknown_message)
+          core.raise %unknown_error
+        }
+      }
+      core.for %field in %fields {
+        %field_name = core.get %field["name"]
+        %has_value = core.call intrinsic.map.contains(%values, %field_name)
+        core.if %has_value {
+          %typ = core.get %field["type"]
+          %nested_map = core.get %typ["fields"]
+          %has_nested = core.call intrinsic.truthy(%nested_map)
+          core.if %has_nested {
+            %nested_fields = core.call intrinsic.fields.from_map(%nested_map)
+            %field_value = core.get %values[%field_name]
+            %child_context = core.call intrinsic.string.format("{}.{}", %context, %field_name)
+            %array_snake = core.get %typ["is_array"] default false
+            %is_array = core.get %typ["isArray"] default %array_snake
+            core.if %is_array {
+              core.for %item in %field_value {
+                core.call @validate_exact_output_keys(%nested_fields, %item, %child_context)
+              }
+            } else {
+              core.call @validate_exact_output_keys(%nested_fields, %field_value, %child_context)
+            }
+          }
+        }
+      }
+      core.return
     }
   }
 

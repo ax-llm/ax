@@ -1,0 +1,33 @@
+{
+  "name": "structured-output-function-rung-and-legacy-replay",
+  "kind": "forward",
+  "signature": "question:string -> answer:string, confidence:number",
+  "input": { "question": "What is Ax?" },
+  "features": { "structured_outputs": false, "functions": true },
+  "responses": [
+    {
+      "content": "",
+      "function_calls": [
+        {
+          "id": "legacy-output",
+          "name": "__finalResult",
+          "params": { "answer": "A framework", "confidence": 0.9 }
+        }
+      ]
+    }
+  ],
+  "expected_output": { "answer": "A framework", "confidence": 0.9 },
+  "expected_request_contains": [
+    "__axOutput",
+    "structured_output_rung",
+    "function"
+  ],
+  "expected_chat_log_subset": [
+    {
+      "providerMetadata": {
+        "ax": { "structured_output_rung": "function" }
+      }
+    }
+  ],
+  "expected_request_count": 1
+}

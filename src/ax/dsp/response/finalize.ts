@@ -34,6 +34,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   functionResultFormatter,
   signatureToolCallingManager,
   parseJsonStringFields,
+  strictStructuredJson,
   logger,
   debug,
   stopFunctionNames,
@@ -84,7 +85,8 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
         const finalJson = parseStructuredFinal(
           signature,
           state.content,
-          parseJsonStringFields
+          parseJsonStringFields,
+          strictStructuredJson
         );
         const { delta, fullValues } = createStructuredDelta<OUT>({
           signature,
@@ -107,6 +109,11 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
         }
         if (!(e instanceof SyntaxError)) {
           throw e;
+        }
+        if (strictStructuredJson) {
+          throw new ValidationError(
+            'Structured output must be one JSON object with no prose or Markdown fences.'
+          );
         }
       }
     }

@@ -1,0 +1,14 @@
+{
+  "name": "structured-output-json-object-invented-key-retry",
+  "kind": "forward",
+  "signature": "task:string -> javascriptCode:code",
+  "input": { "task": "write a program" },
+  "features": { "structured_outputs": false, "functions": false },
+  "options": { "validation_retries": 1 },
+  "responses": [
+    { "content": "{\"request\":\"wrong key\"}" },
+    { "content": "{\"javascriptCode\":\"final(42);\"}" }
+  ],
+  "expected_output": { "javascriptCode": "final(42);" },
+  "expected_request_count": 2
+}

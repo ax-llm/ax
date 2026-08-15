@@ -177,6 +177,10 @@ export class AxPromptTemplate {
     text: string;
   } {
     const hasComplexFields = this.sig.hasComplexFields();
+    const outputFields = this.sig
+      .getOutputFields()
+      .filter((field) => !field.isInternal);
+    const hasOutputFields = outputFields.length > 0;
     const taskDefinition = this.buildTaskDefinitionSection();
     const funcs = this.getFunctions();
     const hasFunctions = funcs.length > 0;
@@ -185,7 +189,7 @@ export class AxPromptTemplate {
       hasFunctions,
       hasTaskDefinition: Boolean(taskDefinition),
       hasExampleDemonstrations,
-      hasOutputFields: !hasComplexFields,
+      hasOutputFields,
       hasComplexFields,
       hasStructuredOutputFunction: Boolean(
         hasComplexFields && this.structuredOutputFunctionName
@@ -194,7 +198,7 @@ export class AxPromptTemplate {
       taskDefinitionText: taskDefinition,
       functionsList: hasFunctions ? this.buildFunctionsSection(funcs) : '',
       inputFieldsSection: this.buildInputFieldsSection(values),
-      outputFieldsSection: !hasComplexFields
+      outputFieldsSection: hasOutputFields
         ? this.buildOutputFieldsSection()
         : '',
       structuredOutputFunctionName: this.structuredOutputFunctionName ?? '',
@@ -213,7 +217,9 @@ export class AxPromptTemplate {
    */
   private buildIdentitySection(values?: unknown): string {
     const inArgs = renderDescFields(this.getInputFieldsForValues(values));
-    const outArgs = renderDescFields(this.sig.getOutputFields());
+    const outArgs = renderDescFields(
+      this.sig.getOutputFields().filter((field) => !field.isInternal)
+    );
     return `You will be provided with the following fields: ${inArgs}. Your task is to generate new fields: ${outArgs}.`;
   }
 
@@ -223,12 +229,13 @@ export class AxPromptTemplate {
    */
   private buildTaskDefinitionSection(): string {
     const parts: string[] = [];
-    if (this.customInstruction) {
-      parts.push(this.customInstruction);
+    const instruction = this.customInstruction?.trim();
+    if (instruction) {
+      parts.push(instruction);
     }
 
-    const desc = this.sig.getDescription();
-    if (desc) {
+    const desc = this.sig.getDescription()?.trim();
+    if (desc && desc !== instruction) {
       parts.push(desc);
     }
 
@@ -291,10 +298,15 @@ export class AxPromptTemplate {
   private buildOutputFieldsSection(): string {
     const fieldMap = this.getFieldNameToTitleMap();
     const outputFields = renderOutputFields(
-      this.sig.getOutputFields(),
+      this.sig.getOutputFields().filter((field) => !field.isInternal),
       fieldMap
     );
-    return `**Output Fields**: You must generate the following fields:\n\n${outputFields}`;
+    const jsonShape = this.sig.hasComplexFields()
+      ? `\n\n**Exact JSON shape**: \`${renderOutputJsonShape(
+          this.sig.getOutputFields().filter((field) => !field.isInternal)
+        )}\``
+      : '';
+    return `**Output Fields**: You must generate the following fields:\n\n${outputFields}${jsonShape}`;
   }
 
   private formatUserContent = (
@@ -1263,7 +1275,7 @@ const renderOutputFields = (
   fieldNameToTitle?: Map<string, string>
 ) => {
   const rows = fields.map((field) => {
-    const name = field.title;
+    const name = `${field.title} (wire key: \`${field.name}\`)`;
     const type = field.type?.name ? toFieldType(field.type) : 'string';
 
     const requiredMsg = field.isOptional
@@ -1294,6 +1306,73 @@ const renderOutputFields = (
   });
 
   return rows.join('\n');
+};
+
+const renderOutputJsonShape = (fields: readonly AxField[]): string =>
+  JSON.stringify(
+    Object.fromEntries(
+      fields.map((field) => [
+        field.name,
+        renderOutputTypePlaceholder(field.type),
+      ])
+    )
+  );
+
+const renderNestedTypePlaceholder = (type: Readonly<AxFieldType>): unknown => {
+  const value = (() => {
+    switch (type.type) {
+      case 'number':
+        return 0;
+      case 'boolean':
+        return true;
+      case 'object':
+        return type.fields
+          ? Object.fromEntries(
+              Object.entries(type.fields)
+                .filter(([, nested]) => !nested.isInternal)
+                .map(([key, nested]) => [
+                  key,
+                  renderNestedTypePlaceholder(nested),
+                ])
+            )
+          : {};
+      case 'json':
+        return {};
+      case 'class':
+        return type.options?.[0] ?? '<allowed value>';
+      case 'code':
+        return '<complete source>';
+      case 'date':
+        return '<YYYY-MM-DD>';
+      case 'datetime':
+        return '<ISO 8601 datetime>';
+      case 'dateRange':
+        return { start: '<YYYY-MM-DD>', end: '<YYYY-MM-DD>' };
+      case 'datetimeRange':
+        return {
+          start: '<ISO 8601 datetime>',
+          end: '<ISO 8601 datetime>',
+        };
+      case 'url':
+        return '<url>';
+      default:
+        return '<string>';
+    }
+  })();
+
+  return type.isArray ? [value] : value;
+};
+
+const renderOutputTypePlaceholder = (
+  type: Readonly<AxField['type']>
+): unknown => {
+  if (!type) return '<string>';
+  return renderNestedTypePlaceholder({
+    type: type.name,
+    isArray: type.isArray,
+    fields: type.fields,
+    options: type.options,
+  });
 };
 
 const processValue = (

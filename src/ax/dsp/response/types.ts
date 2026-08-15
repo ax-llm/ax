@@ -57,6 +57,7 @@ export type ProcessResponseBaseArgs = Readonly<
   thoughtFieldName: string;
   signature: import('../sig.js').AxSignature;
   parseJsonStringFields: boolean;
+  strictStructuredJson: boolean;
   debug: boolean;
   functionResultFormatter?: (result: unknown) => string;
   signatureToolCallingManager?: SignatureToolCallingManager;
@@ -79,6 +80,7 @@ export type ProcessStreamingResponseArgs = Readonly<
   signature: import('../sig.js').AxSignature;
   excludeContentFromTrace: boolean;
   parseJsonStringFields: boolean;
+  strictStructuredJson: boolean;
   debug: boolean;
   functionResultFormatter?: (result: unknown) => string;
   signatureToolCallingManager: SignatureToolCallingManager | undefined;

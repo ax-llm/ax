@@ -27,6 +27,7 @@ export async function* processResponse<OUT extends AxGenOut>({
   thoughtFieldName,
   signature,
   parseJsonStringFields,
+  strictStructuredJson,
   debugPromptMetrics,
   functionResultFormatter,
   logger,
@@ -153,11 +154,17 @@ export async function* processResponse<OUT extends AxGenOut>({
           const json = parseStructuredFinal(
             signature,
             result.content,
-            parseJsonStringFields
+            parseJsonStringFields,
+            strictStructuredJson
           );
           Object.assign(state.values, selectOutputFields(signature, json));
         } catch (e) {
           if (e instanceof SyntaxError) {
+            if (strictStructuredJson) {
+              throw new ValidationError(
+                'Structured output must be one JSON object with no prose or Markdown fences.'
+              );
+            }
             extractValues(signature, state.values, result.content, {
               strictMode,
               treatAllFieldsOptional,

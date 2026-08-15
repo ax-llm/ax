@@ -56,6 +56,8 @@ Map user intent to agent shape before writing code:
 - Errors listed in `bubbleErrors` bypass actor-loop catch blocks and propagate directly to the caller of `.forward()`.
 - Child agents receive only the arguments the actor passes. Pass parent fields explicitly via `inputs.<field>` or use `inputUpdateCallback` when many calls need the same value.
 - Audio input fields are transcribed before agent planner/executor/responder stages by default; internal agent stages receive text transcripts, not base64 audio.
+- Actor code stages force structured generation around the exact `javascriptCode` wire key. Native-capable providers keep strict `json_schema`; providers such as DeepSeek use validated `json_object` and do not need provider-visible tools for runtime execution.
+- In generated Go, Python, Java, C++, and Rust packages, distiller/executor validation uses `validation_retries` with one correction attempt by default. Set it to `0` to fail on the first invalid response.
 
 ## Canonical Pattern
 

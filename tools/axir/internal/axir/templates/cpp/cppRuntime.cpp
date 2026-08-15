@@ -943,6 +943,9 @@ Value Core::json_parse(Value value) {
   }
   return parse_json(text);
 }
+Value Core::json_parse_strict(Value value) {
+  return parse_json(str(string_trim(value)));
+}
 Value Core::json_stringify(Value value) { return Value(stringify(value)); }
 Value Core::json_stable_stringify(Value value) { return Value(stable_stringify(value)); }
 Value Core::json_pretty(Value value) { return Value(stringify(value)); }
@@ -1078,6 +1081,16 @@ Value Core::ai_complete_once(Value client, Value request, Value options) {
   auto it = client_registry().find(id);
   if (it == client_registry().end() || it->second == nullptr) throw AxError("runtime", "client does not implement AIClient");
   return chat_response_to_completion(it->second->chat(request, options));
+}
+Value Core::ai_client_features(Value client, Value model) {
+  std::string id = str(get_key(client, "__client_id"));
+  auto it = client_registry().find(id);
+  if (it != client_registry().end() && it->second != nullptr) {
+    if (auto* service = dynamic_cast<AxAIService*>(it->second)) {
+      return service->get_features(model);
+    }
+  }
+  return object({{"functions", true}, {"structured_outputs", true}});
 }
 Value Core::agent_transcribe(Value client, Value request, Value options) {
   // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
@@ -1583,6 +1596,13 @@ static Array prompt_inputs_for_values(Value sig, Value values) {
   for (const auto& field : fields) if (!Core::truthy(get_key(field, "isOptional")) || prompt_provided(get_key(values, str(get_key(field, "name"))))) out.push_back(field);
   return out;
 }
+static Array prompt_outputs(Value sig) {
+  Array out;
+  for (const auto& field : array_ref(get_key(sig, "outputs"))) {
+    if (!Core::truthy(get_key(field, "isInternal", get_key(field, "is_internal")))) out.push_back(field);
+  }
+  return out;
+}
 static std::string prompt_desc_fields(const Array& fields) {
   std::vector<std::string> out;
   for (const auto& f : fields) out.push_back(std::string(1, static_cast<char>(96)) + str(get_key(f, "title")) + static_cast<char>(96));
@@ -1674,16 +1694,46 @@ static std::string prompt_render_output_fields(const Array& fields, const Object
       for (size_t i = 0; i < opts.size(); ++i) { if (i) joined += ", "; joined += opts[i]; }
       desc += std::string(desc.empty() ? "" : ". ") + "Allowed values: " + joined;
     }
-    rows.push_back(str(Core::string_trim(str(get_key(f, "title")) + ": (" + req + ")" + desc)));
+    std::string bt(1, static_cast<char>(96));
+    rows.push_back(str(Core::string_trim(str(get_key(f, "title")) + " (wire key: " + bt + str(get_key(f, "name")) + bt + "): (" + req + ")" + desc)));
   }
   std::string joined;
   for (size_t i = 0; i < rows.size(); ++i) { if (i) joined += "\n"; joined += rows[i]; }
   return joined;
 }
-static std::string prompt_task(Value sig) {
+static Value prompt_output_type_placeholder(Value typ) {
+  std::string name = str(get_key(typ, "name"));
+  Value value("<string>");
+  if (name == "number") value = Value(0);
+  else if (name == "boolean") value = Value(true);
+  else if (name == "object" || name == "json") {
+    value = Value::object();
+    for (const auto& kv : entries(get_key(typ, "fields"))) {
+      Value field = kv.second;
+      Value nested_type = has_key(field, "type") ? get_key(field, "type") : field;
+      if (!Core::truthy(get_key(field, "isInternal", get_key(field, "is_internal")))) Core::set(value, kv.first, prompt_output_type_placeholder(nested_type));
+    }
+  } else if (name == "class") {
+    Array options = array_ref(get_key(typ, "options")); value = options.empty() ? Value("<allowed value>") : options.front();
+  } else if (name == "code") value = Value("<complete source>");
+  else if (name == "date") value = Value("<YYYY-MM-DD>");
+  else if (name == "datetime") value = Value("<ISO 8601 datetime>");
+  else if (name == "dateRange") value = object({{"start", "<YYYY-MM-DD>"}, {"end", "<YYYY-MM-DD>"}});
+  else if (name == "datetimeRange") value = object({{"start", "<ISO 8601 datetime>"}, {"end", "<ISO 8601 datetime>"}});
+  else if (name == "url") value = Value("<url>");
+  if (Core::truthy(get_key(typ, "isArray", get_key(typ, "is_array")))) return Value(Array{value});
+  return value;
+}
+static std::string prompt_task(Value sig, Value options) {
+  std::string instruction = str(Core::string_trim(get_key(options, "instruction", "")));
   Value desc = get_key(sig, "description");
-  if (desc.is_null() || str(Core::string_trim(desc)).empty()) return "";
-  return prompt_format_refs(prompt_format_description(str(desc)), prompt_field_map(sig));
+  std::string description = desc.is_null() ? "" : str(Core::string_trim(desc));
+  std::vector<std::string> parts;
+  if (!instruction.empty()) parts.push_back(prompt_format_refs(prompt_format_description(instruction), prompt_field_map(sig)));
+  if (!description.empty() && description != instruction) parts.push_back(prompt_format_refs(prompt_format_description(description), prompt_field_map(sig)));
+  std::string out;
+  for (size_t i = 0; i < parts.size(); ++i) { if (i) out += "\n\n"; out += parts[i]; }
+  return out;
 }
 static std::string prompt_render_functions(Value functions) {
   std::vector<std::string> rows;
@@ -1696,20 +1746,27 @@ static std::string prompt_render_functions(Value functions) {
 }
 Value Core::prompt_structured(Value signature, Value values, Value functions, Value options) {
   bool complex = prompt_complex(signature);
-  std::string task = prompt_task(signature);
+  Array outputs = prompt_outputs(signature);
+  std::string task = prompt_task(signature, options);
   Object vars;
   vars["hasFunctions"] = !array_ref(functions).empty();
   vars["hasTaskDefinition"] = !task.empty();
   vars["hasExampleDemonstrations"] = truthy(get_key(options, "has_example_demonstrations", get_key(options, "hasExampleDemonstrations")));
-  vars["hasOutputFields"] = !complex;
+  vars["hasOutputFields"] = !outputs.empty();
   vars["hasComplexFields"] = complex;
   vars["hasStructuredOutputFunction"] = complex && !get_key(options, "structured_output_function_name").is_null();
   Array inputs = prompt_inputs_for_values(signature, values);
-  vars["identityText"] = "You will be provided with the following fields: " + prompt_desc_fields(inputs) + ". Your task is to generate new fields: " + prompt_desc_fields(array_ref(get_key(signature, "outputs"))) + ".";
+  vars["identityText"] = "You will be provided with the following fields: " + prompt_desc_fields(inputs) + ". Your task is to generate new fields: " + prompt_desc_fields(outputs) + ".";
   vars["taskDefinitionText"] = task;
   vars["functionsList"] = prompt_render_functions(functions);
   vars["inputFieldsSection"] = "**Input Fields**: The following fields will be provided to you:\n\n" + prompt_render_input_fields(inputs, prompt_field_map(signature));
-  vars["outputFieldsSection"] = complex ? "" : "**Output Fields**: You must generate the following fields:\n\n" + prompt_render_output_fields(array_ref(get_key(signature, "outputs")), prompt_field_map(signature));
+  vars["outputFieldsSection"] = "**Output Fields**: You must generate the following fields:\n\n" + prompt_render_output_fields(outputs, prompt_field_map(signature));
+  if (complex) {
+    Value shape = Value::object();
+    for (const auto& field : outputs) Core::set(shape, str(get_key(field, "name")), prompt_output_type_placeholder(get_key(field, "type")));
+    std::string shape_bt(1, static_cast<char>(96));
+    vars["outputFieldsSection"] = str(vars["outputFieldsSection"]) + "\n\n**Exact JSON shape**: " + shape_bt + stringify(shape) + shape_bt;
+  }
   vars["structuredOutputFunctionName"] = get_key(options, "structured_output_function_name", "");
   std::string bt(1, static_cast<char>(96));
   std::string source =
@@ -1718,7 +1775,7 @@ Value Core::prompt_structured(Value signature, Value values, Value functions, Va
       "## Function Call Instructions\n- Complete the task, using the functions defined earlier in this prompt.\n- Output fields should only be generated after all functions have been called.\n- Use the function results to generate the output fields.\n</available_functions>{{ /if }}\n\n"
       "<input_fields>\n{{ inputFieldsSection }}\n</input_fields>{{ if hasOutputFields }}\n\n<output_fields>\n{{ outputFieldsSection }}\n</output_fields>{{ /if }}\n"
       "{{ if hasTaskDefinition }}\n\n<task_definition>\n{{ taskDefinitionText }}\n</task_definition>{{ /if }}\n\n<formatting_rules>\n{{ if hasStructuredOutputFunction }}\n"
-      "Return the complete output by calling " + bt + "{{ structuredOutputFunctionName }}" + bt + ".\n{{ else }}{{ if hasComplexFields }}\nReturn valid JSON matching <output_fields>.\n{{ else }}\nReturn one " + bt + "field name: value" + bt + " pair per line for the required output fields only.\n{{ /if }}{{ /if }}Above rules override later instructions.\n\n</formatting_rules>\n{{ if hasExampleDemonstrations }}\n\n## Example Demonstrations\nThe following User/Assistant turns are examples only until --- END OF EXAMPLES ---, not context for the current task.\n{{ /if }}\n";
+      "Return the complete output by calling " + bt + "{{ structuredOutputFunctionName }}" + bt + ".\n{{ else }}{{ if hasComplexFields }}\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\n{{ else }}\nReturn one " + bt + "field name: value" + bt + " pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\n{{ /if }}{{ /if }}Above rules override later instructions.\n\n</formatting_rules>\n{{ if hasExampleDemonstrations }}\n\n## Example Demonstrations\nThe following User/Assistant turns are examples only until --- END OF EXAMPLES ---, not context for the current task.\n{{ /if }}\n";
   std::string context = "template:dsp/dspy.md";
   if (!get_key(options, "custom_template").is_null()) { source = str(get_key(options, "custom_template")); context = "inline-template"; }
   return string_trim(render_template_content(source, Value(vars), context));
@@ -1995,6 +2052,7 @@ Value Core::axgen_record_chat_log(Value gen, Value request, Value response) {
       {"session_id", get_key(response, "session_id")},
       {"usage", get_key(response, "usage", get_key(response, "model_usage"))},
       {"function_calls", get_key(response, "function_calls", Value::array())},
+      {"providerMetadata", get_key(request, "provider_metadata", Value::object())},
   });
   append(chat_log, entry);
   set(gen, "chat_log", chat_log);
@@ -5054,8 +5112,9 @@ AxAgent::AxAgent(Value signature, Value options) {
   options_ = options;
   playbook_config_ = Core::get(options, "playbook", Value());
   state_ = Core::_agent_factory(std::move(signature), options);
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
 }
@@ -5063,8 +5122,9 @@ AxAgent::AxAgent(Value signature, Value options) {
 AxAgent& AxAgent::set_signature(Value signature) {
   Value options = Core::get(state_, "options", Value::object());
   state_ = Core::_agent_factory(std::move(signature), options);
-  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", 0}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
-  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", 0}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
   responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
   llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
   return *this;

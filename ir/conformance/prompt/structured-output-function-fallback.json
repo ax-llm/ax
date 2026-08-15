@@ -2,7 +2,7 @@
   "expected_messages": [
     {
       "cache": false,
-      "content": "<identity>\nYou will be provided with the following fields: `Document`. Your task is to generate new fields: `Profile`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nDocument: Source document.\n</input_fields>\n\n\n<formatting_rules>\n\nReturn the complete output by calling `final_result`.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "content": "<identity>\nYou will be provided with the following fields: `Document`. Your task is to generate new fields: `Profile`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nDocument: Source document.\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nProfile (wire key: `profile`): (This object { displayName: string, email?: string } field must be included)\n\n**Exact JSON shape**: `{\"profile\":{\"displayName\":\"<string>\",\"email\":\"<string>\"}}`\n</output_fields>\n\n\n<formatting_rules>\n\nReturn the complete output by calling `final_result`.\nAbove rules override later instructions.\n\n</formatting_rules>",
       "role": "system"
     },
     {

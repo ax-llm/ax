@@ -945,6 +945,19 @@ func _core_ai_complete_once(client Value, request Value, options Value) (Value, 
 	}
 	return nil, AxError{Category: "runtime", Message: "client does not implement AIClient"}
 }
+func _core_ai_client_features(client Value, model Value) Value {
+	for {
+		bound, ok := client.(contextBoundAIClient)
+		if !ok {
+			break
+		}
+		client = bound.inner
+	}
+	if c, ok := client.(interface{ GetFeatures(string) map[string]Value }); ok {
+		return c.GetFeatures(display(model))
+	}
+	return Object("functions", true, "structured_outputs", true)
+}
 func _core_retry_sleep(attempt Value) Value   { return nil }
 func _core_exception_message(err Value) Value { return display(coreGet(err, "message", err)) }
 func _core_runtime_error(message Value) Value {
@@ -961,6 +974,9 @@ func _core_json_parse(value Value) (Value, error) {
 		}
 	}
 	return parseJSONErr(text)
+}
+func _core_json_parse_strict(value Value) (Value, error) {
+	return parseJSONErr(strings.TrimSpace(display(value)))
 }
 func _core_json_stringify(value Value) Value        { return stableStringify(value) }
 func _core_json_stable_stringify(value Value) Value { return stableStringify(value) }
@@ -4096,8 +4112,9 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	}
 	state := asMap(mustCore(_agent_factory(signature, options)))
 	sig := NewSignature(signature)
-	distillerOptions := Object("validation_retries", 0, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
-	executorOptions := Object("validation_retries", 0, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
+	actorValidationRetries := coreGet(options, "validation_retries", coreGet(options, "validationRetries", 1))
+	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
+	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
 	responderOptions := Object("validation_retries", coreGet(options, "validation_retries", 2), "id", "task.root.responder", "instruction", coreGet(state, "responder_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
@@ -4116,8 +4133,9 @@ func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, a.Options)))
 	a.Signature = NewSignature(signature)
 	a.State = state
-	distillerOptions := Object("validation_retries", 0, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
-	executorOptions := Object("validation_retries", 0, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
+	actorValidationRetries := coreGet(a.Options, "validation_retries", coreGet(a.Options, "validationRetries", 1))
+	distillerOptions := Object("validation_retries", actorValidationRetries, "id", "ctx.root.actor", "instruction", coreGet(state, "distiller_description", ""))
+	executorOptions := Object("validation_retries", actorValidationRetries, "id", "task.root.actor", "instruction", coreGet(state, "executor_description", ""))
 	responderOptions := Object("validation_retries", coreGet(a.Options, "validation_retries", 2), "id", "task.root.responder", "instruction", coreGet(state, "responder_description", ""))
 	distillerSignature := display(coreGet(state, "distiller_signature", "input:json, context:json -> completion:json"))
 	executorSignature := display(coreGet(state, "executor_signature", "input:json, executorRequest:string, distilledContextSummary?:string -> completion:json"))
@@ -7040,6 +7058,9 @@ func _core_axgen_record_chat_log(target Value, values ...Value) Value {
 	for i, value := range values {
 		coreSet(entry, fmt.Sprintf("item%d", i), value)
 	}
+	if len(values) > 0 {
+		coreSet(entry, "providerMetadata", coreGet(values[0], "provider_metadata", Object()))
+	}
 	log = coreAppend(log, entry)
 	if g, ok := target.(*AxGen); ok {
 		g.ChatLog = log
@@ -7471,6 +7492,14 @@ type conformanceScriptedAI struct {
 	Requests            []map[string]Value
 	ChatOptions         []map[string]Value
 	ChatCalls           int
+	Features            map[string]Value
+}
+
+func (f *conformanceScriptedAI) GetFeatures(string) map[string]Value {
+	if len(f.Features) == 0 {
+		return Object("functions", true, "structured_outputs", true)
+	}
+	return cloneMap(f.Features)
 }
 
 func (f *conformanceScriptedAI) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
@@ -8515,7 +8544,11 @@ func runConformancePrompt(fixture map[string]Value) {
 	for _, tool := range tools {
 		functions = append(functions, tool)
 	}
-	messages := mustCore(render_prompt(sig, coreGet(fixture, "input", coreGet(fixture, "values", Object())), functions, asMap(coreGet(fixture, "options", Object()))))
+	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
+	if instruction := coreGet(fixture, "instruction", nil); instruction != nil {
+		coreSet(options, "instruction", instruction)
+	}
+	messages := mustCore(render_prompt(sig, coreGet(fixture, "input", coreGet(fixture, "values", Object())), functions, options))
 	if expected := coreGet(fixture, "expected_messages", nil); expected != nil {
 		assertEqual(messages, expected, "messages")
 	}
@@ -8582,7 +8615,7 @@ func runConformanceForward(fixture map[string]Value) {
 	if stops := coreGet(fixture, "stop_functions", coreGet(fixture, "stopFunctions", nil)); stops != nil {
 		gen.StopFunctions = stops
 	}
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
 	output := expectMaybeFixtureError(func() Value {
 		out, err := gen.Forward(context.Background(), client, asMap(coreGet(fixture, "input", Object())), asMap(coreGet(fixture, "forward_options", Object())))
 		if err != nil {
@@ -9068,7 +9101,7 @@ func runConformanceFlow(fixture map[string]Value) {
 	if display(coreGet(fixture, "operation", "")) == "plan" {
 		return
 	}
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
 	forwardOptions := cloneMap(asMap(coreGet(fixture, "forward_options", Object())))
 	if seed := coreGet(fixture, "cache_seed_value", nil); seed != nil {
 		cacheStore := asMap(coreGet(forwardOptions, "cache_store", coreGet(forwardOptions, "cacheStore", Object())))
@@ -10107,7 +10140,7 @@ func runConformanceAgentRuntimeReal(fixture map[string]Value) {
 	if runtimeErr != nil {
 		panic(runtimeErr)
 	}
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	coreSet(options, "runtime", runtime)
 	ag := NewAgent(display(coreGet(fixture, "signature", "question:string -> answer:string")), options)
@@ -10280,7 +10313,7 @@ func semanticAvailableSkillsIndex(system string) string {
 }
 
 func runConformanceAgentForward(fixture map[string]Value) {
-	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array()))}
+	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), TranscribeResponses: asSlice(coreGet(fixture, "transcribe_responses", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
 	options := cloneMap(asMap(coreGet(fixture, "options", Object())))
 	observerTranscript := MutableArray()
 	semanticObserversEnabled := coreGet(fixture, "expected_observer_transcript", nil) != nil
@@ -11434,13 +11467,14 @@ func promptUserContent(signature Value, values map[string]Value) Value {
 }
 func goPromptSystem(sig AxSignature, values map[string]Value, functions []Value, options map[string]Value) string {
 	complex := goPromptHasComplexFields(sig)
-	task := goPromptTaskDefinition(sig)
+	outputFields := goPromptOutputFields(sig)
+	task := goPromptTaskDefinition(sig, options)
 	funcs := goPromptFunctionDescriptors(functions)
 	vars := map[string]Value{
 		"hasFunctions":                 len(funcs) > 0,
 		"hasTaskDefinition":            task != "",
 		"hasExampleDemonstrations":     coreTruthy(coreGet(options, "has_example_demonstrations", coreGet(options, "hasExampleDemonstrations", false))),
-		"hasOutputFields":              !complex,
+		"hasOutputFields":              len(outputFields) > 0,
 		"hasComplexFields":             complex,
 		"hasStructuredOutputFunction":  complex && coreGet(options, "structured_output_function_name", coreGet(options, "structuredOutputFunctionName", nil)) != nil,
 		"identityText":                 goPromptIdentity(sig, values),
@@ -11490,9 +11524,9 @@ func goPromptDefaultSystem(vars map[string]Value) string {
 		b.WriteString(display(vars["structuredOutputFunctionName"]))
 		b.WriteString(string(rune(96)) + ".\n")
 	} else if coreTruthy(vars["hasComplexFields"]) {
-		b.WriteString("\nReturn valid JSON matching <output_fields>.\n")
+		b.WriteString("\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\n")
 	} else {
-		b.WriteString("\nReturn one " + string(rune(96)) + "field name: value" + string(rune(96)) + " pair per line for the required output fields only.\n")
+		b.WriteString("\nReturn one " + string(rune(96)) + "field name: value" + string(rune(96)) + " pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\n")
 	}
 	b.WriteString("Above rules override later instructions.\n\n</formatting_rules>")
 	if coreTruthy(vars["hasExampleDemonstrations"]) {
@@ -11537,7 +11571,7 @@ func goPromptValueText(value Value) string {
 	return string(data)
 }
 func goPromptIdentity(sig AxSignature, values map[string]Value) string {
-	return "You will be provided with the following fields: " + goPromptDescFields(goPromptInputFields(sig, values)) + ". Your task is to generate new fields: " + goPromptDescFields(sig.Outputs) + "."
+	return "You will be provided with the following fields: " + goPromptDescFields(goPromptInputFields(sig, values)) + ". Your task is to generate new fields: " + goPromptDescFields(goPromptOutputFields(sig)) + "."
 }
 func goPromptDescFields(fields []Field) string {
 	bt := string(rune(96))
@@ -11547,14 +11581,62 @@ func goPromptDescFields(fields []Field) string {
 	}
 	return strings.Join(out, ", ")
 }
-func goPromptTaskDefinition(sig AxSignature) string {
-	return goPromptFormatDescription(sig.Description, goPromptFieldMap(sig))
+func goPromptTaskDefinition(sig AxSignature, options map[string]Value) string {
+	instruction := strings.TrimSpace(display(coreGet(options, "instruction", "")))
+	description := strings.TrimSpace(sig.Description)
+	parts := []string{}
+	if instruction != "" {
+		parts = append(parts, goPromptFormatDescription(instruction, goPromptFieldMap(sig)))
+	}
+	if description != "" && description != instruction {
+		parts = append(parts, goPromptFormatDescription(description, goPromptFieldMap(sig)))
+	}
+	return strings.Join(parts, "\n\n")
 }
 func goPromptInputSection(sig AxSignature, values map[string]Value) string {
 	return "**Input Fields**: The following fields will be provided to you:\n\n" + goPromptRenderInputFields(goPromptInputFields(sig, values), goPromptFieldMap(sig))
 }
 func goPromptOutputSection(sig AxSignature) string {
-	return "**Output Fields**: You must generate the following fields:\n\n" + goPromptRenderOutputFields(sig.Outputs, goPromptFieldMap(sig))
+	fields := goPromptOutputFields(sig)
+	out := "**Output Fields**: You must generate the following fields:\n\n" + goPromptRenderOutputFields(fields, goPromptFieldMap(sig))
+	if goPromptHasComplexFields(sig) {
+		shape := Object()
+		for _, field := range fields {
+			coreSet(shape, field.Name, goPromptOutputTypePlaceholder(field.Type))
+		}
+		out += "\n\n**Exact JSON shape**: " + string(rune(96)) + stableStringify(shape) + string(rune(96))
+	}
+	return out
+}
+func goPromptOutputTypePlaceholder(fieldType FieldType) Value {
+	var value Value = "<string>"
+	switch fieldType.Name {
+	case "number": value = 0
+	case "boolean": value = true
+	case "object", "json":
+		value = Object()
+		keys := append([]string(nil), fieldType.FieldOrder...)
+		if len(keys) == 0 { for key := range fieldType.Fields { keys = append(keys, key) }; sort.Strings(keys) }
+		for _, key := range keys { field := fieldType.Fields[key]; if !field.IsInternal { coreSet(value, key, goPromptOutputTypePlaceholder(field.Type)) } }
+	case "class": if len(fieldType.Options) > 0 { value = fieldType.Options[0] } else { value = "<allowed value>" }
+	case "code": value = "<complete source>"
+	case "date": value = "<YYYY-MM-DD>"
+	case "datetime": value = "<ISO 8601 datetime>"
+	case "dateRange": value = Object("start", "<YYYY-MM-DD>", "end", "<YYYY-MM-DD>")
+	case "datetimeRange": value = Object("start", "<ISO 8601 datetime>", "end", "<ISO 8601 datetime>")
+	case "url": value = "<url>"
+	}
+	if fieldType.IsArray { return Array(value) }
+	return value
+}
+func goPromptOutputFields(sig AxSignature) []Field {
+	out := []Field{}
+	for _, field := range sig.Outputs {
+		if !field.IsInternal {
+			out = append(out, field)
+		}
+	}
+	return out
 }
 func goPromptFieldMap(sig AxSignature) map[string]string {
 	out := map[string]string{}
@@ -11627,7 +11709,8 @@ func goPromptRenderOutputFields(fields []Field, names map[string]string) string 
 			}
 			desc += "Allowed values: " + strings.Join(f.Type.Options, ", ")
 		}
-		rows = append(rows, strings.TrimSpace(f.Title+": ("+req+")"+desc))
+		bt := string(rune(96))
+		rows = append(rows, strings.TrimSpace(f.Title+" (wire key: "+bt+f.Name+bt+"): ("+req+")"+desc))
 	}
 	return strings.Join(rows, "\n")
 }

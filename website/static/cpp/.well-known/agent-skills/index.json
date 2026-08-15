@@ -6,105 +6,105 @@
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-cpp-llm/SKILL.md",
-      "digest": "sha256:5bbcccdc9f4c6a33c4935b3679fb6b36fecd8cadae9f6c9f3500ca44095edce5"
+      "digest": "sha256:ddc1535c81d12fdfc5c2da444e62cabdfc81ed171cee021c25ded46bf40ab014"
     },
     {
       "name": "ax-cpp-ai",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-cpp-ai/SKILL.md",
-      "digest": "sha256:6a3b1ff8850cf75093433f96a619f1a19178d3e30a5c1dc54540bd1ccf344a52"
+      "digest": "sha256:c70c34acbf6e0dee2e202893d887b36ad71b8fa1037f791d42ed910c6362f249"
     },
     {
       "name": "ax-cpp-audio",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-cpp-audio/SKILL.md",
-      "digest": "sha256:8e7ce5adac0732e5785fd7f17fada302d166447d9b1fff6e7c9193429e6c60ec"
+      "digest": "sha256:a3f55018b80db195a0b2c37553b9a526c0bf046b46b4b09381c9386ee8071396"
     },
     {
       "name": "ax-cpp-signature",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-cpp-signature/SKILL.md",
-      "digest": "sha256:ae0407ea18e8a0e240315d42572882128d1e568e78b471e6df15bcc1a4c87cdc"
+      "digest": "sha256:6d8bb9a9c616556fcea134ded275bab0492a7d603e84cf36ee9832d02bcd6ba5"
     },
     {
       "name": "ax-cpp-gen",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for AxGen programs, forward calls, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-cpp-gen/SKILL.md",
-      "digest": "sha256:53aa8a6a9648d1277058d62bbd28ff727ab8edfc330d28d33005b0250625be35"
+      "digest": "sha256:fef372a8130282acf45f550197c0ccccb7519a62830807cbb8a2d18a4d96347c"
     },
     {
       "name": "ax-cpp-flow",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-cpp-flow/SKILL.md",
-      "digest": "sha256:0131c5222f36199d4fbf15e390af530c66388b3dfb82171aeeea1c85a84fe514"
+      "digest": "sha256:caac65641bba491b9b4c587637d6c19f5227461466fd629e1fa31cfd4aab225b"
     },
     {
       "name": "ax-cpp-agent",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-cpp-agent/SKILL.md",
-      "digest": "sha256:67cdb9724bd5f07ae8c24a0225e314847c9b01a0986b3df7422bdf219b0188a1"
+      "digest": "sha256:365976cc675821565bd809d119acbe171aecf8bd70ddb3fc41b6b606447ed343"
     },
     {
       "name": "ax-cpp-agent-rlm",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for RLM executor loops, AxCodeRuntime sessions, runtime envelopes, process runtimes, and optional runtime profiles.",
       "url": "ax-cpp-agent-rlm/SKILL.md",
-      "digest": "sha256:257b1254034bb273ec0d0ac7d44270b84542baceba05ca38740c0182bc34146e"
+      "digest": "sha256:e91f43c92392aed7c22dae9e63f888c02b6a075a738b6bdd5e3b1780360077ae"
     },
     {
       "name": "ax-cpp-agent-memory-skills",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-cpp-agent-memory-skills/SKILL.md",
-      "digest": "sha256:da7d8795b3afe060f0799151ac0e68d7fdb701d43816218441fb7a01b7712e2c"
+      "digest": "sha256:5b83c5cdff8f515d786fddd336dc153479cd31e06084fea28472fe0bcfdba062"
     },
     {
       "name": "ax-cpp-agent-observability",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-cpp-agent-observability/SKILL.md",
-      "digest": "sha256:dd90f5030b308e6c4804f1730adf70e2b4f3cb8503ba3455b75878875219e9c7"
+      "digest": "sha256:2cdf74ee555be18b91e683b4942aae9d02a57195d995d6cfaf92f8806492b567"
     },
     {
       "name": "ax-cpp-agent-optimize",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-cpp-agent-optimize/SKILL.md",
-      "digest": "sha256:98905d79fd612d58c0f78d30f3a509ee776d8e67c8d15bbd02c72117f989f6af"
+      "digest": "sha256:cdbeb9ececf66441401c8a0471503d43be61f0ebce604e65caca0205658f08b0"
     },
     {
       "name": "ax-cpp-agent-context",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents.",
       "url": "ax-cpp-agent-context/SKILL.md",
-      "digest": "sha256:8a3992932d836b77620f410fd9687f7c627f637bd009a15bc31a8badfdf7b707"
+      "digest": "sha256:566ed263288eb4b7462474243118f73b7c37e2adbd612c00d8eba8b074f305c3"
     },
     {
       "name": "ax-cpp-gepa",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-cpp-gepa/SKILL.md",
-      "digest": "sha256:a948b13fd0d5489f30afccc4cd7e7d25947dae29c5d2924db980d44149278b20"
+      "digest": "sha256:6e8c54db2fea209d2395c7fef8c9ba5597885ddde9d72da35a29c5e665ee1d73"
     },
     {
       "name": "ax-cpp-refine",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-cpp-refine/SKILL.md",
-      "digest": "sha256:7a83eb7013b13fe417c3ee1de77160e5e6780248ea80705e6d4479ff6531bb71"
+      "digest": "sha256:7a5a544a88d56b46172d1d961bb487cdbbc0470b32f2d0eb524102a7ea50890e"
     },
     {
       "name": "ax-cpp-playbook",
       "type": "skill-md",
       "description": "Use when writing C++ code with `axllm` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program.",
       "url": "ax-cpp-playbook/SKILL.md",
-      "digest": "sha256:14a0f58fe86ab66db44c5a2ef97827bc4f44dd8228d5f68dbf1b620b03822e4c"
+      "digest": "sha256:0d1d4ddfe629d2c9612e087fe4c596df9122b193103fd3eb1f53dfad6438e423"
     }
   ]
 }

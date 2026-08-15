@@ -11,7 +11,7 @@
     "<input_fields>",
     "Question:",
     "<output_fields>",
-    "Answer: (This string field must be included)",
+    "Answer (wire key: `answer`): (This string field must be included)",
     "<task_definition>",
     "Answer the question.",
     "<formatting_rules>"

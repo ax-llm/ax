@@ -32,6 +32,12 @@ result = program.forward(aiClient, inputs, runOptions)
 
 Use `streamingForward()` when you need incremental output. Use `forward()` when the caller needs one parsed result object.
 
+## Structured Output Portability
+
+The prompt always names every exact output wire key and shape; the provider schema is enforcement, not the only copy of the contract. In automatic mode, Ax uses strict `json_schema` when the model supports it. Without native schema support, a single required string or code field uses validated `json_object`; richer outputs use the synthetic `__axOutput` function when function calling is available, then fall back to validated `json_object` when it is not.
+
+The JSON-object path rejects prose, Markdown fences, invented keys, missing fields, and invalid values, then uses the configured bounded validation retry. Structured-output provenance is available at `providerMetadata.ax.structured_output_rung`.
+
 ## Common Patterns
 
 - Inline a string signature for small tasks.

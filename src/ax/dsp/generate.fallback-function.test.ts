@@ -4,7 +4,7 @@ import { AxMockAIService } from '../ai/mock/api.js';
 import { f } from './sig.js';
 import { ax } from './template.js';
 
-describe('Structured Output Function-Call Fallback (__finalResult)', () => {
+describe('Structured Output Function-Call Fallback (__axOutput)', () => {
   // Shared signature: complex output field triggers hasComplexFields() === true
   const createSig = () =>
     f()
@@ -18,7 +18,7 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
       )
       .build();
 
-  it('non-streaming: forward() returns extracted result from __finalResult function call', async () => {
+  it('accepts the legacy __finalResult name without advertising it', async () => {
     const sig = f()
       .input('question', f.string())
       .output(
@@ -55,12 +55,23 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
       ],
     });
 
+    let capturedFunctions: readonly { name: string }[] | undefined;
+    const originalChat = mockAI.chat;
+    mockAI.chat = async (req, options) => {
+      capturedFunctions = req.functions;
+      return originalChat(req, options);
+    };
+
     const result = await gen.forward(mockAI, { question: 'Who is Alice?' });
 
     expect(result.user).toEqual({ name: 'Alice', age: 30 });
+    expect(capturedFunctions?.map((fn) => fn.name)).toContain('__axOutput');
+    expect(capturedFunctions?.map((fn) => fn.name)).not.toContain(
+      '__finalResult'
+    );
   });
 
-  it('streaming: streamingForward() yields extracted result from __finalResult function call chunks', async () => {
+  it('streaming: streamingForward() yields extracted result from __axOutput function call chunks', async () => {
     const sig = createSig();
     const gen = ax(sig);
 
@@ -83,7 +94,7 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
                       id: '1',
                       type: 'function' as const,
                       function: {
-                        name: '__finalResult',
+                        name: '__axOutput',
                         params: '',
                       },
                     },
@@ -153,7 +164,7 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
     expect(finalUser).toEqual({ name: 'Bob', age: 25 });
   });
 
-  it('sends synthetic __finalResult function with correct schema and functionCall=required', async () => {
+  it('sends synthetic __axOutput function with correct schema and functionCall=required', async () => {
     const sig = createSig();
     const gen = ax(sig);
 
@@ -175,7 +186,7 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
                 id: '1',
                 type: 'function' as const,
                 function: {
-                  name: '__finalResult',
+                  name: '__axOutput',
                   params: { user: { name: 'Test', age: 1 } },
                 },
               },
@@ -188,9 +199,9 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
 
     await gen.forward(mockAI, { question: 'test' });
 
-    // Verify __finalResult function is sent
+    // Verify __axOutput function is sent
     const finalResultFn = capturedReq.functions?.find(
-      (fn: any) => fn.name === '__finalResult'
+      (fn: any) => fn.name === '__axOutput'
     );
     expect(finalResultFn).toBeDefined();
     expect(finalResultFn.parameters).toBeDefined();
@@ -203,10 +214,10 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
       'number'
     );
 
-    // functionCall should force the specific __finalResult function
+    // functionCall should force the specific __axOutput function
     expect(capturedReq.functionCall).toEqual({
       type: 'function',
-      function: { name: '__finalResult' },
+      function: { name: '__axOutput' },
     });
   });
 
@@ -238,7 +249,7 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
               id: '1',
               type: 'function' as const,
               function: {
-                name: '__finalResult',
+                name: '__axOutput',
                 params: { user: { username: 'abc', age: 30 } }, // username too short
               },
             },
@@ -280,7 +291,7 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
               id: '1',
               type: 'function' as const,
               function: {
-                name: '__finalResult',
+                name: '__axOutput',
                 params: { user: { name: 'Kid', age: 10 } },
               },
             },
@@ -322,13 +333,195 @@ describe('Structured Output Function-Call Fallback (__finalResult)', () => {
 
     const result = await gen.forward(mockAI, { question: 'Who is Charlie?' });
 
-    // __finalResult should NOT be in functions
+    // __axOutput should NOT be in functions
     const finalResultFn = capturedReq.functions?.find(
-      (fn: any) => fn.name === '__finalResult'
+      (fn: any) => fn.name === '__axOutput'
     );
     expect(finalResultFn).toBeUndefined();
 
     // Result should come from parsed content (native structured output path)
     expect(result.user).toEqual({ name: 'Charlie', age: 40 });
+    expect(capturedReq.responseFormat?.type).toBe('json_schema');
+    expect(
+      gen.getChatLog()[0]?.providerMetadata?.ax?.structured_output_rung
+    ).toBe('native');
   });
+
+  it('uses validated json_object for one required code field without tools', async () => {
+    const sig = f()
+      .input('task', f.string())
+      .output('javascriptCode', f.code())
+      .useStructured()
+      .build();
+    const gen = ax(sig);
+    const source = `const payload = ${JSON.stringify('x'.repeat(8192))};\nfinal(payload, {})`;
+    const mockAI = new AxMockAIService({
+      name: 'deepseek-like',
+      features: { functions: true, streaming: false, structuredOutputs: false },
+    });
+    let capturedReq: any;
+
+    mockAI.chat = async (req) => {
+      capturedReq = req;
+      return {
+        results: [
+          {
+            index: 0,
+            content: JSON.stringify({ javascriptCode: source }),
+          },
+        ],
+      };
+    };
+
+    const result = await gen.forward(mockAI, { task: 'write code' });
+
+    expect(result.javascriptCode).toBe(source);
+    expect(capturedReq.responseFormat).toEqual({ type: 'json_object' });
+    expect(capturedReq.functions ?? []).toHaveLength(0);
+    const system = capturedReq.chatPrompt.find(
+      (message: any) => message.role === 'system'
+    )?.content;
+    expect(system).toContain(
+      '**Exact JSON shape**: `{"javascriptCode":"<complete source>"}`'
+    );
+    expect(system).toContain('wire key: `javascriptCode`');
+    expect(
+      gen.getChatLog()[0]?.providerMetadata?.ax?.structured_output_rung
+    ).toBe('json_object');
+  });
+
+  it.each([
+    ['invented keys', JSON.stringify({ request: 'wrong' })],
+    [
+      'fenced prose',
+      'Here is the result:\n```json\n{"javascriptCode":"wrong"}\n```',
+    ],
+  ])('corrects %s once and then succeeds', async (_label, invalidContent) => {
+    const sig = f()
+      .input('task', f.string())
+      .output('javascriptCode', f.code())
+      .useStructured()
+      .build();
+    const gen = ax(sig);
+    const mockAI = new AxMockAIService({
+      name: 'deepseek-like',
+      features: {
+        functions: false,
+        streaming: false,
+        structuredOutputs: false,
+      },
+    });
+    let calls = 0;
+    mockAI.chat = async () => ({
+      results: [
+        {
+          index: 0,
+          content:
+            calls++ === 0
+              ? invalidContent
+              : JSON.stringify({ javascriptCode: 'final("ok", {})' }),
+        },
+      ],
+    });
+
+    const result = await gen.forward(
+      mockAI,
+      { task: 'write code' },
+      { maxRetries: 1 }
+    );
+
+    expect(calls).toBe(2);
+    expect(result.javascriptCode).toBe('final("ok", {})');
+  });
+
+  it('uses validated json_object for richer output when functions are unavailable', async () => {
+    const gen = ax(createSig());
+    const mockAI = new AxMockAIService({
+      name: 'functionless',
+      features: {
+        functions: false,
+        streaming: false,
+        structuredOutputs: false,
+      },
+    });
+    let capturedReq: any;
+    mockAI.chat = async (req) => {
+      capturedReq = req;
+      return {
+        results: [
+          {
+            index: 0,
+            content: JSON.stringify({ user: { name: 'Dana', age: 22 } }),
+          },
+        ],
+      };
+    };
+
+    const result = await gen.forward(mockAI, { question: 'Who?' });
+
+    expect(result.user).toEqual({ name: 'Dana', age: 22 });
+    expect(capturedReq.responseFormat).toEqual({ type: 'json_object' });
+    expect(capturedReq.functions ?? []).toHaveLength(0);
+  });
+
+  it('fails explicit capability modes before sending a request', async () => {
+    const gen = ax(createSig());
+    const mockAI = new AxMockAIService({
+      name: 'unsupported',
+      features: {
+        functions: false,
+        streaming: false,
+        structuredOutputs: false,
+      },
+    });
+    let calls = 0;
+    mockAI.chat = async () => {
+      calls++;
+      return { results: [] };
+    };
+
+    await expect(
+      gen.forward(
+        mockAI,
+        { question: 'test' },
+        { structuredOutputMode: 'native' }
+      )
+    ).rejects.toThrow(/requires native JSON Schema support/);
+    await expect(
+      gen.forward(
+        mockAI,
+        { question: 'test' },
+        { structuredOutputMode: 'function' }
+      )
+    ).rejects.toThrow(/requires function calling support/);
+    expect(calls).toBe(0);
+  });
+
+  it.each(['__axOutput', '__finalResult'])(
+    'rejects a user function named %s',
+    async (name) => {
+      const gen = ax(createSig(), {
+        functions: [
+          {
+            name,
+            description: 'collision',
+            parameters: { type: 'object', properties: {} },
+            func: async () => ({}),
+          },
+        ],
+      });
+      const mockAI = new AxMockAIService({
+        name: 'mock',
+        features: {
+          functions: true,
+          streaming: false,
+          structuredOutputs: false,
+        },
+      });
+
+      await expect(gen.forward(mockAI, { question: 'test' })).rejects.toThrow(
+        /reserved for Ax structured-output handling/
+      );
+    }
+  );
 });

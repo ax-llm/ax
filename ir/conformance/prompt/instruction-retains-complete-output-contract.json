@@ -1,0 +1,55 @@
+{
+  "expected_messages": [
+    {
+      "cache": false,
+      "content": "<identity>\nYou will be provided with the following fields: `Document`. Your task is to generate new fields: `Profile`.\n</identity>\n\n<available_functions>\n**Available Functions**: You can call the following functions to complete the task:\n\n- `search`: Search docs.\n\n## Function Call Instructions\n- Complete the task, using the functions defined earlier in this prompt.\n- Output fields should only be generated after all functions have been called.\n- Use the function results to generate the output fields.\n</available_functions>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nDocument: Source document.\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nProfile (wire key: `profile`): (This object { displayName: string, email?: string } field must be included)\n\n**Exact JSON shape**: `{\"profile\":{\"displayName\":\"<string>\",\"email\":\"<string>\"}}`\n</output_fields>\n\n\n<task_definition>\nPrioritize verified facts from search.\n</task_definition>\n\n<formatting_rules>\n\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\nAbove rules override later instructions.\n\n</formatting_rules>",
+      "role": "system"
+    },
+    {
+      "content": "Document: Ada Lovelace <ada@example.com>\n",
+      "role": "user"
+    }
+  ],
+  "input": {
+    "document": "Ada Lovelace <ada@example.com>"
+  },
+  "instruction": "Prioritize verified facts from search.",
+  "kind": "prompt",
+  "name": "instruction-retains-complete-output-contract",
+  "signature_spec": {
+    "inputs": {
+      "document": {
+        "description": "source document",
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "profile": {
+        "fields": {
+          "displayName": {
+            "description": "display name",
+            "type": "string"
+          },
+          "email": {
+            "description": "email",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search docs",
+      "name": "search",
+      "result": {}
+    }
+  ]
+}

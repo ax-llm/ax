@@ -39,6 +39,8 @@ result = program.forward(client, inputs)
 - Use model catalog helpers before runtime when the UI needs provider/model selectors.
 - Use routers or balancers when provider fallback is part of the product.
 
+Provider capability metadata also selects structured-output enforcement. Native schema support uses `json_schema`; unsupported providers degrade by output shape to validated `json_object` or the `__axOutput` function path. The selected rung is recorded with the chat log so runs remain comparable and debuggable.
+
 ### Vertex routing and OpenAI prompt caching
 
 Gemini and Anthropic Vertex clients accept a project, location, and optional

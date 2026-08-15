@@ -95,7 +95,8 @@ export function parseStructuredPartial(
 export function parseStructuredFinal(
   signature: Readonly<AxSignature>,
   content: string,
-  parseJsonStringFields: boolean
+  parseJsonStringFields: boolean,
+  rejectUnknownFields = false
 ): Record<string, unknown> {
   const finalJson = JSON.parse(content) as Record<string, unknown>;
   if (!finalJson || typeof finalJson !== 'object' || Array.isArray(finalJson)) {
@@ -106,7 +107,7 @@ export function parseStructuredFinal(
   if (parseJsonStringFields) {
     parseStructuredJsonFieldValues(signature, finalJson);
   }
-  validateStructuredOutputValues(signature, finalJson);
+  validateStructuredOutputValues(signature, finalJson, { rejectUnknownFields });
   return finalJson;
 }
 

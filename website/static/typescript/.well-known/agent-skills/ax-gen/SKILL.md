@@ -1,7 +1,7 @@
 ---
 name: ax-gen
 description: This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.
-version: "23.0.12"
+version: "23.0.14"
 ---
 
 # AxGen Codegen Rules (@ax-llm/ax)
@@ -335,6 +335,14 @@ const sig = f()
 Rules:
 
 - `.useStructured()` asks providers with native support, including OpenAI, Anthropic, and Gemini, for schema-constrained JSON.
+- Output names and shapes are part of the prompt contract as well as the provider schema. Ax renders every exact wire key, required/optional status, type, constraints, and nested shape so capability fallback does not erase the contract.
+- `structuredOutputMode: 'auto'` uses strict `json_schema` when the selected model supports it.
+- Without native schema support, one required non-array `string` or `code` output uses `json_object` plus an exact-shape prompt, client-side validation, and bounded correction retries. This is the path used by an AxAgent actor's single `javascriptCode` field on DeepSeek; it does not require provider tool calling.
+- Richer shapes without native schema support use the synthetic `__axOutput` function when function calling is available. If functions are unavailable, Ax uses the same validated `json_object` path instead.
+- Ax advertises only `__axOutput`. It accepts legacy inbound `__finalResult` calls so stored trajectories remain replayable, and rejects user functions that collide with either reserved name.
+- Use `structuredOutputMode: 'native'` to require native schema enforcement; Ax reports an error instead of silently weakening that requirement.
+- Use `structuredOutputMode: 'function'` to require the function-argument path; Ax reports an error before sending a request when function calling is unavailable.
+- Chat-log provenance records the selected path at `providerMetadata.ax.structured_output_rung` (`native`, `function`, or `json_object`).
 - Native structured-output schemas list every object property in `required`, set `additionalProperties: false` on objects, and express optional fields as nullable types.
 - Flexible `json` fields and unshaped `object` fields are sent as JSON-encoded strings for native structured outputs, then parsed back into normal JavaScript values.
 

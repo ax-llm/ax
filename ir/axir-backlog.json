@@ -991,6 +991,29 @@
       "verification": "npm run axir:check-packages; npm run axir:conformance:check; (cd tools/axir && GOCACHE=/tmp/axir-go-build go test ./internal/axir); npm run test:axir; npm run test:examples:generated; npm run axir:gate:ledger; npm run axir:gate:anti-facade; npm run axir:gate:prompt-sync; npm run skills:check; npm run website:check; npm run test:unit --workspace=@ax-llm/ax -- ai/openai/caching.test.ts ai/openai/usage.test.ts dsp/generate.promptCacheKey.test.ts ai/google-gemini/api.test.ts ai/anthropic/api.test.ts; git diff --check"
     },
     {
+      "id": "axir-2026-08-07-port-parallel-tool-call-accumulation-for-the-openai-responses-ap",
+      "status": "done",
+      "title": "Port parallel tool-call accumulation for the OpenAI Responses API",
+      "createdAt": "2026-08-07",
+      "sourcePR": 574,
+      "sourceCommit": "d0b59380",
+      "tsPaths": [
+        "src/ax/ai/openai/responses_api.ts",
+        "src/ax/ai/openai/responses_api.tool_calls.test.ts",
+        "src/ax/ai/deepseek/responses_api.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "The non-streaming and streaming OpenAI Responses mappers must preserve every function_call and its call_id so parallel tools execute and their outputs correlate correctly.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-08-15",
+      "completedByCommit": "3a80c93e16e0a499c971bcb58f976d73e7799da3",
+      "verification": "OpenAI Responses non-streaming and streaming parallel function-call accumulation is implemented and covered by focused tool-call tests; AxIR package and conformance checks pass."
+    },
+    {
       "id": "axir-2026-08-12-port-claude-sonnet-5-permanent-token-pricing-to-generated-target",
       "status": "done",
       "title": "Port Claude Sonnet 5 permanent token pricing to generated targets",
@@ -1052,27 +1075,46 @@
       "verification": "DeepSeek and DeepSeek Responses now advertise structured_outputs false in AxIR descriptors, conformance fixtures, and regenerated Python, Java, C++, Go, and Rust packages; native structured-output fallback tests and all AxIR package/conformance gates pass."
     },
     {
-      "id": "axir-2026-08-07-port-parallel-tool-call-accumulation-for-the-openai-responses-ap",
-      "status": "done",
-      "title": "Port parallel tool-call accumulation for the OpenAI Responses API",
-      "createdAt": "2026-08-07",
-      "sourcePR": 574,
-      "sourceCommit": "d0b59380",
+      "id": "axir-2026-08-15-port-shape-aware-structured-output-fallback-and-provenance",
+      "status": "open",
+      "title": "Port shape-aware structured-output fallback and provenance",
+      "createdAt": "2026-08-15",
+      "sourcePR": null,
+      "sourceCommit": "30ae9feee1833307577cc43408d9c0256f8693d7",
       "tsPaths": [
-        "src/ax/ai/openai/responses_api.ts",
-        "src/ax/ai/openai/responses_api.tool_calls.test.ts",
-        "src/ax/ai/deepseek/responses_api.test.ts"
+        "src/ax/dsp/generate.ts",
+        "src/ax/dsp/extract/structuredJson.ts",
+        "src/ax/agent/agentInternal/signatureBuilders.ts"
       ],
-      "portableSurface": "axai",
-      "impact": "The non-streaming and streaming OpenAI Responses mappers must preserve every function_call and its call_id so parallel tools execute and their outputs correlate correctly.",
+      "portableSurface": "axgen",
+      "impact": "AxGen and Agent code stages must select native schema, validated JSON object, or the canonical __axOutput function by provider capability and output shape, preserve legacy replay, expose rung provenance, and use bounded generated-Agent validation retries.",
       "suggestedAxirWork": [
         "Add or update the TS-derived conformance fixture.",
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": "2026-08-15",
-      "completedByCommit": "3a80c93e16e0a499c971bcb58f976d73e7799da3",
-      "verification": "OpenAI Responses non-streaming and streaming parallel function-call accumulation is implemented and covered by focused tool-call tests; AxIR package and conformance checks pass."
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
+      "id": "axir-2026-08-15-preserve-complete-output-contracts-when-composing-axgen-instruct",
+      "status": "open",
+      "title": "Preserve complete output contracts when composing AxGen instructions",
+      "createdAt": "2026-08-15",
+      "sourcePR": null,
+      "sourceCommit": "30ae9feee1833307577cc43408d9c0256f8693d7",
+      "tsPaths": ["src/ax/dsp/prompt.ts", "src/ax/agent/templates/dsp/dspy.md"],
+      "portableSurface": "axgen",
+      "impact": "Custom AxGen instructions must compose with identity, tools, exact output wire keys, nested shapes, examples, and formatting rules in TypeScript and every AxIR-generated package instead of replacing the structured prompt.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

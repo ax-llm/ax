@@ -2711,7 +2711,7 @@ describe('AxBaseAI Tracing with Token Usage', () => {
                 id: 'example-0',
                 type: 'function' as const,
                 function: {
-                  name: '__finalResult',
+                  name: '__axOutput',
                   params: { answer: 'Use search' },
                 },
               },
@@ -2744,7 +2744,7 @@ describe('AxBaseAI Tracing with Token Usage', () => {
                   id: 'example-0',
                   type: 'function' as const,
                   function: {
-                    name: '__finalResult',
+                    name: '__axOutput',
                     params: { answer: 'Use database lookup' },
                   },
                 },

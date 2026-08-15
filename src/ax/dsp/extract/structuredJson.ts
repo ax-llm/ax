@@ -189,9 +189,15 @@ export function parseStructuredJsonFieldValuesPartial(
 export function validateStructuredOutputValues(
   signature: Readonly<AxSignature>,
   values: Record<string, unknown>,
-  options?: { allowMissingRequired?: boolean }
+  options?: { allowMissingRequired?: boolean; rejectUnknownFields?: boolean }
 ): void {
-  const outputFields = signature.getOutputFields();
+  const declaredOutputFields = signature.getOutputFields();
+  const outputFields = declaredOutputFields.filter(
+    (field) => !field.isInternal
+  );
+  if (options?.rejectUnknownFields) {
+    rejectUnknownStructuredFields(values, declaredOutputFields, 'output');
+  }
 
   for (const field of outputFields) {
     const value = values[field.name];
@@ -290,7 +296,21 @@ function validateNestedObjectFields(
   const fields = parentField.type?.fields;
   if (!fields || typeof fields !== 'object') return;
 
+  const visibleFieldNames = new Set(
+    Object.entries(fields)
+      .filter(([, fieldType]) => !fieldType.isInternal)
+      .map(([fieldName]) => fieldName)
+  );
+  for (const key of Object.keys(obj)) {
+    if (!visibleFieldNames.has(key)) {
+      throw new ValidationError(
+        `Unexpected field '${key}' in '${parentField.name}'. Use only the exact declared wire keys.`
+      );
+    }
+  }
+
   for (const [fieldName, fieldType] of Object.entries(fields)) {
+    if (fieldType.isInternal) continue;
     const nestedField: AxField = {
       name: fieldName,
       title: fieldName,
@@ -322,5 +342,20 @@ function validateNestedObjectFields(
     }
 
     validateStructuredFieldValue(nestedField, value, options);
+  }
+}
+
+function rejectUnknownStructuredFields(
+  values: Readonly<Record<string, unknown>>,
+  fields: readonly Readonly<AxField>[],
+  context: string
+): void {
+  const expected = new Set(fields.map((field) => field.name));
+  for (const key of Object.keys(values)) {
+    if (!expected.has(key)) {
+      throw new ValidationError(
+        `Unexpected field '${key}' in ${context}. Use only the exact declared wire keys.`
+      );
+    }
   }
 }

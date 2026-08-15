@@ -2,7 +2,7 @@
   "expected_messages": [
     {
       "cache": false,
-      "content": "<task_definition>\nAnalyze the user query carefully.\n</task_definition>\n\n<identity>\nYou will be provided with the following fields: `User Query`. Your task is to generate new fields: `Ai Response`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nUser Query:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAi Response: (This string field must be included) The result.\n</output_fields>\n\n<formatting_rules>\nReturn `field name: value` pairs.\n</formatting_rules>",
+      "content": "<task_definition>\nAnalyze the user query carefully.\n</task_definition>\n\n<identity>\nYou will be provided with the following fields: `User Query`. Your task is to generate new fields: `Ai Response`.\n</identity>\n\n<input_fields>\n**Input Fields**: The following fields will be provided to you:\n\nUser Query:\n</input_fields>\n\n<output_fields>\n**Output Fields**: You must generate the following fields:\n\nAi Response (wire key: `aiResponse`): (This string field must be included) The result.\n</output_fields>\n\n<formatting_rules>\nReturn `field name: value` pairs.\n</formatting_rules>",
       "role": "system"
     },
     {

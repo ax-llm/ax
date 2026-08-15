@@ -21,6 +21,8 @@ See [short agent examples]({{langRoot}}/examples/short-agents/) and [Advanced St
 
 `agent()` creates a structured agent program. The agent planner/executor/responder loop can call tools, delegate to child agents, inspect runtime state, ask for clarification, discover tools or skills, recall memory, and finish with a typed output object.
 
+Actor code stages request one exact `javascriptCode` field. Native-capable providers use strict `json_schema`; providers without native schema support use validated `json_object`, so DeepSeek Agent execution does not depend on provider-visible tools. Generated-language distiller and executor stages make one validation correction attempt by default through `validation_retries`; an explicit zero disables the retry.
+
 ## Core Call Shape
 
 ```text

@@ -90,8 +90,8 @@ class FixtureError(AssertionError):
 
 
 class ConformanceScriptedAI(AxBaseAI):
-    def __init__(self, responses=None, stream_events=None, transcribe_responses=None):
-        super().__init__(name="scripted", model="scripted-chat", embed_model="scripted-embed")
+    def __init__(self, responses=None, stream_events=None, transcribe_responses=None, features=None):
+        super().__init__(name="scripted", model="scripted-chat", embed_model="scripted-embed", features=features)
         self.responses = list(responses or [])
         self.stream_events = list(stream_events or [])
         self.transcribe_responses = list(transcribe_responses or [])
@@ -961,7 +961,7 @@ def _run_forward(fixture):
         gen.add_field_processor(processor.get("field"), processor.get("processor", processor.get("op")))
     if "stop_functions" in fixture or "stopFunctions" in fixture:
         gen.set_stop_functions(fixture.get("stop_functions") or fixture.get("stopFunctions") or [])
-    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"))
     try:
         output = gen.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))
     except Exception as exc:
@@ -1712,7 +1712,7 @@ def _semantic_available_skills_index(system):
 
 
 def _run_agent_forward(fixture):
-    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [])
+    client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"))
     runtime = None
     agent_options = copy.deepcopy(fixture.get("options") or {})
     semantic_observer_transcript = []

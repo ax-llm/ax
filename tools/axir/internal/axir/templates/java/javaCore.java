@@ -460,6 +460,7 @@ final class Core {
     }
     return Json.parse(text);
   }
+  static Object jsonParseStrict(Object value) { return Json.parse(String.valueOf(value).trim()); }
   static Object jsonStringify(Object value) { return Json.stringify(value); }
   static Object jsonStableStringify(Object value) { return Json.stableStringify(value); }
   static Object jsonPretty(Object value) { return Json.pretty(value); }
@@ -578,6 +579,12 @@ final class Core {
     } catch (Exception e) {
       throw new RuntimeException(e.getMessage(), e);
     }
+  }
+  static Object aiClientFeatures(Object client, Object model) {
+    if (client instanceof AxAIService service) {
+      return service.getFeatures(model == null ? null : String.valueOf(model));
+    }
+    return Map.of("functions", true, "structured_outputs", true);
   }
   static Object retrySleep(Object attempt) { return null; }
   static Object toolInvoke(Object fn, Object params) {
@@ -808,6 +815,7 @@ final class Core {
     entry.put("session_id", asMap(response).get("session_id"));
     entry.put("usage", asMap(response).getOrDefault("usage", asMap(response).get("model_usage")));
     entry.put("function_calls", asMap(response).getOrDefault("function_calls", List.of()));
+    entry.put("providerMetadata", asMap(request).getOrDefault("provider_metadata", Map.of()));
     asList(get(gen, "chat_log", List.of())).add(entry);
     return null;
   }
@@ -1184,24 +1192,25 @@ class PromptRuntime {
     "## Function Call Instructions\n- Complete the task, using the functions defined earlier in this prompt.\n- Output fields should only be generated after all functions have been called.\n- Use the function results to generate the output fields.\n</available_functions>{{ /if }}\n\n" +
     "<input_fields>\n{{ inputFieldsSection }}\n</input_fields>{{ if hasOutputFields }}\n\n<output_fields>\n{{ outputFieldsSection }}\n</output_fields>{{ /if }}\n" +
     "{{ if hasTaskDefinition }}\n\n<task_definition>\n{{ taskDefinitionText }}\n</task_definition>{{ /if }}\n\n<formatting_rules>\n{{ if hasStructuredOutputFunction }}\n" +
-    "Return the complete output by calling " + BT + "{{ structuredOutputFunctionName }}" + BT + ".\n{{ else }}{{ if hasComplexFields }}\nReturn valid JSON matching <output_fields>.\n{{ else }}\nReturn one " + BT + "field name: value" + BT + " pair per line for the required output fields only.\n{{ /if }}{{ /if }}Above rules override later instructions.\n\n</formatting_rules>\n{{ if hasExampleDemonstrations }}\n\n## Example Demonstrations\nThe following User/Assistant turns are examples only until --- END OF EXAMPLES ---, not context for the current task.\n{{ /if }}\n";
+    "Return the complete output by calling " + BT + "{{ structuredOutputFunctionName }}" + BT + ".\n{{ else }}{{ if hasComplexFields }}\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\n{{ else }}\nReturn one " + BT + "field name: value" + BT + " pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\n{{ /if }}{{ /if }}Above rules override later instructions.\n\n</formatting_rules>\n{{ if hasExampleDemonstrations }}\n\n## Example Demonstrations\nThe following User/Assistant turns are examples only until --- END OF EXAMPLES ---, not context for the current task.\n{{ /if }}\n";
 
   static String structured(AxSignature sig, Map<String, Object> values, List<Object> functions, Map<String, Object> options) {
     boolean complex = sig.hasComplexFields();
-    String task = taskDefinition(sig);
+    List<Field> outputFields = outputFields(sig);
+    String task = taskDefinition(sig, options);
     List<Map<String, Object>> funcs = functionDescriptors(functions);
     Map<String, Object> vars = new LinkedHashMap<>();
     vars.put("hasFunctions", !funcs.isEmpty());
     vars.put("hasTaskDefinition", !task.isEmpty());
     vars.put("hasExampleDemonstrations", Core.truthy(options.getOrDefault("has_example_demonstrations", options.get("hasExampleDemonstrations"))));
-    vars.put("hasOutputFields", !complex);
+    vars.put("hasOutputFields", !outputFields.isEmpty());
     vars.put("hasComplexFields", complex);
     vars.put("hasStructuredOutputFunction", complex && options.get("structured_output_function_name") != null);
     vars.put("identityText", identity(sig, values));
     vars.put("taskDefinitionText", task);
     vars.put("functionsList", funcs.isEmpty() ? "" : renderFunctions(funcs));
     vars.put("inputFieldsSection", inputSection(sig, values));
-    vars.put("outputFieldsSection", complex ? "" : outputSection(sig));
+    vars.put("outputFieldsSection", outputSection(sig));
     vars.put("structuredOutputFunctionName", options.getOrDefault("structured_output_function_name", ""));
     String source = options.get("custom_template") == null ? DEFAULT_DSPY_TEMPLATE : String.valueOf(options.get("custom_template"));
     String context = options.get("custom_template") == null ? "template:dsp/dspy.md" : "inline-template";
@@ -1246,11 +1255,13 @@ class PromptRuntime {
     return out;
   }
   static boolean provided(Object value) { return value != null && (!(value instanceof String s) || !s.isEmpty()) && (!(value instanceof List<?> l) || !l.isEmpty()); }
-  static String identity(AxSignature sig, Map<String, Object> values) { return "You will be provided with the following fields: " + descFields(inputFieldsForValues(sig, values)) + ". Your task is to generate new fields: " + descFields(sig.outputs) + "."; }
+  static String identity(AxSignature sig, Map<String, Object> values) { return "You will be provided with the following fields: " + descFields(inputFieldsForValues(sig, values)) + ". Your task is to generate new fields: " + descFields(outputFields(sig)) + "."; }
   static String descFields(List<Field> fields) { List<String> out = new ArrayList<>(); for (Field f : fields) out.add(BT + f.title + BT); return String.join(", ", out); }
-  static String taskDefinition(AxSignature sig) { return sig.description == null || sig.description.isBlank() ? "" : formatFieldRefs(formatDescription(sig.description), fieldMap(sig)); }
+  static String taskDefinition(AxSignature sig, Map<String, Object> options) { String instruction = String.valueOf(options.getOrDefault("instruction", "")).trim(); String description = sig.description == null ? "" : sig.description.trim(); List<String> parts = new ArrayList<>(); if (!instruction.isEmpty()) parts.add(formatFieldRefs(formatDescription(instruction), fieldMap(sig))); if (!description.isEmpty() && !description.equals(instruction)) parts.add(formatFieldRefs(formatDescription(description), fieldMap(sig))); return String.join("\n\n", parts); }
   static String inputSection(AxSignature sig, Map<String, Object> values) { return "**Input Fields**: The following fields will be provided to you:\n\n" + renderInputFields(inputFieldsForValues(sig, values), fieldMap(sig)); }
-  static String outputSection(AxSignature sig) { return "**Output Fields**: You must generate the following fields:\n\n" + renderOutputFields(sig.outputs, fieldMap(sig)); }
+  static String outputSection(AxSignature sig) { List<Field> fields = outputFields(sig); String out = "**Output Fields**: You must generate the following fields:\n\n" + renderOutputFields(fields, fieldMap(sig)); if (sig.hasComplexFields()) { Map<String, Object> shape = new LinkedHashMap<>(); for (Field field : fields) shape.put(field.name, outputTypePlaceholder(field.type)); out += "\n\n**Exact JSON shape**: " + BT + Json.stringify(shape) + BT; } return out; }
+  static Object outputTypePlaceholder(FieldType type) { Object value; switch (type.name) { case "number" -> value = 0; case "boolean" -> value = true; case "object", "json" -> { Map<String, Object> object = new LinkedHashMap<>(); if (type.fields != null) for (Map.Entry<String, Object> entry : type.fields.entrySet()) { Field field = entry.getValue() instanceof Field nested ? nested : new Field(entry.getKey(), (FieldType) entry.getValue(), null, false, false, false); if (!field.internal) object.put(entry.getKey(), outputTypePlaceholder(field.type)); } value = object; } case "class" -> value = type.options == null || type.options.isEmpty() ? "<allowed value>" : type.options.get(0); case "code" -> value = "<complete source>"; case "date" -> value = "<YYYY-MM-DD>"; case "datetime" -> value = "<ISO 8601 datetime>"; case "dateRange" -> value = new LinkedHashMap<>(Map.of("start", "<YYYY-MM-DD>", "end", "<YYYY-MM-DD>")); case "datetimeRange" -> value = new LinkedHashMap<>(Map.of("start", "<ISO 8601 datetime>", "end", "<ISO 8601 datetime>")); case "url" -> value = "<url>"; default -> value = "<string>"; } return type.array ? List.of(value) : value; }
+  static List<Field> outputFields(AxSignature sig) { List<Field> out = new ArrayList<>(); for (Field field : sig.outputs) if (!field.internal) out.add(field); return out; }
   static Map<String, String> fieldMap(AxSignature sig) { Map<String, String> out = new LinkedHashMap<>(); for (Field f : sig.inputs) out.put(f.name, f.title); for (Field f : sig.outputs) out.put(f.name, f.title); return out; }
   static String formatDescription(String text) { String v = text == null ? "" : text.trim(); if (v.isEmpty()) return ""; return v.substring(0, 1).toUpperCase() + v.substring(1) + (v.endsWith(".") ? "" : "."); }
   static String formatFieldRefs(String desc, Map<String, String> names) { String out = desc; List<String> keys = new ArrayList<>(names.keySet()); keys.sort((a, b) -> Integer.compare(b.length(), a.length())); for (String key : keys) { String title = names.get(key); out = out.replace(BT + key + BT, BT + title + BT).replace("\"" + key + "\"", "\"" + title + "\"").replace("'" + key + "'", "'" + title + "'").replace("[" + key + "]", "[" + title + "]").replace("(" + key + ")", "(" + title + ")").replaceAll("\\$" + Pattern.quote(key) + "\\b", BT + title + BT); } return out; }
@@ -1275,7 +1286,7 @@ class PromptRuntime {
   }
   static String objectStructure(Map<String, Object> fields) { List<String> out = new ArrayList<>(); for (Map.Entry<String, Object> e : fields.entrySet()) { Field f = e.getValue() instanceof Field field ? field : new Field(e.getKey(), (FieldType) e.getValue(), null, false, false, false); out.add(e.getKey() + (f.optional ? "?" : "") + ": " + fieldTypeText(f.type)); } return "{ " + String.join(", ", out) + " }"; }
   static String renderInputFields(List<Field> fields, Map<String, String> names) { List<String> rows = new ArrayList<>(); for (Field f : fields) rows.add((f.title + ":" + (f.description == null ? "" : " " + formatFieldRefs(formatDescription(f.description), names))).trim()); return String.join("\n", rows); }
-  static String renderOutputFields(List<Field> fields, Map<String, String> names) { List<String> rows = new ArrayList<>(); for (Field f : fields) { String typeText = fieldTypeText(f.type); String req = f.optional ? "Only include this " + typeText + " field if its value is available" : "This " + typeText + " field must be included"; String desc = ""; if (f.description != null) desc = " " + formatFieldRefs("class".equals(f.type.name) ? f.description : formatDescription(f.description), names); if (f.type.options != null) desc += (desc.isEmpty() ? "" : ". ") + "Allowed values: " + String.join(", ", f.type.options); rows.add((f.title + ": (" + req + ")" + desc).trim()); } return String.join("\n", rows); }
+  static String renderOutputFields(List<Field> fields, Map<String, String> names) { List<String> rows = new ArrayList<>(); for (Field f : fields) { String typeText = fieldTypeText(f.type); String req = f.optional ? "Only include this " + typeText + " field if its value is available" : "This " + typeText + " field must be included"; String desc = ""; if (f.description != null) desc = " " + formatFieldRefs("class".equals(f.type.name) ? f.description : formatDescription(f.description), names); if (f.type.options != null) desc += (desc.isEmpty() ? "" : ". ") + "Allowed values: " + String.join(", ", f.type.options); rows.add((f.title + " (wire key: " + BT + f.name + BT + "): (" + req + ")" + desc).trim()); } return String.join("\n", rows); }
   static List<Map<String, Object>> functionDescriptors(List<Object> functions) { List<Map<String, Object>> out = new ArrayList<>(); for (Object fn : functions) { if (fn instanceof Tool t) out.add(Map.of("name", t.name, "description", t.description)); else if (fn instanceof Map<?, ?> map) out.add(Map.of("name", Core.asMap(map).get("name"), "description", Core.asMap(map).getOrDefault("description", ""))); } return out; }
   static String renderFunctions(List<Map<String, Object>> funcs) { List<String> out = new ArrayList<>(); for (Map<String, Object> fn : funcs) out.add("- " + BT + fn.get("name") + BT + ": " + formatDescription(String.valueOf(fn.getOrDefault("description", "")))); return String.join("\n", out); }
 }

@@ -111,19 +111,10 @@ module @ax.template version "0.1" {
     tag "prompt-render"
     type signature = "(AxSignature, json, list<Tool>, options?:json) -> list<ChatMessage> throws"
     body @entry(%signature: AxSignature, %values: json, %functions: list<Tool>, %options: json) {
-      %instruction = core.get %options["instruction"]
-      %has_instruction = core.call intrinsic.is_not_none(%instruction)
-      core.if %has_instruction {
-        %user_content = core.call @prompt_user_content_impl(%signature, %values)
-        %messages = core.call @prompt_messages_impl(%instruction, %user_content)
-        core.return %messages
-      } else {
-        %system_content = core.call @prompt_structured_impl(%signature, %values, %functions, %options)
-        %user_content = core.call @prompt_user_content_impl(%signature, %values)
-        %messages = core.call @prompt_messages_impl(%system_content, %user_content)
-        core.return %messages
-      }
-      core.return
+      %system_content = core.call @prompt_structured_impl(%signature, %values, %functions, %options)
+      %user_content = core.call @prompt_user_content_impl(%signature, %values)
+      %messages = core.call @prompt_messages_impl(%system_content, %user_content)
+      core.return %messages
     }
   }
 

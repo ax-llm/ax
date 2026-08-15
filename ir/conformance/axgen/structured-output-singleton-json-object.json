@@ -1,0 +1,34 @@
+{
+  "name": "structured-output-singleton-json-object",
+  "kind": "forward",
+  "signature": "task:string -> javascriptCode:code",
+  "input": { "task": "write a program" },
+  "features": { "structured_outputs": false, "functions": false },
+  "responses": [
+    { "content": "{\"javascriptCode\":\"const value = 42;\\nfinal(value);\"}" }
+  ],
+  "expected_output": {
+    "javascriptCode": "const value = 42;\nfinal(value);"
+  },
+  "expected_request": {
+    "response_format": { "type": "json_object" },
+    "functions": [],
+    "provider_metadata": {
+      "ax": { "structured_output_rung": "json_object" }
+    }
+  },
+  "expected_chat_prompt_contains": [
+    "Javascript Code (wire key: `javascriptCode`)",
+    "javascriptCode",
+    "<complete source>",
+    "no prose or Markdown fences"
+  ],
+  "expected_chat_log_subset": [
+    {
+      "providerMetadata": {
+        "ax": { "structured_output_rung": "json_object" }
+      }
+    }
+  ],
+  "expected_request_count": 1
+}

@@ -24,12 +24,23 @@ public final class Conformance {
     final List<Object> transcribeResponses = new ArrayList<>();
     final List<Map<String, Object>> requests = new ArrayList<>();
     final List<Map<String, Object>> chatOptions = new ArrayList<>();
+    final Map<String, Object> features;
     int chatCalls;
 
     ConformanceScriptedAI(List<Object> responses, List<Object> streamEvents) {
+      this(responses, streamEvents, Map.of());
+    }
+
+    ConformanceScriptedAI(List<Object> responses, List<Object> streamEvents, Map<String, Object> features) {
       super("scripted", "scripted-chat", "scripted-embed", Map.of(), Map.of());
       this.responses = new ArrayList<>(responses);
       this.streamEvents = new ArrayList<>(streamEvents);
+      this.features = new LinkedHashMap<>(features);
+    }
+
+    @Override
+    public Map<String, Object> getFeatures(String model) {
+      return features.isEmpty() ? super.getFeatures(model) : new LinkedHashMap<>(features);
     }
 
     protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) {
@@ -761,7 +772,7 @@ public final class Conformance {
       for (Object item : Core.asList(fixture.getOrDefault("stop_functions", fixture.getOrDefault("stopFunctions", List.of())))) names.add(String.valueOf(item));
       gen.setStopFunctions(names);
     }
-    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())));
     Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of()))), fixture);
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");
     if (fixture.containsKey("expected_request_count") && client.requests.size() != Core.asInt(fixture.get("expected_request_count"))) throw new FixtureError("expected request count mismatch");
@@ -1551,7 +1562,7 @@ public final class Conformance {
   }
 
   static void runAgentForward(Map<String, Object> fixture) {
-    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())));
+    ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())));
     client.transcribeResponses.addAll(Core.asList(fixture.getOrDefault("transcribe_responses", List.of())));
     Map<String, Object> agentOptions = new LinkedHashMap<>(Core.asMap(fixture.getOrDefault("options", Map.of())));
     List<Object> semanticObserverTranscript = new ArrayList<>();

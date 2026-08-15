@@ -118,7 +118,84 @@ import {
   validateURL,
 } from './validators.js';
 
-const STRUCTURED_OUTPUT_FUNCTION_NAME = '__finalResult';
+const STRUCTURED_OUTPUT_FUNCTION_NAME = '__axOutput';
+const LEGACY_STRUCTURED_OUTPUT_FUNCTION_NAME = '__finalResult';
+
+type StructuredOutputRung = 'native' | 'function' | 'json_object';
+
+const isReservedStructuredOutputFunctionName = (name: string): boolean =>
+  name === STRUCTURED_OUTPUT_FUNCTION_NAME ||
+  name === LEGACY_STRUCTURED_OUTPUT_FUNCTION_NAME;
+
+const assertNoReservedStructuredOutputFunctions = (
+  functions: readonly AxFunction[]
+): void => {
+  const collision = functions.find((fn) =>
+    isReservedStructuredOutputFunctionName(fn.name)
+  );
+  if (collision) {
+    throw new Error(
+      `Function name '${collision.name}' is reserved for Ax structured-output handling.`
+    );
+  }
+};
+
+const selectStructuredOutputRung = (
+  signature: Readonly<AxSignature>,
+  features:
+    | Readonly<{
+        structuredOutputs?: boolean;
+        functions?: boolean;
+      }>
+    | undefined,
+  mode: 'auto' | 'native' | 'function',
+  providerLabel: string
+): StructuredOutputRung | undefined => {
+  if (!signature.hasComplexFields()) return undefined;
+
+  // Missing capability flags belong to custom/unknown clients. Preserve the
+  // historical compatibility assumption that those clients support native
+  // structured outputs and functions unless they explicitly say otherwise.
+  const supportsNative = features?.structuredOutputs !== false;
+  const supportsFunctions = features?.functions !== false;
+
+  if (mode === 'native') {
+    if (!supportsNative) {
+      throw new Error(
+        `Structured output mode 'native' requires native JSON Schema support, but ${providerLabel} advertises structuredOutputs=false.`
+      );
+    }
+    return 'native';
+  }
+
+  if (mode === 'function') {
+    if (!supportsFunctions) {
+      throw new Error(
+        `Structured output mode 'function' requires function calling support, but ${providerLabel} advertises functions=false.`
+      );
+    }
+    return 'function';
+  }
+
+  if (supportsNative) return 'native';
+
+  const providerVisibleFields = signature
+    .getOutputFields()
+    .filter((field) => !field.isInternal);
+  const onlyField = providerVisibleFields[0];
+  const isRequiredSingletonString =
+    providerVisibleFields.length === 1 &&
+    onlyField !== undefined &&
+    !onlyField.isOptional &&
+    !onlyField.type?.isArray &&
+    (onlyField.type?.name === undefined ||
+      onlyField.type.name === 'string' ||
+      onlyField.type.name === 'code');
+
+  if (isRequiredSingletonString) return 'json_object';
+  if (supportsFunctions) return 'function';
+  return 'json_object';
+};
 
 export type {
   AxResponseHandlerArgs,
@@ -175,6 +252,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private thoughtFieldName: string;
   private signatureToolCallingManager?: SignatureToolCallingManager;
   private structuredOutputFunctionFallback = false;
+  private structuredOutputRung?: StructuredOutputRung;
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
   private chatLog: AxChatLogEntry[] = [];
@@ -394,7 +472,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       options?.promptTemplate ??
       this.options?.promptTemplate ??
       AxPromptTemplate;
-    const mutableFunctions = [...(functionsOverride ?? this.functions)];
+    const sourceFunctions = functionsOverride ?? this.functions;
+    if (functionsOverride === undefined) {
+      assertNoReservedStructuredOutputFunctions(sourceFunctions);
+    }
+    const mutableFunctions = sourceFunctions.filter(
+      (fn) => !isReservedStructuredOutputFunctionName(fn.name)
+    );
     const functionCallMode =
       options?.functionCallMode ?? this.options?.functionCallMode ?? 'auto';
     const hasFunctions = mutableFunctions.length > 0;
@@ -421,21 +505,24 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       signature = signatureToolCallingManager.processSignature(signature);
     }
 
-    const hasComplexFields = signature.hasComplexFields();
     const features = ai.getFeatures?.(options?.model);
     const structuredOutputMode =
       options?.structuredOutputMode ??
       this.options?.structuredOutputMode ??
       'auto';
+    const structuredOutputRung = selectStructuredOutputRung(
+      signature,
+      features,
+      structuredOutputMode,
+      `${ai.getName()} (${String(options?.model ?? 'default model')})`
+    );
     const structuredOutputFunctionFallback =
-      hasComplexFields &&
-      (structuredOutputMode === 'function' ||
-        (structuredOutputMode === 'auto' && !features?.structuredOutputs));
+      structuredOutputRung === 'function';
     if (structuredOutputFunctionFallback) {
       const syntheticFunction: AxFunction = {
         name: STRUCTURED_OUTPUT_FUNCTION_NAME,
         description:
-          'Return the final result. Call this function with the complete output data.',
+          'Emit the complete structured program output using the declared argument shape.',
         parameters: toJsonSchema(signature.getOutputFields()),
         func: async () => 'done',
       };
@@ -1006,37 +1093,36 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         })()
       : undefined;
 
-    const responseMetadata: AxChatResponseLogMetadata = {};
+    const responseMetadata: AxChatResponseLogMetadata = this
+      .structuredOutputRung
+      ? {
+          providerMetadata: {
+            ax: {
+              structured_output_rung: this.structuredOutputRung,
+            },
+          },
+        }
+      : {};
 
     // Save original functions for chat log before zeroing out for prompt mode.
-    // Filter out internal synthetic functions (e.g. __finalResult).
+    // Filter out internal structured-output functions.
     const logFunctions = functions.filter(
-      (fn) => fn.name !== STRUCTURED_OUTPUT_FUNCTION_NAME
+      (fn) => !isReservedStructuredOutputFunctionName(fn.name)
+    );
+
+    // The legacy alias remains available to the response processor for stored
+    // trajectories, but it is never advertised to providers.
+    const providerFunctions = functions.filter(
+      (fn) => fn.name !== LEGACY_STRUCTURED_OUTPUT_FUNCTION_NAME
     );
 
     // Do not send native functions to the provider when emulating via prompt mode
-    functions = this.signatureToolCallingManager ? [] : functions;
+    functions = this.signatureToolCallingManager ? [] : providerFunctions;
 
     let responseFormat: AxChatRequest['responseFormat'];
 
     const outputFields = this.signature.getOutputFields();
-    const hasComplexFields = this.signature.hasComplexFields();
-
-    // Auto-detect structured output requirement
-    // If we have object types in output or array of objects, we use structured outputs
-    // When structuredOutputFunctionFallback is true, responseFormat stays undefined
-    // — the synthetic function handles structured output instead
-    if (hasComplexFields && !this.structuredOutputFunctionFallback) {
-      // Check if the provider/model supports structured outputs
-      const features = ai.getFeatures(model);
-      if (!features?.structuredOutputs) {
-        throw new Error(
-          `Complex structured outputs (object/array types) require a provider that supports structured outputs. ` +
-            `Current provider/model (${model}) does not support this feature. ` +
-            `Supported providers: OpenAI (GPT-4o, GPT-4.1+), Google Gemini, Anthropic (Sonnet/Opus).`
-        );
-      }
-
+    if (this.structuredOutputRung === 'native') {
       // Use the signature-to-schema converter we implemented
       const schema = toJsonSchema(outputFields, 'Schema', {
         flexibleJsonFieldsAsString: true,
@@ -1051,6 +1137,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           schema,
         },
       };
+    } else if (this.structuredOutputRung === 'json_object') {
+      responseFormat = { type: 'json_object' };
     }
 
     // Mark last function for caching (creates breakpoint after tools)
@@ -1224,7 +1312,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     // only when there are no user-defined functions.
     if (this.structuredOutputFunctionFallback) {
       const userFunctionCount = functions.filter(
-        (f) => f.name !== STRUCTURED_OUTPUT_FUNCTION_NAME
+        (f) => !isReservedStructuredOutputFunctionName(f.name)
       ).length;
       if (userFunctionCount === 0) {
         functionCall = {
@@ -1272,6 +1360,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         parseJsonStringFields:
           this.signature.hasComplexFields() &&
           !this.structuredOutputFunctionFallback,
+        strictStructuredJson: this.structuredOutputRung === 'json_object',
         logger,
         debugPromptMetrics,
         onFunctionCall: options.onFunctionCall,
@@ -1333,6 +1422,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         parseJsonStringFields:
           this.signature.hasComplexFields() &&
           !this.structuredOutputFunctionFallback,
+        strictStructuredJson: this.structuredOutputRung === 'json_object',
         logger,
         debugPromptMetrics,
         onFunctionCall: options.onFunctionCall,
@@ -1359,6 +1449,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   ): AxGenStreamingOut<OUT> {
     // Reset per-call state so previous calls do not leak.
     this.signatureToolCallingManager = undefined;
+    this.structuredOutputFunctionFallback = false;
+    this.structuredOutputRung = undefined;
     this.chatLog = [];
 
     const rawStop = options?.stopFunction ?? this.options?.stopFunction;
@@ -1376,6 +1468,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const mutableFunctions = options.functions
       ? parseFunctions(options.functions)
       : [...this.functions];
+    assertNoReservedStructuredOutputFunctions(mutableFunctions);
     let mcpCatalogRevision = options._mcpExecutionContext?.getCatalogRevision();
 
     // Create step context for programmatic loop control
@@ -1455,33 +1548,41 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       this.setSignature(this.signature);
     }
 
-    // Detect structured output function-call fallback condition
-    const hasComplexFields = this.signature.hasComplexFields();
     const features = ai.getFeatures?.(options.model);
     const structuredOutputMode =
       options.structuredOutputMode ??
       this.options?.structuredOutputMode ??
       'auto';
 
+    this.structuredOutputRung = selectStructuredOutputRung(
+      this.signature,
+      features,
+      structuredOutputMode,
+      `${ai.getName()} (${String(options.model ?? 'default model')})`
+    );
     this.structuredOutputFunctionFallback =
-      hasComplexFields &&
-      (structuredOutputMode === 'function' ||
-        (structuredOutputMode === 'auto' && !features?.structuredOutputs));
+      this.structuredOutputRung === 'function';
 
     // When fallback is active, create synthetic function and add to stop functions
     if (this.structuredOutputFunctionFallback) {
+      const parameters = toJsonSchema(this.signature.getOutputFields());
       const syntheticFunction: AxFunction = {
         name: STRUCTURED_OUTPUT_FUNCTION_NAME,
         description:
-          'Return the final result. Call this function with the complete output data.',
-        parameters: toJsonSchema(this.signature.getOutputFields()),
+          'Emit the complete structured program output using the declared argument shape.',
+        parameters,
         func: async () => 'done',
       };
-      mutableFunctions.push(syntheticFunction);
+      const legacyReplayFunction: AxFunction = {
+        ...syntheticFunction,
+        name: LEGACY_STRUCTURED_OUTPUT_FUNCTION_NAME,
+      };
+      mutableFunctions.push(syntheticFunction, legacyReplayFunction);
 
       stopFunctionNames = [
         ...(stopFunctionNames ?? []),
         STRUCTURED_OUTPUT_FUNCTION_NAME.toLowerCase(),
+        LEGACY_STRUCTURED_OUTPUT_FUNCTION_NAME.toLowerCase(),
       ];
     }
 
@@ -1492,7 +1593,11 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     const currentPromptTemplateOptions = {
       // Prefer per-call functions; fall back to parsed functions from constructor
-      functions: this.signatureToolCallingManager ? [] : mutableFunctions,
+      functions: this.signatureToolCallingManager
+        ? []
+        : mutableFunctions.filter(
+            (fn) => fn.name !== LEGACY_STRUCTURED_OUTPUT_FUNCTION_NAME
+          ),
       thoughtFieldName: this.thoughtFieldName,
       contextCache, // Pass through for system prompt caching
       ignoreBreakpoints: providerIgnoreBreakpoints,
@@ -1605,6 +1710,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       const toAdd = stepContext._consumeFunctionsToAdd();
       if (toAdd) {
         const parsed = parseFunctions(toAdd);
+        assertNoReservedStructuredOutputFunctions(parsed);
         for (const fn of parsed) {
           if (!mutableFunctions.some((f) => f.name === fn.name)) {
             mutableFunctions.push(fn);
@@ -1852,8 +1958,8 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
                   // Extract structured output values from the synthetic function call
                   if (this.structuredOutputFunctionFallback) {
-                    const structuredCall = e.calls.find(
-                      (c) => c.func.name === STRUCTURED_OUTPUT_FUNCTION_NAME
+                    const structuredCall = e.calls.find((c) =>
+                      isReservedStructuredOutputFunctionName(c.func.name)
                     );
                     if (structuredCall?.args) {
                       const args = structuredCall.args as Record<
@@ -1862,7 +1968,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                       >;
 
                       // Validate against field constraints (same as native structured output path)
-                      validateStructuredOutputValues(this.signature, args);
+                      validateStructuredOutputValues(this.signature, args, {
+                        rejectUnknownFields: true,
+                      });
 
                       const outputFields = this.signature.getOutputFields();
                       for (const state of states) {

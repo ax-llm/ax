@@ -1,7 +1,7 @@
 ---
 name: "ax-go-gepa"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts."
-version: "23.0.12"
+version: "23.0.14"
 ---
 # Ax GEPA For Go
 

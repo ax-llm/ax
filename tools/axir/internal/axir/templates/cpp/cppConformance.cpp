@@ -23,31 +23,41 @@ static Object as_object(Value value) {
   return {};
 }
 
-struct ConformanceScriptedAI : AIClient {
+struct ConformanceScriptedAI : AxBaseAI {
   Array responses;
   Array transcribe_responses;
   std::vector<Value> requests;
   std::vector<Value> chat_options;
+  Value features;
   int chat_calls = 0;
 
-  explicit ConformanceScriptedAI(Value values) : responses(as_array(values)) {}
+  explicit ConformanceScriptedAI(Value values, Value feature_values = Value())
+      : AxBaseAI("scripted", "scripted-chat", "scripted-embed"),
+        responses(as_array(values)),
+        features(std::move(feature_values)) {}
 
-  Value complete(Value request) override {
+  Value do_chat(Value request, Value options) override {
+    ++chat_calls;
     requests.push_back(request);
+    chat_options.push_back(options);
+    if (responses.empty()) throw AxError("fixture", "scripted client exhausted");
+    Value out = responses.front();
+    responses.erase(responses.begin());
+    return Core::legacy_response_to_chat_response(out);
+  }
+
+  Value do_embed(Value request, Value options) override {
+    requests.push_back(request);
+    chat_options.push_back(options);
     if (responses.empty()) throw AxError("fixture", "scripted client exhausted");
     Value out = responses.front();
     responses.erase(responses.begin());
     return out;
   }
 
-  Value chat(Value request) override {
-    ++chat_calls;
-    return Core::legacy_response_to_chat_response(complete(request));
-  }
-
-  Value chat(Value request, Value options) override {
-    chat_options.push_back(options);
-    return chat(std::move(request));
+  Value get_features(Value model = Value()) override {
+    (void)model;
+    return features.is_null() ? AxBaseAI::get_features(Value()) : features;
   }
 
   Value transcribe(Value request, Value options) override {
@@ -60,6 +70,9 @@ struct ConformanceScriptedAI : AIClient {
     }
     return object({{"text", std::string("")}});
   }
+
+  Value transcribe(Value request) override { return transcribe(std::move(request), Value::object()); }
+  Value speak(Value request) override { requests.push_back(request); return object({{"audio", std::string("")}}); }
 };
 
 struct ScriptedTransport : Transport {
@@ -666,7 +679,7 @@ static void run_forward(Value fixture) {
   if (!Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions")).is_null()) {
     gen.set_stop_functions(Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions", Value::array())));
   }
-  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
+  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"));
   Value input = Core::get(fixture, "input", Core::get(fixture, "values", Value::object()));
   Value output = expect_maybe_error([&] { return gen.forward(client, input, Core::get(fixture, "forward_options", Value::object())); }, fixture);
   if (Core::get(fixture, "expected_error_contains").is_null() && !Core::get(fixture, "expected_output").is_null()) {
@@ -1403,7 +1416,7 @@ static std::string semantic_available_skills_index(const std::string& system) {
 }
 
 static void run_agent_forward(Value fixture) {
-  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()));
+  ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"));
   client.transcribe_responses = as_array(Core::get(fixture, "transcribe_responses", Value::array()));
   Value agent_options = Core::get(fixture, "options", Value::object());
   Value semantic_observer_transcript = Value::array();
@@ -2732,6 +2745,7 @@ static void run(Value fixture) {
   } else if (kind == "prompt") {
     Value sig = build_signature(fixture);
     Value options = Core::get(fixture, "options", Value::object());
+    if (!Core::get(fixture, "instruction").is_null()) Core::set(options, "instruction", Core::get(fixture, "instruction"));
     if (!Core::get(options, "customTemplate").is_null()) Core::set(options, "custom_template", Core::get(options, "customTemplate"));
     if (!Core::get(options, "structuredOutputFunctionName").is_null()) Core::set(options, "structured_output_function_name", Core::get(options, "structuredOutputFunctionName"));
     Value messages = Core::render_prompt(sig, Core::get(fixture, "input", Core::get(fixture, "values", Value::object())), Core::get(fixture, "tools", Value::array()), options);

@@ -1,7 +1,7 @@
 ---
 name: ax-ai
 description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
-version: "23.0.12"
+version: "23.0.14"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -261,7 +261,12 @@ by default to preserve non-thinking behavior, and enables it when
 effort and maps `highest` to `max`. DeepSeek V4 thinking models support tools,
 but reject the `tool_choice` request parameter, so Ax omits forced/auto tool
 choice for `deepseek-v4-pro`, `deepseek-v4-flash`, and `deepseek-reasoner`
-while still sending tool definitions.
+while still sending tool definitions. DeepSeek does not support native JSON
+schema structured outputs. Ax therefore uses validated `json_object` for a
+single required `string` or `code` output, including an AxAgent actor's
+`javascriptCode` field, without exposing a provider tool. Richer structured
+outputs use the synthetic `__axOutput` function when function calling is
+available, or validated `json_object` when it is not.
 
 ## Extended Thinking
 

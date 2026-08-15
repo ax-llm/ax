@@ -74,7 +74,7 @@ describe('DeepSeek Responses compatibility', () => {
                 type: 'function_call',
                 id: 'item-final',
                 call_id: 'call-final',
-                name: '__finalResult',
+                name: '__axOutput',
                 arguments: JSON.stringify({
                   user: { name: 'Alice', age: 30 },
                 }),
@@ -97,9 +97,7 @@ describe('DeepSeek Responses compatibility', () => {
     expect(capture.body?.text).toBeUndefined();
     expect(capture.body?.response_format).toBeUndefined();
     expect(capture.body?.tools).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: '__finalResult' }),
-      ])
+      expect.arrayContaining([expect.objectContaining({ name: '__axOutput' })])
     );
   });
 

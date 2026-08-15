@@ -1720,7 +1720,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
                   id: 'example-0',
                   type: 'function',
                   function: {
-                    name: '__finalResult',
+                    name: '__axOutput',
                     params: { routingDecision: { answer: 'Use searchWeb' } },
                   },
                 },
@@ -1751,11 +1751,11 @@ describe('AxAIGoogleGemini model key preset merging', () => {
         'Example question'
       );
       expect(cacheCreateReq.contents[1]?.parts?.[0]?.functionCall?.name).toBe(
-        '__finalResult'
+        '__axOutput'
       );
       expect(
         cacheCreateReq.contents[2]?.parts?.[0]?.functionResponse?.name
-      ).toBe('__finalResult');
+      ).toBe('__axOutput');
 
       const generateReq = capture.calls[1]?.body;
       expect(generateReq.contents).toHaveLength(1);
@@ -1790,7 +1790,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
                   id: 'example-0',
                   type: 'function',
                   function: {
-                    name: '__finalResult',
+                    name: '__axOutput',
                     params: { routingDecision: { answer: 'Use searchWeb' } },
                   },
                 },
@@ -1814,7 +1814,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
               },
             },
             {
-              name: '__finalResult',
+              name: '__axOutput',
               description: 'Returns the final structured output',
               parameters: {
                 type: 'object',
@@ -1848,7 +1848,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
         cacheCreateReq.tools?.[0]?.function_declarations.map(
           (fn: any) => fn.name
         )
-      ).toEqual(['searchWeb', '__finalResult']);
+      ).toEqual(['searchWeb', '__axOutput']);
       expect(cacheCreateReq.contents).toBeUndefined();
 
       const generateReq = capture.calls[1]?.body;
@@ -1860,10 +1860,10 @@ describe('AxAIGoogleGemini model key preset merging', () => {
         'Example question'
       );
       expect(generateReq.contents[1]?.parts?.[0]?.functionCall?.name).toBe(
-        '__finalResult'
+        '__axOutput'
       );
       expect(generateReq.contents[2]?.parts?.[0]?.functionResponse?.name).toBe(
-        '__finalResult'
+        '__axOutput'
       );
       expect(generateReq.contents[3]?.parts?.[0]?.text).toBe('Live question');
     });

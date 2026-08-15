@@ -2416,7 +2416,13 @@ impl AxGen {
         }
         let state = core_gen_state(self)?;
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
-            if method == "transcribe" { client.transcribe(request) } else { client.chat_with_options(request, options) }
+            if method == "transcribe" {
+                client.transcribe(request)
+            } else if method == "features" {
+                Ok(client.get_features(request.as_str()))
+            } else {
+                client.chat_with_options(request, options)
+            }
         };
         let result = with_core_client(&mut chat, || {
             _forward_impl(&[
@@ -3014,6 +3020,10 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         let raw = core_get(&options, &CoreValue::from("validation_retries"), CoreValue::Null);
         if raw.is_null() { json!(2) } else { core_value_to_json(&raw) }
     };
+    let actor_validation_retries = {
+        let raw = core_get(&options, &CoreValue::from("validation_retries"), core_get(&options, &CoreValue::from("validationRetries"), CoreValue::Num(1.0)));
+        core_value_to_json(&raw)
+    };
     let distiller_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("distiller_description"), CoreValue::from("")));
     let base_executor_instruction = core_value_to_json(&core_get(&state, &CoreValue::from("executor_description"), CoreValue::from("")));
     let playbook_config = core_value_to_json(&core_get(&options, &CoreValue::from("playbook"), CoreValue::Null));
@@ -3047,11 +3057,11 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         state,
         distiller: agent_stage_gen(
             distiller_signature,
-            json!({"validation_retries": 0, "id": "ctx.root.actor", "instruction": distiller_instruction}),
+            json!({"validation_retries": actor_validation_retries.clone(), "id": "ctx.root.actor", "instruction": distiller_instruction}),
         ),
         executor: agent_stage_gen(
             executor_signature,
-            json!({"validation_retries": 0, "id": "task.root.actor", "instruction": executor_instruction}),
+            json!({"validation_retries": actor_validation_retries, "id": "task.root.actor", "instruction": executor_instruction}),
         ),
         responder: agent_stage_gen(
             responder_signature,
@@ -3117,7 +3127,13 @@ impl AxAgent {
         options: Value,
     ) -> AxResult<Value> {
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
-            if method == "transcribe" { client.transcribe(request) } else { client.chat_with_options(request, options) }
+            if method == "transcribe" {
+                client.transcribe(request)
+            } else if method == "features" {
+                Ok(client.get_features(request.as_str()))
+            } else {
+                client.chat_with_options(request, options)
+            }
         };
         // Wire the built-in llmQuery primitive onto the runtime carried in
         // agent options (the same host the actor loop will create sessions on),
@@ -3258,7 +3274,13 @@ impl AxAgent {
                 "feedback": feedback,
             });
             let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
-                if method == "transcribe" { client.transcribe(request) } else { client.chat_with_options(request, options) }
+                if method == "transcribe" {
+                client.transcribe(request)
+            } else if method == "features" {
+                Ok(client.get_features(request.as_str()))
+            } else {
+                client.chat_with_options(request, options)
+            }
             };
             let before = stable_stringify(&self.playbook_snapshot["playbook"]);
             let update_result = with_core_client(&mut chat, || engine.apply_online_update(&args))?;
@@ -3907,7 +3929,13 @@ impl AxFlow {
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
-            if method == "transcribe" { client.transcribe(request) } else { client.chat_with_options(request, options) }
+            if method == "transcribe" {
+                client.transcribe(request)
+            } else if method == "features" {
+                Ok(client.get_features(request.as_str()))
+            } else {
+                client.chat_with_options(request, options)
+            }
         };
         let result = with_core_client(&mut chat, || {
             _flow_forward(&[
@@ -7068,12 +7096,14 @@ fn run_agent_playbook_evolve_fixture(fixture: &Value) -> AxResult<()> {
             transcribe_responses: VecDeque::new(),
             requests: Vec::new(),
             chat_options: Vec::new(),
+            features: router_default_features(),
         }));
         let mut evaluation_client = FixtureClient {
             responses,
             transcribe_responses: VecDeque::new(),
             requests: Vec::new(),
             chat_options: Vec::new(),
+            features: router_default_features(),
         };
         let agent_options = core_value_from_json(&fixture.get("options").cloned().unwrap_or_else(|| json!({})));
         let script = fixture.get("runtime_script").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -8623,6 +8653,7 @@ fn run_agent_forward_contract_fixture(fixture: &Value) -> AxResult<()> {
             .into(),
         requests: Vec::new(),
         chat_options: Vec::new(),
+        features: fixture.get("features").cloned().unwrap_or_else(router_default_features),
     };
     let semantic_observer_transcript = Rc::new(RefCell::new(Vec::<Value>::new()));
     let semantic_observers_enabled = fixture.get("expected_observer_transcript").is_some();
@@ -10257,6 +10288,7 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         transcribe_responses: VecDeque::new(),
         requests: Vec::new(),
         chat_options: Vec::new(),
+        features: fixture.get("features").cloned().unwrap_or_else(router_default_features),
     };
     let input = fixture.get("input").cloned().unwrap_or_else(|| json!({}));
     let mut forward_options = fixture
@@ -10278,7 +10310,13 @@ fn conformance_flow_result(fixture: &Value) -> AxResult<Value> {
         forward_options["cache_store"] = Value::Object(cache_store);
     }
     let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
-        if method == "transcribe" { client.transcribe(request) } else { client.chat_with_options(request, options) }
+        if method == "transcribe" {
+                client.transcribe(request)
+            } else if method == "features" {
+                Ok(client.get_features(request.as_str()))
+            } else {
+                client.chat_with_options(request, options)
+            }
     };
     let output = core_value_to_json(&with_core_client(&mut chat, || {
         _flow_forward(&[
@@ -11953,9 +11991,13 @@ struct FixtureClient {
     transcribe_responses: VecDeque<Value>,
     requests: Vec<Value>,
     chat_options: Vec<Value>,
+    features: Value,
 }
 
 impl AxAIClient for FixtureClient {
+    fn get_features(&self, _model: Option<&str>) -> Value {
+        self.features.clone()
+    }
     fn transcribe(&mut self, request: Value) -> AxResult<Value> {
         self.requests.push(request);
         Ok(self
@@ -12096,6 +12138,7 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         transcribe_responses: VecDeque::new(),
         requests: Vec::new(),
         chat_options: Vec::new(),
+        features: fixture.get("features").cloned().unwrap_or_else(router_default_features),
     };
     let result = if let Some(options) = fixture.get("forward_options") {
         program.forward_with_options(&mut client, input, options.clone())
@@ -13811,7 +13854,7 @@ fn core_signature_value(sig: &AxSignature) -> Result<CoreValue, AxError> {
 const BT: &str = "\u{60}";
 
 #[allow(dead_code)]
-const DEFAULT_DSPY_TEMPLATE: &str = "<identity>\n{{ identityText }}\n</identity>{{ if hasFunctions }}\n\n<available_functions>\n**Available Functions**: You can call the following functions to complete the task:\n\n{{ functionsList }}\n\n## Function Call Instructions\n- Complete the task, using the functions defined earlier in this prompt.\n- Output fields should only be generated after all functions have been called.\n- Use the function results to generate the output fields.\n</available_functions>{{ /if }}\n\n<input_fields>\n{{ inputFieldsSection }}\n</input_fields>{{ if hasOutputFields }}\n\n<output_fields>\n{{ outputFieldsSection }}\n</output_fields>{{ /if }}\n{{ if hasTaskDefinition }}\n\n<task_definition>\n{{ taskDefinitionText }}\n</task_definition>{{ /if }}\n\n<formatting_rules>\n{{ if hasStructuredOutputFunction }}\nReturn the complete output by calling \u{60}{{ structuredOutputFunctionName }}\u{60}.\n{{ else }}{{ if hasComplexFields }}\nReturn valid JSON matching <output_fields>.\n{{ else }}\nReturn one \u{60}field name: value\u{60} pair per line for the required output fields only.\n{{ /if }}{{ /if }}Above rules override later instructions.\n\n</formatting_rules>\n{{ if hasExampleDemonstrations }}\n\n## Example Demonstrations\nThe following User/Assistant turns are examples only until --- END OF EXAMPLES ---, not context for the current task.\n{{ /if }}\n";
+const DEFAULT_DSPY_TEMPLATE: &str = "<identity>\n{{ identityText }}\n</identity>{{ if hasFunctions }}\n\n<available_functions>\n**Available Functions**: You can call the following functions to complete the task:\n\n{{ functionsList }}\n\n## Function Call Instructions\n- Complete the task, using the functions defined earlier in this prompt.\n- Output fields should only be generated after all functions have been called.\n- Use the function results to generate the output fields.\n</available_functions>{{ /if }}\n\n<input_fields>\n{{ inputFieldsSection }}\n</input_fields>{{ if hasOutputFields }}\n\n<output_fields>\n{{ outputFieldsSection }}\n</output_fields>{{ /if }}\n{{ if hasTaskDefinition }}\n\n<task_definition>\n{{ taskDefinitionText }}\n</task_definition>{{ /if }}\n\n<formatting_rules>\n{{ if hasStructuredOutputFunction }}\nReturn the complete output by calling \u{60}{{ structuredOutputFunctionName }}\u{60}.\n{{ else }}{{ if hasComplexFields }}\nReturn one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.\n{{ else }}\nReturn one \u{60}field name: value\u{60} pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.\n{{ /if }}{{ /if }}Above rules override later instructions.\n\n</formatting_rules>\n{{ if hasExampleDemonstrations }}\n\n## Example Demonstrations\nThe following User/Assistant turns are examples only until --- END OF EXAMPLES ---, not context for the current task.\n{{ /if }}\n";
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
@@ -14527,7 +14570,10 @@ fn core_prompt_get_output_fields(signature: &CoreValue) -> Result<Vec<CoreValue>
     if fields.is_null() {
         return Ok(Vec::new());
     }
-    core_iter(&fields)
+    Ok(core_iter(&fields)?
+        .into_iter()
+        .filter(|field| !core_truthy(&core_get(field, &CoreValue::from("is_internal"), core_get(field, &CoreValue::from("isInternal"), CoreValue::Null))))
+        .collect())
 }
 
 #[allow(dead_code)]
@@ -14603,13 +14649,54 @@ fn core_prompt_is_provided_value(value: &CoreValue) -> bool {
 
 #[allow(dead_code)]
 fn core_prompt_output_fields_section(signature: &CoreValue) -> Result<String, AxError> {
+    let output_fields = core_prompt_get_output_fields(signature)?;
     let fields = core_prompt_render_output_fields(
-        &core_prompt_get_output_fields(signature)?,
+        &output_fields,
         &core_prompt_field_name_to_title(signature)?,
     )?;
-    Ok(format!(
+    let mut output = format!(
         "**Output Fields**: You must generate the following fields:\n\n{fields}"
-    ))
+    );
+    if core_prompt_has_complex_fields(signature)? {
+        let mut shape = serde_json::Map::new();
+        for field in output_fields {
+            let name = core_get(&field, &CoreValue::from("name"), CoreValue::Null).text();
+            let field_type = core_get(&field, &CoreValue::from("type"), CoreValue::Null);
+            shape.insert(name, core_prompt_output_type_placeholder(&field_type));
+        }
+        output.push_str(&format!("\n\n**Exact JSON shape**: {BT}{}{BT}", serde_json::to_string(&Value::Object(shape)).map_err(|err| AxError::runtime(err.to_string()))?));
+    }
+    Ok(output)
+}
+
+fn core_prompt_output_type_placeholder(field_type: &CoreValue) -> Value {
+    let name = core_get(field_type, &CoreValue::from("name"), CoreValue::Null).text();
+    let mut value = match name.as_str() {
+        "number" => json!(0),
+        "boolean" => json!(true),
+        "object" | "json" => {
+            let mut object = serde_json::Map::new();
+            let fields = core_get(field_type, &CoreValue::from("fields"), CoreValue::Null);
+            if let CoreValue::Map(map) = fields {
+                for (key, nested) in map.borrow().entries.clone() {
+                    if core_truthy(&core_get(&nested, &CoreValue::from("is_internal"), core_get(&nested, &CoreValue::from("isInternal"), CoreValue::Null))) { continue; }
+                    let nested_type = if matches!(&nested, CoreValue::Map(item) if item.borrow().contains("type")) { core_get(&nested, &CoreValue::from("type"), CoreValue::Null) } else { nested };
+                    object.insert(key, core_prompt_output_type_placeholder(&nested_type));
+                }
+            }
+            Value::Object(object)
+        }
+        "class" => core_value_to_json(&core_get(&core_get(field_type, &CoreValue::from("options"), CoreValue::Null), &CoreValue::Num(0.0), CoreValue::from("<allowed value>"))),
+        "code" => json!("<complete source>"),
+        "date" => json!("<YYYY-MM-DD>"),
+        "datetime" => json!("<ISO 8601 datetime>"),
+        "dateRange" => json!({"start":"<YYYY-MM-DD>","end":"<YYYY-MM-DD>"}),
+        "datetimeRange" => json!({"start":"<ISO 8601 datetime>","end":"<ISO 8601 datetime>"}),
+        "url" => json!("<url>"),
+        _ => json!("<string>"),
+    };
+    if core_truthy(&core_get(field_type, &CoreValue::from("is_array"), core_get(field_type, &CoreValue::from("isArray"), CoreValue::Null))) { value = Value::Array(vec![value]); }
+    value
 }
 
 #[allow(dead_code)]
@@ -14740,21 +14827,32 @@ fn core_prompt_render_output_fields(fields: &[CoreValue], field_map: &[(String, 
             description.push_str(&format!("Allowed values: {joined}"));
         }
         let title = core_get(field, &CoreValue::from("title"), CoreValue::Null).text();
-        rows.push(format!("{title}: ({required}){description}").trim().to_string());
+        let name = core_get(field, &CoreValue::from("name"), CoreValue::Null).text();
+        rows.push(format!("{title} (wire key: {BT}{name}{BT}): ({required}){description}").trim().to_string());
     }
     Ok(rows.join("\n"))
 }
 
 #[allow(dead_code)]
-fn core_prompt_task_definition_section(signature: &CoreValue) -> Result<String, AxError> {
+fn core_prompt_task_definition_section(signature: &CoreValue, options: &CoreValue) -> Result<String, AxError> {
+    let instruction_value = core_get(options, &CoreValue::from("instruction"), CoreValue::from(""));
+    let instruction = if instruction_value.is_null() { String::new() } else { instruction_value.text().trim().to_string() };
     let desc = core_prompt_get_description(signature);
-    if !core_truthy(&desc) {
-        return Ok(String::new());
+    let description = if desc.is_null() { String::new() } else { desc.text().trim().to_string() };
+    let mut parts: Vec<String> = Vec::new();
+    if !instruction.is_empty() {
+        parts.push(core_prompt_format_field_references(
+            &core_prompt_format_description(&CoreValue::from(instruction.as_str())),
+            &core_prompt_field_name_to_title(signature)?,
+        ));
     }
-    Ok(core_prompt_format_field_references(
-        &core_prompt_format_description(&desc),
-        &core_prompt_field_name_to_title(signature)?,
-    ))
+    if !description.is_empty() && description != instruction {
+        parts.push(core_prompt_format_field_references(
+            &core_prompt_format_description(&CoreValue::from(description.as_str())),
+            &core_prompt_field_name_to_title(signature)?,
+        ));
+    }
+    Ok(parts.join("\n\n"))
 }
 
 #[allow(dead_code)]
@@ -14794,7 +14892,8 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         options = CoreValue::new_map();
     }
     let has_complex_fields = core_prompt_has_complex_fields(&signature)?;
-    let task_definition = core_prompt_task_definition_section(&signature)?;
+    let output_fields = core_prompt_get_output_fields(&signature)?;
+    let task_definition = core_prompt_task_definition_section(&signature, &options)?;
     let funcs = core_prompt_function_descriptors(&functions)?;
     let has_examples_default = core_get(
         &options,
@@ -14826,7 +14925,7 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(
         &template_vars,
         CoreValue::from("hasOutputFields"),
-        CoreValue::Bool(!has_complex_fields),
+        CoreValue::Bool(!output_fields.is_empty()),
     )?;
     core_set(
         &template_vars,
@@ -14865,11 +14964,7 @@ fn core_prompt_structured(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(
         &template_vars,
         CoreValue::from("outputFieldsSection"),
-        if !has_complex_fields {
-            CoreValue::from_string(core_prompt_output_fields_section(&signature)?)
-        } else {
-            CoreValue::from("")
-        },
+        CoreValue::from_string(core_prompt_output_fields_section(&signature)?),
     )?;
     core_set(
         &template_vars,
@@ -14943,6 +15038,10 @@ fn core_json_parse(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let parsed: Value = serde_json::from_str(&text)
         .map_err(|err| AxError::runtime(format!("json parse error: {err}")))?;
     Ok(core_value_from_json(&parsed))
+}
+
+fn core_json_parse_strict(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    core_json_parse(args)
 }
 
 fn core_json_stringify(args: &[CoreValue]) -> Result<CoreValue, AxError> {
@@ -15475,6 +15574,21 @@ pub(crate) fn core_ai_complete_once(args: &[CoreValue]) -> Result<CoreValue, AxE
         core_value_to_json(&options),
     )?;
     chat_response_to_completion(&[core_value_from_json(&response)])
+}
+
+#[allow(dead_code)]
+pub(crate) fn core_ai_client_features(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    let model = core_arg(args, 1);
+    let top = CORE_CLIENT_STACK.with(|stack| stack.borrow().last().copied());
+    let Some(ptr) = top else {
+        return Ok(core_value_from_json(&json!({
+            "functions": true,
+            "structured_outputs": true
+        })));
+    };
+    let client = unsafe { &mut *ptr };
+    let features = client("features", core_value_to_json(&model), Value::Null)?;
+    Ok(core_value_from_json(&features))
 }
 
 // Backs intrinsic.agent.transcribe. Rust scopes the client as a chat/transcribe dispatch
@@ -16436,6 +16550,14 @@ fn core_axgen_record_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> 
                 CoreValue::new_list(),
             ),
         ),
+        (
+            "providerMetadata",
+            core_get(
+                &request,
+                &CoreValue::from("provider_metadata"),
+                CoreValue::new_map(),
+            ),
+        ),
         ("response", response.clone()),
         (
             "remote_id",
@@ -16639,6 +16761,18 @@ fn core_tool_args_fields(args: &Map<String, Value>) -> Result<CoreValue, AxError
 struct RawScopedClient(*mut dyn FnMut(&str, Value, Value) -> AxResult<Value>);
 
 impl AxAIClient for RawScopedClient {
+    fn get_features(&self, model: Option<&str>) -> Value {
+        // Preserve the outer provider's capability map when an Agent stage
+        // wraps the scoped client in its own AxGen forward call.
+        let call = unsafe { &mut *self.0 };
+        call(
+            "features",
+            model.map(Value::from).unwrap_or(Value::Null),
+            Value::Null,
+        )
+        .unwrap_or_else(|_| json!({"functions": true, "structured_outputs": true}))
+    }
+
     fn chat(&mut self, request: Value) -> AxResult<Value> {
         // SAFETY: the pointer was captured from the client stack inside the
         // enclosing with_core_client scope, which outlives this call.

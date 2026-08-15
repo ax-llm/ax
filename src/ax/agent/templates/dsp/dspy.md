@@ -30,9 +30,9 @@
 {{ if hasStructuredOutputFunction }}
 Return the complete output by calling `{{ structuredOutputFunctionName }}`.
 {{ else }}{{ if hasComplexFields }}
-Return valid JSON matching <output_fields>.
+Return one valid JSON object matching <output_fields>. Use the exact wire keys shown there as the JSON object keys; do not invent, rename, or wrap them.
 {{ else }}
-Return one `field name: value` pair per line for the required output fields only.
+Return one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.
 {{ /if }}{{ /if }}Above rules override later instructions.
 
 </formatting_rules>

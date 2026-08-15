@@ -3502,31 +3502,31 @@ func TestRLMStagesSymmetric(t *testing.T) {
 	}
 }
 
-// TestCodeStageUsesStructuredOutput guards the second half of the live-model fix:
-// a code-emitting stage (RLM distiller/executor, `-> {}:code`) must request a strict
-// json_schema response_format that forces the output field name, NOT a generic
-// json_object. With json_object a live model picks its own keys and answers directly
-// (e.g. {"answer":"Paris"}) instead of emitting the javascriptCode field, so the stage
-// throws "Required field is missing: 'Javascript Code'". The behavioral guard is the
-// agent-runtime-real-javascript-await fixture (asserts json_schema+javascriptCode in the
-// request across all five engines); this is the fast-lane structural backstop.
-func TestCodeStageUsesStructuredOutput(t *testing.T) {
+// TestStructuredOutputCapabilityAndShapeMatrix is the fast structural backstop
+// for the behavioral AxGen fixtures. Code is a parsing type, not an unconditional
+// schema switch: provider capability and the complete visible output shape choose
+// native schema, singleton JSON object, synthetic function, or validated JSON object.
+func TestStructuredOutputCapabilityAndShapeMatrix(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(repoRootPath(), "ir", "axcore", "gen.axir"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if !strings.Contains(text, `intrinsic.eq(%of_type_name, "code")`) {
-		t.Fatal("@build_gen_chat_request no longer detects a code-type output field; code stages will fall back to generic json_object and a live model will answer directly instead of emitting code")
-	}
-	if !strings.Contains(text, `@schema_to_json_schema_impl(`) {
-		t.Fatal("@build_gen_chat_request does not build a json_schema from the output fields for code stages")
-	}
-	if !strings.Contains(text, "strictStructuredOutputs") {
-		t.Fatal("code-stage json_schema is not strict; without strict mode the output field name is not forced")
-	}
-	if !strings.Contains(text, `"json_schema"`) {
-		t.Fatal("@build_gen_chat_request never sets a json_schema response_format")
+	for _, want := range []string{
+		"@select_structured_output_rung",
+		`intrinsic.eq(%field_type_name, "string")`,
+		`intrinsic.eq(%field_type_name, "code")`,
+		`core.set %selection["rung"] = "native"`,
+		`core.set %selection["rung"] = "function"`,
+		`core.set %selection["rung"] = "json_object"`,
+		`core.set %synthetic["name"] = "__axOutput"`,
+		`intrinsic.eq(%name, "__finalResult")`,
+		`core.set %response_format["type"] = "json_schema"`,
+		`core.set %response_format["type"] = "json_object"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("structured-output capability/shape matrix is missing %q", want)
+		}
 	}
 }
 

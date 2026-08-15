@@ -164,6 +164,7 @@ struct Core {
   static Value regex_replace(Value pattern, Value repl, Value value);
   static Value sorted_strings(Value values);
   static Value json_parse(Value value);
+  static Value json_parse_strict(Value value);
   static Value json_stringify(Value value);
   static Value json_stable_stringify(Value value);
   static Value json_pretty(Value value);
@@ -188,6 +189,7 @@ struct Core {
   static Value program_components(Value program);
   static Value program_apply_components(Value program, Value component_map);
   static Value ai_complete_once(Value client, Value request, Value options);
+  static Value ai_client_features(Value client, Value model);
   static Value retry_sleep(Value attempt);
   static Value tool_invoke(Value fn, Value params);
   static Value legacy_response_to_chat_response(Value raw);
