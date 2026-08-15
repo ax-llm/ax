@@ -1029,6 +1029,29 @@
       "verification": "Implemented Gemini 3.7 Flash in AxIR Gemini request mapping and conformance; regenerated Python, Java, C++, Go, and Rust packages. Verified with 310 TypeScript Gemini/catalog tests, Python AxAI conformance, Java/C++ generated compilation, axir:conformance:check, and axir:check-packages."
     },
     {
+      "id": "axir-2026-08-15-mark-deepseek-native-structured-outputs-unsupported",
+      "status": "open",
+      "title": "Mark DeepSeek native structured outputs unsupported",
+      "createdAt": "2026-08-15",
+      "sourcePR": null,
+      "sourceCommit": "3a80c93e16e0a499c971bcb58f976d73e7799da3",
+      "tsPaths": [
+        "src/ax/ai/deepseek/info.ts",
+        "src/ax/ai/deepseek/api.ts",
+        "src/ax/ai/deepseek/responses_api.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "DeepSeek Chat and Responses models reject json_schema response formats, but the Responses adapter currently defaults missing structuredOutputs metadata to true. AxGen therefore sends native schema requests instead of its existing __finalResult function-call fallback, blocking complex agent outputs.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-08-07-port-parallel-tool-call-accumulation-for-the-openai-responses-ap",
       "status": "open",
       "title": "Port parallel tool-call accumulation for the OpenAI Responses API",

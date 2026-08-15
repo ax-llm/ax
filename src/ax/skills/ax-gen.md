@@ -335,6 +335,8 @@ const sig = f()
 Rules:
 
 - `.useStructured()` asks providers with native support, including OpenAI, Anthropic, and Gemini, for schema-constrained JSON.
+- When `structuredOutputMode` is `auto` (the default) and the selected model does not support native structured outputs, Ax sends a synthetic `__finalResult` function with the output schema and parses its arguments. This preserves structured extraction without sending an unsupported `json_schema` request.
+- Use `structuredOutputMode: 'native'` to require native schema enforcement; Ax reports an error instead of silently weakening that requirement.
 - Native structured-output schemas list every object property in `required`, set `additionalProperties: false` on objects, and express optional fields as nullable types.
 - Flexible `json` fields and unshaped `object` fields are sent as JSON-encoded strings for native structured outputs, then parsed back into normal JavaScript values.
 

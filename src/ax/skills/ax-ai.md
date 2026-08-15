@@ -261,7 +261,9 @@ by default to preserve non-thinking behavior, and enables it when
 effort and maps `highest` to `max`. DeepSeek V4 thinking models support tools,
 but reject the `tool_choice` request parameter, so Ax omits forced/auto tool
 choice for `deepseek-v4-pro`, `deepseek-v4-flash`, and `deepseek-reasoner`
-while still sending tool definitions.
+while still sending tool definitions. DeepSeek does not support native JSON
+schema structured outputs; Ax automatically uses the `__finalResult` function
+fallback for complex signatures.
 
 ## Extended Thinking
 

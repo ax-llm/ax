@@ -122,6 +122,7 @@ export const axAIDeepSeekCodeConfig = (): DeepSeekConfig =>
 const axAIDeepSeekSupportFor = (model: AxAIDeepSeekModel): AxAIFeatures => ({
   functions: true,
   streaming: true,
+  structuredOutputs: false,
   hasThinkingBudget: axAIDeepSeekSupportsThinking(model),
   hasShowThoughts: axAIDeepSeekSupportsThinking(model),
   media: {

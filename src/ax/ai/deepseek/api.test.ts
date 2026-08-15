@@ -148,6 +148,7 @@ describe('AxAIDeepSeek model defaults', () => {
     expect(ai.getFeatures(AxAIDeepSeekModel.DeepSeekV4Flash)).toMatchObject({
       hasThinkingBudget: true,
       hasShowThoughts: true,
+      structuredOutputs: false,
       thinking: true,
     });
     expect(ai.getFeatures(AxAIDeepSeekModel.DeepSeekChat)).toMatchObject({

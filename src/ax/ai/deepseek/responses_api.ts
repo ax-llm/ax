@@ -33,7 +33,7 @@ const axAIDeepSeekResponsesSupportFor = (
     streaming: true,
     hasThinkingBudget: info?.supported?.thinkingBudget ?? true,
     hasShowThoughts: info?.supported?.showThoughts ?? true,
-    structuredOutputs: info?.supported?.structuredOutputs ?? true,
+    structuredOutputs: info?.supported?.structuredOutputs ?? false,
     media: {
       images: { supported: false, formats: [] },
       audio: {

@@ -18,6 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-08-15-mark-deepseek-native-structured-outputs-unsupported` [axai] Mark DeepSeek native structured outputs unsupported
+  - Status: open
+  - Source commit: `3a80c93e16e0a499c971bcb58f976d73e7799da3`
+  - TS paths: `src/ax/ai/deepseek/info.ts`, `src/ax/ai/deepseek/api.ts`, `src/ax/ai/deepseek/responses_api.ts`
+  - Impact: DeepSeek Chat and Responses models reject json_schema response formats, but the Responses adapter currently defaults missing structuredOutputs metadata to true. AxGen therefore sends native schema requests instead of its existing __finalResult function-call fallback, blocking complex agent outputs.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-08-07-port-parallel-tool-call-accumulation-for-the-openai-responses-ap` [axai] Port parallel tool-call accumulation for the OpenAI Responses API
   - Status: open
   - Source PR: #574

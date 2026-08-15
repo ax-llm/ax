@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { f } from '../../dsp/sig.js';
+import { ax } from '../../dsp/template.js';
 import { AxAIDeepSeekResponses } from './responses_api.js';
 import { AxAIDeepSeekModel } from './types.js';
 
@@ -32,6 +34,75 @@ const responseWithToolCall = {
 };
 
 describe('DeepSeek Responses compatibility', () => {
+  it('advertises native structured outputs as unsupported', () => {
+    const ai = new AxAIDeepSeekResponses({ apiKey: 'key' });
+
+    expect(
+      ai.getFeatures(AxAIDeepSeekModel.DeepSeekV4Flash).structuredOutputs
+    ).toBe(false);
+  });
+
+  it('uses AxGen function fallback instead of schema response format', async () => {
+    const sig = f()
+      .input('question', f.string())
+      .output(
+        'user',
+        f.object({
+          name: f.string(),
+          age: f.number(),
+        })
+      )
+      .build();
+    const gen = ax(sig);
+    const ai = new AxAIDeepSeekResponses({
+      apiKey: 'key',
+      config: { model: AxAIDeepSeekModel.DeepSeekV4Flash, stream: false },
+    });
+    const capture: { body?: Record<string, any> } = {};
+
+    ai.setOptions({
+      fetch: vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+        capture.body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            id: 'resp-structured-fallback',
+            object: 'response',
+            created: 0,
+            model: AxAIDeepSeekModel.DeepSeekV4Flash,
+            output: [
+              {
+                type: 'function_call',
+                id: 'item-final',
+                call_id: 'call-final',
+                name: '__finalResult',
+                arguments: JSON.stringify({
+                  user: { name: 'Alice', age: 30 },
+                }),
+                status: 'completed',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }),
+    });
+
+    const result = await gen.forward(
+      ai,
+      { question: 'Who is Alice?' },
+      { stream: false, maxRetries: 0 }
+    );
+
+    expect(result.user).toEqual({ name: 'Alice', age: 30 });
+    expect(capture.body?.text).toBeUndefined();
+    expect(capture.body?.response_format).toBeUndefined();
+    expect(capture.body?.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: '__finalResult' }),
+      ])
+    );
+  });
+
   it('uses /responses and replays plain-text reasoning before tool items', async () => {
     const capture: { body?: Record<string, any>; url?: string } = {};
     const ai = new AxAIDeepSeekResponses({

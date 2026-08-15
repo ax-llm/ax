@@ -15,7 +15,11 @@ export const axModelInfoDeepSeek: AxModelInfo[] = [
     cacheReadTokenCostPer1M: 0.0028,
     contextWindow: 1_000_000,
     maxTokens: 384_000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: false,
+    },
   },
   {
     name: AxAIDeepSeekModel.DeepSeekV4Pro,
@@ -25,6 +29,10 @@ export const axModelInfoDeepSeek: AxModelInfo[] = [
     cacheReadTokenCostPer1M: 0.003625,
     contextWindow: 1_000_000,
     maxTokens: 384_000,
-    supported: { thinkingBudget: true, showThoughts: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: false,
+    },
   },
 ];
