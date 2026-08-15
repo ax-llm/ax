@@ -1107,6 +1107,7 @@
             "provider": "deepseek",
             "supported": {
               "showThoughts": true,
+              "structuredOutputs": false,
               "thinkingBudget": true
             },
             "type": "text"
@@ -1132,6 +1133,7 @@
             "provider": "deepseek",
             "supported": {
               "showThoughts": true,
+              "structuredOutputs": false,
               "thinkingBudget": true
             },
             "type": "text"
@@ -1166,6 +1168,7 @@
             "provider": "deepseek-responses",
             "supported": {
               "showThoughts": true,
+              "structuredOutputs": false,
               "thinkingBudget": true
             },
             "type": "text"
@@ -1191,6 +1194,7 @@
             "provider": "deepseek-responses",
             "supported": {
               "showThoughts": true,
+              "structuredOutputs": false,
               "thinkingBudget": true
             },
             "type": "text"

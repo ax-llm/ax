@@ -9,6 +9,7 @@
           "supported": false
         }
       },
+      "structured_outputs": false,
       "thinking": true
     },
     "id": "deepseek",

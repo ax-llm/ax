@@ -1939,6 +1939,7 @@ writeFixture('deepseek-provider-descriptor', {
       },
     },
     features: {
+      structured_outputs: false,
       thinking: true,
       media: { images: { supported: false } },
     },
@@ -2080,6 +2081,7 @@ writeFixture('deepseek-responses-provider-descriptor', {
       },
     },
     features: {
+      structured_outputs: false,
       thinking: true,
       media: { images: { supported: false } },
     },

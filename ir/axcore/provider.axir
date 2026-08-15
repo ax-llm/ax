@@ -2294,6 +2294,11 @@ module @ax.provider version "0.1" {
       %openai_family_descriptor = core.get %openai_family[%provider_id]
       %is_openai_family = core.call intrinsic.is_not_none(%openai_family_descriptor)
       core.if %is_openai_family {
+        %is_deepseek = core.call intrinsic.eq(%provider_id, "deepseek")
+        core.if %is_deepseek {
+          %deepseek_features = core.get %openai_family_descriptor["features"]
+          core.set %deepseek_features["structured_outputs"] = false
+        }
         %family_operations = core.get %openai_family_descriptor["operations"]
         %family_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
         %family_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
@@ -2318,6 +2323,8 @@ module @ax.provider version "0.1" {
       %is_deepseek_responses = core.call intrinsic.eq(%provider_id, "deepseek-responses")
       core.if %is_deepseek_responses {
         %deepseek_responses = core.call intrinsic.json.parse("{\"provider\":\"deepseek-responses\",\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"baseUrl\":\"https://api.deepseek.com\",\"auth\":\"bearer\",\"defaultModel\":\"deepseek-v4-flash\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}")
+        %deepseek_responses_features = core.get %deepseek_responses["features"]
+        core.set %deepseek_responses_features["structured_outputs"] = false
         core.return %deepseek_responses
       }
       %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
