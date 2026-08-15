@@ -1,5 +1,20 @@
 # Changelog
 
+## [23.0.14](https://github.com/ax-llm/ax/compare/23.0.12...23.0.13) (2026-08-15)
+
+### Bug Fixes
+
+* **axir:** mark DeepSeek structured outputs unsupported ([bdb08b7](https://github.com/ax-llm/ax/commit/bdb08b788f7b452f54681040e44652fdbc24e0b4))
+* **deepseek:** advertise unsupported structured outputs ([36dc421](https://github.com/ax-llm/ax/commit/36dc4218053864e0cfe2e9050860719b352c9c50))
+* **openai:** keep every parallel tool call from the Responses API ([#574](https://github.com/ax-llm/ax/issues/574)) ([3a80c93](https://github.com/ax-llm/ax/commit/3a80c93e16e0a499c971bcb58f976d73e7799da3))
+
+## [23.0.13](https://github.com/ax-llm/ax/compare/23.0.12...23.0.13) (2026-08-14)
+
+### Bug Fixes
+
+* port Gemini 3.7 Flash to AxIR ([8cbad4e](https://github.com/ax-llm/ax/commit/8cbad4e9c33543bbb441aed7628543de7bba97c8))
+* support DeepSeek reasoning tool loops ([431a56a](https://github.com/ax-llm/ax/commit/431a56a78d9a49e9a3ff77100a0d63f93ec835b5))
+
 ## [23.0.13](https://github.com/ax-llm/ax/compare/23.0.11...23.0.12) (2026-08-14)
 
 ### Bug Fixes
