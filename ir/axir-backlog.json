@@ -1034,7 +1034,7 @@
       "title": "Port parallel tool-call accumulation for the OpenAI Responses API",
       "createdAt": "2026-08-07",
       "sourcePR": 574,
-      "sourceCommit": "845b1ef2",
+      "sourceCommit": "d0b59380",
       "tsPaths": [
         "src/ax/ai/openai/responses_api.ts",
         "src/ax/ai/openai/responses_api.tool_calls.test.ts",

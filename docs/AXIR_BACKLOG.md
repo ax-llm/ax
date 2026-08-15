@@ -21,7 +21,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 - `axir-2026-08-07-port-parallel-tool-call-accumulation-for-the-openai-responses-ap` [axai] Port parallel tool-call accumulation for the OpenAI Responses API
   - Status: open
   - Source PR: #574
-  - Source commit: `845b1ef2`
+  - Source commit: `d0b59380`
   - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.tool_calls.test.ts`, `src/ax/ai/deepseek/responses_api.test.ts`
   - Impact: The non-streaming and streaming OpenAI Responses mappers must preserve every function_call and its call_id so parallel tools execute and their outputs correlate correctly.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
