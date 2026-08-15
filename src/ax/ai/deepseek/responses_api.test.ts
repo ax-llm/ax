@@ -105,7 +105,7 @@ describe('DeepSeek Responses compatibility', () => {
       thought: 'Use the warehouse tool.',
       functionCalls: [
         {
-          id: 'item-1',
+          id: 'call-1',
           function: { name: 'query', params: '{"region":"East"}' },
         },
       ],

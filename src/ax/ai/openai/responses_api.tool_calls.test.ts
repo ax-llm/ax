@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AxChatResponse } from '../types.js';
 import { AxAIOpenAIResponsesImpl } from './responses_api.js';
-import type { AxAIOpenAIResponsesResponse } from './responses_types.js';
+import type {
+  AxAIOpenAIResponsesResponse,
+  OpenAIResponsesResponseDelta,
+} from './responses_types.js';
 import { AxAIOpenAIResponsesModel } from './responses_types.js';
 
 const config = {
@@ -46,11 +49,11 @@ describe('OpenAI Responses parallel tool calls (non-streaming)', () => {
       'getWeather',
       'getTime',
     ]);
-    expect(functionCalls!.map((f) => f.id)).toEqual(['fc_1', 'fc_2']);
+    expect(functionCalls!.map((f) => f.id)).toEqual(['call_1', 'call_2']);
     expect(out.results[0]!.finishReason).toBe('function_call');
   });
 
-  it('still returns a single function_call unchanged', () => {
+  it('still returns a single function_call with its call_id', () => {
     const impl = new AxAIOpenAIResponsesImpl(config, true);
 
     const resp = {
@@ -72,7 +75,7 @@ describe('OpenAI Responses parallel tool calls (non-streaming)', () => {
 
     expect(out.results[0]!.functionCalls).toEqual([
       {
-        id: 'fc_1',
+        id: 'call_1',
         type: 'function',
         function: { name: 'getWeather', params: '{"city":"Paris"}' },
       },
@@ -109,5 +112,39 @@ describe('OpenAI Responses parallel tool calls (non-streaming)', () => {
     const functionCalls = out.results[0]!.functionCalls;
 
     expect(functionCalls!.map((f) => f.function.name)).toEqual(['getWeather']);
+  });
+});
+
+describe('OpenAI Responses function-call streaming', () => {
+  it('uses call_id consistently across the item and argument deltas', () => {
+    const impl = new AxAIOpenAIResponsesImpl(config, true);
+    const state = {};
+
+    const added = impl.createChatStreamResp(
+      {
+        type: 'response.output_item.added',
+        item: {
+          type: 'function_call',
+          id: 'fc_1',
+          call_id: 'call_1',
+          name: 'getWeather',
+          arguments: '',
+          status: 'in_progress',
+        },
+      } as unknown as OpenAIResponsesResponseDelta,
+      state
+    ) as AxChatResponse;
+
+    const delta = impl.createChatStreamResp(
+      {
+        type: 'response.function_call_arguments.delta',
+        item_id: 'fc_1',
+        delta: '{"city":"Paris"}',
+      } as unknown as OpenAIResponsesResponseDelta,
+      state
+    ) as AxChatResponse;
+
+    expect(added.results[0]!.functionCalls?.[0]!.id).toBe('call_1');
+    expect(delta.results[0]!.functionCalls?.[0]!.id).toBe('call_1');
   });
 });
