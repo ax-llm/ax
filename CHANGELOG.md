@@ -1,5 +1,20 @@
 # Changelog
 
+## [23.0.15](https://github.com/ax-llm/ax/compare/23.0.13...23.0.14) (2026-08-15)
+
+### Bug Fixes
+
+* **axir:** preserve structured output contracts ([73f1160](https://github.com/ax-llm/ax/commit/73f1160dfe467c3feda0feb1d15f3f411197a70e))
+* **mock:** preserve unknown structured output capability ([8836b6d](https://github.com/ax-llm/ax/commit/8836b6d48e335a170ea155f9426555fd99e2f8a3))
+
+## [23.0.14](https://github.com/ax-llm/ax/compare/23.0.13...23.0.14) (2026-08-15)
+
+### Bug Fixes
+
+* **axir:** mark DeepSeek structured outputs unsupported ([bdb08b7](https://github.com/ax-llm/ax/commit/bdb08b788f7b452f54681040e44652fdbc24e0b4))
+* **deepseek:** advertise unsupported structured outputs ([36dc421](https://github.com/ax-llm/ax/commit/36dc4218053864e0cfe2e9050860719b352c9c50))
+* **openai:** keep every parallel tool call from the Responses API ([#574](https://github.com/ax-llm/ax/issues/574)) ([3a80c93](https://github.com/ax-llm/ax/commit/3a80c93e16e0a499c971bcb58f976d73e7799da3))
+
 ## [23.0.14](https://github.com/ax-llm/ax/compare/23.0.12...23.0.13) (2026-08-15)
 
 ### Bug Fixes
