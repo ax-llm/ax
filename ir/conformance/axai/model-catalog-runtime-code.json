@@ -360,6 +360,13 @@
         "name": "deepseek"
       },
       {
+        "defaultModel": "deepseek-v4-flash",
+        "displayName": "DeepSeek Responses",
+        "isDynamic": false,
+        "models": [],
+        "name": "deepseek-responses"
+      },
+      {
         "defaultModel": "reka-core",
         "displayName": "Reka",
         "isDynamic": false,
@@ -384,7 +391,7 @@
     "modelCount": 12,
     "openaiFirstModel": "gpt-5.1-codex-mini",
     "openaiModelTypes": ["code"],
-    "providerCount": 11,
+    "providerCount": 12,
     "providerNames": [
       "mistral",
       "openai",
@@ -394,6 +401,7 @@
       "google-gemini",
       "cohere",
       "deepseek",
+      "deepseek-responses",
       "reka",
       "grok",
       "webllm"

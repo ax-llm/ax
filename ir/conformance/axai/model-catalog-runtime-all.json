@@ -594,6 +594,38 @@
               "audioOutput": false,
               "showThoughts": true,
               "structuredOutputs": true,
+              "temperature": false,
+              "thinkingBudget": true,
+              "topP": false
+            },
+            "characterIsToken": false,
+            "completionTokenCostPer1M": 7.5,
+            "contextWindow": 1048576,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 65536,
+            "name": "gemini-3.7-flash",
+            "notSupported": {
+              "temperature": true,
+              "topP": true
+            },
+            "promptTokenCostPer1M": 1.5,
+            "provider": "google-gemini",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.15,
+            "cacheWriteTokenCostPer1M": 1.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
               "temperature": true,
               "thinkingBudget": true,
               "topP": true
@@ -1801,9 +1833,7 @@
             "type": "text"
           },
           {
-            "aliases": [
-              "gpt-5.6"
-            ],
+            "aliases": ["gpt-5.6"],
             "cacheReadTokenCostPer1M": 0.5,
             "cacheWriteTokenCostPer1M": 6.25,
             "capabilities": {
@@ -2427,10 +2457,7 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": [
-              "deepseek-chat",
-              "deepseek-reasoner"
-            ],
+            "aliases": ["deepseek-chat", "deepseek-reasoner"],
             "cacheReadTokenCostPer1M": 0.0028,
             "capabilities": {
               "audioInput": false,
@@ -2482,6 +2509,65 @@
           }
         ],
         "name": "deepseek"
+      },
+      {
+        "defaultModel": "deepseek-v4-flash",
+        "displayName": "DeepSeek Responses",
+        "isDynamic": false,
+        "models": [
+          {
+            "aliases": ["deepseek-chat", "deepseek-reasoner"],
+            "cacheReadTokenCostPer1M": 0.0028,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.28,
+            "contextWindow": 1000000,
+            "currency": "USD",
+            "isDefault": true,
+            "maxTokens": 384000,
+            "name": "deepseek-v4-flash",
+            "promptTokenCostPer1M": 0.14,
+            "provider": "deepseek-responses",
+            "supported": {
+              "showThoughts": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.003625,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": false,
+              "temperature": true,
+              "thinkingBudget": true,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 0.87,
+            "contextWindow": 1000000,
+            "currency": "USD",
+            "isDefault": false,
+            "maxTokens": 384000,
+            "name": "deepseek-v4-pro",
+            "promptTokenCostPer1M": 0.435,
+            "provider": "deepseek-responses",
+            "supported": {
+              "showThoughts": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          }
+        ],
+        "name": "deepseek-responses"
       },
       {
         "defaultEmbedModel": "text-embedding-ada-002",
@@ -3265,9 +3351,7 @@
             "type": "text"
           },
           {
-            "aliases": [
-              "gpt-5.6"
-            ],
+            "aliases": ["gpt-5.6"],
             "cacheReadTokenCostPer1M": 0.5,
             "cacheWriteTokenCostPer1M": 6.25,
             "capabilities": {
@@ -3507,9 +3591,7 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": [
-              "grok-4-1-fast-non-reasoning-latest"
-            ],
+            "aliases": ["grok-4-1-fast-non-reasoning-latest"],
             "cacheReadTokenCostPer1M": 0.05,
             "capabilities": {
               "audioInput": false,
@@ -3533,9 +3615,7 @@
             "type": "text"
           },
           {
-            "aliases": [
-              "grok-4-1-fast-reasoning-latest"
-            ],
+            "aliases": ["grok-4-1-fast-reasoning-latest"],
             "cacheReadTokenCostPer1M": 0.05,
             "capabilities": {
               "audioInput": false,
@@ -3663,10 +3743,7 @@
             "type": "text"
           },
           {
-            "aliases": [
-              "grok-4.3-latest",
-              "grok-latest"
-            ],
+            "aliases": ["grok-4.3-latest", "grok-latest"],
             "cacheReadTokenCostPer1M": 0.2,
             "capabilities": {
               "audioInput": false,
@@ -4003,6 +4080,60 @@
             "type": "text"
           },
           {
+            "cacheReadTokenCostPer1M": 0.2,
+            "cacheWriteTokenCostPer1M": 2.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 10,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-sonnet-5",
+            "promptTokenCostPer1M": 2,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
+            "cacheReadTokenCostPer1M": 0.2,
+            "cacheWriteTokenCostPer1M": 2.5,
+            "capabilities": {
+              "audioInput": false,
+              "audioOutput": false,
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "temperature": true,
+              "thinkingBudget": true,
+              "topP": true
+            },
+            "completionTokenCostPer1M": 10,
+            "contextWindow": 1000000,
+            "currency": "usd",
+            "isDefault": false,
+            "maxTokens": 128000,
+            "name": "claude-sonnet-5",
+            "promptTokenCostPer1M": 2,
+            "provider": "anthropic",
+            "supported": {
+              "showThoughts": true,
+              "structuredOutputs": true,
+              "thinkingBudget": true
+            },
+            "type": "text"
+          },
+          {
             "cacheReadTokenCostPer1M": 0.3,
             "cacheWriteTokenCostPer1M": 3.75,
             "capabilities": {
@@ -4299,60 +4430,6 @@
             "isDefault": false,
             "maxTokens": 64000,
             "name": "claude-sonnet-4@20250514",
-            "promptTokenCostPer1M": 3,
-            "provider": "anthropic",
-            "supported": {
-              "showThoughts": true,
-              "structuredOutputs": true,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          },
-          {
-            "cacheReadTokenCostPer1M": 0.3,
-            "cacheWriteTokenCostPer1M": 3.75,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "showThoughts": true,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": true,
-              "topP": true
-            },
-            "completionTokenCostPer1M": 15,
-            "contextWindow": 1000000,
-            "currency": "usd",
-            "isDefault": false,
-            "maxTokens": 128000,
-            "name": "claude-sonnet-5",
-            "promptTokenCostPer1M": 3,
-            "provider": "anthropic",
-            "supported": {
-              "showThoughts": true,
-              "structuredOutputs": true,
-              "thinkingBudget": true
-            },
-            "type": "text"
-          },
-          {
-            "cacheReadTokenCostPer1M": 0.3,
-            "cacheWriteTokenCostPer1M": 3.75,
-            "capabilities": {
-              "audioInput": false,
-              "audioOutput": false,
-              "showThoughts": true,
-              "structuredOutputs": true,
-              "temperature": true,
-              "thinkingBudget": true,
-              "topP": true
-            },
-            "completionTokenCostPer1M": 15,
-            "contextWindow": 1000000,
-            "currency": "usd",
-            "isDefault": false,
-            "maxTokens": 128000,
-            "name": "claude-sonnet-5",
             "promptTokenCostPer1M": 3,
             "provider": "anthropic",
             "supported": {
@@ -4769,15 +4846,10 @@
         "name": "azure-openai"
       }
     ],
-    "modelCount": 197,
+    "modelCount": 200,
     "openaiFirstModel": "text-embedding-3-small",
-    "openaiModelTypes": [
-      "audio",
-      "code",
-      "embeddings",
-      "text"
-    ],
-    "providerCount": 11,
+    "openaiModelTypes": ["audio", "code", "embeddings", "text"],
+    "providerCount": 12,
     "providerNames": [
       "google-gemini",
       "webllm",
@@ -4785,6 +4857,7 @@
       "cohere",
       "mistral",
       "deepseek",
+      "deepseek-responses",
       "openai-responses",
       "grok",
       "reka",

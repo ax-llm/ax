@@ -30,12 +30,6 @@ import type {
   AxTranscriptionResponse,
 } from '../types.js';
 import {
-  axApplyOpenAIPromptCacheBreakpoints,
-  axIsOpenAIPromptCachingEnabled,
-  axResolveOpenAIPromptCacheKey,
-} from './caching.js';
-import { axIsGPT56Family } from './model_family.js';
-import {
   axAIOpenAIAudioDefaultConfig,
   axApplyOpenAIChatAudioRequest,
   axIsOpenAIChatAudioModel,
@@ -43,6 +37,11 @@ import {
   axMapOpenAIChatAudioResponse,
   axMapOpenAIInputAudioPart,
 } from './audio.js';
+import {
+  axApplyOpenAIPromptCacheBreakpoints,
+  axIsOpenAIPromptCachingEnabled,
+  axResolveOpenAIPromptCacheKey,
+} from './caching.js';
 import {
   type AxAIOpenAIChatRequest,
   type AxAIOpenAIChatResponse,
@@ -55,6 +54,7 @@ import {
 } from './chat_types.js';
 import { axResolveOpenAIChatReasoningEffort } from './effort.js';
 import { axModelInfoOpenAI } from './info.js';
+import { axIsGPT56Family } from './model_family.js';
 import {
   axAIOpenAIRealtimeDefaultConfig,
   axAIOpenAIRealtimeTranscriptionDefaultConfig,
@@ -556,6 +556,9 @@ class AxAIOpenAIImpl<
         content: choice.message.content ?? audio?.transcript ?? undefined,
         audio,
         thought: choice.message.reasoning_content,
+        thoughtBlocks: choice.message.reasoning_content
+          ? [{ data: choice.message.reasoning_content, encrypted: false }]
+          : undefined,
         citations: choice.message.annotations
           ?.filter((a) => a?.type === 'url_citation' && (a as any).url_citation)
           .map((a) => ({
@@ -640,6 +643,9 @@ class AxAIOpenAIImpl<
           role,
           audio,
           thought,
+          thoughtBlocks: thought
+            ? [{ data: thought, encrypted: false }]
+            : undefined,
           citations: annotations
             ?.filter(
               (a) => a?.type === 'url_citation' && (a as any).url_citation
@@ -734,6 +740,8 @@ function createMessages<TModel>(
       }
 
       case 'assistant': {
+        const reasoningContent =
+          msg.thought ?? msg.thoughtBlocks?.map((block) => block.data).join('');
         const toolCalls = msg.functionCalls?.map((v) => ({
           id: v.id,
           type: 'function' as const,
@@ -750,12 +758,15 @@ function createMessages<TModel>(
           return {
             role: 'assistant' as const,
             ...(msg.content ? { content: msg.content } : {}),
+            ...(reasoningContent
+              ? { reasoning_content: reasoningContent }
+              : {}),
             name: msg.name,
             tool_calls: toolCalls,
           };
         }
 
-        if (msg.content === undefined && !msg.audio) {
+        if (msg.content === undefined && !msg.audio && !reasoningContent) {
           throw new Error(
             'Assistant content is required when no tool calls are provided'
           );
@@ -764,6 +775,7 @@ function createMessages<TModel>(
         return {
           role: 'assistant' as const,
           ...(msg.content !== undefined ? { content: msg.content } : {}),
+          ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
           ...(msg.audio ? { audio: { id: msg.audio.id } } : {}),
           ...(msg.name ? { name: msg.name } : {}),
         };

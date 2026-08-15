@@ -23,11 +23,13 @@ const isGemini3Pro = (model: string): boolean =>
   model.includes('gemini-3') && model.includes('pro');
 
 /**
- * Gemini 3.6 Flash and 3.5 Flash-Lite use server-managed sampling and ignore
- * temperature, topP, and topK.
+ * Gemini 3.7 Flash, 3.6 Flash, and 3.5 Flash-Lite use server-managed
+ * sampling and ignore temperature, topP, and topK.
  */
 const usesServerManagedSampling = (model: string): boolean =>
-  model === 'gemini-3.6-flash' || model === 'gemini-3.5-flash-lite';
+  model === 'gemini-3.7-flash' ||
+  model === 'gemini-3.6-flash' ||
+  model === 'gemini-3.5-flash-lite';
 
 import type {
   AxAIInputModelList,

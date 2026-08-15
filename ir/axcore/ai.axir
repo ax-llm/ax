@@ -10,7 +10,7 @@ module @ax.ai version "0.1" {
   op ax.ai.record @ChatMessage {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "role:string,content:json,name?:string,toolCalls?:list<json>"
+    type fields = "role:string,content:json,name?:string,toolCalls?:list<json>,thought?:string,thoughtBlocks?:list<json>"
   }
 
   op ax.ai.record @AxChatRequest {
@@ -172,10 +172,15 @@ module @ax.ai version "0.1" {
           core.raise %error
         }
         %content = core.get %message["content"]
-        %function_calls = core.get %message["function_calls"]
+        %empty_function_calls = core.list
+        %function_calls_snake = core.get %message["function_calls"] default %empty_function_calls
+        %function_calls = core.get %message["functionCalls"] default %function_calls_snake
+        %thought = core.get %message["thought"]
         %has_content = core.call intrinsic.truthy(%content)
         %has_calls = core.call intrinsic.truthy(%function_calls)
+        %has_thought = core.call intrinsic.truthy(%thought)
         %has_assistant_payload = core.call intrinsic.or(%has_content, %has_calls)
+        %has_assistant_payload = core.call intrinsic.or(%has_assistant_payload, %has_thought)
         %missing_assistant_payload = core.call intrinsic.not(%has_assistant_payload)
         %bad_assistant = core.call intrinsic.and(%is_assistant, %missing_assistant_payload)
         core.if %bad_assistant {

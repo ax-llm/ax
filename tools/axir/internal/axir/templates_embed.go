@@ -223,6 +223,9 @@ var javaCore string
 //go:embed templates/java/javaDeepSeek.java
 var javaDeepSeek string
 
+//go:embed templates/java/javaDeepSeekResponses.java
+var javaDeepSeekResponses string
+
 //go:embed templates/java/javaField.java
 var javaField string
 

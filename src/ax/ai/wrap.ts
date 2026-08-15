@@ -10,6 +10,10 @@ import type { AxAIFeatures } from './base.js';
 import { AxAICohere, type AxAICohereArgs } from './cohere/api.js';
 import type { AxAICohereEmbedModel, AxAICohereModel } from './cohere/types.js';
 import { AxAIDeepSeek, type AxAIDeepSeekArgs } from './deepseek/api.js';
+import {
+  AxAIDeepSeekResponses,
+  type AxAIDeepSeekResponsesArgs,
+} from './deepseek/responses_api.js';
 import type { AxAIDeepSeekModel } from './deepseek/types.js';
 import {
   AxAIGoogleGemini,
@@ -69,6 +73,7 @@ export type AxAIArgs<TModelKey> =
   | AxAICohereArgs<TModelKey>
   | AxAIMistralArgs<TModelKey>
   | AxAIDeepSeekArgs<TModelKey>
+  | AxAIDeepSeekResponsesArgs<TModelKey>
   | AxAIRekaArgs<TModelKey>
   // axir-nonportable:start webllm
   | AxAIWebLLMArgs<TModelKey>
@@ -121,6 +126,7 @@ type InferTModelKey<T> = T extends { models: infer M }
  * - `'cohere'` - Cohere (Command R+, embeddings)
  * - `'mistral'` - Mistral AI (Mistral Large, Codestral)
  * - `'deepseek'` - DeepSeek (DeepSeek-V4-Flash, DeepSeek-V4-Pro)
+ * - `'deepseek-responses'` - DeepSeek's stateless Responses API
  * - `'reka'` - Reka AI
  * - `'grok'` - xAI Grok
  * // axir-nonportable:start webllm
@@ -228,6 +234,9 @@ export class AxAI<TModelKey = string>
         break;
       case 'deepseek':
         this.ai = new AxAIDeepSeek<TModelKey>(options);
+        break;
+      case 'deepseek-responses':
+        this.ai = new AxAIDeepSeekResponses<TModelKey>(options);
         break;
       case 'reka':
         this.ai = new AxAIReka<TModelKey>(options);

@@ -2460,6 +2460,14 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
 OpenAIResponsesClient::OpenAIResponsesClient(Value options, Transport* transport)
     : OpenAICompatibleClient("openai-responses", "openai-responses", std::move(options), transport, "gpt-4o", "text-embedding-ada-002") {}
 
+DeepSeekResponsesClient::DeepSeekResponsesClient(Value options, Transport* transport)
+    : OpenAICompatibleClient("deepseek-responses", "DeepSeek Responses", [&]() {
+        Value out = std::move(options);
+        if (Core::get(out, "api_key").is_null() && Core::get(out, "apiKey").is_null()) Core::set(out, "api_key", env_or_default("DEEPSEEK_API_KEY", ""));
+        if (Core::get(out, "base_url").is_null() && Core::get(out, "baseUrl").is_null()) Core::set(out, "base_url", env_or_default("DEEPSEEK_BASE_URL", "https://api.deepseek.com"));
+        return out;
+      }(), transport, "deepseek-v4-flash", "") {}
+
 double OpenAICompatibleClient::get_estimated_cost(Value model_usage) {
   return num(Core::provider_estimate_cost(std::move(model_usage)));
 }
@@ -5643,6 +5651,9 @@ std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   }
   if (canonical == "openai-responses") {
     return std::make_shared<OpenAIResponsesClient>(std::move(options));
+  }
+  if (canonical == "deepseek-responses") {
+    return std::make_shared<DeepSeekResponsesClient>(std::move(options));
   }
   if (canonical == "google-gemini") {
     return std::make_shared<GoogleGeminiClient>(std::move(options));

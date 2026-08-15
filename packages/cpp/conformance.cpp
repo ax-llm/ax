@@ -2023,6 +2023,7 @@ struct ClientFixture {
     if (provider == "google-gemini") return std::make_unique<GoogleGeminiClient>(options(fixture), transport);
     if (provider == "anthropic") return std::make_unique<AnthropicClient>(options(fixture), transport);
     if (provider == "openai-responses") return std::make_unique<OpenAIResponsesClient>(options(fixture), transport);
+    if (provider == "deepseek-responses") return std::make_unique<DeepSeekResponsesClient>(options(fixture), transport);
     if (provider == "azure-openai") return std::make_unique<AzureOpenAIClient>(options(fixture), transport);
     if (provider == "deepseek") return std::make_unique<DeepSeekClient>(options(fixture), transport);
     if (provider == "mistral") return std::make_unique<MistralClient>(options(fixture), transport);
@@ -2035,16 +2036,16 @@ struct ClientFixture {
   static Value options(Value fixture) {
     Value out = Value::object();
     std::string provider = display(Core::provider_normalize_profile(Core::get(fixture, "provider", "openai-compatible")));
-    bool responses_provider = provider == "openai-responses";
+    bool responses_provider = provider == "openai-responses" || provider == "deepseek-responses";
     bool gemini_provider = provider == "google-gemini";
     bool anthropic_provider = provider == "anthropic";
     bool azure_provider = provider == "azure-openai";
-    bool deepseek_provider = provider == "deepseek";
+    bool deepseek_provider = provider == "deepseek" || provider == "deepseek-responses";
     bool mistral_provider = provider == "mistral";
     bool reka_provider = provider == "reka";
     bool cohere_provider = provider == "cohere";
     bool grok_provider = provider == "grok";
-    std::string default_model = anthropic_provider ? "claude-3-7-sonnet-latest" : gemini_provider ? "gemini-2.5-flash" : responses_provider ? "gpt-4o" : azure_provider ? "gpt-5-mini" : deepseek_provider ? "deepseek-v4-flash" : mistral_provider ? "mistral-small-latest" : reka_provider ? "reka-core" : cohere_provider ? "command-r-plus" : grok_provider ? "grok-4.3" : "gpt-4.1-mini";
+    std::string default_model = anthropic_provider ? "claude-3-7-sonnet-latest" : gemini_provider ? "gemini-2.5-flash" : provider == "deepseek-responses" ? "deepseek-v4-flash" : responses_provider ? "gpt-4o" : azure_provider ? "gpt-5-mini" : deepseek_provider ? "deepseek-v4-flash" : mistral_provider ? "mistral-small-latest" : reka_provider ? "reka-core" : cohere_provider ? "command-r-plus" : grok_provider ? "grok-4.3" : "gpt-4.1-mini";
     std::string default_embed_model = anthropic_provider || deepseek_provider || reka_provider || grok_provider ? "" : gemini_provider ? "gemini-embedding-2" : responses_provider ? "text-embedding-ada-002" : mistral_provider ? "mistral-embed" : cohere_provider ? "embed-english-v3.0" : "text-embedding-3-small";
     Core::set(out, "model", Core::get(fixture, "model", default_model));
     Core::set(out, "embed_model", Core::get(fixture, "embed_model", default_embed_model));

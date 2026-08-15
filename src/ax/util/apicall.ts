@@ -1019,13 +1019,21 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                   error.message?.includes('aborted')
                 ) {
                   controller.error(
-                    new AxAIServiceStreamTerminatedError(
-                      apiUrl.href,
-                      json,
-                      lastChunk,
-                      { streamMetrics },
-                      includeBodyInErrors
-                    )
+                    api.abortSignal?.aborted
+                      ? new AxAIServiceAbortedError(
+                          apiUrl.href,
+                          api.abortSignal.reason,
+                          json,
+                          { streamMetrics },
+                          includeBodyInErrors
+                        )
+                      : new AxAIServiceStreamTerminatedError(
+                          apiUrl.href,
+                          json,
+                          lastChunk,
+                          { streamMetrics },
+                          includeBodyInErrors
+                        )
                   );
                 } else {
                   controller.error(
@@ -1108,13 +1116,21 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                 error.message?.includes('aborted')
               ) {
                 controller.error(
-                  new AxAIServiceStreamTerminatedError(
-                    apiUrl.href,
-                    json,
-                    lastChunk,
-                    { streamMetrics },
-                    includeBodyInErrors
-                  )
+                  api.abortSignal?.aborted
+                    ? new AxAIServiceAbortedError(
+                        apiUrl.href,
+                        api.abortSignal.reason,
+                        json,
+                        { streamMetrics },
+                        includeBodyInErrors
+                      )
+                    : new AxAIServiceStreamTerminatedError(
+                        apiUrl.href,
+                        json,
+                        lastChunk,
+                        { streamMetrics },
+                        includeBodyInErrors
+                      )
                 );
               } else if (
                 error instanceof TypeError &&
@@ -1146,7 +1162,6 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                   )
                 );
               }
-              throw error;
             } finally {
               if (timeoutId) {
                 clearTimeout(timeoutId);

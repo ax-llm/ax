@@ -229,6 +229,7 @@ export type AxAIOpenAIChatRequest<TModel> = {
             }
           | AxAIOpenAIChatContentPart[];
         name?: string;
+        reasoning_content?: string;
         audio?: { id: string };
       }
     | {
@@ -241,6 +242,7 @@ export type AxAIOpenAIChatRequest<TModel> = {
             }
           | AxAIOpenAIChatContentPart[];
         name?: string;
+        reasoning_content?: string;
         tool_calls: {
           type: 'function';
           function: {

@@ -18,7 +18,7 @@
             "type": "function"
           }
         ],
-        "id": "0",
+        "id": "fc_1",
         "index": 0
       }
     ]
@@ -35,9 +35,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "answer"
-              ],
+              "required": ["answer"],
               "type": "object"
             }
           },
@@ -55,9 +53,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "query"
-            ],
+            "required": ["query"],
             "type": "object"
           },
           "type": "function"
@@ -86,9 +82,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "query"
-          ],
+          "required": ["query"],
           "type": "object"
         }
       }
@@ -105,9 +99,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "answer"
-          ],
+          "required": ["answer"],
           "type": "object"
         }
       },

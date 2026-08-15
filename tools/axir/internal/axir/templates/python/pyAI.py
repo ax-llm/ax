@@ -134,6 +134,8 @@ def ai(provider: str = "openai", **options):
         return OpenAICompatibleClient(**options)
     if canonical == "openai-responses":
         return OpenAIResponsesClient(**options)
+    if canonical == "deepseek-responses":
+        return DeepSeekResponsesClient(**options)
     if canonical == "google-gemini":
         return GoogleGeminiClient(**options)
     if canonical == "anthropic":
@@ -985,6 +987,21 @@ class OpenAIResponsesClient(ProviderOperationClient):
             "openai-responses",
             model=options.pop("model", "gpt-4o"),
             embed_model=embed_model,
+            **options,
+        )
+
+
+class DeepSeekResponsesClient(ProviderOperationClient):
+    def __init__(self, **options):
+        api_key = options.pop("api_key", None) or options.pop("apiKey", None) or os.environ.get("DEEPSEEK_API_KEY")
+        base_url = options.pop("base_url", None) or options.pop("baseUrl", None) or os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com"
+        super().__init__(
+            "deepseek-responses",
+            "DeepSeek Responses",
+            model=options.pop("model", "deepseek-v4-flash"),
+            embed_model=options.pop("embed_model", options.pop("embedModel", "")),
+            api_key=api_key,
+            base_url=base_url,
             **options,
         )
 
@@ -2070,7 +2087,7 @@ def _core_json_parse(value):
 
 
 def _core_json_stringify(value):
-    return json.dumps(value or {})
+    return json.dumps(value or {}, sort_keys=True, separators=(",", ":"))
 
 
 def _core_string_starts_with(value, prefix):

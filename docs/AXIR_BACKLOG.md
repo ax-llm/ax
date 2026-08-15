@@ -20,9 +20,10 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 - `axir-2026-08-07-port-parallel-tool-call-accumulation-for-the-openai-responses-ap` [axai] Port parallel tool-call accumulation for the OpenAI Responses API
   - Status: open
-  - Source commit: `ffe13983f3cf8bc8ff410f4f0a80547e595c96c5`
-  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.tool_calls.test.ts`
-  - Impact: The non-streaming /v1/responses mapper now keeps every function_call output item instead of overwriting currentResult.functionCalls on each loop iteration. Generated Python/Java/C++/Go/Rust clients still map only the last function_call item, so a parallel_tool_calls response there silently executes one tool instead of N, diverging from the TypeScript provider and from its own streaming path.
+  - Source PR: #574
+  - Source commit: `845b1ef2`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.tool_calls.test.ts`, `src/ax/ai/deepseek/responses_api.test.ts`
+  - Impact: The non-streaming and streaming OpenAI Responses mappers must preserve every function_call and its call_id so parallel tools execute and their outputs correlate correctly.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
@@ -432,3 +433,22 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-08-07
   - Completed by: `486d7fbe7855be0fd50801d1d12c0acc2240252a`
   - Verification: `npm run axir:check-packages; npm run axir:conformance:check; (cd tools/axir && GOCACHE=/tmp/axir-go-build go test ./internal/axir); npm run test:axir; npm run test:examples:generated; npm run axir:gate:ledger; npm run axir:gate:anti-facade; npm run axir:gate:prompt-sync; npm run skills:check; npm run website:check; npm run test:unit --workspace=@ax-llm/ax -- ai/openai/caching.test.ts ai/openai/usage.test.ts dsp/generate.promptCacheKey.test.ts ai/google-gemini/api.test.ts ai/anthropic/api.test.ts; git diff --check`
+- `axir-2026-08-12-port-claude-sonnet-5-permanent-token-pricing-to-generated-target` [axai] Port Claude Sonnet 5 permanent token pricing to generated targets
+  - Status: done
+  - Source PR: #576
+  - Source commit: `2215088b466141dc82c31b8db9206c64295ada6a`
+  - TS paths: `src/ax/ai/anthropic/info.ts`, `src/ax/ai/catalog.test.ts`
+  - Impact: Generated Python, Java, C++, Go, and Rust catalogs still embed the pre-correction Claude Sonnet 5 rates ($3/$15 per 1M, $0.30 cache read, $3.75 cache write), so cost estimates on those targets are ~50% high and cheapest-first model ordering ranks Sonnet 5 above its true cost.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-13
+  - Completed by: `526b8fc4`
+  - Verification: `Implemented in PR #576: corrected Anthropic and Vertex Sonnet 5 pricing to $2/$10 per 1M tokens with $0.20 cache read and $2.50 cache write; refreshed AxIR catalog, conformance fixtures, and generated Python, Java, C++, Go, and Rust packages.`
+- `axir-2026-08-13-add-gemini-3-7-flash-model-support` [axai] Add Gemini 3.7 Flash model support
+  - Status: done
+  - Source commit: `83468e8c20e760ece48dc921c67c2bc874860f3f`
+  - TS paths: `src/ax/ai/google-gemini`
+  - Impact: TypeScript should expose the Gemini 3.7 Flash model ID, catalog metadata, explicit context caching, and server-managed sampling behavior; generated language providers remain unchanged.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-13
+  - Completed by: `8cbad4e9`
+  - Verification: `Implemented Gemini 3.7 Flash in AxIR Gemini request mapping and conformance; regenerated Python, Java, C++, Go, and Rust packages. Verified with 310 TypeScript Gemini/catalog tests, Python AxAI conformance, Java/C++ generated compilation, axir:conformance:check, and axir:check-packages.`

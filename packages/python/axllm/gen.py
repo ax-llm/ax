@@ -555,7 +555,7 @@ def _core_json_parse(value):
 
 
 def _core_json_stringify(value):
-    return json.dumps(value)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
 def _core_fields_from_map(fields):

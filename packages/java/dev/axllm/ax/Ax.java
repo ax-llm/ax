@@ -57,6 +57,9 @@ public final class Ax {
     if (canonical.equals("openai-responses")) {
       return new OpenAIResponsesClient(options == null ? java.util.Map.of() : options);
     }
+    if (canonical.equals("deepseek-responses")) {
+      return new DeepSeekResponsesClient(options == null ? java.util.Map.of() : options);
+    }
     if (canonical.equals("google-gemini")) {
       return new GoogleGeminiClient(options == null ? java.util.Map.of() : options);
     }

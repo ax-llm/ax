@@ -49,6 +49,14 @@ module @ax.provider version "0.1" {
     tag "deepseek"
   }
 
+  op ax.provider.class @DeepSeekResponsesClient {
+    attr core_kind = "record"
+    attr default_base_url = "https://api.deepseek.com"
+    attr public = true
+    ref interface = @AxAIService
+    tag "deepseek-responses"
+  }
+
   op ax.provider.class @MistralClient {
     attr core_kind = "record"
     attr default_base_url = "https://api.mistral.ai/v1"
@@ -430,12 +438,17 @@ module @ax.provider version "0.1" {
       }
       %is_assistant = core.call intrinsic.eq(%role, "assistant")
       core.if %is_assistant {
+        %thought = core.get %message["thought"]
+        %has_thought = core.call intrinsic.truthy(%thought)
         %empty_calls = core.list
         %calls_snake = core.get %message["function_calls"] default %empty_calls
         %calls = core.get %message["functionCalls"] default %calls_snake
         %has_calls = core.call intrinsic.truthy(%calls)
         %out = core.map
         core.set %out["role"] = "assistant"
+        core.if %has_thought {
+          core.set %out["reasoning_content"] = %thought
+        }
         core.if %has_calls {
           %assistant_content = core.get %message["content"]
           %has_assistant_content = core.call intrinsic.is_not_none(%assistant_content)
@@ -693,6 +706,17 @@ module @ax.provider version "0.1" {
       core.set %out["index"] = %index
       core.set %out["id"] = %id
       core.set %out["content"] = %content
+      %reasoning_content = core.get %message["reasoning_content"]
+      %has_reasoning_content = core.call intrinsic.truthy(%reasoning_content)
+      core.if %has_reasoning_content {
+        core.set %out["thought"] = %reasoning_content
+        %thought_blocks = core.list
+        %thought_block = core.map
+        core.set %thought_block["data"] = %reasoning_content
+        core.set %thought_block["encrypted"] = false
+        core.append %thought_blocks, %thought_block
+        core.set %out["thought_blocks"] = %thought_blocks
+      }
       core.set %out["function_calls"] = %function_calls
       core.set %out["finish_reason"] = %finish_reason
       core.return %out
@@ -882,12 +906,23 @@ module @ax.provider version "0.1" {
       %index = core.get %choice["index"] default 0
       %id = core.call intrinsic.string.str(%index)
       %content = core.get %delta["content"]
+      %reasoning_content = core.get %delta["reasoning_content"]
+      %has_reasoning_content = core.call intrinsic.truthy(%reasoning_content)
       %finish_reason_raw = core.get %choice["finish_reason"]
       %finish_reason = core.call @openai_finish_reason_impl(%finish_reason_raw)
       %out = core.map
       core.set %out["index"] = %index
       core.set %out["id"] = %id
       core.set %out["content"] = %content
+      core.if %has_reasoning_content {
+        core.set %out["thought"] = %reasoning_content
+        %thought_blocks = core.list
+        %thought_block = core.map
+        core.set %thought_block["data"] = %reasoning_content
+        core.set %thought_block["encrypted"] = false
+        core.append %thought_blocks, %thought_block
+        core.set %out["thought_blocks"] = %thought_blocks
+      }
       core.set %out["function_calls"] = %calls
       core.set %out["finish_reason"] = %finish_reason
       core.return %out
@@ -2280,6 +2315,11 @@ module @ax.provider version "0.1" {
         }
         core.return %openai_family_descriptor
       }
+      %is_deepseek_responses = core.call intrinsic.eq(%provider_id, "deepseek-responses")
+      core.if %is_deepseek_responses {
+        %deepseek_responses = core.call intrinsic.json.parse("{\"provider\":\"deepseek-responses\",\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"baseUrl\":\"https://api.deepseek.com\",\"auth\":\"bearer\",\"defaultModel\":\"deepseek-v4-flash\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}")
+        core.return %deepseek_responses
+      }
       %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
       %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
       %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
@@ -3077,6 +3117,8 @@ module @ax.provider version "0.1" {
     body @entry(%profile: string, %request: AxChatRequest, %options: json) {
       %provider_id = core.call @provider_normalize_profile(%profile)
       %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
+      %is_deepseek_responses = core.call intrinsic.eq(%provider_id, "deepseek-responses")
+      %is_responses = core.call intrinsic.or(%is_responses, %is_deepseek_responses)
       %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
       %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
       %payload = core.map
@@ -3416,6 +3458,8 @@ module @ax.provider version "0.1" {
     body @entry(%profile: string, %raw: json, %ai_name: string, %model: string) {
       %provider_id = core.call @provider_normalize_profile(%profile)
       %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
+      %is_deepseek_responses = core.call intrinsic.eq(%provider_id, "deepseek-responses")
+      %is_responses = core.call intrinsic.or(%is_responses, %is_deepseek_responses)
       %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
       %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
       %response = core.map
@@ -3449,6 +3493,8 @@ module @ax.provider version "0.1" {
     body @entry(%profile: string, %raw: json, %state: json, %ai_name: string, %model: string) {
       %provider_id = core.call @provider_normalize_profile(%profile)
       %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
+      %is_deepseek_responses = core.call intrinsic.eq(%provider_id, "deepseek-responses")
+      %is_responses = core.call intrinsic.or(%is_responses, %is_deepseek_responses)
       %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
       %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
       %response = core.map
@@ -3751,8 +3797,47 @@ module @ax.provider version "0.1" {
           %system_content = core.get %message["content"] default ""
           %instructions = core.let %system_content
         } else {
-          %item = core.call @openai_responses_input_item_impl(%message)
-          core.append %input, %item
+          %is_assistant = core.call intrinsic.eq(%role, "assistant")
+          core.if %is_assistant {
+            %thought = core.get %message["thought"]
+            %has_thought = core.call intrinsic.truthy(%thought)
+            core.if %has_thought {
+              %reasoning_item = core.map
+              core.set %reasoning_item["type"] = "reasoning"
+              core.set %reasoning_item["content"] = %thought
+              core.append %input, %reasoning_item
+            }
+            %content = core.get %message["content"]
+            %has_content = core.call intrinsic.truthy(%content)
+            core.if %has_content {
+              %item = core.call @openai_responses_input_item_impl(%message)
+              core.append %input, %item
+            }
+            %empty_calls = core.list
+            %calls_snake = core.get %message["function_calls"] default %empty_calls
+            %calls = core.get %message["functionCalls"] default %calls_snake
+            core.for %call in %calls {
+              %function = core.get %call["function"]
+              %name = core.get %function["name"] default ""
+              %params = core.get %function["params"] default ""
+              %params_is_string = core.type_is %params type "string"
+              core.if %params_is_string {
+              } else {
+                %params_json = core.call intrinsic.json.stringify(%params)
+                %params = core.let %params_json
+              }
+              %function_call = core.map
+              core.set %function_call["type"] = "function_call"
+              %call_id = core.get %call["id"] default %name
+              core.set %function_call["call_id"] = %call_id
+              core.set %function_call["name"] = %name
+              core.set %function_call["arguments"] = %params
+              core.append %input, %function_call
+            }
+          } else {
+            %item = core.call @openai_responses_input_item_impl(%message)
+            core.append %input, %item
+          }
         }
       }
       %has_instructions = core.call intrinsic.is_not_none(%instructions)
@@ -3886,7 +3971,9 @@ module @ax.provider version "0.1" {
       core.if %is_function {
         %message_id = core.get %message["id"]
         %message_content = core.get %message["content"]
-        %call_id = core.get %message["function_call_id"] default %message_id
+        %call_id_snake = core.get %message["function_call_id"]
+        %call_id_camel = core.get %message["functionId"] default %call_id_snake
+        %call_id = core.call intrinsic.coalesce(%call_id_camel, %message_id)
         %result = core.get %message["result"] default %message_content
         %out = core.map
         core.set %out["type"] = "function_call_output"
@@ -4046,13 +4133,80 @@ module @ax.provider version "0.1" {
       }
       %is_function = core.call intrinsic.eq(%type, "function_call")
       core.if %is_function {
+        %item_id = core.get %item["id"] default "0"
+        core.set %result["id"] = %item_id
         %call = core.call @openai_responses_function_call_impl(%item)
         %calls = core.list
         core.append %calls, %call
         core.set %result["function_calls"] = %calls
         core.set %result["finish_reason"] = "function_call"
       }
+      %is_reasoning = core.call intrinsic.eq(%type, "reasoning")
+      core.if %is_reasoning {
+        %item_id = core.get %item["id"] default "0"
+        core.set %result["id"] = %item_id
+        %thought = core.call @openai_responses_reasoning_text_impl(%item)
+        %has_thought = core.call intrinsic.truthy(%thought)
+        core.if %has_thought {
+          core.set %result["thought"] = %thought
+          %thought_blocks = core.list
+          %thought_block = core.map
+          core.set %thought_block["data"] = %thought
+          core.set %thought_block["encrypted"] = false
+          %encrypted = core.get %item["encrypted_content"]
+          %has_encrypted = core.call intrinsic.truthy(%encrypted)
+          core.if %has_encrypted {
+            core.set %thought_block["data"] = %encrypted
+            core.set %thought_block["encrypted"] = true
+          }
+          core.append %thought_blocks, %thought_block
+          core.set %result["thought_blocks"] = %thought_blocks
+        }
+      }
       core.return
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_reasoning_text_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-reasoning-core-helper"
+    type signature = "(json) -> string"
+    body @entry(%item: json) {
+      %content = core.get %item["content"] default ""
+      %content_is_list = core.type_is %content type "list"
+      core.if %content_is_list {
+        %parts = core.list
+        core.for %part in %content {
+          %text = core.get %part["text"] default ""
+          core.append %parts, %text
+        }
+        %joined = core.call intrinsic.string.join("", %parts)
+        %has_joined = core.call intrinsic.truthy(%joined)
+        core.if %has_joined {
+          core.return %joined
+        }
+      } else {
+        %has_content = core.call intrinsic.truthy(%content)
+        core.if %has_content {
+          core.return %content
+        }
+      }
+      %encrypted = core.get %item["encrypted_content"]
+      %has_encrypted = core.call intrinsic.truthy(%encrypted)
+      core.if %has_encrypted {
+        core.return %encrypted
+      }
+      %empty_summary = core.list
+      %summary = core.get %item["summary"] default %empty_summary
+      %summary_parts = core.list
+      core.for %part in %summary {
+        %text = core.get %part["text"] default ""
+        core.append %summary_parts, %text
+      }
+      %summary_text = core.call intrinsic.string.join("\n", %summary_parts)
+      core.return %summary_text
     }
   }
 
@@ -4174,6 +4328,28 @@ module @ax.provider version "0.1" {
       core.if %is_text_delta {
         %text_delta = core.get %event["delta"] default ""
         core.set %result["content"] = %text_delta
+      }
+      %is_reasoning_delta = core.call intrinsic.eq(%type, "response.reasoning_text.delta")
+      core.if %is_reasoning_delta {
+        %reasoning_delta = core.get %event["delta"] default ""
+        core.set %result["thought"] = %reasoning_delta
+        %thought_blocks = core.list
+        %thought_block = core.map
+        core.set %thought_block["data"] = %reasoning_delta
+        core.set %thought_block["encrypted"] = false
+        core.append %thought_blocks, %thought_block
+        core.set %result["thought_blocks"] = %thought_blocks
+      }
+      %is_reasoning_done = core.call intrinsic.eq(%type, "response.reasoning_text.done")
+      core.if %is_reasoning_done {
+        %reasoning_text = core.get %event["text"] default ""
+        core.set %result["thought"] = %reasoning_text
+        %thought_blocks = core.list
+        %thought_block = core.map
+        core.set %thought_block["data"] = %reasoning_text
+        core.set %thought_block["encrypted"] = false
+        core.append %thought_blocks, %thought_block
+        core.set %result["thought_blocks"] = %thought_blocks
       }
       %is_output_added = core.call intrinsic.eq(%type, "response.output_item.added")
       core.if %is_output_added {
@@ -4687,9 +4863,11 @@ module @ax.provider version "0.1" {
       }
       core.set %payload["contents"] = %contents
       %model = core.get %request["model"] default "gemini-2.5-flash"
+      %is_gemini37_flash = core.call intrinsic.eq(%model, "gemini-3.7-flash")
       %is_gemini36_flash = core.call intrinsic.eq(%model, "gemini-3.6-flash")
       %is_gemini35_flash_lite = core.call intrinsic.eq(%model, "gemini-3.5-flash-lite")
-      %server_managed_sampling = core.call intrinsic.or(%is_gemini36_flash, %is_gemini35_flash_lite)
+      %server_managed_sampling_36 = core.call intrinsic.or(%is_gemini37_flash, %is_gemini36_flash)
+      %server_managed_sampling = core.call intrinsic.or(%server_managed_sampling_36, %is_gemini35_flash_lite)
       %generation_config = core.map
       core.set %generation_config["candidateCount"] = 1
       core.set %generation_config["responseMimeType"] = "text/plain"
@@ -5629,6 +5807,46 @@ module @ax.provider version "0.1" {
       core.if %is_assistant {
         core.set %out["role"] = "assistant"
         %blocks = core.list
+        %empty_thought_blocks = core.list
+        %thought_blocks_snake = core.get %message["thought_blocks"] default %empty_thought_blocks
+        %thought_blocks = core.get %message["thoughtBlocks"] default %thought_blocks_snake
+        %has_thought_blocks = core.call intrinsic.truthy(%thought_blocks)
+        core.if %has_thought_blocks {
+          core.for %thought_block in %thought_blocks {
+            %data = core.get %thought_block["data"] default ""
+            %encrypted = core.get %thought_block["encrypted"] default false
+            %signature = core.get %thought_block["signature"]
+            %is_encrypted = core.call intrinsic.truthy(%encrypted)
+            core.if %is_encrypted {
+              %redacted = core.map
+              core.set %redacted["type"] = "redacted_thinking"
+              core.set %redacted["data"] = %data
+              %has_signature = core.call intrinsic.is_not_none(%signature)
+              core.if %has_signature {
+                core.set %redacted["signature"] = %signature
+              }
+              core.append %blocks, %redacted
+            } else {
+              %thinking = core.map
+              core.set %thinking["type"] = "thinking"
+              core.set %thinking["thinking"] = %data
+              %has_signature = core.call intrinsic.is_not_none(%signature)
+              core.if %has_signature {
+                core.set %thinking["signature"] = %signature
+              }
+              core.append %blocks, %thinking
+            }
+          }
+        } else {
+          %thought = core.get %message["thought"]
+          %has_thought = core.call intrinsic.truthy(%thought)
+          core.if %has_thought {
+            %thinking = core.map
+            core.set %thinking["type"] = "thinking"
+            core.set %thinking["thinking"] = %thought
+            core.append %blocks, %thinking
+          }
+        }
         %content_value = core.get %message["content"] default ""
         %has_content = core.call intrinsic.truthy(%content_value)
         core.if %has_content {

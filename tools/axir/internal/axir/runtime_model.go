@@ -64,6 +64,7 @@ var betaRuntimeSymbols = []string{
 	"AzureOpenAIClient",
 	"CohereClient",
 	"DeepSeekClient",
+	"DeepSeekResponsesClient",
 	"GrokClient",
 	"GoogleGeminiClient",
 	"MistralClient",

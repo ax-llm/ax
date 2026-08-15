@@ -14,6 +14,7 @@ import { axGetSupportedAIModels } from '../../../src/ax/ai/catalog.js';
 import { axAICohereDefaultConfig } from '../../../src/ax/ai/cohere/api.js';
 import { AxAICohereEmbedModel } from '../../../src/ax/ai/cohere/types.js';
 import { axAIDeepSeekDefaultConfig } from '../../../src/ax/ai/deepseek/api.js';
+import { axAIDeepSeekResponsesDefaultConfig } from '../../../src/ax/ai/deepseek/responses_api.js';
 import {
   axAIGoogleGeminiDefaultConfig,
   axAIGoogleGeminiLiveAudioDefaultConfig,
@@ -74,6 +75,8 @@ const responsesDefaultModel = axAIOpenAIResponsesDefaultConfig()
   .model as string;
 const azureDefaultModel = axAIAzureOpenAIDefaultConfig().model as string;
 const deepseekDefaultModel = axAIDeepSeekDefaultConfig().model as string;
+const deepseekResponsesDefaultModel = axAIDeepSeekResponsesDefaultConfig()
+  .model as string;
 const mistralDefaultModel = axAIMistralDefaultConfig().model as string;
 const rekaDefaultModel = axAIRekaDefaultConfig().model as string;
 const cohereDefaultModel = axAICohereDefaultConfig().model as string;
@@ -98,6 +101,7 @@ const descriptorCoveredProviderIds = [
   'anthropic',
   'azure-openai',
   'deepseek',
+  'deepseek-responses',
   'mistral',
   'reka',
   'cohere',
@@ -354,6 +358,8 @@ writeFixture('provider-profile-registry', {
     azure_openai: 'azure-openai',
     azure: 'azure-openai',
     deepseek: 'deepseek',
+    'deepseek-responses': 'deepseek-responses',
+    deepseek_responses: 'deepseek-responses',
     mistral: 'mistral',
     reka: 'reka',
     cohere: 'cohere',
@@ -400,6 +406,12 @@ writeFixture('provider-profile-registry', {
         id: 'deepseek',
         generatedClient: 'DeepSeekClient',
         aliases: ['deepseek'],
+        catalogStatus: 'descriptor-covered',
+      },
+      'deepseek-responses': {
+        id: 'deepseek-responses',
+        generatedClient: 'DeepSeekResponsesClient',
+        aliases: ['deepseek-responses', 'deepseek_responses'],
         catalogStatus: 'descriptor-covered',
       },
       mistral: {
@@ -2044,6 +2056,36 @@ writeFixture('grok-provider-descriptor', {
   },
 });
 
+writeFixture('deepseek-responses-provider-descriptor', {
+  kind: 'ai_provider_descriptor',
+  provider: 'deepseek-responses',
+  expected_output: {
+    id: 'deepseek-responses',
+    name: 'DeepSeek Responses',
+    defaultModel: deepseekResponsesDefaultModel,
+    auth: 'bearer',
+    baseUrl: 'https://api.deepseek.com',
+    operations: {
+      chat: {
+        method: 'POST',
+        path: '/responses',
+        body: 'json',
+        stream: false,
+      },
+      stream_chat: {
+        method: 'POST',
+        path: '/responses',
+        body: 'json',
+        stream: true,
+      },
+    },
+    features: {
+      thinking: true,
+      media: { images: { supported: false } },
+    },
+  },
+});
+
 const compatibleResponse = (id: string, model: string, content = 'ok') => ({
   status: 200,
   json: {
@@ -2156,6 +2198,359 @@ writeFixture('deepseek-openai-compatible-chat', {
       messages: [{ role: 'user', content: 'hello deepseek' }],
       thinking: { type: 'enabled' },
       reasoning_effort: 'max',
+    },
+  },
+});
+
+writeFixture('deepseek-openai-compatible-reasoning-tool-loop', {
+  kind: 'ai_chat',
+  provider: 'deepseek',
+  model: deepseekDefaultModel,
+  request: {
+    chat_prompt: [
+      { role: 'user', content: 'Continue the warehouse lookup.' },
+      {
+        role: 'assistant',
+        thought: 'Use the warehouse query.',
+        functionCalls: [
+          {
+            id: 'call-0',
+            type: 'function',
+            function: { name: 'query', params: { region: 'North' } },
+          },
+        ],
+      },
+      {
+        role: 'function',
+        functionId: 'call-0',
+        result: '{"ok":true}',
+      },
+    ],
+    functions: [
+      { name: 'query', description: 'Query warehouse', parameters: {} },
+    ],
+    model_config: { stream: false, thinkingTokenBudget: 'high' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'chatcmpl_deepseek_reasoning',
+        object: 'chat.completion',
+        model: deepseekDefaultModel,
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'Use the warehouse query.',
+              tool_calls: [
+                {
+                  id: 'call-1',
+                  type: 'function',
+                  function: {
+                    name: 'query',
+                    arguments: '{"region":"East"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: '0',
+        content: null,
+        thought: 'Use the warehouse query.',
+        thought_blocks: [
+          { data: 'Use the warehouse query.', encrypted: false },
+        ],
+        function_calls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: {
+              name: 'query',
+              params: { region: 'East' },
+            },
+          },
+        ],
+        finish_reason: 'function_call',
+      },
+    ],
+    remote_id: 'chatcmpl_deepseek_reasoning',
+    model_usage: null,
+  },
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.deepseek.com/chat/completions',
+    json: {
+      model: deepseekDefaultModel,
+      messages: [
+        { role: 'user', content: 'Continue the warehouse lookup.' },
+        {
+          role: 'assistant',
+          reasoning_content: 'Use the warehouse query.',
+          tool_calls: [
+            {
+              id: 'call-0',
+              type: 'function',
+              function: { name: 'query', arguments: '{"region":"North"}' },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          content: '{"ok":true}',
+          tool_call_id: 'call-0',
+        },
+      ],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'query',
+            description: 'Query warehouse',
+          },
+        },
+      ],
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'high',
+    },
+  },
+});
+
+writeFixture('deepseek-responses-reasoning-tool-loop', {
+  kind: 'ai_chat',
+  provider: 'deepseek-responses',
+  model: deepseekResponsesDefaultModel,
+  request: {
+    chat_prompt: [
+      { role: 'user', content: 'Continue the warehouse lookup.' },
+      {
+        role: 'assistant',
+        thought: 'Use the warehouse query.',
+        functionCalls: [
+          {
+            id: 'call-0',
+            type: 'function',
+            function: { name: 'query', params: { region: 'North' } },
+          },
+        ],
+      },
+      {
+        role: 'function',
+        functionId: 'call-0',
+        result: '{"ok":true}',
+      },
+    ],
+    functions: [
+      { name: 'query', description: 'Query warehouse', parameters: {} },
+    ],
+    model_config: { stream: false, thinkingTokenBudget: 'high' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'resp_deepseek_responses',
+        model: deepseekResponsesDefaultModel,
+        output: [
+          {
+            id: 'reasoning-1',
+            type: 'reasoning',
+            content: 'Use the warehouse query.',
+            status: 'completed',
+          },
+          {
+            id: 'item-1',
+            call_id: 'call-1',
+            type: 'function_call',
+            name: 'query',
+            arguments: '{"region":"East"}',
+            status: 'completed',
+          },
+        ],
+        usage: {
+          input_tokens: 10,
+          output_tokens: 4,
+          total_tokens: 14,
+          output_tokens_details: { reasoning_tokens: 2 },
+        },
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: 'item-1',
+        content: '',
+        thought: 'Use the warehouse query.',
+        thought_blocks: [
+          { data: 'Use the warehouse query.', encrypted: false },
+        ],
+        function_calls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: {
+              name: 'query',
+              params: { region: 'East' },
+            },
+          },
+        ],
+        finish_reason: 'function_call',
+      },
+    ],
+    remote_id: 'resp_deepseek_responses',
+    model_usage: {
+      ai: 'DeepSeek Responses',
+      model: deepseekResponsesDefaultModel,
+      tokens: {
+        prompt_tokens: 10,
+        completion_tokens: 4,
+        total_tokens: 14,
+        reasoning_tokens: 2,
+      },
+    },
+  },
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.deepseek.com/responses',
+    json: {
+      model: deepseekResponsesDefaultModel,
+      input: [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'Continue the warehouse lookup.' },
+          ],
+        },
+        { type: 'reasoning', content: 'Use the warehouse query.' },
+        {
+          type: 'function_call',
+          call_id: 'call-0',
+          name: 'query',
+          arguments: '{"region":"North"}',
+        },
+        {
+          type: 'function_call_output',
+          call_id: 'call-0',
+          output: '{"ok":true}',
+        },
+      ],
+      tools: [
+        {
+          type: 'function',
+          name: 'query',
+          description: 'Query warehouse',
+          parameters: {},
+        },
+      ],
+      tool_choice: 'auto',
+      reasoning: { effort: 'high' },
+      stream: false,
+    },
+  },
+});
+
+writeFixture('deepseek-responses-streaming-reasoning-tool', {
+  kind: 'ai_stream',
+  provider: 'deepseek-responses',
+  model: deepseekResponsesDefaultModel,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Stream the lookup plan.' }],
+    model_config: { thinkingTokenBudget: 'medium' },
+  },
+  options: { stream: true },
+  transport_responses: [
+    {
+      status: 200,
+      body:
+        'data: {"type":"response.reasoning_text.delta","response_id":"resp_deepseek_stream","item_id":"reasoning-1","delta":"plan"}\n\n' +
+        'data: {"type":"response.function_call_arguments.delta","response_id":"resp_deepseek_stream","item_id":"call-1","delta":"{\\"region\\":\\"East\\"}"}\n\n' +
+        `data: {"type":"response.completed","response":{"id":"resp_deepseek_stream","model":"${deepseekResponsesDefaultModel}","usage":{"input_tokens":4,"output_tokens":3,"total_tokens":7,"output_tokens_details":{"reasoning_tokens":1}}}}\n\n` +
+        'data: [DONE]\n\n',
+    },
+  ],
+  expected_output: [
+    {
+      results: [
+        {
+          index: 0,
+          id: 'reasoning-1',
+          content: '',
+          function_calls: [],
+          finish_reason: null,
+          thought: 'plan',
+          thought_blocks: [{ data: 'plan', encrypted: false }],
+        },
+      ],
+      remote_id: 'resp_deepseek_stream',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: 'call-1',
+          content: '',
+          finish_reason: 'function_call',
+          function_calls: [
+            {
+              id: 'call-1',
+              type: 'function',
+              function: { name: null, params: '{"region":"East"}' },
+            },
+          ],
+        },
+      ],
+      remote_id: 'resp_deepseek_stream',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: '',
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      remote_id: 'resp_deepseek_stream',
+      model_usage: {
+        ai: 'DeepSeek Responses',
+        model: deepseekResponsesDefaultModel,
+        tokens: {
+          prompt_tokens: 4,
+          completion_tokens: 3,
+          total_tokens: 7,
+          reasoning_tokens: 1,
+        },
+      },
+    },
+  ],
+  expected_transport_request: {
+    url: 'https://api.deepseek.com/responses',
+    json: {
+      model: deepseekResponsesDefaultModel,
+      input: [
+        {
+          role: 'user',
+          content: [{ type: 'input_text', text: 'Stream the lookup plan.' }],
+        },
+      ],
+      reasoning: { effort: 'high' },
+      stream: true,
     },
   },
 });
@@ -2600,7 +2995,7 @@ writeFixture('responses-tool-call', {
     results: [
       {
         index: 0,
-        id: '0',
+        id: 'fc_1',
         content: '',
         function_calls: [
           {
@@ -3835,6 +4230,7 @@ writeFixture('gemini-simple-chat', {
 });
 
 for (const [fixtureName, model] of [
+  ['gemini-37-flash-server-managed-sampling', 'gemini-3.7-flash'],
   ['gemini-36-flash-server-managed-sampling', 'gemini-3.6-flash'],
   ['gemini-35-flash-lite-server-managed-sampling', 'gemini-3.5-flash-lite'],
 ] as const) {

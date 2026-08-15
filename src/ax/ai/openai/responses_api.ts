@@ -27,6 +27,7 @@ import type {
   AxAIOpenAIResponsesInputContentPart,
   AxAIOpenAIResponsesInputItem,
   AxAIOpenAIResponsesInputMessageItem,
+  AxAIOpenAIResponsesInputReasoningItem,
   AxAIOpenAIResponsesLocalShellToolCall,
   AxAIOpenAIResponsesMCPToolCall,
   AxAIOpenAIResponsesOutputRefusalContentPart,
@@ -277,6 +278,17 @@ export class AxAIOpenAIResponsesImpl<
           });
           break;
         case 'assistant':
+          if (msg.thought || msg.thoughtBlocks?.length) {
+            const thought =
+              msg.thought ??
+              msg.thoughtBlocks?.map((block) => block.data).join('');
+            if (thought) {
+              items.push({
+                type: 'reasoning',
+                content: thought,
+              } satisfies AxAIOpenAIResponsesInputReasoningItem);
+            }
+          }
           if (msg.content || msg.functionCalls) {
             // Assistant can have content, functionCalls, or both
             const assistantMessage: Mutable<AxAIOpenAIResponsesInputMessageItem> =
@@ -552,15 +564,20 @@ export class AxAIOpenAIResponsesImpl<
 
         case 'reasoning':
           currentResult.id = item.id;
-          // Use encrypted_content if available (when showThoughts is enabled), otherwise use summary
-          if (item.encrypted_content) {
-            currentResult.thought = item.encrypted_content;
-          } else {
-            currentResult.thought = item.summary
-              .map((s: string | object) =>
-                typeof s === 'object' ? JSON.stringify(s) : s
-              )
-              .join('\n');
+          {
+            const thought = reasoningItemToText(item);
+            if (thought) {
+              currentResult.thought = currentResult.thought
+                ? `${currentResult.thought}${thought}`
+                : thought;
+              currentResult.thoughtBlocks = [
+                ...(currentResult.thoughtBlocks ?? []),
+                {
+                  data: thought,
+                  encrypted: Boolean(item.encrypted_content),
+                },
+              ];
+            }
           }
           break;
 
@@ -909,23 +926,20 @@ export class AxAIOpenAIResponsesImpl<
               ];
             }
             break;
-          // case 'reasoning':
-          //     {
-          //         const reasoningItem =
-          //             event.item as AxAIOpenAIResponsesReasoningItem
-          //         baseResult.id = event.item.id
-          //         // Use encrypted_content if available (when showThoughts is enabled), otherwise use summary
-          //         if (reasoningItem.encrypted_content) {
-          //             baseResult.thought = reasoningItem.encrypted_content
-          //         } else if (reasoningItem.summary) {
-          //             baseResult.thought = reasoningItem.summary
-          //                 .map((s: string | object) =>
-          //                     typeof s === 'object' ? JSON.stringify(s) : s
-          //                 )
-          //                 .join('\n')
-          //         }
-          //     }
-          //     break
+          case 'reasoning': {
+            baseResult.id = event.item.id;
+            const thought = reasoningItemToText(event.item);
+            if (thought) {
+              baseResult.thought = thought;
+              baseResult.thoughtBlocks = [
+                {
+                  data: thought,
+                  encrypted: Boolean(event.item.encrypted_content),
+                },
+              ];
+            }
+            break;
+          }
         }
         break;
 
@@ -973,6 +987,19 @@ export class AxAIOpenAIResponsesImpl<
         // Reasoning summary delta
         baseResult.id = event.item_id;
         baseResult.thought = event.delta;
+        baseResult.thoughtBlocks = [{ data: event.delta, encrypted: false }];
+        break;
+
+      case 'response.reasoning_text.delta':
+        baseResult.id = event.item_id;
+        baseResult.thought = event.delta;
+        baseResult.thoughtBlocks = [{ data: event.delta, encrypted: false }];
+        break;
+
+      case 'response.reasoning_text.done':
+        baseResult.id = event.item_id;
+        baseResult.thought = event.text;
+        baseResult.thoughtBlocks = [{ data: event.text, encrypted: false }];
         break;
 
       // case 'response.reasoning_summary_text.done':
@@ -1099,10 +1126,20 @@ export class AxAIOpenAIResponsesImpl<
             baseResult.id = event.item.id;
             baseResult.finishReason = 'function_call';
             break;
-          // case 'reasoning':
-          //     // Reasoning completed
-          //     baseResult.id = event.item.id
-          //     break
+          case 'reasoning': {
+            baseResult.id = event.item.id;
+            const thought = reasoningItemToText(event.item);
+            if (thought) {
+              baseResult.thought = thought;
+              baseResult.thoughtBlocks = [
+                {
+                  data: thought,
+                  encrypted: Boolean(event.item.encrypted_content),
+                },
+              ];
+            }
+            break;
+          }
         }
         break;
 
@@ -1180,12 +1217,23 @@ export class AxAIOpenAIResponsesImpl<
   }
 }
 
-// const getThought = (item: AxAIOpenAIResponsesReasoningItem): string => {
-//     if (item.encrypted_content) {
-//         return item.encrypted_content
-//     }
-//     return item.summary.map((s) => s.text).join('\n')
-// }
+const reasoningItemToText = (
+  item: Readonly<{
+    content?:
+      | string
+      | ReadonlyArray<{ readonly type: string; readonly text: string }>;
+    encrypted_content?: string | null;
+    summary?: ReadonlyArray<{ readonly type: string; readonly text: string }>;
+  }>
+): string => {
+  if (typeof item.content === 'string') return item.content;
+  if (Array.isArray(item.content)) {
+    const text = item.content.map((part) => part.text).join('');
+    if (text) return text;
+  }
+  if (item.encrypted_content) return item.encrypted_content;
+  return item.summary?.map((part) => part.text).join('\n') ?? '';
+};
 
 const contentToText = (
   content: ReadonlyArray<

@@ -393,6 +393,7 @@ func TestLoadCheckLowerAxCore(t *testing.T) {
 		"op core.record @OpenAIResponsesClient",
 		"op core.record @AzureOpenAIClient",
 		"op core.record @DeepSeekClient",
+		"op core.record @DeepSeekResponsesClient",
 		"op core.record @MistralClient",
 		"op core.record @RekaClient",
 		"op core.record @CohereClient",
@@ -677,7 +678,7 @@ func TestBuildRuntimeModel(t *testing.T) {
 			t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)
 		}
 	}
-	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "agent", "AxAgent", "AxAgentClarificationError", "flow", "AxFlow", "AxProgram"} {
+	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "DeepSeekResponsesClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "agent", "AxAgent", "AxAgentClarificationError", "flow", "AxFlow", "AxProgram"} {
 		if _, ok := model.Symbols[want]; !ok {
 			t.Fatalf("runtime model missing symbol %s", want)
 		}
@@ -873,6 +874,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/axllm/ax/AnthropicClient.java",
 				"dev/axllm/ax/AzureOpenAIClient.java",
 				"dev/axllm/ax/DeepSeekClient.java",
+				"dev/axllm/ax/DeepSeekResponsesClient.java",
 				"dev/axllm/ax/MistralClient.java",
 				"dev/axllm/ax/RekaClient.java",
 				"dev/axllm/ax/CohereClient.java",
@@ -1146,7 +1148,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if apiRef.PackageName != manifest.PackageName || apiRef.AxIRVersion != manifest.AxIRVersion {
 				t.Fatalf("%s API reference manifest should mirror capability manifest metadata: api=%#v caps=%#v", tc.target, apiRef, manifest)
 			}
-			for _, want := range []string{"s", "ax", "ai", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "playbook", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
+			for _, want := range []string{"s", "ax", "ai", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "DeepSeekResponsesClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "playbook", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
 				if !apiReferenceContainsCanonical(apiRef, want) {
 					t.Fatalf("%s API reference missing canonical symbol %q: %#v", tc.target, want, apiRef.Sections)
 				}
@@ -1167,7 +1169,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("%s manifest has stale broad runtime profile feature %s: %#v", tc.target, stale, manifest.CoreOwnedFeatureGroups)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "AxBalancer", "AxBalancerAdaptiveStrategy", "AxBalancerOptions", "AxBalancerStatsStore", "AxInMemoryBalancerStatsStore", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "optimize", "playbook", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "DeepSeekResponsesClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "AxBalancer", "AxBalancerAdaptiveStrategy", "AxBalancerOptions", "AxBalancerStatsStore", "AxInMemoryBalancerStatsStore", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "optimize", "playbook", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
 				}
@@ -3279,7 +3281,7 @@ func TestCompilePythonGeneratedAxLibrary(t *testing.T) {
 	script := filepath.Join(dir, "smoke.py")
 	err = os.WriteFile(script, []byte(`import sys
 sys.path.insert(0, sys.argv[1])
-from axllm import AIClient, AnthropicClient, AzureOpenAIClient, AxBaseAI, CohereClient, DeepSeekClient, GoogleGeminiClient, GrokClient, MistralClient, OpenAICompatibleClient, OpenAIResponsesClient, RekaClient, agent, ai, ax, f, fn, s
+from axllm import AIClient, AnthropicClient, AzureOpenAIClient, AxBaseAI, CohereClient, DeepSeekClient, DeepSeekResponsesClient, GoogleGeminiClient, GrokClient, MistralClient, OpenAICompatibleClient, OpenAIResponsesClient, RekaClient, agent, ai, ax, f, fn, s
 
 sig = s('question:string -> answer:string')
 assert sig.get_input_fields()[0].name == 'question'
@@ -3408,6 +3410,21 @@ for provider_name, cls in [
     result = service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
     assert result['results'][0]['content'] == 'ok', result
     assert provider_requests, provider_name
+responses_requests = []
+responses_service = ai('deepseek-responses', api_key='test', transport=lambda req: (
+    responses_requests.append(req) or {
+        'status': 200,
+        'json': {
+            'id': 'resp_provider',
+            'model': 'deepseek-v4-flash',
+            'output': [{'id': 'msg_provider', 'type': 'message', 'status': 'completed', 'content': [{'type': 'output_text', 'text': 'ok'}]}],
+        },
+    }
+))
+assert isinstance(responses_service, DeepSeekResponsesClient)
+responses_result = responses_service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
+assert responses_result['results'][0]['content'] == 'ok', responses_result
+assert responses_requests[0]['url'].endswith('/responses'), responses_requests[0]
 assert AxBaseAI
 print('python-ok')
 `), 0o644)
@@ -3738,6 +3755,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"class AnthropicClient",
 		"class AzureOpenAIClient",
 		"class DeepSeekClient",
+		"class DeepSeekResponsesClient",
 		"class MistralClient",
 		"class RekaClient",
 		"class CohereClient",
@@ -4292,6 +4310,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	for providerFile, providerMarker := range map[string]string{
 		"AzureOpenAIClient.java": "azure-openai",
 		"DeepSeekClient.java":    "deepseek",
+		"DeepSeekResponsesClient.java": "deepseek-responses",
 		"MistralClient.java":     "mistral",
 		"RekaClient.java":        "reka",
 		"CohereClient.java":      "cohere",
@@ -4443,6 +4462,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"class AnthropicClient",
 		"class AzureOpenAIClient",
 		"class DeepSeekClient",
+		"class DeepSeekResponsesClient",
 		"class MistralClient",
 		"class RekaClient",
 		"class CohereClient",

@@ -131,6 +131,12 @@ const axAIModelCatalogProviderDefinitions = {
     isDynamic: false,
     modelInfo: axModelInfoDeepSeek,
   },
+  'deepseek-responses': {
+    displayName: 'DeepSeek Responses',
+    defaultModel: AxAIDeepSeekModel.DeepSeekV4Flash,
+    isDynamic: false,
+    modelInfo: axModelInfoDeepSeek,
+  },
   mistral: {
     displayName: 'Mistral AI',
     defaultModel: AxAIMistralModel.MistralSmall,

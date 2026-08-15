@@ -1,7 +1,7 @@
 ---
 name: ax-ai
 description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
-version: "23.0.10"
+version: "23.0.12"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -64,7 +64,7 @@ const gemini = ai({
   config: { model: 'simple' },
   models: [
     { key: 'tiny', model: AxAIGoogleGeminiModel.Gemini35FlashLite, description: 'Fast + cheap', config: { maxTokens: 1024 } },
-    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini36Flash, description: 'Balanced' },
+    { key: 'simple', model: AxAIGoogleGeminiModel.Gemini37Flash, description: 'Balanced' },
   ],
 });
 

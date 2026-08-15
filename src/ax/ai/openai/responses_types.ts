@@ -164,13 +164,24 @@ export interface AxAIOpenAIResponsesInputFunctionCallOutputItem {
   // status?: string // Typically for response items
 }
 
+// DeepSeek's stateless Responses API accepts plain-text reasoning items when
+// replaying a tool loop. Keeping this in the shared union lets the provider
+// preserve Ax's canonical thought without adding a second input model.
+export interface AxAIOpenAIResponsesInputReasoningItem {
+  readonly type: 'reasoning';
+  readonly content:
+    | string
+    | ReadonlyArray<AxAIOpenAIResponsesInputTextContentPart>;
+}
+
 // Union of all possible input items
 // Add other item types here as needed (e.g., FileSearch, WebSearch, Reasoning items)
 export type AxAIOpenAIResponsesInputItem =
   | string // Simple text input
   | AxAIOpenAIResponsesInputMessageItem
   | AxAIOpenAIResponsesInputFunctionCallItem
-  | AxAIOpenAIResponsesInputFunctionCallOutputItem;
+  | AxAIOpenAIResponsesInputFunctionCallOutputItem
+  | AxAIOpenAIResponsesInputReasoningItem;
 
 // Tool Definitions
 export interface AxAIOpenAIResponsesDefineFunctionTool {
@@ -277,7 +288,10 @@ export interface AxAIOpenAIResponsesFunctionCallItem {
 export interface AxAIOpenAIResponsesReasoningItem {
   readonly type: 'reasoning'; // Typically not built incrementally in the same way by client
   readonly id: string;
-  readonly summary: ReadonlyArray<{
+  readonly content?:
+    | string
+    | ReadonlyArray<AxAIOpenAIResponsesInputTextContentPart>;
+  readonly summary?: ReadonlyArray<{
     type: 'summary_text';
     text: string;
   }>;
@@ -550,6 +564,23 @@ export interface AxAIOpenAIResponsesReasoningDoneEvent
   readonly text: string;
 }
 
+// DeepSeek Responses API reasoning stream events.
+export interface AxAIOpenAIResponsesReasoningTextDeltaEvent
+  extends AxAIOpenAIResponsesStreamEventBase {
+  readonly type: 'response.reasoning_text.delta';
+  readonly item_id: string;
+  readonly output_index: number;
+  readonly delta: string;
+}
+
+export interface AxAIOpenAIResponsesReasoningTextDoneEvent
+  extends AxAIOpenAIResponsesStreamEventBase {
+  readonly type: 'response.reasoning_text.done';
+  readonly item_id: string;
+  readonly output_index: number;
+  readonly text: string;
+}
+
 // Reasoning summary events
 export interface AxAIOpenAIResponsesReasoningSummaryPartAddedEvent
   extends AxAIOpenAIResponsesStreamEventBase {
@@ -732,6 +763,8 @@ export type AxAIOpenAIResponsesStreamEvent =
   | AxAIOpenAIResponsesWebSearchCallCompletedEvent
   | AxAIOpenAIResponsesReasoningDeltaEvent
   | AxAIOpenAIResponsesReasoningDoneEvent
+  | AxAIOpenAIResponsesReasoningTextDeltaEvent
+  | AxAIOpenAIResponsesReasoningTextDoneEvent
   | AxAIOpenAIResponsesReasoningSummaryPartAddedEvent
   | AxAIOpenAIResponsesReasoningSummaryPartDoneEvent
   | AxAIOpenAIResponsesReasoningSummaryTextDeltaEvent

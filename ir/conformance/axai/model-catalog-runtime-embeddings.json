@@ -220,6 +220,13 @@
         "name": "deepseek"
       },
       {
+        "defaultModel": "deepseek-v4-flash",
+        "displayName": "DeepSeek Responses",
+        "isDynamic": false,
+        "models": [],
+        "name": "deepseek-responses"
+      },
+      {
         "defaultModel": "mistral-small-latest",
         "displayName": "Mistral AI",
         "isDynamic": false,
@@ -251,7 +258,7 @@
     "modelCount": 9,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["embeddings"],
-    "providerCount": 11,
+    "providerCount": 12,
     "providerNames": [
       "openai",
       "google-gemini",
@@ -260,6 +267,7 @@
       "azure-openai",
       "anthropic",
       "deepseek",
+      "deepseek-responses",
       "mistral",
       "reka",
       "grok",

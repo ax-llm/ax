@@ -1,0 +1,113 @@
+{
+  "expected_output": [
+    {
+      "model_usage": null,
+      "remote_id": "resp_deepseek_stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "reasoning-1",
+          "index": 0,
+          "thought": "plan",
+          "thought_blocks": [
+            {
+              "data": "plan",
+              "encrypted": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "resp_deepseek_stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": null,
+                "params": "{\"region\":\"East\"}"
+              },
+              "id": "call-1",
+              "type": "function"
+            }
+          ],
+          "id": "call-1",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "model_usage": {
+        "ai": "DeepSeek Responses",
+        "model": "deepseek-v4-flash",
+        "tokens": {
+          "completion_tokens": 3,
+          "prompt_tokens": 4,
+          "reasoning_tokens": 1,
+          "total_tokens": 7
+        }
+      },
+      "remote_id": "resp_deepseek_stream",
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "expected_transport_request": {
+    "json": {
+      "input": [
+        {
+          "content": [
+            {
+              "text": "Stream the lookup plan.",
+              "type": "input_text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "deepseek-v4-flash",
+      "reasoning": {
+        "effort": "high"
+      },
+      "stream": true
+    },
+    "url": "https://api.deepseek.com/responses"
+  },
+  "kind": "ai_stream",
+  "model": "deepseek-v4-flash",
+  "name": "deepseek-responses-streaming-reasoning-tool",
+  "options": {
+    "stream": true
+  },
+  "provider": "deepseek-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Stream the lookup plan.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "thinkingTokenBudget": "medium"
+    }
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"type\":\"response.reasoning_text.delta\",\"response_id\":\"resp_deepseek_stream\",\"item_id\":\"reasoning-1\",\"delta\":\"plan\"}\n\ndata: {\"type\":\"response.function_call_arguments.delta\",\"response_id\":\"resp_deepseek_stream\",\"item_id\":\"call-1\",\"delta\":\"{\\\"region\\\":\\\"East\\\"}\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_deepseek_stream\",\"model\":\"deepseek-v4-flash\",\"usage\":{\"input_tokens\":4,\"output_tokens\":3,\"total_tokens\":7,\"output_tokens_details\":{\"reasoning_tokens\":1}}}}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}
