@@ -18,19 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-08-15-mark-deepseek-native-structured-outputs-unsupported` [axai] Mark DeepSeek native structured outputs unsupported
-  - Status: open
-  - Source commit: `3a80c93e16e0a499c971bcb58f976d73e7799da3`
-  - TS paths: `src/ax/ai/deepseek/info.ts`, `src/ax/ai/deepseek/api.ts`, `src/ax/ai/deepseek/responses_api.ts`
-  - Impact: DeepSeek Chat and Responses models reject json_schema response formats, but the Responses adapter currently defaults missing structuredOutputs metadata to true. AxGen therefore sends native schema requests instead of its existing __finalResult function-call fallback, blocking complex agent outputs.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-08-07-port-parallel-tool-call-accumulation-for-the-openai-responses-ap` [axai] Port parallel tool-call accumulation for the OpenAI Responses API
-  - Status: open
-  - Source PR: #574
-  - Source commit: `d0b59380`
-  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.tool_calls.test.ts`, `src/ax/ai/deepseek/responses_api.test.ts`
-  - Impact: The non-streaming and streaming OpenAI Responses mappers must preserve every function_call and its call_id so parallel tools execute and their outputs correlate correctly.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -458,3 +446,22 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-08-13
   - Completed by: `8cbad4e9`
   - Verification: `Implemented Gemini 3.7 Flash in AxIR Gemini request mapping and conformance; regenerated Python, Java, C++, Go, and Rust packages. Verified with 310 TypeScript Gemini/catalog tests, Python AxAI conformance, Java/C++ generated compilation, axir:conformance:check, and axir:check-packages.`
+- `axir-2026-08-15-mark-deepseek-native-structured-outputs-unsupported` [axai] Mark DeepSeek native structured outputs unsupported
+  - Status: done
+  - Source commit: `3a80c93e16e0a499c971bcb58f976d73e7799da3`
+  - TS paths: `src/ax/ai/deepseek/info.ts`, `src/ax/ai/deepseek/api.ts`, `src/ax/ai/deepseek/responses_api.ts`
+  - Impact: DeepSeek Chat and Responses models reject json_schema response formats, but the Responses adapter currently defaults missing structuredOutputs metadata to true. AxGen therefore sends native schema requests instead of its existing __finalResult function-call fallback, blocking complex agent outputs.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-15
+  - Completed by: `bdb08b78`
+  - Verification: `DeepSeek and DeepSeek Responses now advertise structured_outputs false in AxIR descriptors, conformance fixtures, and regenerated Python, Java, C++, Go, and Rust packages; native structured-output fallback tests and all AxIR package/conformance gates pass.`
+- `axir-2026-08-07-port-parallel-tool-call-accumulation-for-the-openai-responses-ap` [axai] Port parallel tool-call accumulation for the OpenAI Responses API
+  - Status: done
+  - Source PR: #574
+  - Source commit: `d0b59380`
+  - TS paths: `src/ax/ai/openai/responses_api.ts`, `src/ax/ai/openai/responses_api.tool_calls.test.ts`, `src/ax/ai/deepseek/responses_api.test.ts`
+  - Impact: The non-streaming and streaming OpenAI Responses mappers must preserve every function_call and its call_id so parallel tools execute and their outputs correlate correctly.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-15
+  - Completed by: `3a80c93e16e0a499c971bcb58f976d73e7799da3`
+  - Verification: `OpenAI Responses non-streaming and streaming parallel function-call accumulation is implemented and covered by focused tool-call tests; AxIR package and conformance checks pass.`

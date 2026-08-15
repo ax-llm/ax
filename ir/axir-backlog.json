@@ -1030,7 +1030,7 @@
     },
     {
       "id": "axir-2026-08-15-mark-deepseek-native-structured-outputs-unsupported",
-      "status": "open",
+      "status": "done",
       "title": "Mark DeepSeek native structured outputs unsupported",
       "createdAt": "2026-08-15",
       "sourcePR": null,
@@ -1047,13 +1047,13 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-08-15",
+      "completedByCommit": "bdb08b78",
+      "verification": "DeepSeek and DeepSeek Responses now advertise structured_outputs false in AxIR descriptors, conformance fixtures, and regenerated Python, Java, C++, Go, and Rust packages; native structured-output fallback tests and all AxIR package/conformance gates pass."
     },
     {
       "id": "axir-2026-08-07-port-parallel-tool-call-accumulation-for-the-openai-responses-ap",
-      "status": "open",
+      "status": "done",
       "title": "Port parallel tool-call accumulation for the OpenAI Responses API",
       "createdAt": "2026-08-07",
       "sourcePR": 574,
@@ -1070,9 +1070,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-08-15",
+      "completedByCommit": "3a80c93e16e0a499c971bcb58f976d73e7799da3",
+      "verification": "OpenAI Responses non-streaming and streaming parallel function-call accumulation is implemented and covered by focused tool-call tests; AxIR package and conformance checks pass."
     }
   ],
   "nonPortableExemptions": [
