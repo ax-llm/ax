@@ -109,7 +109,10 @@ export class AxMockAIService<TModelKey>
     return {
       functions: this.config.features?.functions ?? false,
       streaming: this.config.features?.streaming ?? false,
-      structuredOutputs: this.config.features?.structuredOutputs ?? false,
+      // Preserve omission so AxGen can apply its compatibility default for
+      // unknown/custom clients. Tests that need a provider without native
+      // structured outputs must advertise `structuredOutputs: false`.
+      structuredOutputs: this.config.features?.structuredOutputs,
       media: {
         images: {
           supported: media?.images?.supported ?? false,

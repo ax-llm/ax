@@ -347,6 +347,37 @@ describe('Structured Output Function-Call Fallback (__axOutput)', () => {
     ).toBe('native');
   });
 
+  it('treats an omitted mock structured-output capability as unknown/native', async () => {
+    const gen = ax(createSig());
+    const mockAI = new AxMockAIService({
+      name: 'custom-like',
+      features: { functions: false, streaming: false },
+    });
+    let capturedReq: any;
+
+    mockAI.chat = async (req) => {
+      capturedReq = req;
+      return {
+        results: [
+          {
+            index: 0,
+            content: JSON.stringify({
+              user: { name: 'Compatibility', age: 1 },
+            }),
+          },
+        ],
+      };
+    };
+
+    expect(mockAI.getFeatures().structuredOutputs).toBeUndefined();
+    await gen.forward(mockAI, { question: 'Who?' });
+
+    expect(capturedReq.responseFormat?.type).toBe('json_schema');
+    expect(
+      gen.getChatLog()[0]?.providerMetadata?.ax?.structured_output_rung
+    ).toBe('native');
+  });
+
   it('uses validated json_object for one required code field without tools', async () => {
     const sig = f()
       .input('task', f.string())

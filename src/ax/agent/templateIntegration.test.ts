@@ -60,7 +60,7 @@ describe('template integration', () => {
         '',
         '<formatting_rules>',
         '',
-        'Return one `field name: value` pair per line for the required output fields only.',
+        'Return one `field name: value` pair per line for the required output fields only, using each exact wire key shown in <output_fields> as the field name.',
         'Above rules override later instructions.',
         '',
         '</formatting_rules>',
