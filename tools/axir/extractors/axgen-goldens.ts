@@ -493,6 +493,67 @@ writeFixture('function-call-trace-hook', {
   expected_request_count: 2,
 });
 
+writeFixture('reasoning-tool-loop-replay', {
+  kind: 'forward',
+  signature: 'query:string -> answer:string',
+  input: { query: 'warehouse totals' },
+  tools: [
+    {
+      name: 'search',
+      description: 'Search warehouse data',
+      args: { query: { type: 'string' } },
+      result: { total: 42 },
+    },
+  ],
+  responses: [
+    {
+      results: [
+        {
+          index: 0,
+          content: '',
+          thought: 'Use the warehouse search tool.',
+          thought_blocks: [
+            {
+              data: 'Use the warehouse search tool.',
+              encrypted: false,
+            },
+          ],
+          function_calls: [
+            {
+              id: 'call_reasoning_1',
+              type: 'function',
+              function: {
+                name: 'search',
+                params: { query: 'warehouse totals' },
+              },
+            },
+          ],
+          finish_reason: 'function_call',
+        },
+      ],
+    },
+    {
+      results: [
+        {
+          index: 0,
+          content: '{"answer":"42"}',
+          finish_reason: 'stop',
+        },
+      ],
+    },
+  ],
+  expected_output: { answer: '42' },
+  expected_request_contains: [
+    'Use the warehouse search tool.',
+    'thought_blocks',
+    'call_reasoning_1',
+  ],
+  expected_tool_calls: [
+    { name: 'search', args: { query: 'warehouse totals' } },
+  ],
+  expected_request_count: 2,
+});
+
 writeFixture('unknown-tool-call-correction', {
   kind: 'forward',
   signature: 'query:string -> answer:string',

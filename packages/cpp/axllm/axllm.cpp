@@ -4167,6 +4167,12 @@ Value Core::_prompt_messages_impl(Value system, Value user) {
 
 Value Core::openai_build_chat_request(Value request, Value options, Value prompt_caching) {
   axir_coverage_mark("openai_build_chat_request");
+  Value payload = Core::_openai_build_chat_request_impl(request, options, prompt_caching, Value("none"));
+  return payload;
+}
+
+Value Core::_openai_build_chat_request_impl(Value request, Value options, Value prompt_caching, Value reasoning_content_mode) {
+  axir_coverage_mark("_openai_build_chat_request_impl");
   Value payload = Value::object();
   Value model = Core::get(request, Value("model"), Value());
   Core::set(payload, Value("model"), model);
@@ -4197,7 +4203,7 @@ Value Core::openai_build_chat_request(Value request, Value options, Value prompt
   Value message_index = Value(0);
   Value marker_count = Value(0);
   for (auto message : Core::iter(chat_prompt)) {
-    Value provider_message = Core::_openai_message_impl(message);
+    Value provider_message = Core::_openai_message_impl(message, reasoning_content_mode);
     if (Core::truthy(cache_enabled)) {
       Value is_before_last = Core::lt(message_index, last_index);
       Value explicit_cache = Core::get(message, Value("cache"), Value(false));
@@ -4276,11 +4282,33 @@ Value Core::openai_build_chat_request(Value request, Value options, Value prompt
 
 Value Core::merge_model_config(Value base, Value override, Value options) {
   axir_coverage_mark("merge_model_config");
-  Value merged = Core::map_merge(base, override);
+  Value empty_options_config = Value::object();
+  Value options_config_snake = Core::get(options, Value("model_config"), empty_options_config);
+  Value options_config = Core::get(options, Value("modelConfig"), options_config_snake);
+  Value base_options = Core::map_merge(base, options_config);
+  Value merged = Core::map_merge(base_options, override);
   Value has_stream_option = Core::map_contains(options, Value("stream"));
   if (Core::truthy(has_stream_option)) {
     Value stream = Core::get(options, Value("stream"), Value());
     Core::set(merged, Value("stream"), stream);
+  }
+  Value budget_snake = Core::get(options, Value("thinking_token_budget"), Value());
+  Value budget = Core::get(options, Value("thinkingTokenBudget"), budget_snake);
+  Value has_budget = Core::is_not_none(budget);
+  if (Core::truthy(has_budget)) {
+    Core::set(merged, Value("thinkingTokenBudget"), budget);
+  }
+  Value reasoning_snake = Core::get(options, Value("reasoning_effort"), Value());
+  Value reasoning = Core::get(options, Value("reasoningEffort"), reasoning_snake);
+  Value has_reasoning = Core::is_not_none(reasoning);
+  if (Core::truthy(has_reasoning)) {
+    Core::set(merged, Value("reasoning_effort"), reasoning);
+  }
+  Value show_thoughts_snake = Core::get(options, Value("show_thoughts"), Value());
+  Value show_thoughts = Core::get(options, Value("showThoughts"), show_thoughts_snake);
+  Value has_show_thoughts = Core::is_not_none(show_thoughts);
+  if (Core::truthy(has_show_thoughts)) {
+    Core::set(merged, Value("showThoughts"), show_thoughts);
   }
   Value out = Value::object();
   for (auto key : Core::iter(merged)) {
@@ -4704,10 +4732,11 @@ Value Core::_openai_copy_config_key_impl(Value payload, Value model_config, Valu
   return Value();
 }
 
-Value Core::_openai_message_impl(Value message) {
+Value Core::_openai_message_impl(Value message, Value reasoning_content_mode) {
   axir_coverage_mark("_openai_message_impl");
   Value role = Core::get(message, Value("role"), Value());
   Value content = Core::get(message, Value("content"), Value(""));
+  Value is_deepseek_reasoning = Core::eq(reasoning_content_mode, Value("deepseek"));
   Value is_system = Core::eq(role, Value("system"));
   if (Core::truthy(is_system)) {
     Value out = Value::object();
@@ -4740,20 +4769,27 @@ Value Core::_openai_message_impl(Value message) {
   if (Core::truthy(is_assistant)) {
     Value thought = Core::get(message, Value("thought"), Value());
     Value has_thought = Core::truthy_value(thought);
+    Value include_thought = Core::and_(is_deepseek_reasoning, has_thought);
     Value empty_calls = Value::array();
     Value calls_snake = Core::get(message, Value("function_calls"), empty_calls);
     Value calls = Core::get(message, Value("functionCalls"), calls_snake);
     Value has_calls = Core::truthy_value(calls);
     Value out = Value::object();
     Core::set(out, Value("role"), Value("assistant"));
-    if (Core::truthy(has_thought)) {
+    if (Core::truthy(include_thought)) {
       Core::set(out, Value("reasoning_content"), thought);
     }
     if (Core::truthy(has_calls)) {
       Value assistant_content = Core::get(message, Value("content"), Value());
       Value has_assistant_content = Core::is_not_none(assistant_content);
-      if (Core::truthy(has_assistant_content)) {
-        Core::set(out, Value("content"), assistant_content);
+      if (Core::truthy(is_deepseek_reasoning)) {
+        Value deepseek_content = Core::get(message, Value("content"), Value(""));
+        Core::set(out, Value("content"), deepseek_content);
+      }
+      if (!Core::truthy(is_deepseek_reasoning)) {
+        if (Core::truthy(has_assistant_content)) {
+          Core::set(out, Value("content"), assistant_content);
+        }
       }
       Value tool_calls = Value::array();
       for (auto call : Core::iter(calls)) {
@@ -4822,40 +4858,20 @@ Value Core::chat_response_to_completion(Value response) {
   }
   Value model_usage = Core::get(response, Value("model_usage"), Value());
   Value usage = Core::get(model_usage, Value("tokens"), Value());
+  Value thought = Core::get(result, Value("thought"), Value());
+  Value has_thought = Core::is_not_none(thought);
+  Value thought_blocks = Core::get(result, Value("thought_blocks"), Value());
+  Value has_thought_blocks = Core::is_not_none(thought_blocks);
   Value out = Value::object();
   Core::set(out, Value("content"), content);
   Core::set(out, Value("function_calls"), calls);
   Core::set(out, Value("usage"), usage);
-  return out;
-}
-
-Value Core::ai_context_cache_rejection(Value status, Value body_json) {
-  axir_coverage_mark("ai_context_cache_rejection");
-  Value status_400_min = Core::gte(status, Value(400));
-  Value status_400_max = Core::lte(status, Value(400));
-  Value is_400 = Core::and_(status_400_min, status_400_max);
-  Value status_404_min = Core::gte(status, Value(404));
-  Value status_404_max = Core::lte(status, Value(404));
-  Value is_404 = Core::and_(status_404_min, status_404_max);
-  Value valid_status = Core::or_(is_400, is_404);
-  Value body_text = Core::json_stringify(body_json);
-  Value body_lower = Core::string_lower(body_text);
-  Value names_compact = Core::contains(body_lower, Value("cachedcontent"));
-  Value names_spaced = Core::contains(body_lower, Value("cached content"));
-  Value names_resource = Core::contains(body_lower, Value("cachedcontents/"));
-  Value names_left = Core::or_(names_compact, names_spaced);
-  Value names_cache = Core::or_(names_left, names_resource);
-  Value has_cache = Core::contains(body_lower, Value("cache"));
-  Value expired = Core::contains(body_lower, Value("expired"));
-  Value not_found = Core::contains(body_lower, Value("not found"));
-  Value missing = Core::contains(body_lower, Value("does not exist"));
-  Value invalid = Core::contains(body_lower, Value("invalid"));
-  Value invalid_left = Core::or_(expired, not_found);
-  Value invalid_right = Core::or_(missing, invalid);
-  Value invalid_reason = Core::or_(invalid_left, invalid_right);
-  Value invalid_cache = Core::and_(has_cache, invalid_reason);
-  Value cache_rejection = Core::or_(names_cache, invalid_cache);
-  Value out = Core::and_(valid_status, cache_rejection);
+  if (Core::truthy(has_thought)) {
+    Core::set(out, Value("thought"), thought);
+  }
+  if (Core::truthy(has_thought_blocks)) {
+    Core::set(out, Value("thought_blocks"), thought_blocks);
+  }
   return out;
 }
 
@@ -4919,6 +4935,36 @@ Value Core::_openai_content_part_impl(Value part) {
   Value message = Core::string_format(Value("OpenAI-compatible beta does not support content part type: {}"), type);
   Value error = Core::ai_error_unsupported(message);
   throw Core::as_error(error);
+}
+
+Value Core::ai_context_cache_rejection(Value status, Value body_json) {
+  axir_coverage_mark("ai_context_cache_rejection");
+  Value status_400_min = Core::gte(status, Value(400));
+  Value status_400_max = Core::lte(status, Value(400));
+  Value is_400 = Core::and_(status_400_min, status_400_max);
+  Value status_404_min = Core::gte(status, Value(404));
+  Value status_404_max = Core::lte(status, Value(404));
+  Value is_404 = Core::and_(status_404_min, status_404_max);
+  Value valid_status = Core::or_(is_400, is_404);
+  Value body_text = Core::json_stringify(body_json);
+  Value body_lower = Core::string_lower(body_text);
+  Value names_compact = Core::contains(body_lower, Value("cachedcontent"));
+  Value names_spaced = Core::contains(body_lower, Value("cached content"));
+  Value names_resource = Core::contains(body_lower, Value("cachedcontents/"));
+  Value names_left = Core::or_(names_compact, names_spaced);
+  Value names_cache = Core::or_(names_left, names_resource);
+  Value has_cache = Core::contains(body_lower, Value("cache"));
+  Value expired = Core::contains(body_lower, Value("expired"));
+  Value not_found = Core::contains(body_lower, Value("not found"));
+  Value missing = Core::contains(body_lower, Value("does not exist"));
+  Value invalid = Core::contains(body_lower, Value("invalid"));
+  Value invalid_left = Core::or_(expired, not_found);
+  Value invalid_right = Core::or_(missing, invalid);
+  Value invalid_reason = Core::or_(invalid_left, invalid_right);
+  Value invalid_cache = Core::and_(has_cache, invalid_reason);
+  Value cache_rejection = Core::or_(names_cache, invalid_cache);
+  Value out = Core::and_(valid_status, cache_rejection);
+  return out;
 }
 
 Value Core::ai_context_cache_expiry(Value provider_expire_time, Value now) {
@@ -5063,6 +5109,12 @@ Value Core::openai_build_embed_request(Value request) {
   return payload;
 }
 
+Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model) {
+  axir_coverage_mark("openai_normalize_chat_response");
+  Value response = Core::_openai_normalize_chat_response_impl(raw, ai_name, model, Value("none"));
+  return response;
+}
+
 Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options) {
   axir_coverage_mark("ai_gemini_cache_ops");
   Value ttl = Core::string_format(Value("{}s"), ttl_seconds);
@@ -5137,8 +5189,8 @@ Value Core::ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_k
   return out;
 }
 
-Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model) {
-  axir_coverage_mark("openai_normalize_chat_response");
+Value Core::_openai_normalize_chat_response_impl(Value raw, Value ai_name, Value model, Value reasoning_content_mode) {
+  axir_coverage_mark("_openai_normalize_chat_response_impl");
   Value raw_is_object = Core::type_is(raw, Value("object"));
   Value raw_not_object = Core::not_(raw_is_object);
   if (Core::truthy(raw_not_object)) {
@@ -5161,7 +5213,7 @@ Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model
   }
   Value results = Value::array();
   for (auto choice : Core::iter(choices)) {
-    Value result = Core::_openai_normalize_choice_impl(choice, raw);
+    Value result = Core::_openai_normalize_choice_impl(choice, raw, reasoning_content_mode);
     Core::append(results, result);
   }
   Value raw_model = Core::get(raw, Value("model"), Value());
@@ -5176,7 +5228,7 @@ Value Core::openai_normalize_chat_response(Value raw, Value ai_name, Value model
   return out;
 }
 
-Value Core::_openai_normalize_choice_impl(Value choice, Value raw) {
+Value Core::_openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode) {
   axir_coverage_mark("_openai_normalize_choice_impl");
   Value empty_message = Value::object();
   Value message = Core::get(choice, Value("message"), empty_message);
@@ -5208,7 +5260,9 @@ Value Core::_openai_normalize_choice_impl(Value choice, Value raw) {
   Core::set(out, Value("content"), content);
   Value reasoning_content = Core::get(message, Value("reasoning_content"), Value());
   Value has_reasoning_content = Core::truthy_value(reasoning_content);
-  if (Core::truthy(has_reasoning_content)) {
+  Value is_deepseek_reasoning = Core::eq(reasoning_content_mode, Value("deepseek"));
+  Value include_reasoning_content = Core::and_(is_deepseek_reasoning, has_reasoning_content);
+  if (Core::truthy(include_reasoning_content)) {
     Core::set(out, Value("thought"), reasoning_content);
     Value thought_blocks = Value::array();
     Value thought_block = Value::object();
@@ -5299,6 +5353,12 @@ Value Core::openai_normalize_embed_response(Value raw, Value ai_name, Value mode
 
 Value Core::openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model) {
   axir_coverage_mark("openai_normalize_stream_delta");
+  Value response = Core::_openai_normalize_stream_delta_impl(raw, state, ai_name, model, Value("none"));
+  return response;
+}
+
+Value Core::_openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode) {
+  axir_coverage_mark("_openai_normalize_stream_delta_impl");
   Value raw_is_object = Core::type_is(raw, Value("object"));
   Value raw_not_object = Core::not_(raw_is_object);
   if (Core::truthy(raw_not_object)) {
@@ -5329,7 +5389,7 @@ Value Core::openai_normalize_stream_delta(Value raw, Value state, Value ai_name,
   Value empty_choices = Value::array();
   Value choices = Core::get(raw, Value("choices"), empty_choices);
   for (auto choice : Core::iter(choices)) {
-    Value result = Core::_openai_stream_choice_impl(choice, index_ids);
+    Value result = Core::_openai_stream_choice_impl(choice, index_ids, reasoning_content_mode);
     Core::append(results, result);
   }
   Value raw_model = Core::get(raw, Value("model"), Value());
@@ -5343,7 +5403,7 @@ Value Core::openai_normalize_stream_delta(Value raw, Value state, Value ai_name,
   return out;
 }
 
-Value Core::_openai_stream_choice_impl(Value choice, Value index_ids) {
+Value Core::_openai_stream_choice_impl(Value choice, Value index_ids, Value reasoning_content_mode) {
   axir_coverage_mark("_openai_stream_choice_impl");
   Value empty_delta = Value::object();
   Value delta = Core::get(choice, Value("delta"), empty_delta);
@@ -5378,13 +5438,15 @@ Value Core::_openai_stream_choice_impl(Value choice, Value index_ids) {
   Value content = Core::get(delta, Value("content"), Value());
   Value reasoning_content = Core::get(delta, Value("reasoning_content"), Value());
   Value has_reasoning_content = Core::truthy_value(reasoning_content);
+  Value is_deepseek_reasoning = Core::eq(reasoning_content_mode, Value("deepseek"));
+  Value include_reasoning_content = Core::and_(is_deepseek_reasoning, has_reasoning_content);
   Value finish_reason_raw = Core::get(choice, Value("finish_reason"), Value());
   Value finish_reason = Core::_openai_finish_reason_impl(finish_reason_raw);
   Value out = Value::object();
   Core::set(out, Value("index"), index);
   Core::set(out, Value("id"), id);
   Core::set(out, Value("content"), content);
-  if (Core::truthy(has_reasoning_content)) {
+  if (Core::truthy(include_reasoning_content)) {
     Core::set(out, Value("thought"), reasoning_content);
     Value thought_blocks = Value::array();
     Value thought_block = Value::object();
@@ -7377,6 +7439,11 @@ Value Core::provider_build_chat_request(Value profile, Value request, Value opti
   is_responses = Core::or_(is_responses, is_deepseek_responses);
   Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
   Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
+  Value is_deepseek = Core::eq(provider_id, Value("deepseek"));
+  Value reasoning_content_mode = Value("none");
+  if (Core::truthy(is_deepseek)) {
+    reasoning_content_mode = Value("deepseek");
+  }
   Value payload = Value::object();
   if (Core::truthy(is_responses)) {
     Value responses_payload = Core::openai_responses_build_chat_request(request);
@@ -7400,7 +7467,7 @@ Value Core::provider_build_chat_request(Value profile, Value request, Value opti
       }
       if (!Core::truthy(is_anthropic)) {
         Value is_official_openai = Core::eq(provider_id, Value("openai-compatible"));
-        Value compatible_payload = Core::openai_build_chat_request(request, options, is_official_openai);
+        Value compatible_payload = Core::_openai_build_chat_request_impl(request, options, is_official_openai, reasoning_content_mode);
         payload = compatible_payload;
       }
     }
@@ -7453,19 +7520,15 @@ Value Core::_provider_apply_deepseek_chat_quirks(Value payload, Value model_conf
     if (Core::truthy(thinking_enabled)) {
       Core::set(thinking, Value("type"), Value("enabled"));
       Value is_xhigh = Core::eq(reasoning, Value("xhigh"));
+      Value is_max = Core::eq(reasoning, Value("max"));
+      Value reasoning_is_max = Core::or_(is_xhigh, is_max);
       Value budget_is_highest = Core::eq(budget, Value("highest"));
-      Value is_max_effort = Core::or_(is_xhigh, budget_is_highest);
+      Value is_max_effort = Core::or_(reasoning_is_max, budget_is_highest);
       if (Core::truthy(is_max_effort)) {
         Core::set(payload, Value("reasoning_effort"), Value("max"));
       }
       if (!Core::truthy(is_max_effort)) {
-        Value is_high = Core::eq(reasoning, Value("high"));
-        if (Core::truthy(is_high)) {
-          Core::set(payload, Value("reasoning_effort"), Value("high"));
-        }
-        if (!Core::truthy(is_high)) {
-          Core::set(payload, Value("reasoning_effort"), Value("high"));
-        }
+        Core::set(payload, Value("reasoning_effort"), Value("high"));
       }
       Core::map_delete(payload, Value("temperature"));
       Core::map_delete(payload, Value("top_p"));
@@ -7696,6 +7759,11 @@ Value Core::provider_normalize_chat_response(Value profile, Value raw, Value ai_
   is_responses = Core::or_(is_responses, is_deepseek_responses);
   Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
   Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
+  Value is_deepseek = Core::eq(provider_id, Value("deepseek"));
+  Value reasoning_content_mode = Value("none");
+  if (Core::truthy(is_deepseek)) {
+    reasoning_content_mode = Value("deepseek");
+  }
   Value response = Value::object();
   if (Core::truthy(is_responses)) {
     Value responses_response = Core::openai_responses_normalize_chat_response(raw, ai_name, model);
@@ -7712,7 +7780,7 @@ Value Core::provider_normalize_chat_response(Value profile, Value raw, Value ai_
         response = anthropic_response;
       }
       if (!Core::truthy(is_anthropic)) {
-        Value compatible_response = Core::openai_normalize_chat_response(raw, ai_name, model);
+        Value compatible_response = Core::_openai_normalize_chat_response_impl(raw, ai_name, model, reasoning_content_mode);
         response = compatible_response;
       }
     }
@@ -7728,6 +7796,11 @@ Value Core::provider_normalize_stream_delta(Value profile, Value raw, Value stat
   is_responses = Core::or_(is_responses, is_deepseek_responses);
   Value is_gemini = Core::eq(provider_id, Value("google-gemini"));
   Value is_anthropic = Core::eq(provider_id, Value("anthropic"));
+  Value is_deepseek = Core::eq(provider_id, Value("deepseek"));
+  Value reasoning_content_mode = Value("none");
+  if (Core::truthy(is_deepseek)) {
+    reasoning_content_mode = Value("deepseek");
+  }
   Value response = Value::object();
   if (Core::truthy(is_responses)) {
     Value responses_response = Core::openai_responses_normalize_stream_delta(raw, state, ai_name, model);
@@ -7744,7 +7817,7 @@ Value Core::provider_normalize_stream_delta(Value profile, Value raw, Value stat
         response = anthropic_response;
       }
       if (!Core::truthy(is_anthropic)) {
-        Value compatible_response = Core::openai_normalize_stream_delta(raw, state, ai_name, model);
+        Value compatible_response = Core::_openai_normalize_stream_delta_impl(raw, state, ai_name, model, reasoning_content_mode);
         response = compatible_response;
       }
     }
@@ -11172,10 +11245,31 @@ Value Core::_optimization_component_current_map(Value components) {
 
 Value Core::_build_gen_chat_request(Value gen, Value messages, Value options, Value selection) {
   axir_coverage_mark("_build_gen_chat_request");
-  Value model_config = Value::object();
+  Value empty_model_config = Value::object();
+  Value model_config_snake = Core::get(options, Value("model_config"), empty_model_config);
+  Value model_config_base = Core::get(options, Value("modelConfig"), model_config_snake);
+  Value model_config = Core::map_merge(empty_model_config, model_config_base);
   Value stream_value = Core::get(options, Value("stream"), Value(false));
   Value stream_bool = Core::truthy_value(stream_value);
   Core::set(model_config, Value("stream"), stream_bool);
+  Value budget_snake = Core::get(options, Value("thinking_token_budget"), Value());
+  Value budget = Core::get(options, Value("thinkingTokenBudget"), budget_snake);
+  Value has_budget = Core::is_not_none(budget);
+  if (Core::truthy(has_budget)) {
+    Core::set(model_config, Value("thinkingTokenBudget"), budget);
+  }
+  Value reasoning_snake = Core::get(options, Value("reasoning_effort"), Value());
+  Value reasoning = Core::get(options, Value("reasoningEffort"), reasoning_snake);
+  Value has_reasoning = Core::is_not_none(reasoning);
+  if (Core::truthy(has_reasoning)) {
+    Core::set(model_config, Value("reasoning_effort"), reasoning);
+  }
+  Value show_thoughts_snake = Core::get(options, Value("show_thoughts"), Value());
+  Value show_thoughts = Core::get(options, Value("showThoughts"), show_thoughts_snake);
+  Value has_show_thoughts = Core::is_not_none(show_thoughts);
+  if (Core::truthy(has_show_thoughts)) {
+    Core::set(model_config, Value("showThoughts"), show_thoughts);
+  }
   Value temperature = Core::get(options, Value("temperature"), Value());
   Value has_temperature = Core::is_not_none(temperature);
   if (Core::truthy(has_temperature)) {
@@ -11480,7 +11574,8 @@ Value Core::_forward_impl(Value gen, Value client, Value values, Value options) 
           continue;
         }
       }
-      Core::_append_tool_call_messages_impl(messages, response, calls);
+      Value updated_messages = Core::_append_tool_call_messages_impl(messages, response, calls);
+      messages = updated_messages;
       for (auto call : Core::iter(calls)) {
         try {
           Value tool_result = Core::_execute_tool_call(functions, call);
@@ -11585,18 +11680,6 @@ Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Val
   return out;
 }
 
-Value Core::_set_examples(Value gen, Value examples) {
-  axir_coverage_mark("_set_examples");
-  Core::set(gen, Value("examples"), examples);
-  return gen;
-}
-
-Value Core::_set_demos(Value gen, Value demos) {
-  axir_coverage_mark("_set_demos");
-  Core::set(gen, Value("demos"), demos);
-  return gen;
-}
-
 Value Core::_filter_optimization_components(Value components, Value target) {
   axir_coverage_mark("_filter_optimization_components");
   Value out = Value::array();
@@ -11660,6 +11743,18 @@ Value Core::_filter_optimization_components(Value components, Value target) {
   return out;
 }
 
+Value Core::_set_examples(Value gen, Value examples) {
+  axir_coverage_mark("_set_examples");
+  Core::set(gen, Value("examples"), examples);
+  return gen;
+}
+
+Value Core::_set_demos(Value gen, Value demos) {
+  axir_coverage_mark("_set_demos");
+  Core::set(gen, Value("demos"), demos);
+  return gen;
+}
+
 Value Core::_render_examples(Value gen) {
   axir_coverage_mark("_render_examples");
   Value messages = Core::axgen_render_examples(gen);
@@ -11684,18 +11779,6 @@ Value Core::_run_assertions(Value gen, Value output) {
   return Value();
 }
 
-Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
-  axir_coverage_mark("_append_assertion_retry_messages");
-  Core::_append_validation_retry_messages_impl(messages, response, error);
-  return Value();
-}
-
-Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
-  axir_coverage_mark("_record_trace");
-  Core::axgen_record_trace(gen, input, output, status);
-  return Value();
-}
-
 Value Core::_build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace) {
   axir_coverage_mark("_build_optimizer_request");
   Value out = Value::object();
@@ -11716,10 +11799,16 @@ Value Core::_build_optimizer_request(Value program_kind, Value components, Value
   return out;
 }
 
-Value Core::_should_continue_steps(Value gen, Value calls) {
-  axir_coverage_mark("_should_continue_steps");
-  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
-  return should_continue;
+Value Core::_append_assertion_retry_messages(Value messages, Value response, Value error) {
+  axir_coverage_mark("_append_assertion_retry_messages");
+  Core::_append_validation_retry_messages_impl(messages, response, error);
+  return Value();
+}
+
+Value Core::_record_trace(Value gen, Value input, Value output, Value status) {
+  axir_coverage_mark("_record_trace");
+  Core::axgen_record_trace(gen, input, output, status);
+  return Value();
 }
 
 Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available) {
@@ -11749,6 +11838,12 @@ Value Core::_prepare_optimizer_run(Value program_kind, Value components, Value d
   Core::set(out, Value("options"), request_options);
   Core::set(out, Value("request"), request);
   return out;
+}
+
+Value Core::_should_continue_steps(Value gen, Value calls) {
+  axir_coverage_mark("_should_continue_steps");
+  Value should_continue = Core::axgen_should_continue_steps(gen, calls);
+  return should_continue;
 }
 
 Value Core::_complete_with_retries_impl(Value client, Value request, Value options, Value retries) {
@@ -11888,62 +11983,6 @@ Value Core::_parse_json_string_value(Value value) {
   return result;
 }
 
-Value Core::_parse_json_string_for_field(Value field, Value value) {
-  axir_coverage_mark("_parse_json_string_for_field");
-  Value typ = Core::get(field, Value("type"), Value());
-  Value value_is_none = Core::is_none(value);
-  if (Core::truthy(value_is_none)) {
-    return value;
-  }
-  Value flexible = Core::_is_flexible_json_field(typ);
-  Value is_array = Core::get(typ, Value("is_array"), Value(false));
-  Value typ_fields = Core::get(typ, Value("fields"), Value());
-  Value has_typ_fields = Core::truthy_value(typ_fields);
-  if (Core::truthy(is_array)) {
-    Value value_is_list = Core::type_is(value, Value("list"));
-    Value not_list = Core::not_(value_is_list);
-    if (Core::truthy(not_list)) {
-      return value;
-    }
-    if (Core::truthy(flexible)) {
-      Value out = Value::array();
-      for (auto item : Core::iter(value)) {
-        Value parsed_item = Core::_parse_json_string_value(item);
-        Core::append(out, parsed_item);
-      }
-      return out;
-    }
-    if (Core::truthy(has_typ_fields)) {
-      Value rebuilt = Value::array();
-      for (auto item : Core::iter(value)) {
-        Value item_is_map = Core::type_is(item, Value("object"));
-        if (Core::truthy(item_is_map)) {
-          Value parsed_obj = Core::_parse_json_string_for_fields(typ_fields, item);
-          Core::append(rebuilt, parsed_obj);
-        }
-        if (!Core::truthy(item_is_map)) {
-          Core::append(rebuilt, item);
-        }
-      }
-      return rebuilt;
-    }
-    return value;
-  }
-  if (Core::truthy(flexible)) {
-    Value parsed_scalar = Core::_parse_json_string_value(value);
-    return parsed_scalar;
-  }
-  Value type_name = Core::get(typ, Value("name"), Value());
-  Value is_object = Core::eq(type_name, Value("object"));
-  if (Core::truthy(is_object)) {
-    if (Core::truthy(has_typ_fields)) {
-      Value parsed_obj2 = Core::_parse_json_string_for_fields(typ_fields, value);
-      return parsed_obj2;
-    }
-  }
-  return value;
-}
-
 Value Core::_build_optimizer_evidence_batch(Value eval_result, Value components) {
   axir_coverage_mark("_build_optimizer_evidence_batch");
   Value empty_list = Value::array();
@@ -12013,6 +12052,62 @@ Value Core::_build_optimizer_evidence_batch(Value eval_result, Value components)
   return out;
 }
 
+Value Core::_parse_json_string_for_field(Value field, Value value) {
+  axir_coverage_mark("_parse_json_string_for_field");
+  Value typ = Core::get(field, Value("type"), Value());
+  Value value_is_none = Core::is_none(value);
+  if (Core::truthy(value_is_none)) {
+    return value;
+  }
+  Value flexible = Core::_is_flexible_json_field(typ);
+  Value is_array = Core::get(typ, Value("is_array"), Value(false));
+  Value typ_fields = Core::get(typ, Value("fields"), Value());
+  Value has_typ_fields = Core::truthy_value(typ_fields);
+  if (Core::truthy(is_array)) {
+    Value value_is_list = Core::type_is(value, Value("list"));
+    Value not_list = Core::not_(value_is_list);
+    if (Core::truthy(not_list)) {
+      return value;
+    }
+    if (Core::truthy(flexible)) {
+      Value out = Value::array();
+      for (auto item : Core::iter(value)) {
+        Value parsed_item = Core::_parse_json_string_value(item);
+        Core::append(out, parsed_item);
+      }
+      return out;
+    }
+    if (Core::truthy(has_typ_fields)) {
+      Value rebuilt = Value::array();
+      for (auto item : Core::iter(value)) {
+        Value item_is_map = Core::type_is(item, Value("object"));
+        if (Core::truthy(item_is_map)) {
+          Value parsed_obj = Core::_parse_json_string_for_fields(typ_fields, item);
+          Core::append(rebuilt, parsed_obj);
+        }
+        if (!Core::truthy(item_is_map)) {
+          Core::append(rebuilt, item);
+        }
+      }
+      return rebuilt;
+    }
+    return value;
+  }
+  if (Core::truthy(flexible)) {
+    Value parsed_scalar = Core::_parse_json_string_value(value);
+    return parsed_scalar;
+  }
+  Value type_name = Core::get(typ, Value("name"), Value());
+  Value is_object = Core::eq(type_name, Value("object"));
+  if (Core::truthy(is_object)) {
+    if (Core::truthy(has_typ_fields)) {
+      Value parsed_obj2 = Core::_parse_json_string_for_fields(typ_fields, value);
+      return parsed_obj2;
+    }
+  }
+  return value;
+}
+
 Value Core::_parse_json_string_fields(Value output_fields, Value values) {
   axir_coverage_mark("_parse_json_string_fields");
   Value values_is_map = Core::type_is(values, Value("object"));
@@ -12050,6 +12145,24 @@ Value Core::_parse_json_string_for_fields(Value fields_map, Value values) {
     }
   }
   return values;
+}
+
+Value Core::_ace_estimate_token_count(Value text) {
+  axir_coverage_mark("_ace_estimate_token_count");
+  Value len = Core::len(text);
+  Value tokens = Value(0);
+  Value remaining = len;
+  while (true) {
+    Value done = Core::lte(remaining, Value(0));
+    if (Core::truthy(done)) {
+      break;
+    }
+    Value tokens_next = Core::add(tokens, Value(1));
+    tokens = tokens_next;
+    Value remaining_next = Core::add(remaining, Value(-4));
+    remaining = remaining_next;
+  }
+  return tokens;
 }
 
 Value Core::_validate_exact_output_keys(Value fields, Value values, Value context) {
@@ -12105,24 +12218,6 @@ Value Core::_validate_exact_output_keys(Value fields, Value values, Value contex
   return Value();
 }
 
-Value Core::_ace_estimate_token_count(Value text) {
-  axir_coverage_mark("_ace_estimate_token_count");
-  Value len = Core::len(text);
-  Value tokens = Value(0);
-  Value remaining = len;
-  while (true) {
-    Value done = Core::lte(remaining, Value(0));
-    if (Core::truthy(done)) {
-      break;
-    }
-    Value tokens_next = Core::add(tokens, Value(1));
-    tokens = tokens_next;
-    Value remaining_next = Core::add(remaining, Value(-4));
-    remaining = remaining_next;
-  }
-  return tokens;
-}
-
 Value Core::_ace_recompute_playbook_stats(Value playbook) {
   axir_coverage_mark("_ace_recompute_playbook_stats");
   Value empty_map = Value::object();
@@ -12157,18 +12252,6 @@ Value Core::_ace_recompute_playbook_stats(Value playbook) {
   return playbook;
 }
 
-Value Core::_tool_spec_impl(Value fn) {
-  axir_coverage_mark("_tool_spec_impl");
-  Value spec = Value::object();
-  Value name = Core::get(fn, Value("name"), Value());
-  Value description = Core::get(fn, Value("description"), Value());
-  Value parameters = Core::get(fn, Value("parameters"), Value());
-  Core::set(spec, Value("name"), name);
-  Core::set(spec, Value("description"), description);
-  Core::set(spec, Value("parameters"), parameters);
-  return spec;
-}
-
 Value Core::_ace_empty_playbook(Value description, Value now) {
   axir_coverage_mark("_ace_empty_playbook");
   Value out = Value::object();
@@ -12189,23 +12272,16 @@ Value Core::_ace_empty_playbook(Value description, Value now) {
   return out;
 }
 
-Value Core::_function_call_mode_impl(Value mode) {
-  axir_coverage_mark("_function_call_mode_impl");
-  Value missing = Core::is_none(mode);
-  if (Core::truthy(missing)) {
-    return Value("auto");
-  }
-  Value is_native = Core::eq(mode, Value("native"));
-  Value is_auto = Core::eq(mode, Value("auto"));
-  Value native_or_auto = Core::or_(is_native, is_auto);
-  if (Core::truthy(native_or_auto)) {
-    return Value("auto");
-  }
-  Value is_prompt = Core::eq(mode, Value("prompt"));
-  if (Core::truthy(is_prompt)) {
-    return Value("none");
-  }
-  return mode;
+Value Core::_tool_spec_impl(Value fn) {
+  axir_coverage_mark("_tool_spec_impl");
+  Value spec = Value::object();
+  Value name = Core::get(fn, Value("name"), Value());
+  Value description = Core::get(fn, Value("description"), Value());
+  Value parameters = Core::get(fn, Value("parameters"), Value());
+  Core::set(spec, Value("name"), name);
+  Core::set(spec, Value("description"), description);
+  Core::set(spec, Value("parameters"), parameters);
+  return spec;
 }
 
 Value Core::_ace_render_playbook(Value playbook) {
@@ -12265,6 +12341,25 @@ Value Core::_ace_render_playbook(Value playbook) {
   return result;
 }
 
+Value Core::_function_call_mode_impl(Value mode) {
+  axir_coverage_mark("_function_call_mode_impl");
+  Value missing = Core::is_none(mode);
+  if (Core::truthy(missing)) {
+    return Value("auto");
+  }
+  Value is_native = Core::eq(mode, Value("native"));
+  Value is_auto = Core::eq(mode, Value("auto"));
+  Value native_or_auto = Core::or_(is_native, is_auto);
+  if (Core::truthy(native_or_auto)) {
+    return Value("auto");
+  }
+  Value is_prompt = Core::eq(mode, Value("prompt"));
+  if (Core::truthy(is_prompt)) {
+    return Value("none");
+  }
+  return mode;
+}
+
 Value Core::_response_function_calls_impl(Value response) {
   axir_coverage_mark("_response_function_calls_impl");
   Value empty = Value::array();
@@ -12284,23 +12379,18 @@ Value Core::_append_tool_call_messages_impl(Value messages, Value response, Valu
   Core::set(message, Value("role"), Value("assistant"));
   Core::set(message, Value("content"), content);
   Core::set(message, Value("function_calls"), chat_calls);
+  Value thought = Core::get(response, Value("thought"), Value());
+  Value has_thought = Core::is_not_none(thought);
+  if (Core::truthy(has_thought)) {
+    Core::set(message, Value("thought"), thought);
+  }
+  Value thought_blocks = Core::get(response, Value("thought_blocks"), Value());
+  Value has_thought_blocks = Core::is_not_none(thought_blocks);
+  if (Core::truthy(has_thought_blocks)) {
+    Core::set(message, Value("thought_blocks"), thought_blocks);
+  }
   Core::append(messages, message);
-  return Value();
-}
-
-Value Core::_completion_call_to_chat_impl(Value call) {
-  axir_coverage_mark("_completion_call_to_chat_impl");
-  Value id = Core::get(call, Value("id"), Value());
-  Value name = Core::get(call, Value("name"), Value());
-  Value params = Core::get(call, Value("params"), Value());
-  Value function = Value::object();
-  Core::set(function, Value("name"), name);
-  Core::set(function, Value("params"), params);
-  Value out = Value::object();
-  Core::set(out, Value("id"), id);
-  Core::set(out, Value("type"), Value("function"));
-  Core::set(out, Value("function"), function);
-  return out;
+  return messages;
 }
 
 Value Core::_ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now) {
@@ -12349,6 +12439,21 @@ Value Core::_ace_update_bullet_feedback(Value playbook, Value bullet_id, Value t
   return playbook;
 }
 
+Value Core::_completion_call_to_chat_impl(Value call) {
+  axir_coverage_mark("_completion_call_to_chat_impl");
+  Value id = Core::get(call, Value("id"), Value());
+  Value name = Core::get(call, Value("name"), Value());
+  Value params = Core::get(call, Value("params"), Value());
+  Value function = Value::object();
+  Core::set(function, Value("name"), name);
+  Core::set(function, Value("params"), params);
+  Value out = Value::object();
+  Core::set(out, Value("id"), id);
+  Core::set(out, Value("type"), Value("function"));
+  Core::set(out, Value("function"), function);
+  return out;
+}
+
 Value Core::_tool_result_message_impl(Value call, Value result) {
   axir_coverage_mark("_tool_result_message_impl");
   Value id = Core::get(call, Value("id"), Value());
@@ -12358,38 +12463,6 @@ Value Core::_tool_result_message_impl(Value call, Value result) {
   Core::set(message, Value("function_id"), id);
   Core::set(message, Value("result"), result_json);
   return message;
-}
-
-Value Core::_tool_error_message_impl(Value call, Value error) {
-  axir_coverage_mark("_tool_error_message_impl");
-  Value id = Core::get(call, Value("id"), Value());
-  Value error_text = Core::exception_message(error);
-  Value payload = Value::object();
-  Core::set(payload, Value("error"), error_text);
-  Value payload_json = Core::json_stringify(payload);
-  Value message = Value::object();
-  Core::set(message, Value("role"), Value("function"));
-  Core::set(message, Value("function_id"), id);
-  Core::set(message, Value("result"), payload_json);
-  Core::set(message, Value("is_error"), Value(true));
-  return message;
-}
-
-Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
-  axir_coverage_mark("_append_validation_retry_messages_impl");
-  Value content = Core::get(response, Value("content"), Value(""));
-  Value assistant_message = Value::object();
-  Core::set(assistant_message, Value("role"), Value("assistant"));
-  Core::set(assistant_message, Value("content"), content);
-  Core::append(messages, assistant_message);
-  Value error_text = Core::exception_message(error);
-  Value prefix_message = Core::add(Value("The previous response failed validation: "), error_text);
-  Value retry_content = Core::add(prefix_message, Value(". Return only corrected JSON."));
-  Value retry_message = Value::object();
-  Core::set(retry_message, Value("role"), Value("user"));
-  Core::set(retry_message, Value("content"), retry_content);
-  Core::append(messages, retry_message);
-  return Value();
 }
 
 Value Core::_ace_dedupe_playbook(Value playbook) {
@@ -12429,6 +12502,38 @@ Value Core::_ace_dedupe_playbook(Value playbook) {
   Core::set(playbook, Value("sections"), sections);
   Value recomputed = Core::_ace_recompute_playbook_stats(playbook);
   return recomputed;
+}
+
+Value Core::_tool_error_message_impl(Value call, Value error) {
+  axir_coverage_mark("_tool_error_message_impl");
+  Value id = Core::get(call, Value("id"), Value());
+  Value error_text = Core::exception_message(error);
+  Value payload = Value::object();
+  Core::set(payload, Value("error"), error_text);
+  Value payload_json = Core::json_stringify(payload);
+  Value message = Value::object();
+  Core::set(message, Value("role"), Value("function"));
+  Core::set(message, Value("function_id"), id);
+  Core::set(message, Value("result"), payload_json);
+  Core::set(message, Value("is_error"), Value(true));
+  return message;
+}
+
+Value Core::_append_validation_retry_messages_impl(Value messages, Value response, Value error) {
+  axir_coverage_mark("_append_validation_retry_messages_impl");
+  Value content = Core::get(response, Value("content"), Value(""));
+  Value assistant_message = Value::object();
+  Core::set(assistant_message, Value("role"), Value("assistant"));
+  Core::set(assistant_message, Value("content"), content);
+  Core::append(messages, assistant_message);
+  Value error_text = Core::exception_message(error);
+  Value prefix_message = Core::add(Value("The previous response failed validation: "), error_text);
+  Value retry_content = Core::add(prefix_message, Value(". Return only corrected JSON."));
+  Value retry_message = Value::object();
+  Core::set(retry_message, Value("role"), Value("user"));
+  Core::set(retry_message, Value("content"), retry_content);
+  Core::append(messages, retry_message);
+  return Value();
 }
 
 Value Core::_ace_prune_section_for_addition(Value section, Value protected_ids) {

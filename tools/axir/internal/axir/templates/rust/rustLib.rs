@@ -1005,7 +1005,7 @@ impl OpenAICompatibleClient {
         let merged = merge_model_config(&[
             core_value_from_json(&base_config),
             core_value_from_json(&override_config),
-            CoreValue::new_map(),
+            core_value_from_json(&self.options),
         ])?;
         req["model_config"] = core_value_to_json(&merged);
         Ok(req)

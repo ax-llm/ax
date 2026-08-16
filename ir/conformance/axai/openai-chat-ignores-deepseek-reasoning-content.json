@@ -1,0 +1,73 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "remote_id": "chatcmpl_openai_reasoning_extension",
+    "results": [
+      {
+        "content": "done",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": "Continue.",
+          "role": "user"
+        },
+        {
+          "content": "Previous answer.",
+          "role": "assistant"
+        }
+      ],
+      "model": "gpt-5.6"
+    },
+    "method": "POST",
+    "url": "https://api.openai.com/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-5.6",
+  "name": "openai-chat-ignores-deepseek-reasoning-content",
+  "provider": "openai-compatible",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Continue.",
+        "role": "user"
+      },
+      {
+        "content": "Previous answer.",
+        "role": "assistant",
+        "thought": "DeepSeek-only trace."
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "done",
+              "reasoning_content": "provider-private reasoning",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_openai_reasoning_extension",
+        "model": "gpt-5.6",
+        "object": "chat.completion"
+      },
+      "status": 200
+    }
+  ]
+}

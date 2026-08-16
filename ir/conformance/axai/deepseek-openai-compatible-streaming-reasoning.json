@@ -1,0 +1,61 @@
+{
+  "expected_output": [
+    {
+      "model_usage": null,
+      "remote_id": "chatcmpl_deepseek_stream",
+      "results": [
+        {
+          "content": null,
+          "finish_reason": null,
+          "function_calls": [],
+          "id": "0",
+          "index": 0,
+          "thought": "plan",
+          "thought_blocks": [
+            {
+              "data": "plan",
+              "encrypted": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model_usage": null,
+      "remote_id": "chatcmpl_deepseek_stream",
+      "results": [
+        {
+          "content": "done",
+          "finish_reason": "stop",
+          "function_calls": [],
+          "id": "0",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "kind": "ai_stream",
+  "model": "deepseek-v4-flash",
+  "name": "deepseek-openai-compatible-streaming-reasoning",
+  "options": {
+    "stream": true
+  },
+  "provider": "deepseek",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Stream the plan.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "thinkingTokenBudget": "medium"
+    }
+  },
+  "transport_responses": [
+    {
+      "body": "data: {\"id\":\"chatcmpl_deepseek_stream\",\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null,\"reasoning_content\":\"plan\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl_deepseek_stream\",\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      "status": 200
+    }
+  ]
+}

@@ -41,7 +41,11 @@ describe('DeepSeek Chat reasoning replay', () => {
             choices: [
               {
                 index: 0,
-                message: { role: 'assistant', content: 'done' },
+                message: {
+                  role: 'assistant',
+                  content: 'done',
+                  reasoning_content: 'The lookup is complete.',
+                },
                 finish_reason: 'stop',
               },
             ],
@@ -51,7 +55,7 @@ describe('DeepSeek Chat reasoning replay', () => {
       }),
     });
 
-    await ai.chat(
+    const response = await ai.chat(
       {
         model: AxAIDeepSeekModel.DeepSeekV4Flash,
         chatPrompt: promptWithPriorToolTurn,
@@ -60,8 +64,16 @@ describe('DeepSeek Chat reasoning replay', () => {
     );
 
     const assistant = capture.body?.messages?.[1];
+    expect(assistant?.content).toBe('');
     expect(assistant?.reasoning_content).toBe('I need the warehouse query.');
     expect(assistant?.tool_calls?.[0]?.function?.name).toBe('query');
+    if (response instanceof ReadableStream) {
+      throw new Error('Expected non-streaming response');
+    }
+    expect(response.results[0]?.thought).toBe('The lookup is complete.');
+    expect(response.results[0]?.thoughtBlocks).toEqual([
+      { data: 'The lookup is complete.', encrypted: false },
+    ]);
   });
 
   it('preserves streamed reasoning deltas', async () => {

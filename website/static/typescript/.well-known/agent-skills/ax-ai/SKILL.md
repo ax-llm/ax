@@ -1,7 +1,7 @@
 ---
 name: ax-ai
 description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
-version: "23.0.14"
+version: "23.0.15"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -257,16 +257,24 @@ compatibility until DeepSeek removes them on 2026-07-24.
 
 DeepSeek V4 supports thinking mode. Ax sends `thinking: { type: "disabled" }`
 by default to preserve non-thinking behavior, and enables it when
-`thinkingTokenBudget` is set. Ax maps lower budget levels to DeepSeek's `high`
-effort and maps `highest` to `max`. DeepSeek V4 thinking models support tools,
-but reject the `tool_choice` request parameter, so Ax omits forced/auto tool
-choice for `deepseek-v4-pro`, `deepseek-v4-flash`, and `deepseek-reasoner`
-while still sending tool definitions. DeepSeek does not support native JSON
+`thinkingTokenBudget` is set. DeepSeek's API only exposes `high` and `max`:
+Ax maps `minimal`, `low`, `medium`, and `high` to `high`, and maps `highest` to
+`max`. There is no provider-side `low` or `medium` effort rung. DeepSeek V4
+thinking models support tools, but reject the `tool_choice` request parameter,
+so Ax omits forced/auto tool choice for `deepseek-v4-pro`,
+`deepseek-v4-flash`, and `deepseek-reasoner` while still sending tool
+definitions. DeepSeek does not support native JSON
 schema structured outputs. Ax therefore uses validated `json_object` for a
 single required `string` or `code` output, including an AxAgent actor's
 `javascriptCode` field, without exposing a provider tool. Richer structured
 outputs use the synthetic `__axOutput` function when function calling is
 available, or validated `json_object` when it is not.
+
+DeepSeek Chat returns thinking traces as `reasoning_content`. During a tool
+loop, Ax preserves that field on the assistant tool-call message and sends it
+back on the following request together with non-null `content` and the original
+tool calls. This compatibility mode is internal to the DeepSeek Chat adapter;
+the official OpenAI Chat adapter does not emit or expose `reasoning_content`.
 
 ## Extended Thinking
 

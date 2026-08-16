@@ -64,3 +64,4 @@ llm := ax.NewAI("openai", map[string]ax.Value{"apiKey": os.Getenv("OPENAI_API_KE
 - Use `no-key` examples for deterministic local checks and provider request mapping.
 - Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.
 - Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.
+- When decorating `AIClient`, forward `GetFeatures(model) map[string]Value` whenever the wrapped client implements it. AxGen otherwise falls back to permissive capabilities, which can select an unsupported structured-output rung.

@@ -38,6 +38,7 @@
           "role": "user"
         },
         {
+          "content": "",
           "reasoning_content": "Use the warehouse query.",
           "role": "assistant",
           "tool_calls": [

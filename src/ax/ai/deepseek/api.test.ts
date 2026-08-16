@@ -140,6 +140,64 @@ describe('AxAIDeepSeek model defaults', () => {
     expect(capture.lastBody?.reasoning_effort).toBe('max');
   });
 
+  it.each(['low', 'medium'] as const)(
+    'maps %s thinking budget to DeepSeek high effort',
+    async (thinkingTokenBudget) => {
+      const ai = new AxAIDeepSeek({
+        apiKey: 'key',
+        config: { model: AxAIDeepSeekModel.DeepSeekV4Flash, stream: false },
+      });
+      const capture: { lastBody?: CapturedBody } = {};
+      ai.setOptions({ fetch: createMockFetch(capture) });
+
+      await ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'Think efficiently.' }] },
+        { stream: false, thinkingTokenBudget }
+      );
+
+      expect(capture.lastBody?.thinking).toEqual({ type: 'enabled' });
+      expect(capture.lastBody?.reasoning_effort).toBe('high');
+    }
+  );
+
+  it('disables thinking for an explicit none budget', async () => {
+    const ai = new AxAIDeepSeek({
+      apiKey: 'key',
+      config: { model: AxAIDeepSeekModel.DeepSeekV4Flash, stream: false },
+    });
+    const capture: { lastBody?: CapturedBody } = {};
+    ai.setOptions({ fetch: createMockFetch(capture) });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'Answer directly.' }] },
+      { stream: false, thinkingTokenBudget: 'none' }
+    );
+
+    expect(capture.lastBody?.thinking).toEqual({ type: 'disabled' });
+    expect(capture.lastBody?.reasoning_effort).toBeUndefined();
+  });
+
+  it('maps configured xhigh effort to DeepSeek max', async () => {
+    const ai = new AxAIDeepSeek({
+      apiKey: 'key',
+      config: {
+        model: AxAIDeepSeekModel.DeepSeekV4Flash,
+        stream: false,
+        reasoningEffort: 'xhigh',
+      },
+    });
+    const capture: { lastBody?: CapturedBody } = {};
+    ai.setOptions({ fetch: createMockFetch(capture) });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'Think maximally.' }] },
+      { stream: false }
+    );
+
+    expect(capture.lastBody?.thinking).toEqual({ type: 'enabled' });
+    expect(capture.lastBody?.reasoning_effort).toBe('max');
+  });
+
   it('advertises thinking support for current V4 models', () => {
     const ai = new AxAIDeepSeek({
       apiKey: 'key',

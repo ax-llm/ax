@@ -46,7 +46,7 @@ module @ax.ai version "0.1" {
   op ax.ai.record @AxAIServiceOptions {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,sessionId?:string,promptCacheKey?:string,contextCache?:json,usageContext?:AxUsageContext"
+    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,thinkingTokenBudget?:string,showThoughts?:bool,sessionId?:string,promptCacheKey?:string,contextCache?:json,usageContext?:AxUsageContext"
   }
 
   op ax.ai.record @AxTokenUsage {
@@ -115,11 +115,33 @@ module @ax.ai version "0.1" {
     tag "src/ax/ai/base.ts"
     type signature = "(AxModelConfig, AxModelConfig?, AxAIServiceOptions?) -> AxModelConfig"
     body @entry(%base: json, %override: json, %options: json) {
-      %merged = core.call intrinsic.map.merge(%base, %override)
+      %empty_options_config = core.map
+      %options_config_snake = core.get %options["model_config"] default %empty_options_config
+      %options_config = core.get %options["modelConfig"] default %options_config_snake
+      %base_options = core.call intrinsic.map.merge(%base, %options_config)
+      %merged = core.call intrinsic.map.merge(%base_options, %override)
       %has_stream_option = core.call intrinsic.map.contains(%options, "stream")
       core.if %has_stream_option {
         %stream = core.get %options["stream"]
         core.set %merged["stream"] = %stream
+      }
+      %budget_snake = core.get %options["thinking_token_budget"]
+      %budget = core.get %options["thinkingTokenBudget"] default %budget_snake
+      %has_budget = core.call intrinsic.is_not_none(%budget)
+      core.if %has_budget {
+        core.set %merged["thinkingTokenBudget"] = %budget
+      }
+      %reasoning_snake = core.get %options["reasoning_effort"]
+      %reasoning = core.get %options["reasoningEffort"] default %reasoning_snake
+      %has_reasoning = core.call intrinsic.is_not_none(%reasoning)
+      core.if %has_reasoning {
+        core.set %merged["reasoning_effort"] = %reasoning
+      }
+      %show_thoughts_snake = core.get %options["show_thoughts"]
+      %show_thoughts = core.get %options["showThoughts"] default %show_thoughts_snake
+      %has_show_thoughts = core.call intrinsic.is_not_none(%show_thoughts)
+      core.if %has_show_thoughts {
+        core.set %merged["showThoughts"] = %show_thoughts
       }
       %out = core.map
       core.for %key in %merged {
@@ -474,10 +496,20 @@ module @ax.ai version "0.1" {
       }
       %model_usage = core.get %response["model_usage"]
       %usage = core.get %model_usage["tokens"]
+      %thought = core.get %result["thought"]
+      %has_thought = core.call intrinsic.is_not_none(%thought)
+      %thought_blocks = core.get %result["thought_blocks"]
+      %has_thought_blocks = core.call intrinsic.is_not_none(%thought_blocks)
       %out = core.map
       core.set %out["content"] = %content
       core.set %out["function_calls"] = %calls
       core.set %out["usage"] = %usage
+      core.if %has_thought {
+        core.set %out["thought"] = %thought
+      }
+      core.if %has_thought_blocks {
+        core.set %out["thought_blocks"] = %thought_blocks
+      }
       core.return %out
     }
   }

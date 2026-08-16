@@ -2204,6 +2204,126 @@ writeFixture('deepseek-openai-compatible-chat', {
   },
 });
 
+writeFixture('deepseek-service-thinking-budget', {
+  kind: 'ai_chat',
+  provider: 'deepseek',
+  model: deepseekDefaultModel,
+  service_options: { thinkingTokenBudget: 'medium' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'think' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_deepseek_budget', deepseekDefaultModel),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'DeepSeek',
+    'chatcmpl_deepseek_budget',
+    deepseekDefaultModel
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.deepseek.com/chat/completions',
+    json: {
+      model: deepseekDefaultModel,
+      messages: [{ role: 'user', content: 'think' }],
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'high',
+    },
+  },
+});
+
+writeFixture('deepseek-service-reasoning-effort', {
+  kind: 'ai_chat',
+  provider: 'deepseek',
+  model: deepseekDefaultModel,
+  service_options: { reasoning_effort: 'max' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'think hard' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_deepseek_effort', deepseekDefaultModel),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'DeepSeek',
+    'chatcmpl_deepseek_effort',
+    deepseekDefaultModel
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.deepseek.com/chat/completions',
+    json: {
+      model: deepseekDefaultModel,
+      messages: [{ role: 'user', content: 'think hard' }],
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'max',
+    },
+  },
+});
+
+writeFixture('openai-chat-ignores-deepseek-reasoning-content', {
+  kind: 'ai_chat',
+  provider: 'openai-compatible',
+  model: AxAIOpenAIModel.GPT56,
+  request: {
+    chat_prompt: [
+      { role: 'user', content: 'Continue.' },
+      {
+        role: 'assistant',
+        content: 'Previous answer.',
+        thought: 'DeepSeek-only trace.',
+      },
+    ],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'chatcmpl_openai_reasoning_extension',
+        object: 'chat.completion',
+        model: AxAIOpenAIModel.GPT56,
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: 'done',
+              reasoning_content: 'provider-private reasoning',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: '0',
+        content: 'done',
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    remote_id: 'chatcmpl_openai_reasoning_extension',
+    model_usage: null,
+  },
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.openai.com/v1/chat/completions',
+    json: {
+      model: AxAIOpenAIModel.GPT56,
+      messages: [
+        { role: 'user', content: 'Continue.' },
+        { role: 'assistant', content: 'Previous answer.' },
+      ],
+    },
+  },
+});
+
 writeFixture('deepseek-openai-compatible-reasoning-tool-loop', {
   kind: 'ai_chat',
   provider: 'deepseek',
@@ -2299,6 +2419,7 @@ writeFixture('deepseek-openai-compatible-reasoning-tool-loop', {
         { role: 'user', content: 'Continue the warehouse lookup.' },
         {
           role: 'assistant',
+          content: '',
           reasoning_content: 'Use the warehouse query.',
           tool_calls: [
             {
@@ -2327,6 +2448,56 @@ writeFixture('deepseek-openai-compatible-reasoning-tool-loop', {
       reasoning_effort: 'high',
     },
   },
+});
+
+writeFixture('deepseek-openai-compatible-streaming-reasoning', {
+  kind: 'ai_stream',
+  provider: 'deepseek',
+  model: deepseekDefaultModel,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Stream the plan.' }],
+    model_config: { thinkingTokenBudget: 'medium' },
+  },
+  options: { stream: true },
+  transport_responses: [
+    {
+      status: 200,
+      body:
+        `data: {"id":"chatcmpl_deepseek_stream","model":"${deepseekDefaultModel}","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":"plan"},"finish_reason":null}]}\n\n` +
+        `data: {"id":"chatcmpl_deepseek_stream","model":"${deepseekDefaultModel}","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}\n\n` +
+        'data: [DONE]\n\n',
+    },
+  ],
+  expected_output: [
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: null,
+          thought: 'plan',
+          thought_blocks: [{ data: 'plan', encrypted: false }],
+          function_calls: [],
+          finish_reason: null,
+        },
+      ],
+      remote_id: 'chatcmpl_deepseek_stream',
+      model_usage: null,
+    },
+    {
+      results: [
+        {
+          index: 0,
+          id: '0',
+          content: 'done',
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      remote_id: 'chatcmpl_deepseek_stream',
+      model_usage: null,
+    },
+  ],
 });
 
 writeFixture('deepseek-responses-reasoning-tool-loop', {

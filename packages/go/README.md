@@ -37,6 +37,7 @@ func main() {
 - Import alias used in examples: `ax`
 - Base package uses the Go standard library for HTTP/process boundaries
 - Optional JavaScript actor execution lives in `runtime/goja` and is opt-in by import
+- An `AIClient` decorator must forward the optional `GetFeatures(model) map[string]Value` method when the wrapped client implements it; otherwise AxGen uses permissive fallback capabilities
 - Network support: available
 
 Shared Ax behavior is Core-owned. The generated target code stays focused on idiomatic wrappers, transports, dynamic value helpers, and host-runtime boundaries.

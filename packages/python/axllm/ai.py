@@ -2148,6 +2148,12 @@ def _core_ai_error_status(message, status=None, code=None, response_body=None, r
 # BEGIN AXIR CORE EMITTED FUNCTIONS
 def openai_build_chat_request(request: AxChatRequest, options: Any, prompt_caching: bool) -> Any:
     _core_coverage_mark("openai_build_chat_request")
+    payload = _openai_build_chat_request_impl(request, options, prompt_caching, "none")
+    return payload
+
+
+def _openai_build_chat_request_impl(request: AxChatRequest, options: Any, prompt_caching: bool, reasoning_content_mode: str) -> Any:
+    _core_coverage_mark("_openai_build_chat_request_impl")
     payload = {}
     model = _core_get(request, "model", None)
     payload["model"] = model
@@ -2176,7 +2182,7 @@ def openai_build_chat_request(request: AxChatRequest, options: Any, prompt_cachi
     message_index = 0
     marker_count = 0
     for message in chat_prompt:
-        provider_message = _openai_message_impl(message)
+        provider_message = _openai_message_impl(message, reasoning_content_mode)
         if cache_enabled:
             is_before_last = _core_lt(message_index, last_index)
             explicit_cache = _core_get(message, "cache", False)
@@ -2260,11 +2266,36 @@ def openai_build_chat_request(request: AxChatRequest, options: Any, prompt_cachi
 
 def merge_model_config(base: Any, override: Any = None, options: Any = None) -> AxModelConfig:
     _core_coverage_mark("merge_model_config")
-    merged = _core_map_merge(base, override)
+    empty_options_config = {}
+    options_config_snake = _core_get(options, "model_config", empty_options_config)
+    options_config = _core_get(options, "modelConfig", options_config_snake)
+    base_options = _core_map_merge(base, options_config)
+    merged = _core_map_merge(base_options, override)
     has_stream_option = _core_map_contains(options, "stream")
     if has_stream_option:
         stream = _core_get(options, "stream", None)
         merged["stream"] = stream
+    else:
+        pass
+    budget_snake = _core_get(options, "thinking_token_budget", None)
+    budget = _core_get(options, "thinkingTokenBudget", budget_snake)
+    has_budget = _core_is_not_none(budget)
+    if has_budget:
+        merged["thinkingTokenBudget"] = budget
+    else:
+        pass
+    reasoning_snake = _core_get(options, "reasoning_effort", None)
+    reasoning = _core_get(options, "reasoningEffort", reasoning_snake)
+    has_reasoning = _core_is_not_none(reasoning)
+    if has_reasoning:
+        merged["reasoning_effort"] = reasoning
+    else:
+        pass
+    show_thoughts_snake = _core_get(options, "show_thoughts", None)
+    show_thoughts = _core_get(options, "showThoughts", show_thoughts_snake)
+    has_show_thoughts = _core_is_not_none(show_thoughts)
+    if has_show_thoughts:
+        merged["showThoughts"] = show_thoughts
     else:
         pass
     out = {}
@@ -2720,10 +2751,11 @@ def _openai_copy_config_key_impl(payload: Any, model_config: Any, source: str, t
     return None
 
 
-def _openai_message_impl(message: Any) -> Any:
+def _openai_message_impl(message: Any, reasoning_content_mode: str) -> Any:
     _core_coverage_mark("_openai_message_impl")
     role = _core_get(message, "role", None)
     content = _core_get(message, "content", "")
+    is_deepseek_reasoning = _core_eq(reasoning_content_mode, "deepseek")
     is_system = _core_eq(role, "system")
     if is_system:
         out = {}
@@ -2759,23 +2791,28 @@ def _openai_message_impl(message: Any) -> Any:
     if is_assistant:
         thought = _core_get(message, "thought", None)
         has_thought = _core_truthy(thought)
+        include_thought = _core_and(is_deepseek_reasoning, has_thought)
         empty_calls = []
         calls_snake = _core_get(message, "function_calls", empty_calls)
         calls = _core_get(message, "functionCalls", calls_snake)
         has_calls = _core_truthy(calls)
         out = {}
         out["role"] = "assistant"
-        if has_thought:
+        if include_thought:
             out["reasoning_content"] = thought
         else:
             pass
         if has_calls:
             assistant_content = _core_get(message, "content", None)
             has_assistant_content = _core_is_not_none(assistant_content)
-            if has_assistant_content:
-                out["content"] = assistant_content
+            if is_deepseek_reasoning:
+                deepseek_content = _core_get(message, "content", "")
+                out["content"] = deepseek_content
             else:
-                pass
+                if has_assistant_content:
+                    out["content"] = assistant_content
+                else:
+                    pass
             tool_calls = []
             for call in calls:
                 provider_call = _openai_tool_call_to_provider_impl(call)
@@ -2842,40 +2879,22 @@ def chat_response_to_completion(response: AxChatResponse) -> Any:
         calls.append(compat_call)
     model_usage = _core_get(response, "model_usage", None)
     usage = _core_get(model_usage, "tokens", None)
+    thought = _core_get(result, "thought", None)
+    has_thought = _core_is_not_none(thought)
+    thought_blocks = _core_get(result, "thought_blocks", None)
+    has_thought_blocks = _core_is_not_none(thought_blocks)
     out = {}
     out["content"] = content
     out["function_calls"] = calls
     out["usage"] = usage
-    return out
-
-
-def ai_context_cache_rejection(status: number, body_json: Any) -> bool:
-    _core_coverage_mark("ai_context_cache_rejection")
-    status_400_min = _core_gte(status, 400)
-    status_400_max = _core_lte(status, 400)
-    is_400 = _core_and(status_400_min, status_400_max)
-    status_404_min = _core_gte(status, 404)
-    status_404_max = _core_lte(status, 404)
-    is_404 = _core_and(status_404_min, status_404_max)
-    valid_status = _core_or(is_400, is_404)
-    body_text = _core_json_stringify(body_json)
-    body_lower = _core_string_lower(body_text)
-    names_compact = _core_contains(body_lower, "cachedcontent")
-    names_spaced = _core_contains(body_lower, "cached content")
-    names_resource = _core_contains(body_lower, "cachedcontents/")
-    names_left = _core_or(names_compact, names_spaced)
-    names_cache = _core_or(names_left, names_resource)
-    has_cache = _core_contains(body_lower, "cache")
-    expired = _core_contains(body_lower, "expired")
-    not_found = _core_contains(body_lower, "not found")
-    missing = _core_contains(body_lower, "does not exist")
-    invalid = _core_contains(body_lower, "invalid")
-    invalid_left = _core_or(expired, not_found)
-    invalid_right = _core_or(missing, invalid)
-    invalid_reason = _core_or(invalid_left, invalid_right)
-    invalid_cache = _core_and(has_cache, invalid_reason)
-    cache_rejection = _core_or(names_cache, invalid_cache)
-    out = _core_and(valid_status, cache_rejection)
+    if has_thought:
+        out["thought"] = thought
+    else:
+        pass
+    if has_thought_blocks:
+        out["thought_blocks"] = thought_blocks
+    else:
+        pass
     return out
 
 
@@ -2941,6 +2960,36 @@ def _openai_content_part_impl(part: Any) -> Any:
     message = _core_string_format("OpenAI-compatible beta does not support content part type: {}", type)
     error = _core_ai_error_unsupported(message)
     raise error
+
+
+def ai_context_cache_rejection(status: number, body_json: Any) -> bool:
+    _core_coverage_mark("ai_context_cache_rejection")
+    status_400_min = _core_gte(status, 400)
+    status_400_max = _core_lte(status, 400)
+    is_400 = _core_and(status_400_min, status_400_max)
+    status_404_min = _core_gte(status, 404)
+    status_404_max = _core_lte(status, 404)
+    is_404 = _core_and(status_404_min, status_404_max)
+    valid_status = _core_or(is_400, is_404)
+    body_text = _core_json_stringify(body_json)
+    body_lower = _core_string_lower(body_text)
+    names_compact = _core_contains(body_lower, "cachedcontent")
+    names_spaced = _core_contains(body_lower, "cached content")
+    names_resource = _core_contains(body_lower, "cachedcontents/")
+    names_left = _core_or(names_compact, names_spaced)
+    names_cache = _core_or(names_left, names_resource)
+    has_cache = _core_contains(body_lower, "cache")
+    expired = _core_contains(body_lower, "expired")
+    not_found = _core_contains(body_lower, "not found")
+    missing = _core_contains(body_lower, "does not exist")
+    invalid = _core_contains(body_lower, "invalid")
+    invalid_left = _core_or(expired, not_found)
+    invalid_right = _core_or(missing, invalid)
+    invalid_reason = _core_or(invalid_left, invalid_right)
+    invalid_cache = _core_and(has_cache, invalid_reason)
+    cache_rejection = _core_or(names_cache, invalid_cache)
+    out = _core_and(valid_status, cache_rejection)
+    return out
 
 
 def ai_context_cache_expiry(provider_expire_time: Any, now: number) -> number:
@@ -3090,6 +3139,12 @@ def openai_build_embed_request(request: AxEmbedRequest) -> Any:
     return payload
 
 
+def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
+    _core_coverage_mark("openai_normalize_chat_response")
+    response = _openai_normalize_chat_response_impl(raw, ai_name, model, "none")
+    return response
+
+
 def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, model: str, create_body: Any, options: Any) -> Any:
     _core_coverage_mark("ai_gemini_cache_ops")
     ttl = _core_string_format("{}s", ttl_seconds)
@@ -3171,8 +3226,8 @@ def ai_gemini_cache_ops(cache_name: str, ttl_seconds: number, api_key: str, mode
     return out
 
 
-def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
-    _core_coverage_mark("openai_normalize_chat_response")
+def _openai_normalize_chat_response_impl(raw: Any, ai_name: str, model: str, reasoning_content_mode: str) -> AxChatResponse:
+    _core_coverage_mark("_openai_normalize_chat_response_impl")
     raw_is_object = _core_type_is(raw, "object")
     raw_not_object = _core_not(raw_is_object)
     if raw_not_object:
@@ -3198,7 +3253,7 @@ def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str
         pass
     results = []
     for choice in choices:
-        result = _openai_normalize_choice_impl(choice, raw)
+        result = _openai_normalize_choice_impl(choice, raw, reasoning_content_mode)
         results.append(result)
     raw_model = _core_get(raw, "model", None)
     used_model = _core_coalesce(raw_model, model)
@@ -3212,7 +3267,7 @@ def openai_normalize_chat_response(raw: Any, ai_name: str = "openai", model: str
     return out
 
 
-def _openai_normalize_choice_impl(choice: Any, raw: Any) -> Any:
+def _openai_normalize_choice_impl(choice: Any, raw: Any, reasoning_content_mode: str) -> Any:
     _core_coverage_mark("_openai_normalize_choice_impl")
     empty_message = {}
     message = _core_get(choice, "message", empty_message)
@@ -3243,7 +3298,9 @@ def _openai_normalize_choice_impl(choice: Any, raw: Any) -> Any:
     out["content"] = content
     reasoning_content = _core_get(message, "reasoning_content", None)
     has_reasoning_content = _core_truthy(reasoning_content)
-    if has_reasoning_content:
+    is_deepseek_reasoning = _core_eq(reasoning_content_mode, "deepseek")
+    include_reasoning_content = _core_and(is_deepseek_reasoning, has_reasoning_content)
+    if include_reasoning_content:
         out["thought"] = reasoning_content
         thought_blocks = []
         thought_block = {}
@@ -3336,6 +3393,12 @@ def openai_normalize_embed_response(raw: Any, ai_name: str = "openai", model: st
 
 def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai", model: str = None) -> AxChatResponse:
     _core_coverage_mark("openai_normalize_stream_delta")
+    response = _openai_normalize_stream_delta_impl(raw, state, ai_name, model, "none")
+    return response
+
+
+def _openai_normalize_stream_delta_impl(raw: Any, state: Any, ai_name: str, model: str, reasoning_content_mode: str) -> AxChatResponse:
+    _core_coverage_mark("_openai_normalize_stream_delta_impl")
     raw_is_object = _core_type_is(raw, "object")
     raw_not_object = _core_not(raw_is_object)
     if raw_not_object:
@@ -3370,7 +3433,7 @@ def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai",
     empty_choices = []
     choices = _core_get(raw, "choices", empty_choices)
     for choice in choices:
-        result = _openai_stream_choice_impl(choice, index_ids)
+        result = _openai_stream_choice_impl(choice, index_ids, reasoning_content_mode)
         results.append(result)
     raw_model = _core_get(raw, "model", None)
     used_model = _core_coalesce(raw_model, model)
@@ -3383,7 +3446,7 @@ def openai_normalize_stream_delta(raw: Any, state: Any, ai_name: str = "openai",
     return out
 
 
-def _openai_stream_choice_impl(choice: Any, index_ids: Any) -> Any:
+def _openai_stream_choice_impl(choice: Any, index_ids: Any, reasoning_content_mode: str) -> Any:
     _core_coverage_mark("_openai_stream_choice_impl")
     empty_delta = {}
     delta = _core_get(choice, "delta", empty_delta)
@@ -3419,13 +3482,15 @@ def _openai_stream_choice_impl(choice: Any, index_ids: Any) -> Any:
     content = _core_get(delta, "content", None)
     reasoning_content = _core_get(delta, "reasoning_content", None)
     has_reasoning_content = _core_truthy(reasoning_content)
+    is_deepseek_reasoning = _core_eq(reasoning_content_mode, "deepseek")
+    include_reasoning_content = _core_and(is_deepseek_reasoning, has_reasoning_content)
     finish_reason_raw = _core_get(choice, "finish_reason", None)
     finish_reason = _openai_finish_reason_impl(finish_reason_raw)
     out = {}
     out["index"] = index
     out["id"] = id
     out["content"] = content
-    if has_reasoning_content:
+    if include_reasoning_content:
         out["thought"] = reasoning_content
         thought_blocks = []
         thought_block = {}
@@ -5490,6 +5555,12 @@ def provider_build_chat_request(profile: str, request: AxChatRequest, options: A
     is_responses = _core_or(is_responses, is_deepseek_responses)
     is_gemini = _core_eq(provider_id, "google-gemini")
     is_anthropic = _core_eq(provider_id, "anthropic")
+    is_deepseek = _core_eq(provider_id, "deepseek")
+    reasoning_content_mode = "none"
+    if is_deepseek:
+        reasoning_content_mode = "deepseek"
+    else:
+        pass
     payload = {}
     if is_responses:
         responses_payload = openai_responses_build_chat_request(request)
@@ -5511,7 +5582,7 @@ def provider_build_chat_request(profile: str, request: AxChatRequest, options: A
                 payload = anthropic_payload
             else:
                 is_official_openai = _core_eq(provider_id, "openai-compatible")
-                compatible_payload = openai_build_chat_request(request, options, is_official_openai)
+                compatible_payload = _openai_build_chat_request_impl(request, options, is_official_openai, reasoning_content_mode)
                 payload = compatible_payload
     payload_with_quirks = _provider_apply_openai_compatible_profile_quirks(provider_id, payload, request)
     payload = payload_with_quirks
@@ -5564,16 +5635,14 @@ def _provider_apply_deepseek_chat_quirks(payload: Any, model_config: Any) -> Any
         if thinking_enabled:
             thinking["type"] = "enabled"
             is_xhigh = _core_eq(reasoning, "xhigh")
+            is_max = _core_eq(reasoning, "max")
+            reasoning_is_max = _core_or(is_xhigh, is_max)
             budget_is_highest = _core_eq(budget, "highest")
-            is_max_effort = _core_or(is_xhigh, budget_is_highest)
+            is_max_effort = _core_or(reasoning_is_max, budget_is_highest)
             if is_max_effort:
                 payload["reasoning_effort"] = "max"
             else:
-                is_high = _core_eq(reasoning, "high")
-                if is_high:
-                    payload["reasoning_effort"] = "high"
-                else:
-                    payload["reasoning_effort"] = "high"
+                payload["reasoning_effort"] = "high"
             _core_map_delete(payload, "temperature")
             _core_map_delete(payload, "top_p")
             _core_map_delete(payload, "presence_penalty")
@@ -5806,6 +5875,12 @@ def provider_normalize_chat_response(profile: str, raw: Any, ai_name: str, model
     is_responses = _core_or(is_responses, is_deepseek_responses)
     is_gemini = _core_eq(provider_id, "google-gemini")
     is_anthropic = _core_eq(provider_id, "anthropic")
+    is_deepseek = _core_eq(provider_id, "deepseek")
+    reasoning_content_mode = "none"
+    if is_deepseek:
+        reasoning_content_mode = "deepseek"
+    else:
+        pass
     response = {}
     if is_responses:
         responses_response = openai_responses_normalize_chat_response(raw, ai_name, model)
@@ -5819,7 +5894,7 @@ def provider_normalize_chat_response(profile: str, raw: Any, ai_name: str, model
                 anthropic_response = _anthropic_normalize_chat_response(raw, ai_name, model)
                 response = anthropic_response
             else:
-                compatible_response = openai_normalize_chat_response(raw, ai_name, model)
+                compatible_response = _openai_normalize_chat_response_impl(raw, ai_name, model, reasoning_content_mode)
                 response = compatible_response
     return response
 
@@ -5832,6 +5907,12 @@ def provider_normalize_stream_delta(profile: str, raw: Any, state: Any, ai_name:
     is_responses = _core_or(is_responses, is_deepseek_responses)
     is_gemini = _core_eq(provider_id, "google-gemini")
     is_anthropic = _core_eq(provider_id, "anthropic")
+    is_deepseek = _core_eq(provider_id, "deepseek")
+    reasoning_content_mode = "none"
+    if is_deepseek:
+        reasoning_content_mode = "deepseek"
+    else:
+        pass
     response = {}
     if is_responses:
         responses_response = openai_responses_normalize_stream_delta(raw, state, ai_name, model)
@@ -5845,7 +5926,7 @@ def provider_normalize_stream_delta(profile: str, raw: Any, state: Any, ai_name:
                 anthropic_response = _anthropic_normalize_stream_delta(raw, state, ai_name, model)
                 response = anthropic_response
             else:
-                compatible_response = openai_normalize_stream_delta(raw, state, ai_name, model)
+                compatible_response = _openai_normalize_stream_delta_impl(raw, state, ai_name, model, reasoning_content_mode)
                 response = compatible_response
     return response
 

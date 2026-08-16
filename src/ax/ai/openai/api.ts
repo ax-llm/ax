@@ -181,6 +181,21 @@ type AxOpenAIBatchAudioConfig = {
   speechFormat?: AxAudioFormat;
 };
 
+type AxOpenAIReasoningContentMode = 'none' | 'deepseek';
+
+type AxAIOpenAIBaseInternalArgs<
+  TModel,
+  TEmbedModel,
+  TModelKey,
+  TChatReq extends AxAIOpenAIChatRequest<TModel>,
+> = Omit<
+  AxAIOpenAIBaseArgs<TModel, TEmbedModel, TModelKey, TChatReq>,
+  'name'
+> & {
+  /** @internal OpenAI-compatible reasoning trace wire format. */
+  reasoningContentMode?: AxOpenAIReasoningContentMode;
+};
+
 export interface AxAIOpenAIBaseArgs<
   TModel,
   TEmbedModel,
@@ -233,7 +248,8 @@ class AxAIOpenAIImpl<
     private readonly chatRespProcessor?: ChatRespProcessor,
     private readonly chatStreamRespProcessor?: ChatStreamRespProcessor,
     private readonly realtime?: RealtimeAdapter<TModel>,
-    private readonly promptCaching: boolean = false
+    private readonly promptCaching: boolean = false,
+    private readonly reasoningContentMode: AxOpenAIReasoningContentMode = 'none'
   ) {}
 
   /**
@@ -303,7 +319,7 @@ class AxAIOpenAIImpl<
         ? 'auto'
         : req.functionCall;
 
-    let messages = createMessages(req, useRealtime);
+    let messages = createMessages(req, useRealtime, this.reasoningContentMode);
 
     // Prompt caching. `messages` is index-aligned with `req.chatPrompt` because
     // createMessages is a plain map, which is what makes the absolute-index
@@ -549,15 +565,19 @@ class AxAIOpenAIImpl<
       );
 
       const audio = axMapOpenAIChatAudioResponse(choice.message.audio);
+      const thought =
+        this.reasoningContentMode === 'deepseek'
+          ? choice.message.reasoning_content
+          : undefined;
 
       return {
         index: choice.index,
         id: `${choice.index}`,
         content: choice.message.content ?? audio?.transcript ?? undefined,
         audio,
-        thought: choice.message.reasoning_content,
-        thoughtBlocks: choice.message.reasoning_content
-          ? [{ data: choice.message.reasoning_content, encrypted: false }]
+        thought,
+        thoughtBlocks: thought
+          ? [{ data: thought, encrypted: false }]
           : undefined,
         citations: choice.message.annotations
           ?.filter((a) => a?.type === 'url_citation' && (a as any).url_citation)
@@ -600,7 +620,7 @@ class AxAIOpenAIImpl<
           refusal,
           audio: audioDelta,
           tool_calls: toolCalls,
-          reasoning_content: thought,
+          reasoning_content: rawThought,
           annotations,
         },
         finish_reason: oaiFinishReason,
@@ -611,6 +631,8 @@ class AxAIOpenAIImpl<
         }
 
         const finishReason = mapFinishReason(oaiFinishReason);
+        const thought =
+          this.reasoningContentMode === 'deepseek' ? rawThought : undefined;
 
         const functionCalls = toolCalls
           ?.map(({ id: Id, index, function: { name, arguments: params } }) => {
@@ -697,7 +719,8 @@ const mapFinishReason = (
 
 function createMessages<TModel>(
   req: Readonly<AxInternalChatRequest<TModel>>,
-  allowRealtimeAudio = false
+  allowRealtimeAudio = false,
+  reasoningContentMode: AxOpenAIReasoningContentMode = 'none'
 ): AxAIOpenAIChatRequest<TModel>['messages'] {
   type UserContent = Extract<
     AxAIOpenAIChatRequest<TModel>['messages'][number],
@@ -741,7 +764,10 @@ function createMessages<TModel>(
 
       case 'assistant': {
         const reasoningContent =
-          msg.thought ?? msg.thoughtBlocks?.map((block) => block.data).join('');
+          reasoningContentMode === 'deepseek'
+            ? (msg.thought ??
+              msg.thoughtBlocks?.map((block) => block.data).join(''))
+            : undefined;
         const toolCalls = msg.functionCalls?.map((v) => ({
           id: v.id,
           type: 'function' as const,
@@ -757,7 +783,11 @@ function createMessages<TModel>(
         if (toolCalls && toolCalls.length > 0) {
           return {
             role: 'assistant' as const,
-            ...(msg.content ? { content: msg.content } : {}),
+            ...(reasoningContentMode === 'deepseek'
+              ? { content: msg.content ?? '' }
+              : msg.content
+                ? { content: msg.content }
+                : {}),
             ...(reasoningContent
               ? { reasoning_content: reasoningContent }
               : {}),
@@ -857,9 +887,10 @@ export class AxAIOpenAIBase<
     chatStreamRespProcessor,
     realtime,
     promptCaching,
+    reasoningContentMode,
     supportFor,
   }: Readonly<
-    Omit<AxAIOpenAIBaseArgs<TModel, TEmbedModel, TModelKey, TChatReq>, 'name'>
+    AxAIOpenAIBaseInternalArgs<TModel, TEmbedModel, TModelKey, TChatReq>
   >) {
     if (!apiKey || apiKey === '') {
       throw new Error('OpenAI API key not set');
@@ -874,7 +905,8 @@ export class AxAIOpenAIBase<
       chatRespProcessor,
       chatStreamRespProcessor,
       realtime,
-      promptCaching ?? false
+      promptCaching ?? false,
+      reasoningContentMode ?? 'none'
     );
 
     const resolvedApiURL = apiURL ? apiURL : 'https://api.openai.com/v1';

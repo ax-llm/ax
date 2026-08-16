@@ -1,0 +1,42 @@
+{
+  "expected_chat_options_subset": {
+    "reasoning_effort": "max",
+    "showThoughts": false,
+    "thinkingTokenBudget": "medium"
+  },
+  "expected_output": {
+    "answer": "configured"
+  },
+  "expected_request": {
+    "model_config": {
+      "maxTokens": 64,
+      "reasoning_effort": "max",
+      "showThoughts": false,
+      "stream": false,
+      "thinkingTokenBudget": "medium"
+    }
+  },
+  "expected_request_count": 1,
+  "forward_options": {
+    "thinkingTokenBudget": "medium"
+  },
+  "input": {
+    "question": "Use the configured reasoning options"
+  },
+  "kind": "forward",
+  "name": "provider-thinking-options",
+  "options": {
+    "modelConfig": {
+      "maxTokens": 64
+    },
+    "reasoning_effort": "max",
+    "showThoughts": false,
+    "thinkingTokenBudget": "low"
+  },
+  "responses": [
+    {
+      "content": "{\"answer\":\"configured\"}"
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

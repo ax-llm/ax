@@ -322,10 +322,31 @@ module @ax.gen version "0.1" {
     ref prompt = @render_prompt
     type signature = "(AxGen, list<json>, json, json) -> AxChatRequest throws"
     body @entry(%gen: AxGen, %messages: list<json>, %options: json, %selection: json) {
-      %model_config = core.map
+      %empty_model_config = core.map
+      %model_config_snake = core.get %options["model_config"] default %empty_model_config
+      %model_config_base = core.get %options["modelConfig"] default %model_config_snake
+      %model_config = core.call intrinsic.map.merge(%empty_model_config, %model_config_base)
       %stream_value = core.get %options["stream"] default false
       %stream_bool = core.call intrinsic.truthy(%stream_value)
       core.set %model_config["stream"] = %stream_bool
+      %budget_snake = core.get %options["thinking_token_budget"]
+      %budget = core.get %options["thinkingTokenBudget"] default %budget_snake
+      %has_budget = core.call intrinsic.is_not_none(%budget)
+      core.if %has_budget {
+        core.set %model_config["thinkingTokenBudget"] = %budget
+      }
+      %reasoning_snake = core.get %options["reasoning_effort"]
+      %reasoning = core.get %options["reasoningEffort"] default %reasoning_snake
+      %has_reasoning = core.call intrinsic.is_not_none(%reasoning)
+      core.if %has_reasoning {
+        core.set %model_config["reasoning_effort"] = %reasoning
+      }
+      %show_thoughts_snake = core.get %options["show_thoughts"]
+      %show_thoughts = core.get %options["showThoughts"] default %show_thoughts_snake
+      %has_show_thoughts = core.call intrinsic.is_not_none(%show_thoughts)
+      core.if %has_show_thoughts {
+        core.set %model_config["showThoughts"] = %show_thoughts
+      }
       %temperature = core.get %options["temperature"]
       %has_temperature = core.call intrinsic.is_not_none(%temperature)
       core.if %has_temperature {
@@ -520,7 +541,8 @@ module @ax.gen version "0.1" {
               core.continue
             }
           }
-          core.call @append_tool_call_messages_impl(%messages, %response, %calls)
+          %updated_messages = core.call @append_tool_call_messages_impl(%messages, %response, %calls)
+          %messages = core.let %updated_messages
           core.for %call in %calls {
             core.try {
               %tool_result = core.call @execute_tool_call(%functions, %call)
@@ -1016,7 +1038,7 @@ module @ax.gen version "0.1" {
     attr emit_module = "gen"
     attr private = true
     tag "tool-call-message-core-helper"
-    type signature = "(list<json>, json, list<json>) -> void"
+    type signature = "(list<json>, json, list<json>) -> list<json>"
     body @entry(%messages: list<json>, %response: json, %calls: list<json>) {
       %chat_calls = core.list
       core.for %call in %calls {
@@ -1028,8 +1050,18 @@ module @ax.gen version "0.1" {
       core.set %message["role"] = "assistant"
       core.set %message["content"] = %content
       core.set %message["function_calls"] = %chat_calls
+      %thought = core.get %response["thought"]
+      %has_thought = core.call intrinsic.is_not_none(%thought)
+      core.if %has_thought {
+        core.set %message["thought"] = %thought
+      }
+      %thought_blocks = core.get %response["thought_blocks"]
+      %has_thought_blocks = core.call intrinsic.is_not_none(%thought_blocks)
+      core.if %has_thought_blocks {
+        core.set %message["thought_blocks"] = %thought_blocks
+      }
       core.append %messages, %message
-      core.return
+      core.return %messages
     }
   }
 

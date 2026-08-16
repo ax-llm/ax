@@ -2396,6 +2396,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- Import alias used in examples: `ax`",
 				"- Base package uses the Go standard library for HTTP/process boundaries",
 				"- Optional JavaScript actor execution lives in `runtime/goja` and is opt-in by import",
+				"- An `AIClient` decorator must forward the optional `GetFeatures(model) map[string]Value` method when the wrapped client implements it; otherwise AxGen uses permissive fallback capabilities",
 				"- Network support: "+network,
 			),
 			NoKeyExamples: readmeLines(

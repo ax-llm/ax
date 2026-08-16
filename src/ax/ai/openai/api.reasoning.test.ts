@@ -230,6 +230,64 @@ describe('OpenAI explicit reasoningEffort', () => {
   });
 });
 
+describe('OpenAI reasoning content compatibility', () => {
+  it('does not send or expose the DeepSeek reasoning_content extension', async () => {
+    const capture: { lastBody?: any } = {};
+    const ai = new AxAIOpenAI({
+      apiKey: 'key',
+      config: { model: AxAIOpenAIModel.GPT56, stream: false },
+    });
+    ai.setOptions({
+      fetch: vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+        capture.lastBody = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            id: 'chat-openai',
+            model: AxAIOpenAIModel.GPT56,
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: 'done',
+                  reasoning_content: 'provider-private reasoning',
+                },
+                finish_reason: 'stop',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }),
+    });
+
+    const response = await ai.chat(
+      {
+        model: AxAIOpenAIModel.GPT56,
+        chatPrompt: [
+          { role: 'user', content: 'Continue.' },
+          {
+            role: 'assistant',
+            content: 'Previous answer.',
+            thought: 'DeepSeek-only trace.',
+          },
+        ],
+      },
+      { stream: false }
+    );
+
+    expect(capture.lastBody?.messages?.[1]).toEqual({
+      role: 'assistant',
+      content: 'Previous answer.',
+    });
+    if (response instanceof ReadableStream) {
+      throw new Error('Expected non-streaming response');
+    }
+    expect(response.results[0]?.thought).toBeUndefined();
+    expect(response.results[0]?.thoughtBlocks).toBeUndefined();
+  });
+});
+
 describe('OpenAI model catalog: new 2026 entries are registered', () => {
   it('has gpt-5.5 in chat catalog with 1M context window and thinkingBudget', () => {
     const entry = axModelInfoOpenAI.find(

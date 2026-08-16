@@ -209,6 +209,7 @@ export class AxAIDeepSeek<TModelKey> extends AxAIOpenAIBase<
       apiURL: 'https://api.deepseek.com',
       modelInfo,
       chatReqUpdater: axAIDeepSeekChatReqUpdater,
+      reasoningContentMode: 'deepseek',
       supportFor: axAIDeepSeekSupportFor,
       models,
     });

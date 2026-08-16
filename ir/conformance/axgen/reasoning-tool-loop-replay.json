@@ -1,0 +1,78 @@
+{
+  "expected_output": {
+    "answer": "42"
+  },
+  "expected_request_contains": [
+    "Use the warehouse search tool.",
+    "thought_blocks",
+    "call_reasoning_1"
+  ],
+  "expected_request_count": 2,
+  "expected_tool_calls": [
+    {
+      "args": {
+        "query": "warehouse totals"
+      },
+      "name": "search"
+    }
+  ],
+  "input": {
+    "query": "warehouse totals"
+  },
+  "kind": "forward",
+  "name": "reasoning-tool-loop-replay",
+  "responses": [
+    {
+      "results": [
+        {
+          "content": "",
+          "finish_reason": "function_call",
+          "function_calls": [
+            {
+              "function": {
+                "name": "search",
+                "params": {
+                  "query": "warehouse totals"
+                }
+              },
+              "id": "call_reasoning_1",
+              "type": "function"
+            }
+          ],
+          "index": 0,
+          "thought": "Use the warehouse search tool.",
+          "thought_blocks": [
+            {
+              "data": "Use the warehouse search tool.",
+              "encrypted": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "results": [
+        {
+          "content": "{\"answer\":\"42\"}",
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "signature": "query:string -> answer:string",
+  "tools": [
+    {
+      "args": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "description": "Search warehouse data",
+      "name": "search",
+      "result": {
+        "total": 42
+      }
+    }
+  ]
+}

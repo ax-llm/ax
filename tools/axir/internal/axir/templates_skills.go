@@ -318,6 +318,16 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 			"",
 		) + "\n"
 	}
+	guardrails := []string{
+		"Start from package examples for exact native syntax before inventing a new call shape.",
+		"Use `provider-api` examples only when the user explicitly has provider credentials available.",
+		"Use `no-key` examples for deterministic local checks and provider request mapping.",
+		"Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.",
+		"Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.",
+	}
+	if target == "go" && spec.ID == "ai" {
+		guardrails = append(guardrails, "When decorating `AIClient`, forward `GetFeatures(model) map[string]Value` whenever the wrapped client implements it. AxGen otherwise falls back to permissive capabilities, which can select an unsupported structured-output rung.")
+	}
 	return readmeLines(
 		skillFrontmatter(name, description, generatedPackageVersion()),
 		"# "+spec.Title+" For "+cfg.Language,
@@ -353,13 +363,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		"",
 		"## Guardrails",
 		"",
-		skillBulletList([]string{
-			"Start from package examples for exact native syntax before inventing a new call shape.",
-			"Use `provider-api` examples only when the user explicitly has provider credentials available.",
-			"Use `no-key` examples for deterministic local checks and provider request mapping.",
-			"Treat AxIR as the source of generated package truth: if package docs disagree with source code, update the compiler and regenerate packages.",
-			"Do not copy repo-maintainer skills from `tools/*/skills/` into user packages.",
-		}),
+		skillBulletList(guardrails),
 	)
 }
 

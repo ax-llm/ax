@@ -97,6 +97,19 @@ module @ax.provider version "0.1" {
     tag "src/ax/ai/openai/api.ts"
     type signature = "(AxChatRequest, options?:json, prompt_caching?:bool) -> json throws"
     body @entry(%request: AxChatRequest, %options: json, %prompt_caching: bool) {
+      %payload = core.call @openai_build_chat_request_impl(%request, %options, %prompt_caching, "none")
+      core.return %payload
+    }
+  }
+
+  op ax.provider.semantic @openai_build_chat_request_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-chat-request-compatibility-helper"
+    type signature = "(AxChatRequest, json, bool, string) -> json throws"
+    body @entry(%request: AxChatRequest, %options: json, %prompt_caching: bool, %reasoning_content_mode: string) {
       %payload = core.map
       %model = core.get %request["model"]
       core.set %payload["model"] = %model
@@ -127,7 +140,7 @@ module @ax.provider version "0.1" {
       %message_index = core.const 0
       %marker_count = core.const 0
       core.for %message in %chat_prompt {
-        %provider_message = core.call @openai_message_impl(%message)
+        %provider_message = core.call @openai_message_impl(%message, %reasoning_content_mode)
         core.if %cache_enabled {
           %is_before_last = core.call intrinsic.lt(%message_index, %last_index)
           %explicit_cache = core.get %message["cache"] default false
@@ -404,10 +417,11 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-message-core-helper"
-    type signature = "(json) -> json throws"
-    body @entry(%message: json) {
+    type signature = "(json, reasoning_content_mode:string) -> json throws"
+    body @entry(%message: json, %reasoning_content_mode: string) {
       %role = core.get %message["role"]
       %content = core.get %message["content"] default ""
+      %is_deepseek_reasoning = core.call intrinsic.eq(%reasoning_content_mode, "deepseek")
       %is_system = core.call intrinsic.eq(%role, "system")
       core.if %is_system {
         %out = core.map
@@ -440,20 +454,26 @@ module @ax.provider version "0.1" {
       core.if %is_assistant {
         %thought = core.get %message["thought"]
         %has_thought = core.call intrinsic.truthy(%thought)
+        %include_thought = core.call intrinsic.and(%is_deepseek_reasoning, %has_thought)
         %empty_calls = core.list
         %calls_snake = core.get %message["function_calls"] default %empty_calls
         %calls = core.get %message["functionCalls"] default %calls_snake
         %has_calls = core.call intrinsic.truthy(%calls)
         %out = core.map
         core.set %out["role"] = "assistant"
-        core.if %has_thought {
+        core.if %include_thought {
           core.set %out["reasoning_content"] = %thought
         }
         core.if %has_calls {
           %assistant_content = core.get %message["content"]
           %has_assistant_content = core.call intrinsic.is_not_none(%assistant_content)
-          core.if %has_assistant_content {
-            core.set %out["content"] = %assistant_content
+          core.if %is_deepseek_reasoning {
+            %deepseek_content = core.get %message["content"] default ""
+            core.set %out["content"] = %deepseek_content
+          } else {
+            core.if %has_assistant_content {
+              core.set %out["content"] = %assistant_content
+            }
           }
           %tool_calls = core.list
           core.for %call in %calls {
@@ -634,6 +654,19 @@ module @ax.provider version "0.1" {
     tag "src/ax/ai/openai/api.ts"
     type signature = "(json, ai_name?:string, model?:string) -> AxChatResponse throws"
     body @entry(%raw: json, %ai_name: string, %model: string) {
+      %response = core.call @openai_normalize_chat_response_impl(%raw, %ai_name, %model, "none")
+      core.return %response
+    }
+  }
+
+  op ax.provider.semantic @openai_normalize_chat_response_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-chat-response-compatibility-helper"
+    type signature = "(json, string, string, string) -> AxChatResponse throws"
+    body @entry(%raw: json, %ai_name: string, %model: string, %reasoning_content_mode: string) {
       %raw_is_object = core.type_is %raw type "object"
       %raw_not_object = core.call intrinsic.not(%raw_is_object)
       core.if %raw_not_object {
@@ -656,7 +689,7 @@ module @ax.provider version "0.1" {
       }
       %results = core.list
       core.for %choice in %choices {
-        %result = core.call @openai_normalize_choice_impl(%choice, %raw)
+        %result = core.call @openai_normalize_choice_impl(%choice, %raw, %reasoning_content_mode)
         core.append %results, %result
       }
       %raw_model = core.get %raw["model"]
@@ -677,8 +710,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-choice-core-helper"
-    type signature = "(json, json) -> json throws"
-    body @entry(%choice: json, %raw: json) {
+    type signature = "(json, json, reasoning_content_mode:string) -> json throws"
+    body @entry(%choice: json, %raw: json, %reasoning_content_mode: string) {
       %empty_message = core.map
       %message = core.get %choice["message"] default %empty_message
       %refusal = core.get %message["refusal"]
@@ -708,7 +741,9 @@ module @ax.provider version "0.1" {
       core.set %out["content"] = %content
       %reasoning_content = core.get %message["reasoning_content"]
       %has_reasoning_content = core.call intrinsic.truthy(%reasoning_content)
-      core.if %has_reasoning_content {
+      %is_deepseek_reasoning = core.call intrinsic.eq(%reasoning_content_mode, "deepseek")
+      %include_reasoning_content = core.call intrinsic.and(%is_deepseek_reasoning, %has_reasoning_content)
+      core.if %include_reasoning_content {
         core.set %out["thought"] = %reasoning_content
         %thought_blocks = core.list
         %thought_block = core.map
@@ -823,6 +858,19 @@ module @ax.provider version "0.1" {
     tag "src/ax/ai/openai/api.ts"
     type signature = "(json, json, ai_name?:string, model?:string) -> AxChatResponse throws"
     body @entry(%raw: json, %state: json, %ai_name: string, %model: string) {
+      %response = core.call @openai_normalize_stream_delta_impl(%raw, %state, %ai_name, %model, "none")
+      core.return %response
+    }
+  }
+
+  op ax.provider.semantic @openai_normalize_stream_delta_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-stream-response-compatibility-helper"
+    type signature = "(json, json, string, string, string) -> AxChatResponse throws"
+    body @entry(%raw: json, %state: json, %ai_name: string, %model: string, %reasoning_content_mode: string) {
       %raw_is_object = core.type_is %raw type "object"
       %raw_not_object = core.call intrinsic.not(%raw_is_object)
       core.if %raw_not_object {
@@ -853,7 +901,7 @@ module @ax.provider version "0.1" {
       %empty_choices = core.list
       %choices = core.get %raw["choices"] default %empty_choices
       core.for %choice in %choices {
-        %result = core.call @openai_stream_choice_impl(%choice, %index_ids)
+        %result = core.call @openai_stream_choice_impl(%choice, %index_ids, %reasoning_content_mode)
         core.append %results, %result
       }
       %raw_model = core.get %raw["model"]
@@ -873,8 +921,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-stream-choice-core-helper"
-    type signature = "(json, json) -> json"
-    body @entry(%choice: json, %index_ids: json) {
+    type signature = "(json, json, reasoning_content_mode:string) -> json"
+    body @entry(%choice: json, %index_ids: json, %reasoning_content_mode: string) {
       %empty_delta = core.map
       %delta = core.get %choice["delta"] default %empty_delta
       %calls = core.list
@@ -908,13 +956,15 @@ module @ax.provider version "0.1" {
       %content = core.get %delta["content"]
       %reasoning_content = core.get %delta["reasoning_content"]
       %has_reasoning_content = core.call intrinsic.truthy(%reasoning_content)
+      %is_deepseek_reasoning = core.call intrinsic.eq(%reasoning_content_mode, "deepseek")
+      %include_reasoning_content = core.call intrinsic.and(%is_deepseek_reasoning, %has_reasoning_content)
       %finish_reason_raw = core.get %choice["finish_reason"]
       %finish_reason = core.call @openai_finish_reason_impl(%finish_reason_raw)
       %out = core.map
       core.set %out["index"] = %index
       core.set %out["id"] = %id
       core.set %out["content"] = %content
-      core.if %has_reasoning_content {
+      core.if %include_reasoning_content {
         core.set %out["thought"] = %reasoning_content
         %thought_blocks = core.list
         %thought_block = core.map
@@ -3128,6 +3178,11 @@ module @ax.provider version "0.1" {
       %is_responses = core.call intrinsic.or(%is_responses, %is_deepseek_responses)
       %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
       %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
+      %is_deepseek = core.call intrinsic.eq(%provider_id, "deepseek")
+      %reasoning_content_mode = core.let "none"
+      core.if %is_deepseek {
+        %reasoning_content_mode = core.let "deepseek"
+      }
       %payload = core.map
       core.if %is_responses {
         %responses_payload = core.call @openai_responses_build_chat_request(%request)
@@ -3148,7 +3203,7 @@ module @ax.provider version "0.1" {
             %payload = core.let %anthropic_payload
           } else {
             %is_official_openai = core.call intrinsic.eq(%provider_id, "openai-compatible")
-            %compatible_payload = core.call @openai_build_chat_request(%request, %options, %is_official_openai)
+            %compatible_payload = core.call @openai_build_chat_request_impl(%request, %options, %is_official_openai, %reasoning_content_mode)
             %payload = core.let %compatible_payload
           }
         }
@@ -3213,17 +3268,14 @@ module @ax.provider version "0.1" {
         core.if %thinking_enabled {
           core.set %thinking["type"] = "enabled"
           %is_xhigh = core.call intrinsic.eq(%reasoning, "xhigh")
+          %is_max = core.call intrinsic.eq(%reasoning, "max")
+          %reasoning_is_max = core.call intrinsic.or(%is_xhigh, %is_max)
           %budget_is_highest = core.call intrinsic.eq(%budget, "highest")
-          %is_max_effort = core.call intrinsic.or(%is_xhigh, %budget_is_highest)
+          %is_max_effort = core.call intrinsic.or(%reasoning_is_max, %budget_is_highest)
           core.if %is_max_effort {
             core.set %payload["reasoning_effort"] = "max"
           } else {
-            %is_high = core.call intrinsic.eq(%reasoning, "high")
-            core.if %is_high {
-              core.set %payload["reasoning_effort"] = "high"
-            } else {
-              core.set %payload["reasoning_effort"] = "high"
-            }
+            core.set %payload["reasoning_effort"] = "high"
           }
           core.call intrinsic.map.delete(%payload, "temperature")
           core.call intrinsic.map.delete(%payload, "top_p")
@@ -3469,6 +3521,11 @@ module @ax.provider version "0.1" {
       %is_responses = core.call intrinsic.or(%is_responses, %is_deepseek_responses)
       %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
       %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
+      %is_deepseek = core.call intrinsic.eq(%provider_id, "deepseek")
+      %reasoning_content_mode = core.let "none"
+      core.if %is_deepseek {
+        %reasoning_content_mode = core.let "deepseek"
+      }
       %response = core.map
       core.if %is_responses {
         %responses_response = core.call @openai_responses_normalize_chat_response(%raw, %ai_name, %model)
@@ -3482,7 +3539,7 @@ module @ax.provider version "0.1" {
             %anthropic_response = core.call @anthropic_normalize_chat_response(%raw, %ai_name, %model)
             %response = core.let %anthropic_response
           } else {
-            %compatible_response = core.call @openai_normalize_chat_response(%raw, %ai_name, %model)
+            %compatible_response = core.call @openai_normalize_chat_response_impl(%raw, %ai_name, %model, %reasoning_content_mode)
             %response = core.let %compatible_response
           }
         }
@@ -3504,6 +3561,11 @@ module @ax.provider version "0.1" {
       %is_responses = core.call intrinsic.or(%is_responses, %is_deepseek_responses)
       %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
       %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
+      %is_deepseek = core.call intrinsic.eq(%provider_id, "deepseek")
+      %reasoning_content_mode = core.let "none"
+      core.if %is_deepseek {
+        %reasoning_content_mode = core.let "deepseek"
+      }
       %response = core.map
       core.if %is_responses {
         %responses_response = core.call @openai_responses_normalize_stream_delta(%raw, %state, %ai_name, %model)
@@ -3517,7 +3579,7 @@ module @ax.provider version "0.1" {
             %anthropic_response = core.call @anthropic_normalize_stream_delta(%raw, %state, %ai_name, %model)
             %response = core.let %anthropic_response
           } else {
-            %compatible_response = core.call @openai_normalize_stream_delta(%raw, %state, %ai_name, %model)
+            %compatible_response = core.call @openai_normalize_stream_delta_impl(%raw, %state, %ai_name, %model, %reasoning_content_mode)
             %response = core.let %compatible_response
           }
         }
