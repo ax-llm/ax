@@ -52,8 +52,19 @@ import type {
 
 function stripInternalChatMemoryOptions<T extends Record<string, unknown>>(
   options: T
-): Omit<T, 'mem'> {
-  const { mem: _mem, ...rest } = options;
+): Omit<T, 'mem' | 'mcp' | 'ucp' | '_mcpExecutionContext'> {
+  // Protocol clients are runtime bindings for an RLM actor. Passing them to
+  // the backing AxGen would also expose every operation as a provider-native
+  // function under its bare name, even though actor code can only call the
+  // namespaced runtime binding.
+  const {
+    mem: _mem,
+    mcp: _mcp,
+    ucp: _ucp,
+    _mcpExecutionContext,
+    ...rest
+  } = options;
+  void _mcpExecutionContext;
   return rest;
 }
 

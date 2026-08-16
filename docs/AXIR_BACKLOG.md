@@ -18,7 +18,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-08-16-rlm-actor-documents-native-mcp-tools-as-mcp-ns-tools-name` [axagent] RLM actor documents native protocol tools under their runtime paths
+  - Status: open
+  - Source PR: #578
+  - Source commit: `14939d9677621aaaae8f125cf46cc8630254e205`
+  - TS paths: `src/ax/agent/AxAgent.ts`, `src/ax/agent/agentInternal/actorLoop.ts`, `src/ax/agent/agentInternal/promptAssembly.ts`, `src/ax/mcp/execution.test.ts`
+  - Impact: Fixes issue #575: RLM actors must receive native MCP and UCP operations as their real runtime bindings (mcp.<ns>.tools.<name> and ucp.<ns>.<name>) without leaking bare provider-native functions into either actor stage. Generated Python/Java/C++/Go/Rust ports share this actor-definition behavior and must preserve the same namespace and execution-authority boundary.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

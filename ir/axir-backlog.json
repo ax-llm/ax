@@ -2,6 +2,27 @@
   "schemaVersion": 2,
   "entries": [
     {
+      "id": "axir-2026-08-16-rlm-actor-documents-native-mcp-tools-as-mcp-ns-tools-name",
+      "status": "open",
+      "title": "RLM actor documents native protocol tools under their runtime paths",
+      "createdAt": "2026-08-16",
+      "sourcePR": 578,
+      "sourceCommit": "14939d9677621aaaae8f125cf46cc8630254e205",
+      "tsPaths": [
+        "src/ax/agent/AxAgent.ts",
+        "src/ax/agent/agentInternal/actorLoop.ts",
+        "src/ax/agent/agentInternal/promptAssembly.ts",
+        "src/ax/mcp/execution.test.ts"
+      ],
+      "portableSurface": "axagent",
+      "impact": "Fixes issue #575: RLM actors must receive native MCP and UCP operations as their real runtime bindings (mcp.<ns>.tools.<name> and ucp.<ns>.<name>) without leaking bare provider-native functions into either actor stage. Generated Python/Java/C++/Go/Rust ports share this actor-definition behavior and must preserve the same namespace and execution-authority boundary.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ]
+    },
+    {
       "id": "axir-2026-06-07-port-mcp-client-and-transports",
       "status": "done",
       "title": "Port MCP client and transports",

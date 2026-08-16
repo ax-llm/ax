@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildRuntimeGlobals } from '../agent/agentInternal/runtimeGlobals.js';
+import { agent } from '../agent/index.js';
 import { AxMockAIService } from '../ai/mock/api.js';
+import type { AxChatRequest } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
 import type { AxFunctionCallTrace } from '../dsp/types.js';
+import { AxJSRuntime } from '../funcs/jsRuntime.js';
 import { AxMemory } from '../mem/memory.js';
 import { AxUCPClient } from '../ucp/client.js';
 import { AX_UCP_VERSION } from '../ucp/types.js';
@@ -75,6 +78,56 @@ function createInventoryClient() {
     client: new AxMCPClient(transport, { namespace: 'inventory' }),
     calls,
   };
+}
+
+function createCheckoutClient() {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string | URL, init?: RequestInit) => {
+      requests.push({ url: String(url), init });
+      if (!init?.method) {
+        return Response.json({
+          ucp: {
+            version: AX_UCP_VERSION,
+            services: {
+              'dev.ucp.shopping': [
+                {
+                  version: AX_UCP_VERSION,
+                  transport: 'rest',
+                  endpoint: 'https://shop.example/ucp',
+                },
+              ],
+            },
+            capabilities: {
+              'dev.ucp.shopping.checkout': [{ version: AX_UCP_VERSION }],
+            },
+          },
+        });
+      }
+      return Response.json({
+        ucp: { version: AX_UCP_VERSION, status: 'success' },
+        id: 'checkout-1',
+        status: 'incomplete',
+      });
+    })
+  );
+  return {
+    client: new AxUCPClient({
+      profileUrl: 'https://shop.example',
+      agentProfile: 'https://agent.example/.well-known/ucp',
+      transport: 'rest',
+      mcp: { ssrfProtection: { disabled: true } },
+    }),
+    requests,
+  };
+}
+
+function chatSystemText(req: Readonly<AxChatRequest<unknown>>): string {
+  const system = req.chatPrompt.find((message) => message.role === 'system');
+  return typeof system?.content === 'string'
+    ? system.content
+    : JSON.stringify(system?.content ?? '');
 }
 
 describe('native MCP execution', () => {
@@ -287,44 +340,61 @@ describe('native MCP execution', () => {
     });
   });
 
-  it('attaches REST-backed UCP operations natively without an MCP adapter', async () => {
-    const requests: Array<{ url: string; init?: RequestInit }> = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string | URL, init?: RequestInit) => {
-        requests.push({ url: String(url), init });
-        if (!init?.method) {
-          return Response.json({
-            ucp: {
-              version: AX_UCP_VERSION,
-              services: {
-                'dev.ucp.shopping': [
-                  {
-                    version: AX_UCP_VERSION,
-                    transport: 'rest',
-                    endpoint: 'https://shop.example/ucp',
-                  },
-                ],
-              },
-              capabilities: {
-                'dev.ucp.shopping.checkout': [{ version: AX_UCP_VERSION }],
-              },
-            },
-          });
-        }
-        return Response.json({
-          ucp: { version: AX_UCP_VERSION, status: 'success' },
-          id: 'checkout-1',
-          status: 'incomplete',
+  it('documents MCP tools by runtime path without leaking native functions to either RLM stage (#575)', async () => {
+    const { client, calls } = createInventoryClient();
+    const actorRequests: Readonly<AxChatRequest<unknown>>[] = [];
+    let executorTurn = 0;
+    const ai = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async (req) => {
+        const system = chatSystemText(req);
+        const reply = (content: string) => ({
+          results: [{ index: 0, content, finishReason: 'stop' as const }],
         });
-      })
-    );
-    const ucp = new AxUCPClient({
-      profileUrl: 'https://shop.example',
-      agentProfile: 'https://agent.example/.well-known/ucp',
-      transport: 'rest',
-      mcp: { ssrfProtection: { disabled: true } },
+        if (system.includes('You (`distiller`)')) {
+          actorRequests.push(req);
+          return reply(
+            'Javascript Code: ```javascript\nawait final("Look up sku-1 inventory", {});\n```'
+          );
+        }
+        if (system.includes('You (`executor`)')) {
+          actorRequests.push(req);
+          executorTurn++;
+          return reply(
+            executorTurn === 1
+              ? 'Javascript Code: ```javascript\nconst inventoryResult = await mcp.inventory.tools.lookup_inventory({ sku: "sku-1" });\nconsole.log(inventoryResult);\n```'
+              : 'Javascript Code: ```javascript\nawait final("Report the inventory result", { inventoryResult });\n```'
+          );
+        }
+        return reply('answer: Seven units available');
+      },
     });
+    const a = agent('userQuery:string -> answer:string', {
+      mcp: [client],
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+    });
+
+    const result = await a.forward(ai, { userQuery: 'get rows' });
+
+    expect(result.answer).toContain('Seven units available');
+    expect(calls).toContain('tools/call');
+    expect(actorRequests).toHaveLength(3);
+    for (const request of actorRequests) {
+      expect(request.functions?.map((fn) => fn.name) ?? []).not.toContain(
+        'lookup_inventory'
+      );
+      const system = chatSystemText(request);
+      expect(system).toContain('mcp.inventory.tools.lookup_inventory');
+      expect(system).not.toMatch(/(^|[^.])\blookup_inventory\s*\(/);
+    }
+    expect(chatSystemText(actorRequests[0]!)).not.toContain(
+      'There is no executor phase and there are no external tools'
+    );
+  });
+
+  it('attaches REST-backed UCP operations natively without an MCP adapter', async () => {
+    const { client: ucp, requests } = createCheckoutClient();
     let step = 0;
     const ai = new AxMockAIService({
       features: { functions: true, streaming: false },
@@ -375,6 +445,58 @@ describe('native MCP execution', () => {
       url: 'https://shop.example/ucp/checkout-sessions',
       init: { method: 'POST', body: JSON.stringify({ line_items: [] }) },
     });
+  });
+
+  it('documents UCP operations under `ucp.<ns>.<name>` for RLM actors', async () => {
+    const { client: ucp, requests } = createCheckoutClient();
+    const actorRequests: Readonly<AxChatRequest<unknown>>[] = [];
+    let executorTurn = 0;
+    const ai = new AxMockAIService({
+      features: { functions: true, streaming: false },
+      chatResponse: async (req) => {
+        const system = chatSystemText(req);
+        const reply = (content: string) => ({
+          results: [{ index: 0, content, finishReason: 'stop' as const }],
+        });
+        if (system.includes('You (`distiller`)')) {
+          actorRequests.push(req);
+          return reply(
+            'Javascript Code: ```javascript\nawait final("Create a checkout", {});\n```'
+          );
+        }
+        if (system.includes('You (`executor`)')) {
+          actorRequests.push(req);
+          executorTurn++;
+          return reply(
+            executorTurn === 1
+              ? 'Javascript Code: ```javascript\nconst checkoutResult = await ucp.ucp.create_checkout({ checkout: { line_items: [] } });\nconsole.log(checkoutResult);\n```'
+              : 'Javascript Code: ```javascript\nawait final("Report the checkout result", { checkoutResult });\n```'
+          );
+        }
+        return reply('answer: checkout-1');
+      },
+    });
+    const a = agent('userQuery:string -> answer:string', {
+      ucp: [ucp],
+      contextFields: [],
+      runtime: new AxJSRuntime(),
+    });
+
+    const result = await a.forward(ai, { userQuery: 'start checkout' });
+
+    expect(result.answer).toContain('checkout-1');
+    expect(requests.some((request) => request.init?.method === 'POST')).toBe(
+      true
+    );
+    expect(actorRequests).toHaveLength(3);
+    for (const request of actorRequests) {
+      expect(request.functions?.map((fn) => fn.name) ?? []).not.toContain(
+        'create_checkout'
+      );
+      const system = chatSystemText(request);
+      expect(system).toContain('ucp.ucp.create_checkout');
+      expect(system).not.toContain('mcp.ucp.tools.create_checkout');
+    }
   });
 
   it('serializes logical task/subscription intent and rebinds live clients', async () => {
