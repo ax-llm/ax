@@ -5198,17 +5198,18 @@ AxAgent& AxAgent::add_tool_module(std::string name, const std::vector<Tool>& too
   Array functions;
   for (const auto& tool : tools) {
     functions.push_back(tool.value());
-    distiller_->add_tool(tool);
-    executor_->add_tool(tool);
-    responder_->add_tool(tool);
-    llm_query_->add_tool(tool);
   }
-  Value modules = Core::get(state_, "functions", Value::array());
-  Core::append(modules, object({{"name", std::move(name)}, {"functions", Value(functions)}}));
-  Core::set(state_, "functions", modules);
   Value options = Core::get(state_, "options", Value::object());
+  Value modules = Core::get(options, "functions", Value::array());
+  Core::append(modules, object({{"name", std::move(name)}, {"functions", Value(functions)}}));
   Core::set(options, "functions", modules);
-  Core::set(state_, "options", options);
+  options_ = options;
+  state_ = Core::_agent_factory(Core::get(state_, "signature"), options);
+  Value actor_validation_retries = Core::get(options, "validation_retries", Core::get(options, "validationRetries", 1));
+  distiller_ = std::make_unique<AxGen>(s(str(Core::get(state_, "distiller_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "ctx.root.actor"}, {"instruction", Core::get(state_, "distiller_description", "")}}));
+  executor_ = std::make_unique<AxGen>(s(str(Core::get(state_, "executor_signature"))), object({{"validation_retries", actor_validation_retries}, {"id", "task.root.actor"}, {"instruction", Core::get(state_, "executor_description", "")}}));
+  responder_ = std::make_unique<AxGen>(s(str(Core::get(state_, "responder_signature"))), object({{"validation_retries", Core::get(options, "validation_retries", 2)}, {"id", "task.root.responder"}, {"instruction", Core::get(state_, "responder_description", "")}}));
+  llm_query_ = std::make_unique<AxGen>(s(str(Core::get(state_, "llm_query_signature", Value("task:string, context:json -> answer:string")))), object({{"validation_retries", 1}, {"id", "rlm.llmquery"}, {"instruction", Core::get(state_, "llm_query_description", "")}}));
   return *this;
 }
 

@@ -103,6 +103,11 @@ These modules include MCP tools, prompts, resources, subscriptions,
 completions, tasks, and negotiated extension operations, plus typed UCP
 commerce operations.
 
+RLM actors call MCP tools through `mcp.<namespace>.tools.<tool>` and UCP
+operations through `ucp.<namespace>.<operation>`. Native protocol operations
+stay behind those runtime modules and are never also exposed to the model as
+bare provider-native functions.
+
 `AxMCPClient.toFunction()` is retained only for compatibility with older
 applications. Native Ax execution paths do not call it.
 

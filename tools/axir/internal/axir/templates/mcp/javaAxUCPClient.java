@@ -71,6 +71,14 @@ public final class AxUCPClient {
     return out;
   }
 
+  public List<Tool> runtimeTools() {
+    List<Tool> out = new ArrayList<>();
+    for (String operation : OPERATIONS) {
+      out.add(new Tool(operation, "UCP " + operation + " operation", List.of(), List.of(), args -> call(operation, args)));
+    }
+    return out;
+  }
+
   public Map<String, Object> catalogSearch(Map<String, Object> payload) { return call("catalog.search", payload); }
   public Map<String, Object> catalogLookup(Map<String, Object> payload) { return call("catalog.lookup", payload); }
   public Map<String, Object> catalogProduct(Map<String, Object> payload) { return call("catalog.product", payload); }

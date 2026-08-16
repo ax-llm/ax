@@ -539,6 +539,19 @@ public final class AxMCPClient {
         if (!context.namespaces().equals(expectedNamespaces)) throw new AssertionError("context namespaces mismatch: " + context.namespaces());
         List<String> names = context.nativeTools().stream().map(tool -> tool.name).toList();
         for (Object expected : Core.asList(fixture.get("expected_native_tools"))) if (!names.contains(String.valueOf(expected))) throw new AssertionError("missing native context tool " + expected);
+        List<Map<String, Object>> runtimeModules = context.runtimeModules();
+        for (Object rawExpectedModule : Core.asList(fixture.get("expected_runtime_modules"))) {
+          Map<String, Object> expectedModule = Core.asMap(rawExpectedModule);
+          Map<String, Object> actualModule = runtimeModules.stream().filter(module -> String.valueOf(module.get("name")).equals(String.valueOf(expectedModule.get("name")))).findFirst().orElseThrow(() -> new AssertionError("missing runtime module " + expectedModule.get("name")));
+          List<String> functionNames = Core.asList(actualModule.get("functions")).stream().map(item -> item instanceof Tool tool ? tool.name : String.valueOf(item)).toList();
+          for (Object expectedFunction : Core.asList(expectedModule.get("functions"))) if (!functionNames.contains(String.valueOf(expectedFunction))) throw new AssertionError("missing runtime callable " + expectedModule.get("name") + "." + expectedFunction);
+        }
+        AxAgent protocolAgent = new AxAgent("question:string -> answer:string", Map.of("executionContext", context));
+        List<String> callablePaths = new ArrayList<>();
+        for (Object rawGroup : protocolAgent.getCallableInventory()) for (Object rawCallable : Core.asList(Core.asMap(rawGroup).get("callables"))) callablePaths.add(String.valueOf(Core.asMap(rawCallable).get("qualified_name")));
+        for (Object expectedPath : Core.asList(fixture.get("expected_agent_callable_paths"))) if (!callablePaths.contains(String.valueOf(expectedPath))) throw new AssertionError("missing agent runtime callable " + expectedPath);
+        assertSubset(Core.asMap(protocolAgent.state.get("policy_flags")), fixture.getOrDefault("expected_agent_policy_flags", Map.of()), "protocol agent policy flags");
+        if (!protocolAgent.distiller.functions.isEmpty() || !protocolAgent.executor.functions.isEmpty()) throw new AssertionError("protocol tools leaked into an actor's provider-native functions");
         Map<String, Object> call = Core.asMap(fixture.get("call_ucp"));
         Map<String, Object> outcome = ucp.call(String.valueOf(call.getOrDefault("operation", "catalog.search")), Core.asMap(call.get("payload")), "fixture-key");
         assertSubset(outcome, fixture.getOrDefault("expected_ucp_outcome", Map.of()), "UCP outcome");

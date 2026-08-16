@@ -54,7 +54,6 @@ public final class AxAgent implements AxProgram {
     out.put("validation_retries", retries);
     out.put("id", id);
     out.put("instruction", instruction);
-    if (executionContext != null) out.put("executionContext", executionContext);
     return out;
   }
 

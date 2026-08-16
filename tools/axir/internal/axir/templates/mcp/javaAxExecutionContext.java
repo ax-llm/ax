@@ -41,8 +41,8 @@ public final class AxExecutionContext {
 
   public List<Map<String, Object>> runtimeModules() {
     List<Map<String, Object>> out = new ArrayList<>();
-    for (AxMCPClient client : mcp) out.add(Map.of("name", "mcp." + client.namespace(), "functions", client.nativeTools(), "client", client));
-    for (AxUCPClient client : ucp) out.add(Map.of("name", "ucp." + client.namespace(), "functions", client.nativeTools(), "client", client));
+    for (AxMCPClient client : mcp) out.add(Map.of("name", "mcp." + client.namespace() + ".tools", "functions", client.nativeTools(), "client", client));
+    for (AxUCPClient client : ucp) out.add(Map.of("name", "ucp." + client.namespace(), "functions", client.runtimeTools(), "client", client));
     return out;
   }
 

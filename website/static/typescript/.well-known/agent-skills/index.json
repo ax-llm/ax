@@ -41,7 +41,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM build correct native Model Context Protocol integrations with @ax-llm/ax. Use when the user asks about AxMCPClient, MCP transports, tools, prompts, resources, subscriptions, tasks, sampling, elicitation, roots, authentication, OAuth, MCP Apps, recording/replay, or MCP integration with AxGen, AxAgent, AxFlow, chat, optimization, and AxEventRuntime.",
       "url": "ax-mcp/SKILL.md",
-      "digest": "sha256:c930c172500da83bdbdb46769b8339892b1155f3be88d25c0c23641b6583740c"
+      "digest": "sha256:eb203dd68b39dbe2e15a0e87a36ccfef20c7fba3e4054330f6a0c656488be49f"
     },
     {
       "name": "ax-flow",
@@ -55,14 +55,14 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct core AxAgent code using @ax-llm/ax. Use when the user asks about agent(), child agents, namespaced functions, discovery mode, clarification, bubbleErrors, host-side final/clarification protocol, or ordinary agent runtime behavior. For MCP clients, native runtime modules, subscriptions, tasks, or authentication use ax-mcp alongside this skill. For RLM/code-runtime work use ax-agent-rlm; for callbacks and telemetry use ax-agent-observability; for recall/memory/skill loading use ax-agent-memory-skills; for agent.optimize(...) use ax-agent-optimize.",
       "url": "ax-agent/SKILL.md",
-      "digest": "sha256:0cfb1e17daec4529ab2862a0ce0742f894a6c021330a7c4a992e9e7802b7c021"
+      "digest": "sha256:da33855ce0907e4db1b7fb3b0a9529004c3d5ac879eb7bd6eb5c71bd6e1806ae"
     },
     {
       "name": "ax-agent-rlm",
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxAgent RLM/runtime code using @ax-llm/ax. Use when the user asks about RLM code execution, AxJSRuntime, contextFields, contextPolicy, liveRuntimeState, promptLevel, stage prompt controls, executorModelPolicy, maxRuntimeChars, agent.test(...), llmQuery(...), recursionOptions, or long-running agent runtime behavior.",
       "url": "ax-agent-rlm/SKILL.md",
-      "digest": "sha256:b24215350ceded8d0b4e0588e698d55bcafd5c47013283e0e808edd6b9f1fab6"
+      "digest": "sha256:311434d40ccecac8107c9d8937edc86b91db2dc6969c0466a87132bea8ec4d8a"
     },
     {
       "name": "ax-agent-memory-skills",

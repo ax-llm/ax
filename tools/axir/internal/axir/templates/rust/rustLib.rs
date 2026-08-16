@@ -2939,7 +2939,7 @@ pub fn agent_with_execution_context(spec: &str, options: Value, context: AxExecu
     for client in &context.mcp {
         let locked = client.lock().unwrap();
         let module = CoreValue::new_map();
-        let module_name = format!("mcp.{}", locked.namespace());
+        let module_name = format!("mcp.{}.tools", locked.namespace());
         core_set(&module, CoreValue::from("name"), CoreValue::from(module_name.as_str()))?;
         let functions = CoreValue::new_list();
         for tool in locked.native_tools() { core_append(&functions, core_tool_host(tool))?; }
@@ -2951,7 +2951,7 @@ pub fn agent_with_execution_context(spec: &str, options: Value, context: AxExecu
         let module_name = format!("ucp.{}", client.namespace());
         core_set(&module, CoreValue::from("name"), CoreValue::from(module_name.as_str()))?;
         let functions = CoreValue::new_list();
-        for tool in client.native_tools() { core_append(&functions, core_tool_host(tool))?; }
+        for tool in client.runtime_tools() { core_append(&functions, core_tool_host(tool))?; }
         core_set(&module, CoreValue::from("functions"), functions)?;
         core_append(&modules, module)?;
     }
