@@ -1,5 +1,18 @@
 # Changelog
 
+## [23.0.16](https://github.com/ax-llm/ax/compare/23.0.14...23.0.15) (2026-08-17)
+
+### Bug Fixes
+
+* **agent:** document native MCP tools to the RLM actor as mcp.<ns>.tools.<name> ([#575](https://github.com/ax-llm/ax/issues/575)) ([#578](https://github.com/ax-llm/ax/issues/578)) ([d1174c1](https://github.com/ax-llm/ax/commit/d1174c10bbb3944020a423267e560cb6b9f739db))
+
+## [23.0.15](https://github.com/ax-llm/ax/compare/23.0.14...23.0.15) (2026-08-15)
+
+### Bug Fixes
+
+* **axir:** preserve structured output contracts ([73f1160](https://github.com/ax-llm/ax/commit/73f1160dfe467c3feda0feb1d15f3f411197a70e))
+* **mock:** preserve unknown structured output capability ([8836b6d](https://github.com/ax-llm/ax/commit/8836b6d48e335a170ea155f9426555fd99e2f8a3))
+
 ## [23.0.15](https://github.com/ax-llm/ax/compare/23.0.13...23.0.14) (2026-08-15)
 
 ### Bug Fixes

@@ -1,7 +1,7 @@
 ---
 name: "ax-go-ai"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers."
-version: "23.0.15"
+version: "23.0.16"
 ---
 # AxAI Providers For Go
 
