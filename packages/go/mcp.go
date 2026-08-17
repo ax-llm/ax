@@ -343,6 +343,15 @@ func (c *AxUCPClient) NativeTools() []Tool {
 	return out
 }
 
+func (c *AxUCPClient) RuntimeTools() []Tool {
+	out := []Tool{}
+	for _, operation := range AxUCPOperations {
+		op := operation
+		out = append(out, Tool{Name:op, Description:"UCP "+op+" operation", Args:map[string]Field{}, Returns:map[string]Field{}, Handler:func(args map[string]Value) (Value,error) { return c.Call(op, args, "") }})
+	}
+	return out
+}
+
 func (c *AxUCPClient) CatalogSearch(payload map[string]Value) (map[string]Value,error) { return c.Call("catalog.search",payload,"") }
 func (c *AxUCPClient) CatalogLookup(payload map[string]Value) (map[string]Value,error) { return c.Call("catalog.lookup",payload,"") }
 func (c *AxUCPClient) CatalogProduct(payload map[string]Value) (map[string]Value,error) { return c.Call("catalog.product",payload,"") }
@@ -536,7 +545,7 @@ func (c *AxExecutionContext) NativeTools() ([]Tool,error) {
 }
 
 func (c *AxExecutionContext) RuntimeModules() []Value {
-	out:=[]Value{}; for _,client:=range c.MCP{out=append(out,map[string]Value{"name":"mcp."+client.Namespace(),"functions":client.NativeTools(),"client":client})}; for _,client:=range c.UCP{out=append(out,map[string]Value{"name":"ucp."+client.Namespace(),"functions":client.NativeTools(),"client":client})}; return out
+	out:=[]Value{}; for _,client:=range c.MCP{functions:=[]Value{};for _,tool:=range client.NativeTools(){functions=append(functions,tool)};out=append(out,map[string]Value{"name":"mcp."+client.Namespace()+".tools","functions":functions,"client":client})}; for _,client:=range c.UCP{functions:=[]Value{};for _,tool:=range client.RuntimeTools(){functions=append(functions,tool)};out=append(out,map[string]Value{"name":"ucp."+client.Namespace(),"functions":functions,"client":client})}; return out
 }
 
 func (c *AxExecutionContext) Namespaces() []string { out:=[]string{};for _,client:=range c.MCP{out=append(out,client.Namespace())};for _,client:=range c.UCP{out=append(out,client.Namespace())};return out }
@@ -1230,6 +1239,8 @@ func runMCPConformanceFixture(fixture map[string]Value) {
 		context,err:=NewAxExecutionContext([]*AxMCPClient{mcp},[]*AxUCPClient{ucp});if err!=nil{panic(err)};if err=context.Initialize();err!=nil{panic(err)}
 		expected:=asSlice(coreGet(fixture,"expected_namespaces",Array()));actual:=[]Value{};for _,name:=range context.Namespaces(){actual=append(actual,name)};assertEqual(actual,expected,"context namespaces")
 		tools,err:=context.NativeTools();if err!=nil{panic(err)};names:=map[string]bool{};for _,tool:=range tools{names[tool.Name]=true};for _,raw:=range asSlice(coreGet(fixture,"expected_native_tools",Array())){if !names[display(raw)]{panic("missing native context tool "+display(raw))}}
+		runtimeModules:=context.RuntimeModules();for _,rawExpectedModule:=range asSlice(coreGet(fixture,"expected_runtime_modules",Array())){expectedModule:=asMap(rawExpectedModule);expectedName:=display(coreGet(expectedModule,"name",""));var actualModule map[string]Value;for _,rawModule:=range runtimeModules{module:=asMap(rawModule);if display(coreGet(module,"name",""))==expectedName{actualModule=module;break}};if actualModule==nil{panic("missing runtime module "+expectedName)};functionNames:=map[string]bool{};for _,rawFunction:=range asSlice(coreGet(actualModule,"functions",Array())){if tool,ok:=rawFunction.(Tool);ok{functionNames[tool.Name]=true}};for _,rawFunction:=range asSlice(coreGet(expectedModule,"functions",Array())){name:=display(rawFunction);if !functionNames[name]{panic("missing runtime callable "+expectedName+"."+name)}}}
+		protocolAgent:=NewAgent("question:string -> answer:string",map[string]Value{"executionContext":context});callablePaths:=map[string]bool{};for _,rawGroup:=range asSlice(protocolAgent.GetCallableInventory()){for _,rawCallable:=range asSlice(coreGet(rawGroup,"callables",Array())){callablePaths[display(coreGet(rawCallable,"qualified_name",""))]=true}};for _,rawPath:=range asSlice(coreGet(fixture,"expected_agent_callable_paths",Array())){path:=display(rawPath);if !callablePaths[path]{panic("missing agent runtime callable "+path)}};assertSubset(coreGet(protocolAgent.State,"policy_flags",Object()),coreGet(fixture,"expected_agent_policy_flags",Object()),"protocol agent policy flags");if len(protocolAgent.Distiller.Functions)>0||len(protocolAgent.Executor.Functions)>0{panic("protocol tools leaked into an actor's provider-native functions")}
 		call:=asMap(coreGet(fixture,"call_ucp",Object()));outcome,err:=ucp.Call(display(coreGet(call,"operation","catalog.search")),asMap(coreGet(call,"payload",Object())),"fixture-key");if err!=nil{panic(err)};assertSubset(outcome,coreGet(fixture,"expected_ucp_outcome",Object()),"UCP outcome")
 		state:=context.ContinuationState();if state.CatalogFingerprint==""||len(state.Namespaces)!=len(actual){panic("invalid execution context continuation state")};return
 	}

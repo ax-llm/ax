@@ -198,6 +198,7 @@ class AxUCPClient {
   Value profile() const;
   Value call(const std::string& operation, Value payload = Value::object(), const std::string& idempotency_key = "");
   std::vector<Tool> native_tools();
+  std::vector<Tool> runtime_tools();
   Value catalog_search(Value payload = Value::object());
   Value catalog_lookup(Value payload = Value::object());
   Value catalog_product(Value payload = Value::object());

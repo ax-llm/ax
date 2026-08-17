@@ -875,8 +875,12 @@ export class ActorAgentRLM<
       contextMap: _cm,
       contextMapText: _cmt,
       mem: _mem,
+      mcp: _mcp,
+      ucp: _ucp,
+      _mcpExecutionContext,
       ...rest
     } = this.options as typeof this.options & { contextMapText?: string };
+    void _mcpExecutionContext;
     return rest;
   }
 

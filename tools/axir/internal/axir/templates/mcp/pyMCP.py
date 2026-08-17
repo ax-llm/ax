@@ -1796,6 +1796,17 @@ class AxUCPClient:
             for operation in self.OPERATIONS
         ]
 
+    def runtime_tools(self) -> list[Tool]:
+        return [
+            Tool(
+                operation,
+                f"UCP {operation} operation",
+                {"type": "object", "properties": {}},
+                lambda args, operation=operation: self.call(operation, args),
+            )
+            for operation in self.OPERATIONS
+        ]
+
     def catalog_search(self, payload=None): return self.call("catalog.search", payload)
     def catalog_lookup(self, payload=None): return self.call("catalog.lookup", payload)
     def catalog_product(self, payload=None): return self.call("catalog.product", payload)
@@ -1843,9 +1854,9 @@ class AxExecutionContext:
     def runtime_modules(self) -> list[dict[str, Any]]:
         modules = []
         for client in self.mcp:
-            modules.append({"name": f"mcp.{client.namespace()}", "functions": client.native_tools(), "client": client})
+            modules.append({"name": f"mcp.{client.namespace()}.tools", "functions": client.native_tools(), "client": client})
         for client in self.ucp:
-            modules.append({"name": f"ucp.{client.namespace()}", "functions": client.native_tools(), "client": client})
+            modules.append({"name": f"ucp.{client.namespace()}", "functions": client.runtime_tools(), "client": client})
         return modules
 
     def derive(self, inheritance: Any = "all"):
@@ -2695,6 +2706,33 @@ def run_mcp_conformance_fixture(fixture: dict[str, Any]) -> None:
             for expected in fixture.get("expected_native_tools") or []:
                 if expected not in tool_names:
                     raise AssertionError(f"missing native context tool {expected}")
+            runtime_modules = [
+                {
+                    "name": module.get("name"),
+                    "functions": [tool.name for tool in module.get("functions") or []],
+                }
+                for module in context.runtime_modules()
+            ]
+            for expected_module in fixture.get("expected_runtime_modules") or []:
+                actual_module = next((module for module in runtime_modules if module["name"] == expected_module.get("name")), None)
+                if actual_module is None:
+                    raise AssertionError(f"missing runtime module {expected_module.get('name')}")
+                for expected_function in expected_module.get("functions") or []:
+                    if expected_function not in actual_module["functions"]:
+                        raise AssertionError(f"missing runtime callable {expected_module.get('name')}.{expected_function}")
+            from .agent import AxAgent
+            protocol_agent = AxAgent("question:string -> answer:string", {"executionContext": context})
+            callable_paths = [
+                callable_meta.get("qualified_name")
+                for group in protocol_agent.get_callable_inventory()
+                for callable_meta in group.get("callables") or []
+            ]
+            for expected_path in fixture.get("expected_agent_callable_paths") or []:
+                if expected_path not in callable_paths:
+                    raise AssertionError(f"missing agent runtime callable {expected_path}")
+            _assert_subset(protocol_agent.state.get("policy_flags") or {}, fixture.get("expected_agent_policy_flags") or {}, "protocol agent policy flags")
+            if protocol_agent.distiller.functions or protocol_agent.executor.functions:
+                raise AssertionError("protocol tools leaked into an actor's provider-native functions")
             call = fixture.get("call_ucp") or {}
             outcome = ucp.call(call.get("operation", "catalog.search"), call.get("payload") or {}, idempotency_key="fixture-key")
             _assert_subset(outcome, fixture.get("expected_ucp_outcome") or {}, "UCP outcome")

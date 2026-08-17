@@ -1798,6 +1798,19 @@ impl AxUCPClient {
             .collect()
     }
 
+    pub fn runtime_tools(&self) -> Vec<Tool> {
+        AX_UCP_OPERATIONS
+            .iter()
+            .map(|operation| {
+                let op = operation.to_string();
+                let client = self.clone();
+                tool(&op)
+                    .description(format!("UCP {op} operation"))
+                    .handler(move |args| client.call(&op, args, None))
+            })
+            .collect()
+    }
+
     pub fn catalog_search(&self, payload: Value) -> AxResult<Value> {
         self.call("catalog.search", payload, None)
     }
@@ -3635,7 +3648,7 @@ impl AxExecutionContext {
         Ok(out)
     }
     pub fn runtime_modules(&self) -> Value {
-        Value::Array(self.mcp.iter().map(|client|{let locked=client.lock().unwrap();json!({"name":format!("mcp.{}",locked.namespace()),"functions":locked.native_tools().iter().map(|tool|tool.name.clone()).collect::<Vec<_>>()})}).chain(self.ucp.iter().map(|client|json!({"name":format!("ucp.{}",client.namespace()),"functions":client.native_tools().iter().map(|tool|tool.name.clone()).collect::<Vec<_>>() }))).collect())
+        Value::Array(self.mcp.iter().map(|client|{let locked=client.lock().unwrap();json!({"name":format!("mcp.{}.tools",locked.namespace()),"functions":locked.native_tools().iter().map(|tool|tool.name.clone()).collect::<Vec<_>>()})}).chain(self.ucp.iter().map(|client|json!({"name":format!("ucp.{}",client.namespace()),"functions":client.runtime_tools().iter().map(|tool|tool.name.clone()).collect::<Vec<_>>() }))).collect())
     }
     pub fn namespaces(&self) -> Vec<String> {
         self.mcp
@@ -6161,6 +6174,83 @@ fn run_mcp_conformance_fixture_inner(fixture: &Value, operation: &str) -> AxResu
                     return Err(AxError::new(
                         "fixture",
                         format!("missing native context tool {name}"),
+                    ));
+                }
+            }
+            let runtime_modules = context.runtime_modules();
+            for expected_module in fixture
+                .get("expected_runtime_modules")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let expected_name = expected_module
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let Some(actual_module) = runtime_modules.as_array().and_then(|modules| {
+                    modules.iter().find(|module| {
+                        module.get("name").and_then(Value::as_str) == Some(expected_name)
+                    })
+                }) else {
+                    return Err(AxError::new(
+                        "fixture",
+                        format!("missing runtime module {expected_name}"),
+                    ));
+                };
+                for expected_function in expected_module
+                    .get("functions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                {
+                    let name = expected_function.as_str().unwrap_or_default();
+                    if !actual_module
+                        .get("functions")
+                        .and_then(Value::as_array)
+                        .is_some_and(|functions| {
+                            functions
+                                .iter()
+                                .any(|function| function.as_str() == Some(name))
+                        })
+                    {
+                        return Err(AxError::new(
+                            "fixture",
+                            format!("missing runtime callable {expected_name}.{name}"),
+                        ));
+                    }
+                }
+            }
+            let protocol_agent = crate::agent_with_execution_context(
+                "question:string -> answer:string",
+                json!({}),
+                context.clone(),
+            )?;
+            let inventory = protocol_agent.get_callable_inventory();
+            for expected_path in fixture
+                .get("expected_agent_callable_paths")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+            {
+                let path = expected_path.as_str().unwrap_or_default();
+                let found = inventory.as_array().is_some_and(|groups| {
+                    groups.iter().any(|group| {
+                        group
+                            .get("callables")
+                            .and_then(Value::as_array)
+                            .is_some_and(|callables| {
+                                callables.iter().any(|callable| {
+                                    callable.get("qualified_name").and_then(Value::as_str)
+                                        == Some(path)
+                                })
+                            })
+                    })
+                });
+                if !found {
+                    return Err(AxError::new(
+                        "fixture",
+                        format!("missing agent runtime callable {path}"),
                     ));
                 }
             }

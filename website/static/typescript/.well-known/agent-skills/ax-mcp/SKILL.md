@@ -158,6 +158,11 @@ mcp.docs.tasks.cancel(taskId)
 mcp.docs.complete(...)
 ```
 
+RLM actor definitions and discovery use these exact runtime paths. MCP tools
+are callable as `mcp.<namespace>.tools.<tool>` and UCP operations as
+`ucp.<namespace>.<operation>`; neither protocol is exposed to the model as
+bare provider-native functions.
+
 Modern modules also expose task input/update behavior through the client.
 `tasks.list()` and `tasks.result()` are legacy task-draft compatibility APIs and
 reject modern servers.

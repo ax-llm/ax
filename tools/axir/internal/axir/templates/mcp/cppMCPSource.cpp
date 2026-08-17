@@ -305,6 +305,14 @@ std::vector<Tool> AxUCPClient::native_tools() {
   return out;
 }
 
+std::vector<Tool> AxUCPClient::runtime_tools() {
+  std::vector<Tool> out;
+  for (const auto& operation : ax_ucp_operations()) {
+    out.emplace_back(operation, "UCP " + operation + " operation", Value::object(), [this, operation](Value args) { return call(operation, args); });
+  }
+  return out;
+}
+
 Value AxUCPClient::catalog_search(Value payload) { return call("catalog.search", payload); }
 Value AxUCPClient::catalog_lookup(Value payload) { return call("catalog.lookup", payload); }
 Value AxUCPClient::catalog_product(Value payload) { return call("catalog.product", payload); }
@@ -344,8 +352,8 @@ std::vector<Tool> AxExecutionContext::native_tools() {
 
 Value AxExecutionContext::runtime_modules() {
   Array out;
-  for (auto& client : mcp_) { Array functions; for (auto& tool : client->native_tools()) functions.push_back(tool.name); out.push_back(object({{"name", "mcp." + client->namespace_name()}, {"functions", Value(functions)}})); }
-  for (auto& client : ucp_) { Array functions; for (auto& tool : client->native_tools()) functions.push_back(tool.name); out.push_back(object({{"name", "ucp." + client->namespace_name()}, {"functions", Value(functions)}})); }
+  for (auto& client : mcp_) { Array functions; for (auto& tool : client->native_tools()) functions.push_back(tool.name); out.push_back(object({{"name", "mcp." + client->namespace_name() + ".tools"}, {"functions", Value(functions)}})); }
+  for (auto& client : ucp_) { Array functions; for (auto& tool : client->runtime_tools()) functions.push_back(tool.name); out.push_back(object({{"name", "ucp." + client->namespace_name()}, {"functions", Value(functions)}})); }
   return Value(out);
 }
 
@@ -364,7 +372,7 @@ AxExecutionContext AxExecutionContext::derive(Value inheritance) const {
 
 AxMCPContinuationState AxExecutionContext::continuation_state() const { auto names = namespaces(); std::string joined; for (auto& name : names) joined += name + "\n"; return {names, Value::array(), Value::array(), ax_mcp_pkce_challenge(joined)}; }
 void AxExecutionContext::attach(AxGen& gen) { for (const auto& tool : native_tools()) gen.add_tool(tool); }
-void AxExecutionContext::attach(AxAgent& agent) { initialize(); for (auto& client : mcp_) agent.add_tool_module("mcp." + client->namespace_name(), client->native_tools()); for (auto& client : ucp_) agent.add_tool_module("ucp." + client->namespace_name(), client->native_tools()); }
+void AxExecutionContext::attach(AxAgent& agent) { initialize(); for (auto& client : mcp_) agent.add_tool_module("mcp." + client->namespace_name() + ".tools", client->native_tools()); for (auto& client : ucp_) agent.add_tool_module("ucp." + client->namespace_name(), client->runtime_tools()); }
 
 Tool AxMCPClient::tool_to_function(Value spec) {
   std::string original = display(Core::get(spec, "name", ""));
@@ -947,6 +955,18 @@ void run_mcp_conformance_fixture(Value fixture) {
         bool found = false; for (auto& tool : tools) found = found || tool.name == display(expected);
         if (!found) throw AxError("fixture", "missing native context tool " + display(expected));
       }
+      auto runtime_modules = as_array_local(context.runtime_modules());
+      for (auto raw_expected_module : as_array_local(Core::get(fixture, "expected_runtime_modules", Value::array()))) {
+        auto expected_name = display(Core::get(raw_expected_module, "name", ""));
+        Value actual_module;
+        for (auto raw_module : runtime_modules) if (display(Core::get(raw_module, "name", "")) == expected_name) { actual_module = raw_module; break; }
+        if (actual_module.is_null()) throw AxError("fixture", "missing runtime module " + expected_name);
+        std::set<std::string> function_names; for (auto function : as_array_local(Core::get(actual_module, "functions", Value::array()))) function_names.insert(display(function));
+        for (auto expected_function : as_array_local(Core::get(raw_expected_module, "functions", Value::array()))) if (!function_names.count(display(expected_function))) throw AxError("fixture", "missing runtime callable " + expected_name + "." + display(expected_function));
+      }
+      AxAgent protocol_agent(Value("question:string -> answer:string"), Value::object()); context.attach(protocol_agent);
+      std::set<std::string> callable_paths; for (auto group : as_array_local(protocol_agent.get_callable_inventory())) for (auto callable : as_array_local(Core::get(group, "callables", Value::array()))) callable_paths.insert(display(Core::get(callable, "qualified_name", "")));
+      for (auto expected_path : as_array_local(Core::get(fixture, "expected_agent_callable_paths", Value::array()))) if (!callable_paths.count(display(expected_path))) throw AxError("fixture", "missing agent runtime callable " + display(expected_path));
       Value call = Core::get(fixture, "call_ucp", Value::object());
       Value outcome = ucp->call(display(Core::get(call, "operation", "catalog.search")), Core::get(call, "payload", Value::object()), "fixture-key");
       expect_subset_local(outcome, Core::get(fixture, "expected_ucp_outcome", Value::object()), "UCP outcome");

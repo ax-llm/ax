@@ -74,7 +74,7 @@ source/test cell:
 | Tasks | Persist/rebind remote tasks across serialized runs | Implemented | logical task/subscription state in `AxAgentState`; namespace rebind and remote revalidation test |
 | Ax integration | AxGen and streaming AxGen | Implemented | shared context, native bindings, raw result memory, catalog refresh tests |
 | Ax integration | High-level chat loop | Implemented | `mcp/chat.ts` and native result history test |
-| Ax integration | AxAgent runtime modules and stages | Implemented | `mcp.<namespace>` and `ucp.<namespace>` runtime globals |
+| Ax integration | AxAgent runtime modules and stages | Implemented | MCP tools use `mcp.<namespace>.tools.<tool>`; UCP operations use `ucp.<namespace>.<operation>`; neither leaks into actor provider-native functions |
 | Ax integration | Child agents and RLM inheritance | Implemented | child-context derivation and recursion option propagation |
 | Ax integration | AxFlow sequential/parallel propagation | Implemented | shared context and inheritance test |
 | Ax integration | Flow cancellation of abandoned remote tasks | Implemented | parallel sibling abort plus newly-created remote-task cancellation in Flow executor |

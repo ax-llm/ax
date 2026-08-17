@@ -40,6 +40,24 @@
   },
   "expected_namespaces": ["inventory", "merchant"],
   "expected_native_tools": ["lookup", "merchant_catalog_search"],
+  "expected_runtime_modules": [
+    {
+      "name": "mcp.inventory.tools",
+      "functions": ["lookup"]
+    },
+    {
+      "name": "ucp.merchant",
+      "functions": ["catalog.search", "checkout.create"]
+    }
+  ],
+  "expected_agent_callable_paths": [
+    "mcp.inventory.tools.lookup",
+    "ucp.merchant.checkout.create"
+  ],
+  "expected_agent_policy_flags": {
+    "directRespondMode": true,
+    "directRespondOnly": false
+  },
   "call_ucp": {
     "operation": "checkout.create",
     "payload": { "currency": "USD" }
