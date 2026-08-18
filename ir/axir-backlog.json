@@ -1192,6 +1192,29 @@
       "completedAt": "2026-08-16",
       "completedByCommit": "43c98eceafbbefcb6cf9ed99086ced5a52ebb7f0",
       "verification": "Exact MCP/UCP runtime-module paths, dynamic executor authority, and no actor provider-native leakage are covered by the execution-context-ucp fixture across generated Python, Java, C++, Go, and Rust; axir:conformance:check, axir:check-packages, and the full generated-example matrix pass. npm run test:axir compiled the generated packages before unrelated audio HTTP examples hit the sandbox loopback-bind restriction."
+    },
+    {
+      "id": "axir-2026-08-18-preserve-native-image-content-in-provider-routing",
+      "status": "open",
+      "title": "Preserve native image content in provider routing",
+      "createdAt": "2026-08-20",
+      "sourcePR": 580,
+      "sourceCommit": "9ef377ef736a22d60164e807dcd51bc72b4e7498",
+      "tsPaths": [
+        "src/ax/ai/processor.ts",
+        "src/ax/ai/router.test.ts",
+        "src/ax/ai/router.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript provider routing now keeps image payloads intact when the selected provider supports images, while generated Python, Java, C++, Go, and Rust routers may still replace supported images with text placeholders and lose image bytes, MIME type, ordering, and metadata.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

@@ -101,10 +101,12 @@ export async function axProcessContentForProvider(
         case 'image':
           if (features.media.images.supported) {
             // Preserve native image content for providers that support it.
-            processedContent.push(item as Extract<
-              AxFunctionResultContent[number],
-              { type: 'image' }
-            >);
+            processedContent.push(
+              item as Extract<
+                AxFunctionResultContent[number],
+                { type: 'image' }
+              >
+            );
           } else if (item.altText) {
             // Fallback to alt text
             processedContent.push({ type: 'text', text: item.altText });

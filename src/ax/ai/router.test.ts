@@ -1,12 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AxProviderRouter } from './router.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  AxMediaNotSupportedError,
   AxContentProcessingError,
+  AxMediaNotSupportedError,
 } from '../util/apicall.js';
+import { AxProviderRouter } from './router.js';
 import type {
-  AxAIService,
   AxAIFeatures,
+  AxAIService,
   AxChatRequest,
   AxChatResponse,
 } from './types.js';
@@ -205,8 +205,9 @@ describe('AxProviderRouter', () => {
       (mockMultiModalProvider.chat as ReturnType<typeof vi.fn>).mockClear();
       await router.chat(request);
 
-      const sentRequest = (mockMultiModalProvider.chat as ReturnType<typeof vi.fn>)
-        .mock.calls[0][0] as AxChatRequest;
+      const sentRequest = (
+        mockMultiModalProvider.chat as ReturnType<typeof vi.fn>
+      ).mock.calls[0][0] as AxChatRequest;
       expect(sentRequest.chatPrompt[0]).toMatchObject({
         role: 'user',
         content: [
@@ -232,8 +233,9 @@ describe('AxProviderRouter', () => {
       (mockMultiModalProvider.chat as ReturnType<typeof vi.fn>).mockClear();
       await router.chat(request);
 
-      const sentRequest = (mockMultiModalProvider.chat as ReturnType<typeof vi.fn>)
-        .mock.calls[0][0] as AxChatRequest;
+      const sentRequest = (
+        mockMultiModalProvider.chat as ReturnType<typeof vi.fn>
+      ).mock.calls[0][0] as AxChatRequest;
       expect(sentRequest.chatPrompt[0]).toMatchObject({
         content: [
           { type: 'image', image: 'first', mimeType: 'image/jpeg' },
