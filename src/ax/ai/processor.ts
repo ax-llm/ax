@@ -2,7 +2,7 @@ import {
   AxContentProcessingError,
   AxMediaNotSupportedError,
 } from '../util/apicall.js';
-import type { AxAIService } from './types.js';
+import type { AxAIService, AxFunctionResultContent } from './types.js';
 
 /**
  * Configuration options for content processing and fallback behavior
@@ -21,14 +21,12 @@ export interface ProcessingOptions {
 }
 
 /**
- * Represents processed content that has been converted to text format
+ * Represents content after provider-specific processing. Native image content
+ * is retained when the provider advertises image support.
  */
-export interface ProcessedContent {
-  /** Content type after processing (always 'text') */
-  type: 'text';
-  /** The processed text content */
-  text: string;
-}
+export type ProcessedContent =
+  | { type: 'text'; text: string }
+  | Extract<AxFunctionResultContent[number], { type: 'image' }>;
 
 /**
  * Indicates what types of media content are present in a request
@@ -57,7 +55,7 @@ export interface MediaRequirements {
  * @param content - The content to process (string, object, or array of content items)
  * @param provider - The target AI service provider
  * @param options - Processing options including fallback behavior and conversion services
- * @returns Promise resolving to array of processed content items (all converted to text)
+ * @returns Promise resolving to processed text and supported native media items
  * @throws AxMediaNotSupportedError when fallbackBehavior is 'error' and content is unsupported
  * @throws AxContentProcessingError when a conversion service fails
  *
@@ -74,7 +72,7 @@ export interface MediaRequirements {
  *     imageToText: async (data) => await visionService.describe(data)
  *   }
  * );
- * // Result: [{ type: 'text', text: 'Analyze this:' }, { type: 'text', text: 'Chart showing sales data' }]
+ * // Result for a text-only provider: [{ type: 'text', text: 'Analyze this:' }, { type: 'text', text: 'Chart showing sales data' }]
  * ```
  */
 export async function axProcessContentForProvider(
@@ -102,18 +100,11 @@ export async function axProcessContentForProvider(
 
         case 'image':
           if (features.media.images.supported) {
-            // Provider supports images - validate and pass through as text description
-            if (item.altText) {
-              processedContent.push({
-                type: 'text',
-                text: `[Image: ${item.altText}]`,
-              });
-            } else {
-              processedContent.push({
-                type: 'text',
-                text: '[Image content]',
-              });
-            }
+            // Preserve native image content for providers that support it.
+            processedContent.push(item as Extract<
+              AxFunctionResultContent[number],
+              { type: 'image' }
+            >);
           } else if (item.altText) {
             // Fallback to alt text
             processedContent.push({ type: 'text', text: item.altText });

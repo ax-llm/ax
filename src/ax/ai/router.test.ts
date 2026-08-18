@@ -189,6 +189,59 @@ describe('AxProviderRouter', () => {
       expect(result.routing.processingApplied).toHaveLength(0);
     });
 
+    it('should preserve native image content for an image-capable provider', async () => {
+      const request: AxChatRequest = {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'What is in this image?' },
+              { type: 'image', image: 'base64data', mimeType: 'image/jpeg' },
+            ],
+          },
+        ],
+      };
+
+      (mockMultiModalProvider.chat as ReturnType<typeof vi.fn>).mockClear();
+      await router.chat(request);
+
+      const sentRequest = (mockMultiModalProvider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[0][0] as AxChatRequest;
+      expect(sentRequest.chatPrompt[0]).toMatchObject({
+        role: 'user',
+        content: [
+          { type: 'text', text: 'What is in this image?' },
+          { type: 'image', image: 'base64data', mimeType: 'image/jpeg' },
+        ],
+      });
+    });
+
+    it('should preserve multiple native images in their original order', async () => {
+      const request: AxChatRequest = {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', image: 'first', mimeType: 'image/jpeg' },
+              { type: 'image', image: 'second', mimeType: 'image/png' },
+            ],
+          },
+        ],
+      };
+
+      (mockMultiModalProvider.chat as ReturnType<typeof vi.fn>).mockClear();
+      await router.chat(request);
+
+      const sentRequest = (mockMultiModalProvider.chat as ReturnType<typeof vi.fn>)
+        .mock.calls[0][0] as AxChatRequest;
+      expect(sentRequest.chatPrompt[0]).toMatchObject({
+        content: [
+          { type: 'image', image: 'first', mimeType: 'image/jpeg' },
+          { type: 'image', image: 'second', mimeType: 'image/png' },
+        ],
+      });
+    });
+
     it('should apply content processing when provider lacks capability', async () => {
       // Create router with text-only primary provider
       const textOnlyRouter = new AxProviderRouter({
