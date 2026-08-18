@@ -372,7 +372,9 @@ module @ax.gen version "0.1" {
       core.if %has_frequency_penalty {
         core.set %model_config["frequency_penalty"] = %frequency_penalty
       }
-      %n = core.get %options["n"]
+      %sample_count_snake = core.get %options["sample_count"]
+      %sample_count = core.get %options["sampleCount"] default %sample_count_snake
+      %n = core.get %options["n"] default %sample_count
       %has_n = core.call intrinsic.is_not_none(%n)
       core.if %has_n {
         core.set %model_config["n"] = %n
@@ -446,6 +448,87 @@ module @ax.gen version "0.1" {
       core.set %request["provider_metadata"] = %provider_metadata
       core.set %request["model_config"] = %model_config
       core.return %request
+    }
+  }
+
+  op ax.gen.semantic @parse_sample_outputs {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "axgen-indexed-multi-sample-parse"
+    type signature = "(AxGen, list<Field>, json, bool) -> json throws"
+    body @entry(%gen: AxGen, %output_fields: list<Field>, %response: json, %validate_exact_json: bool) {
+      %empty_results = core.list
+      %completions = core.get %response["results"] default %empty_results
+      %completion_count = core.call intrinsic.len(%completions)
+      %missing_completions = core.call intrinsic.eq(%completion_count, 0)
+      core.if %missing_completions {
+        %completions = core.list
+        core.append %completions, %response
+      }
+      %outputs = core.list
+      %samples = core.list
+      %position = core.const 0
+      core.for %completion in %completions {
+        %content = core.get %completion["content"] default ""
+        %output = core.call @parse_output_impl(%content)
+        core.if %validate_exact_json {
+          core.call @validate_exact_output_keys(%output_fields, %output, "output")
+        }
+        %recovered = core.call @parse_json_string_fields(%output_fields, %output)
+        %validated = core.call @validate_output(%output_fields, %recovered)
+        %processed = core.call @apply_field_processors(%gen, %validated)
+        core.call @run_assertions(%gen, %processed)
+        %public_output = core.call @strip_internal_fields(%output_fields, %processed)
+        core.append %outputs, %public_output
+        %sample_index = core.get %completion["index"] default %position
+        %sample = core.map
+        core.set %sample["index"] = %sample_index
+        core.set %sample["sample"] = %public_output
+        core.append %samples, %sample
+        %next_position = core.call intrinsic.add(%position, 1)
+        %position = core.let %next_position
+      }
+      %bundle = core.map
+      core.set %bundle["outputs"] = %outputs
+      core.set %bundle["samples"] = %samples
+      core.return %bundle
+    }
+  }
+
+  op ax.gen.semantic @select_sample_index {
+    attr core_kind = "func"
+    attr emit_module = "gen"
+    attr private = true
+    tag "axgen-result-picker"
+    type signature = "(list<json>, json) -> number throws"
+    body @entry(%samples: list<json>, %options: json) {
+      %picker_snake = core.get %options["result_picker"]
+      %picker = core.get %options["resultPicker"] default %picker_snake
+      %missing_picker = core.call intrinsic.is_none(%picker)
+      %sample_count = core.call intrinsic.len(%samples)
+      %single_or_empty = core.call intrinsic.lte(%sample_count, 1)
+      %use_default = core.call intrinsic.or(%missing_picker, %single_or_empty)
+      core.if %use_default {
+        core.return 0
+      }
+      %payload = core.map
+      core.set %payload["type"] = "fields"
+      core.set %payload["results"] = %samples
+      %selected = core.call intrinsic.object.call_method(%picker, "call", %payload)
+      %is_number = core.type_is %selected type "number"
+      %not_number = core.call intrinsic.not(%is_number)
+      %negative = core.call intrinsic.lt(%selected, 0)
+      %too_large = core.call intrinsic.gte(%selected, %sample_count)
+      %out_of_bounds = core.call intrinsic.or(%negative, %too_large)
+      %invalid = core.call intrinsic.or(%not_number, %out_of_bounds)
+      core.if %invalid {
+        %max_index = core.call intrinsic.add(%sample_count, -1)
+        %message = core.call intrinsic.string.format("Result picker returned invalid index: {}. Must be between 0 and {}", %selected, %max_index)
+        %error = core.call intrinsic.error.runtime(%message)
+        core.raise %error
+      }
+      core.return %selected
     }
   }
 
@@ -571,20 +654,10 @@ module @ax.gen version "0.1" {
             core.return %public_tool_result
           }
         } else {
+          %parsed_bundle = core.map
           core.try {
-            %content = core.get %response["content"] default ""
-            %output = core.call @parse_output_impl(%content)
-            core.if %validate_exact_json {
-              core.call @validate_exact_output_keys(%output_fields, %output, "output")
-            }
-            %recovered = core.call @parse_json_string_fields(%output_fields, %output)
-            %validated = core.call @validate_output(%output_fields, %recovered)
-            %processed = core.call @apply_field_processors(%gen, %validated)
-            core.call @run_assertions(%gen, %processed)
-            %public_output = core.call @strip_internal_fields(%output_fields, %processed)
-            core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
-            core.call @record_trace(%gen, %values, %public_output, "ok")
-            core.return %public_output
+            %parsed = core.call @parse_sample_outputs(%gen, %output_fields, %response, %validate_exact_json)
+            %parsed_bundle = core.let %parsed
           } catch %validation_error {
             %retries_exhausted = core.call intrinsic.gte(%attempt, %validation_retries)
             core.if %retries_exhausted {
@@ -596,6 +669,14 @@ module @ax.gen version "0.1" {
             core.call intrinsic.axgen.memory_add_correction(%gen, %response, %validation_error)
             core.continue
           }
+          %public_outputs = core.get %parsed_bundle["outputs"]
+          %structured_samples = core.get %parsed_bundle["samples"]
+          %selected_index = core.call @select_sample_index(%structured_samples, %runtime_options)
+          %empty_public = core.map
+          %public_output = core.call intrinsic.list.get(%public_outputs, %selected_index, %empty_public)
+          core.call intrinsic.axgen.memory_cleanup_corrections(%gen)
+          core.call @record_trace(%gen, %values, %public_output, "ok")
+          core.return %public_output
         }
       }
       core.raise "unreachable AxGen forward loop exit"

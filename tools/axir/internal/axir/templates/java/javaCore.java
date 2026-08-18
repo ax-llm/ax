@@ -559,6 +559,10 @@ final class Core {
   static Object objectCallMethod(Object target, Object methodName, Object... args) {
     if (target instanceof PromptTemplate p && "render".equals(String.valueOf(methodName))) return p.render(asMap(args.length > 0 ? args[0] : null));
     if (target instanceof AxFlow.Mapper mapper && "call".equals(String.valueOf(methodName))) return mapper.apply(asMap(args.length > 0 ? args[0] : null));
+    if (target instanceof AxGen.ResultPickerCallback picker && "call".equals(String.valueOf(methodName))) {
+      Map<String, Object> payload = asMap(args.length > 0 ? args[0] : null);
+      return picker.pick(asMapList(payload.get("results")));
+    }
     throw new RuntimeException("unsupported method call: " + methodName);
   }
   static Object programComponents(Object program) {

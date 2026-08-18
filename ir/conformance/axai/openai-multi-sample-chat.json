@@ -1,0 +1,76 @@
+{
+  "name": "openai-multi-sample-chat",
+  "kind": "ai_chat",
+  "provider": "openai-compatible",
+  "base_url": "https://api.openai.com/v1",
+  "model": "gpt-5.4-mini",
+  "request": {
+    "chat_prompt": [{ "role": "user", "content": "Give three answers." }],
+    "model_config": {
+      "n": 3,
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "id": "chatcmpl_multi",
+        "model": "gpt-5.4-mini",
+        "object": "chat.completion",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": { "role": "assistant", "content": "first" }
+          },
+          {
+            "index": 1,
+            "finish_reason": "stop",
+            "message": { "role": "assistant", "content": "second" }
+          },
+          {
+            "index": 2,
+            "finish_reason": "stop",
+            "message": { "role": "assistant", "content": "third" }
+          }
+        ]
+      }
+    }
+  ],
+  "expected_transport_request": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/chat/completions",
+    "json": {
+      "model": "gpt-5.4-mini",
+      "n": 3
+    }
+  },
+  "expected_output": {
+    "remote_id": "chatcmpl_multi",
+    "model_usage": null,
+    "results": [
+      {
+        "id": "0",
+        "index": 0,
+        "content": "first",
+        "finish_reason": "stop",
+        "function_calls": []
+      },
+      {
+        "id": "1",
+        "index": 1,
+        "content": "second",
+        "finish_reason": "stop",
+        "function_calls": []
+      },
+      {
+        "id": "2",
+        "index": 2,
+        "content": "third",
+        "finish_reason": "stop",
+        "function_calls": []
+      }
+    ]
+  }
+}

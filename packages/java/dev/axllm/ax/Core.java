@@ -559,6 +559,10 @@ final class Core {
   static Object objectCallMethod(Object target, Object methodName, Object... args) {
     if (target instanceof PromptTemplate p && "render".equals(String.valueOf(methodName))) return p.render(asMap(args.length > 0 ? args[0] : null));
     if (target instanceof AxFlow.Mapper mapper && "call".equals(String.valueOf(methodName))) return mapper.apply(asMap(args.length > 0 ? args[0] : null));
+    if (target instanceof AxGen.ResultPickerCallback picker && "call".equals(String.valueOf(methodName))) {
+      Map<String, Object> payload = asMap(args.length > 0 ? args[0] : null);
+      return picker.pick(asMapList(payload.get("results")));
+    }
     throw new RuntimeException("unsupported method call: " + methodName);
   }
   static Object programComponents(Object program) {
@@ -3777,12 +3781,8 @@ final class Core {
     return out;
   }
 
-  static Object chat_response_to_completion(Object response) {
-    axirCoverageMark("chat_response_to_completion");
-    Object empty_results = new java.util.ArrayList<Object>();
-    Object results = Core.get(response, "results", empty_results);
-    Object empty_result = new java.util.LinkedHashMap<String, Object>();
-    Object result = Core.listGet(results, 0, empty_result);
+  static Object _chat_result_to_completion(Object result, Object fallback_index) {
+    axirCoverageMark("_chat_result_to_completion");
     Object content = Core.get(result, "content", "");
     Object calls = new java.util.ArrayList<Object>();
     Object empty_calls = new java.util.ArrayList<Object>();
@@ -3798,23 +3798,22 @@ final class Core {
       Core.set(compat_call, "params", params);
       Core.append(calls, compat_call);
     }
-    Object model_usage = Core.get(response, "model_usage", null);
-    Object usage = Core.get(model_usage, "tokens", null);
+    Object index = Core.get(result, "index", fallback_index);
     Object thought = Core.get(result, "thought", null);
     Object has_thought = Core.isNotNone(thought);
     Object thought_blocks = Core.get(result, "thought_blocks", null);
     Object has_thought_blocks = Core.isNotNone(thought_blocks);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "content", content);
-    Core.set(out, "function_calls", calls);
-    Core.set(out, "usage", usage);
+    Object completion = new java.util.LinkedHashMap<String, Object>();
+    Core.set(completion, "index", index);
+    Core.set(completion, "content", content);
+    Core.set(completion, "function_calls", calls);
     if (Core.truthy(has_thought)) {
-      Core.set(out, "thought", thought);
+      Core.set(completion, "thought", thought);
     }
     if (Core.truthy(has_thought_blocks)) {
-      Core.set(out, "thought_blocks", thought_blocks);
+      Core.set(completion, "thought_blocks", thought_blocks);
     }
-    return out;
+    return completion;
   }
 
   static Object _openai_content_part_impl(Object part) {
@@ -3879,6 +3878,66 @@ final class Core {
     throw Core.asRuntime(error);
   }
 
+  static Object chat_response_to_completion(Object response) {
+    axirCoverageMark("chat_response_to_completion");
+    Object empty_results = new java.util.ArrayList<Object>();
+    Object results = Core.get(response, "results", empty_results);
+    Object completions = new java.util.ArrayList<Object>();
+    Object position = 0;
+    for (Object result : Core.iter(results)) {
+      Object completion = Core._chat_result_to_completion(result, position);
+      Core.append(completions, completion);
+      Object next_position = Core.add(position, 1);
+      position = next_position;
+    }
+    Object empty_completion = new java.util.LinkedHashMap<String, Object>();
+    Object first = Core.listGet(completions, 0, empty_completion);
+    Object content = Core.get(first, "content", "");
+    Object calls = Core.get(first, "function_calls", empty_results);
+    Object model_usage = Core.get(response, "model_usage", null);
+    Object usage = Core.get(model_usage, "tokens", null);
+    Object thought = Core.get(first, "thought", null);
+    Object has_thought = Core.isNotNone(thought);
+    Object thought_blocks = Core.get(first, "thought_blocks", null);
+    Object has_thought_blocks = Core.isNotNone(thought_blocks);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "content", content);
+    Core.set(out, "function_calls", calls);
+    Core.set(out, "results", completions);
+    Core.set(out, "usage", usage);
+    if (Core.truthy(has_thought)) {
+      Core.set(out, "thought", thought);
+    }
+    if (Core.truthy(has_thought_blocks)) {
+      Core.set(out, "thought_blocks", thought_blocks);
+    }
+    return out;
+  }
+
+  static Object _openai_tool_call_to_provider_impl(Object call) {
+    axirCoverageMark("_openai_tool_call_to_provider_impl");
+    Object fn = Core.get(call, "function", null);
+    Object params = Core.get(fn, "params", null);
+    Object params_is_string = Core.typeIs(params, "string");
+    if (Core.truthy(params_is_string)) {
+      // empty
+    }
+    if (!Core.truthy(params_is_string)) {
+      Object params_json = Core.jsonStringify(params);
+      params = params_json;
+    }
+    Object id = Core.get(call, "id", null);
+    Object name = Core.get(fn, "name", null);
+    Object function = new java.util.LinkedHashMap<String, Object>();
+    Core.set(function, "name", name);
+    Core.set(function, "arguments", params);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "id", id);
+    Core.set(out, "type", "function");
+    Core.set(out, "function", function);
+    return out;
+  }
+
   static Object ai_context_cache_rejection(Object status, Object body_json) {
     axirCoverageMark("ai_context_cache_rejection");
     Object status_400_min = Core.gte(status, 400);
@@ -3909,25 +3968,19 @@ final class Core {
     return out;
   }
 
-  static Object _openai_tool_call_to_provider_impl(Object call) {
-    axirCoverageMark("_openai_tool_call_to_provider_impl");
-    Object fn = Core.get(call, "function", null);
-    Object params = Core.get(fn, "params", null);
-    Object params_is_string = Core.typeIs(params, "string");
-    if (Core.truthy(params_is_string)) {
-      // empty
-    }
-    if (!Core.truthy(params_is_string)) {
-      Object params_json = Core.jsonStringify(params);
-      params = params_json;
-    }
-    Object id = Core.get(call, "id", null);
+  static Object _openai_tool_spec_impl(Object fn) {
+    axirCoverageMark("_openai_tool_spec_impl");
     Object name = Core.get(fn, "name", null);
+    Object description = Core.get(fn, "description", "");
+    Object parameters = Core.get(fn, "parameters", null);
     Object function = new java.util.LinkedHashMap<String, Object>();
     Core.set(function, "name", name);
-    Core.set(function, "arguments", params);
+    Core.set(function, "description", description);
+    Object has_parameters = Core.truthyValue(parameters);
+    if (Core.truthy(has_parameters)) {
+      Core.set(function, "parameters", parameters);
+    }
     Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "id", id);
     Core.set(out, "type", "function");
     Core.set(out, "function", function);
     return out;
@@ -3945,22 +3998,21 @@ final class Core {
     return 0;
   }
 
-  static Object _openai_tool_spec_impl(Object fn) {
-    axirCoverageMark("_openai_tool_spec_impl");
-    Object name = Core.get(fn, "name", null);
-    Object description = Core.get(fn, "description", "");
-    Object parameters = Core.get(fn, "parameters", null);
-    Object function = new java.util.LinkedHashMap<String, Object>();
-    Core.set(function, "name", name);
-    Core.set(function, "description", description);
-    Object has_parameters = Core.truthyValue(parameters);
-    if (Core.truthy(has_parameters)) {
-      Core.set(function, "parameters", parameters);
+  static Object openai_build_embed_request(Object request) {
+    axirCoverageMark("openai_build_embed_request");
+    Object embed_model_snake = Core.get(request, "embed_model", null);
+    Object model = Core.get(request, "embedModel", embed_model_snake);
+    Object empty_texts = new java.util.ArrayList<Object>();
+    Object texts = Core.get(request, "texts", empty_texts);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "model", model);
+    Core.set(payload, "input", texts);
+    Object dimensions = Core.get(request, "dimensions", null);
+    Object has_dimensions = Core.truthyValue(dimensions);
+    if (Core.truthy(has_dimensions)) {
+      Core.set(payload, "dimensions", dimensions);
     }
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "type", "function");
-    Core.set(out, "function", function);
-    return out;
+    return payload;
   }
 
   static Object ai_context_cache_plan(Object configured, Object supported, Object explicit_name, Object existing, Object now, Object refresh_window_ms, Object create_eligible) {
@@ -4009,52 +4061,10 @@ final class Core {
     return out;
   }
 
-  static Object openai_build_embed_request(Object request) {
-    axirCoverageMark("openai_build_embed_request");
-    Object embed_model_snake = Core.get(request, "embed_model", null);
-    Object model = Core.get(request, "embedModel", embed_model_snake);
-    Object empty_texts = new java.util.ArrayList<Object>();
-    Object texts = Core.get(request, "texts", empty_texts);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Core.set(payload, "model", model);
-    Core.set(payload, "input", texts);
-    Object dimensions = Core.get(request, "dimensions", null);
-    Object has_dimensions = Core.truthyValue(dimensions);
-    if (Core.truthy(has_dimensions)) {
-      Core.set(payload, "dimensions", dimensions);
-    }
-    return payload;
-  }
-
   static Object openai_normalize_chat_response(Object raw, Object ai_name, Object model) {
     axirCoverageMark("openai_normalize_chat_response");
     Object response = Core._openai_normalize_chat_response_impl(raw, ai_name, model, "none", "none");
     return response;
-  }
-
-  static Object ai_context_cache_recovery(Object current_entry, Object cache_name, Object external_registry) {
-    axirCoverageMark("ai_context_cache_recovery");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "invalidated", Boolean.FALSE);
-    Core.set(out, "deleteInMemory", Boolean.FALSE);
-    Object entry_object = Core.typeIs(current_entry, "object");
-    if (Core.truthy(entry_object)) {
-      Object current_name = Core.get(current_entry, "cacheName", "");
-      Object matches = Core.eq(current_name, cache_name);
-      if (Core.truthy(matches)) {
-        Core.set(out, "invalidated", Boolean.TRUE);
-        if (Core.truthy(external_registry)) {
-          Object empty = new java.util.LinkedHashMap<String, Object>();
-          Object tombstone = Core.mapMerge(current_entry, empty);
-          Core.set(tombstone, "expiresAt", 0);
-          Core.set(out, "externalEntry", tombstone);
-        }
-        if (!Core.truthy(external_registry)) {
-          Core.set(out, "deleteInMemory", Boolean.TRUE);
-        }
-      }
-    }
-    return out;
   }
 
   static Object _openai_normalize_chat_response_impl(Object raw, Object ai_name, Object model, Object reasoning_content_mode, Object reasoning_details_mode) {
@@ -4093,6 +4103,103 @@ final class Core {
     Core.set(out, "results", results);
     Core.set(out, "remote_id", remote_id);
     Core.set(out, "model_usage", model_usage);
+    return out;
+  }
+
+  static Object ai_context_cache_recovery(Object current_entry, Object cache_name, Object external_registry) {
+    axirCoverageMark("ai_context_cache_recovery");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "invalidated", Boolean.FALSE);
+    Core.set(out, "deleteInMemory", Boolean.FALSE);
+    Object entry_object = Core.typeIs(current_entry, "object");
+    if (Core.truthy(entry_object)) {
+      Object current_name = Core.get(current_entry, "cacheName", "");
+      Object matches = Core.eq(current_name, cache_name);
+      if (Core.truthy(matches)) {
+        Core.set(out, "invalidated", Boolean.TRUE);
+        if (Core.truthy(external_registry)) {
+          Object empty = new java.util.LinkedHashMap<String, Object>();
+          Object tombstone = Core.mapMerge(current_entry, empty);
+          Core.set(tombstone, "expiresAt", 0);
+          Core.set(out, "externalEntry", tombstone);
+        }
+        if (!Core.truthy(external_registry)) {
+          Core.set(out, "deleteInMemory", Boolean.TRUE);
+        }
+      }
+    }
+    return out;
+  }
+
+  static Object _openai_normalize_choice_impl(Object choice, Object raw, Object reasoning_content_mode, Object reasoning_details_mode) {
+    axirCoverageMark("_openai_normalize_choice_impl");
+    Object empty_message = new java.util.LinkedHashMap<String, Object>();
+    Object message = Core.get(choice, "message", empty_message);
+    Object refusal = Core.get(message, "refusal", null);
+    Object has_refusal = Core.truthyValue(refusal);
+    if (Core.truthy(has_refusal)) {
+      Object error = Core.aiErrorRefusal(refusal, raw);
+      throw Core.asRuntime(error);
+    }
+    Object index = Core.get(choice, "index", 0);
+    Object id = Core.stringStr(index);
+    Object content_raw = Core.get(message, "content", null);
+    Object content = Core.none();
+    Object has_content = Core.truthyValue(content_raw);
+    if (Core.truthy(has_content)) {
+      content = content_raw;
+    }
+    if (!Core.truthy(has_content)) {
+      content = Core.none();
+    }
+    Object empty_calls = new java.util.ArrayList<Object>();
+    Object tool_calls = Core.get(message, "tool_calls", empty_calls);
+    Object function_calls = Core._openai_normalize_tool_calls_impl(tool_calls);
+    Object finish_reason_raw = Core.get(choice, "finish_reason", null);
+    Object finish_reason = Core._openai_finish_reason_impl(finish_reason_raw);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "index", index);
+    Core.set(out, "id", id);
+    Core.set(out, "content", content);
+    Object reasoning_content = Core.get(message, reasoning_content_mode, null);
+    Object has_reasoning_content = Core.truthyValue(reasoning_content);
+    Object is_no_reasoning = Core.eq(reasoning_content_mode, "none");
+    Object has_reasoning_mode = Core.not(is_no_reasoning);
+    Object include_reasoning_content = Core.and(has_reasoning_mode, has_reasoning_content);
+    if (Core.truthy(include_reasoning_content)) {
+      Core.set(out, "thought", reasoning_content);
+      Object thought_blocks = new java.util.ArrayList<Object>();
+      Object thought_block = new java.util.LinkedHashMap<String, Object>();
+      Core.set(thought_block, "data", reasoning_content);
+      Core.set(thought_block, "encrypted", Boolean.FALSE);
+      Core.append(thought_blocks, thought_block);
+      Core.set(out, "thought_blocks", thought_blocks);
+    }
+    Object is_no_details = Core.eq(reasoning_details_mode, "none");
+    Object has_details_mode = Core.not(is_no_details);
+    Object reasoning_details = Core.get(message, reasoning_details_mode, null);
+    Object has_reasoning_details = Core.truthyValue(reasoning_details);
+    Object include_reasoning_details = Core.and(has_details_mode, has_reasoning_details);
+    if (Core.truthy(include_reasoning_details)) {
+      Object detail_blocks = new java.util.ArrayList<Object>();
+      for (Object detail : Core.iter(reasoning_details)) {
+        Object detail_block = new java.util.LinkedHashMap<String, Object>();
+        Object data = Core.jsonStringify(detail);
+        Core.set(detail_block, "data", data);
+        Object type = Core.get(detail, "type", "");
+        Object encrypted = Core.contains(type, "encrypted");
+        Core.set(detail_block, "encrypted", encrypted);
+        Object detail_id = Core.get(detail, "id", null);
+        Object has_detail_id = Core.truthyValue(detail_id);
+        if (Core.truthy(has_detail_id)) {
+          Core.set(detail_block, "signature", detail_id);
+        }
+        Core.append(detail_blocks, detail_block);
+      }
+      Core.set(out, "thought_blocks", detail_blocks);
+    }
+    Core.set(out, "function_calls", function_calls);
+    Core.set(out, "finish_reason", finish_reason);
     return out;
   }
 
@@ -4167,78 +4274,6 @@ final class Core {
     Core.set(out, "create", create);
     Core.set(out, "update", update);
     Core.set(out, "delete", delete_op);
-    return out;
-  }
-
-  static Object _openai_normalize_choice_impl(Object choice, Object raw, Object reasoning_content_mode, Object reasoning_details_mode) {
-    axirCoverageMark("_openai_normalize_choice_impl");
-    Object empty_message = new java.util.LinkedHashMap<String, Object>();
-    Object message = Core.get(choice, "message", empty_message);
-    Object refusal = Core.get(message, "refusal", null);
-    Object has_refusal = Core.truthyValue(refusal);
-    if (Core.truthy(has_refusal)) {
-      Object error = Core.aiErrorRefusal(refusal, raw);
-      throw Core.asRuntime(error);
-    }
-    Object index = Core.get(choice, "index", 0);
-    Object id = Core.stringStr(index);
-    Object content_raw = Core.get(message, "content", null);
-    Object content = Core.none();
-    Object has_content = Core.truthyValue(content_raw);
-    if (Core.truthy(has_content)) {
-      content = content_raw;
-    }
-    if (!Core.truthy(has_content)) {
-      content = Core.none();
-    }
-    Object empty_calls = new java.util.ArrayList<Object>();
-    Object tool_calls = Core.get(message, "tool_calls", empty_calls);
-    Object function_calls = Core._openai_normalize_tool_calls_impl(tool_calls);
-    Object finish_reason_raw = Core.get(choice, "finish_reason", null);
-    Object finish_reason = Core._openai_finish_reason_impl(finish_reason_raw);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "index", index);
-    Core.set(out, "id", id);
-    Core.set(out, "content", content);
-    Object reasoning_content = Core.get(message, reasoning_content_mode, null);
-    Object has_reasoning_content = Core.truthyValue(reasoning_content);
-    Object is_no_reasoning = Core.eq(reasoning_content_mode, "none");
-    Object has_reasoning_mode = Core.not(is_no_reasoning);
-    Object include_reasoning_content = Core.and(has_reasoning_mode, has_reasoning_content);
-    if (Core.truthy(include_reasoning_content)) {
-      Core.set(out, "thought", reasoning_content);
-      Object thought_blocks = new java.util.ArrayList<Object>();
-      Object thought_block = new java.util.LinkedHashMap<String, Object>();
-      Core.set(thought_block, "data", reasoning_content);
-      Core.set(thought_block, "encrypted", Boolean.FALSE);
-      Core.append(thought_blocks, thought_block);
-      Core.set(out, "thought_blocks", thought_blocks);
-    }
-    Object is_no_details = Core.eq(reasoning_details_mode, "none");
-    Object has_details_mode = Core.not(is_no_details);
-    Object reasoning_details = Core.get(message, reasoning_details_mode, null);
-    Object has_reasoning_details = Core.truthyValue(reasoning_details);
-    Object include_reasoning_details = Core.and(has_details_mode, has_reasoning_details);
-    if (Core.truthy(include_reasoning_details)) {
-      Object detail_blocks = new java.util.ArrayList<Object>();
-      for (Object detail : Core.iter(reasoning_details)) {
-        Object detail_block = new java.util.LinkedHashMap<String, Object>();
-        Object data = Core.jsonStringify(detail);
-        Core.set(detail_block, "data", data);
-        Object type = Core.get(detail, "type", "");
-        Object encrypted = Core.contains(type, "encrypted");
-        Core.set(detail_block, "encrypted", encrypted);
-        Object detail_id = Core.get(detail, "id", null);
-        Object has_detail_id = Core.truthyValue(detail_id);
-        if (Core.truthy(has_detail_id)) {
-          Core.set(detail_block, "signature", detail_id);
-        }
-        Core.append(detail_blocks, detail_block);
-      }
-      Core.set(out, "thought_blocks", detail_blocks);
-    }
-    Core.set(out, "function_calls", function_calls);
-    Core.set(out, "finish_reason", finish_reason);
     return out;
   }
 
@@ -4507,7 +4542,7 @@ final class Core {
 
   static Object provider_profile_registry() {
     axirCoverageMark("provider_profile_registry");
-    Object registry = Core.jsonParse("{\"registryVersion\":\"provider-profiles-v2\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\"],\"profiles\":{\"openai\":{\"id\":\"openai\",\"aliases\":[\"openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-compatible\":{\"id\":\"openai-compatible\",\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openai-responses\":{\"id\":\"openai-responses\",\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"anthropic\":{\"id\":\"anthropic\",\"aliases\":[\"anthropic\",\"claude\"],\"transport\":\"anthropic-messages\",\"generatedClient\":\"AnthropicClient\",\"catalogStatus\":\"descriptor-covered\"},\"google-gemini\":{\"id\":\"google-gemini\",\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"transport\":\"gemini-generate-content\",\"generatedClient\":\"GoogleGeminiClient\",\"catalogStatus\":\"descriptor-covered\"},\"webllm\":{\"id\":\"webllm\",\"aliases\":[\"webllm\"],\"transport\":\"webllm\",\"generatedClient\":null,\"catalogStatus\":\"typescript-only\"},\"azure-openai\":{\"id\":\"azure-openai\",\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek\":{\"id\":\"deepseek\",\"aliases\":[\"deepseek\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepseek-responses\":{\"id\":\"deepseek-responses\",\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"transport\":\"openai-responses\",\"generatedClient\":\"OpenAIResponsesClient\",\"catalogStatus\":\"descriptor-covered\"},\"mistral\":{\"id\":\"mistral\",\"aliases\":[\"mistral\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cohere\":{\"id\":\"cohere\",\"aliases\":[\"cohere\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"grok\":{\"id\":\"grok\",\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"reka\":{\"id\":\"reka\",\"aliases\":[\"reka\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"together\":{\"id\":\"together\",\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"openrouter\":{\"id\":\"openrouter\",\"aliases\":[\"openrouter\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"fireworks\":{\"id\":\"fireworks\",\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"huggingface-router\":{\"id\":\"huggingface-router\",\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"amazon-bedrock\":{\"id\":\"amazon-bedrock\",\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"azure-foundry\":{\"id\":\"azure-foundry\",\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vertex-ai\":{\"id\":\"vertex-ai\",\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"databricks\":{\"id\":\"databricks\",\"aliases\":[\"databricks\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten\":{\"id\":\"baseten\",\"aliases\":[\"baseten\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"groq\":{\"id\":\"groq\",\"aliases\":[\"groq\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cerebras\":{\"id\":\"cerebras\",\"aliases\":[\"cerebras\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"deepinfra\":{\"id\":\"deepinfra\",\"aliases\":[\"deepinfra\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sambanova\":{\"id\":\"sambanova\",\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nebius\":{\"id\":\"nebius\",\"aliases\":[\"nebius\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"novita\":{\"id\":\"novita\",\"aliases\":[\"novita\",\"novita-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"hyperbolic\":{\"id\":\"hyperbolic\",\"aliases\":[\"hyperbolic\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"siliconflow\":{\"id\":\"siliconflow\",\"aliases\":[\"siliconflow\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"friendli\":{\"id\":\"friendli\",\"aliases\":[\"friendli\",\"friendli-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"cloudflare-workers-ai\":{\"id\":\"cloudflare-workers-ai\",\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"featherless\":{\"id\":\"featherless\",\"aliases\":[\"featherless\",\"featherless-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nscale\":{\"id\":\"nscale\",\"aliases\":[\"nscale\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ovhcloud\":{\"id\":\"ovhcloud\",\"aliases\":[\"ovhcloud\",\"ovh\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"scaleway\":{\"id\":\"scaleway\",\"aliases\":[\"scaleway\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"nvidia-nim\":{\"id\":\"nvidia-nim\",\"aliases\":[\"nvidia-nim\",\"nim\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"runpod-vllm\":{\"id\":\"runpod-vllm\",\"aliases\":[\"runpod-vllm\",\"runpod\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"sagemaker-vllm\":{\"id\":\"sagemaker-vllm\",\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"vllm\":{\"id\":\"vllm\",\"aliases\":[\"vllm\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"ollama\":{\"id\":\"ollama\",\"aliases\":[\"ollama\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"lm-studio\":{\"id\":\"lm-studio\",\"aliases\":[\"lm-studio\",\"lmstudio\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"llama-cpp\":{\"id\":\"llama-cpp\",\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"localai\":{\"id\":\"localai\",\"aliases\":[\"localai\",\"local-ai\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"},\"baseten-engine\":{\"id\":\"baseten-engine\",\"aliases\":[\"baseten-engine\",\"truss\"],\"transport\":\"openai-chat\",\"generatedClient\":\"OpenAICompatibleClient\",\"catalogStatus\":\"descriptor-covered\"}},\"deferredCatalogProviderIds\":[]}\n");
+    Object registry = Core.jsonParse("{\"deferredCatalogProviderIds\":[],\"profiles\":{\"amazon-bedrock\":{\"aliases\":[\"amazon-bedrock\",\"bedrock\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"amazon-bedrock\",\"transport\":\"openai-chat\"},\"anthropic\":{\"aliases\":[\"anthropic\",\"claude\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"AnthropicClient\",\"id\":\"anthropic\",\"transport\":\"anthropic-messages\"},\"azure-foundry\":{\"aliases\":[\"azure-foundry\",\"azure-ai-foundry\",\"microsoft-foundry\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"azure-foundry\",\"transport\":\"openai-chat\"},\"azure-openai\":{\"aliases\":[\"azure-openai\",\"azure_openai\",\"azure\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"azure-openai\",\"transport\":\"openai-chat\"},\"baseten\":{\"aliases\":[\"baseten\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"baseten\",\"transport\":\"openai-chat\"},\"baseten-engine\":{\"aliases\":[\"baseten-engine\",\"truss\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"baseten-engine\",\"transport\":\"openai-chat\"},\"cerebras\":{\"aliases\":[\"cerebras\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"cerebras\",\"transport\":\"openai-chat\"},\"cloudflare-workers-ai\":{\"aliases\":[\"cloudflare-workers-ai\",\"workers-ai\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"cloudflare-workers-ai\",\"transport\":\"openai-chat\"},\"cohere\":{\"aliases\":[\"cohere\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"cohere\",\"transport\":\"openai-chat\"},\"databricks\":{\"aliases\":[\"databricks\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"databricks\",\"transport\":\"openai-chat\"},\"deepinfra\":{\"aliases\":[\"deepinfra\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"deepinfra\",\"transport\":\"openai-chat\"},\"deepseek\":{\"aliases\":[\"deepseek\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"deepseek\",\"transport\":\"openai-chat\"},\"deepseek-responses\":{\"aliases\":[\"deepseek-responses\",\"deepseek_responses\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAIResponsesClient\",\"id\":\"deepseek-responses\",\"transport\":\"openai-responses\"},\"featherless\":{\"aliases\":[\"featherless\",\"featherless-ai\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"featherless\",\"transport\":\"openai-chat\"},\"fireworks\":{\"aliases\":[\"fireworks\",\"fireworks-ai\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"fireworks\",\"transport\":\"openai-chat\"},\"friendli\":{\"aliases\":[\"friendli\",\"friendli-ai\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"friendli\",\"transport\":\"openai-chat\"},\"google-gemini\":{\"aliases\":[\"google-gemini\",\"google_gemini\",\"gemini\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"GoogleGeminiClient\",\"id\":\"google-gemini\",\"transport\":\"gemini-generate-content\"},\"grok\":{\"aliases\":[\"grok\",\"xai\",\"x-grok\",\"x_grok\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"grok\",\"transport\":\"openai-chat\"},\"groq\":{\"aliases\":[\"groq\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"groq\",\"transport\":\"openai-chat\"},\"huggingface-router\":{\"aliases\":[\"huggingface-router\",\"huggingface\",\"hf-router\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"huggingface-router\",\"transport\":\"openai-chat\"},\"hyperbolic\":{\"aliases\":[\"hyperbolic\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"hyperbolic\",\"transport\":\"openai-chat\"},\"llama-cpp\":{\"aliases\":[\"llama-cpp\",\"llama.cpp\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"llama-cpp\",\"transport\":\"openai-chat\"},\"lm-studio\":{\"aliases\":[\"lm-studio\",\"lmstudio\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"lm-studio\",\"transport\":\"openai-chat\"},\"localai\":{\"aliases\":[\"localai\",\"local-ai\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"localai\",\"transport\":\"openai-chat\"},\"mistral\":{\"aliases\":[\"mistral\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"mistral\",\"transport\":\"openai-chat\"},\"nebius\":{\"aliases\":[\"nebius\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"nebius\",\"transport\":\"openai-chat\"},\"novita\":{\"aliases\":[\"novita\",\"novita-ai\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"novita\",\"transport\":\"openai-chat\"},\"nscale\":{\"aliases\":[\"nscale\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"nscale\",\"transport\":\"openai-chat\"},\"nvidia-nim\":{\"aliases\":[\"nvidia-nim\",\"nim\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"nvidia-nim\",\"transport\":\"openai-chat\"},\"ollama\":{\"aliases\":[\"ollama\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"ollama\",\"transport\":\"openai-chat\"},\"openai\":{\"aliases\":[\"openai\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"openai\",\"transport\":\"openai-chat\"},\"openai-compatible\":{\"aliases\":[\"openai-compatible\",\"openai_compatible\",\"compatible\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"openai-compatible\",\"transport\":\"openai-chat\"},\"openai-responses\":{\"aliases\":[\"openai-responses\",\"openai_responses\",\"responses\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAIResponsesClient\",\"id\":\"openai-responses\",\"transport\":\"openai-responses\"},\"openrouter\":{\"aliases\":[\"openrouter\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"openrouter\",\"transport\":\"openai-chat\"},\"ovhcloud\":{\"aliases\":[\"ovhcloud\",\"ovh\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"ovhcloud\",\"transport\":\"openai-chat\"},\"reka\":{\"aliases\":[\"reka\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"reka\",\"transport\":\"openai-chat\"},\"runpod-vllm\":{\"aliases\":[\"runpod-vllm\",\"runpod\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"runpod-vllm\",\"transport\":\"openai-chat\"},\"sagemaker-vllm\":{\"aliases\":[\"sagemaker-vllm\",\"sagemaker\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"sagemaker-vllm\",\"transport\":\"openai-chat\"},\"sambanova\":{\"aliases\":[\"sambanova\",\"sambanova-cloud\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"sambanova\",\"transport\":\"openai-chat\"},\"scaleway\":{\"aliases\":[\"scaleway\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"scaleway\",\"transport\":\"openai-chat\"},\"siliconflow\":{\"aliases\":[\"siliconflow\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"siliconflow\",\"transport\":\"openai-chat\"},\"together\":{\"aliases\":[\"together\",\"together-ai\",\"together_ai\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"together\",\"transport\":\"openai-chat\"},\"vertex-ai\":{\"aliases\":[\"vertex-ai\",\"vertex-openai\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"vertex-ai\",\"transport\":\"openai-chat\"},\"vllm\":{\"aliases\":[\"vllm\"],\"catalogStatus\":\"descriptor-covered\",\"generatedClient\":\"OpenAICompatibleClient\",\"id\":\"vllm\",\"transport\":\"openai-chat\"},\"webllm\":{\"aliases\":[\"webllm\"],\"catalogStatus\":\"typescript-only\",\"generatedClient\":null,\"id\":\"webllm\",\"transport\":\"webllm\"}},\"registryVersion\":\"provider-profiles-v2\",\"supportedProfileIds\":[\"openai\",\"openai-compatible\",\"openai-responses\",\"anthropic\",\"google-gemini\",\"webllm\",\"azure-openai\",\"deepseek\",\"deepseek-responses\",\"mistral\",\"cohere\",\"grok\",\"reka\",\"together\",\"openrouter\",\"fireworks\",\"huggingface-router\",\"amazon-bedrock\",\"azure-foundry\",\"vertex-ai\",\"databricks\",\"baseten\",\"groq\",\"cerebras\",\"deepinfra\",\"sambanova\",\"nebius\",\"novita\",\"hyperbolic\",\"siliconflow\",\"friendli\",\"cloudflare-workers-ai\",\"featherless\",\"nscale\",\"ovhcloud\",\"scaleway\",\"nvidia-nim\",\"runpod-vllm\",\"sagemaker-vllm\",\"vllm\",\"ollama\",\"lm-studio\",\"llama-cpp\",\"localai\",\"baseten-engine\"]}");
     return registry;
   }
 
@@ -8385,7 +8420,8 @@ final class Core {
     Object maps_widget_token = Core.none();
     for (Object candidate : Core.iter(candidates)) {
       Object result = new java.util.LinkedHashMap<String, Object>();
-      Core.set(result, "index", 0);
+      Object candidate_index = Core.len(results);
+      Core.set(result, "index", candidate_index);
       Object finish = Core.get(candidate, "finishReason", "STOP");
       Object is_max = Core.eq(finish, "MAX_TOKENS");
       if (Core.truthy(is_max)) {
@@ -10336,7 +10372,9 @@ final class Core {
     if (Core.truthy(has_frequency_penalty)) {
       Core.set(model_config, "frequency_penalty", frequency_penalty);
     }
-    Object n = Core.get(options, "n", null);
+    Object sample_count_snake = Core.get(options, "sample_count", null);
+    Object sample_count = Core.get(options, "sampleCount", sample_count_snake);
+    Object n = Core.get(options, "n", sample_count);
     Object has_n = Core.isNotNone(n);
     if (Core.truthy(has_n)) {
       Core.set(model_config, "n", n);
@@ -10531,6 +10569,75 @@ final class Core {
     return adjusted;
   }
 
+  static Object _parse_sample_outputs(Object gen, Object output_fields, Object response, Object validate_exact_json) {
+    axirCoverageMark("_parse_sample_outputs");
+    Object empty_results = new java.util.ArrayList<Object>();
+    Object completions = Core.get(response, "results", empty_results);
+    Object completion_count = Core.len(completions);
+    Object missing_completions = Core.eq(completion_count, 0);
+    if (Core.truthy(missing_completions)) {
+      completions = new java.util.ArrayList<Object>();
+      Core.append(completions, response);
+    }
+    Object outputs = new java.util.ArrayList<Object>();
+    Object samples = new java.util.ArrayList<Object>();
+    Object position = 0;
+    for (Object completion : Core.iter(completions)) {
+      Object content = Core.get(completion, "content", "");
+      Object output = Core._parse_output_impl(content);
+      if (Core.truthy(validate_exact_json)) {
+        Core._validate_exact_output_keys(output_fields, output, "output");
+      }
+      Object recovered = Core._parse_json_string_fields(output_fields, output);
+      Object validated = Core.validate_output(output_fields, recovered);
+      Object processed = Core._apply_field_processors(gen, validated);
+      Core._run_assertions(gen, processed);
+      Object public_output = Core.strip_internal(output_fields, processed);
+      Core.append(outputs, public_output);
+      Object sample_index = Core.get(completion, "index", position);
+      Object sample = new java.util.LinkedHashMap<String, Object>();
+      Core.set(sample, "index", sample_index);
+      Core.set(sample, "sample", public_output);
+      Core.append(samples, sample);
+      Object next_position = Core.add(position, 1);
+      position = next_position;
+    }
+    Object bundle = new java.util.LinkedHashMap<String, Object>();
+    Core.set(bundle, "outputs", outputs);
+    Core.set(bundle, "samples", samples);
+    return bundle;
+  }
+
+  static Object _select_sample_index(Object samples, Object options) {
+    axirCoverageMark("_select_sample_index");
+    Object picker_snake = Core.get(options, "result_picker", null);
+    Object picker = Core.get(options, "resultPicker", picker_snake);
+    Object missing_picker = Core.isNone(picker);
+    Object sample_count = Core.len(samples);
+    Object single_or_empty = Core.lte(sample_count, 1);
+    Object use_default = Core.or(missing_picker, single_or_empty);
+    if (Core.truthy(use_default)) {
+      return 0;
+    }
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "type", "fields");
+    Core.set(payload, "results", samples);
+    Object selected = Core.objectCallMethod(picker, "call", payload);
+    Object is_number = Core.typeIs(selected, "number");
+    Object not_number = Core.not(is_number);
+    Object negative = Core.lt(selected, 0);
+    Object too_large = Core.gte(selected, sample_count);
+    Object out_of_bounds = Core.or(negative, too_large);
+    Object invalid = Core.or(not_number, out_of_bounds);
+    if (Core.truthy(invalid)) {
+      Object max_index = Core.add(sample_count, -1);
+      Object message = Core.stringFormat("Result picker returned invalid index: {}. Must be between 0 and {}", selected, max_index);
+      Object error = Core.runtimeError(message);
+      throw Core.asRuntime(error);
+    }
+    return selected;
+  }
+
   static Object _forward_impl(Object gen, Object client, Object values, Object options) {
     axirCoverageMark("_forward_impl");
     Object base_options = Core.get(gen, "options", null);
@@ -10646,20 +10753,10 @@ final class Core {
         }
       }
       if (!Core.truthy(has_calls)) {
+        Object parsed_bundle = new java.util.LinkedHashMap<String, Object>();
         try {
-          Object content = Core.get(response, "content", "");
-          Object output = Core._parse_output_impl(content);
-          if (Core.truthy(validate_exact_json)) {
-            Core._validate_exact_output_keys(output_fields, output, "output");
-          }
-          Object recovered = Core._parse_json_string_fields(output_fields, output);
-          Object validated = Core.validate_output(output_fields, recovered);
-          Object processed = Core._apply_field_processors(gen, validated);
-          Core._run_assertions(gen, processed);
-          Object public_output = Core.strip_internal(output_fields, processed);
-          Core.axgenMemoryCleanupCorrections(gen);
-          Core._record_trace(gen, values, public_output, "ok");
-          return public_output;
+          Object parsed = Core._parse_sample_outputs(gen, output_fields, response, validate_exact_json);
+          parsed_bundle = parsed;
         } catch (RuntimeException validation_error) {
           Object retries_exhausted = Core.gte(attempt, validation_retries);
           if (Core.truthy(retries_exhausted)) {
@@ -10671,6 +10768,14 @@ final class Core {
           Core.axgenMemoryAddCorrection(gen, response, validation_error);
           continue;
         }
+        Object public_outputs = Core.get(parsed_bundle, "outputs", null);
+        Object structured_samples = Core.get(parsed_bundle, "samples", null);
+        Object selected_index = Core._select_sample_index(structured_samples, runtime_options);
+        Object empty_public = new java.util.LinkedHashMap<String, Object>();
+        Object public_output = Core.listGet(public_outputs, selected_index, empty_public);
+        Core.axgenMemoryCleanupCorrections(gen);
+        Core._record_trace(gen, values, public_output, "ok");
+        return public_output;
       }
     }
     throw new RuntimeException("unreachable AxGen forward loop exit");
@@ -10781,42 +10886,6 @@ final class Core {
     return out;
   }
 
-  static Object _set_examples(Object gen, Object examples) {
-    axirCoverageMark("_set_examples");
-    Core.set(gen, "examples", examples);
-    return gen;
-  }
-
-  static Object _set_demos(Object gen, Object demos) {
-    axirCoverageMark("_set_demos");
-    Core.set(gen, "demos", demos);
-    return gen;
-  }
-
-  static Object _render_examples(Object gen) {
-    axirCoverageMark("_render_examples");
-    Object messages = Core.axgenRenderExamples(gen);
-    return messages;
-  }
-
-  static Object _render_demos(Object gen) {
-    axirCoverageMark("_render_demos");
-    Object messages = Core.axgenRenderDemos(gen);
-    return messages;
-  }
-
-  static Object _apply_field_processors(Object gen, Object output) {
-    axirCoverageMark("_apply_field_processors");
-    Object processed = Core.axgenApplyFieldProcessors(gen, output);
-    return processed;
-  }
-
-  static Object _run_assertions(Object gen, Object output) {
-    axirCoverageMark("_run_assertions");
-    Core.axgenRunAssertions(gen, output);
-    return null;
-  }
-
   static Object _build_optimizer_request(Object program_kind, Object components, Object dataset, Object options, Object trace) {
     axirCoverageMark("_build_optimizer_request");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -10837,16 +10906,10 @@ final class Core {
     return out;
   }
 
-  static Object _append_assertion_retry_messages(Object messages, Object response, Object error) {
-    axirCoverageMark("_append_assertion_retry_messages");
-    Core._append_validation_retry_messages_impl(messages, response, error);
-    return null;
-  }
-
-  static Object _record_trace(Object gen, Object input, Object output, Object status) {
-    axirCoverageMark("_record_trace");
-    Core.axgenRecordTrace(gen, input, output, status);
-    return null;
+  static Object _set_examples(Object gen, Object examples) {
+    axirCoverageMark("_set_examples");
+    Core.set(gen, "examples", examples);
+    return gen;
   }
 
   static Object _prepare_optimizer_run(Object program_kind, Object components, Object dataset, Object options, Object trace, Object evaluator_available) {
@@ -10878,33 +10941,22 @@ final class Core {
     return out;
   }
 
-  static Object _should_continue_steps(Object gen, Object calls) {
-    axirCoverageMark("_should_continue_steps");
-    Object should_continue = Core.axgenShouldContinueSteps(gen, calls);
-    return should_continue;
+  static Object _set_demos(Object gen, Object demos) {
+    axirCoverageMark("_set_demos");
+    Core.set(gen, "demos", demos);
+    return gen;
   }
 
-  static Object _complete_with_retries_impl(Object client, Object request, Object options, Object retries) {
-    axirCoverageMark("_complete_with_retries_impl");
-    Object attempt = 0;
-    Object last_error = Core.none();
-    while (Core.truthy(Boolean.TRUE)) {
-      try {
-        Object response = Core.aiCompleteOnce(client, request, options);
-        return response;
-      } catch (RuntimeException error) {
-        last_error = error;
-        Object exhausted = Core.gte(attempt, retries);
-        if (Core.truthy(exhausted)) {
-          throw Core.asRuntime(error);
-        }
-        Core.retrySleep(attempt);
-        Object next_attempt = Core.add(attempt, 1);
-        attempt = next_attempt;
-        continue;
-      }
-    }
-    throw Core.asRuntime(last_error);
+  static Object _render_examples(Object gen) {
+    axirCoverageMark("_render_examples");
+    Object messages = Core.axgenRenderExamples(gen);
+    return messages;
+  }
+
+  static Object _render_demos(Object gen) {
+    axirCoverageMark("_render_demos");
+    Object messages = Core.axgenRenderDemos(gen);
+    return messages;
   }
 
   static Object _normalize_optimizer_engine_response(Object response, Object engine_name, Object engine_version, Object components) {
@@ -10978,45 +11030,57 @@ final class Core {
     return validated;
   }
 
-  static Object _parse_output_impl(Object content) {
-    axirCoverageMark("_parse_output_impl");
-    Object text = Core.stringTrim(content);
-    Object output = Core.jsonParseStrict(text);
-    return output;
+  static Object _apply_field_processors(Object gen, Object output) {
+    axirCoverageMark("_apply_field_processors");
+    Object processed = Core.axgenApplyFieldProcessors(gen, output);
+    return processed;
   }
 
-  static Object _is_flexible_json_field(Object typ) {
-    axirCoverageMark("_is_flexible_json_field");
-    Object type_name = Core.get(typ, "name", null);
-    Object is_json = Core.eq(type_name, "json");
-    Object is_object = Core.eq(type_name, "object");
-    Object fields = Core.get(typ, "fields", null);
-    Object has_fields = Core.truthyValue(fields);
-    Object no_fields = Core.not(has_fields);
-    Object flexible = is_json;
-    if (Core.truthy(is_object)) {
-      if (Core.truthy(no_fields)) {
-        flexible = Boolean.TRUE;
+  static Object _run_assertions(Object gen, Object output) {
+    axirCoverageMark("_run_assertions");
+    Core.axgenRunAssertions(gen, output);
+    return null;
+  }
+
+  static Object _append_assertion_retry_messages(Object messages, Object response, Object error) {
+    axirCoverageMark("_append_assertion_retry_messages");
+    Core._append_validation_retry_messages_impl(messages, response, error);
+    return null;
+  }
+
+  static Object _record_trace(Object gen, Object input, Object output, Object status) {
+    axirCoverageMark("_record_trace");
+    Core.axgenRecordTrace(gen, input, output, status);
+    return null;
+  }
+
+  static Object _should_continue_steps(Object gen, Object calls) {
+    axirCoverageMark("_should_continue_steps");
+    Object should_continue = Core.axgenShouldContinueSteps(gen, calls);
+    return should_continue;
+  }
+
+  static Object _complete_with_retries_impl(Object client, Object request, Object options, Object retries) {
+    axirCoverageMark("_complete_with_retries_impl");
+    Object attempt = 0;
+    Object last_error = Core.none();
+    while (Core.truthy(Boolean.TRUE)) {
+      try {
+        Object response = Core.aiCompleteOnce(client, request, options);
+        return response;
+      } catch (RuntimeException error) {
+        last_error = error;
+        Object exhausted = Core.gte(attempt, retries);
+        if (Core.truthy(exhausted)) {
+          throw Core.asRuntime(error);
+        }
+        Core.retrySleep(attempt);
+        Object next_attempt = Core.add(attempt, 1);
+        attempt = next_attempt;
+        continue;
       }
     }
-    return flexible;
-  }
-
-  static Object _parse_json_string_value(Object value) {
-    axirCoverageMark("_parse_json_string_value");
-    Object is_string = Core.typeIs(value, "string");
-    Object not_string = Core.not(is_string);
-    if (Core.truthy(not_string)) {
-      return value;
-    }
-    Object result = value;
-    try {
-      Object parsed = Core.jsonParse(value);
-      result = parsed;
-    } catch (RuntimeException parse_error) {
-      result = value;
-    }
-    return result;
+    throw Core.asRuntime(last_error);
   }
 
   static Object _build_optimizer_evidence_batch(Object eval_result, Object components) {
@@ -11088,6 +11152,47 @@ final class Core {
     return out;
   }
 
+  static Object _parse_output_impl(Object content) {
+    axirCoverageMark("_parse_output_impl");
+    Object text = Core.stringTrim(content);
+    Object output = Core.jsonParseStrict(text);
+    return output;
+  }
+
+  static Object _is_flexible_json_field(Object typ) {
+    axirCoverageMark("_is_flexible_json_field");
+    Object type_name = Core.get(typ, "name", null);
+    Object is_json = Core.eq(type_name, "json");
+    Object is_object = Core.eq(type_name, "object");
+    Object fields = Core.get(typ, "fields", null);
+    Object has_fields = Core.truthyValue(fields);
+    Object no_fields = Core.not(has_fields);
+    Object flexible = is_json;
+    if (Core.truthy(is_object)) {
+      if (Core.truthy(no_fields)) {
+        flexible = Boolean.TRUE;
+      }
+    }
+    return flexible;
+  }
+
+  static Object _parse_json_string_value(Object value) {
+    axirCoverageMark("_parse_json_string_value");
+    Object is_string = Core.typeIs(value, "string");
+    Object not_string = Core.not(is_string);
+    if (Core.truthy(not_string)) {
+      return value;
+    }
+    Object result = value;
+    try {
+      Object parsed = Core.jsonParse(value);
+      result = parsed;
+    } catch (RuntimeException parse_error) {
+      result = value;
+    }
+    return result;
+  }
+
   static Object _parse_json_string_for_field(Object field, Object value) {
     axirCoverageMark("_parse_json_string_for_field");
     Object typ = Core.get(field, "type", null);
@@ -11144,45 +11249,6 @@ final class Core {
     return value;
   }
 
-  static Object _parse_json_string_fields(Object output_fields, Object values) {
-    axirCoverageMark("_parse_json_string_fields");
-    Object values_is_map = Core.typeIs(values, "object");
-    Object not_map = Core.not(values_is_map);
-    if (Core.truthy(not_map)) {
-      return values;
-    }
-    for (Object field : Core.iter(output_fields)) {
-      Object name = Core.get(field, "name", null);
-      Object has_key = Core.mapContains(values, name);
-      if (Core.truthy(has_key)) {
-        Object value = Core.get(values, name, null);
-        Object parsed = Core._parse_json_string_for_field(field, value);
-        Core.set(values, name, parsed);
-      }
-    }
-    return values;
-  }
-
-  static Object _parse_json_string_for_fields(Object fields_map, Object values) {
-    axirCoverageMark("_parse_json_string_for_fields");
-    Object values_is_map = Core.typeIs(values, "object");
-    Object not_map = Core.not(values_is_map);
-    if (Core.truthy(not_map)) {
-      return values;
-    }
-    Object nested_fields = Core.fieldsFromMap(fields_map);
-    for (Object field : Core.iter(nested_fields)) {
-      Object name = Core.get(field, "name", null);
-      Object has_key = Core.mapContains(values, name);
-      if (Core.truthy(has_key)) {
-        Object value = Core.get(values, name, null);
-        Object parsed = Core._parse_json_string_for_field(field, value);
-        Core.set(values, name, parsed);
-      }
-    }
-    return values;
-  }
-
   static Object _ace_estimate_token_count(Object text) {
     axirCoverageMark("_ace_estimate_token_count");
     Object len = Core.len(text);
@@ -11199,59 +11265,6 @@ final class Core {
       remaining = remaining_next;
     }
     return tokens;
-  }
-
-  static Object _validate_exact_output_keys(Object fields, Object values, Object context) {
-    axirCoverageMark("_validate_exact_output_keys");
-    Object is_object = Core.typeIs(values, "object");
-    Object not_object = Core.not(is_object);
-    if (Core.truthy(not_object)) {
-      Object object_message = Core.stringFormat("{} must be one JSON object", context);
-      Object object_error = Core.validationError(object_message);
-      throw Core.asRuntime(object_error);
-    }
-    Object keys = Core.mapKeys(values);
-    for (Object key : Core.iter(keys)) {
-      Object known = Boolean.FALSE;
-      for (Object field : Core.iter(fields)) {
-        Object field_name = Core.get(field, "name", null);
-        Object matches = Core.eq(field_name, key);
-        if (Core.truthy(matches)) {
-          known = Boolean.TRUE;
-        }
-      }
-      Object unknown = Core.not(known);
-      if (Core.truthy(unknown)) {
-        Object unknown_message = Core.stringFormat("Unexpected field '{}' in {}. Use only the exact declared wire keys.", key, context);
-        Object unknown_error = Core.validationError(unknown_message);
-        throw Core.asRuntime(unknown_error);
-      }
-    }
-    for (Object field : Core.iter(fields)) {
-      Object field_name = Core.get(field, "name", null);
-      Object has_value = Core.mapContains(values, field_name);
-      if (Core.truthy(has_value)) {
-        Object typ = Core.get(field, "type", null);
-        Object nested_map = Core.get(typ, "fields", null);
-        Object has_nested = Core.truthyValue(nested_map);
-        if (Core.truthy(has_nested)) {
-          Object nested_fields = Core.fieldsFromMap(nested_map);
-          Object field_value = Core.get(values, field_name, null);
-          Object child_context = Core.stringFormat("{}.{}", context, field_name);
-          Object array_snake = Core.get(typ, "is_array", Boolean.FALSE);
-          Object is_array = Core.get(typ, "isArray", array_snake);
-          if (Core.truthy(is_array)) {
-            for (Object item : Core.iter(field_value)) {
-              Core._validate_exact_output_keys(nested_fields, item, child_context);
-            }
-          }
-          if (!Core.truthy(is_array)) {
-            Core._validate_exact_output_keys(nested_fields, field_value, child_context);
-          }
-        }
-      }
-    }
-    return null;
   }
 
   static Object _ace_recompute_playbook_stats(Object playbook) {
@@ -11288,6 +11301,25 @@ final class Core {
     return playbook;
   }
 
+  static Object _parse_json_string_fields(Object output_fields, Object values) {
+    axirCoverageMark("_parse_json_string_fields");
+    Object values_is_map = Core.typeIs(values, "object");
+    Object not_map = Core.not(values_is_map);
+    if (Core.truthy(not_map)) {
+      return values;
+    }
+    for (Object field : Core.iter(output_fields)) {
+      Object name = Core.get(field, "name", null);
+      Object has_key = Core.mapContains(values, name);
+      if (Core.truthy(has_key)) {
+        Object value = Core.get(values, name, null);
+        Object parsed = Core._parse_json_string_for_field(field, value);
+        Core.set(values, name, parsed);
+      }
+    }
+    return values;
+  }
+
   static Object _ace_empty_playbook(Object description, Object now) {
     axirCoverageMark("_ace_empty_playbook");
     Object out = new java.util.LinkedHashMap<String, Object>();
@@ -11308,16 +11340,24 @@ final class Core {
     return out;
   }
 
-  static Object _tool_spec_impl(Object fn) {
-    axirCoverageMark("_tool_spec_impl");
-    Object spec = new java.util.LinkedHashMap<String, Object>();
-    Object name = Core.get(fn, "name", null);
-    Object description = Core.get(fn, "description", null);
-    Object parameters = Core.get(fn, "parameters", null);
-    Core.set(spec, "name", name);
-    Core.set(spec, "description", description);
-    Core.set(spec, "parameters", parameters);
-    return spec;
+  static Object _parse_json_string_for_fields(Object fields_map, Object values) {
+    axirCoverageMark("_parse_json_string_for_fields");
+    Object values_is_map = Core.typeIs(values, "object");
+    Object not_map = Core.not(values_is_map);
+    if (Core.truthy(not_map)) {
+      return values;
+    }
+    Object nested_fields = Core.fieldsFromMap(fields_map);
+    for (Object field : Core.iter(nested_fields)) {
+      Object name = Core.get(field, "name", null);
+      Object has_key = Core.mapContains(values, name);
+      if (Core.truthy(has_key)) {
+        Object value = Core.get(values, name, null);
+        Object parsed = Core._parse_json_string_for_field(field, value);
+        Core.set(values, name, parsed);
+      }
+    }
+    return values;
   }
 
   static Object _ace_render_playbook(Object playbook) {
@@ -11377,56 +11417,57 @@ final class Core {
     return result;
   }
 
-  static Object _function_call_mode_impl(Object mode) {
-    axirCoverageMark("_function_call_mode_impl");
-    Object missing = Core.isNone(mode);
-    if (Core.truthy(missing)) {
-      return "auto";
+  static Object _validate_exact_output_keys(Object fields, Object values, Object context) {
+    axirCoverageMark("_validate_exact_output_keys");
+    Object is_object = Core.typeIs(values, "object");
+    Object not_object = Core.not(is_object);
+    if (Core.truthy(not_object)) {
+      Object object_message = Core.stringFormat("{} must be one JSON object", context);
+      Object object_error = Core.validationError(object_message);
+      throw Core.asRuntime(object_error);
     }
-    Object is_native = Core.eq(mode, "native");
-    Object is_auto = Core.eq(mode, "auto");
-    Object native_or_auto = Core.or(is_native, is_auto);
-    if (Core.truthy(native_or_auto)) {
-      return "auto";
+    Object keys = Core.mapKeys(values);
+    for (Object key : Core.iter(keys)) {
+      Object known = Boolean.FALSE;
+      for (Object field : Core.iter(fields)) {
+        Object field_name = Core.get(field, "name", null);
+        Object matches = Core.eq(field_name, key);
+        if (Core.truthy(matches)) {
+          known = Boolean.TRUE;
+        }
+      }
+      Object unknown = Core.not(known);
+      if (Core.truthy(unknown)) {
+        Object unknown_message = Core.stringFormat("Unexpected field '{}' in {}. Use only the exact declared wire keys.", key, context);
+        Object unknown_error = Core.validationError(unknown_message);
+        throw Core.asRuntime(unknown_error);
+      }
     }
-    Object is_prompt = Core.eq(mode, "prompt");
-    if (Core.truthy(is_prompt)) {
-      return "none";
+    for (Object field : Core.iter(fields)) {
+      Object field_name = Core.get(field, "name", null);
+      Object has_value = Core.mapContains(values, field_name);
+      if (Core.truthy(has_value)) {
+        Object typ = Core.get(field, "type", null);
+        Object nested_map = Core.get(typ, "fields", null);
+        Object has_nested = Core.truthyValue(nested_map);
+        if (Core.truthy(has_nested)) {
+          Object nested_fields = Core.fieldsFromMap(nested_map);
+          Object field_value = Core.get(values, field_name, null);
+          Object child_context = Core.stringFormat("{}.{}", context, field_name);
+          Object array_snake = Core.get(typ, "is_array", Boolean.FALSE);
+          Object is_array = Core.get(typ, "isArray", array_snake);
+          if (Core.truthy(is_array)) {
+            for (Object item : Core.iter(field_value)) {
+              Core._validate_exact_output_keys(nested_fields, item, child_context);
+            }
+          }
+          if (!Core.truthy(is_array)) {
+            Core._validate_exact_output_keys(nested_fields, field_value, child_context);
+          }
+        }
+      }
     }
-    return mode;
-  }
-
-  static Object _response_function_calls_impl(Object response) {
-    axirCoverageMark("_response_function_calls_impl");
-    Object empty = new java.util.ArrayList<Object>();
-    Object calls = Core.get(response, "function_calls", empty);
-    return calls;
-  }
-
-  static Object _append_tool_call_messages_impl(Object messages, Object response, Object calls) {
-    axirCoverageMark("_append_tool_call_messages_impl");
-    Object chat_calls = new java.util.ArrayList<Object>();
-    for (Object call : Core.iter(calls)) {
-      Object chat_call = Core._completion_call_to_chat_impl(call);
-      Core.append(chat_calls, chat_call);
-    }
-    Object content = Core.get(response, "content", "");
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "assistant");
-    Core.set(message, "content", content);
-    Core.set(message, "function_calls", chat_calls);
-    Object thought = Core.get(response, "thought", null);
-    Object has_thought = Core.isNotNone(thought);
-    if (Core.truthy(has_thought)) {
-      Core.set(message, "thought", thought);
-    }
-    Object thought_blocks = Core.get(response, "thought_blocks", null);
-    Object has_thought_blocks = Core.isNotNone(thought_blocks);
-    if (Core.truthy(has_thought_blocks)) {
-      Core.set(message, "thought_blocks", thought_blocks);
-    }
-    Core.append(messages, message);
-    return messages;
+    return null;
   }
 
   static Object _ace_update_bullet_feedback(Object playbook, Object bullet_id, Object tag, Object now) {
@@ -11475,30 +11516,35 @@ final class Core {
     return playbook;
   }
 
-  static Object _completion_call_to_chat_impl(Object call) {
-    axirCoverageMark("_completion_call_to_chat_impl");
-    Object id = Core.get(call, "id", null);
-    Object name = Core.get(call, "name", null);
-    Object params = Core.get(call, "params", null);
-    Object function = new java.util.LinkedHashMap<String, Object>();
-    Core.set(function, "name", name);
-    Core.set(function, "params", params);
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "id", id);
-    Core.set(out, "type", "function");
-    Core.set(out, "function", function);
-    return out;
+  static Object _tool_spec_impl(Object fn) {
+    axirCoverageMark("_tool_spec_impl");
+    Object spec = new java.util.LinkedHashMap<String, Object>();
+    Object name = Core.get(fn, "name", null);
+    Object description = Core.get(fn, "description", null);
+    Object parameters = Core.get(fn, "parameters", null);
+    Core.set(spec, "name", name);
+    Core.set(spec, "description", description);
+    Core.set(spec, "parameters", parameters);
+    return spec;
   }
 
-  static Object _tool_result_message_impl(Object call, Object result) {
-    axirCoverageMark("_tool_result_message_impl");
-    Object id = Core.get(call, "id", null);
-    Object result_json = Core.jsonStringify(result);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "result", result_json);
-    return message;
+  static Object _function_call_mode_impl(Object mode) {
+    axirCoverageMark("_function_call_mode_impl");
+    Object missing = Core.isNone(mode);
+    if (Core.truthy(missing)) {
+      return "auto";
+    }
+    Object is_native = Core.eq(mode, "native");
+    Object is_auto = Core.eq(mode, "auto");
+    Object native_or_auto = Core.or(is_native, is_auto);
+    if (Core.truthy(native_or_auto)) {
+      return "auto";
+    }
+    Object is_prompt = Core.eq(mode, "prompt");
+    if (Core.truthy(is_prompt)) {
+      return "none";
+    }
+    return mode;
   }
 
   static Object _ace_dedupe_playbook(Object playbook) {
@@ -11540,36 +11586,37 @@ final class Core {
     return recomputed;
   }
 
-  static Object _tool_error_message_impl(Object call, Object error) {
-    axirCoverageMark("_tool_error_message_impl");
-    Object id = Core.get(call, "id", null);
-    Object error_text = Core.exceptionMessage(error);
-    Object payload = new java.util.LinkedHashMap<String, Object>();
-    Core.set(payload, "error", error_text);
-    Object payload_json = Core.jsonStringify(payload);
-    Object message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(message, "role", "function");
-    Core.set(message, "function_id", id);
-    Core.set(message, "result", payload_json);
-    Core.set(message, "is_error", Boolean.TRUE);
-    return message;
+  static Object _response_function_calls_impl(Object response) {
+    axirCoverageMark("_response_function_calls_impl");
+    Object empty = new java.util.ArrayList<Object>();
+    Object calls = Core.get(response, "function_calls", empty);
+    return calls;
   }
 
-  static Object _append_validation_retry_messages_impl(Object messages, Object response, Object error) {
-    axirCoverageMark("_append_validation_retry_messages_impl");
+  static Object _append_tool_call_messages_impl(Object messages, Object response, Object calls) {
+    axirCoverageMark("_append_tool_call_messages_impl");
+    Object chat_calls = new java.util.ArrayList<Object>();
+    for (Object call : Core.iter(calls)) {
+      Object chat_call = Core._completion_call_to_chat_impl(call);
+      Core.append(chat_calls, chat_call);
+    }
     Object content = Core.get(response, "content", "");
-    Object assistant_message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(assistant_message, "role", "assistant");
-    Core.set(assistant_message, "content", content);
-    Core.append(messages, assistant_message);
-    Object error_text = Core.exceptionMessage(error);
-    Object prefix_message = Core.add("The previous response failed validation: ", error_text);
-    Object retry_content = Core.add(prefix_message, ". Return only corrected JSON.");
-    Object retry_message = new java.util.LinkedHashMap<String, Object>();
-    Core.set(retry_message, "role", "user");
-    Core.set(retry_message, "content", retry_content);
-    Core.append(messages, retry_message);
-    return null;
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "assistant");
+    Core.set(message, "content", content);
+    Core.set(message, "function_calls", chat_calls);
+    Object thought = Core.get(response, "thought", null);
+    Object has_thought = Core.isNotNone(thought);
+    if (Core.truthy(has_thought)) {
+      Core.set(message, "thought", thought);
+    }
+    Object thought_blocks = Core.get(response, "thought_blocks", null);
+    Object has_thought_blocks = Core.isNotNone(thought_blocks);
+    if (Core.truthy(has_thought_blocks)) {
+      Core.set(message, "thought_blocks", thought_blocks);
+    }
+    Core.append(messages, message);
+    return messages;
   }
 
   static Object _ace_prune_section_for_addition(Object section, Object protected_ids) {
@@ -11651,6 +11698,64 @@ final class Core {
     Core.set(out, "pruned", null_pruned);
     Core.set(out, "section", section);
     return out;
+  }
+
+  static Object _completion_call_to_chat_impl(Object call) {
+    axirCoverageMark("_completion_call_to_chat_impl");
+    Object id = Core.get(call, "id", null);
+    Object name = Core.get(call, "name", null);
+    Object params = Core.get(call, "params", null);
+    Object function = new java.util.LinkedHashMap<String, Object>();
+    Core.set(function, "name", name);
+    Core.set(function, "params", params);
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "id", id);
+    Core.set(out, "type", "function");
+    Core.set(out, "function", function);
+    return out;
+  }
+
+  static Object _tool_result_message_impl(Object call, Object result) {
+    axirCoverageMark("_tool_result_message_impl");
+    Object id = Core.get(call, "id", null);
+    Object result_json = Core.jsonStringify(result);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "result", result_json);
+    return message;
+  }
+
+  static Object _tool_error_message_impl(Object call, Object error) {
+    axirCoverageMark("_tool_error_message_impl");
+    Object id = Core.get(call, "id", null);
+    Object error_text = Core.exceptionMessage(error);
+    Object payload = new java.util.LinkedHashMap<String, Object>();
+    Core.set(payload, "error", error_text);
+    Object payload_json = Core.jsonStringify(payload);
+    Object message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(message, "role", "function");
+    Core.set(message, "function_id", id);
+    Core.set(message, "result", payload_json);
+    Core.set(message, "is_error", Boolean.TRUE);
+    return message;
+  }
+
+  static Object _append_validation_retry_messages_impl(Object messages, Object response, Object error) {
+    axirCoverageMark("_append_validation_retry_messages_impl");
+    Object content = Core.get(response, "content", "");
+    Object assistant_message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(assistant_message, "role", "assistant");
+    Core.set(assistant_message, "content", content);
+    Core.append(messages, assistant_message);
+    Object error_text = Core.exceptionMessage(error);
+    Object prefix_message = Core.add("The previous response failed validation: ", error_text);
+    Object retry_content = Core.add(prefix_message, ". Return only corrected JSON.");
+    Object retry_message = new java.util.LinkedHashMap<String, Object>();
+    Core.set(retry_message, "role", "user");
+    Core.set(retry_message, "content", retry_content);
+    Core.append(messages, retry_message);
+    return null;
   }
 
   static Object _ace_apply_curator_operations(Object playbook, Object operations, Object options, Object now) {

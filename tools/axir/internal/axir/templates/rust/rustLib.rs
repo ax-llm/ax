@@ -2249,6 +2249,14 @@ impl ToolBuilder {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct AxResultPickerSample {
+    pub index: usize,
+    pub sample: Value,
+}
+
+pub type AxResultPicker = Arc<dyn Fn(&[AxResultPickerSample]) -> AxResult<usize> + Send + Sync>;
+
 #[derive(Clone)]
 pub struct AxGen {
     pub signature: AxSignature,
@@ -2265,6 +2273,7 @@ pub struct AxGen {
     pub memory: Vec<Value>,
     pub traces: Vec<Value>,
     pub chat_log: Vec<Value>,
+    pub result_picker: Option<AxResultPicker>,
 }
 
 pub fn ax(spec: &str) -> AxResult<AxGen> {
@@ -2288,6 +2297,7 @@ impl AxGen {
             memory: Vec::new(),
             traces: Vec::new(),
             chat_log: Vec::new(),
+            result_picker: None,
         })
     }
 
@@ -2326,6 +2336,22 @@ impl AxGen {
 
     pub fn with_stop_function(mut self, name: &str) -> Self {
         self.stop_functions.push(name.to_string());
+        self
+    }
+
+    pub fn with_sample_count(mut self, sample_count: usize) -> Self {
+        if !self.options.is_object() {
+            self.options = json!({});
+        }
+        self.options["sampleCount"] = json!(sample_count);
+        self
+    }
+
+    pub fn with_result_picker<F>(mut self, result_picker: F) -> Self
+    where
+        F: Fn(&[AxResultPickerSample]) -> AxResult<usize> + Send + Sync + 'static,
+    {
+        self.result_picker = Some(Arc::new(result_picker));
         self
     }
 
@@ -12070,7 +12096,28 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         memory: Vec::new(),
         traces: Vec::new(),
         chat_log: Vec::new(),
+        result_picker: None,
     };
+    if let Some(sample_count) = fixture
+        .get("options")
+        .and_then(|options| options.get("sample_count").or_else(|| options.get("sampleCount")))
+        .and_then(Value::as_u64)
+    {
+        program = program.with_sample_count(sample_count as usize);
+    }
+    if let Some(picker_index) = fixture.get("result_picker_index").and_then(Value::as_u64) {
+        let expected_samples = fixture.get("expected_picker_samples").cloned();
+        program = program.with_result_picker(move |samples| {
+            if let Some(expected) = &expected_samples {
+                let actual = Value::Array(samples.iter().map(|item| json!({
+                    "index": item.index,
+                    "sample": item.sample,
+                })).collect());
+                expect_json_equal("result picker samples", &actual, expected)?;
+            }
+            Ok(picker_index as usize)
+        });
+    }
     let mut client = FixtureClient {
         responses: responses.into(),
         transcribe_responses: VecDeque::new(),
@@ -15171,6 +15218,34 @@ pub(crate) trait CoreHost {
     }
 }
 
+struct ResultPickerHost {
+    picker: AxResultPicker,
+}
+
+impl CoreHost for ResultPickerHost {
+    fn host_type(&self) -> &'static str {
+        "AxResultPicker"
+    }
+
+    fn call_method(&self, name: &str, args: &[CoreValue]) -> Result<CoreValue, AxError> {
+        if name != "call" {
+            return Err(AxError::runtime(format!("AxResultPicker has no method '{name}'")));
+        }
+        let payload = core_value_to_json(&core_arg(args, 0));
+        let samples = payload
+            .get("results")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|item| AxResultPickerSample {
+                index: item.get("index").and_then(Value::as_u64).unwrap_or(0) as usize,
+                sample: item.get("sample").cloned().unwrap_or_else(|| json!({})),
+            })
+            .collect::<Vec<_>>();
+        Ok(CoreValue::Num((self.picker)(&samples)? as f64))
+    }
+}
+
 // Keeps #[derive(Debug)] on CoreValue working once the Host(Rc<dyn CoreHost>)
 // variant is added: Rc<T> is Debug iff T is Debug, and this impl makes the
 // trait object Debug without forcing a supertrait on implementors.
@@ -16585,7 +16660,15 @@ fn core_axgen_record_function_call(args: &[CoreValue]) -> Result<CoreValue, AxEr
 fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
     let state = CoreValue::new_map();
     core_set(&state, CoreValue::from("signature"), core_signature_value(&gen.signature)?)?;
-    core_set(&state, CoreValue::from("options"), core_value_from_json(&gen.options))?;
+    let options = core_value_from_json(&gen.options);
+    if let Some(result_picker) = &gen.result_picker {
+        core_set(
+            &options,
+            CoreValue::from("resultPicker"),
+            CoreValue::Host(Rc::new(ResultPickerHost { picker: result_picker.clone() })),
+        )?;
+    }
+    core_set(&state, CoreValue::from("options"), options.clone())?;
     let tools = CoreValue::new_list();
     for tool in &gen.tools {
         let entry = core_tool_host(tool.clone());
@@ -16601,7 +16684,7 @@ fn core_gen_state(gen: &AxGen) -> Result<CoreValue, AxError> {
     core_set(&state, CoreValue::from("prompt_template"), CoreValue::Host(Rc::new(GenPromptHost {
         signature: core_get(&state, &CoreValue::from("signature"), CoreValue::Null),
         tools,
-        options: core_value_from_json(&gen.options),
+        options,
     })))?;
     for (key, items) in [
         ("assertions", &gen.assertions),
@@ -17891,6 +17974,7 @@ fn agent_stage_gen(signature: AxSignature, options: Value) -> CoreValue {
         memory: Vec::new(),
         traces: Vec::new(),
         chat_log: Vec::new(),
+        result_picker: None,
     })
 }
 

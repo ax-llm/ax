@@ -198,6 +198,14 @@ class AxGen:
         self.options["has_example_demonstrations"] = bool(self.examples or self.demos)
         return self
 
+    def set_sample_count(self, sample_count: int):
+        self.options["sample_count"] = int(sample_count)
+        return self
+
+    def set_result_picker(self, result_picker):
+        self.options["result_picker"] = result_picker
+        return self
+
     def add_assert(self, assertion):
         self.assertions.append(assertion)
         return self
@@ -445,8 +453,19 @@ class AxGen:
         return _execute_tool_call(self.functions, call)
 
 
-def ax(signature, options: dict[str, Any] | None = None) -> AxGen:
-    return AxGen(signature, options)
+def ax(
+    signature,
+    options: dict[str, Any] | None = None,
+    *,
+    sample_count: int | None = None,
+    result_picker=None,
+) -> AxGen:
+    normalized = dict(options or {})
+    if sample_count is not None:
+        normalized["sample_count"] = int(sample_count)
+    if result_picker is not None:
+        normalized["result_picker"] = result_picker
+    return AxGen(signature, normalized)
 
 
 def _core_not(value): return not value
@@ -542,6 +561,11 @@ def _core_map_values(values):
 
 
 def _core_object_call_method(target, method_name, *args):
+    if str(method_name) == "call" and callable(target):
+        payload = args[0] if args else None
+        if isinstance(payload, dict) and payload.get("type") == "fields":
+            return target(payload.get("results") or [])
+        return target(*args)
     return getattr(target, str(method_name))(*args)
 
 

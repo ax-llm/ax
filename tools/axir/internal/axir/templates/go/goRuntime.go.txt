@@ -3844,6 +3844,13 @@ type AxGen struct {
 	Instruction           string
 }
 
+type AxResultPickerSample struct {
+	Index  int
+	Sample map[string]Value
+}
+
+type AxResultPicker func([]AxResultPickerSample) (int, error)
+
 func NewAx(signature string, options map[string]Value) *AxGen {
 	if options == nil {
 		options = Object()
@@ -3864,6 +3871,14 @@ func NewAx(signature string, options map[string]Value) *AxGen {
 	return g
 }
 func NewGen(signature string, options map[string]Value) *AxGen { return NewAx(signature, options) }
+func (g *AxGen) SetSampleCount(sampleCount int) *AxGen {
+	g.Options["sampleCount"] = sampleCount
+	return g
+}
+func (g *AxGen) SetResultPicker(resultPicker AxResultPicker) *AxGen {
+	g.Options["resultPicker"] = resultPicker
+	return g
+}
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
 	if g.ExecutionContextError != nil {
 		return nil, g.ExecutionContextError
@@ -6690,6 +6705,18 @@ func objectCallMethod(target Value, method string, arg Value) (Value, error) {
 		if fn, ok := target.(func(map[string]Value) Value); ok {
 			return fn(asMap(arg)), nil
 		}
+		if picker, ok := target.(AxResultPicker); ok {
+			samples := []AxResultPickerSample{}
+			for _, raw := range asSlice(coreGet(arg, "results", Array())) {
+				item := asMap(raw)
+				samples = append(samples, AxResultPickerSample{
+					Index:  int(num(coreGet(item, "index", 0))),
+					Sample: asMap(coreGet(item, "sample", Object())),
+				})
+			}
+			selected, err := picker(samples)
+			return float64(selected), err
+		}
 	}
 	return nil, AxError{Category: "runtime", Message: "unsupported method call: " + method}
 }
@@ -8520,6 +8547,18 @@ func runConformanceForward(fixture map[string]Value) {
 	}
 	if stops := coreGet(fixture, "stop_functions", coreGet(fixture, "stopFunctions", nil)); stops != nil {
 		gen.StopFunctions = stops
+	}
+	if pickerIndex := coreGet(fixture, "result_picker_index", nil); pickerIndex != nil {
+		gen.SetResultPicker(func(samples []AxResultPickerSample) (int, error) {
+			actual := Array()
+			for _, sample := range samples {
+				actual = append(actual, Object("index", sample.Index, "sample", sample.Sample))
+			}
+			if expected := coreGet(fixture, "expected_picker_samples", nil); expected != nil {
+				assertEqual(actual, expected, "result picker samples")
+			}
+			return int(num(pickerIndex)), nil
+		})
 	}
 	client := &conformanceScriptedAI{Responses: asSlice(coreGet(fixture, "responses", Array())), StreamEvents: asSlice(coreGet(fixture, "stream_events", Array())), Features: asMap(coreGet(fixture, "features", Object()))}
 	output := expectMaybeFixtureError(func() Value {

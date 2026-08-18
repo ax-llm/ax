@@ -9,6 +9,7 @@ public final class AxGen implements AxProgram {
   public interface AssertionCallback { Object apply(Map<String, Object> output); }
   public interface FieldProcessorCallback { Object apply(Object value); }
   public interface FunctionCallHook { void accept(Map<String, Object> record); }
+  public interface ResultPickerCallback { int pick(List<Map<String, Object>> samples); }
 
   final AxSignature signature;
   final Map<String, Object> options;
@@ -83,6 +84,16 @@ public final class AxGen implements AxProgram {
   public AxGen setDemos(List<Map<String, Object>> demos) {
     this.demos.clear();
     if (demos != null) this.demos.addAll(demos);
+    return this;
+  }
+
+  public AxGen setSampleCount(int sampleCount) {
+    this.options.put("sampleCount", sampleCount);
+    return this;
+  }
+
+  public AxGen setResultPicker(ResultPickerCallback resultPicker) {
+    this.options.put("resultPicker", resultPicker);
     return this;
   }
 

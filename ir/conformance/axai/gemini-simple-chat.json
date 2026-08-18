@@ -31,6 +31,12 @@
         "finish_reason": "stop",
         "function_calls": [],
         "index": 0
+      },
+      {
+        "content": "Ax runs everywhere.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "index": 1
       }
     ]
   },
@@ -113,6 +119,16 @@
             "groundingMetadata": {
               "googleMapsWidgetContextToken": "maps-token"
             }
+          },
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "Ax runs everywhere."
+                }
+              ]
+            },
+            "finishReason": "STOP"
           }
         ],
         "modelVersion": "gemini-3.5-flash",

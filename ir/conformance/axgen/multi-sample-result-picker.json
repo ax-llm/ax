@@ -1,0 +1,48 @@
+{
+  "name": "multi-sample-result-picker",
+  "kind": "forward",
+  "signature": "topic:string -> answer:string, score:number",
+  "input": {
+    "topic": "Ax"
+  },
+  "options": {
+    "sampleCount": 3
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "{\"answer\":\"brief\",\"score\":1}",
+          "function_calls": []
+        },
+        {
+          "index": 1,
+          "content": "{\"answer\":\"winner\",\"score\":9}",
+          "function_calls": []
+        },
+        {
+          "index": 2,
+          "content": "{\"answer\":\"other\",\"score\":4}",
+          "function_calls": []
+        }
+      ]
+    }
+  ],
+  "result_picker_index": 1,
+  "expected_picker_samples": [
+    { "index": 0, "sample": { "answer": "brief", "score": 1 } },
+    { "index": 1, "sample": { "answer": "winner", "score": 9 } },
+    { "index": 2, "sample": { "answer": "other", "score": 4 } }
+  ],
+  "expected_output": {
+    "answer": "winner",
+    "score": 9
+  },
+  "expected_request": {
+    "model_config": {
+      "n": 3
+    }
+  },
+  "expected_request_count": 1
+}

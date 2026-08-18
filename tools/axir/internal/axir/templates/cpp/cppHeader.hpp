@@ -654,6 +654,8 @@ class AxGen : public AxProgram {
   AxGen& add_tool(const Tool& tool);
   AxGen& set_examples(Value examples);
   AxGen& set_demos(Value demos);
+  AxGen& set_sample_count(int sample_count);
+  AxGen& set_result_picker(std::function<int(const Value&)> result_picker);
   AxGen& add_assert(Value assertion);
   AxGen& add_assert(std::function<Value(Value)> assertion);
   AxGen& add_streaming_assert(Value assertion);

@@ -1,0 +1,34 @@
+{
+  "name": "multi-sample-invalid-index",
+  "kind": "forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Choose"
+  },
+  "options": {
+    "sample_count": 2,
+    "validation_retries": 0
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "{\"answer\":\"first\"}",
+          "function_calls": []
+        },
+        {
+          "index": 1,
+          "content": "{\"answer\":\"second\"}",
+          "function_calls": []
+        }
+      ]
+    }
+  ],
+  "result_picker_index": 2,
+  "expected_picker_samples": [
+    { "index": 0, "sample": { "answer": "first" } },
+    { "index": 1, "sample": { "answer": "second" } }
+  ],
+  "expected_error_contains": "Result picker returned invalid index: 2. Must be between 0 and 1"
+}

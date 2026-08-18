@@ -733,6 +733,7 @@ func BuildCapabilityManifest(model AxRuntimeModel, target string) (CapabilityMan
 			"axgen-context-cache",
 			"axgen-prompt-cache-key",
 			"axgen-callbacks",
+			"axgen-multi-sampling",
 			"axgen-function-trace",
 			"axgen-assertions",
 			"axgen-field-processors",
@@ -1037,10 +1038,10 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 		{
 			ID:      "axgen",
 			Title:   "AxGen",
-			Summary: "Run structured generation with Core-owned prompts, tool loops, retries, streaming folds, traces, usage, examples, and field processors.",
+			Summary: "Run structured generation with Core-owned prompts, indexed multi-sampling, result selection, tool loops, retries, streaming folds, traces, usage, examples, and field processors.",
 			Symbols: []APIReferenceSymbol{
-				sym("ax", "function", "Create an AxGen program from a string or parsed signature.", []string{"functions", "examples", "demos", "modelConfig", "maxRetries", "streaming assertions", "field processors"}, "AxGen"),
-				sym("AxGen", "type", "Structured generation program with forward, streaming, optimization, trace, usage, and tool-call behavior.", []string{"signature", "functions", "examples", "demos", "memory", "prompt template"}, "program object"),
+				sym("ax", "function", "Create an AxGen program from a string or parsed signature.", []string{"functions", "examples", "demos", "sample count", "result picker", "modelConfig", "maxRetries", "streaming assertions", "field processors"}, "AxGen"),
+				sym("AxGen", "type", "Structured generation program with indexed multi-sampling, winner selection, forward, streaming, optimization, trace, usage, and tool-call behavior.", []string{"signature", "functions", "examples", "demos", "sample count", "result picker", "memory", "prompt template"}, "program object"),
 			},
 		},
 		{

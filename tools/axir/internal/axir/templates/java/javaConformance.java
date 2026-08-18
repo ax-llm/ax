@@ -772,6 +772,12 @@ public final class Conformance {
       for (Object item : Core.asList(fixture.getOrDefault("stop_functions", fixture.getOrDefault("stopFunctions", List.of())))) names.add(String.valueOf(item));
       gen.setStopFunctions(names);
     }
+    if (fixture.containsKey("result_picker_index")) {
+      gen.setResultPicker(samples -> {
+        if (fixture.containsKey("expected_picker_samples")) assertEqual(samples, fixture.get("expected_picker_samples"), "result picker samples");
+        return Core.asInt(fixture.get("result_picker_index"));
+      });
+    }
     ConformanceScriptedAI client = new ConformanceScriptedAI(Core.asList(fixture.getOrDefault("responses", List.of())), Core.asList(fixture.getOrDefault("stream_events", List.of())), Core.asMap(fixture.getOrDefault("features", Map.of())));
     Object output = expectMaybeError(() -> gen.forward(client, Core.asMap(fixture.getOrDefault("input", Map.of())), Core.asMap(fixture.getOrDefault("forward_options", Map.of()))), fixture);
     if (!fixture.containsKey("expected_error_contains") && fixture.containsKey("expected_output")) assertEqual(output, fixture.get("expected_output"), "forward output");

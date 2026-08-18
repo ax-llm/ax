@@ -53,7 +53,7 @@
     {
       "id": "axgen",
       "title": "AxGen",
-      "summary": "Run structured generation with Core-owned prompts, tool loops, retries, streaming folds, traces, usage, examples, and field processors.",
+      "summary": "Run structured generation with Core-owned prompts, indexed multi-sampling, result selection, tool loops, retries, streaming folds, traces, usage, examples, and field processors.",
       "symbols": [
         {
           "target_name": "rust",
@@ -66,6 +66,8 @@
             "functions",
             "examples",
             "demos",
+            "sample count",
+            "result picker",
             "modelConfig",
             "maxRetries",
             "streaming assertions",
@@ -79,13 +81,15 @@
           "canonical_name": "AxGen",
           "public_name": "AxGen",
           "kind": "type",
-          "description": "Structured generation program with forward, streaming, optimization, trace, usage, and tool-call behavior.",
+          "description": "Structured generation program with indexed multi-sampling, winner selection, forward, streaming, optimization, trace, usage, and tool-call behavior.",
           "form": "AxGen",
           "important_options": [
             "signature",
             "functions",
             "examples",
             "demos",
+            "sample count",
+            "result picker",
             "memory",
             "prompt template"
           ],
