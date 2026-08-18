@@ -7,6 +7,7 @@ import {
   AxAIGoogleGeminiModel,
 } from './google-gemini/types.js';
 import { AxAIOpenAIModel } from './openai/chat_types.js';
+import { axAIProfiles } from './provider_profiles.js';
 // axir-nonportable:start webllm
 import { AxAIWebLLMModel } from './webllm/types.js';
 
@@ -16,9 +17,9 @@ describe('axGetSupportedAIModels', () => {
   it('returns every ai() provider', () => {
     const providers = axGetSupportedAIModels();
     const providerNames = providers.map((provider) => provider.name);
-
-    expect(providerNames).toEqual(
-      expect.arrayContaining([
+    const expectedProviderNames = [
+      ...new Set([
+        ...axAIProfiles().map((profile) => profile.id),
         'openai',
         'openai-responses',
         'azure-openai',
@@ -33,11 +34,13 @@ describe('axGetSupportedAIModels', () => {
         // axir-nonportable:start webllm
         'webllm',
         // axir-nonportable:end webllm
-      ])
+      ]),
+    ];
+
+    expect(providerNames).toEqual(
+      expect.arrayContaining(expectedProviderNames)
     );
-    // axir-nonportable:start webllm
-    expect(providerNames).toHaveLength(12);
-    // axir-nonportable:end webllm
+    expect(providerNames).toHaveLength(expectedProviderNames.length);
   });
 
   it('returns provider grouped model metadata with pricing', () => {
