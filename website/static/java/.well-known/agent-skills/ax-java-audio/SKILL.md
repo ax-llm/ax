@@ -1,7 +1,7 @@
 ---
 name: "ax-java-audio"
 description: "Use when writing Java code with `dev.axllm:ax` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples."
-version: "23.0.15"
+version: "23.0.16"
 ---
 # Ax Audio And Realtime For Java
 
@@ -34,7 +34,7 @@ var llm = Ax.ai("openai", java.util.Map.of("apiKey", System.getenv("OPENAI_API_K
 
 ## Relevant API Surface
 
-- AxAI: `Ax.ai`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `DeepSeekResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `Map<String, Object>`, `AxUsageEvent`, `AxUsageObserver`, `AxGlobals.setUsageObserver`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `AxBalancerAdaptive.createRouteStats`, `AxBalancerAdaptive.updateRouteStats`, `AxBalancerAdaptive.sampleRouteHealth`, `MultiServiceRouter`, `ProviderRouter`
+- AxAI: `Ax.ai`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `Map<String, Object>`, `AxUsageEvent`, `AxUsageObserver`, `AxGlobals.setUsageObserver`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `AxBalancerAdaptive.createRouteStats`, `AxBalancerAdaptive.updateRouteStats`, `AxBalancerAdaptive.sampleRouteHealth`, `MultiServiceRouter`, `ProviderRouter`
 
 ## Guardrails
 

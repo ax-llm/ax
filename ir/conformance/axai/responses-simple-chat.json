@@ -2,7 +2,7 @@
   "expected_output": {
     "model_usage": {
       "ai": "openai-responses",
-      "model": "gpt-4o",
+      "model": "gpt-5-mini",
       "tokens": {
         "completion_tokens": 5,
         "prompt_tokens": 10,
@@ -28,9 +28,7 @@
   },
   "expected_transport_request": {
     "json": {
-      "include": [
-        "file_search_call.results"
-      ],
+      "include": ["file_search_call.results"],
       "input": [
         {
           "content": [
@@ -44,7 +42,7 @@
       ],
       "instructions": "Answer briefly.",
       "max_output_tokens": 64,
-      "model": "gpt-4o",
+      "model": "gpt-5-mini",
       "reasoning": {
         "effort": "low"
       },
@@ -69,9 +67,7 @@
       }
     ],
     "model_config": {
-      "include": [
-        "file_search_call.results"
-      ],
+      "include": ["file_search_call.results"],
       "maxTokens": 64,
       "reasoning": {
         "effort": "low"
@@ -84,7 +80,7 @@
     {
       "json": {
         "id": "resp_1",
-        "model": "gpt-4o",
+        "model": "gpt-5-mini",
         "output": [
           {
             "content": [

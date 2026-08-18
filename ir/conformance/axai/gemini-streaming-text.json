@@ -13,8 +13,8 @@
     },
     {
       "model_usage": {
-        "ai": "GoogleGeminiAI",
-        "model": "gemini-2.5-flash",
+        "ai": "google-gemini",
+        "model": "gemini-3.5-flash",
         "tokens": {
           "completion_tokens": 2,
           "prompt_tokens": 4,
@@ -38,7 +38,7 @@
         "responseMimeType": "text/plain"
       }
     },
-    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=test-key"
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse&key=test-key"
   },
   "kind": "ai_stream",
   "name": "gemini-streaming-text",

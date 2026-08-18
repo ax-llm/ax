@@ -1,0 +1,21 @@
+{
+  "expected_error_contains": "does not support the none effort level",
+  "kind": "ai_chat",
+  "model": "openai/gpt-oss-120b",
+  "name": "groq-gpt-oss-explicit-none-error",
+  "provider": "groq",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "answer directly",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "thinkingTokenBudget": "none"
+  }
+}

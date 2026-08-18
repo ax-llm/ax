@@ -27,8 +27,7 @@ Python target:
 - public API: `ai`, `s`, `f`, `fn`, `ax`, `get_supported_ai_models`,
   `AxAIService`, `AxBaseAI`, `AxSignature`, `AxGen`, `AIClient`,
   `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`,
-  `AnthropicClient`, `AzureOpenAIClient`, `DeepSeekClient`, `MistralClient`,
-  `RekaClient`, `CohereClient`, `GrokClient`, `AxBalancer`,
+  `AnthropicClient`, `AxBalancer`,
   `MultiServiceRouter`, `ProviderRouter`, `OptimizerEngine`,
   `OptimizerEvaluator`, `AxGEPA`
 - includes a generated `axllm.conformance` module that can run backend-neutral
@@ -45,8 +44,7 @@ Java target:
 - public API: `Ax.s`, `Ax.f`, `Ax.fn`, `Ax.ax`,
   `Ax.getSupportedAIModels`, `AxSignature`, `AxGen`,
   `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`,
-  `AnthropicClient`, `AzureOpenAIClient`, `DeepSeekClient`, `MistralClient`,
-  `RekaClient`, `CohereClient`, `GrokClient`, `AxBalancer`,
+  `AnthropicClient`, `AxBalancer`,
   `AxMultiServiceRouter`, `AxProviderRouter`, `OptimizerEngine`,
   `OptimizerEvaluator`, `AxGEPA`
 - executable conformance target for signatures, schema, validation, prompt,

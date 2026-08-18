@@ -6,6 +6,21 @@ import { AxAIGrokModel } from './types.js';
 
 export const axModelInfoGrok: AxModelInfo[] = [
   {
+    name: AxAIGrokModel.Grok46,
+    currency: 'USD',
+    supported: { thinkingBudget: true, structuredOutputs: true },
+  },
+  {
+    name: AxAIGrokModel.Grok45,
+    currency: 'USD',
+    promptTokenCostPer1M: 2,
+    cacheReadTokenCostPer1M: 0.3,
+    completionTokenCostPer1M: 6,
+    contextWindow: 500_000,
+    aliases: [AxAIGrokModel.Grok45Latest, AxAIGrokModel.GrokBuildLatest],
+    supported: { thinkingBudget: true, structuredOutputs: true },
+  },
+  {
     name: AxAIGrokModel.Grok43,
     currency: 'USD',
     promptTokenCostPer1M: 1.25,

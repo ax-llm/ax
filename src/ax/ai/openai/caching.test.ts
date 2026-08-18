@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AxAIAzureOpenAI } from '../azure-openai/api.js';
+import { AxAIOpenAIProfile } from '../provider_profiles.js';
 import type { AxChatRequest } from '../types.js';
 import { AxAIOpenAI } from './api.js';
 import { AxAIOpenAIModel } from './chat_types.js';
@@ -394,7 +394,8 @@ describe('OpenAI prompt caching stays off', () => {
   // name alone must not be enough to opt a deployment in.
   it('sends nothing from Azure on a 5.6 deployment', async () => {
     const capture = { bodies: [] as any[] };
-    const ai = new AxAIAzureOpenAI({
+    const ai = new AxAIOpenAIProfile({
+      name: 'azure-openai',
       apiKey: 'key',
       resourceName: 'https://example.openai.azure.com/',
       deploymentName: 'deployment',

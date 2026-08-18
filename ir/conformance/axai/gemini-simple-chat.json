@@ -1,8 +1,8 @@
 {
   "expected_output": {
     "model_usage": {
-      "ai": "GoogleGeminiAI",
-      "model": "gemini-2.5-flash",
+      "ai": "google-gemini",
+      "model": "gemini-3.5-flash",
       "tokens": {
         "cache_read_tokens": 2,
         "completion_tokens": 4,
@@ -14,7 +14,7 @@
     "provider_metadata": {
       "google": {
         "mapsWidgetContextToken": "maps-token",
-        "modelVersion": "gemini-2.5-flash"
+        "modelVersion": "gemini-3.5-flash"
       }
     },
     "remote_id": "gem_resp_1",
@@ -50,10 +50,8 @@
         "candidateCount": 2,
         "maxOutputTokens": 64,
         "responseMimeType": "text/plain",
-        "stopSequences": [
-          "END"
-        ],
-        "temperature": 0.2
+        "stopSequences": ["END"],
+        "temperature": 1
       },
       "systemInstruction": {
         "parts": [
@@ -65,7 +63,7 @@
       }
     },
     "method": "POST",
-    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=test-key"
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=test-key"
   },
   "kind": "ai_chat",
   "name": "gemini-simple-chat",
@@ -85,9 +83,7 @@
     "model_config": {
       "maxTokens": 64,
       "n": 2,
-      "stopSequences": [
-        "END"
-      ],
+      "stopSequences": ["END"],
       "stream": false,
       "temperature": 0.2
     }
@@ -119,7 +115,7 @@
             }
           }
         ],
-        "modelVersion": "gemini-2.5-flash",
+        "modelVersion": "gemini-3.5-flash",
         "responseId": "gem_resp_1",
         "usageMetadata": {
           "cachedContentTokenCount": 2,

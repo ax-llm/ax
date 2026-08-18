@@ -246,13 +246,6 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/OpenAIResponsesClient.java":                     javaOpenAIResponses,
 		"dev/axllm/ax/GoogleGeminiClient.java":                        javaGoogleGemini,
 		"dev/axllm/ax/AnthropicClient.java":                           javaAnthropic,
-		"dev/axllm/ax/AzureOpenAIClient.java":                         javaAzureOpenAI,
-		"dev/axllm/ax/DeepSeekClient.java":                            javaDeepSeek,
-		"dev/axllm/ax/DeepSeekResponsesClient.java":                   javaDeepSeekResponses,
-		"dev/axllm/ax/MistralClient.java":                             javaMistral,
-		"dev/axllm/ax/RekaClient.java":                                javaReka,
-		"dev/axllm/ax/CohereClient.java":                              javaCohere,
-		"dev/axllm/ax/GrokClient.java":                                javaGrok,
 		"dev/axllm/ax/AxGen.java":                                     javaAxGen,
 		"dev/axllm/ax/AxBootstrapFewShot.java":                        javaAxBootstrapFewShot,
 		"dev/axllm/ax/AxACE.java":                                     javaAxACE,
@@ -1058,7 +1051,6 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("ai", "function", "Create a provider client from a provider name and options.", []string{"api key", "model", "api URL", "headers", "transport"}, "AI client/service"),
 				sym("OpenAICompatibleClient", "type", "OpenAI-compatible chat, stream, embedding, audio, and realtime provider boundary.", []string{"api key", "model", "base URL", "transport"}, "provider client"),
 				sym("OpenAIResponsesClient", "type", "OpenAI Responses provider mapping using the same Core-owned request and response contract.", []string{"api key", "model", "audio", "realtime"}, "provider client"),
-				sym("DeepSeekResponsesClient", "type", "DeepSeek Responses provider mapping with stateless reasoning and function-call replay.", []string{"api key", "model", "thinking", "transport"}, "provider client"),
 				sym("GoogleGeminiClient", "type", "Gemini provider mapping for chat, streaming, media, tools, embeddings, and usage normalization.", []string{"api key", "model", "embed model"}, "provider client"),
 				sym("AnthropicClient", "type", "Anthropic provider mapping for messages, thinking, cache control, streaming, and usage normalization.", []string{"api key", "model", "thinking", "cache control"}, "provider client"),
 				sym("AxUsageContext", "type", "Application attribution merged from service defaults and per-call overrides.", []string{"tenant", "user", "request", "run", "feature", "attributes"}, "usage context"),
@@ -1266,7 +1258,7 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "AxUsageObserver", "AxUsageObserver", "axllm::AxUsageObserver", "axllm.AxUsageObserver", "AxUsageObserver")
 	case "set_usage_observer":
 		return mapTarget(target, "set_usage_observer(observer)", "AxGlobals.setUsageObserver(observer)", "axllm::set_usage_observer(observer)", "axllm.SetUsageObserver(observer)", "set_usage_observer(observer)")
-	case "OpenAICompatibleClient", "OpenAIResponsesClient", "DeepSeekResponsesClient", "GoogleGeminiClient", "AnthropicClient":
+	case "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient":
 		return providerClientForm(target, canonical)
 	case "AxBalancer":
 		return mapTarget(target, "AxBalancer(services, options=None)", "new AxBalancer(services, options)", "axllm::AxBalancer(services, options)", "axllm.NewAxBalancer(services, options)", "AxBalancer")

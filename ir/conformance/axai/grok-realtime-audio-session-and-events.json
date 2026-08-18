@@ -77,7 +77,7 @@
     },
     {
       "model_usage": {
-        "ai": "Grok",
+        "ai": "grok",
         "model": "grok-voice-think-fast-1.0",
         "tokens": {
           "completion_tokens": 2,

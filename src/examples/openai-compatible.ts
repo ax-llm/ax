@@ -1,7 +1,7 @@
 import { ai, ax } from '@ax-llm/ax';
 
 const llm = ai({
-  name: 'openai',
+  name: 'openai-compatible',
   apiKey: process.env.OPENAI_COMPAT_APIKEY!,
   apiURL: process.env.OPENAI_COMPAT_APIURL ?? 'https://api.example.com/v1',
   models: [
@@ -22,7 +22,7 @@ const summarize = ax(
 
 const result = await summarize.forward(llm, {
   documentText:
-    'OpenAI-compatible APIs can use the OpenAI provider with a custom base URL.',
+    'OpenAI-compatible APIs use the conservative compatibility profile with a custom base URL.',
 });
 
 console.log(result.summaryText);

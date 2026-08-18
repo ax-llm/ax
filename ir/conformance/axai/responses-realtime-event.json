@@ -35,7 +35,7 @@
     {
       "model_usage": {
         "ai": "openai-responses",
-        "model": "gpt-4o",
+        "model": "gpt-5-mini",
         "tokens": {
           "completion_tokens": 1,
           "prompt_tokens": 2,

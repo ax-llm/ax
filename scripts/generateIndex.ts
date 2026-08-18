@@ -268,6 +268,14 @@ function findTsFiles(dir: string): string[] {
   return entries.flatMap((entry) => {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
+      if (
+        entry.name.startsWith('.') ||
+        ['build', 'coverage', 'dist', 'node_modules', 'output'].includes(
+          entry.name
+        )
+      ) {
+        return [];
+      }
       return findTsFiles(fullPath);
     }
     if (isTargetTsFile(entry.name)) {
@@ -494,7 +502,10 @@ function generateIndex(): void {
   const exportMap = new Map<string, ExportInfo[]>();
 
   // Find and process all TypeScript files
-  const tsFiles = findTsFiles(currentDir);
+  const monorepoSource = path.join(currentDir, 'src');
+  const tsFiles = findTsFiles(
+    fs.existsSync(path.join(monorepoSource, 'ax')) ? monorepoSource : currentDir
+  );
   for (const file of tsFiles) {
     processFile(file, currentDir, exportMap);
   }

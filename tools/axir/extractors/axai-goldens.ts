@@ -1,8 +1,6 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { axAIAnthropicDefaultConfig } from '../../../src/ax/ai/anthropic/api.js';
-import { axAIAzureOpenAIDefaultConfig } from '../../../src/ax/ai/azure-openai/api.js';
 import { AxBalancer } from '../../../src/ax/ai/balance.js';
 import {
   AxInMemoryBalancerStatsStore,
@@ -11,24 +9,16 @@ import {
   sampleBalancerRouteHealth,
 } from '../../../src/ax/ai/balance_adaptive.js';
 import { axGetSupportedAIModels } from '../../../src/ax/ai/catalog.js';
-import { axAICohereDefaultConfig } from '../../../src/ax/ai/cohere/api.js';
 import { AxAICohereEmbedModel } from '../../../src/ax/ai/cohere/types.js';
-import { axAIDeepSeekDefaultConfig } from '../../../src/ax/ai/deepseek/api.js';
-import { axAIDeepSeekResponsesDefaultConfig } from '../../../src/ax/ai/deepseek/responses_api.js';
-import {
-  axAIGoogleGeminiDefaultConfig,
-  axAIGoogleGeminiLiveAudioDefaultConfig,
-} from '../../../src/ax/ai/google-gemini/api.js';
+import { axAIGoogleGeminiLiveAudioDefaultConfig } from '../../../src/ax/ai/google-gemini/api.js';
 import { AxAIGoogleGeminiEmbedModel } from '../../../src/ax/ai/google-gemini/types.js';
-import { axAIMistralDefaultConfig } from '../../../src/ax/ai/mistral/api.js';
 import { AxMultiServiceRouter } from '../../../src/ax/ai/multiservice.js';
 import { AxAIOpenAIModel } from '../../../src/ax/ai/openai/chat_types.js';
 import {
   axResolveOpenAIChatReasoningEffort,
   axResolveOpenAIResponsesReasoningEffort,
 } from '../../../src/ax/ai/openai/effort.js';
-import { axAIOpenAIResponsesDefaultConfig } from '../../../src/ax/ai/openai/responses_api_base.js';
-import { axAIRekaDefaultConfig } from '../../../src/ax/ai/reka/api.js';
+import { axGetAIProfile } from '../../../src/ax/ai/provider_profiles.js';
 import { AxProviderRouter } from '../../../src/ax/ai/router.js';
 import {
   axAIGrokDefaultConfig,
@@ -71,42 +61,46 @@ function writeFixture(name: string, fixture: Fixture): void {
 
 mkdirSync(outDir, { recursive: true });
 
-const responsesDefaultModel = axAIOpenAIResponsesDefaultConfig()
-  .model as string;
-const azureDefaultModel = axAIAzureOpenAIDefaultConfig().model as string;
-const deepseekDefaultModel = axAIDeepSeekDefaultConfig().model as string;
-const deepseekResponsesDefaultModel = axAIDeepSeekResponsesDefaultConfig()
-  .model as string;
-const mistralDefaultModel = axAIMistralDefaultConfig().model as string;
-const rekaDefaultModel = axAIRekaDefaultConfig().model as string;
-const cohereDefaultModel = axAICohereDefaultConfig().model as string;
+const profileDefaultModel = (id: Parameters<typeof axGetAIProfile>[0]) =>
+  axGetAIProfile(id).defaultModel as string;
+const responsesDefaultModel = profileDefaultModel('openai-responses');
+const azureDefaultModel = profileDefaultModel('azure-openai');
+const deepseekDefaultModel = profileDefaultModel('deepseek');
+const deepseekResponsesDefaultModel = profileDefaultModel('deepseek-responses');
+const mistralDefaultModel = profileDefaultModel('mistral');
+const rekaDefaultModel = profileDefaultModel('reka');
+const cohereDefaultModel = profileDefaultModel('cohere');
 const cohereDefaultEmbedModel = AxAICohereEmbedModel.EmbedEnglishV30;
 const grokDefaultModel = axAIGrokDefaultConfig().model as string;
 const grokVoiceDefaultModel = axAIGrokVoiceDefaultConfig().model as string;
-const geminiDefaultModel = axAIGoogleGeminiDefaultConfig().model as string;
+const geminiDefaultModel = profileDefaultModel('google-gemini');
 const geminiLiveDefaultModel = axAIGoogleGeminiLiveAudioDefaultConfig()
   .model as string;
 const geminiDefaultEmbedModel = 'gemini-embedding-2';
-const anthropicDefaultModel = axAIAnthropicDefaultConfig().model as string;
+const anthropicDefaultModel = profileDefaultModel('anthropic');
 const catalogAll = axGetSupportedAIModels();
 const catalogText = axGetSupportedAIModels({ type: 'text' });
 const catalogEmbeddings = axGetSupportedAIModels({ type: 'embeddings' });
 const catalogCode = axGetSupportedAIModels({ type: 'code' });
 const catalogAudio = axGetSupportedAIModels({ type: 'audio' });
 const catalogProviderNames = catalogAll.map((provider) => provider.name);
-const descriptorCoveredProviderIds = [
-  'openai-compatible',
-  'openai-responses',
-  'google-gemini',
-  'anthropic',
-  'azure-openai',
-  'deepseek',
-  'deepseek-responses',
-  'mistral',
-  'reka',
-  'cohere',
-  'grok',
-];
+const profileRegistry = JSON.parse(
+  readFileSync(
+    join(process.cwd(), 'ir/axcore/data/provider-profile-registry.json'),
+    'utf8'
+  )
+) as {
+  registryVersion: string;
+  supportedProfileIds: string[];
+  profiles: Record<
+    string,
+    { aliases: string[]; catalogStatus: string; [key: string]: Json }
+  >;
+  deferredCatalogProviderIds: string[];
+};
+const descriptorCoveredProviderIds = profileRegistry.supportedProfileIds.filter(
+  (id) => profileRegistry.profiles[id]?.catalogStatus === 'descriptor-covered'
+);
 const deferredProviderIds: string[] = [];
 const openAIProvider = catalogAll.find(
   (provider) => provider.name === 'openai'
@@ -342,105 +336,12 @@ const balancerMetrics = (chatMean: number, embedMean = chatMean) => ({
 
 writeFixture('provider-profile-registry', {
   kind: 'ai_provider_registry',
-  alias_expectations: {
-    openai: 'openai-compatible',
-    'openai-compatible': 'openai-compatible',
-    compatible: 'openai-compatible',
-    'openai-responses': 'openai-responses',
-    openai_responses: 'openai-responses',
-    responses: 'openai-responses',
-    'google-gemini': 'google-gemini',
-    google_gemini: 'google-gemini',
-    gemini: 'google-gemini',
-    anthropic: 'anthropic',
-    claude: 'anthropic',
-    'azure-openai': 'azure-openai',
-    azure_openai: 'azure-openai',
-    azure: 'azure-openai',
-    deepseek: 'deepseek',
-    'deepseek-responses': 'deepseek-responses',
-    deepseek_responses: 'deepseek-responses',
-    mistral: 'mistral',
-    reka: 'reka',
-    cohere: 'cohere',
-    grok: 'grok',
-    xai: 'grok',
-    'x-grok': 'grok',
-    x_grok: 'grok',
-  },
-  expected_output: {
-    registryVersion: 'provider-profile-registry-v1',
-    supportedProfileIds: descriptorCoveredProviderIds,
-    profiles: {
-      'openai-compatible': {
-        id: 'openai-compatible',
-        generatedClient: 'OpenAICompatibleClient',
-        aliases: ['openai-compatible', 'openai', 'compatible'],
-        catalogStatus: 'descriptor-covered',
-      },
-      'openai-responses': {
-        id: 'openai-responses',
-        generatedClient: 'OpenAIResponsesClient',
-        aliases: ['openai-responses', 'openai_responses', 'responses'],
-        catalogStatus: 'descriptor-covered',
-      },
-      'google-gemini': {
-        id: 'google-gemini',
-        generatedClient: 'GoogleGeminiClient',
-        aliases: ['google-gemini', 'google_gemini', 'gemini'],
-        catalogStatus: 'descriptor-covered',
-      },
-      anthropic: {
-        id: 'anthropic',
-        generatedClient: 'AnthropicClient',
-        aliases: ['anthropic', 'claude'],
-        catalogStatus: 'descriptor-covered',
-      },
-      'azure-openai': {
-        id: 'azure-openai',
-        generatedClient: 'AzureOpenAIClient',
-        aliases: ['azure-openai', 'azure_openai', 'azure'],
-        catalogStatus: 'descriptor-covered',
-      },
-      deepseek: {
-        id: 'deepseek',
-        generatedClient: 'DeepSeekClient',
-        aliases: ['deepseek'],
-        catalogStatus: 'descriptor-covered',
-      },
-      'deepseek-responses': {
-        id: 'deepseek-responses',
-        generatedClient: 'DeepSeekResponsesClient',
-        aliases: ['deepseek-responses', 'deepseek_responses'],
-        catalogStatus: 'descriptor-covered',
-      },
-      mistral: {
-        id: 'mistral',
-        generatedClient: 'MistralClient',
-        aliases: ['mistral'],
-        catalogStatus: 'descriptor-covered',
-      },
-      reka: {
-        id: 'reka',
-        generatedClient: 'RekaClient',
-        aliases: ['reka'],
-        catalogStatus: 'descriptor-covered',
-      },
-      cohere: {
-        id: 'cohere',
-        generatedClient: 'CohereClient',
-        aliases: ['cohere'],
-        catalogStatus: 'descriptor-covered',
-      },
-      grok: {
-        id: 'grok',
-        generatedClient: 'GrokClient',
-        aliases: ['grok', 'xai', 'x-grok', 'x_grok'],
-        catalogStatus: 'descriptor-covered',
-      },
-    },
-    deferredCatalogProviderIds: deferredProviderIds,
-  },
+  alias_expectations: Object.fromEntries(
+    Object.values(profileRegistry.profiles).flatMap((profile) =>
+      profile.aliases.map((alias) => [alias, profile.id])
+    )
+  ),
+  expected_output: profileRegistry,
 });
 
 writeFixture('model-catalog-audit', {
@@ -1743,9 +1644,9 @@ writeFixture('responses-provider-descriptor', {
   provider: 'openai-responses',
   expected_output: {
     id: 'openai-responses',
-    name: 'openai-responses',
+    name: 'OpenAI Responses',
     defaultModel: responsesDefaultModel,
-    defaultEmbedModel: 'text-embedding-ada-002',
+    defaultEmbedModel: 'text-embedding-3-small',
     operations: {
       chat: { method: 'POST', path: '/responses', body: 'json', stream: false },
       stream_chat: {
@@ -1753,6 +1654,12 @@ writeFixture('responses-provider-descriptor', {
         path: '/responses',
         body: 'json',
         stream: true,
+      },
+      embed: {
+        method: 'POST',
+        path: '/embeddings',
+        body: 'json',
+        stream: false,
       },
       transcribe: {
         method: 'POST',
@@ -1769,13 +1676,7 @@ writeFixture('responses-provider-descriptor', {
       realtime: {
         method: 'WS',
         path: '/realtime',
-        body: 'events',
-        stream: true,
-      },
-      realtime_audio: {
-        method: 'WS',
-        path: '/realtime',
-        body: 'events',
+        body: 'json',
         stream: true,
         grammar: 'openai_realtime_compatible',
       },
@@ -1793,7 +1694,7 @@ writeFixture('gemini-provider-descriptor', {
   provider: 'google-gemini',
   expected_output: {
     id: 'google-gemini',
-    name: 'GoogleGeminiAI',
+    name: 'Google Gemini',
     defaultModel: geminiDefaultModel,
     defaultEmbedModel: geminiDefaultEmbedModel,
     auth: 'api_key_query',
@@ -1817,10 +1718,10 @@ writeFixture('gemini-provider-descriptor', {
         body: 'json',
         stream: false,
       },
-      realtime_audio: {
+      realtime: {
         method: 'WS',
         path: '/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent',
-        body: 'events',
+        body: 'json',
         stream: true,
         grammar: 'gemini_live_bidi',
       },
@@ -1842,9 +1743,9 @@ writeFixture('anthropic-provider-descriptor', {
   provider: 'anthropic',
   expected_output: {
     id: 'anthropic',
-    name: 'anthropic',
+    name: 'Anthropic',
     defaultModel: anthropicDefaultModel,
-    auth: 'anthropic_key',
+    auth: 'x-api-key',
     baseUrl: 'https://api.anthropic.com',
     headers: {
       'anthropic-version': '2023-06-01',
@@ -1869,7 +1770,7 @@ writeFixture('anthropic-provider-descriptor', {
         images: { supported: true },
         audio: { supported: false, output: { supported: false } },
       },
-      caching: { supported: true, types: ['ephemeral_block'] },
+      caching: { supported: true, types: ['ephemeral'] },
       thinking: true,
     },
   },
@@ -1940,7 +1841,7 @@ writeFixture('deepseek-provider-descriptor', {
     },
     features: {
       structured_outputs: false,
-      thinking: true,
+      thinking: false,
       media: { images: { supported: false } },
     },
   },
@@ -1951,7 +1852,7 @@ writeFixture('mistral-provider-descriptor', {
   provider: 'mistral',
   expected_output: {
     id: 'mistral',
-    name: 'Mistral',
+    name: 'Mistral AI',
     defaultModel: mistralDefaultModel,
     defaultEmbedModel: 'mistral-embed',
     baseUrl: 'https://api.mistral.ai/v1',
@@ -2022,7 +1923,7 @@ writeFixture('grok-provider-descriptor', {
   provider: 'grok',
   expected_output: {
     id: 'grok',
-    name: 'Grok',
+    name: 'xAI Grok',
     defaultModel: grokDefaultModel,
     baseUrl: 'https://api.x.ai/v1',
     operations: {
@@ -2038,10 +1939,10 @@ writeFixture('grok-provider-descriptor', {
         body: 'json',
         stream: true,
       },
-      realtime_audio: {
+      realtime: {
         method: 'WS',
         path: '/realtime',
-        body: 'events',
+        body: 'json',
         stream: true,
         grammar: 'openai_realtime_compatible',
       },
@@ -2052,7 +1953,7 @@ writeFixture('grok-provider-descriptor', {
         audio: { supported: true, realtime: true, output: { supported: true } },
         urls: { web_search: true },
       },
-      thinking: true,
+      thinking: false,
     },
   },
 });
@@ -2151,7 +2052,7 @@ writeFixture('azure-openai-compatible-chat', {
     compatibleResponse('chatcmpl_azure', azureDefaultModel),
   ],
   expected_output: compatibleExpectedOutput(
-    'Azure OpenAI',
+    'azure-openai',
     'chatcmpl_azure',
     azureDefaultModel
   ),
@@ -2188,7 +2089,7 @@ writeFixture('deepseek-openai-compatible-chat', {
     compatibleResponse('chatcmpl_deepseek', deepseekDefaultModel),
   ],
   expected_output: compatibleExpectedOutput(
-    'DeepSeek',
+    'deepseek',
     'chatcmpl_deepseek',
     deepseekDefaultModel
   ),
@@ -2204,6 +2105,107 @@ writeFixture('deepseek-openai-compatible-chat', {
   },
 });
 
+writeFixture('deepseek-service-default-thinking', {
+  kind: 'ai_chat',
+  provider: 'deepseek',
+  model: deepseekDefaultModel,
+  request: {
+    chat_prompt: [{ role: 'user', content: 'think by default' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_deepseek_default', deepseekDefaultModel),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'deepseek',
+    'chatcmpl_deepseek_default',
+    deepseekDefaultModel
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.deepseek.com/chat/completions',
+    json: {
+      model: deepseekDefaultModel,
+      messages: [{ role: 'user', content: 'think by default' }],
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'max',
+    },
+  },
+});
+
+for (const profileCase of [
+  {
+    name: 'grok-default-max-thinking',
+    provider: 'grok',
+    model: 'grok-4.6',
+    url: 'https://api.x.ai/v1/chat/completions',
+    effort: 'xhigh',
+  },
+  {
+    name: 'groq-gpt-oss-default-max-thinking',
+    provider: 'groq',
+    model: 'openai/gpt-oss-120b',
+    url: 'https://api.groq.com/openai/v1/chat/completions',
+    effort: 'high',
+  },
+  {
+    name: 'cerebras-gemma-default-max-thinking',
+    provider: 'cerebras',
+    model: 'gemma-4-31b',
+    url: 'https://api.cerebras.ai/v1/chat/completions',
+    effort: 'high',
+  },
+  {
+    name: 'deepinfra-deepseek-default-max-thinking',
+    provider: 'deepinfra',
+    model: 'deepseek-ai/DeepSeek-R1-0528',
+    url: 'https://api.deepinfra.com/v1/openai/chat/completions',
+    effort: 'high',
+  },
+] as const) {
+  writeFixture(profileCase.name, {
+    kind: 'ai_chat',
+    provider: profileCase.provider,
+    model: profileCase.model,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'think by default' }],
+      model_config: { stream: false },
+    },
+    transport_responses: [
+      compatibleResponse(
+        `chatcmpl_${profileCase.provider}_default`,
+        profileCase.model
+      ),
+    ],
+    expected_output: compatibleExpectedOutput(
+      profileCase.provider,
+      `chatcmpl_${profileCase.provider}_default`,
+      profileCase.model
+    ),
+    expected_transport_request: {
+      method: 'POST',
+      url: profileCase.url,
+      json: {
+        model: profileCase.model,
+        messages: [{ role: 'user', content: 'think by default' }],
+        reasoning_effort: profileCase.effort,
+      },
+    },
+  });
+}
+
+writeFixture('groq-gpt-oss-explicit-none-error', {
+  kind: 'ai_chat',
+  provider: 'groq',
+  model: 'openai/gpt-oss-120b',
+  service_options: { thinkingTokenBudget: 'none' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'answer directly' }],
+    model_config: { stream: false },
+  },
+  expected_error_contains: 'does not support the none effort level',
+});
+
 writeFixture('deepseek-service-thinking-budget', {
   kind: 'ai_chat',
   provider: 'deepseek',
@@ -2217,7 +2219,7 @@ writeFixture('deepseek-service-thinking-budget', {
     compatibleResponse('chatcmpl_deepseek_budget', deepseekDefaultModel),
   ],
   expected_output: compatibleExpectedOutput(
-    'DeepSeek',
+    'deepseek',
     'chatcmpl_deepseek_budget',
     deepseekDefaultModel
   ),
@@ -2229,6 +2231,35 @@ writeFixture('deepseek-service-thinking-budget', {
       messages: [{ role: 'user', content: 'think' }],
       thinking: { type: 'enabled' },
       reasoning_effort: 'high',
+    },
+  },
+});
+
+writeFixture('deepseek-service-low-thinking-budget', {
+  kind: 'ai_chat',
+  provider: 'deepseek',
+  model: deepseekDefaultModel,
+  service_options: { thinkingTokenBudget: 'low' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'think efficiently' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_deepseek_low_budget', deepseekDefaultModel),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'deepseek',
+    'chatcmpl_deepseek_low_budget',
+    deepseekDefaultModel
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://api.deepseek.com/chat/completions',
+    json: {
+      model: deepseekDefaultModel,
+      messages: [{ role: 'user', content: 'think efficiently' }],
+      thinking: { type: 'enabled' },
+      reasoning_effort: 'low',
     },
   },
 });
@@ -2246,7 +2277,7 @@ writeFixture('deepseek-service-reasoning-effort', {
     compatibleResponse('chatcmpl_deepseek_effort', deepseekDefaultModel),
   ],
   expected_output: compatibleExpectedOutput(
-    'DeepSeek',
+    'deepseek',
     'chatcmpl_deepseek_effort',
     deepseekDefaultModel
   ),
@@ -2262,9 +2293,37 @@ writeFixture('deepseek-service-reasoning-effort', {
   },
 });
 
+writeFixture('openrouter-deepseek-explicit-none-thinking', {
+  kind: 'ai_chat',
+  provider: 'openrouter',
+  model: 'deepseek/deepseek-v4',
+  service_options: { thinkingTokenBudget: 'none' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'answer directly' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    compatibleResponse('chatcmpl_openrouter_none', 'deepseek/deepseek-v4'),
+  ],
+  expected_output: compatibleExpectedOutput(
+    'openrouter',
+    'chatcmpl_openrouter_none',
+    'deepseek/deepseek-v4'
+  ),
+  expected_transport_request: {
+    method: 'POST',
+    url: 'https://openrouter.ai/api/v1/chat/completions',
+    json: {
+      model: 'deepseek/deepseek-v4',
+      messages: [{ role: 'user', content: 'answer directly' }],
+      reasoning: { effort: 'none' },
+    },
+  },
+});
+
 writeFixture('openai-chat-ignores-deepseek-reasoning-content', {
   kind: 'ai_chat',
-  provider: 'openai-compatible',
+  provider: 'openai',
   model: AxAIOpenAIModel.GPT56,
   request: {
     chat_prompt: [
@@ -2585,7 +2644,7 @@ writeFixture('deepseek-responses-reasoning-tool-loop', {
     ],
     remote_id: 'resp_deepseek_responses',
     model_usage: {
-      ai: 'DeepSeek Responses',
+      ai: 'deepseek-responses',
       model: deepseekResponsesDefaultModel,
       tokens: {
         prompt_tokens: 10,
@@ -2701,7 +2760,7 @@ writeFixture('deepseek-responses-streaming-reasoning-tool', {
       ],
       remote_id: 'resp_deepseek_stream',
       model_usage: {
-        ai: 'DeepSeek Responses',
+        ai: 'deepseek-responses',
         model: deepseekResponsesDefaultModel,
         tokens: {
           prompt_tokens: 4,
@@ -2748,7 +2807,7 @@ writeFixture('mistral-openai-compatible-chat', {
     compatibleResponse('chatcmpl_mistral', mistralDefaultModel),
   ],
   expected_output: compatibleExpectedOutput(
-    'Mistral',
+    'mistral',
     'chatcmpl_mistral',
     mistralDefaultModel
   ),
@@ -2784,7 +2843,7 @@ writeFixture('reka-openai-compatible-chat', {
   },
   transport_responses: [compatibleResponse('chatcmpl_reka', rekaDefaultModel)],
   expected_output: compatibleExpectedOutput(
-    'Reka',
+    'reka',
     'chatcmpl_reka',
     rekaDefaultModel
   ),
@@ -2810,7 +2869,7 @@ writeFixture('cohere-openai-compatible-chat', {
     compatibleResponse('chatcmpl_cohere', cohereDefaultModel),
   ],
   expected_output: compatibleExpectedOutput(
-    'Cohere',
+    'cohere',
     'chatcmpl_cohere',
     cohereDefaultModel
   ),
@@ -2846,7 +2905,7 @@ writeFixture('grok-openai-compatible-chat', {
   },
   transport_responses: [compatibleResponse('chatcmpl_grok', grokDefaultModel)],
   expected_output: compatibleExpectedOutput(
-    'Grok',
+    'grok',
     'chatcmpl_grok',
     grokDefaultModel
   ),
@@ -2891,7 +2950,7 @@ for (const [index, budget] of openAIReasoningBudgets.entries()) {
   );
   writeFixture(`openai-gpt-5-6-chat-reasoning-${budget}`, {
     kind: 'ai_chat',
-    provider: 'openai-compatible',
+    provider: 'openai',
     model,
     request: {
       chat_prompt: [{ role: 'user', content: 'reason' }],
@@ -2968,7 +3027,7 @@ for (const [index, budget] of openAIReasoningBudgets.entries()) {
 
 writeFixture('openai-legacy-reasoning-control', {
   kind: 'ai_chat',
-  provider: 'openai-compatible',
+  provider: 'openai',
   model: 'gpt-5.5',
   request: {
     chat_prompt: [{ role: 'user', content: 'reason' }],
@@ -3578,7 +3637,7 @@ writeFixture('grok-realtime-audio-session-and-events', {
       ],
       remote_id: 'grok_rt',
       model_usage: {
-        ai: 'Grok',
+        ai: 'grok',
         model: grokVoiceDefaultModel,
         tokens: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
       },
@@ -3725,7 +3784,7 @@ writeFixture('gemini-live-realtime-audio-session-and-events', {
       ],
       remote_id: 'gemini_live_done',
       model_usage: {
-        ai: 'GoogleGeminiAI',
+        ai: 'google-gemini',
         model: geminiLiveDefaultModel,
         tokens: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 },
       },
@@ -4365,7 +4424,7 @@ writeFixture('gemini-simple-chat', {
     ],
     remote_id: 'gem_resp_1',
     model_usage: {
-      ai: 'GoogleGeminiAI',
+      ai: 'google-gemini',
       model: geminiDefaultModel,
       tokens: {
         prompt_tokens: 10,
@@ -4396,7 +4455,7 @@ writeFixture('gemini-simple-chat', {
         maxOutputTokens: 64,
         responseMimeType: 'text/plain',
         stopSequences: ['END'],
-        temperature: 0.2,
+        temperature: 1,
       },
     },
   },
@@ -4452,7 +4511,7 @@ for (const [fixtureName, model] of [
       ],
       remote_id: `${fixtureName}-response`,
       model_usage: {
-        ai: 'GoogleGeminiAI',
+        ai: 'google-gemini',
         model,
         tokens: {
           prompt_tokens: 2,
@@ -4628,7 +4687,7 @@ writeFixture('gemini-streaming-text', {
       ],
       remote_id: 'gem_stream',
       model_usage: {
-        ai: 'GoogleGeminiAI',
+        ai: 'google-gemini',
         model: geminiDefaultModel,
         tokens: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
       },
@@ -5130,7 +5189,7 @@ const openAIPromptCacheRequest = {
 
 writeFixture('openai-gpt-5-6-prompt-cache-breakpoints', {
   kind: 'ai_chat',
-  provider: 'openai-compatible',
+  provider: 'openai',
   model: 'gpt-5.6-luna',
   service_options: {
     contextCache: {},
@@ -5176,7 +5235,7 @@ writeFixture('openai-gpt-5-6-prompt-cache-breakpoints', {
 
 writeFixture('openai-gpt-5-6-explicit-tail-cache-breakpoint', {
   kind: 'ai_chat',
-  provider: 'openai-compatible',
+  provider: 'openai',
   model: 'gpt-5.6-luna',
   service_options: { prompt_cache_key: 'tail-key' },
   request: {
@@ -5221,7 +5280,7 @@ writeFixture('openai-gpt-5-6-explicit-tail-cache-breakpoint', {
 
 writeFixture('openai-legacy-prompt-cache-disabled', {
   kind: 'ai_chat',
-  provider: 'openai-compatible',
+  provider: 'openai',
   model: 'gpt-5.5',
   service_options: { contextCache: {}, promptCacheKey: 'must-not-send' },
   request: openAIPromptCacheRequest,
@@ -5279,7 +5338,7 @@ writeFixture('openai-responses-prompt-cache-disabled', {
 
 writeFixture('openai-cache-write-usage-and-long-context-cost', {
   kind: 'ai_chat',
-  provider: 'openai-compatible',
+  provider: 'openai',
   model: 'gpt-5.6-luna',
   request: {
     chat_prompt: [{ role: 'user', content: 'measure cache write' }],

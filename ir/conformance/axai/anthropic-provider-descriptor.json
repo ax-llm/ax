@@ -1,12 +1,12 @@
 {
   "expected_output": {
-    "auth": "anthropic_key",
+    "auth": "x-api-key",
     "baseUrl": "https://api.anthropic.com",
-    "defaultModel": "claude-3-7-sonnet-latest",
+    "defaultModel": "claude-sonnet-4-5",
     "features": {
       "caching": {
         "supported": true,
-        "types": ["ephemeral_block"]
+        "types": ["ephemeral"]
       },
       "media": {
         "audio": {
@@ -26,7 +26,7 @@
       "anthropic-version": "2023-06-01"
     },
     "id": "anthropic",
-    "name": "anthropic",
+    "name": "Anthropic",
     "operations": {
       "chat": {
         "body": "json",

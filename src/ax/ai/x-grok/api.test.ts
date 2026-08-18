@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  AxAIGrok,
-  axAIGrokDefaultConfig,
-  axAIGrokVoiceDefaultConfig,
-} from './api.js';
+import { AxAIOpenAIProfile } from '../provider_profiles.js';
+import { axAIGrokDefaultConfig, axAIGrokVoiceDefaultConfig } from './api.js';
 import { AxAIGrokModel } from './types.js';
 
 function createMockFetch(capture: { lastBody?: any }) {
@@ -96,11 +93,12 @@ function grokRealtimeWebSocket(messages: unknown[]) {
   return FakeGrokRealtimeWebSocket as any;
 }
 
-describe('AxAIGrok models', () => {
-  it('defaults to Grok 4.3 and exposes current model capabilities', () => {
-    expect(axAIGrokDefaultConfig().model).toBe(AxAIGrokModel.Grok43);
+describe('grok profile models', () => {
+  it('defaults to Grok 4.6 and exposes current model capabilities', () => {
+    expect(axAIGrokDefaultConfig().model).toBe(AxAIGrokModel.Grok46);
 
-    const ai = new AxAIGrok({
+    const ai = new AxAIOpenAIProfile({
+      name: 'grok',
       apiKey: 'key',
       config: { model: AxAIGrokModel.Grok43Latest },
     });
@@ -114,7 +112,8 @@ describe('AxAIGrok models', () => {
 
   it('maps thinking budget only for Grok 4.3 requests', async () => {
     const grok43Capture: { lastBody?: any } = {};
-    const grok43 = new AxAIGrok({
+    const grok43 = new AxAIOpenAIProfile({
+      name: 'grok',
       apiKey: 'key',
       config: {
         model: AxAIGrokModel.Grok43,
@@ -136,24 +135,26 @@ describe('AxAIGrok models', () => {
     expect(grok43Capture.lastBody.stop).toBeUndefined();
 
     const fastCapture: { lastBody?: any } = {};
-    const fast = new AxAIGrok({
+    const fast = new AxAIOpenAIProfile({
+      name: 'grok',
       apiKey: 'key',
       config: { model: AxAIGrokModel.Grok41FastReasoning },
       options: { fetch: createMockFetch(fastCapture) },
     });
 
-    await fast.chat(
-      { chatPrompt: [{ role: 'user', content: 'hi' }] },
-      { stream: false, thinkingTokenBudget: 'high' }
-    );
-
-    expect(fastCapture.lastBody.reasoning_effort).toBeUndefined();
+    await expect(
+      fast.chat(
+        { chatPrompt: [{ role: 'user', content: 'hi' }] },
+        { stream: false, thinkingTokenBudget: 'high' }
+      )
+    ).rejects.toThrow('Thinking is not verified');
   });
 });
 
-describe('AxAIGrok voice audio', () => {
+describe('grok profile voice audio', () => {
   it('uses xAI realtime voice defaults and session shape', async () => {
-    const ai = new AxAIGrok({
+    const ai = new AxAIOpenAIProfile({
+      name: 'grok',
       apiKey: 'key',
       config: axAIGrokVoiceDefaultConfig(),
     });

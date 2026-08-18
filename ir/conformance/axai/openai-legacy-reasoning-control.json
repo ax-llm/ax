@@ -16,7 +16,7 @@
   "kind": "ai_chat",
   "model": "gpt-5.5",
   "name": "openai-legacy-reasoning-control",
-  "provider": "openai-compatible",
+  "provider": "openai",
   "request": {
     "chat_prompt": [
       {

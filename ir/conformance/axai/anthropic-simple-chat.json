@@ -2,7 +2,7 @@
   "expected_output": {
     "model_usage": {
       "ai": "anthropic",
-      "model": "claude-3-7-sonnet-latest",
+      "model": "claude-sonnet-4-5",
       "tokens": {
         "cache_creation_tokens": 2,
         "cache_read_tokens": 1,
@@ -42,7 +42,7 @@
           "role": "user"
         }
       ],
-      "model": "claude-3-7-sonnet-latest",
+      "model": "claude-sonnet-4-5",
       "system": [
         {
           "cache_control": {
@@ -95,7 +95,7 @@
           }
         ],
         "id": "msg_anthropic_1",
-        "model": "claude-3-7-sonnet-latest",
+        "model": "claude-sonnet-4-5",
         "role": "assistant",
         "stop_reason": "end_turn",
         "type": "message",

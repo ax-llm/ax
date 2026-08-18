@@ -20,9 +20,9 @@ compiled into verified generated Python, Java, C++, Go, and Rust libraries.
 
 - **Signatures** for typed structured generation: string DSL, fluent `f()`
   builder, or any **Standard Schema v1** validator — Zod, Valibot, ArkType.
-- **Provider abstraction** across OpenAI-compatible endpoints, OpenAI
-  Responses, Anthropic, Gemini, Grok/xAI, Mistral, Cohere, Reka, DeepSeek,
-  Azure OpenAI, audio, and realtime event streams.
+- **Named deployment profiles** across native APIs, routers, hosted inference,
+  configurable runtimes, audio, and realtime event streams. The deployment
+  name selects wire behavior; the model ID is resolved only inside it.
 - **Agents** with runtime execution, context budgets, checkpoints, action-log
   replay, discovery, memory, skills, and delegation.
 - **Flows** as typed program graphs with branches, loops, feedback, cache
@@ -79,7 +79,11 @@ const { sentiment } = await classify.forward(llm, {
 // sentiment: "positive" — typed as the literal union
 ```
 
-No prompt engineering. Switch `name: "openai"` to `"anthropic"`, `"google-gemini"`, `"mistral"`, `"deepseek"`, `"grok"`, etc. — same signature, same code.
+No prompt engineering. Switch `name: "openai"` to `"anthropic"`, `"google-gemini"`,
+`"together"`, `"fireworks"`, `"deepseek"`, `"grok"`, etc. — same signature,
+same code. The name is a deployment profile: a DeepSeek model hosted by
+Together uses Together's endpoint and reasoning rules, not DeepSeek's native
+wire format.
 
 ## Same idea in every language
 
@@ -99,10 +103,11 @@ npm run example -- rust src/examples/rust/generation/basic_generation.rs
 ```
 
 See [`src/examples/README.md`](src/examples/README.md) for runnable examples,
-[`docs/RELEASE.md`](docs/RELEASE.md) for package/release shape, and
-[`docs/COMPILER.md`](docs/COMPILER.md) for how the language-agnostic Ax
-compiler works. When AxIR changes, run `npm run axir:generate-packages` to
-refresh the checked-in packages.
+[`docs/AI_PROFILES.md`](docs/AI_PROFILES.md) for deployment profiles and class
+migrations, [`docs/RELEASE.md`](docs/RELEASE.md) for package/release shape, and
+[`docs/COMPILER.md`](docs/COMPILER.md) for how the language-agnostic Ax compiler
+works. When AxIR changes, run `npm run axir:generate-packages` to refresh the
+checked-in packages.
 
 ## Provider-Native Speed
 
@@ -521,8 +526,8 @@ const result = await optimizer.compile(
 | Skills | `onSkillsSearch`, `consult(...)` | on-demand prompt-section loader |
 | Sandboxed JS runtime | `AxJSRuntime`, `AxJSRuntimePermission` | TypeScript runtime for Node, Bun, Deno, browser |
 | Recursive runtime (RLM) | `agent({ runtime, contextFields })` | long-context REPL with checkpointed replay |
-| Providers | `ai({ name: ... })` | OpenAI, OpenAI Responses, Azure OpenAI, Anthropic, Gemini, Mistral, Cohere, Reka, DeepSeek, Grok/xAI, Bedrock (separate pkg) |
-| OpenAI-compatible endpoints | `ai({ name: "openai", apiURL, apiKey, models })` | one path for custom OpenAI-compatible gateways |
+| Deployment profiles | `ai({ name: ... })` | 45 named native, router/cloud, hosted-inference, and configurable-runtime deployments |
+| Custom OpenAI-compatible endpoint | `ai({ name: "openai-compatible", apiURL, apiKey, config: { model } })` | conservative capabilities; unknown names are errors |
 | Observability | OpenTelemetry, `actorTurnCallback`, `onFunctionCall` | per-turn telemetry, tool-call tracing |
 | MCP | `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPStdioTransport` | use any MCP server as a tool source |
 

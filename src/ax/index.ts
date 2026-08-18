@@ -279,15 +279,6 @@ import {
   axAudioMimeType,
   axConcatBase64,
 } from './ai/audio/util.js';
-import {
-  AxAIAzureOpenAI,
-  type AxAIAzureOpenAIArgs,
-  type AxAIAzureOpenAIConfig,
-  axAIAzureOpenAIBestConfig,
-  axAIAzureOpenAICreativeConfig,
-  axAIAzureOpenAIDefaultConfig,
-  axAIAzureOpenAIFastConfig,
-} from './ai/azure-openai/api.js';
 import { AxBalancer, type AxBalancerOptions } from './ai/balance.js';
 import {
   type AxBalancerAdaptiveStrategy,
@@ -331,37 +322,9 @@ import {
   type AxAIModelCatalogProviderName,
   axGetSupportedAIModels,
 } from './ai/catalog.js';
-import {
-  AxAICohere,
-  type AxAICohereArgs,
-  axAICohereCreativeConfig,
-  axAICohereDefaultConfig,
-} from './ai/cohere/api.js';
 import { axModelInfoCohere } from './ai/cohere/info.js';
-import {
-  type AxAICohereChatRequest,
-  type AxAICohereChatRequestToolResults,
-  type AxAICohereChatResponse,
-  type AxAICohereChatResponseDelta,
-  type AxAICohereChatResponseToolCalls,
-  type AxAICohereConfig,
-  AxAICohereEmbedModel,
-  type AxAICohereEmbedRequest,
-  type AxAICohereEmbedResponse,
-  AxAICohereModel,
-} from './ai/cohere/types.js';
-import {
-  AxAIDeepSeek,
-  type AxAIDeepSeekArgs,
-  axAIDeepSeekCodeConfig,
-  axAIDeepSeekDefaultConfig,
-} from './ai/deepseek/api.js';
+import { AxAICohereEmbedModel, AxAICohereModel } from './ai/cohere/types.js';
 import { axModelInfoDeepSeek } from './ai/deepseek/info.js';
-import {
-  AxAIDeepSeekResponses,
-  type AxAIDeepSeekResponsesArgs,
-  axAIDeepSeekResponsesDefaultConfig,
-} from './ai/deepseek/responses_api.js';
 import { AxAIDeepSeekModel } from './ai/deepseek/types.js';
 import {
   AxAIGoogleGemini,
@@ -413,13 +376,6 @@ import {
   type AxAIGoogleVertexBatchEmbedResponse,
 } from './ai/google-gemini/types.js';
 import type { AxAIMetricsInstruments } from './ai/metrics.js';
-import {
-  AxAIMistral,
-  type AxAIMistralArgs,
-  type AxAIMistralChatRequest,
-  axAIMistralBestConfig,
-  axAIMistralDefaultConfig,
-} from './ai/mistral/api.js';
 import { axModelInfoMistral } from './ai/mistral/info.js';
 import {
   AxAIMistralEmbedModels,
@@ -432,6 +388,7 @@ import {
   type AxAIOpenAIArgs,
   AxAIOpenAIBase,
   type AxAIOpenAIBaseArgs,
+  type AxOpenAIReasoningContentMode,
   axAIOpenAIAudioDefaultConfig,
   axAIOpenAIBestConfig,
   axAIOpenAICreativeConfig,
@@ -574,22 +531,33 @@ import {
 } from './ai/processor.js';
 import type { AxPromptMetrics } from './ai/promptMetrics.js';
 import {
-  AxAIReka,
-  type AxAIRekaArgs,
-  axAIRekaBestConfig,
-  axAIRekaCreativeConfig,
-  axAIRekaDefaultConfig,
-  axAIRekaFastConfig,
-} from './ai/reka/api.js';
-import { axModelInfoReka } from './ai/reka/info.js';
+  axAIProviderAliases,
+  axAIProviderProfileIds,
+  axAIProviderProfiles,
+} from './ai/provider_profiles.generated.js';
 import {
-  type AxAIRekaChatRequest,
-  type AxAIRekaChatResponse,
-  type AxAIRekaChatResponseDelta,
-  type AxAIRekaConfig,
-  AxAIRekaModel,
-  type AxAIRekaUsage,
-} from './ai/reka/types.js';
+  type AxAIDeploymentProfileArgs,
+  type AxAIDeploymentProfileId,
+  AxAIOpenAIProfile,
+  type AxAIOpenAIProfileArgs,
+  AxAIOpenAIResponsesProfile,
+  type AxAIProfileArgs,
+  type AxAIProfileAuthentication,
+  type AxAIProfileCapabilities,
+  type AxAIProfileEndpoint,
+  type AxAIProfileId,
+  type AxAIProfileModelRule,
+  type AxAIProfileOperation,
+  type AxAIProfileRequestRules,
+  type AxAIProfileSummary,
+  type AxAIProfileTransport,
+  axAIProfiles,
+  axGetAIProfile,
+  axResolveAIProfileFeatures,
+  axResolveAIProfileId,
+} from './ai/provider_profiles.js';
+import { axModelInfoReka } from './ai/reka/info.js';
+import { AxAIRekaModel } from './ai/reka/types.js';
 import {
   type AxContentProcessingServices,
   type AxMultiProviderConfig,
@@ -668,11 +636,6 @@ import {
   ai,
 } from './ai/wrap.js';
 import {
-  AxAIGrok,
-  type AxAIGrokArgs,
-  type AxAIGrokChatRequest,
-  type AxAIGrokOptionsTools,
-  type AxAIGrokSearchSource,
   axAIGrokBestConfig,
   axAIGrokDefaultConfig,
   axAIGrokVoiceDefaultConfig,
@@ -1353,34 +1316,29 @@ export { AxAI };
 export { AxAIAnthropic };
 export { AxAIAnthropicModel };
 export { AxAIAnthropicVertexModel };
-export { AxAIAzureOpenAI };
-export { AxAICohere };
 export { AxAICohereEmbedModel };
 export { AxAICohereModel };
-export { AxAIDeepSeek };
 export { AxAIDeepSeekModel };
-export { AxAIDeepSeekResponses };
 export { AxAIGoogleGemini };
 export { AxAIGoogleGeminiEmbedModel };
 export { AxAIGoogleGeminiEmbedTypes };
 export { AxAIGoogleGeminiModel };
 export { AxAIGoogleGeminiSafetyCategory };
 export { AxAIGoogleGeminiSafetyThreshold };
-export { AxAIGrok };
 export { AxAIGrokEmbedModels };
 export { AxAIGrokModel };
-export { AxAIMistral };
 export { AxAIMistralEmbedModels };
 export { AxAIMistralModel };
 export { AxAIOpenAI };
 export { AxAIOpenAIBase };
 export { AxAIOpenAIEmbedModel };
 export { AxAIOpenAIModel };
+export { AxAIOpenAIProfile };
 export { AxAIOpenAIResponses };
 export { AxAIOpenAIResponsesBase };
 export { AxAIOpenAIResponsesModel };
+export { AxAIOpenAIResponsesProfile };
 export { AxAIRefusalError };
-export { AxAIReka };
 export { AxAIRekaModel };
 export { AxAIServiceAbortedError };
 export { AxAIServiceAuthenticationError };
@@ -1481,23 +1439,12 @@ export { ai };
 export { ax };
 export { axAIAnthropicDefaultConfig };
 export { axAIAnthropicVertexDefaultConfig };
-export { axAIAzureOpenAIBestConfig };
-export { axAIAzureOpenAICreativeConfig };
-export { axAIAzureOpenAIDefaultConfig };
-export { axAIAzureOpenAIFastConfig };
-export { axAICohereCreativeConfig };
-export { axAICohereDefaultConfig };
-export { axAIDeepSeekCodeConfig };
-export { axAIDeepSeekDefaultConfig };
-export { axAIDeepSeekResponsesDefaultConfig };
 export { axAIGoogleGeminiDefaultConfig };
 export { axAIGoogleGeminiDefaultCreativeConfig };
 export { axAIGoogleGeminiLiveAudioDefaultConfig };
 export { axAIGrokBestConfig };
 export { axAIGrokDefaultConfig };
 export { axAIGrokVoiceDefaultConfig };
-export { axAIMistralBestConfig };
-export { axAIMistralDefaultConfig };
 export { axAIOpenAIAudioDefaultConfig };
 export { axAIOpenAIBestConfig };
 export { axAIOpenAICreativeConfig };
@@ -1508,10 +1455,10 @@ export { axAIOpenAIRealtimeTranscriptionDefaultConfig };
 export { axAIOpenAIResponsesBestConfig };
 export { axAIOpenAIResponsesCreativeConfig };
 export { axAIOpenAIResponsesDefaultConfig };
-export { axAIRekaBestConfig };
-export { axAIRekaCreativeConfig };
-export { axAIRekaDefaultConfig };
-export { axAIRekaFastConfig };
+export { axAIProfiles };
+export { axAIProviderAliases };
+export { axAIProviderProfileIds };
+export { axAIProviderProfiles };
 export { axAIWebLLMCreativeConfig };
 export { axAIWebLLMDefaultConfig };
 export { axAnalyzeChatPromptRequirements };
@@ -1554,6 +1501,7 @@ export { axEventScopedDedupeKey };
 export { axEventSizeBytes };
 export { axFetchJsonSpeech };
 export { axFetchMultipartTranscription };
+export { axGetAIProfile };
 export { axGetCompatibilityReport };
 export { axGetFormatCompatibility };
 export { axGetMetricsConfig };
@@ -1608,6 +1556,8 @@ export { axOpenAIChatAudioDefaults };
 export { axOptimizableValidators };
 export { axPlaybookFailureSection };
 export { axProcessContentForProvider };
+export { axResolveAIProfileFeatures };
+export { axResolveAIProfileId };
 export { axResolveGeminiLiveAudioConfig };
 export { axResolveGrokRealtimeAudioConfig };
 export { axResolveMCPExecutionContext };
@@ -1686,19 +1636,8 @@ export type { AxAIAnthropicThinkingTokenBudgetLevels };
 export type { AxAIAnthropicThinkingWire };
 export type { AxAIAnthropicWebSearchTool };
 export type { AxAIArgs };
-export type { AxAIAzureOpenAIArgs };
-export type { AxAIAzureOpenAIConfig };
-export type { AxAICohereArgs };
-export type { AxAICohereChatRequest };
-export type { AxAICohereChatRequestToolResults };
-export type { AxAICohereChatResponse };
-export type { AxAICohereChatResponseDelta };
-export type { AxAICohereChatResponseToolCalls };
-export type { AxAICohereConfig };
-export type { AxAICohereEmbedRequest };
-export type { AxAICohereEmbedResponse };
-export type { AxAIDeepSeekArgs };
-export type { AxAIDeepSeekResponsesArgs };
+export type { AxAIDeploymentProfileArgs };
+export type { AxAIDeploymentProfileId };
 export type { AxAIEmbedModels };
 export type { AxAIFeatures };
 export type { AxAIGoogleGeminiArgs };
@@ -1728,15 +1667,9 @@ export type { AxAIGoogleGeminiToolGoogleMaps };
 export type { AxAIGoogleGeminiToolGoogleSearchRetrieval };
 export type { AxAIGoogleVertexBatchEmbedRequest };
 export type { AxAIGoogleVertexBatchEmbedResponse };
-export type { AxAIGrokArgs };
-export type { AxAIGrokChatRequest };
-export type { AxAIGrokOptionsTools };
-export type { AxAIGrokSearchSource };
 export type { AxAIInputModelList };
 export type { AxAIMemory };
 export type { AxAIMetricsInstruments };
-export type { AxAIMistralArgs };
-export type { AxAIMistralChatRequest };
 export type { AxAIModelCatalogAudioSupport };
 export type { AxAIModelCatalogFilter };
 export type { AxAIModelCatalogModel };
@@ -1759,6 +1692,7 @@ export type { AxAIOpenAIConfig };
 export type { AxAIOpenAIEmbedRequest };
 export type { AxAIOpenAIEmbedResponse };
 export type { AxAIOpenAILogprob };
+export type { AxAIOpenAIProfileArgs };
 export type { AxAIOpenAIPromptCacheBreakpoint };
 export type { AxAIOpenAIResponseDelta };
 export type { AxAIOpenAIResponsesArgs };
@@ -1844,12 +1778,16 @@ export type { AxAIOpenAIResponsesWebSearchCallSearchingEvent };
 export type { AxAIOpenAIResponsesWebSearchToolCall };
 export type { AxAIOpenAIUrlCitation };
 export type { AxAIOpenAIUsage };
-export type { AxAIRekaArgs };
-export type { AxAIRekaChatRequest };
-export type { AxAIRekaChatResponse };
-export type { AxAIRekaChatResponseDelta };
-export type { AxAIRekaConfig };
-export type { AxAIRekaUsage };
+export type { AxAIProfileArgs };
+export type { AxAIProfileAuthentication };
+export type { AxAIProfileCapabilities };
+export type { AxAIProfileEndpoint };
+export type { AxAIProfileId };
+export type { AxAIProfileModelRule };
+export type { AxAIProfileOperation };
+export type { AxAIProfileRequestRules };
+export type { AxAIProfileSummary };
+export type { AxAIProfileTransport };
 export type { AxAIService };
 export type { AxAIServiceActionOptions };
 export type { AxAIServiceImpl };
@@ -2322,6 +2260,7 @@ export type { AxModuleRankInput };
 export type { AxMultiMetricFn };
 export type { AxMultiProviderConfig };
 export type { AxNamedProgramInstance };
+export type { AxOpenAIReasoningContentMode };
 export type { AxOptimizableComponent };
 export type { AxOptimizableValidator };
 export type { AxOptimizationCheckpoint };

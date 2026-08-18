@@ -9,7 +9,17 @@ public final class AnthropicClient extends OpenAICompatibleClient {
   }
 
   public AnthropicClient(Map<String, Object> options) {
-    super("anthropic", "anthropic", normalize(options), "claude-3-7-sonnet-latest", "");
+    this("anthropic", options);
+  }
+
+  public AnthropicClient(String profile, Map<String, Object> options) {
+    super(
+      profile,
+      profile,
+      normalize(options),
+      String.valueOf(Core.asMap(Core.provider_descriptor(profile)).getOrDefault("defaultModel", "")),
+      String.valueOf(Core.asMap(Core.provider_descriptor(profile)).getOrDefault("defaultEmbedModel", ""))
+    );
   }
 
   private static Map<String, Object> normalize(Map<String, Object> options) {

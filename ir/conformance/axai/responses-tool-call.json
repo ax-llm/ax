@@ -110,7 +110,7 @@
     {
       "json": {
         "id": "resp_tool",
-        "model": "gpt-4o",
+        "model": "gpt-5-mini",
         "output": [
           {
             "arguments": "{\"query\":\"Search docs\"}",

@@ -2,18 +2,8 @@
 
 import { AxAIAnthropic, type AxAIAnthropicArgs } from './anthropic/api.js';
 import type { AxAIAnthropicModel } from './anthropic/types.js';
-import {
-  AxAIAzureOpenAI,
-  type AxAIAzureOpenAIArgs,
-} from './azure-openai/api.js';
 import type { AxAIFeatures } from './base.js';
-import { AxAICohere, type AxAICohereArgs } from './cohere/api.js';
 import type { AxAICohereEmbedModel, AxAICohereModel } from './cohere/types.js';
-import { AxAIDeepSeek, type AxAIDeepSeekArgs } from './deepseek/api.js';
-import {
-  AxAIDeepSeekResponses,
-  type AxAIDeepSeekResponsesArgs,
-} from './deepseek/responses_api.js';
 import type { AxAIDeepSeekModel } from './deepseek/types.js';
 import {
   AxAIGoogleGemini,
@@ -23,7 +13,6 @@ import type {
   AxAIGoogleGeminiEmbedModel,
   AxAIGoogleGeminiModel,
 } from './google-gemini/types.js';
-import { AxAIMistral, type AxAIMistralArgs } from './mistral/api.js';
 import type { AxAIMistralModel } from './mistral/types.js';
 import { AxAIOpenAI, type AxAIOpenAIArgs } from './openai/api.js';
 import type {
@@ -35,7 +24,12 @@ import {
   type AxAIOpenAIResponsesArgs,
 } from './openai/responses_api_base.js';
 import type { AxAIOpenAIResponsesModel } from './openai/responses_types.js';
-import { AxAIReka, type AxAIRekaArgs } from './reka/api.js';
+import {
+  type AxAIDeploymentProfileArgs,
+  AxAIOpenAIProfile,
+  AxAIOpenAIResponsesProfile,
+  axGetAIProfile,
+} from './provider_profiles.js';
 import type {
   AxAIModelList,
   AxAIService,
@@ -56,7 +50,6 @@ import type {
 import { AxAIWebLLM, type AxAIWebLLMArgs } from './webllm/api.js';
 import type { AxAIWebLLMModelId } from './webllm/types.js';
 // axir-nonportable:end webllm
-import { AxAIGrok, type AxAIGrokArgs } from './x-grok/api.js';
 import type { AxAIGrokModel } from './x-grok/types.js';
 
 export type AxAIArgs<TModelKey> =
@@ -67,18 +60,12 @@ export type AxAIArgs<TModelKey> =
       AxAIOpenAIEmbedModel,
       TModelKey
     >
-  | AxAIAzureOpenAIArgs<TModelKey>
   | AxAIAnthropicArgs<TModelKey>
   | AxAIGoogleGeminiArgs<TModelKey>
-  | AxAICohereArgs<TModelKey>
-  | AxAIMistralArgs<TModelKey>
-  | AxAIDeepSeekArgs<TModelKey>
-  | AxAIDeepSeekResponsesArgs<TModelKey>
-  | AxAIRekaArgs<TModelKey>
+  | AxAIDeploymentProfileArgs<TModelKey>
   // axir-nonportable:start webllm
-  | AxAIWebLLMArgs<TModelKey>
-  // axir-nonportable:end webllm
-  | AxAIGrokArgs<TModelKey>;
+  | AxAIWebLLMArgs<TModelKey>;
+// axir-nonportable:end webllm
 
 export type AxAIModels =
   | AxAIOpenAIModel
@@ -207,47 +194,35 @@ export class AxAI<TModelKey = string>
   }
 
   private constructor(options: Readonly<AxAIArgs<TModelKey>>) {
-    switch (options.name) {
-      case 'openai':
-        this.ai = new AxAIOpenAI<TModelKey>(options);
+    const profile = axGetAIProfile(options.name);
+    switch (profile.transport) {
+      case 'openai-chat':
+        if (profile.id === 'openai') {
+          this.ai = new AxAIOpenAI<TModelKey>(options as any);
+        } else {
+          this.ai = new AxAIOpenAIProfile<TModelKey>(options as any);
+        }
         break;
       case 'openai-responses':
-        this.ai = new AxAIOpenAIResponses<TModelKey>(options);
+        if (profile.id === 'openai-responses') {
+          this.ai = new AxAIOpenAIResponses<TModelKey>(options as any);
+        } else {
+          this.ai = new AxAIOpenAIResponsesProfile<TModelKey>(options as any);
+        }
         break;
-      case 'azure-openai':
-        this.ai = new AxAIAzureOpenAI<TModelKey>(options);
+      case 'anthropic-messages':
+        this.ai = new AxAIAnthropic<TModelKey>(options as any);
         break;
-      case 'grok':
-        this.ai = new AxAIGrok<TModelKey>(options);
-        break;
-      case 'cohere':
-        this.ai = new AxAICohere<TModelKey>(options);
-        break;
-      case 'google-gemini':
-        this.ai = new AxAIGoogleGemini<TModelKey>(options);
-        break;
-      case 'anthropic':
-        this.ai = new AxAIAnthropic<TModelKey>(options);
-        break;
-      case 'mistral':
-        this.ai = new AxAIMistral<TModelKey>(options);
-        break;
-      case 'deepseek':
-        this.ai = new AxAIDeepSeek<TModelKey>(options);
-        break;
-      case 'deepseek-responses':
-        this.ai = new AxAIDeepSeekResponses<TModelKey>(options);
-        break;
-      case 'reka':
-        this.ai = new AxAIReka<TModelKey>(options);
+      case 'gemini-generate-content':
+        this.ai = new AxAIGoogleGemini<TModelKey>(options as any);
         break;
       // axir-nonportable:start webllm
       case 'webllm':
-        this.ai = new AxAIWebLLM<TModelKey>(options);
+        this.ai = new AxAIWebLLM<TModelKey>(options as any);
         break;
       // axir-nonportable:end webllm
       default:
-        throw new Error('Unknown AI');
+        throw new Error(`Unsupported AI transport: ${profile.transport}`);
     }
   }
 

@@ -17,6 +17,7 @@ import {
   axModelInfoOpenAIResponses,
 } from './openai/info.js';
 import { AxAIOpenAIResponsesModel } from './openai/responses_types.js';
+import { axAIProfiles } from './provider_profiles.js';
 import { axModelInfoReka } from './reka/info.js';
 import { AxAIRekaModel } from './reka/types.js';
 import type { AxModelInfo } from './types.js';
@@ -86,7 +87,7 @@ type AxAIModelCatalogProviderDefinition = Omit<
 };
 
 // Keep this keyed by AxAIArgs['name'] so new ai(...) providers must add catalog metadata.
-const axAIModelCatalogProviderDefinitions = {
+const axKnownModelCatalogProviderDefinitions = {
   openai: {
     displayName: 'OpenAI',
     defaultModel: AxAIOpenAIModel.GPT5Mini,
@@ -151,7 +152,7 @@ const axAIModelCatalogProviderDefinitions = {
   },
   grok: {
     displayName: 'xAI Grok',
-    defaultModel: AxAIGrokModel.Grok3,
+    defaultModel: AxAIGrokModel.Grok46,
     isDynamic: false,
     modelInfo: axModelInfoGrok,
   },
@@ -163,7 +164,21 @@ const axAIModelCatalogProviderDefinitions = {
     modelInfo: axModelInfoWebLLM,
   },
   // axir-nonportable:end webllm
-} satisfies Record<
+} as const;
+
+const axAIModelCatalogProviderDefinitions = {
+  ...Object.fromEntries(
+    axAIProfiles().map((profile) => [
+      profile.id,
+      {
+        displayName: profile.name,
+        isDynamic: true,
+        modelInfo: [],
+      },
+    ])
+  ),
+  ...axKnownModelCatalogProviderDefinitions,
+} as unknown as Record<
   AxAIModelCatalogProviderName,
   AxAIModelCatalogProviderDefinition
 >;

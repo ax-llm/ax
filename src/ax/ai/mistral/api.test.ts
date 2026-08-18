@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AxAIMistral } from './api.js';
+import { AxAIOpenAIProfile } from '../provider_profiles.js';
 import { AxAIMistralModel } from './types.js';
 
 function createMockFetch(capture: { url?: string; body?: any }) {
@@ -35,10 +35,11 @@ function createMockFetch(capture: { url?: string; body?: any }) {
     });
 }
 
-describe('AxAIMistral OpenAI compatibility', () => {
+describe('mistral profile OpenAI compatibility', () => {
   it('uses Mistral chat completions quirks through the OpenAI base', async () => {
     const capture: { url?: string; body?: any } = {};
-    const ai = new AxAIMistral({
+    const ai = new AxAIOpenAIProfile({
+      name: 'mistral',
       apiKey: 'key',
       config: { model: AxAIMistralModel.MistralSmall, maxTokens: 333 },
       options: { fetch: createMockFetch(capture) },

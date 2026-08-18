@@ -654,7 +654,7 @@ module @ax.ai version "0.1" {
     attr emit_module = "ai"
     tag "src/ax/ai/google-gemini/api.ts"
     tag "axai-context-cache-recovery"
-    type signature = "(cache_name:string, ttl_seconds:number, api_key:string, model:string, create_body:json, options?:json) -> json"
+    type signature = "(cache_name:string, ttl_seconds:number, api_key:string, model:string, create_body:json, options?:json) -> json throws"
     body @entry(%cache_name: string, %ttl_seconds: number, %api_key: string, %model: string, %create_body: json, %options: json) {
       %ttl = core.call intrinsic.string.format("{}s", %ttl_seconds)
       %descriptor = core.call @provider_resolve_descriptor("google-gemini", %options)

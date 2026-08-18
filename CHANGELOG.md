@@ -1,5 +1,25 @@
 # Changelog
 
+## Next major
+
+- Added named deployment profiles, `AxAIProfileId`, `AxAIProfileSummary`,
+  `axAIProfiles()`, and `axGetAIProfile()`. The deployment name now owns endpoint,
+  authentication, capabilities, and model rules; model IDs never select another
+  provider's behavior.
+- Split official `openai` behavior from conservative `openai-compatible`
+  custom endpoints and made unknown profile names an error.
+- Removed the profile-only `AxAIAzureOpenAI`, `AxAICohere`, `AxAIDeepSeek`,
+  `AxAIDeepSeekResponses`, `AxAIMistral`, `AxAIReka`, and `AxAIGrok` classes.
+  Use `ai({ name: '…' })`; existing model enum/catalog exports remain.
+- Generated Go, Python, Rust, Java, and C++ factories now resolve the canonical
+  AxIR profile manifest and expose only genuine transport clients.
+- Verified DeepSeek V4 deployment rules now default an omitted thinking level
+  to logical `max`; an explicit `none` still disables thinking where supported.
+- Added verified maximum-reasoning defaults for current Grok, Groq GPT-OSS and
+  Qwen, Cerebras GPT-OSS and Gemma, and DeepInfra DeepSeek R1 rules. Explicit
+  `none` now fails before network I/O for models whose deployment cannot disable
+  reasoning; dynamic Hugging Face Router routes remain conservative.
+
 ## [23.0.16](https://github.com/ax-llm/ax/compare/23.0.14...23.0.15) (2026-08-17)
 
 ### Bug Fixes

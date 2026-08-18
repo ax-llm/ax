@@ -1790,10 +1790,10 @@ print("stream-http-roundtrip-ok")
 
 const pyRealtimeAudioEventsExample = `import json
 
-from axllm import GoogleGeminiClient, GrokClient
+from axllm import GoogleGeminiClient, ai
 
 
-grok = GrokClient(model="grok-voice-think-fast-1.0", api_key="test-key")
+grok = ai("grok", model="grok-voice-think-fast-1.0", api_key="test-key")
 grok_request = {
     "model": "grok-voice-think-fast-1.0",
     "chat_prompt": [
@@ -2406,8 +2406,8 @@ import java.util.*;
 
 public final class RealtimeAudioEventsExample {
   public static void main(String[] args) {
-    GrokClient grok =
-        new GrokClient(Map.of("model", "grok-voice-think-fast-1.0", "api_key", "test-key"));
+    OpenAICompatibleClient grok =
+        (OpenAICompatibleClient) Ax.ai("grok", Map.of("model", "grok-voice-think-fast-1.0", "api_key", "test-key"));
     Map<String, Object> grokRequest =
         Map.of(
             "model",
@@ -2502,8 +2502,8 @@ import java.util.*;
 // API). Exits non-zero on any mismatch so ` + "`axir verify`" + ` fails if it regresses.
 public final class RealtimeAudioTurnExample {
   public static void main(String[] args) {
-    GrokClient client =
-        new GrokClient(Map.of("model", "grok-voice-think-fast-1.0", "api_key", "test-key"));
+    OpenAICompatibleClient client =
+        (OpenAICompatibleClient) Ax.ai("grok", Map.of("model", "grok-voice-think-fast-1.0", "api_key", "test-key"));
     Map<String, Object> request =
         Map.of(
             "model", "grok-voice-think-fast-1.0",
@@ -3412,10 +3412,10 @@ const cppRealtimeAudioEventsExample = `#include "axllm/axllm.hpp"
 #include <iostream>
 
 int main() {
-  axllm::GrokClient grok(axllm::object({
+  auto grok = std::dynamic_pointer_cast<axllm::OpenAICompatibleClient>(axllm::ai("grok", axllm::object({
       {"model", "grok-voice-think-fast-1.0"},
       {"api_key", "test-key"},
-  }));
+  })));
   axllm::Value grok_request = axllm::object({
       {"model", "grok-voice-think-fast-1.0"},
       {"chat_prompt",
@@ -3491,8 +3491,8 @@ int main() {
       }),
   });
 
-  std::cout << "grok setup:\n" << axllm::stringify(grok.realtime_audio_setup(grok_request)) << "\n";
-  std::cout << "grok normalized events:\n" << axllm::stringify(axllm::Value(grok.realtime(grok_events))) << "\n";
+  std::cout << "grok setup:\n" << axllm::stringify(grok->realtime_audio_setup(grok_request)) << "\n";
+  std::cout << "grok normalized events:\n" << axllm::stringify(axllm::Value(grok->realtime(grok_events))) << "\n";
   std::cout << "gemini setup:\n" << axllm::stringify(gemini.realtime_audio_setup(gemini_request)) << "\n";
   std::cout << "gemini input messages:\n" << axllm::stringify(gemini.realtime_audio_input(gemini_request)) << "\n";
   std::cout << "gemini normalized events:\n" << axllm::stringify(axllm::Value(gemini.realtime(gemini_events))) << "\n";
@@ -3519,10 +3519,10 @@ namespace {
 }  // namespace
 
 int main() {
-  axllm::GrokClient client(axllm::object({
+  auto client = std::dynamic_pointer_cast<axllm::OpenAICompatibleClient>(axllm::ai("grok", axllm::object({
       {"model", "grok-voice-think-fast-1.0"},
       {"api_key", "test-key"},
-  }));
+  })));
   axllm::Value request = axllm::object({
       {"model", "grok-voice-think-fast-1.0"},
       {"chat_prompt",
@@ -3544,7 +3544,7 @@ int main() {
   };
 
   axllm::ScriptedRealtimeTransport transport(inbound);
-  axllm::Value final_response = client.realtime_chat(request, &transport);
+  axllm::Value final_response = client->realtime_chat(request, &transport);
 
   std::string sent;
   for (const auto& event : transport.sent) sent += axllm::stringify(axllm::Core::get(event, "type")) + " ";

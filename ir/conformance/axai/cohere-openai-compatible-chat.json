@@ -1,7 +1,7 @@
 {
   "expected_output": {
     "model_usage": {
-      "ai": "Cohere",
+      "ai": "cohere",
       "model": "command-r-plus",
       "tokens": {
         "completion_tokens": 2,

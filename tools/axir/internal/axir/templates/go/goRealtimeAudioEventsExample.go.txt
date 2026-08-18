@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	grok := ax.NewGrokClient(map[string]ax.Value{"model": "grok-voice-think-fast-1.0", "api_key": "test-key"})
+	grok := ax.NewAI("grok", map[string]ax.Value{"model": "grok-voice-think-fast-1.0", "api_key": "test-key"}).(*ax.OpenAICompatibleClient)
 	grokRequest := map[string]ax.Value{
 		"model": "grok-voice-think-fast-1.0",
 		"chat_prompt": ax.Array(

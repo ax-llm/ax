@@ -1,6 +1,10 @@
 // cspell:ignore grok
 
 export enum AxAIGrokModel {
+  Grok46 = 'grok-4.6',
+  Grok45 = 'grok-4.5',
+  Grok45Latest = 'grok-4.5-latest',
+  GrokBuildLatest = 'grok-build-latest',
   Grok43 = 'grok-4.3',
   Grok43Latest = 'grok-4.3-latest',
   GrokLatest = 'grok-latest',

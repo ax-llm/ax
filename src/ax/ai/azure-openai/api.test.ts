@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { AxAIOpenAIModel } from '../openai/chat_types.js';
-import { AxAIAzureOpenAI } from './api.js';
+import { AxAIOpenAIProfile } from '../provider_profiles.js';
 
 const createAI = (version: string) =>
-  new AxAIAzureOpenAI({
+  new AxAIOpenAIProfile({
+    name: 'azure-openai',
     apiKey: 'key',
     resourceName: 'https://example.openai.azure.com/',
     deploymentName: 'deployment',
     version,
   });
 
-describe('AxAIAzureOpenAI structured outputs support', () => {
+describe('azure-openai profile structured outputs support', () => {
   it('should not advertise structured outputs for older Azure API versions', () => {
     const ai = createAI('2024-02-15-preview');
     const features = ai.getFeatures(AxAIOpenAIModel.GPT5Mini);

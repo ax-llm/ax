@@ -22,7 +22,7 @@ func fail(message string, detail ax.Value) {
 }
 
 func main() {
-	client := ax.NewGrokClient(map[string]ax.Value{"model": "grok-voice-think-fast-1.0", "api_key": "test-key"})
+	client := ax.NewAI("grok", map[string]ax.Value{"model": "grok-voice-think-fast-1.0", "api_key": "test-key"}).(*ax.OpenAICompatibleClient)
 	request := map[string]ax.Value{
 		"model": "grok-voice-think-fast-1.0",
 		"chat_prompt": ax.Array(

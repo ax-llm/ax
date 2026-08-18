@@ -21,15 +21,30 @@ const deepseek = ai({ name: 'deepseek', apiKey: 'sk-...' });
 const mistral = ai({ name: 'mistral', apiKey: 'your-key' });
 const cohere = ai({ name: 'cohere', apiKey: 'your-key' });
 const custom = ai({
-  name: 'openai',
+  name: 'openai-compatible',
   apiKey: process.env.PROVIDER_API_KEY,
   apiURL: 'https://example.com/v1',
   config: { model: 'provider/model-name' },
 });
 const reka = ai({ name: 'reka', apiKey: 'your-key' });
 const grok = ai({ name: 'grok', apiKey: 'your-key' });
-const compatible = ai({ name: 'openai', apiKey: 'key', apiURL: 'https://api.example.com/v1', config: { model: 'provider/model' } });
 ```
+
+`name` selects a deployment profile; `config.model` selects a model inside that
+deployment. Never infer provider behavior from a model ID. For example,
+`name: 'together'` with a `deepseek-ai/...` model uses Together's profile rules,
+not DeepSeek's native request shape.
+
+Use `axAIProfiles()` to discover the complete named catalog and
+`axGetAIProfile(name)` to inspect endpoint requirements, authentication,
+operations, capabilities, model rules, sources, and review dates. Use
+`name: 'openai-compatible'` plus `apiURL` for an unlisted custom endpoint;
+unknown names are errors.
+
+Profile-only branded classes were removed in the major-version migration. Use
+`ai({ name: ... })` for Azure OpenAI, Cohere, DeepSeek, DeepSeek Responses,
+Mistral, Reka, and Grok. Retained low-level classes represent genuine
+transports/runtimes only; legacy model enum and catalog exports remain usable.
 
 <!-- axir-nonportable:start webllm -->
 WebLLM is browser-only and requires a host-created WebLLM engine. The host
@@ -252,18 +267,20 @@ const deepseek = ai({
 ```
 
 DeepSeek's current API models are `deepseek-v4-flash` and `deepseek-v4-pro`.
-The deprecated `deepseek-chat` and `deepseek-reasoner` aliases are retained for
-compatibility until DeepSeek removes them on 2026-07-24.
+Legacy model enum/catalog values remain available for source compatibility, but
+profile rules are applied only to model IDs verified for the selected deployment.
 
-DeepSeek V4 supports thinking mode. Ax sends `thinking: { type: "disabled" }`
-by default to preserve non-thinking behavior, and enables it when
-`thinkingTokenBudget` is set. DeepSeek's API only exposes `high` and `max`:
-Ax maps `minimal`, `low`, `medium`, and `high` to `high`, and maps `highest` to
-`max`. There is no provider-side `low` or `medium` effort rung. DeepSeek V4
+DeepSeek V4 supports thinking mode. When `thinkingTokenBudget` is omitted, Ax
+selects its logical `max` level and sends `thinking: { type: "enabled" }` with
+`reasoning_effort: "max"`. Set `thinkingTokenBudget: "none"` explicitly to
+disable it. DeepSeek's API exposes `low`, `high`, and `max`:
+Ax maps `minimal` and `low` to `low`, `medium` and `high` to `high`, and
+`highest` to `max`. DeepSeek has no distinct `medium` effort rung. DeepSeek V4
 thinking models support tools, but reject the `tool_choice` request parameter,
-so Ax omits forced/auto tool choice for `deepseek-v4-pro`,
+so Ax omits auto and Ax-generated `__axOutput` tool choices for `deepseek-v4-pro`,
 `deepseek-v4-flash`, and `deepseek-reasoner` while still sending tool
-definitions. DeepSeek does not support native JSON
+definitions. An explicitly forced caller tool choice fails before the request.
+DeepSeek does not support native JSON
 schema structured outputs. Ax therefore uses validated `json_object` for a
 single required `string` or `code` output, including an AxAgent actor's
 `javascriptCode` field, without exposing a provider tool. Richer structured
@@ -273,8 +290,26 @@ available, or validated `json_object` when it is not.
 DeepSeek Chat returns thinking traces as `reasoning_content`. During a tool
 loop, Ax preserves that field on the assistant tool-call message and sends it
 back on the following request together with non-null `content` and the original
-tool calls. This compatibility mode is internal to the DeepSeek Chat adapter;
+tool calls. This compatibility mode is declared by the DeepSeek deployment profile;
 the official OpenAI Chat adapter does not emit or expose `reasoning_content`.
+
+The same logical default is declared independently for verified DeepSeek V4
+rules in the Together, Fireworks, and OpenRouter profiles, then mapped to each
+deployment's own request dialect. A custom `openai-compatible` endpoint never
+inherits it from a DeepSeek-looking model ID.
+
+Other verified deployment rules follow the same policy. Grok 4.6 maps logical
+`max` to `xhigh`, while Grok 4.5 and 4.3 map it to `high`. Groq GPT-OSS and
+Cerebras GPT-OSS map it to `high`; Groq Qwen 3.6 maps it to its documented
+reasoning-enabled `default`; Cerebras Gemma 4 and DeepInfra DeepSeek R1 map it
+to `high`. An explicit `none` is sent only for model/deployment combinations
+that document disabling reasoning. Grok 4.6/4.5 and GPT-OSS on Groq or Cerebras
+reject `none` before network I/O because those APIs do not support disabling
+reasoning for those models.
+
+Hugging Face Router remains conservative: routing policies such as `:fastest`
+may choose a different inference provider without changing the base model ID,
+so Ax does not attach one provider's reasoning contract to that dynamic route.
 
 ## Extended Thinking
 
@@ -472,6 +507,22 @@ silently fall back to a global namespace.
 
 ## AWS Bedrock
 
+Use the `amazon-bedrock` profile for Bedrock's OpenAI-compatible Mantle
+endpoint. Supply the account/region-specific OpenAI base URL and a Bedrock API
+key explicitly:
+
+```typescript
+const bedrock = ai({
+  name: 'amazon-bedrock',
+  apiURL: process.env.BEDROCK_OPENAI_BASE_URL!,
+  apiKey: process.env.BEDROCK_API_KEY!,
+  config: { model: process.env.BEDROCK_MODEL_ID! },
+});
+```
+
+The separate AWS package remains available when native AWS SDK authentication,
+regional fallback, or non-Mantle Bedrock behavior is required:
+
 ```typescript
 import { AxAIBedrock, AxAIBedrockModel } from '@ax-llm/ax-ai-aws-bedrock';
 
@@ -527,11 +578,11 @@ the event runtime sees the request.
 ## Critical Rules
 
 - Use `ai()` factory for all providers.
-- Provider names: `'openai'`, `'openai-responses'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'mistral'`, `'cohere'`, `'deepseek'`, `'reka'`, `'grok'`
+- Use `axAIProfiles()` as the source of truth for names. Core names include `'openai'`, `'openai-compatible'`, `'openai-responses'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'deepseek'`, `'mistral'`, `'cohere'`, `'grok'`, routers such as `'together'` and `'openrouter'`, hosted inference profiles, and configurable local runtimes.
 - Thinking constraints on Anthropic: every adaptive-thinking model omits
   `temperature`, `topP`, and `topK`; older thinking models ignore `temperature` and `topK`, with
   `topP` only sent if >= 0.95.
-- Bedrock uses `new AxAIBedrock()`, not `ai()`.
+- `ai({ name: 'amazon-bedrock', apiURL: ... })` targets Bedrock's OpenAI-compatible endpoint. `new AxAIBedrock()` remains the separate AWS-native runtime client.
 - Vercel AI SDK uses `AxAIProvider` wrapper.
 
 ## Examples
@@ -560,5 +611,5 @@ Fetch these for full working code:
 - Do not use `new AxAIOpenAI(...)` or similar class constructors for standard providers; use `ai()`.
 - Do not hardcode provider class names when `ai({ name: ... })` covers the provider.
 - Do not mix `thinkingTokenBudget` with explicit `temperature` on Anthropic thinking models.
-- Do not use `ai()` for AWS Bedrock; use `new AxAIBedrock()`.
+- Do not confuse the `amazon-bedrock` OpenAI-compatible profile with the separate AWS-native `AxAIBedrock` client.
 - Do not omit `resourceName` and `deploymentName` for Azure OpenAI.

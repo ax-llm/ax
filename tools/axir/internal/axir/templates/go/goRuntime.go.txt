@@ -1805,18 +1805,12 @@ type AxContextCacheRegistry interface {
 	Set(namespace, key string, entry map[string]Value)
 }
 type OpenAIResponsesClient struct{ *OpenAICompatibleClient }
-type DeepSeekResponsesClient struct{ *OpenAICompatibleClient }
 type GoogleGeminiClient struct{ *OpenAICompatibleClient }
 type AnthropicClient struct{ *OpenAICompatibleClient }
-type AzureOpenAIClient struct{ *OpenAICompatibleClient }
-type DeepSeekClient struct{ *OpenAICompatibleClient }
-type MistralClient struct{ *OpenAICompatibleClient }
-type RekaClient struct{ *OpenAICompatibleClient }
-type CohereClient struct{ *OpenAICompatibleClient }
-type GrokClient struct{ *OpenAICompatibleClient }
 
 func NewOpenAICompatibleClient(options map[string]Value) *OpenAICompatibleClient {
-	return newProviderClient("openai-compatible", "openai", options, "gpt-4.1-mini", "text-embedding-3-small")
+	descriptor := asMap(mustCore(provider_descriptor("openai-compatible")))
+	return newProviderClient("openai-compatible", "openai-compatible", options, display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))
 }
 func newProviderClient(profile, name string, options map[string]Value, defaultModel, defaultEmbed string) *OpenAICompatibleClient {
 	if options == nil {
@@ -1841,61 +1835,43 @@ func newProviderClient(profile, name string, options map[string]Value, defaultMo
 	return &OpenAICompatibleClient{Profile: profile, Name: name, Options: options, Transport: transport, ID: name + "-id", Metrics: balancerBaseMetrics(), contextCacheEntries: map[string]map[string]Value{}}
 }
 func NewOpenAIResponsesClient(options map[string]Value) *OpenAIResponsesClient {
-	return &OpenAIResponsesClient{newProviderClient("openai-responses", "openai-responses", options, "gpt-4o", "text-embedding-ada-002")}
+	return newOpenAIResponsesClient("openai-responses", options)
 }
-func NewDeepSeekResponsesClient(options map[string]Value) *DeepSeekResponsesClient {
-	return &DeepSeekResponsesClient{newProviderClient("deepseek-responses", "DeepSeek Responses", options, "deepseek-v4-flash", "")}
+func newOpenAIResponsesClient(profile string, options map[string]Value) *OpenAIResponsesClient {
+	descriptor := asMap(mustCore(provider_descriptor(profile)))
+	return &OpenAIResponsesClient{newProviderClient(profile, profile, options, display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))}
 }
 func NewGoogleGeminiClient(options map[string]Value) *GoogleGeminiClient {
-	return &GoogleGeminiClient{newProviderClient("google-gemini", "GoogleGeminiAI", normalizeGoogleOptions(options), "gemini-2.5-flash", "gemini-embedding-2")}
+	return newGoogleGeminiClient("google-gemini", options)
+}
+func newGoogleGeminiClient(profile string, options map[string]Value) *GoogleGeminiClient {
+	descriptor := asMap(mustCore(provider_descriptor(profile)))
+	return &GoogleGeminiClient{newProviderClient(profile, profile, normalizeGoogleOptions(options), display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))}
 }
 func NewAnthropicClient(options map[string]Value) *AnthropicClient {
-	return &AnthropicClient{newProviderClient("anthropic", "anthropic", normalizeAnthropicOptions(options), "claude-3-7-sonnet-latest", "")}
+	return newAnthropicClient("anthropic", options)
 }
-func NewAzureOpenAIClient(options map[string]Value) *AzureOpenAIClient {
-	return &AzureOpenAIClient{newProviderClient("azure-openai", "Azure OpenAI", normalizeAzureOptions(options), "gpt-5-mini", "text-embedding-3-small")}
+func newAnthropicClient(profile string, options map[string]Value) *AnthropicClient {
+	descriptor := asMap(mustCore(provider_descriptor(profile)))
+	return &AnthropicClient{newProviderClient(profile, profile, normalizeAnthropicOptions(options), display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))}
 }
-func NewDeepSeekClient(options map[string]Value) *DeepSeekClient {
-	return &DeepSeekClient{newProviderClient("deepseek", "DeepSeek", options, "deepseek-v4-flash", "")}
-}
-func NewMistralClient(options map[string]Value) *MistralClient {
-	return &MistralClient{newProviderClient("mistral", "Mistral", options, "mistral-small-latest", "mistral-embed")}
-}
-func NewRekaClient(options map[string]Value) *RekaClient {
-	return &RekaClient{newProviderClient("reka", "Reka", options, "reka-core", "")}
-}
-func NewCohereClient(options map[string]Value) *CohereClient {
-	return &CohereClient{newProviderClient("cohere", "Cohere", options, "command-r-plus", "embed-english-v3.0")}
-}
-func NewGrokClient(options map[string]Value) *GrokClient {
-	return &GrokClient{newProviderClient("grok", "Grok", options, "grok-4.3", "")}
-}
-
 func NewAI(provider string, options map[string]Value) AIClient {
-	switch display(mustCore(provider_normalize_profile(provider))) {
-	case "openai-responses":
-		return NewOpenAIResponsesClient(options)
-	case "deepseek-responses":
-		return NewDeepSeekResponsesClient(options)
-	case "google-gemini":
-		return NewGoogleGeminiClient(options)
-	case "anthropic":
-		return NewAnthropicClient(options)
-	case "azure-openai":
-		return NewAzureOpenAIClient(options)
-	case "deepseek":
-		return NewDeepSeekClient(options)
-	case "mistral":
-		return NewMistralClient(options)
-	case "reka":
-		return NewRekaClient(options)
-	case "cohere":
-		return NewCohereClient(options)
-	case "grok":
-		return NewGrokClient(options)
-	default:
-		return NewOpenAICompatibleClient(options)
+	profile := display(mustCore(provider_normalize_profile(provider)))
+	if profile == "" {
+		panic(AxError{Category: "provider", Message: "unsupported AxAI provider: " + provider})
 	}
+	descriptor := asMap(mustCore(provider_descriptor(profile)))
+	switch display(coreGet(descriptor, "transport", "")) {
+	case "openai-responses":
+		return newOpenAIResponsesClient(profile, options)
+	case "gemini-generate-content":
+		return newGoogleGeminiClient(profile, options)
+	case "anthropic-messages":
+		return newAnthropicClient(profile, options)
+	case "openai-chat":
+		return newProviderClient(profile, profile, options, display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))
+	}
+	panic(AxError{Category: "provider", Message: "unsupported transport for AxAI profile: " + profile})
 }
 
 func normalizeAzureOptions(options map[string]Value) map[string]Value {
@@ -2242,7 +2218,7 @@ func (c *OpenAICompatibleClient) requestJSON(operation string, request map[strin
 		if apiKey != "" {
 			coreSet(headers, "Authorization", "Bearer "+apiKey)
 		}
-	case "anthropic_key":
+	case "anthropic_key", "x-api-key":
 		coreSet(headers, "x-api-key", apiKey)
 	case "api_key_header":
 		coreSet(headers, display(coreGet(descriptor, "apiKeyHeader", "api-key")), apiKey)
@@ -2263,7 +2239,7 @@ func (c *OpenAICompatibleClient) requestJSON(operation string, request map[strin
 		path += sep + url.QueryEscape(keyName) + "=" + url.QueryEscape(apiKey)
 	}
 	requestURL := strings.TrimRight(base, "/") + path
-	if apiVersion := display(coreGet(opts, "api_version", coreGet(opts, "apiVersion", ""))); apiVersion != "" {
+	if apiVersion := display(coreGet(descriptor, "apiVersion", coreGet(opts, "api_version", coreGet(opts, "apiVersion", "")))); apiVersion != "" {
 		sep := "?"
 		if strings.Contains(requestURL, "?") {
 			sep = "&"
@@ -2602,15 +2578,6 @@ func (c OpenAIResponsesClient) Embed(ctx context.Context, r map[string]Value, o 
 func (c OpenAIResponsesClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
 	return c.OpenAICompatibleClient.Stream(ctx, r, o)
 }
-func (c DeepSeekResponsesClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Chat(ctx, r, o)
-}
-func (c DeepSeekResponsesClient) Embed(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Embed(ctx, r, o)
-}
-func (c DeepSeekResponsesClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
-	return c.OpenAICompatibleClient.Stream(ctx, r, o)
-}
 func (c GoogleGeminiClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
 	return c.OpenAICompatibleClient.Chat(ctx, r, o)
 }
@@ -2629,61 +2596,6 @@ func (c AnthropicClient) Embed(ctx context.Context, r map[string]Value, o map[st
 func (c AnthropicClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
 	return c.OpenAICompatibleClient.Stream(ctx, r, o)
 }
-func (c AzureOpenAIClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Chat(ctx, r, o)
-}
-func (c AzureOpenAIClient) Embed(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Embed(ctx, r, o)
-}
-func (c AzureOpenAIClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
-	return c.OpenAICompatibleClient.Stream(ctx, r, o)
-}
-func (c DeepSeekClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Chat(ctx, r, o)
-}
-func (c DeepSeekClient) Embed(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Embed(ctx, r, o)
-}
-func (c DeepSeekClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
-	return c.OpenAICompatibleClient.Stream(ctx, r, o)
-}
-func (c MistralClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Chat(ctx, r, o)
-}
-func (c MistralClient) Embed(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Embed(ctx, r, o)
-}
-func (c MistralClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
-	return c.OpenAICompatibleClient.Stream(ctx, r, o)
-}
-func (c RekaClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Chat(ctx, r, o)
-}
-func (c RekaClient) Embed(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Embed(ctx, r, o)
-}
-func (c RekaClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
-	return c.OpenAICompatibleClient.Stream(ctx, r, o)
-}
-func (c CohereClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Chat(ctx, r, o)
-}
-func (c CohereClient) Embed(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Embed(ctx, r, o)
-}
-func (c CohereClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
-	return c.OpenAICompatibleClient.Stream(ctx, r, o)
-}
-func (c GrokClient) Chat(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Chat(ctx, r, o)
-}
-func (c GrokClient) Embed(ctx context.Context, r map[string]Value, o map[string]Value) (Value, error) {
-	return c.OpenAICompatibleClient.Embed(ctx, r, o)
-}
-func (c GrokClient) Stream(ctx context.Context, r map[string]Value, o map[string]Value) ([]Value, error) {
-	return c.OpenAICompatibleClient.Stream(ctx, r, o)
-}
-
 func safeValue(fn func() Value) (out Value, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -8715,7 +8627,7 @@ func runConformanceStreamingAssertions(fixture map[string]Value, content Value) 
 
 func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *ScriptedTransport) {
 	transport := NewScriptedTransport(asSlice(coreGet(fixture, "transport_responses", Array())))
-	provider := display(coreGet(fixture, "provider", "openai-compatible"))
+	provider := display(coreGet(fixture, "provider", "openai"))
 	options := cloneMap(asMap(coreGet(fixture, "service_options", coreGet(fixture, "options", Object()))))
 	if coreGet(options, "api_key", nil) == nil && coreGet(options, "apiKey", nil) == nil {
 		coreSet(options, "api_key", "test-key")
@@ -8741,23 +8653,9 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 		return c, transport
 	case *OpenAIResponsesClient:
 		return c.OpenAICompatibleClient, transport
-	case *DeepSeekResponsesClient:
-		return c.OpenAICompatibleClient, transport
 	case *GoogleGeminiClient:
 		return c.OpenAICompatibleClient, transport
 	case *AnthropicClient:
-		return c.OpenAICompatibleClient, transport
-	case *AzureOpenAIClient:
-		return c.OpenAICompatibleClient, transport
-	case *DeepSeekClient:
-		return c.OpenAICompatibleClient, transport
-	case *MistralClient:
-		return c.OpenAICompatibleClient, transport
-	case *RekaClient:
-		return c.OpenAICompatibleClient, transport
-	case *CohereClient:
-		return c.OpenAICompatibleClient, transport
-	case *GrokClient:
 		return c.OpenAICompatibleClient, transport
 	default:
 		panic(AxError{Category: "fixture", Message: "unexpected AI client"})
@@ -8952,56 +8850,12 @@ func runConformanceProviderOperation(fixture map[string]Value, op string) {
 	}
 }
 func conformanceProviderName(profile string) string {
-	switch display(mustCore(provider_normalize_profile(profile))) {
-	case "google-gemini":
-		return "GoogleGeminiAI"
-	case "anthropic":
-		return "anthropic"
-	case "azure-openai":
-		return "Azure OpenAI"
-	case "deepseek":
-		return "DeepSeek"
-	case "mistral":
-		return "Mistral"
-	case "reka":
-		return "Reka"
-	case "cohere":
-		return "Cohere"
-	case "grok":
-		return "Grok"
-	case "openai-responses":
-		return "openai-responses"
-	case "deepseek-responses":
-		return "DeepSeek Responses"
-	default:
-		return "openai"
-	}
+	return display(mustCore(provider_normalize_profile(profile)))
 }
 func conformanceProviderDefaultModel(profile string) string {
-	switch display(mustCore(provider_normalize_profile(profile))) {
-	case "google-gemini":
-		return "gemini-2.5-flash"
-	case "anthropic":
-		return "claude-3-7-sonnet-latest"
-	case "azure-openai":
-		return "gpt-5-mini"
-	case "deepseek":
-		return "deepseek-v4-flash"
-	case "mistral":
-		return "mistral-small-latest"
-	case "reka":
-		return "reka-core"
-	case "cohere":
-		return "command-r-plus"
-	case "grok":
-		return "grok-4.3"
-	case "openai-responses":
-		return "gpt-4o"
-	case "deepseek-responses":
-		return "deepseek-v4-flash"
-	default:
-		return "gpt-4.1-mini"
-	}
+	provider := display(mustCore(provider_normalize_profile(profile)))
+	descriptor := mustCore(provider_descriptor(provider))
+	return display(coreGet(descriptor, "defaultModel", ""))
 }
 func runConformanceAIError(fixture map[string]Value) {
 	client, _ := conformanceAIClient(fixture)

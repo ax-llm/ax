@@ -2071,8 +2071,11 @@ public final class Conformance {
 
 	  static void runAIChat(Map<String, Object> fixture) {
     ClientFixture cf = openaiClient(fixture);
-    Object result;
-    try { result = cf.client.chat(Core.asMap(fixture.get("request"))); } catch (Exception e) { throw Core.asRuntime(e); }
+    Object result = expectMaybeError(() -> {
+      try { return cf.client.chat(Core.asMap(fixture.get("request"))); }
+      catch (Exception e) { throw Core.asRuntime(e); }
+    }, fixture);
+    if (fixture.containsKey("expected_error_contains")) return;
     if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai chat output");
     if (fixture.containsKey("expected_request_after")) assertEqual(fixture.get("request"), fixture.get("expected_request_after"), "ai chat input mutation");
     if (fixture.containsKey("expected_estimated_cost")) {
@@ -2160,7 +2163,7 @@ public final class Conformance {
   }
 
   static void runAIProviderDescriptor(Map<String, Object> fixture) {
-    String provider = String.valueOf(fixture.getOrDefault("provider", "openai-compatible"));
+    String provider = String.valueOf(fixture.getOrDefault("provider", "openai"));
     Object descriptor = fixture.containsKey("options")
       ? Core.provider_resolve_descriptor(provider, fixture.get("options"))
       : Core.provider_descriptor(provider);
@@ -2540,19 +2543,15 @@ public final class Conformance {
   }
   static ClientFixture openaiClient(Map<String, Object> fixture) {
     ScriptedTransport transport = new ScriptedTransport(Core.asList(fixture.getOrDefault("transport_responses", fixture.getOrDefault("responses", List.of()))));
-    String provider = String.valueOf(Core.provider_normalize_profile(String.valueOf(fixture.getOrDefault("provider", "openai-compatible"))));
-    boolean responsesProvider = provider.equals("openai-responses") || provider.equals("deepseek-responses");
-    boolean geminiProvider = provider.equals("google-gemini");
-    boolean anthropicProvider = provider.equals("anthropic");
-    boolean azureProvider = provider.equals("azure-openai");
-    boolean deepseekProvider = provider.equals("deepseek") || provider.equals("deepseek-responses");
-    boolean mistralProvider = provider.equals("mistral");
-    boolean rekaProvider = provider.equals("reka");
-    boolean cohereProvider = provider.equals("cohere");
-    boolean grokProvider = provider.equals("grok");
+    String provider = String.valueOf(Core.provider_normalize_profile(String.valueOf(fixture.getOrDefault("provider", "openai"))));
+    Map<String, Object> descriptor = Core.asMap(Core.provider_descriptor(provider));
+    String providerTransport = String.valueOf(descriptor.get("transport"));
+    boolean responsesProvider = providerTransport.equals("openai-responses");
+    boolean geminiProvider = providerTransport.equals("gemini-generate-content");
+    boolean anthropicProvider = providerTransport.equals("anthropic-messages");
     Map<String, Object> options = new LinkedHashMap<>();
-    String defaultModel = anthropicProvider ? "claude-3-7-sonnet-latest" : geminiProvider ? "gemini-2.5-flash" : provider.equals("deepseek-responses") ? "deepseek-v4-flash" : responsesProvider ? "gpt-4o" : azureProvider ? "gpt-5-mini" : deepseekProvider ? "deepseek-v4-flash" : mistralProvider ? "mistral-small-latest" : rekaProvider ? "reka-core" : cohereProvider ? "command-r-plus" : grokProvider ? "grok-4.3" : "gpt-4.1-mini";
-    String defaultEmbedModel = anthropicProvider || deepseekProvider || rekaProvider || grokProvider ? "" : geminiProvider ? "gemini-embedding-2" : responsesProvider ? "text-embedding-ada-002" : mistralProvider ? "mistral-embed" : cohereProvider ? "embed-english-v3.0" : "text-embedding-3-small";
+    String defaultModel = String.valueOf(descriptor.getOrDefault("defaultModel", ""));
+    String defaultEmbedModel = String.valueOf(descriptor.getOrDefault("defaultEmbedModel", ""));
     options.put("model", fixture.getOrDefault("model", defaultModel));
     options.put("embed_model", fixture.getOrDefault("embed_model", defaultEmbedModel));
     options.put("api_key", "test-key");
@@ -2562,17 +2561,10 @@ public final class Conformance {
     for (String key : List.of("base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version")) {
       if (fixture.containsKey(key)) options.put(key, fixture.get(key));
     }
-    OpenAICompatibleClient client = geminiProvider ? new GoogleGeminiClient(options)
-      : anthropicProvider ? new AnthropicClient(options)
-      : provider.equals("deepseek-responses") ? new DeepSeekResponsesClient(options)
-      : responsesProvider ? new OpenAIResponsesClient(options)
-      : azureProvider ? new AzureOpenAIClient(options)
-      : deepseekProvider ? new DeepSeekClient(options)
-      : mistralProvider ? new MistralClient(options)
-      : rekaProvider ? new RekaClient(options)
-      : cohereProvider ? new CohereClient(options)
-      : grokProvider ? new GrokClient(options)
-      : new OpenAICompatibleClient(options);
+    OpenAICompatibleClient client = geminiProvider ? new GoogleGeminiClient(provider, options)
+      : anthropicProvider ? new AnthropicClient(provider, options)
+      : responsesProvider ? new OpenAIResponsesClient(provider, options)
+      : new OpenAICompatibleClient(provider, provider, options, defaultModel, defaultEmbedModel);
     return new ClientFixture(client, transport);
   }
 

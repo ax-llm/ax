@@ -44,7 +44,7 @@
     },
     {
       "model_usage": {
-        "ai": "DeepSeek Responses",
+        "ai": "deepseek-responses",
         "model": "deepseek-v4-flash",
         "tokens": {
           "completion_tokens": 3,

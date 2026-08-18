@@ -232,18 +232,18 @@
         "name": "openai"
       },
       {
+        "displayName": "OpenAI Compatible",
+        "isDynamic": true,
+        "models": [],
+        "name": "openai-compatible"
+      },
+      {
         "defaultEmbedModel": "text-embedding-ada-002",
         "defaultModel": "gpt-4o",
         "displayName": "OpenAI Responses",
         "isDynamic": false,
         "models": [],
         "name": "openai-responses"
-      },
-      {
-        "displayName": "Azure OpenAI",
-        "isDynamic": true,
-        "models": [],
-        "name": "azure-openai"
       },
       {
         "defaultModel": "claude-3-7-sonnet-latest",
@@ -253,11 +253,17 @@
         "name": "anthropic"
       },
       {
-        "defaultModel": "command-r-plus",
-        "displayName": "Cohere",
+        "defaultModel": "Llama-3.2-3B-Instruct-q4f32_1-MLC",
+        "displayName": "WebLLM",
         "isDynamic": false,
         "models": [],
-        "name": "cohere"
+        "name": "webllm"
+      },
+      {
+        "displayName": "Azure OpenAI",
+        "isDynamic": true,
+        "models": [],
+        "name": "azure-openai"
       },
       {
         "defaultModel": "deepseek-v4-flash",
@@ -281,14 +287,14 @@
         "name": "mistral"
       },
       {
-        "defaultModel": "reka-core",
-        "displayName": "Reka",
+        "defaultModel": "command-r-plus",
+        "displayName": "Cohere",
         "isDynamic": false,
         "models": [],
-        "name": "reka"
+        "name": "cohere"
       },
       {
-        "defaultModel": "grok-3",
+        "defaultModel": "grok-4.6",
         "displayName": "xAI Grok",
         "isDynamic": false,
         "models": [
@@ -328,30 +334,255 @@
         "name": "grok"
       },
       {
-        "defaultModel": "Llama-3.2-3B-Instruct-q4f32_1-MLC",
-        "displayName": "WebLLM",
+        "defaultModel": "reka-core",
+        "displayName": "Reka",
         "isDynamic": false,
         "models": [],
-        "name": "webllm"
+        "name": "reka"
+      },
+      {
+        "displayName": "Together AI",
+        "isDynamic": true,
+        "models": [],
+        "name": "together"
+      },
+      {
+        "displayName": "OpenRouter",
+        "isDynamic": true,
+        "models": [],
+        "name": "openrouter"
+      },
+      {
+        "displayName": "Fireworks AI",
+        "isDynamic": true,
+        "models": [],
+        "name": "fireworks"
+      },
+      {
+        "displayName": "Hugging Face Router",
+        "isDynamic": true,
+        "models": [],
+        "name": "huggingface-router"
+      },
+      {
+        "displayName": "Amazon Bedrock",
+        "isDynamic": true,
+        "models": [],
+        "name": "amazon-bedrock"
+      },
+      {
+        "displayName": "Azure AI Foundry",
+        "isDynamic": true,
+        "models": [],
+        "name": "azure-foundry"
+      },
+      {
+        "displayName": "Vertex AI OpenAI Compatibility",
+        "isDynamic": true,
+        "models": [],
+        "name": "vertex-ai"
+      },
+      {
+        "displayName": "Databricks Model Serving",
+        "isDynamic": true,
+        "models": [],
+        "name": "databricks"
+      },
+      {
+        "displayName": "Baseten Model APIs",
+        "isDynamic": true,
+        "models": [],
+        "name": "baseten"
+      },
+      {
+        "displayName": "Groq",
+        "isDynamic": true,
+        "models": [],
+        "name": "groq"
+      },
+      {
+        "displayName": "Cerebras Inference",
+        "isDynamic": true,
+        "models": [],
+        "name": "cerebras"
+      },
+      {
+        "displayName": "DeepInfra",
+        "isDynamic": true,
+        "models": [],
+        "name": "deepinfra"
+      },
+      {
+        "displayName": "SambaNova Cloud",
+        "isDynamic": true,
+        "models": [],
+        "name": "sambanova"
+      },
+      {
+        "displayName": "Nebius AI Studio",
+        "isDynamic": true,
+        "models": [],
+        "name": "nebius"
+      },
+      {
+        "displayName": "Novita AI",
+        "isDynamic": true,
+        "models": [],
+        "name": "novita"
+      },
+      {
+        "displayName": "Hyperbolic",
+        "isDynamic": true,
+        "models": [],
+        "name": "hyperbolic"
+      },
+      {
+        "displayName": "SiliconFlow",
+        "isDynamic": true,
+        "models": [],
+        "name": "siliconflow"
+      },
+      {
+        "displayName": "FriendliAI",
+        "isDynamic": true,
+        "models": [],
+        "name": "friendli"
+      },
+      {
+        "displayName": "Cloudflare Workers AI",
+        "isDynamic": true,
+        "models": [],
+        "name": "cloudflare-workers-ai"
+      },
+      {
+        "displayName": "Featherless AI",
+        "isDynamic": true,
+        "models": [],
+        "name": "featherless"
+      },
+      {
+        "displayName": "Nscale",
+        "isDynamic": true,
+        "models": [],
+        "name": "nscale"
+      },
+      {
+        "displayName": "OVHcloud AI Endpoints",
+        "isDynamic": true,
+        "models": [],
+        "name": "ovhcloud"
+      },
+      {
+        "displayName": "Scaleway Generative APIs",
+        "isDynamic": true,
+        "models": [],
+        "name": "scaleway"
+      },
+      {
+        "displayName": "NVIDIA NIM",
+        "isDynamic": true,
+        "models": [],
+        "name": "nvidia-nim"
+      },
+      {
+        "displayName": "RunPod vLLM",
+        "isDynamic": true,
+        "models": [],
+        "name": "runpod-vllm"
+      },
+      {
+        "displayName": "SageMaker vLLM",
+        "isDynamic": true,
+        "models": [],
+        "name": "sagemaker-vllm"
+      },
+      {
+        "displayName": "vLLM",
+        "isDynamic": true,
+        "models": [],
+        "name": "vllm"
+      },
+      {
+        "displayName": "Ollama",
+        "isDynamic": true,
+        "models": [],
+        "name": "ollama"
+      },
+      {
+        "displayName": "LM Studio",
+        "isDynamic": true,
+        "models": [],
+        "name": "lm-studio"
+      },
+      {
+        "displayName": "llama.cpp Server",
+        "isDynamic": true,
+        "models": [],
+        "name": "llama-cpp"
+      },
+      {
+        "displayName": "LocalAI",
+        "isDynamic": true,
+        "models": [],
+        "name": "localai"
+      },
+      {
+        "displayName": "Baseten Inference Engine",
+        "isDynamic": true,
+        "models": [],
+        "name": "baseten-engine"
       }
     ],
     "modelCount": 12,
     "openaiFirstModel": "gpt-audio",
     "openaiModelTypes": ["audio"],
-    "providerCount": 12,
+    "providerCount": 45,
     "providerNames": [
       "google-gemini",
       "openai",
+      "openai-compatible",
       "openai-responses",
-      "azure-openai",
       "anthropic",
-      "cohere",
+      "webllm",
+      "azure-openai",
       "deepseek",
       "deepseek-responses",
       "mistral",
-      "reka",
+      "cohere",
       "grok",
-      "webllm"
+      "reka",
+      "together",
+      "openrouter",
+      "fireworks",
+      "huggingface-router",
+      "amazon-bedrock",
+      "azure-foundry",
+      "vertex-ai",
+      "databricks",
+      "baseten",
+      "groq",
+      "cerebras",
+      "deepinfra",
+      "sambanova",
+      "nebius",
+      "novita",
+      "hyperbolic",
+      "siliconflow",
+      "friendli",
+      "cloudflare-workers-ai",
+      "featherless",
+      "nscale",
+      "ovhcloud",
+      "scaleway",
+      "nvidia-nim",
+      "runpod-vllm",
+      "sagemaker-vllm",
+      "vllm",
+      "ollama",
+      "lm-studio",
+      "llama-cpp",
+      "localai",
+      "baseten-engine"
     ]
   },
   "kind": "ai_model_catalog_runtime",

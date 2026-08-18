@@ -40,7 +40,7 @@
         }
       },
       "instructions": "Speak briefly.",
-      "model": "gpt-4o",
+      "model": "gpt-5-mini",
       "output_modalities": ["audio"],
       "type": "realtime"
     },
@@ -69,6 +69,6 @@
         "role": "user"
       }
     ],
-    "model": "gpt-4o"
+    "model": "gpt-5-mini"
   }
 }

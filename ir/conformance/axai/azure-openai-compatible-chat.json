@@ -3,7 +3,7 @@
   "deployment_name": "deployment",
   "expected_output": {
     "model_usage": {
-      "ai": "Azure OpenAI",
+      "ai": "azure-openai",
       "model": "gpt-5-mini",
       "tokens": {
         "completion_tokens": 2,

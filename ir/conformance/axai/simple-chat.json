@@ -21,7 +21,7 @@
       "status": 200,
       "json": {
         "id": "chatcmpl_1",
-        "model": "gpt-4.1-mini",
+        "model": "gpt-5-mini",
         "usage": {
           "prompt_tokens": 8,
           "completion_tokens": 4,
@@ -53,7 +53,7 @@
     "remote_id": "chatcmpl_1",
     "model_usage": {
       "ai": "openai",
-      "model": "gpt-4.1-mini",
+      "model": "gpt-5-mini",
       "tokens": {
         "prompt_tokens": 8,
         "completion_tokens": 4,
@@ -65,7 +65,7 @@
     "method": "POST",
     "url": "https://api.openai.com/v1/chat/completions",
     "json": {
-      "model": "gpt-4.1-mini",
+      "model": "gpt-5-mini",
       "messages": [
         {
           "role": "system",

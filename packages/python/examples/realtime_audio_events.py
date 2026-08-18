@@ -1,9 +1,9 @@
 import json
 
-from axllm import GoogleGeminiClient, GrokClient
+from axllm import GoogleGeminiClient, ai
 
 
-grok = GrokClient(model="grok-voice-think-fast-1.0", api_key="test-key")
+grok = ai("grok", model="grok-voice-think-fast-1.0", api_key="test-key")
 grok_request = {
     "model": "grok-voice-think-fast-1.0",
     "chat_prompt": [

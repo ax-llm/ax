@@ -4,7 +4,7 @@
     "defaultEmbedModel": "mistral-embed",
     "defaultModel": "mistral-small-latest",
     "id": "mistral",
-    "name": "Mistral",
+    "name": "Mistral AI",
     "operations": {
       "chat": {
         "body": "json",

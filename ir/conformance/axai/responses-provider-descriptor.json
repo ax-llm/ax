@@ -1,7 +1,7 @@
 {
   "expected_output": {
-    "defaultEmbedModel": "text-embedding-ada-002",
-    "defaultModel": "gpt-4o",
+    "defaultEmbedModel": "text-embedding-3-small",
+    "defaultModel": "gpt-5-mini",
     "features": {
       "media": {
         "audio": {
@@ -13,7 +13,7 @@
       }
     },
     "id": "openai-responses",
-    "name": "openai-responses",
+    "name": "OpenAI Responses",
     "operations": {
       "chat": {
         "body": "json",
@@ -21,14 +21,14 @@
         "path": "/responses",
         "stream": false
       },
-      "realtime": {
-        "body": "events",
-        "method": "WS",
-        "path": "/realtime",
-        "stream": true
+      "embed": {
+        "body": "json",
+        "method": "POST",
+        "path": "/embeddings",
+        "stream": false
       },
-      "realtime_audio": {
-        "body": "events",
+      "realtime": {
+        "body": "json",
         "grammar": "openai_realtime_compatible",
         "method": "WS",
         "path": "/realtime",

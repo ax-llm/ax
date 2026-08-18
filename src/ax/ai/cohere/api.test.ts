@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AxAICohere } from './api.js';
+import { AxAIOpenAIProfile } from '../provider_profiles.js';
 import { AxAICohereModel } from './types.js';
 
 function createMockFetch(body: unknown) {
@@ -12,9 +12,10 @@ function createMockFetch(body: unknown) {
   );
 }
 
-describe('AxAICohere model key preset merging', () => {
+describe('cohere profile model key preset merging', () => {
   it('merges model list item modelConfig into effective config', async () => {
-    const ai = new AxAICohere({
+    const ai = new AxAIOpenAIProfile({
+      name: 'cohere',
       apiKey: 'key',
       models: [
         {

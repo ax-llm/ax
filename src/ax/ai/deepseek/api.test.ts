@@ -2,11 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { f } from '../../dsp/sig.js';
 import { ax } from '../../dsp/template.js';
-import {
-  AxAIDeepSeek,
-  axAIDeepSeekCodeConfig,
-  axAIDeepSeekDefaultConfig,
-} from './api.js';
+import { AxAIOpenAIProfile, axGetAIProfile } from '../provider_profiles.js';
 import { AxAIDeepSeekModel } from './types.js';
 
 type CapturedBody = {
@@ -67,18 +63,16 @@ function createMockFetch(
     });
 }
 
-describe('AxAIDeepSeek model defaults', () => {
-  it('uses current V4 models for defaults and code config', () => {
-    expect(axAIDeepSeekDefaultConfig().model).toBe(
+describe('deepseek profile model defaults', () => {
+  it('uses the current V4 model from the deployment profile', () => {
+    expect(axGetAIProfile('deepseek').defaultModel).toBe(
       AxAIDeepSeekModel.DeepSeekV4Flash
-    );
-    expect(axAIDeepSeekCodeConfig().model).toBe(
-      AxAIDeepSeekModel.DeepSeekV4Pro
     );
   });
 
-  it('sends V4 Flash with thinking disabled by default', async () => {
-    const ai = new AxAIDeepSeek({
+  it('sends V4 Flash with maximum thinking by default', async () => {
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: { stream: false },
     });
@@ -93,12 +87,13 @@ describe('AxAIDeepSeek model defaults', () => {
     );
 
     expect(capture.lastBody?.model).toBe(AxAIDeepSeekModel.DeepSeekV4Flash);
-    expect(capture.lastBody?.thinking).toEqual({ type: 'disabled' });
-    expect(capture.lastBody?.reasoning_effort).toBeUndefined();
+    expect(capture.lastBody?.thinking).toEqual({ type: 'enabled' });
+    expect(capture.lastBody?.reasoning_effort).toBe('max');
   });
 
   it('enables DeepSeek thinking from thinkingTokenBudget', async () => {
-    const ai = new AxAIDeepSeek({
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: {
         model: AxAIDeepSeekModel.DeepSeekV4Pro,
@@ -122,7 +117,8 @@ describe('AxAIDeepSeek model defaults', () => {
   });
 
   it('maps highest thinking budget to DeepSeek max effort', async () => {
-    const ai = new AxAIDeepSeek({
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: { model: AxAIDeepSeekModel.DeepSeekV4Pro, stream: false },
     });
@@ -140,10 +136,11 @@ describe('AxAIDeepSeek model defaults', () => {
     expect(capture.lastBody?.reasoning_effort).toBe('max');
   });
 
-  it.each(['low', 'medium'] as const)(
-    'maps %s thinking budget to DeepSeek high effort',
+  it.each(['minimal', 'low'] as const)(
+    'maps %s thinking budget to DeepSeek low effort',
     async (thinkingTokenBudget) => {
-      const ai = new AxAIDeepSeek({
+      const ai = new AxAIOpenAIProfile({
+        name: 'deepseek',
         apiKey: 'key',
         config: { model: AxAIDeepSeekModel.DeepSeekV4Flash, stream: false },
       });
@@ -156,12 +153,31 @@ describe('AxAIDeepSeek model defaults', () => {
       );
 
       expect(capture.lastBody?.thinking).toEqual({ type: 'enabled' });
-      expect(capture.lastBody?.reasoning_effort).toBe('high');
+      expect(capture.lastBody?.reasoning_effort).toBe('low');
     }
   );
 
+  it('maps medium thinking budget to DeepSeek high effort', async () => {
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
+      apiKey: 'key',
+      config: { model: AxAIDeepSeekModel.DeepSeekV4Flash, stream: false },
+    });
+    const capture: { lastBody?: CapturedBody } = {};
+    ai.setOptions({ fetch: createMockFetch(capture) });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'Think efficiently.' }] },
+      { stream: false, thinkingTokenBudget: 'medium' }
+    );
+
+    expect(capture.lastBody?.thinking).toEqual({ type: 'enabled' });
+    expect(capture.lastBody?.reasoning_effort).toBe('high');
+  });
+
   it('disables thinking for an explicit none budget', async () => {
-    const ai = new AxAIDeepSeek({
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: { model: AxAIDeepSeekModel.DeepSeekV4Flash, stream: false },
     });
@@ -178,7 +194,8 @@ describe('AxAIDeepSeek model defaults', () => {
   });
 
   it('maps configured xhigh effort to DeepSeek max', async () => {
-    const ai = new AxAIDeepSeek({
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: {
         model: AxAIDeepSeekModel.DeepSeekV4Flash,
@@ -199,7 +216,8 @@ describe('AxAIDeepSeek model defaults', () => {
   });
 
   it('advertises thinking support for current V4 models', () => {
-    const ai = new AxAIDeepSeek({
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
     });
 
@@ -217,7 +235,7 @@ describe('AxAIDeepSeek model defaults', () => {
   });
 });
 
-describe('AxAIDeepSeek tool choice compatibility', () => {
+describe('deepseek profile tool choice compatibility', () => {
   it('lets AxGen structured fallback send __axOutput to V4 without tool_choice', async () => {
     const sig = f()
       .input('question', f.string())
@@ -230,7 +248,8 @@ describe('AxAIDeepSeek tool choice compatibility', () => {
       )
       .build();
     const gen = ax(sig);
-    const ai = new AxAIDeepSeek({
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: { model: AxAIDeepSeekModel.DeepSeekV4Pro, stream: false },
     });
@@ -275,29 +294,30 @@ describe('AxAIDeepSeek tool choice compatibility', () => {
     expect(capture.lastBody?.tool_choice).toBeUndefined();
   });
 
-  it('omits forced tool_choice for DeepSeek V4 Pro while keeping tools', async () => {
-    const ai = new AxAIDeepSeek({
+  it('rejects caller-forced tool_choice for DeepSeek V4 Pro', async () => {
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: { model: AxAIDeepSeekModel.DeepSeekV4Pro, stream: false },
     });
     const capture: { lastBody?: CapturedBody } = {};
     ai.setOptions({ fetch: createMockFetch(capture) });
 
-    await ai.chat(
-      {
-        chatPrompt: [{ role: 'user', content: 'Return ok using the tool.' }],
-        functions: [finalAnswerTool],
-        functionCall: forcedFinalAnswer,
-      },
-      { stream: false }
-    );
-
-    expect(capture.lastBody?.tools).toHaveLength(1);
-    expect(capture.lastBody?.tool_choice).toBeUndefined();
+    await expect(
+      ai.chat(
+        {
+          chatPrompt: [{ role: 'user', content: 'Return ok using the tool.' }],
+          functions: [finalAnswerTool],
+          functionCall: forcedFinalAnswer,
+        },
+        { stream: false, functionCallSource: 'caller' }
+      )
+    ).rejects.toThrow('does not support explicitly forced tool choices');
   });
 
   it('omits auto tool_choice for DeepSeek V4 Flash while keeping tools', async () => {
-    const ai = new AxAIDeepSeek({
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: { model: AxAIDeepSeekModel.DeepSeekV4Flash, stream: false },
     });
@@ -317,7 +337,8 @@ describe('AxAIDeepSeek tool choice compatibility', () => {
   });
 
   it('preserves forced tool_choice for DeepSeek Chat', async () => {
-    const ai = new AxAIDeepSeek({
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: { model: AxAIDeepSeekModel.DeepSeekChat, stream: false },
     });
@@ -337,7 +358,8 @@ describe('AxAIDeepSeek tool choice compatibility', () => {
   });
 
   it('removes tools for DeepSeek V4 when functionCall is none', async () => {
-    const ai = new AxAIDeepSeek({
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: { model: AxAIDeepSeekModel.DeepSeekV4Pro, stream: false },
     });

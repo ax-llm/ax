@@ -1,7 +1,7 @@
 {
   "expected_output": {
     "model_usage": {
-      "ai": "GoogleGeminiAI",
+      "ai": "google-gemini",
       "model": "gemini-3.7-flash",
       "tokens": {
         "completion_tokens": 1,

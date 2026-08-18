@@ -1,7 +1,7 @@
 {
   "expected_output": {
     "model_usage": {
-      "ai": "DeepSeek",
+      "ai": "deepseek",
       "model": "deepseek-v4-flash",
       "tokens": {
         "completion_tokens": 2,

@@ -923,6 +923,8 @@ export type AxContextCacheInfo = {
  * ```
  */
 export type AxAIServiceOptions = {
+  /** @internal Identifies whether a forced tool choice came from Ax itself. */
+  functionCallSource?: 'ax' | 'caller';
   /**
    * Enable debug logging for troubleshooting.
    *

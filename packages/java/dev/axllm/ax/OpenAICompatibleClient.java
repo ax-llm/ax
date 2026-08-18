@@ -52,7 +52,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     this("openai-compatible", "openai", options == null ? Map.of() : options, "gpt-4.1-mini", "text-embedding-3-small");
   }
 
-  protected OpenAICompatibleClient(String profile, String name, Map<String, Object> options, String defaultModel, String defaultEmbedModel) {
+  public OpenAICompatibleClient(String profile, String name, Map<String, Object> options, String defaultModel, String defaultEmbedModel) {
     super(
       name,
       String.valueOf(options.getOrDefault("model", defaultModel)),
@@ -66,7 +66,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     String descriptorBaseUrl = String.valueOf(this.descriptor.getOrDefault("baseUrl", "https://api.openai.com/v1"));
     this.baseUrl = String.valueOf(options.getOrDefault("base_url", options.getOrDefault("baseUrl", System.getenv().getOrDefault("OPENAI_BASE_URL", descriptorBaseUrl)))).replaceAll("/+$", "");
     this.apiKey = String.valueOf(options.getOrDefault("api_key", options.getOrDefault("apiKey", System.getenv("OPENAI_API_KEY"))));
-    this.apiVersion = String.valueOf(options.getOrDefault("api_version", options.getOrDefault("apiVersion", this.descriptor.getOrDefault("apiVersion", ""))));
+    this.apiVersion = String.valueOf(this.descriptor.getOrDefault("apiVersion", options.getOrDefault("api_version", options.getOrDefault("apiVersion", ""))));
     Object timeout = options.getOrDefault("timeout", 60.0);
     this.timeoutSeconds = timeout instanceof Number n ? n.doubleValue() : 60.0;
     this.transport = options.get("transport") instanceof Transport t ? t : null;
@@ -613,7 +613,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     if ("bearer".equals(String.valueOf(descriptor.get("auth")))) {
       headers.put("Authorization", "Bearer " + (apiKey == null ? "" : apiKey));
     }
-    if ("anthropic_key".equals(String.valueOf(descriptor.get("auth")))) {
+    if (java.util.Set.of("anthropic_key", "x-api-key").contains(String.valueOf(descriptor.get("auth")))) {
       headers.put("x-api-key", apiKey == null ? "" : apiKey);
     }
     if ("api_key_header".equals(String.valueOf(descriptor.get("auth")))) {

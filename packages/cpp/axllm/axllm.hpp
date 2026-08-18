@@ -45,7 +45,6 @@ class RuntimeTransport;
 class AxAIService;
 class OpenAICompatibleClient;
 class OpenAIResponsesClient;
-class DeepSeekResponsesClient;
 class GoogleGeminiClient;
 class AnthropicClient;
 class AxBootstrapFewShot;
@@ -296,43 +295,43 @@ struct Core {
   static Value _prompt_user_content_impl(Value signature, Value values);
   static Value _prompt_messages_impl(Value system, Value user);
   static Value openai_build_chat_request(Value request, Value options, Value prompt_caching);
-  static Value _openai_build_chat_request_impl(Value request, Value options, Value prompt_caching, Value reasoning_content_mode);
+  static Value _openai_build_chat_request_impl(Value request, Value options, Value prompt_caching, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value merge_model_config(Value base, Value override, Value options);
   static Value validate_chat_request(Value request);
-  static Value build_chat_request(Value service, Value request, Value options);
   static Value _openai_apply_cache_breakpoint_impl(Value message);
+  static Value build_chat_request(Value service, Value request, Value options);
   static Value normalize_chat_response(Value raw);
+  static Value _openai_apply_model_config_impl(Value payload, Value model_config);
   static Value normalize_stream_delta(Value raw, Value state);
   static Value build_embed_request(Value service, Value request, Value options);
   static Value normalize_embed_response(Value raw);
   static Value normalize_token_usage(Value usage);
-  static Value _openai_apply_model_config_impl(Value payload, Value model_config);
   static Value openai_reasoning_effort(Value model, Value budget);
-  static Value merge_usage_context(Value defaults, Value overrides);
-  static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
   static Value openai_chat_reasoning_effort(Value model, Value budget);
   static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
-  static Value _openai_message_impl(Value message, Value reasoning_content_mode);
+  static Value _openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode);
+  static Value merge_usage_context(Value defaults, Value overrides);
+  static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
   static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
   static Value chat_response_to_completion(Value response);
   static Value _openai_content_part_impl(Value part);
   static Value ai_context_cache_rejection(Value status, Value body_json);
-  static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
-  static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
   static Value _openai_tool_call_to_provider_impl(Value call);
+  static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
   static Value _openai_tool_spec_impl(Value fn);
-  static Value ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry);
+  static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
   static Value openai_build_embed_request(Value request);
   static Value openai_normalize_chat_response(Value raw, Value ai_name, Value model);
+  static Value ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry);
+  static Value _openai_normalize_chat_response_impl(Value raw, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
-  static Value _openai_normalize_chat_response_impl(Value raw, Value ai_name, Value model, Value reasoning_content_mode);
-  static Value _openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode);
+  static Value _openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value _openai_normalize_tool_calls_impl(Value calls);
   static Value _openai_finish_reason_impl(Value value);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
   static Value openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model);
-  static Value _openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode);
-  static Value _openai_stream_choice_impl(Value choice, Value index_ids, Value reasoning_content_mode);
+  static Value _openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
+  static Value _openai_stream_choice_impl(Value choice, Value index_ids, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value openai_normalize_error(Value status, Value body, Value request);
   static Value provider_normalize_profile(Value profile);
   static Value provider_profile_registry();
@@ -379,11 +378,16 @@ struct Core {
   static Value _realtime_request_system_instruction_impl(Value request);
   static Value _realtime_request_user_messages_impl(Value request);
   static Value _openai_realtime_content_parts_impl(Value content);
+  static Value _provider_model_matches(Value match, Value model);
+  static Value _provider_resolve_model_rule(Value profile, Value model);
+  static Value _provider_reasoning_field(Value profile, Value model);
+  static Value _provider_reasoning_details_field(Value profile, Value model);
+  static Value _provider_reasoning_replay_field(Value profile, Value model);
+  static Value _provider_reasoning_details_replay_field(Value profile, Value model);
+  static Value _provider_apply_request_rules(Value payload, Value request, Value rules);
   static Value provider_build_chat_request(Value profile, Value request, Value options);
-  static Value _provider_apply_openai_compatible_profile_quirks(Value profile, Value payload, Value request);
-  static Value _provider_apply_deepseek_chat_quirks(Value payload, Value model_config);
-  static Value _provider_apply_mistral_chat_quirks(Value payload);
-  static Value _provider_apply_grok_chat_quirks(Value payload, Value request, Value model_config);
+  static Value _provider_apply_image_url_object_shape(Value payload);
+  static Value _provider_apply_search_parameters_option(Value payload, Value request, Value model_config);
   static Value provider_build_embed_request(Value profile, Value request, Value options);
   static Value provider_normalize_chat_response(Value profile, Value raw, Value ai_name, Value model);
   static Value provider_normalize_stream_delta(Value profile, Value raw, Value state, Value ai_name, Value model);
@@ -1127,6 +1131,7 @@ class ScriptedRealtimeTransport : public RealtimeTransport {
 class OpenAICompatibleClient : public AxBaseAI {
  public:
   explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr);
+  OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model);
   std::vector<Value> stream(Value request) override;
   Value transcribe(Value request) override;
   Value speak(Value request) override;
@@ -1138,7 +1143,6 @@ class OpenAICompatibleClient : public AxBaseAI {
   OpenAICompatibleClient& context_cache_registry(AxContextCacheRegistry* registry);
 
  protected:
-  OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model);
   Value do_chat(Value request, Value options) override;
   Value do_embed(Value request, Value options) override;
 
@@ -1169,51 +1173,19 @@ class OpenAICompatibleClient : public AxBaseAI {
 class OpenAIResponsesClient : public OpenAICompatibleClient {
  public:
   explicit OpenAIResponsesClient(Value options = Value::object(), Transport* transport = nullptr);
-};
-
-class DeepSeekResponsesClient : public OpenAICompatibleClient {
- public:
-  explicit DeepSeekResponsesClient(Value options = Value::object(), Transport* transport = nullptr);
+  OpenAIResponsesClient(std::string profile, Value options, Transport* transport = nullptr);
 };
 
 class GoogleGeminiClient : public OpenAICompatibleClient {
  public:
   explicit GoogleGeminiClient(Value options = Value::object(), Transport* transport = nullptr);
+  GoogleGeminiClient(std::string profile, Value options, Transport* transport = nullptr);
 };
 
 class AnthropicClient : public OpenAICompatibleClient {
  public:
   explicit AnthropicClient(Value options = Value::object(), Transport* transport = nullptr);
-};
-
-class AzureOpenAIClient : public OpenAICompatibleClient {
- public:
-  explicit AzureOpenAIClient(Value options = Value::object(), Transport* transport = nullptr);
-};
-
-class DeepSeekClient : public OpenAICompatibleClient {
- public:
-  explicit DeepSeekClient(Value options = Value::object(), Transport* transport = nullptr);
-};
-
-class MistralClient : public OpenAICompatibleClient {
- public:
-  explicit MistralClient(Value options = Value::object(), Transport* transport = nullptr);
-};
-
-class RekaClient : public OpenAICompatibleClient {
- public:
-  explicit RekaClient(Value options = Value::object(), Transport* transport = nullptr);
-};
-
-class CohereClient : public OpenAICompatibleClient {
- public:
-  explicit CohereClient(Value options = Value::object(), Transport* transport = nullptr);
-};
-
-class GrokClient : public OpenAICompatibleClient {
- public:
-  explicit GrokClient(Value options = Value::object(), Transport* transport = nullptr);
+  AnthropicClient(std::string profile, Value options, Transport* transport = nullptr);
 };
 
 class Tool {

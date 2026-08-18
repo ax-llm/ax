@@ -138,7 +138,7 @@
     },
     {
       "model_usage": {
-        "ai": "GoogleGeminiAI",
+        "ai": "google-gemini",
         "model": "gemini-2.5-flash-native-audio-preview-12-2025",
         "tokens": {
           "completion_tokens": 4,

@@ -113,16 +113,6 @@ OpenAI Responses provider mapping using the same Core-owned request and response
 - Returns: `provider client`
 - Important options: api key, model, audio, realtime
 
-### `DeepSeekResponsesClient`
-
-DeepSeek Responses provider mapping with stateless reasoning and function-call replay.
-
-- Canonical Ax concept: `DeepSeekResponsesClient`
-- Kind: `type`
-- Form: `new DeepSeekResponsesClient(options)`
-- Returns: `provider client`
-- Important options: api key, model, thinking, transport
-
 ### `GoogleGeminiClient`
 
 Gemini provider mapping for chat, streaming, media, tools, embeddings, and usage normalization.

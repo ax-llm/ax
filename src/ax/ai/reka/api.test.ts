@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AxAIReka } from './api.js';
+import { AxAIOpenAIProfile } from '../provider_profiles.js';
 import { AxAIRekaModel } from './types.js';
 
 function createMockFetch(capture: { url?: string; body?: any }) {
@@ -35,10 +35,11 @@ function createMockFetch(capture: { url?: string; body?: any }) {
     });
 }
 
-describe('AxAIReka OpenAI compatibility', () => {
+describe('reka profile OpenAI compatibility', () => {
   it('uses the OpenAI-compatible chat completions endpoint', async () => {
     const capture: { url?: string; body?: any } = {};
-    const ai = new AxAIReka({
+    const ai = new AxAIOpenAIProfile({
+      name: 'reka',
       apiKey: 'key',
       config: { model: AxAIRekaModel.RekaFlash },
       options: { fetch: createMockFetch(capture) },

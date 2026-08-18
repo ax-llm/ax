@@ -3,8 +3,8 @@ import java.util.*;
 
 public final class RealtimeAudioEventsExample {
   public static void main(String[] args) {
-    GrokClient grok =
-        new GrokClient(Map.of("model", "grok-voice-think-fast-1.0", "api_key", "test-key"));
+    OpenAICompatibleClient grok =
+        (OpenAICompatibleClient) Ax.ai("grok", Map.of("model", "grok-voice-think-fast-1.0", "api_key", "test-key"));
     Map<String, Object> grokRequest =
         Map.of(
             "model",

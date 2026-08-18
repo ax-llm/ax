@@ -25,7 +25,7 @@
   "kind": "ai_chat",
   "model": "gpt-5.6-luna",
   "name": "openai-cache-write-usage-and-long-context-cost",
-  "provider": "openai-compatible",
+  "provider": "openai",
   "request": {
     "chat_prompt": [
       {

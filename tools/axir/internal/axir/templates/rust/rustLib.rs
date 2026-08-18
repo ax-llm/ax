@@ -1060,7 +1060,7 @@ impl OpenAICompatibleClient {
                     headers.insert("Authorization".to_string(), json!(format!("Bearer {}", self.api_key)));
                 }
             }
-            "anthropic_key" => {
+            "anthropic_key" | "x-api-key" => {
                 headers.insert("x-api-key".to_string(), json!(self.api_key.clone()));
             }
             "api_key_header" => {
@@ -1992,141 +1992,79 @@ impl AxAIClient for OpenAICompatibleClient {
 pub type AxAIService = OpenAICompatibleClient;
 pub type AxBaseAI = OpenAICompatibleClient;
 pub type AnthropicClient = OpenAICompatibleClient;
-pub type AzureOpenAIClient = OpenAICompatibleClient;
-pub type CohereClient = OpenAICompatibleClient;
-pub type DeepSeekClient = OpenAICompatibleClient;
 pub type GoogleGeminiClient = OpenAICompatibleClient;
-pub type GrokClient = OpenAICompatibleClient;
-pub type MistralClient = OpenAICompatibleClient;
 pub type OpenAIResponsesClient = OpenAICompatibleClient;
-pub type DeepSeekResponsesClient = OpenAICompatibleClient;
-pub type RekaClient = OpenAICompatibleClient;
 
 pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
     let defaults = provider_defaults(provider)
         .ok_or_else(|| AxError::validation(format!("unknown AxAI provider {provider}")))?;
+    let profile = defaults.profile.clone();
     let vertex = options.get("project_id").or_else(|| options.get("projectId")).is_some() && options.get("region").is_some();
     let api_key = string_at(&options, "api_key")
         .or_else(|| string_at(&options, "apiKey"))
-        .or_else(|| if vertex && matches!(defaults.profile, "google-gemini" | "anthropic") { std::env::var("GOOGLE_VERTEX_ACCESS_TOKEN").ok() } else { None })
+        .or_else(|| if vertex && matches!(profile.as_str(), "google-gemini" | "anthropic") { std::env::var("GOOGLE_VERTEX_ACCESS_TOKEN").ok() } else { None })
         .or_else(|| std::env::var("OPENAI_API_KEY").ok())
         .or_else(|| std::env::var("OPENAI_APIKEY").ok())
         .unwrap_or_else(|| "test-key".to_string());
     let model = string_at(&options, "model").unwrap_or_else(|| defaults.model.to_string());
-    let api_url = string_at(&options, "api_url").unwrap_or_else(|| defaults.api_url.to_string());
+    let resolved_descriptor = provider_resolve_descriptor(&[
+        CoreValue::from(profile.as_str()),
+        core_value_from_json(&options),
+    ])?;
+    let resolved_descriptor = core_value_to_json(&resolved_descriptor);
+    let api_url = string_at(&options, "api_url")
+        .or_else(|| string_at(&options, "base_url"))
+        .or_else(|| string_at(&options, "baseUrl"))
+        .or_else(|| resolved_descriptor.get("baseUrl").and_then(Value::as_str).map(ToString::to_string))
+        .unwrap_or_else(|| defaults.api_url.to_string());
+    if defaults.requires_api_url && api_url.is_empty() {
+        return Err(AxError::validation(format!(
+            "AxAI profile {} requires api_url",
+            profile
+        )));
+    }
     let embed_model = string_at(&options, "embed_model").unwrap_or_else(|| defaults.embed_model.to_string());
     let mut client = OpenAICompatibleClient::new(api_key, model)
         .with_api_url(api_url)
         .with_embed_model(embed_model)
-        .with_profile(defaults.profile);
+        .with_profile(profile.clone());
+    client.api_version = resolved_descriptor
+        .get("apiVersion")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     client.base_url_override = string_at(&options, "base_url")
         .or_else(|| string_at(&options, "baseUrl"))
         .or_else(|| string_at(&options, "api_url"));
-    if defaults.profile == "azure-openai" {
-        let version = string_at(&options, "api_version")
-            .or_else(|| string_at(&options, "apiVersion"))
-            .or_else(|| string_at(&options, "version"))
-            .unwrap_or_else(|| "2024-02-15-preview".to_string());
-        client.api_version = version.trim_start_matches("api-version=").to_string();
-        if client.base_url_override.is_none() {
-            let resource = string_at(&options, "resource_name").or_else(|| string_at(&options, "resourceName"));
-            let deployment = string_at(&options, "deployment_name").or_else(|| string_at(&options, "deploymentName"));
-            if let (Some(resource), Some(deployment)) = (resource, deployment) {
-                let host = if resource.contains("://") {
-                    resource
-                } else {
-                    format!("https://{resource}.openai.azure.com")
-                };
-                client.base_url_override = Some(format!(
-                    "{}/openai/deployments/{}",
-                    host.trim_end_matches('/'),
-                    url_component_escape(&deployment)
-                ));
-            }
-        }
-    }
     Ok(client
         .with_options(options.clone())
         .with_model_config(options.get("model_config").cloned().unwrap_or_else(|| json!({}))))
 }
 
 struct ProviderDefaults {
-    profile: &'static str,
-    api_url: &'static str,
-    model: &'static str,
-    embed_model: &'static str,
+    profile: String,
+    api_url: String,
+    model: String,
+    embed_model: String,
+    requires_api_url: bool,
 }
 
 fn provider_defaults(provider: &str) -> Option<ProviderDefaults> {
-    match provider {
-        "openai" | "openai-compatible" => Some(ProviderDefaults {
-            profile: "openai-compatible",
-            api_url: "https://api.openai.com/v1",
-            model: "gpt-4.1-mini",
-            embed_model: "text-embedding-3-small",
-        }),
-        "openai-responses" | "responses" => Some(ProviderDefaults {
-            profile: "openai-responses",
-            api_url: "https://api.openai.com/v1",
-            model: "gpt-4o",
-            embed_model: "text-embedding-3-small",
-        }),
-        "deepseek-responses" => Some(ProviderDefaults {
-            profile: "deepseek-responses",
-            api_url: "https://api.deepseek.com",
-            model: "deepseek-v4-flash",
-            embed_model: "",
-        }),
-        "google-gemini" | "gemini" => Some(ProviderDefaults {
-            profile: "google-gemini",
-            api_url: "https://generativelanguage.googleapis.com/v1beta",
-            model: "gemini-2.5-flash",
-            embed_model: "text-embedding-004",
-        }),
-        "anthropic" => Some(ProviderDefaults {
-            profile: "anthropic",
-            api_url: "https://api.anthropic.com",
-            model: "claude-3-7-sonnet-latest",
-            embed_model: "text-embedding-3-small",
-        }),
-        "azure-openai" | "azure" => Some(ProviderDefaults {
-            profile: "azure-openai",
-            api_url: "https://example-resource.openai.azure.com/openai/deployments",
-            model: "gpt-4.1-mini",
-            embed_model: "text-embedding-3-small",
-        }),
-        "deepseek" => Some(ProviderDefaults {
-            profile: "deepseek",
-            api_url: "https://api.deepseek.com/v1",
-            model: "deepseek-chat",
-            embed_model: "text-embedding-3-small",
-        }),
-        "mistral" => Some(ProviderDefaults {
-            profile: "mistral",
-            api_url: "https://api.mistral.ai/v1",
-            model: "mistral-large-latest",
-            embed_model: "mistral-embed",
-        }),
-        "reka" => Some(ProviderDefaults {
-            profile: "reka",
-            api_url: "https://api.reka.ai/v1",
-            model: "reka-flash",
-            embed_model: "text-embedding-3-small",
-        }),
-        "cohere" => Some(ProviderDefaults {
-            profile: "cohere",
-            api_url: "https://api.cohere.com/v2",
-            model: "command-r-plus",
-            embed_model: "embed-v4.0",
-        }),
-        "grok" | "xai" => Some(ProviderDefaults {
-            profile: "grok",
-            api_url: "https://api.x.ai/v1",
-            model: "grok-3-mini",
-            embed_model: "text-embedding-3-small",
-        }),
-        _ => None,
+    let resolved = provider_resolve_profile(&[CoreValue::from(provider)]).ok()?;
+    let resolved = core_value_to_json(&resolved);
+    if !resolved.get("known").and_then(Value::as_bool).unwrap_or(false) {
+        return None;
     }
+    let profile = resolved.get("id")?.as_str()?.to_string();
+    let descriptor = provider_descriptor(&[CoreValue::from(profile.as_str())]).ok()?;
+    let descriptor = core_value_to_json(&descriptor);
+    Some(ProviderDefaults {
+        profile,
+        api_url: descriptor.get("baseUrl").and_then(Value::as_str).unwrap_or("").to_string(),
+        model: descriptor.get("defaultModel").and_then(Value::as_str).unwrap_or("").to_string(),
+        embed_model: descriptor.get("defaultEmbedModel").and_then(Value::as_str).unwrap_or("").to_string(),
+        requires_api_url: descriptor.get("requiresApiURL").and_then(Value::as_bool).unwrap_or(false),
+    })
 }
 
 fn normalize_openai_response(profile: &str, model: &str, response: Value) -> AxResult<Value> {
@@ -7358,7 +7296,7 @@ fn conformance_ai_registry_result(kind: &str, fixture: &Value) -> AxResult<Value
             let provider = fixture
                 .get("provider")
                 .and_then(Value::as_str)
-                .unwrap_or("openai-compatible");
+                .unwrap_or("openai");
             if let Some(options) = fixture.get("options") {
                 Ok(core_value_to_json(&provider_resolve_descriptor(&[
                     CoreValue::from(provider),
@@ -12237,7 +12175,11 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
 fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
     let (mut client, requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
-    let output = client.chat(request)?;
+    let output_result = client.chat(request);
+    if fixture.get("expected_error_contains").is_some() {
+        return expect_validation_result(output_result.map(|_| ()), fixture);
+    }
+    let output = output_result?;
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("ai chat output", &output, expected)?;
     }
@@ -12360,7 +12302,11 @@ fn run_ai_realtime_fixture(fixture: &Value) -> AxResult<()> {
         .get("provider")
         .and_then(Value::as_str)
         .unwrap_or("openai-responses");
-    let mut options = json!({});
+    let mut options = fixture
+        .get("service_options")
+        .or_else(|| fixture.get("options"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     if let Some(model) = fixture.get("model") {
         options["model"] = model.clone();
     }
@@ -12408,7 +12354,12 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
         .unwrap_or_default();
     let requests = Arc::new(Mutex::new(Vec::new()));
     let transport = RecordingTransport::new(responses, Arc::clone(&requests));
-    let mut options = json!({});
+    let mut options = fixture
+        .get("service_options")
+        .or_else(|| fixture.get("options"))
+        .cloned()
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({}));
     if let Some(model) = fixture.get("model") {
         options["model"] = model.clone();
     }
@@ -12433,15 +12384,7 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
             options[key] = value.clone();
         }
     }
-    let client = ai(provider, options)?
-        .with_transport(transport)
-        .with_options(
-            fixture
-                .get("service_options")
-                .or_else(|| fixture.get("options"))
-                .cloned()
-                .unwrap_or_else(|| json!({})),
-        );
+    let client = ai(provider, options)?.with_transport(transport);
     Ok((client, requests))
 }
 
@@ -15199,9 +15142,7 @@ fn merge_model_config_wire(target: &mut Value, source: &Value) {
 }
 
 fn provider_ai_display_name(profile: &str) -> CoreValue {
-    provider_descriptor(&[CoreValue::from(profile)])
-        .map(|descriptor| core_get(&descriptor, &CoreValue::from("name"), CoreValue::from(profile)))
-        .unwrap_or_else(|_| CoreValue::from(profile))
+    CoreValue::from(profile)
 }
 
 // ----- AXIR CORE GEN ENGINE (host boundary) -----

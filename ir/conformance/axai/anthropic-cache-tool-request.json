@@ -2,7 +2,7 @@
   "expected_output": {
     "model_usage": {
       "ai": "anthropic",
-      "model": "claude-3-7-sonnet-latest",
+      "model": "claude-sonnet-4-5",
       "tokens": {
         "completion_tokens": 4,
         "prompt_tokens": 12,
@@ -70,9 +70,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "query"
-            ],
+            "required": ["query"],
             "type": "object"
           },
           "name": "search"
@@ -113,9 +111,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "query"
-          ],
+          "required": ["query"],
           "type": "object"
         }
       }
@@ -138,7 +134,7 @@
           }
         ],
         "id": "msg_tool",
-        "model": "claude-3-7-sonnet-latest",
+        "model": "claude-sonnet-4-5",
         "role": "assistant",
         "stop_reason": "tool_use",
         "type": "message",

@@ -1178,6 +1178,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       {
         sessionId,
         promptCacheKey: promptCacheKey ?? this.options?.promptCacheKey,
+        functionCallSource:
+          typeof functionCall === 'object' &&
+          functionCall.function.name === STRUCTURED_OUTPUT_FUNCTION_NAME
+            ? 'ax'
+            : functionCall
+              ? 'caller'
+              : undefined,
         rateLimiter,
         stream,
         debug,

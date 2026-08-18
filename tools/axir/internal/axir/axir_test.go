@@ -391,13 +391,6 @@ func TestLoadCheckLowerAxCore(t *testing.T) {
 		"op core.interface @AIClient",
 		"op core.record @OpenAICompatibleClient",
 		"op core.record @OpenAIResponsesClient",
-		"op core.record @AzureOpenAIClient",
-		"op core.record @DeepSeekClient",
-		"op core.record @DeepSeekResponsesClient",
-		"op core.record @MistralClient",
-		"op core.record @RekaClient",
-		"op core.record @CohereClient",
-		"op core.record @GrokClient",
 		"op core.func @execute_tool_call",
 		"op core.func @build_gen_chat_request",
 		"op core.method @forward",
@@ -656,12 +649,11 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axai_balancer_adaptive_buffered_streaming",
 		"axai_host_processing_callbacks",
 		"axai_openai_compatible_catalog_clients",
-		"axai_provider_azure_openai_descriptor",
-		"axai_provider_deepseek_descriptor",
-		"axai_provider_mistral_descriptor",
-		"axai_provider_reka_descriptor",
-		"axai_provider_cohere_descriptor",
-		"axai_provider_grok_descriptor",
+		"axai_provider_profile_registry",
+		"axai_provider_profile_model_rules",
+		"axai_provider_profile_operation_dialects",
+		"axai_provider_profile_request_transforms",
+		"axai_provider_profile_transport_dispatch",
 		"google_gemini_provider_mapping",
 		"gemini_media_content_mapping",
 		"gemini_tool_schema_mapping",
@@ -678,7 +670,7 @@ func TestBuildRuntimeModel(t *testing.T) {
 			t.Fatalf("runtime model missing prompt feature flag %s: %#v", feature, model.Features)
 		}
 	}
-	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "DeepSeekResponsesClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "agent", "AxAgent", "AxAgentClarificationError", "flow", "AxFlow", "AxProgram"} {
+	for _, want := range []string{"ai", "AxAIService", "AxBaseAI", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "agent", "AxAgent", "AxAgentClarificationError", "flow", "AxFlow", "AxProgram"} {
 		if _, ok := model.Symbols[want]; !ok {
 			t.Fatalf("runtime model missing symbol %s", want)
 		}
@@ -872,13 +864,6 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"dev/axllm/ax/OpenAIResponsesClient.java",
 				"dev/axllm/ax/GoogleGeminiClient.java",
 				"dev/axllm/ax/AnthropicClient.java",
-				"dev/axllm/ax/AzureOpenAIClient.java",
-				"dev/axllm/ax/DeepSeekClient.java",
-				"dev/axllm/ax/DeepSeekResponsesClient.java",
-				"dev/axllm/ax/MistralClient.java",
-				"dev/axllm/ax/RekaClient.java",
-				"dev/axllm/ax/CohereClient.java",
-				"dev/axllm/ax/GrokClient.java",
 				"dev/axllm/ax/AxMultiServiceRouter.java",
 				"dev/axllm/ax/AxBalancer.java",
 				"dev/axllm/ax/AxBalancerAdaptiveStrategy.java",
@@ -1148,7 +1133,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			if apiRef.PackageName != manifest.PackageName || apiRef.AxIRVersion != manifest.AxIRVersion {
 				t.Fatalf("%s API reference manifest should mirror capability manifest metadata: api=%#v caps=%#v", tc.target, apiRef, manifest)
 			}
-			for _, want := range []string{"s", "ax", "ai", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "DeepSeekResponsesClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "playbook", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
+			for _, want := range []string{"s", "ax", "ai", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "playbook", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
 				if !apiReferenceContainsCanonical(apiRef, want) {
 					t.Fatalf("%s API reference missing canonical symbol %q: %#v", tc.target, want, apiRef.Sections)
 				}
@@ -1169,7 +1154,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 					t.Fatalf("%s manifest has stale broad runtime profile feature %s: %#v", tc.target, stale, manifest.CoreOwnedFeatureGroups)
 				}
 			}
-			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AzureOpenAIClient", "DeepSeekClient", "DeepSeekResponsesClient", "MistralClient", "RekaClient", "CohereClient", "GrokClient", "AxBalancer", "AxBalancerAdaptiveStrategy", "AxBalancerOptions", "AxBalancerStatsStore", "AxInMemoryBalancerStatsStore", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "optimize", "playbook", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
+			for _, want := range []string{"AxGen", "AxSignature", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "AxBalancer", "AxBalancerAdaptiveStrategy", "AxBalancerOptions", "AxBalancerStatsStore", "AxInMemoryBalancerStatsStore", "AxPlaybook", "AxBootstrapFewShot", "AxGEPA", "MultiServiceRouter", "ProviderRouter", "get_supported_ai_models", "optimize", "playbook", "AxAgent", "AxFlow", "AxProgram", "RuntimeCapabilities", "RuntimeEnvelope", "ProcessCodeRuntime", "ProcessCodeSession", "RuntimeProtocolClient", "RuntimeTransport", "OptimizerEngine", "OptimizerEvaluator"} {
 				if !containsString(manifest.PublicSymbols, want) {
 					t.Fatalf("manifest missing public symbol %s: %#v", want, manifest.PublicSymbols)
 				}
@@ -1240,86 +1225,8 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			auditGeneratedRuntimePlaceholders(t, dir, tc.target)
 			auditGeneratedConformanceRunnerSemantics(t, dir, tc.target)
 			auditGeneratedCapabilityCompleteness(t, dir, tc.target, manifest)
-			assertNoRemovedProviderReferences(t, dir)
 			assertNoUserFacingInternalPackageNames(t, dir, tc.target)
 		})
-	}
-}
-
-func TestRemovedProvidersStayRemovedFromActiveSurfaces(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "..")
-	for _, rel := range []string{
-		"README.md",
-		"index.ts",
-		"package.json",
-		"src",
-		"tools/axir",
-		"ir",
-		"packages",
-		"scripts",
-		"docs",
-	} {
-		assertNoRemovedProviderReferences(t, filepath.Join(root, rel))
-	}
-}
-
-func removedProviderReferenceTokens() []string {
-	stem := "hugging" + "face"
-	title := "Hugging" + "Face"
-	titleWords := "Hugging" + " Face"
-	return []string{
-		stem,
-		title,
-		titleWords,
-		"AxAI" + title,
-		"api-inference." + stem,
-		"hf" + "." + "co",
-	}
-}
-
-func assertNoRemovedProviderReferences(t *testing.T, root string) {
-	t.Helper()
-	info, err := os.Stat(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !info.IsDir() {
-		assertFileHasNoRemovedProviderReferences(t, root)
-		return
-	}
-	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		name := d.Name()
-		if d.IsDir() {
-			switch name {
-			case ".git", "node_modules", "target", "dist", "coverage", ".next", ".astro", ".generated":
-				return filepath.SkipDir
-			}
-			if name == "data" && filepath.Base(filepath.Dir(path)) == "src" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		assertFileHasNoRemovedProviderReferences(t, path)
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func assertFileHasNoRemovedProviderReferences(t *testing.T, path string) {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
-	for _, token := range removedProviderReferenceTokens() {
-		if strings.Contains(text, token) {
-			t.Fatalf("removed provider reference %q found in %s", token, path)
-		}
 	}
 }
 
@@ -1809,9 +1716,8 @@ func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
 					"pub fn realtime(&self, event: Value) -> AxResult<Value>",
 					"pub fn realtime_audio_setup(&self, request: Value) -> AxResult<Value>",
 					"pub fn realtime_audio_input(&self, audio: Value) -> AxResult<Value>",
-					"\"openai-responses\" | \"responses\"",
-					"\"google-gemini\" | \"gemini\"",
-					"\"anthropic\"",
+					"provider_resolve_profile(&[CoreValue::from(provider)])",
+					"provider_descriptor(&[CoreValue::from(profile.as_str())])",
 				},
 				forbidden: []string{
 					"stream is not implemented",
@@ -3281,7 +3187,7 @@ func TestCompilePythonGeneratedAxLibrary(t *testing.T) {
 	script := filepath.Join(dir, "smoke.py")
 	err = os.WriteFile(script, []byte(`import sys
 sys.path.insert(0, sys.argv[1])
-from axllm import AIClient, AnthropicClient, AzureOpenAIClient, AxBaseAI, CohereClient, DeepSeekClient, DeepSeekResponsesClient, GoogleGeminiClient, GrokClient, MistralClient, OpenAICompatibleClient, OpenAIResponsesClient, RekaClient, agent, ai, ax, f, fn, s
+from axllm import AIClient, AnthropicClient, AxBaseAI, GoogleGeminiClient, OpenAICompatibleClient, OpenAIResponsesClient, agent, ai, ax, f, fn, s
 
 sig = s('question:string -> answer:string')
 assert sig.get_input_fields()[0].name == 'question'
@@ -3355,7 +3261,7 @@ service = ai('openai', api_key='test', transport=lambda req: {
 assert isinstance(service, OpenAICompatibleClient)
 chat = service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
 assert chat['results'][0]['content'] == 'ok', chat
-assert service.get_last_used_chat_model() == 'gpt-4.1-mini'
+assert service.get_last_used_chat_model() == 'gpt-5-mini'
 responses_service = ai('openai-responses', api_key='test', transport=lambda req: {
     'status': 200,
     'json': {'id': 'resp_smoke', 'model': 'gpt-4o', 'output': [{'id': 'm1', 'type': 'message', 'content': [{'type': 'output_text', 'text': 'ok'}]}]},
@@ -3373,7 +3279,7 @@ gemini_service = ai('google-gemini', api_key='test', transport=lambda req: (
 assert isinstance(gemini_service, GoogleGeminiClient)
 gemini_chat = gemini_service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
 assert gemini_chat['results'][0]['content'] == 'ok', gemini_chat
-assert gemini_requests[0]['url'].endswith('/models/gemini-2.5-flash:generateContent?key=test'), gemini_requests[0]
+assert gemini_requests[0]['url'].endswith('/models/gemini-3.5-flash:generateContent?key=test'), gemini_requests[0]
 anthropic_requests = []
 anthropic_service = ai('anthropic', api_key='test', transport=lambda req: (
     anthropic_requests.append(req) or {
@@ -3386,13 +3292,13 @@ anthropic_chat = anthropic_service.chat({'chat_prompt': [{'role': 'user', 'conte
 assert anthropic_chat['results'][0]['content'] == 'ok', anthropic_chat
 assert anthropic_requests[0]['url'].endswith('/messages'), anthropic_requests[0]
 assert anthropic_requests[0]['headers']['anthropic-version'] == '2023-06-01', anthropic_requests[0]
-for provider_name, cls in [
-    ('azure-openai', AzureOpenAIClient),
-    ('deepseek', DeepSeekClient),
-    ('mistral', MistralClient),
-    ('reka', RekaClient),
-    ('cohere', CohereClient),
-    ('grok', GrokClient),
+for provider_name in [
+    'azure-openai',
+    'deepseek',
+    'mistral',
+    'reka',
+    'cohere',
+    'grok',
 ]:
     provider_requests = []
     provider_options = {'resource_name': 'example', 'deployment_name': 'deployment'} if provider_name == 'azure-openai' else {}
@@ -3406,7 +3312,7 @@ for provider_name, cls in [
             },
         }
     ), **provider_options)
-    assert isinstance(service, cls), (provider_name, service)
+    assert isinstance(service, OpenAICompatibleClient), (provider_name, service)
     result = service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
     assert result['results'][0]['content'] == 'ok', result
     assert provider_requests, provider_name
@@ -3421,7 +3327,7 @@ responses_service = ai('deepseek-responses', api_key='test', transport=lambda re
         },
     }
 ))
-assert isinstance(responses_service, DeepSeekResponsesClient)
+assert isinstance(responses_service, OpenAIResponsesClient)
 responses_result = responses_service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
 assert responses_result['results'][0]['content'] == 'ok', responses_result
 assert responses_requests[0]['url'].endswith('/responses'), responses_requests[0]
@@ -3753,13 +3659,6 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"class OpenAIResponsesClient",
 		"class GoogleGeminiClient",
 		"class AnthropicClient",
-		"class AzureOpenAIClient",
-		"class DeepSeekClient",
-		"class DeepSeekResponsesClient",
-		"class MistralClient",
-		"class RekaClient",
-		"class CohereClient",
-		"class GrokClient",
 		"class AxBalancer",
 		"class MultiServiceRouter",
 		"class ProviderRouter",
@@ -4307,21 +4206,18 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if !strings.Contains(string(anthropicFile), "anthropic") || !strings.Contains(string(openAIText), "Core.provider_build_chat_request(") {
 		t.Fatalf("generated Java Anthropic client missing provider marker or Core delegation")
 	}
-	for providerFile, providerMarker := range map[string]string{
-		"AzureOpenAIClient.java": "azure-openai",
-		"DeepSeekClient.java":    "deepseek",
-		"DeepSeekResponsesClient.java": "deepseek-responses",
-		"MistralClient.java":     "mistral",
-		"RekaClient.java":        "reka",
-		"CohereClient.java":      "cohere",
-		"GrokClient.java":        "grok",
+	for _, removedFile := range []string{
+		"AzureOpenAIClient.java",
+		"DeepSeekClient.java",
+		"DeepSeekResponsesClient.java",
+		"MistralClient.java",
+		"RekaClient.java",
+		"CohereClient.java",
+		"GrokClient.java",
 	} {
-		fileText, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", providerFile))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(fileText), providerFile[:len(providerFile)-5]) || !strings.Contains(string(fileText), providerMarker) || !strings.Contains(openAIText, "Core.provider_build_chat_request(") {
-			t.Fatalf("generated Java provider client %s missing provider marker or Core delegation", providerFile)
+		_, err := os.Stat(filepath.Join(dir, "dev", "axllm", "ax", removedFile))
+		if !os.IsNotExist(err) {
+			t.Fatalf("generated Java package retained removed profile-only client %s", removedFile)
 		}
 	}
 	conformanceFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "Conformance.java"))
@@ -4460,13 +4356,6 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"class OpenAIResponsesClient",
 		"class GoogleGeminiClient",
 		"class AnthropicClient",
-		"class AzureOpenAIClient",
-		"class DeepSeekClient",
-		"class DeepSeekResponsesClient",
-		"class MistralClient",
-		"class RekaClient",
-		"class CohereClient",
-		"class GrokClient",
 		"class AxBalancer",
 		"class MultiServiceRouter",
 		"class ProviderRouter",

@@ -32,9 +32,10 @@ var packageSkillSpecs = []packageSkillSpec{
 		ID:          "ai",
 		Title:       "AxAI Providers",
 		Area:        "provider clients and model routing",
-		Description: "provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers",
+		Description: "named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers",
 		UseWhen: []string{
 			"Create provider clients or normalize provider options.",
+			"Choose a named deployment profile separately from the model ID served by that deployment.",
 			"Choose between model-list routing, ordered failover, and adaptive operational routing.",
 			"Use scripted transports for deterministic no-key examples.",
 			"Use provider-api examples only when explicit provider credentials are available.",
@@ -239,8 +240,22 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 	if expandedExamples != "" {
 		expandedExamples += "\n\n"
 	}
+	profileGuide := ""
 	routingGuide := ""
 	if spec.ID == "ai" {
+		profileGuide = readmeLines(
+			"## Named Deployment Profiles",
+			"",
+			"- The first `ai` / `NewAI` factory argument selects deployment behavior. The model option selects a model only inside that deployment; never infer request rules from a vendor-looking model ID.",
+			"- `openai` is the official OpenAI deployment. `openai-compatible` is the conservative custom-endpoint profile and requires an explicit base URL. Unknown profile names are errors.",
+			"- A Together-hosted DeepSeek model uses the `together` profile's URL, authentication, reasoning fields, and effort mapping. Native DeepSeek `thinking` fields apply only to the `deepseek` profile.",
+			"- Verified DeepSeek, Grok, Groq, Cerebras, and DeepInfra model rules default an omitted thinking level to logical `max`, mapped to the strongest documented deployment effort.",
+			"- Send `none` only where the selected deployment and model document reasoning disablement. Unsupported levels fail before network I/O; dynamic Hugging Face Router routes remain conservative.",
+			"- Use named factories for Azure OpenAI, Cohere, DeepSeek, DeepSeek Responses, Mistral, Reka, Grok, routers, hosted inference, and configurable runtimes. Profile-only branded client constructors were removed.",
+			"- Retained client classes are transport/runtime boundaries: OpenAI-compatible Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini GenerateContent. Build ordinary applications through the named factory.",
+			"- Provider descriptors and conformance fixtures are generated from the shared profile manifest. Do not add provider-name switches or cross-profile model normalization in a generated package.",
+			"",
+		) + "\n"
 		routingGuide = readmeLines(
 			"## Vertex And Prompt Caching",
 			"",
@@ -357,7 +372,7 @@ func renderSkill(spec packageSkillSpec, model AxRuntimeModel, target string) str
 		skillSnippet(target, spec.ID),
 		"```",
 		"",
-		expandedExamples+routingGuide+genForwardGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
+		expandedExamples+profileGuide+routingGuide+genForwardGuide+agentMemoryGuide+usageObserverGuide+"## Relevant API Surface",
 		"",
 		skillAPISurface(apiRef, spec.Sections),
 		"",

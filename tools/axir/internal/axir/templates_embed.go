@@ -208,23 +208,11 @@ var javaAxProgram string
 //go:embed templates/java/javaAxProviderRouter.java
 var javaAxProviderRouter string
 
-//go:embed templates/java/javaAzureOpenAI.java
-var javaAzureOpenAI string
-
-//go:embed templates/java/javaCohere.java
-var javaCohere string
-
 //go:embed templates/java/javaConformance.java
 var javaConformance string
 
 //go:embed templates/java/javaCore.java
 var javaCore string
-
-//go:embed templates/java/javaDeepSeek.java
-var javaDeepSeek string
-
-//go:embed templates/java/javaDeepSeekResponses.java
-var javaDeepSeekResponses string
 
 //go:embed templates/java/javaField.java
 var javaField string
@@ -235,14 +223,8 @@ var javaFieldType string
 //go:embed templates/java/javaGoogleGemini.java
 var javaGoogleGemini string
 
-//go:embed templates/java/javaGrok.java
-var javaGrok string
-
 //go:embed templates/java/javaJson.java
 var javaJson string
-
-//go:embed templates/java/javaMistral.java
-var javaMistral string
 
 //go:embed templates/java/javaOpenAI.java
 var javaOpenAI string
@@ -258,9 +240,6 @@ var javaOptimizerEvaluator string
 
 //go:embed templates/java/javaPromptTemplate.java
 var javaPromptTemplate string
-
-//go:embed templates/java/javaReka.java
-var javaReka string
 
 //go:embed templates/java/javaSignature.java
 var javaSignature string

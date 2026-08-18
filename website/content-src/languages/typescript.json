@@ -551,7 +551,7 @@
       },
       "compatible": [
         "const compatible = ai({",
-        "  name: 'openai',",
+        "  name: 'openai-compatible',",
         "  apiKey: process.env.PROVIDER_API_KEY!,",
         "  apiURL: 'https://provider.example/v1',",
         "  config: { model: 'provider/model-name' },",

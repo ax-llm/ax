@@ -2032,34 +2032,24 @@ struct ClientFixture {
         client(make_client(fixture, &transport)) {}
 
   static std::unique_ptr<OpenAICompatibleClient> make_client(Value fixture, ScriptedTransport* transport) {
-    std::string provider = display(Core::provider_normalize_profile(Core::get(fixture, "provider", "openai-compatible")));
-    if (provider == "google-gemini") return std::make_unique<GoogleGeminiClient>(options(fixture), transport);
-    if (provider == "anthropic") return std::make_unique<AnthropicClient>(options(fixture), transport);
-    if (provider == "openai-responses") return std::make_unique<OpenAIResponsesClient>(options(fixture), transport);
-    if (provider == "deepseek-responses") return std::make_unique<DeepSeekResponsesClient>(options(fixture), transport);
-    if (provider == "azure-openai") return std::make_unique<AzureOpenAIClient>(options(fixture), transport);
-    if (provider == "deepseek") return std::make_unique<DeepSeekClient>(options(fixture), transport);
-    if (provider == "mistral") return std::make_unique<MistralClient>(options(fixture), transport);
-    if (provider == "reka") return std::make_unique<RekaClient>(options(fixture), transport);
-    if (provider == "cohere") return std::make_unique<CohereClient>(options(fixture), transport);
-    if (provider == "grok") return std::make_unique<GrokClient>(options(fixture), transport);
-    return std::make_unique<OpenAICompatibleClient>(options(fixture), transport);
+    std::string provider = display(Core::provider_normalize_profile(Core::get(fixture, "provider", "openai")));
+    Value descriptor = Core::provider_descriptor(provider);
+    std::string provider_transport = display(Core::get(descriptor, "transport"));
+    if (provider_transport == "gemini-generate-content") return std::make_unique<GoogleGeminiClient>(provider, options(fixture), transport);
+    if (provider_transport == "anthropic-messages") return std::make_unique<AnthropicClient>(provider, options(fixture), transport);
+    if (provider_transport == "openai-responses") return std::make_unique<OpenAIResponsesClient>(provider, options(fixture), transport);
+    return std::make_unique<OpenAICompatibleClient>(provider,
+        provider, options(fixture), transport,
+        display(Core::get(descriptor, "defaultModel", "")),
+        display(Core::get(descriptor, "defaultEmbedModel", "")));
   }
 
   static Value options(Value fixture) {
     Value out = Value::object();
-    std::string provider = display(Core::provider_normalize_profile(Core::get(fixture, "provider", "openai-compatible")));
-    bool responses_provider = provider == "openai-responses" || provider == "deepseek-responses";
-    bool gemini_provider = provider == "google-gemini";
-    bool anthropic_provider = provider == "anthropic";
-    bool azure_provider = provider == "azure-openai";
-    bool deepseek_provider = provider == "deepseek" || provider == "deepseek-responses";
-    bool mistral_provider = provider == "mistral";
-    bool reka_provider = provider == "reka";
-    bool cohere_provider = provider == "cohere";
-    bool grok_provider = provider == "grok";
-    std::string default_model = anthropic_provider ? "claude-3-7-sonnet-latest" : gemini_provider ? "gemini-2.5-flash" : provider == "deepseek-responses" ? "deepseek-v4-flash" : responses_provider ? "gpt-4o" : azure_provider ? "gpt-5-mini" : deepseek_provider ? "deepseek-v4-flash" : mistral_provider ? "mistral-small-latest" : reka_provider ? "reka-core" : cohere_provider ? "command-r-plus" : grok_provider ? "grok-4.3" : "gpt-4.1-mini";
-    std::string default_embed_model = anthropic_provider || deepseek_provider || reka_provider || grok_provider ? "" : gemini_provider ? "gemini-embedding-2" : responses_provider ? "text-embedding-ada-002" : mistral_provider ? "mistral-embed" : cohere_provider ? "embed-english-v3.0" : "text-embedding-3-small";
+    std::string provider = display(Core::provider_normalize_profile(Core::get(fixture, "provider", "openai")));
+    Value descriptor = Core::provider_descriptor(provider);
+    std::string default_model = display(Core::get(descriptor, "defaultModel", ""));
+    std::string default_embed_model = display(Core::get(descriptor, "defaultEmbedModel", ""));
     Core::set(out, "model", Core::get(fixture, "model", default_model));
     Core::set(out, "embed_model", Core::get(fixture, "embed_model", default_embed_model));
     Core::set(out, "api_key", "test-key");
@@ -2117,7 +2107,10 @@ static void assert_ai_error(const AxError& error, Value fixture, const ScriptedT
 
 static void run_ai_chat(Value fixture) {
   ClientFixture cf(fixture);
-  Value result = cf.client->chat(Core::get(fixture, "request", Value::object()));
+  Value result = expect_maybe_error([&] {
+    return cf.client->chat(Core::get(fixture, "request", Value::object()));
+  }, fixture);
+  if (!Core::get(fixture, "expected_error_contains").is_null()) return;
   Value expected = Core::get(fixture, "expected_output");
   if (!expected.is_null()) assert_equal(result, expected, "ai chat output");
   Value expected_request = Core::get(fixture, "expected_request_after");
@@ -2213,7 +2206,7 @@ static void run_ai_unsupported(Value fixture) {
 }
 
 static void run_ai_provider_descriptor(Value fixture) {
-  Value provider = Core::get(fixture, "provider", "openai-compatible");
+  Value provider = Core::get(fixture, "provider", "openai");
   Value options = Core::get(fixture, "options");
   Value descriptor = !options.is_null()
     ? Core::provider_resolve_descriptor(provider, options)

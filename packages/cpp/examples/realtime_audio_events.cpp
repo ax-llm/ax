@@ -3,10 +3,10 @@
 #include <iostream>
 
 int main() {
-  axllm::GrokClient grok(axllm::object({
+  auto grok = std::dynamic_pointer_cast<axllm::OpenAICompatibleClient>(axllm::ai("grok", axllm::object({
       {"model", "grok-voice-think-fast-1.0"},
       {"api_key", "test-key"},
-  }));
+  })));
   axllm::Value grok_request = axllm::object({
       {"model", "grok-voice-think-fast-1.0"},
       {"chat_prompt",
@@ -82,8 +82,8 @@ int main() {
       }),
   });
 
-  std::cout << "grok setup:\n" << axllm::stringify(grok.realtime_audio_setup(grok_request)) << "\n";
-  std::cout << "grok normalized events:\n" << axllm::stringify(axllm::Value(grok.realtime(grok_events))) << "\n";
+  std::cout << "grok setup:\n" << axllm::stringify(grok->realtime_audio_setup(grok_request)) << "\n";
+  std::cout << "grok normalized events:\n" << axllm::stringify(axllm::Value(grok->realtime(grok_events))) << "\n";
   std::cout << "gemini setup:\n" << axllm::stringify(gemini.realtime_audio_setup(gemini_request)) << "\n";
   std::cout << "gemini input messages:\n" << axllm::stringify(gemini.realtime_audio_input(gemini_request)) << "\n";
   std::cout << "gemini normalized events:\n" << axllm::stringify(axllm::Value(gemini.realtime(gemini_events))) << "\n";

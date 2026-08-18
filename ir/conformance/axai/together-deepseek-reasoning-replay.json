@@ -1,0 +1,91 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "remote_id": "chatcmpl_together_reasoning",
+    "results": [
+      {
+        "content": "Use the East inventory.",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0,
+        "thought": "Check the inventory first.",
+        "thought_blocks": [
+          {
+            "data": "Check the inventory first.",
+            "encrypted": false
+          }
+        ]
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "messages": [
+        {
+          "content": "Continue the lookup.",
+          "role": "user"
+        },
+        {
+          "content": "Use the lookup.",
+          "reasoning": "Check the inventory first.",
+          "role": "assistant"
+        },
+        {
+          "content": "Continue.",
+          "role": "user"
+        }
+      ],
+      "model": "deepseek-ai/DeepSeek-V4-Pro",
+      "reasoning_effort": "high"
+    },
+    "method": "POST",
+    "url": "https://api.together.xyz/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "deepseek-ai/DeepSeek-V4-Pro",
+  "name": "together-deepseek-reasoning-replay",
+  "provider": "together",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Continue the lookup.",
+        "role": "user"
+      },
+      {
+        "content": "Use the lookup.",
+        "role": "assistant",
+        "thought": "Check the inventory first."
+      },
+      {
+        "content": "Continue.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "low"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "Use the East inventory.",
+              "reasoning": "Check the inventory first.",
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_together_reasoning",
+        "model": "deepseek-ai/DeepSeek-V4-Pro",
+        "object": "chat.completion"
+      },
+      "status": 200
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AxAIDeepSeek } from './api.js';
+import { AxAIOpenAIProfile } from '../provider_profiles.js';
 import { AxAIDeepSeekModel } from './types.js';
 
 const promptWithPriorToolTurn = [
@@ -25,7 +25,8 @@ const promptWithPriorToolTurn = [
 describe('DeepSeek Chat reasoning replay', () => {
   it('round-trips reasoning_content on assistant tool turns', async () => {
     const capture: { body?: Record<string, any> } = {};
-    const ai = new AxAIDeepSeek({
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: { model: AxAIDeepSeekModel.DeepSeekV4Flash, stream: false },
     });
@@ -77,7 +78,8 @@ describe('DeepSeek Chat reasoning replay', () => {
   });
 
   it('preserves streamed reasoning deltas', async () => {
-    const ai = new AxAIDeepSeek({
+    const ai = new AxAIOpenAIProfile({
+      name: 'deepseek',
       apiKey: 'key',
       config: { model: AxAIDeepSeekModel.DeepSeekV4Flash, stream: true },
     });

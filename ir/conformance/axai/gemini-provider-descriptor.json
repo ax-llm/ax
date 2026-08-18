@@ -3,7 +3,7 @@
     "apiKeyQuery": "key",
     "auth": "api_key_query",
     "defaultEmbedModel": "gemini-embedding-2",
-    "defaultModel": "gemini-2.5-flash",
+    "defaultModel": "gemini-3.5-flash",
     "features": {
       "caching": {
         "supported": true,
@@ -27,7 +27,7 @@
       "thinking": true
     },
     "id": "google-gemini",
-    "name": "GoogleGeminiAI",
+    "name": "Google Gemini",
     "operations": {
       "chat": {
         "body": "json",
@@ -41,8 +41,8 @@
         "path": "/models/{model}:batchEmbedContents",
         "stream": false
       },
-      "realtime_audio": {
-        "body": "events",
+      "realtime": {
+        "body": "json",
         "grammar": "gemini_live_bidi",
         "method": "WS",
         "path": "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",

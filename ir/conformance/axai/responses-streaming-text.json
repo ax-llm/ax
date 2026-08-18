@@ -29,7 +29,7 @@
     {
       "model_usage": {
         "ai": "openai-responses",
-        "model": "gpt-4o",
+        "model": "gpt-5-mini",
         "tokens": {
           "completion_tokens": 2,
           "prompt_tokens": 4,
@@ -70,7 +70,7 @@
   },
   "transport_responses": [
     {
-      "body": "data: {\"type\":\"response.output_text.delta\",\"response_id\":\"resp_stream\",\"item_id\":\"msg_1\",\"delta\":\"hel\"}\n\ndata: {\"type\":\"response.output_text.delta\",\"response_id\":\"resp_stream\",\"item_id\":\"msg_1\",\"delta\":\"lo\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stream\",\"model\":\"gpt-4o\",\"usage\":{\"input_tokens\":4,\"output_tokens\":2,\"total_tokens\":6}}}\n\ndata: [DONE]\n\n",
+      "body": "data: {\"type\":\"response.output_text.delta\",\"response_id\":\"resp_stream\",\"item_id\":\"msg_1\",\"delta\":\"hel\"}\n\ndata: {\"type\":\"response.output_text.delta\",\"response_id\":\"resp_stream\",\"item_id\":\"msg_1\",\"delta\":\"lo\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stream\",\"model\":\"gpt-5-mini\",\"usage\":{\"input_tokens\":4,\"output_tokens\":2,\"total_tokens\":6}}}\n\ndata: [DONE]\n\n",
       "status": 200
     }
   ]

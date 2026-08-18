@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { f } from '../../dsp/sig.js';
 import { ax } from '../../dsp/template.js';
-import { AxAIDeepSeekResponses } from './responses_api.js';
+import { AxAIOpenAIResponsesProfile } from '../provider_profiles.js';
 import { AxAIDeepSeekModel } from './types.js';
 
 const responseWithToolCall = {
@@ -35,7 +35,10 @@ const responseWithToolCall = {
 
 describe('DeepSeek Responses compatibility', () => {
   it('advertises native structured outputs as unsupported', () => {
-    const ai = new AxAIDeepSeekResponses({ apiKey: 'key' });
+    const ai = new AxAIOpenAIResponsesProfile({
+      name: 'deepseek-responses',
+      apiKey: 'key',
+    });
 
     expect(
       ai.getFeatures(AxAIDeepSeekModel.DeepSeekV4Flash).structuredOutputs
@@ -54,7 +57,8 @@ describe('DeepSeek Responses compatibility', () => {
       )
       .build();
     const gen = ax(sig);
-    const ai = new AxAIDeepSeekResponses({
+    const ai = new AxAIOpenAIResponsesProfile({
+      name: 'deepseek-responses',
       apiKey: 'key',
       config: { model: AxAIDeepSeekModel.DeepSeekV4Flash, stream: false },
     });
@@ -103,7 +107,8 @@ describe('DeepSeek Responses compatibility', () => {
 
   it('uses /responses and replays plain-text reasoning before tool items', async () => {
     const capture: { body?: Record<string, any>; url?: string } = {};
-    const ai = new AxAIDeepSeekResponses({
+    const ai = new AxAIOpenAIResponsesProfile({
+      name: 'deepseek-responses',
       apiKey: 'key',
       config: {
         model: AxAIDeepSeekModel.DeepSeekV4Pro,

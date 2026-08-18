@@ -51,40 +51,28 @@ public final class Ax {
       throw new IllegalArgumentException("unsupported AxAI provider: " + provider);
     }
     String canonical = String.valueOf(resolved.get("id"));
-    if (canonical.equals("openai-compatible")) {
-      return new OpenAICompatibleClient(options == null ? java.util.Map.of() : options);
+    java.util.Map<String, Object> descriptor = Core.asMap(Core.provider_descriptor(canonical));
+    String transport = String.valueOf(descriptor.get("transport"));
+    java.util.Map<String, Object> resolvedOptions = options == null ? java.util.Map.of() : options;
+    if (transport.equals("openai-responses")) {
+      return new OpenAIResponsesClient(canonical, resolvedOptions);
     }
-    if (canonical.equals("openai-responses")) {
-      return new OpenAIResponsesClient(options == null ? java.util.Map.of() : options);
+    if (transport.equals("gemini-generate-content")) {
+      return new GoogleGeminiClient(canonical, resolvedOptions);
     }
-    if (canonical.equals("deepseek-responses")) {
-      return new DeepSeekResponsesClient(options == null ? java.util.Map.of() : options);
+    if (transport.equals("anthropic-messages")) {
+      return new AnthropicClient(canonical, resolvedOptions);
     }
-    if (canonical.equals("google-gemini")) {
-      return new GoogleGeminiClient(options == null ? java.util.Map.of() : options);
+    if (transport.equals("openai-chat")) {
+      return new OpenAICompatibleClient(
+        canonical,
+        canonical,
+        resolvedOptions,
+        String.valueOf(descriptor.getOrDefault("defaultModel", "")),
+        String.valueOf(descriptor.getOrDefault("defaultEmbedModel", ""))
+      );
     }
-    if (canonical.equals("anthropic")) {
-      return new AnthropicClient(options == null ? java.util.Map.of() : options);
-    }
-    if (canonical.equals("azure-openai")) {
-      return new AzureOpenAIClient(options == null ? java.util.Map.of() : options);
-    }
-    if (canonical.equals("deepseek")) {
-      return new DeepSeekClient(options == null ? java.util.Map.of() : options);
-    }
-    if (canonical.equals("mistral")) {
-      return new MistralClient(options == null ? java.util.Map.of() : options);
-    }
-    if (canonical.equals("reka")) {
-      return new RekaClient(options == null ? java.util.Map.of() : options);
-    }
-    if (canonical.equals("cohere")) {
-      return new CohereClient(options == null ? java.util.Map.of() : options);
-    }
-    if (canonical.equals("grok")) {
-      return new GrokClient(options == null ? java.util.Map.of() : options);
-    }
-    throw new IllegalArgumentException("unsupported AxAI provider: " + provider);
+    throw new IllegalArgumentException("unsupported transport for AxAI profile: " + canonical);
   }
 
   public static java.util.Map<String, Object> optimize(AxGen program, java.util.List<java.util.Map<String, Object>> examples, java.util.Map<String, Object> options) {

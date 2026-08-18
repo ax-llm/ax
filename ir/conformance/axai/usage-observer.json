@@ -1,7 +1,7 @@
 {
   "name": "usage-observer",
   "kind": "ai_usage_observer",
-  "provider": "openai-compatible",
+  "provider": "openai",
   "model": "gpt-5.4-mini",
   "service_options": {
     "usageContext": {

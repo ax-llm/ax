@@ -1,7 +1,7 @@
 {
   "expected_output": {
     "baseUrl": "https://api.x.ai/v1",
-    "defaultModel": "grok-4.3",
+    "defaultModel": "grok-4.6",
     "features": {
       "media": {
         "audio": {
@@ -18,10 +18,10 @@
           "web_search": true
         }
       },
-      "thinking": true
+      "thinking": false
     },
     "id": "grok",
-    "name": "Grok",
+    "name": "xAI Grok",
     "operations": {
       "chat": {
         "body": "json",
@@ -29,8 +29,8 @@
         "path": "/chat/completions",
         "stream": false
       },
-      "realtime_audio": {
-        "body": "events",
+      "realtime": {
+        "body": "json",
         "grammar": "openai_realtime_compatible",
         "method": "WS",
         "path": "/realtime",

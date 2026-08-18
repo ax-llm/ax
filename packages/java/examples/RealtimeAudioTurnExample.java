@@ -8,8 +8,8 @@ import java.util.*;
 // API). Exits non-zero on any mismatch so `axir verify` fails if it regresses.
 public final class RealtimeAudioTurnExample {
   public static void main(String[] args) {
-    GrokClient client =
-        new GrokClient(Map.of("model", "grok-voice-think-fast-1.0", "api_key", "test-key"));
+    OpenAICompatibleClient client =
+        (OpenAICompatibleClient) Ax.ai("grok", Map.of("model", "grok-voice-think-fast-1.0", "api_key", "test-key"));
     Map<String, Object> request =
         Map.of(
             "model", "grok-voice-think-fast-1.0",

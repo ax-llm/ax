@@ -1,8 +1,8 @@
 {
   "expected_output": {
     "model_usage": {
-      "ai": "Grok",
-      "model": "grok-4.3",
+      "ai": "grok",
+      "model": "grok-4.6",
       "tokens": {
         "completion_tokens": 2,
         "prompt_tokens": 1,
@@ -28,7 +28,7 @@
           "role": "user"
         }
       ],
-      "model": "grok-4.3",
+      "model": "grok-4.6",
       "reasoning_effort": "medium",
       "search_parameters": {
         "max_search_results": 3,
@@ -47,7 +47,7 @@
     "url": "https://api.x.ai/v1/chat/completions"
   },
   "kind": "ai_chat",
-  "model": "grok-4.3",
+  "model": "grok-4.6",
   "name": "grok-openai-compatible-chat",
   "provider": "grok",
   "request": {
@@ -92,7 +92,7 @@
           }
         ],
         "id": "chatcmpl_grok",
-        "model": "grok-4.3",
+        "model": "grok-4.6",
         "object": "chat.completion",
         "usage": {
           "completion_tokens": 2,

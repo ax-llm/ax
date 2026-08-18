@@ -16,7 +16,7 @@
   "kind": "ai_chat",
   "model": "gpt-5.6",
   "name": "openai-gpt-5-6-chat-reasoning-highest",
-  "provider": "openai-compatible",
+  "provider": "openai",
   "request": {
     "chat_prompt": [
       {

@@ -238,9 +238,11 @@ default `axir verify` stay dependency-light.
 ## Providers, Audio, And Realtime
 
 Provider behavior is descriptor-backed. OpenAI-compatible, OpenAI Responses,
-Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok
-clients use shared Core operation descriptors rather than provider-specific
-target templates.
+Gemini, and Anthropic are the retained transport clients. Azure OpenAI,
+DeepSeek, Mistral, Reka, Cohere, Grok, routers, hosted inference services, and
+configurable runtimes are named deployment profiles resolved from the shared
+manifest rather than provider-specific target templates. See
+[`docs/AI_PROFILES.md`](./AI_PROFILES.md).
 
 Core also owns Vertex routing for Gemini and Anthropic. Generated clients accept
 project, region, and optional endpoint identifiers; resolve `global`, `us`,

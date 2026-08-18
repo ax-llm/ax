@@ -64,7 +64,7 @@
   "kind": "ai_chat",
   "model": "gpt-5.6-luna",
   "name": "openai-gpt-5-6-prompt-cache-breakpoints",
-  "provider": "openai-compatible",
+  "provider": "openai",
   "request": {
     "chat_prompt": [
       {

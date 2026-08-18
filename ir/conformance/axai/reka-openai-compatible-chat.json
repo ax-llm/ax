@@ -1,7 +1,7 @@
 {
   "expected_output": {
     "model_usage": {
-      "ai": "Reka",
+      "ai": "reka",
       "model": "reka-core",
       "tokens": {
         "completion_tokens": 2,

@@ -32,7 +32,7 @@
   "kind": "ai_chat",
   "model": "gpt-5.6",
   "name": "openai-chat-ignores-deepseek-reasoning-content",
-  "provider": "openai-compatible",
+  "provider": "openai",
   "request": {
     "chat_prompt": [
       {

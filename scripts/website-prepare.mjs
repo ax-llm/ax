@@ -36,6 +36,9 @@ const generatedContentRoot = path.join(siteRoot, '.generated', 'content');
 const githubBlob = 'https://github.com/ax-llm/ax/blob/main';
 const skillDiscoverySchema =
   'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
+const providerProfilesManifest = await readJson(
+  path.join(repoRoot, 'ir/axcore/data/provider-profiles.json')
+);
 
 const subsystemHeadings = {
   ai: 'LLM provider, model, media, routing, and embedding APIs.',
@@ -483,6 +486,7 @@ async function renderContext(language, page) {
     aiBalancerExample:
       language.id === 'typescript' ? snippetBlock(language, 'ai.balancer') : '',
     aiProviderExamples: aiProviderExamples(language),
+    aiProfileMatrix: providerProfileMatrix(),
     telemetryExample: snippetBlock(language, 'telemetry'),
     optimizeCode: lines(snippets.optimize),
     playbookCode: lines(snippets.playbook),
@@ -2247,6 +2251,45 @@ function aiProviderExamples(language) {
     'Use `apiURL` when a provider shares the OpenAI wire shape but uses a different host or model naming scheme.',
     '',
     snippetBlock(language, 'ai.compatible'),
+  ].join('\n');
+}
+
+function providerProfileMatrix() {
+  const rows = Object.values(providerProfilesManifest.profiles).map(
+    (profile) => {
+      const endpoint = profile.baseURL
+        ? `\`${profile.baseURL}\``
+        : profile.endpoint
+          ? profile.endpoint.required.map((field) => `\`${field}\``).join(' + ')
+          : profile.transport === 'webllm'
+            ? 'Host runtime'
+            : 'Required `apiURL`';
+      const capabilities = [
+        profile.capabilities.functions ? 'tools' : null,
+        profile.capabilities.streaming ? 'stream' : null,
+        profile.capabilities.structuredOutputs ? 'structured' : null,
+        profile.capabilities.thinking ? 'thinking' : null,
+        profile.capabilities.images ? 'images' : null,
+        profile.capabilities.webSearch ? 'web search' : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      const source = profile.sources
+        .map(
+          (url, index) =>
+            `[source${profile.sources.length > 1 ? ` ${index + 1}` : ''}](${url})`
+        )
+        .join(', ');
+      const caveat = profile.modelRules.length
+        ? `${profile.modelRules.length} scoped model rule${profile.modelRules.length === 1 ? '' : 's'}`
+        : 'conservative model defaults';
+      return `| \`${profile.id}\` | ${profile.transport} | ${endpoint} | ${capabilities || 'conservative'} | ${caveat} | ${source} | ${profile.reviewedAt} |`;
+    }
+  );
+  return [
+    '| Profile | Transport | Endpoint | Default capabilities | Model caveat | Official sources | Reviewed |',
+    '|---|---|---|---|---|---|---|',
+    ...rows,
   ].join('\n');
 }
 

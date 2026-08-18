@@ -9,7 +9,17 @@ public final class GoogleGeminiClient extends OpenAICompatibleClient {
   }
 
   public GoogleGeminiClient(Map<String, Object> options) {
-    super("google-gemini", "GoogleGeminiAI", normalize(options), "gemini-2.5-flash", "gemini-embedding-2");
+    this("google-gemini", options);
+  }
+
+  public GoogleGeminiClient(String profile, Map<String, Object> options) {
+    super(
+      profile,
+      profile,
+      normalize(options),
+      String.valueOf(Core.asMap(Core.provider_descriptor(profile)).getOrDefault("defaultModel", "")),
+      String.valueOf(Core.asMap(Core.provider_descriptor(profile)).getOrDefault("defaultEmbedModel", ""))
+    );
   }
 
   private static Map<String, Object> normalize(Map<String, Object> options) {

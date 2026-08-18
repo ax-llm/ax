@@ -10,6 +10,17 @@ Use `ai()` to create provider clients and keep model traffic behind one Ax reque
 
 `ai()` selects a provider implementation from configuration and returns a client that Ax programs can call. The client handles chat, streaming, embeddings, media where supported, usage normalization, provider options, model keys, routing hooks, tracing, and runtime defaults.
 
+The `name` is a deployment profile. The model ID is resolved only inside that
+profile, so a DeepSeek model hosted by Together uses Together's rules and never
+inherits DeepSeek's native wire format by name. Unknown profiles fail; use the
+explicit `openai-compatible` profile plus `apiURL` for an unlisted endpoint.
+Verified reasoning rules in DeepSeek, Together, Fireworks, OpenRouter, Grok,
+Groq, Cerebras, and DeepInfra default an omitted thinking level to logical
+`max`, then map it to each deployment's strongest documented effort. An
+explicit `none` is sent only where the selected model and deployment support
+disabling reasoning; otherwise Ax fails before network I/O. Hugging Face Router
+stays conservative because a routing policy can change the underlying provider.
+
 ```mermaid
 flowchart LR
   A["Model key or alias"] --> B["Model catalog"]
@@ -35,7 +46,8 @@ result = program.forward(client, inputs)
 - Use a provider `name` and environment-backed API key.
 - Set a default model in provider config when the app has one obvious model.
 - Define model aliases when callers should choose `fast`, `smart`, or `cheap` instead of provider model IDs.
-- Use OpenAI-compatible `apiURL` for compatible providers.
+- Use the named profile for a documented deployment. Reserve
+  `openai-compatible` plus `apiURL` for an unlisted custom endpoint.
 - Use model catalog helpers before runtime when the UI needs provider/model selectors.
 - Use routers or balancers when provider fallback is part of the product.
 
@@ -67,6 +79,24 @@ Adaptive balancing does not inspect prompt meaning or decide which model is best
 
 {{aiProviderExamples}}
 
+### Deployment profile matrix
+
+This matrix is generated from `ir/axcore/data/provider-profiles.json`. Defaults
+are conservative; exact or pattern rules apply only inside the selected profile,
+and callers can supply explicit model metadata for a deployment they have
+verified.
+
+{{aiProfileMatrix}}
+
+### Major-version migration
+
+Profile-only branded clients were removed. Keep genuine transport clients when
+you need a low-level transport boundary; otherwise replace a branded constructor
+with the language's named factory (`NewAI("deepseek", options)` in Go,
+`ai("deepseek", ...)` where that factory shape is exposed, and
+`ai({ name: 'deepseek', ... })` in TypeScript). Model enum/catalog exports remain
+available.
+
 ### Embeddings and audio
 
 {{aiEmbeddingsExample}}
@@ -75,7 +105,7 @@ Adaptive balancing does not inspect prompt meaning or decide which model is best
 
 ## Practical Notes
 
-- Prefer provider factories over direct provider classes in new code.
+- Prefer the named deployment-profile factory over direct provider classes in new code.
 - Use model catalog and provider-scoring helpers when choosing between providers.
 - Use a multi-service router to dispatch caller-selected model keys; use a balancer for fallback or adaptive operational routing across equivalent services.
 - Keep public provider examples separate from internal conformance fixtures.

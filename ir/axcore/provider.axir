@@ -33,61 +33,6 @@ module @ax.provider version "0.1" {
     tag "anthropic"
   }
 
-  op ax.provider.class @AzureOpenAIClient {
-    attr core_kind = "record"
-    attr default_base_url = "https://{resource}.openai.azure.com/openai/deployments/{deployment}"
-    attr public = true
-    ref interface = @AxAIService
-    tag "azure-openai"
-  }
-
-  op ax.provider.class @DeepSeekClient {
-    attr core_kind = "record"
-    attr default_base_url = "https://api.deepseek.com"
-    attr public = true
-    ref interface = @AxAIService
-    tag "deepseek"
-  }
-
-  op ax.provider.class @DeepSeekResponsesClient {
-    attr core_kind = "record"
-    attr default_base_url = "https://api.deepseek.com"
-    attr public = true
-    ref interface = @AxAIService
-    tag "deepseek-responses"
-  }
-
-  op ax.provider.class @MistralClient {
-    attr core_kind = "record"
-    attr default_base_url = "https://api.mistral.ai/v1"
-    attr public = true
-    ref interface = @AxAIService
-    tag "mistral"
-  }
-
-  op ax.provider.class @RekaClient {
-    attr core_kind = "record"
-    attr default_base_url = "https://api.reka.ai/v1"
-    attr public = true
-    ref interface = @AxAIService
-    tag "reka"
-  }
-
-  op ax.provider.class @CohereClient {
-    attr core_kind = "record"
-    attr default_base_url = "https://api.cohere.ai/compatibility/v1"
-    attr public = true
-    ref interface = @AxAIService
-    tag "cohere"
-  }
-
-  op ax.provider.class @GrokClient {
-    attr core_kind = "record"
-    attr default_base_url = "https://api.x.ai/v1"
-    attr public = true
-    ref interface = @AxAIService
-    tag "grok"
-  }
 
   op ax.provider.semantic @openai_build_chat_request {
     attr core_kind = "func"
@@ -97,7 +42,7 @@ module @ax.provider version "0.1" {
     tag "src/ax/ai/openai/api.ts"
     type signature = "(AxChatRequest, options?:json, prompt_caching?:bool) -> json throws"
     body @entry(%request: AxChatRequest, %options: json, %prompt_caching: bool) {
-      %payload = core.call @openai_build_chat_request_impl(%request, %options, %prompt_caching, "none")
+      %payload = core.call @openai_build_chat_request_impl(%request, %options, %prompt_caching, "none", "none")
       core.return %payload
     }
   }
@@ -108,8 +53,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-chat-request-compatibility-helper"
-    type signature = "(AxChatRequest, json, bool, string) -> json throws"
-    body @entry(%request: AxChatRequest, %options: json, %prompt_caching: bool, %reasoning_content_mode: string) {
+    type signature = "(AxChatRequest, json, bool, string, string) -> json throws"
+    body @entry(%request: AxChatRequest, %options: json, %prompt_caching: bool, %reasoning_content_mode: string, %reasoning_details_mode: string) {
       %payload = core.map
       %model = core.get %request["model"]
       core.set %payload["model"] = %model
@@ -140,7 +85,7 @@ module @ax.provider version "0.1" {
       %message_index = core.const 0
       %marker_count = core.const 0
       core.for %message in %chat_prompt {
-        %provider_message = core.call @openai_message_impl(%message, %reasoning_content_mode)
+        %provider_message = core.call @openai_message_impl(%message, %reasoning_content_mode, %reasoning_details_mode)
         core.if %cache_enabled {
           %is_before_last = core.call intrinsic.lt(%message_index, %last_index)
           %explicit_cache = core.get %message["cache"] default false
@@ -417,11 +362,12 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-message-core-helper"
-    type signature = "(json, reasoning_content_mode:string) -> json throws"
-    body @entry(%message: json, %reasoning_content_mode: string) {
+    type signature = "(json, reasoning_content_mode:string, reasoning_details_mode:string) -> json throws"
+    body @entry(%message: json, %reasoning_content_mode: string, %reasoning_details_mode: string) {
       %role = core.get %message["role"]
       %content = core.get %message["content"] default ""
-      %is_deepseek_reasoning = core.call intrinsic.eq(%reasoning_content_mode, "deepseek")
+      %is_no_reasoning = core.call intrinsic.eq(%reasoning_content_mode, "none")
+      %has_reasoning_mode = core.call intrinsic.not(%is_no_reasoning)
       %is_system = core.call intrinsic.eq(%role, "system")
       core.if %is_system {
         %out = core.map
@@ -454,7 +400,7 @@ module @ax.provider version "0.1" {
       core.if %is_assistant {
         %thought = core.get %message["thought"]
         %has_thought = core.call intrinsic.truthy(%thought)
-        %include_thought = core.call intrinsic.and(%is_deepseek_reasoning, %has_thought)
+        %include_thought = core.call intrinsic.and(%has_reasoning_mode, %has_thought)
         %empty_calls = core.list
         %calls_snake = core.get %message["function_calls"] default %empty_calls
         %calls = core.get %message["functionCalls"] default %calls_snake
@@ -462,14 +408,36 @@ module @ax.provider version "0.1" {
         %out = core.map
         core.set %out["role"] = "assistant"
         core.if %include_thought {
-          core.set %out["reasoning_content"] = %thought
+          core.set %out[%reasoning_content_mode] = %thought
+        }
+        %is_no_details = core.call intrinsic.eq(%reasoning_details_mode, "none")
+        %has_details_mode = core.call intrinsic.not(%is_no_details)
+        %empty_thought_blocks = core.list
+        %thought_blocks_snake = core.get %message["thought_blocks"] default %empty_thought_blocks
+        %thought_blocks = core.get %message["thoughtBlocks"] default %thought_blocks_snake
+        %has_thought_blocks = core.call intrinsic.truthy(%thought_blocks)
+        %include_details = core.call intrinsic.and(%has_details_mode, %has_thought_blocks)
+        core.if %include_details {
+          %details = core.list
+          core.for %thought_block in %thought_blocks {
+            %data = core.get %thought_block["data"]
+            core.try {
+              %detail = core.call intrinsic.json.parse(%data)
+              core.append %details, %detail
+            } catch %parse_error {
+            }
+          }
+          %has_details = core.call intrinsic.truthy(%details)
+          core.if %has_details {
+            core.set %out[%reasoning_details_mode] = %details
+          }
         }
         core.if %has_calls {
           %assistant_content = core.get %message["content"]
           %has_assistant_content = core.call intrinsic.is_not_none(%assistant_content)
-          core.if %is_deepseek_reasoning {
-            %deepseek_content = core.get %message["content"] default ""
-            core.set %out["content"] = %deepseek_content
+          core.if %has_reasoning_mode {
+            %reasoning_message_content = core.get %message["content"] default ""
+            core.set %out["content"] = %reasoning_message_content
           } else {
             core.if %has_assistant_content {
               core.set %out["content"] = %assistant_content
@@ -654,7 +622,7 @@ module @ax.provider version "0.1" {
     tag "src/ax/ai/openai/api.ts"
     type signature = "(json, ai_name?:string, model?:string) -> AxChatResponse throws"
     body @entry(%raw: json, %ai_name: string, %model: string) {
-      %response = core.call @openai_normalize_chat_response_impl(%raw, %ai_name, %model, "none")
+      %response = core.call @openai_normalize_chat_response_impl(%raw, %ai_name, %model, "none", "none")
       core.return %response
     }
   }
@@ -665,8 +633,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-chat-response-compatibility-helper"
-    type signature = "(json, string, string, string) -> AxChatResponse throws"
-    body @entry(%raw: json, %ai_name: string, %model: string, %reasoning_content_mode: string) {
+    type signature = "(json, string, string, string, string) -> AxChatResponse throws"
+    body @entry(%raw: json, %ai_name: string, %model: string, %reasoning_content_mode: string, %reasoning_details_mode: string) {
       %raw_is_object = core.type_is %raw type "object"
       %raw_not_object = core.call intrinsic.not(%raw_is_object)
       core.if %raw_not_object {
@@ -689,7 +657,7 @@ module @ax.provider version "0.1" {
       }
       %results = core.list
       core.for %choice in %choices {
-        %result = core.call @openai_normalize_choice_impl(%choice, %raw, %reasoning_content_mode)
+        %result = core.call @openai_normalize_choice_impl(%choice, %raw, %reasoning_content_mode, %reasoning_details_mode)
         core.append %results, %result
       }
       %raw_model = core.get %raw["model"]
@@ -710,8 +678,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-choice-core-helper"
-    type signature = "(json, json, reasoning_content_mode:string) -> json throws"
-    body @entry(%choice: json, %raw: json, %reasoning_content_mode: string) {
+    type signature = "(json, json, reasoning_content_mode:string, reasoning_details_mode:string) -> json throws"
+    body @entry(%choice: json, %raw: json, %reasoning_content_mode: string, %reasoning_details_mode: string) {
       %empty_message = core.map
       %message = core.get %choice["message"] default %empty_message
       %refusal = core.get %message["refusal"]
@@ -739,10 +707,11 @@ module @ax.provider version "0.1" {
       core.set %out["index"] = %index
       core.set %out["id"] = %id
       core.set %out["content"] = %content
-      %reasoning_content = core.get %message["reasoning_content"]
+      %reasoning_content = core.get %message[%reasoning_content_mode]
       %has_reasoning_content = core.call intrinsic.truthy(%reasoning_content)
-      %is_deepseek_reasoning = core.call intrinsic.eq(%reasoning_content_mode, "deepseek")
-      %include_reasoning_content = core.call intrinsic.and(%is_deepseek_reasoning, %has_reasoning_content)
+      %is_no_reasoning = core.call intrinsic.eq(%reasoning_content_mode, "none")
+      %has_reasoning_mode = core.call intrinsic.not(%is_no_reasoning)
+      %include_reasoning_content = core.call intrinsic.and(%has_reasoning_mode, %has_reasoning_content)
       core.if %include_reasoning_content {
         core.set %out["thought"] = %reasoning_content
         %thought_blocks = core.list
@@ -751,6 +720,29 @@ module @ax.provider version "0.1" {
         core.set %thought_block["encrypted"] = false
         core.append %thought_blocks, %thought_block
         core.set %out["thought_blocks"] = %thought_blocks
+      }
+      %is_no_details = core.call intrinsic.eq(%reasoning_details_mode, "none")
+      %has_details_mode = core.call intrinsic.not(%is_no_details)
+      %reasoning_details = core.get %message[%reasoning_details_mode]
+      %has_reasoning_details = core.call intrinsic.truthy(%reasoning_details)
+      %include_reasoning_details = core.call intrinsic.and(%has_details_mode, %has_reasoning_details)
+      core.if %include_reasoning_details {
+        %detail_blocks = core.list
+        core.for %detail in %reasoning_details {
+          %detail_block = core.map
+          %data = core.call intrinsic.json.stringify(%detail)
+          core.set %detail_block["data"] = %data
+          %type = core.get %detail["type"] default ""
+          %encrypted = core.call intrinsic.contains(%type, "encrypted")
+          core.set %detail_block["encrypted"] = %encrypted
+          %detail_id = core.get %detail["id"]
+          %has_detail_id = core.call intrinsic.truthy(%detail_id)
+          core.if %has_detail_id {
+            core.set %detail_block["signature"] = %detail_id
+          }
+          core.append %detail_blocks, %detail_block
+        }
+        core.set %out["thought_blocks"] = %detail_blocks
       }
       core.set %out["function_calls"] = %function_calls
       core.set %out["finish_reason"] = %finish_reason
@@ -858,7 +850,7 @@ module @ax.provider version "0.1" {
     tag "src/ax/ai/openai/api.ts"
     type signature = "(json, json, ai_name?:string, model?:string) -> AxChatResponse throws"
     body @entry(%raw: json, %state: json, %ai_name: string, %model: string) {
-      %response = core.call @openai_normalize_stream_delta_impl(%raw, %state, %ai_name, %model, "none")
+      %response = core.call @openai_normalize_stream_delta_impl(%raw, %state, %ai_name, %model, "none", "none")
       core.return %response
     }
   }
@@ -869,8 +861,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-stream-response-compatibility-helper"
-    type signature = "(json, json, string, string, string) -> AxChatResponse throws"
-    body @entry(%raw: json, %state: json, %ai_name: string, %model: string, %reasoning_content_mode: string) {
+    type signature = "(json, json, string, string, string, string) -> AxChatResponse throws"
+    body @entry(%raw: json, %state: json, %ai_name: string, %model: string, %reasoning_content_mode: string, %reasoning_details_mode: string) {
       %raw_is_object = core.type_is %raw type "object"
       %raw_not_object = core.call intrinsic.not(%raw_is_object)
       core.if %raw_not_object {
@@ -901,7 +893,7 @@ module @ax.provider version "0.1" {
       %empty_choices = core.list
       %choices = core.get %raw["choices"] default %empty_choices
       core.for %choice in %choices {
-        %result = core.call @openai_stream_choice_impl(%choice, %index_ids, %reasoning_content_mode)
+        %result = core.call @openai_stream_choice_impl(%choice, %index_ids, %reasoning_content_mode, %reasoning_details_mode)
         core.append %results, %result
       }
       %raw_model = core.get %raw["model"]
@@ -921,8 +913,8 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     attr private = true
     tag "openai-stream-choice-core-helper"
-    type signature = "(json, json, reasoning_content_mode:string) -> json"
-    body @entry(%choice: json, %index_ids: json, %reasoning_content_mode: string) {
+    type signature = "(json, json, reasoning_content_mode:string, reasoning_details_mode:string) -> json"
+    body @entry(%choice: json, %index_ids: json, %reasoning_content_mode: string, %reasoning_details_mode: string) {
       %empty_delta = core.map
       %delta = core.get %choice["delta"] default %empty_delta
       %calls = core.list
@@ -954,10 +946,11 @@ module @ax.provider version "0.1" {
       %index = core.get %choice["index"] default 0
       %id = core.call intrinsic.string.str(%index)
       %content = core.get %delta["content"]
-      %reasoning_content = core.get %delta["reasoning_content"]
+      %reasoning_content = core.get %delta[%reasoning_content_mode]
       %has_reasoning_content = core.call intrinsic.truthy(%reasoning_content)
-      %is_deepseek_reasoning = core.call intrinsic.eq(%reasoning_content_mode, "deepseek")
-      %include_reasoning_content = core.call intrinsic.and(%is_deepseek_reasoning, %has_reasoning_content)
+      %is_no_reasoning = core.call intrinsic.eq(%reasoning_content_mode, "none")
+      %has_reasoning_mode = core.call intrinsic.not(%is_no_reasoning)
+      %include_reasoning_content = core.call intrinsic.and(%has_reasoning_mode, %has_reasoning_content)
       %finish_reason_raw = core.get %choice["finish_reason"]
       %finish_reason = core.call @openai_finish_reason_impl(%finish_reason_raw)
       %out = core.map
@@ -972,6 +965,29 @@ module @ax.provider version "0.1" {
         core.set %thought_block["encrypted"] = false
         core.append %thought_blocks, %thought_block
         core.set %out["thought_blocks"] = %thought_blocks
+      }
+      %is_no_details = core.call intrinsic.eq(%reasoning_details_mode, "none")
+      %has_details_mode = core.call intrinsic.not(%is_no_details)
+      %reasoning_details = core.get %delta[%reasoning_details_mode]
+      %has_reasoning_details = core.call intrinsic.truthy(%reasoning_details)
+      %include_reasoning_details = core.call intrinsic.and(%has_details_mode, %has_reasoning_details)
+      core.if %include_reasoning_details {
+        %detail_blocks = core.list
+        core.for %detail in %reasoning_details {
+          %detail_block = core.map
+          %data = core.call intrinsic.json.stringify(%detail)
+          core.set %detail_block["data"] = %data
+          %type = core.get %detail["type"] default ""
+          %encrypted = core.call intrinsic.contains(%type, "encrypted")
+          core.set %detail_block["encrypted"] = %encrypted
+          %detail_id = core.get %detail["id"]
+          %has_detail_id = core.call intrinsic.truthy(%detail_id)
+          core.if %has_detail_id {
+            core.set %detail_block["signature"] = %detail_id
+          }
+          core.append %detail_blocks, %detail_block
+        }
+        core.set %out["thought_blocks"] = %detail_blocks
       }
       core.set %out["function_calls"] = %calls
       core.set %out["finish_reason"] = %finish_reason
@@ -1040,7 +1056,7 @@ module @ax.provider version "0.1" {
     body @entry(%profile: string) {
       %normalized = core.call intrinsic.string.lower(%profile)
       %aliases = core.call intrinsic.json.parse(file "data/provider-aliases.json")
-      %provider_id = core.get %aliases[%normalized] default "openai-compatible"
+      %provider_id = core.get %aliases[%normalized] default ""
       core.return %provider_id
     }
   }
@@ -2340,198 +2356,9 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string) -> json"
     body @entry(%profile: string) {
       %provider_id = core.call @provider_normalize_profile(%profile)
-      %openai_family = core.call intrinsic.json.parse("{\"openai-compatible\":{\"provider\":\"openai-compatible\",\"id\":\"openai-compatible\",\"name\":\"openai\",\"baseUrl\":\"https://api.openai.com/v1\",\"auth\":\"bearer\",\"defaultModel\":\"gpt-4.1-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/webp\"]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"azure-openai\":{\"provider\":\"azure-openai\",\"id\":\"azure-openai\",\"name\":\"Azure OpenAI\",\"baseUrl\":\"https://{resource}.openai.azure.com/openai/deployments/{deployment}\",\"auth\":\"api_key_header\",\"apiKeyHeader\":\"api-key\",\"apiVersion\":\"2024-02-15-preview\",\"defaultModel\":\"gpt-5-mini\",\"defaultEmbedModel\":\"text-embedding-3-small\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"],\"maxSize\":20971520},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"deepseek\":{\"provider\":\"deepseek\",\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"baseUrl\":\"https://api.deepseek.com\",\"auth\":\"bearer\",\"defaultModel\":\"deepseek-v4-flash\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"mistral\":{\"provider\":\"mistral\",\"id\":\"mistral\",\"name\":\"Mistral\",\"baseUrl\":\"https://api.mistral.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"mistral-small-latest\",\"defaultEmbedModel\":\"mistral-embed\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"reka\":{\"provider\":\"reka\",\"id\":\"reka\",\"name\":\"Reka\",\"baseUrl\":\"https://api.reka.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"reka-core\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"cohere\":{\"provider\":\"cohere\",\"id\":\"cohere\",\"name\":\"Cohere\",\"baseUrl\":\"https://api.cohere.ai/compatibility/v1\",\"auth\":\"bearer\",\"defaultModel\":\"command-r-plus\",\"defaultEmbedModel\":\"embed-english-v3.0\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true},\"embed\":{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":false,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}},\"grok\":{\"provider\":\"grok\",\"id\":\"grok\",\"name\":\"Grok\",\"baseUrl\":\"https://api.x.ai/v1\",\"auth\":\"bearer\",\"defaultModel\":\"grok-4.3\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\"],\"maxSize\":20971520},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":true,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}}")
-      %openai_family_descriptor = core.get %openai_family[%provider_id]
-      %is_openai_family = core.call intrinsic.is_not_none(%openai_family_descriptor)
-      core.if %is_openai_family {
-        %is_deepseek = core.call intrinsic.eq(%provider_id, "deepseek")
-        core.if %is_deepseek {
-          %deepseek_features = core.get %openai_family_descriptor["features"]
-          core.set %deepseek_features["structured_outputs"] = false
-        }
-        %family_operations = core.get %openai_family_descriptor["operations"]
-        %family_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
-        %family_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
-        core.set %family_operations["transcribe"] = %family_transcribe
-        core.set %family_operations["speak"] = %family_speak
-        %is_grok_family = core.call intrinsic.eq(%provider_id, "grok")
-        core.if %is_grok_family {
-          %grok_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/stt\",\"body\":\"multipart\",\"stream\":false}")
-          %grok_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/tts\",\"body\":\"json\",\"stream\":false}")
-          core.set %family_operations["transcribe"] = %grok_transcribe
-          core.set %family_operations["speak"] = %grok_speak
-          %grok_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"url\":\"wss://api.x.ai/v1/realtime\",\"defaultModel\":\"grok-voice-think-fast-1.0\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"],\"defaultVoice\":\"eve\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")
-          core.set %family_operations["realtime_audio"] = %grok_realtime_audio
-          core.set %openai_family_descriptor["defaultRealtimeModel"] = "grok-voice-think-fast-1.0"
-          %family_features = core.get %openai_family_descriptor["features"]
-          %family_media = core.get %family_features["media"]
-          %grok_audio = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"pcm16\",\"pcm\"],\"output\":{\"supported\":true,\"formats\":[\"pcm16\",\"pcm\"],\"voices\":[\"eve\",\"ara\",\"rex\",\"sal\",\"leo\"]},\"realtime\":true}")
-          core.set %family_media["audio"] = %grok_audio
-        }
-        core.return %openai_family_descriptor
-      }
-      %is_deepseek_responses = core.call intrinsic.eq(%provider_id, "deepseek-responses")
-      core.if %is_deepseek_responses {
-        %deepseek_responses = core.call intrinsic.json.parse("{\"provider\":\"deepseek-responses\",\"id\":\"deepseek-responses\",\"name\":\"DeepSeek Responses\",\"baseUrl\":\"https://api.deepseek.com\",\"auth\":\"bearer\",\"defaultModel\":\"deepseek-v4-flash\",\"operations\":{\"chat\":{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":false},\"stream_chat\":{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":true}},\"features\":{\"functions\":true,\"streaming\":true,\"structured_outputs\":true,\"multi_turn\":true,\"thinking\":true,\"media\":{\"images\":{\"supported\":false,\"formats\":[]},\"audio\":{\"supported\":false,\"formats\":[],\"output\":{\"supported\":false,\"formats\":[]}},\"files\":{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"},\"urls\":{\"supported\":false,\"web_search\":false,\"context_fetching\":false}},\"caching\":{\"supported\":false,\"types\":[]}}}")
-        %deepseek_responses_features = core.get %deepseek_responses["features"]
-        core.set %deepseek_responses_features["structured_outputs"] = false
-        core.return %deepseek_responses
-      }
-      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
-      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
-      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
-      %descriptor = core.map
-      %operations = core.map
-      %features = core.map
-      %media = core.map
-      %audio = core.map
-      %audio_output = core.map
-      core.set %descriptor["provider"] = %provider_id
-      core.set %features["functions"] = true
-      core.set %features["streaming"] = true
-      core.set %features["structured_outputs"] = true
-      core.set %features["multi_turn"] = true
-      core.set %features["thinking"] = false
-      %image_media = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/webp\"]}")
-      core.set %media["images"] = %image_media
-      core.if %is_responses {
-        core.set %descriptor["baseUrl"] = "https://api.openai.com/v1"
-        core.set %descriptor["auth"] = "bearer"
-        core.set %descriptor["id"] = "openai-responses"
-        core.set %descriptor["name"] = "openai-responses"
-        core.set %descriptor["defaultModel"] = "gpt-4o"
-        core.set %descriptor["defaultEmbedModel"] = "text-embedding-ada-002"
-        %responses_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":false}")
-        %responses_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/responses\",\"body\":\"json\",\"stream\":true}")
-        %responses_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
-        %responses_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
-        %responses_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
-        %responses_realtime = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"body\":\"events\",\"stream\":true}")
-        %responses_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/realtime\",\"url\":\"wss://api.openai.com/v1/realtime\",\"body\":\"events\",\"stream\":true,\"grammar\":\"openai_realtime_compatible\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"alloy\",\"ash\",\"ballad\",\"coral\",\"echo\",\"sage\",\"shimmer\",\"verse\"],\"defaultVoice\":\"alloy\"}},\"validation\":{\"structuredOutputWithAudio\":false}}")
-        core.set %operations["chat"] = %responses_chat
-        core.set %operations["stream_chat"] = %responses_stream
-        core.set %operations["embed"] = %responses_embed
-        core.set %operations["transcribe"] = %responses_transcribe
-        core.set %operations["speak"] = %responses_speak
-        core.set %operations["realtime"] = %responses_realtime
-        core.set %operations["realtime_audio"] = %responses_realtime_audio
-        core.set %audio["supported"] = true
-        %audio_formats = core.call intrinsic.json.parse("[\"wav\",\"mp3\",\"pcm16\"]")
-        core.set %audio["formats"] = %audio_formats
-        core.set %audio_output["supported"] = true
-        core.set %audio_output["formats"] = %audio_formats
-      } else {
-        core.if %is_gemini {
-          core.set %descriptor["baseUrl"] = "https://generativelanguage.googleapis.com/v1beta"
-          core.set %descriptor["auth"] = "api_key_query"
-          core.set %descriptor["apiKeyQuery"] = "key"
-          core.set %descriptor["id"] = "google-gemini"
-          core.set %descriptor["name"] = "GoogleGeminiAI"
-          core.set %descriptor["defaultModel"] = "gemini-2.5-flash"
-          core.set %descriptor["defaultEmbedModel"] = "gemini-embedding-2"
-          %gemini_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")
-          %gemini_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:streamGenerateContent?alt=sse\",\"body\":\"json\",\"stream\":true}")
-          %gemini_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:batchEmbedContents\",\"body\":\"json\",\"stream\":false}")
-          %gemini_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")
-          %gemini_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/models/{model}:generateContent\",\"body\":\"json\",\"stream\":false}")
-          %gemini_realtime_audio = core.call intrinsic.json.parse("{\"method\":\"WS\",\"path\":\"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"url\":\"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent\",\"body\":\"events\",\"stream\":true,\"grammar\":\"gemini_live_bidi\",\"defaultModel\":\"gemini-2.5-flash-native-audio-preview-12-2025\",\"audio\":{\"input\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":16000},\"output\":{\"formats\":[\"pcm16\",\"pcm\"],\"sampleRate\":24000,\"voices\":[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"],\"defaultVoice\":\"Kore\"}},\"validation\":{\"pcmInputOnly\":true,\"rejectStructuredOutputWithAudio\":true}}")
-          core.set %operations["chat"] = %gemini_chat
-          core.set %operations["stream_chat"] = %gemini_stream
-          core.set %operations["embed"] = %gemini_embed
-          core.set %operations["transcribe"] = %gemini_transcribe
-          core.set %operations["speak"] = %gemini_speak
-          core.set %operations["realtime_audio"] = %gemini_realtime_audio
-          %gemini_images = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"],\"maxSize\":20971520}")
-          core.set %media["images"] = %gemini_images
-          core.set %audio["supported"] = true
-          %gemini_audio_formats = core.call intrinsic.json.parse("[\"wav\",\"mp3\",\"aac\",\"ogg\"]")
-          core.set %audio["formats"] = %gemini_audio_formats
-          core.set %audio_output["supported"] = true
-          %gemini_audio_output_formats = core.call intrinsic.json.parse("[\"pcm16\",\"pcm\"]")
-          core.set %audio_output["formats"] = %gemini_audio_output_formats
-          %gemini_audio_voices = core.call intrinsic.json.parse("[\"Kore\",\"Puck\",\"Charon\",\"Fenrir\",\"Aoede\"]")
-          core.set %audio_output["voices"] = %gemini_audio_voices
-          %gemini_files = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"application/pdf\",\"text/plain\",\"text/csv\",\"text/html\",\"text/xml\"],\"upload_method\":\"cloud\"}")
-          core.set %media["files"] = %gemini_files
-          %gemini_urls = core.call intrinsic.json.parse("{\"supported\":true,\"web_search\":true,\"context_fetching\":true}")
-          core.set %media["urls"] = %gemini_urls
-          %gemini_caching = core.call intrinsic.json.parse("{\"supported\":true,\"types\":[\"persistent\"]}")
-          core.set %features["caching"] = %gemini_caching
-          core.set %features["thinking"] = true
-        } else {
-          core.if %is_anthropic {
-            core.set %descriptor["baseUrl"] = "https://api.anthropic.com"
-            core.set %descriptor["auth"] = "anthropic_key"
-            core.set %descriptor["id"] = "anthropic"
-            core.set %descriptor["name"] = "anthropic"
-            core.set %descriptor["defaultModel"] = "claude-3-7-sonnet-latest"
-            %extra_headers = core.call intrinsic.json.parse("{\"anthropic-version\":\"2023-06-01\",\"anthropic-beta\":\"structured-outputs-2025-11-13, web-search-2025-03-05\"}")
-            core.set %descriptor["headers"] = %extra_headers
-            %anthropic_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":false}")
-            %anthropic_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/v1/messages\",\"body\":\"json\",\"stream\":true}")
-            core.set %operations["chat"] = %anthropic_chat
-            core.set %operations["stream_chat"] = %anthropic_stream
-            %anthropic_images = core.call intrinsic.json.parse("{\"supported\":true,\"formats\":[\"image/jpeg\",\"image/png\",\"image/gif\",\"image/webp\"]}")
-            core.set %media["images"] = %anthropic_images
-            core.set %audio["supported"] = false
-            %empty_anthropic_audio_formats = core.list
-            core.set %audio["formats"] = %empty_anthropic_audio_formats
-            core.set %audio_output["supported"] = false
-            core.set %audio_output["formats"] = %empty_anthropic_audio_formats
-            %anthropic_caching = core.call intrinsic.json.parse("{\"supported\":true,\"types\":[\"ephemeral_block\"]}")
-            core.set %features["caching"] = %anthropic_caching
-            core.set %features["thinking"] = true
-          } else {
-            core.set %descriptor["baseUrl"] = "https://api.openai.com/v1"
-            core.set %descriptor["auth"] = "bearer"
-            core.set %descriptor["id"] = "openai-compatible"
-            core.set %descriptor["name"] = "openai"
-            core.set %descriptor["defaultModel"] = "gpt-4.1-mini"
-            core.set %descriptor["defaultEmbedModel"] = "text-embedding-3-small"
-            %compatible_chat = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":false}")
-            %compatible_stream = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/chat/completions\",\"body\":\"json\",\"stream\":true}")
-            %compatible_embed = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/embeddings\",\"body\":\"json\",\"stream\":false}")
-            %compatible_transcribe = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/transcriptions\",\"body\":\"multipart\",\"stream\":false}")
-            %compatible_speak = core.call intrinsic.json.parse("{\"method\":\"POST\",\"path\":\"/audio/speech\",\"body\":\"json\",\"stream\":false,\"response\":\"binary\"}")
-            core.set %operations["chat"] = %compatible_chat
-            core.set %operations["stream_chat"] = %compatible_stream
-            core.set %operations["embed"] = %compatible_embed
-            core.set %operations["transcribe"] = %compatible_transcribe
-            core.set %operations["speak"] = %compatible_speak
-            core.set %audio["supported"] = false
-            %empty_audio_formats = core.list
-            core.set %audio["formats"] = %empty_audio_formats
-            core.set %audio_output["supported"] = false
-            core.set %audio_output["formats"] = %empty_audio_formats
-          }
-        }
-      }
-      core.set %audio["output"] = %audio_output
-      core.set %media["audio"] = %audio
-      %existing_files = core.get %media["files"]
-      %has_files = core.call intrinsic.is_not_none(%existing_files)
-      core.if %has_files {
-      } else {
-        %files_media = core.call intrinsic.json.parse("{\"supported\":false,\"formats\":[],\"upload_method\":\"none\"}")
-        core.set %media["files"] = %files_media
-      }
-      %existing_urls = core.get %media["urls"]
-      %has_urls = core.call intrinsic.is_not_none(%existing_urls)
-      core.if %has_urls {
-      } else {
-        %urls_media = core.call intrinsic.json.parse("{\"supported\":false,\"web_search\":false,\"context_fetching\":false}")
-        core.set %media["urls"] = %urls_media
-      }
-      core.set %features["media"] = %media
-      %existing_caching = core.get %features["caching"]
-      %has_caching = core.call intrinsic.is_not_none(%existing_caching)
-      core.if %has_caching {
-      } else {
-        %caching = core.call intrinsic.json.parse("{\"supported\":false,\"types\":[]}")
-        core.set %features["caching"] = %caching
-      }
-      core.set %descriptor["operations"] = %operations
-      core.set %descriptor["features"] = %features
+      %descriptors = core.call intrinsic.json.parse(file "data/provider-descriptors.json")
+      %empty = core.map
+      %descriptor = core.get %descriptors[%provider_id] default %empty
       core.return %descriptor
     }
   }
@@ -2541,10 +2368,85 @@ module @ax.provider version "0.1" {
     attr emit_module = "ai"
     tag "provider-operation-descriptor"
     tag "axai-vertex-routing"
-    type signature = "(profile:string, options?:json) -> json"
+    type signature = "(profile:string, options?:json) -> json throws"
     body @entry(%profile: string, %options: json) {
       %descriptor = core.call @provider_descriptor(%profile)
       %provider_id = core.call @provider_normalize_profile(%profile)
+      %generic_base_snake = core.get %options["base_url"]
+      %generic_base_camel = core.get %options["baseUrl"] default %generic_base_snake
+      %generic_base = core.get %options["apiURL"] default %generic_base_camel
+      %has_generic_base_override = core.call intrinsic.truthy(%generic_base)
+      core.if %has_generic_base_override {
+        core.set %descriptor["baseUrl"] = %generic_base
+      }
+      %endpoint_config = core.get %descriptor["endpoint"]
+      %has_endpoint_config = core.call intrinsic.truthy(%endpoint_config)
+      %no_generic_override = core.call intrinsic.not(%has_generic_base_override)
+      %resolve_endpoint = core.call intrinsic.and(%has_endpoint_config, %no_generic_override)
+      core.if %resolve_endpoint {
+        %field_aliases = core.get %endpoint_config["fields"]
+        %field_names = core.call intrinsic.map.keys(%field_aliases)
+        %field_defaults = core.get %endpoint_config["defaults"]
+        %normalizers = core.get %endpoint_config["normalizers"]
+        %field_values = core.map
+        core.for %field_name in %field_names {
+          %aliases = core.get %field_aliases[%field_name]
+          %field_value = core.call intrinsic.none()
+          core.for %alias in %aliases {
+            %candidate = core.get %options[%alias]
+            %has_candidate = core.call intrinsic.truthy(%candidate)
+            core.if %has_candidate {
+              %field_value = core.let %candidate
+            }
+          }
+          %has_field_value = core.call intrinsic.truthy(%field_value)
+          core.if %has_field_value {
+          } else {
+            %field_value = core.get %field_defaults[%field_name]
+          }
+          %normalizer = core.get %normalizers[%field_name]
+          %api_version_normalizer = core.call intrinsic.eq(%normalizer, "api-version")
+          core.if %api_version_normalizer {
+            %has_api_version_prefix = core.call intrinsic.string.starts_with(%field_value, "api-version=")
+            core.if %has_api_version_prefix {
+              %field_value = core.call intrinsic.string.replace(%field_value, "api-version=", "")
+            }
+          }
+          core.set %field_values[%field_name] = %field_value
+        }
+        %required_fields = core.get %endpoint_config["required"]
+        core.for %required_field in %required_fields {
+          %required_value = core.get %field_values[%required_field]
+          %has_required_value = core.call intrinsic.truthy(%required_value)
+          %missing_required_value = core.call intrinsic.not(%has_required_value)
+          core.if %missing_required_value {
+            %message = core.call intrinsic.string.format("deployment profile {} requires endpoint option {}", %provider_id, %required_field)
+            %error = core.call intrinsic.ai.error.unsupported(%message)
+            core.raise %error
+          }
+        }
+        %host_field = core.get %endpoint_config["hostField"]
+        %host_value = core.get %field_values[%host_field]
+        %scheme = core.get %endpoint_config["scheme"] default "https"
+        %host_suffix = core.get %endpoint_config["hostSuffix"] default ""
+        %host = core.call intrinsic.string.format("{}://{}{}", %scheme, %host_value, %host_suffix)
+        %endpoint_path = core.get %endpoint_config["path"] default ""
+        core.for %field_name in %field_names {
+          %open_brace = core.let "{"
+          %close_brace = core.let "}"
+          %token = core.call intrinsic.string.format("{}{}{}", %open_brace, %field_name, %close_brace)
+          %field_value = core.get %field_values[%field_name]
+          %endpoint_path = core.call intrinsic.string.replace(%endpoint_path, %token, %field_value)
+        }
+        %endpoint_base_url = core.call intrinsic.string.format("{}{}", %host, %endpoint_path)
+        core.set %descriptor["baseUrl"] = %endpoint_base_url
+        %api_version_field = core.get %endpoint_config["apiVersionField"]
+        %has_api_version_field = core.call intrinsic.truthy(%api_version_field)
+        core.if %has_api_version_field {
+          %api_version = core.get %field_values[%api_version_field]
+          core.set %descriptor["apiVersion"] = %api_version
+        }
+      }
       %project_snake = core.get %options["project_id"]
       %project = core.get %options["projectId"] default %project_snake
       %region = core.get %options["region"]
@@ -2552,8 +2454,9 @@ module @ax.provider version "0.1" {
       %region_present = core.call intrinsic.truthy(%region)
       %is_vertex = core.call intrinsic.and(%project_present, %region_present)
       core.if %is_vertex {
-        %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
-        %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
+        %transport = core.get %descriptor["transport"] default "openai-chat"
+        %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
+        %is_anthropic = core.call intrinsic.eq(%transport, "anthropic-messages")
         %vertex_provider = core.call intrinsic.or(%is_gemini, %is_anthropic)
         core.if %vertex_provider {
           %host = core.call @resolve_vertex_ai_host(%region)
@@ -2701,8 +2604,8 @@ module @ax.provider version "0.1" {
     tag "provider-realtime-audio-descriptor"
     type signature = "(profile:string) -> json throws"
     body @entry(%profile: string) {
-      %descriptor = core.call @provider_operation_descriptor(%profile, "realtime_audio")
-      core.return %descriptor
+      %operation = core.call @provider_operation_descriptor(%profile, "realtime")
+      core.return %operation
     }
   }
 
@@ -2743,24 +2646,22 @@ module @ax.provider version "0.1" {
     body @entry(%profile: string, %model: string, %request: json) {
       %descriptor = core.call @provider_descriptor(%profile)
       %operations = core.get %descriptor["operations"]
-      %realtime_op = core.get %operations["realtime_audio"]
+      %realtime_op = core.get %operations["realtime"]
       %has_realtime = core.call intrinsic.is_not_none(%realtime_op)
-      %is_gpt_realtime = core.call intrinsic.string.starts_with(%model, "gpt-realtime")
-      %is_grok_voice = core.call intrinsic.string.starts_with(%model, "grok-voice")
-      %is_native_audio = core.call intrinsic.contains(%model, "native-audio")
-      %is_dash_live = core.call intrinsic.contains(%model, "-live-")
-      %is_gemini_live = core.call intrinsic.string.starts_with(%model, "gemini-live")
-      %pattern_a = core.call intrinsic.or(%is_gpt_realtime, %is_grok_voice)
-      %pattern_b = core.call intrinsic.or(%is_native_audio, %is_dash_live)
-      %pattern_ab = core.call intrinsic.or(%pattern_a, %pattern_b)
-      %is_realtime_model = core.call intrinsic.or(%pattern_ab, %is_gemini_live)
+      %empty_match = core.map
+      %model_match = core.get %realtime_op["modelMatch"] default %empty_match
+      %has_model_match = core.call intrinsic.truthy(%model_match)
+      %matches_model = core.let true
+      core.if %has_model_match {
+        %matches_model = core.call @provider_model_matches(%model_match, %model)
+      }
       %audio = core.get %request["audio"]
       %output = core.get %audio["output"]
       %enabled = core.get %output["enabled"]
       %explicitly_disabled = core.call intrinsic.eq(%enabled, false)
       %audio_ok = core.call intrinsic.not(%explicitly_disabled)
-      %model_and_realtime = core.call intrinsic.and(%has_realtime, %is_realtime_model)
-      %result = core.call intrinsic.and(%model_and_realtime, %audio_ok)
+      %operation_matches = core.call intrinsic.and(%has_realtime, %matches_model)
+      %result = core.call intrinsic.and(%operation_matches, %audio_ok)
       core.return %result
     }
   }
@@ -3165,6 +3066,313 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @provider_model_matches {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-profile-model-rule"
+    type signature = "(match:json, model:string) -> bool"
+    body @entry(%match: json, %model: string) {
+      %empty_values = core.list
+      %exact = core.get %match["exact"] default %empty_values
+      %exact_match = core.call intrinsic.contains(%exact, %model)
+      core.if %exact_match {
+        core.return true
+      }
+      %prefixes = core.get %match["prefix"] default %empty_values
+      core.for %prefix in %prefixes {
+        %prefix_match = core.call intrinsic.string.starts_with(%model, %prefix)
+        core.if %prefix_match {
+          core.return true
+        }
+      }
+      %contains_values = core.get %match["contains"] default %empty_values
+      %model_lower = core.call intrinsic.string.lower(%model)
+      core.for %part in %contains_values {
+        %part_lower = core.call intrinsic.string.lower(%part)
+        %contains_match = core.call intrinsic.contains(%model_lower, %part_lower)
+        core.if %contains_match {
+          core.return true
+        }
+      }
+      core.return false
+    }
+  }
+
+  op ax.provider.semantic @provider_resolve_model_rule {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-profile-model-rule"
+    type signature = "(profile:string, model:string) -> json"
+    body @entry(%profile: string, %model: string) {
+      %descriptor = core.call @provider_descriptor(%profile)
+      %empty_rules = core.list
+      %rules = core.get %descriptor["modelRules"] default %empty_rules
+      core.for %rule in %rules {
+        %empty_match = core.map
+        %match = core.get %rule["match"] default %empty_match
+        %matched = core.call @provider_model_matches(%match, %model)
+        core.if %matched {
+          core.return %rule
+        }
+      }
+      %empty = core.map
+      core.return %empty
+    }
+  }
+
+  op ax.provider.semantic @provider_reasoning_field {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-profile-reasoning-replay"
+    type signature = "(profile:string, model:string) -> string"
+    body @entry(%profile: string, %model: string) {
+      %rule = core.call @provider_resolve_model_rule(%profile, %model)
+      %empty_response = core.map
+      %response = core.get %rule["response"] default %empty_response
+      %empty_fields = core.list
+      %fields = core.get %response["reasoningFields"] default %empty_fields
+      %field = core.call intrinsic.list.get(%fields, 0, "none")
+      core.return %field
+    }
+  }
+
+  op ax.provider.semantic @provider_reasoning_details_field {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-profile-reasoning-replay"
+    type signature = "(profile:string, model:string) -> string"
+    body @entry(%profile: string, %model: string) {
+      %rule = core.call @provider_resolve_model_rule(%profile, %model)
+      %empty_response = core.map
+      %response = core.get %rule["response"] default %empty_response
+      %empty_fields = core.list
+      %fields = core.get %response["reasoningDetailsFields"] default %empty_fields
+      %field = core.call intrinsic.list.get(%fields, 0, "none")
+      core.return %field
+    }
+  }
+
+  op ax.provider.semantic @provider_reasoning_replay_field {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-profile-reasoning-replay"
+    type signature = "(profile:string, model:string) -> string"
+    body @entry(%profile: string, %model: string) {
+      %rule = core.call @provider_resolve_model_rule(%profile, %model)
+      %empty_replay = core.map
+      %replay = core.get %rule["replay"] default %empty_replay
+      %response_field = core.call @provider_reasoning_field(%profile, %model)
+      %field = core.get %replay["assistantReasoningField"] default %response_field
+      core.return %field
+    }
+  }
+
+  op ax.provider.semantic @provider_reasoning_details_replay_field {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-profile-reasoning-replay"
+    type signature = "(profile:string, model:string) -> string"
+    body @entry(%profile: string, %model: string) {
+      %rule = core.call @provider_resolve_model_rule(%profile, %model)
+      %empty_replay = core.map
+      %replay = core.get %rule["replay"] default %empty_replay
+      %response_field = core.call @provider_reasoning_details_field(%profile, %model)
+      %field = core.get %replay["assistantReasoningDetailsField"] default %response_field
+      core.return %field
+    }
+  }
+
+  op ax.provider.semantic @provider_apply_request_rules {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "provider-profile-request-transforms"
+    type signature = "(payload:json, request:json, rules:json) -> json throws"
+    body @entry(%payload: json, %request: json, %rules: json) {
+      %empty_map = core.map
+      %model_config = core.get %request["model_config"] default %empty_map
+      %budget_snake = core.get %model_config["thinking_token_budget"]
+      %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
+      %payload_effort = core.get %payload["reasoning_effort"]
+      %configured_effort = core.call intrinsic.coalesce(%budget, %payload_effort)
+      %default_thinking_level = core.get %rules["defaultThinkingLevel"]
+      %requested_effort = core.call intrinsic.coalesce(%configured_effort, %default_thinking_level)
+      %unsupported_thinking_levels = core.get %rules["unsupportedThinkingLevels"] default %empty_map
+      %unsupported_thinking_level = core.call intrinsic.map.contains(%unsupported_thinking_levels, %requested_effort)
+      core.if %unsupported_thinking_level {
+        %unsupported_thinking_message = core.get %unsupported_thinking_levels[%requested_effort]
+        %unsupported_thinking_error = core.call intrinsic.ai.error.unsupported(%unsupported_thinking_message)
+        core.raise %unsupported_thinking_error
+      }
+      %effort_map = core.get %rules["effortMap"] default %empty_map
+      %has_requested_effort = core.call intrinsic.is_not_none(%requested_effort)
+      %has_effort_mapping = core.call intrinsic.map.contains(%effort_map, %requested_effort)
+      %mapped_effort = core.get %effort_map[%requested_effort]
+      %effective_effort = core.let %requested_effort
+      core.if %has_effort_mapping {
+        %effective_effort = core.let %mapped_effort
+        %mapped_is_none = core.call intrinsic.is_none(%mapped_effort)
+        core.if %mapped_is_none {
+          core.call intrinsic.map.delete(%payload, "reasoning_effort")
+        } else {
+          core.set %payload["reasoning_effort"] = %mapped_effort
+        }
+      }
+      %effective_is_none_value = core.call intrinsic.eq(%effective_effort, "none")
+      %effective_is_missing = core.call intrinsic.is_none(%effective_effort)
+      %effective_is_present = core.call intrinsic.not(%effective_is_missing)
+      %effective_disabled = core.call intrinsic.or(%effective_is_none_value, %effective_is_missing)
+      %effective_enabled = core.call intrinsic.not(%effective_disabled)
+      %has_reasoning = core.call intrinsic.and(%has_requested_effort, %effective_enabled)
+      %has_serializable_reasoning_effort = core.call intrinsic.and(%has_requested_effort, %effective_is_present)
+      %reasoning_mode = core.get %rules["reasoning"] default ""
+      %is_thinking_object_mode = core.call intrinsic.eq(%reasoning_mode, "thinking-object")
+      core.if %is_thinking_object_mode {
+        %thinking = core.map
+        core.if %has_reasoning {
+          core.set %thinking["type"] = "enabled"
+        } else {
+          core.set %thinking["type"] = "disabled"
+        }
+        core.set %payload["thinking"] = %thinking
+      }
+      %is_openrouter_mode = core.call intrinsic.eq(%reasoning_mode, "openrouter")
+      core.if %is_openrouter_mode {
+        core.if %has_serializable_reasoning_effort {
+          %reasoning = core.map
+          %effort = core.get %payload["reasoning_effort"] default %requested_effort
+          core.set %reasoning["effort"] = %effort
+          core.set %payload["reasoning"] = %reasoning
+        }
+        core.call intrinsic.map.delete(%payload, "reasoning_effort")
+      }
+      %tool_choice_mode = core.get %rules["toolChoice"] default ""
+      %unforced = core.call intrinsic.eq(%tool_choice_mode, "unforced")
+      core.if %unforced {
+        %tool_choice = core.get %payload["tool_choice"]
+        %choice_none = core.call intrinsic.eq(%tool_choice, "none")
+        core.if %choice_none {
+          core.call intrinsic.map.delete(%payload, "tools")
+        }
+        %choice_required = core.call intrinsic.eq(%tool_choice, "required")
+        %choice_is_object = core.type_is %tool_choice type "object"
+        %ax_generated = core.let false
+        core.if %choice_is_object {
+          %choice_function = core.get %tool_choice["function"] default %empty_map
+          %choice_name = core.get %choice_function["name"] default ""
+          %ax_generated = core.call intrinsic.eq(%choice_name, "__axOutput")
+        }
+        %not_ax_generated = core.call intrinsic.not(%ax_generated)
+        %object_not_ax = core.call intrinsic.and(%choice_is_object, %not_ax_generated)
+        %caller_forced = core.call intrinsic.or(%choice_required, %object_not_ax)
+        core.if %caller_forced {
+          %error = core.call intrinsic.ai.error.unsupported("deployment profile does not support explicitly forced tool choices")
+          core.raise %error
+        }
+        core.call intrinsic.map.delete(%payload, "tool_choice")
+      }
+      %empty_list = core.list
+      %drop_when_thinking = core.get %rules["dropWhenThinking"] default %empty_list
+      core.if %has_reasoning {
+        core.for %field in %drop_when_thinking {
+          core.call intrinsic.map.delete(%payload, %field)
+        }
+      }
+      %drop_fields = core.get %rules["dropFields"] default %empty_list
+      core.for %field in %drop_fields {
+        core.call intrinsic.map.delete(%payload, %field)
+      }
+      %copy_fields = core.get %rules["copyFields"] default %empty_map
+      %copy_keys = core.call intrinsic.map.keys(%copy_fields)
+      core.for %source in %copy_keys {
+        %has_source = core.call intrinsic.map.contains(%payload, %source)
+        core.if %has_source {
+          %target = core.get %copy_fields[%source]
+          %value = core.get %payload[%source]
+          core.set %payload[%target] = %value
+        }
+      }
+      %rename_fields = core.get %rules["renameFields"] default %empty_map
+      %rename_keys = core.call intrinsic.map.keys(%rename_fields)
+      core.for %source in %rename_keys {
+        %has_source = core.call intrinsic.map.contains(%payload, %source)
+        core.if %has_source {
+          %target = core.get %rename_fields[%source]
+          %value = core.get %payload[%source]
+          core.set %payload[%target] = %value
+          core.call intrinsic.map.delete(%payload, %source)
+        }
+      }
+      %enum_maps = core.get %rules["enumMaps"] default %empty_map
+      %enum_fields = core.call intrinsic.map.keys(%enum_maps)
+      core.for %field in %enum_fields {
+        %field_map = core.get %enum_maps[%field]
+        %value = core.get %payload[%field]
+        %has_value = core.call intrinsic.is_not_none(%value)
+        %has_mapping = core.call intrinsic.map.contains(%field_map, %value)
+        %should_map = core.call intrinsic.and(%has_value, %has_mapping)
+        core.if %should_map {
+          %mapped_value = core.get %field_map[%value]
+          core.set %payload[%field] = %mapped_value
+        }
+      }
+      %construct_objects = core.get %rules["constructObjects"] default %empty_map
+      %object_targets = core.call intrinsic.map.keys(%construct_objects)
+      core.for %target in %object_targets {
+        %field_sources = core.get %construct_objects[%target]
+        %nested_fields = core.call intrinsic.map.keys(%field_sources)
+        %nested = core.map
+        core.for %nested_field in %nested_fields {
+          %source = core.get %field_sources[%nested_field]
+          %has_source = core.call intrinsic.map.contains(%payload, %source)
+          core.if %has_source {
+            %value = core.get %payload[%source]
+            core.set %nested[%nested_field] = %value
+          }
+        }
+        %has_nested = core.call intrinsic.truthy(%nested)
+        core.if %has_nested {
+          core.set %payload[%target] = %nested
+        }
+      }
+      %reasoning_object_fields = core.get %rules["reasoningObjectFields"] default %empty_list
+      %has_reasoning_object_fields = core.call intrinsic.truthy(%reasoning_object_fields)
+      core.if %has_reasoning_object_fields {
+        %reasoning_object = core.get %payload["reasoning"]
+        %reasoning_is_object = core.type_is %reasoning_object type "object"
+        core.if %reasoning_is_object {
+          %filtered_reasoning = core.map
+          core.for %field in %reasoning_object_fields {
+            %has_field = core.call intrinsic.map.contains(%reasoning_object, %field)
+            core.if %has_field {
+              %value = core.get %reasoning_object[%field]
+              core.set %filtered_reasoning[%field] = %value
+            }
+          }
+          core.set %payload["reasoning"] = %filtered_reasoning
+        }
+      }
+      %image_shape = core.get %rules["imageURLShape"] default ""
+      %image_object = core.call intrinsic.eq(%image_shape, "object")
+      core.if %image_object {
+        %payload = core.call @provider_apply_image_url_object_shape(%payload)
+      }
+      %option_dialect = core.get %rules["optionDialect"] default ""
+      %search_parameters = core.call intrinsic.eq(%option_dialect, "search-parameters")
+      core.if %search_parameters {
+        %payload = core.call @provider_apply_search_parameters_option(%payload, %request, %model_config)
+      }
+      core.return %payload
+    }
+  }
+
   op ax.provider.semantic @provider_build_chat_request {
     attr core_kind = "func"
     attr effect = "throws"
@@ -3173,16 +3381,14 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string, AxChatRequest, options?:json) -> json throws"
     body @entry(%profile: string, %request: AxChatRequest, %options: json) {
       %provider_id = core.call @provider_normalize_profile(%profile)
-      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
-      %is_deepseek_responses = core.call intrinsic.eq(%provider_id, "deepseek-responses")
-      %is_responses = core.call intrinsic.or(%is_responses, %is_deepseek_responses)
-      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
-      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
-      %is_deepseek = core.call intrinsic.eq(%provider_id, "deepseek")
-      %reasoning_content_mode = core.let "none"
-      core.if %is_deepseek {
-        %reasoning_content_mode = core.let "deepseek"
-      }
+      %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
+      %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_responses = core.call intrinsic.eq(%transport, "openai-responses")
+      %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
+      %is_anthropic = core.call intrinsic.eq(%transport, "anthropic-messages")
+      %model = core.get %request["model"] default ""
+      %reasoning_content_mode = core.call @provider_reasoning_replay_field(%provider_id, %model)
+      %reasoning_details_mode = core.call @provider_reasoning_details_replay_field(%provider_id, %model)
       %payload = core.map
       core.if %is_responses {
         %responses_payload = core.call @openai_responses_build_chat_request(%request)
@@ -3194,7 +3400,6 @@ module @ax.provider version "0.1" {
         } else {
           core.if %is_anthropic {
             %anthropic_payload = core.call @anthropic_build_chat_request(%request)
-            %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
             %is_vertex = core.get %descriptor["vertex"] default false
             core.if %is_vertex {
               core.call intrinsic.map.delete(%anthropic_payload, "model")
@@ -3202,116 +3407,29 @@ module @ax.provider version "0.1" {
             }
             %payload = core.let %anthropic_payload
           } else {
-            %is_official_openai = core.call intrinsic.eq(%provider_id, "openai-compatible")
-            %compatible_payload = core.call @openai_build_chat_request_impl(%request, %options, %is_official_openai, %reasoning_content_mode)
+            %is_official_openai = core.call intrinsic.eq(%provider_id, "openai")
+            %compatible_payload = core.call @openai_build_chat_request_impl(%request, %options, %is_official_openai, %reasoning_content_mode, %reasoning_details_mode)
             %payload = core.let %compatible_payload
           }
         }
       }
-      %payload_with_quirks = core.call @provider_apply_openai_compatible_profile_quirks(%provider_id, %payload, %request)
-      %payload = core.let %payload_with_quirks
+      %empty_rules = core.map
+      %profile_rules = core.get %descriptor["request"] default %empty_rules
+      %payload = core.call @provider_apply_request_rules(%payload, %request, %profile_rules)
+      %model_rule = core.call @provider_resolve_model_rule(%provider_id, %model)
+      %model_rules = core.get %model_rule["request"] default %empty_rules
+      %payload = core.call @provider_apply_request_rules(%payload, %request, %model_rules)
       core.return %payload
     }
   }
 
-  op ax.provider.semantic @provider_apply_openai_compatible_profile_quirks {
+  op ax.provider.semantic @provider_apply_image_url_object_shape {
     attr core_kind = "func"
     attr emit_module = "ai"
     attr private = true
-    tag "provider-operation-dispatch"
-    type signature = "(profile:string, payload:json, request:json) -> json"
-    body @entry(%profile: string, %payload: json, %request: json) {
-      %empty_map = core.map
-      %model_config = core.get %request["model_config"] default %empty_map
-      %is_deepseek = core.call intrinsic.eq(%profile, "deepseek")
-      core.if %is_deepseek {
-        %payload = core.call @provider_apply_deepseek_chat_quirks(%payload, %model_config)
-      }
-      %is_mistral = core.call intrinsic.eq(%profile, "mistral")
-      core.if %is_mistral {
-        %payload = core.call @provider_apply_mistral_chat_quirks(%payload)
-      }
-      %is_grok = core.call intrinsic.eq(%profile, "grok")
-      core.if %is_grok {
-        %payload = core.call @provider_apply_grok_chat_quirks(%payload, %request, %model_config)
-      }
-      core.return %payload
-    }
-  }
-
-  op ax.provider.semantic @provider_apply_deepseek_chat_quirks {
-    attr core_kind = "func"
-    attr emit_module = "ai"
-    attr private = true
-    tag "deepseek-openai-compatible-quirks"
-    type signature = "(payload:json, model_config:json) -> json"
-    body @entry(%payload: json, %model_config: json) {
-      %model = core.get %payload["model"] default ""
-      %is_flash = core.call intrinsic.eq(%model, "deepseek-v4-flash")
-      %is_pro = core.call intrinsic.eq(%model, "deepseek-v4-pro")
-      %supports_thinking = core.call intrinsic.or(%is_flash, %is_pro)
-      %is_reasoner = core.call intrinsic.eq(%model, "deepseek-reasoner")
-      %unsupported_tool_choice_left = core.call intrinsic.or(%supports_thinking, %is_reasoner)
-      core.if %supports_thinking {
-        %budget_snake = core.get %model_config["thinking_token_budget"]
-        %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
-        %reasoning = core.get %payload["reasoning_effort"]
-        %has_budget = core.call intrinsic.is_not_none(%budget)
-        %has_reasoning = core.call intrinsic.is_not_none(%reasoning)
-        %has_thinking_signal = core.call intrinsic.or(%has_budget, %has_reasoning)
-        %budget_is_none = core.call intrinsic.eq(%budget, "none")
-        %reasoning_is_none = core.call intrinsic.eq(%reasoning, "none")
-        %disabled_signal = core.call intrinsic.or(%budget_is_none, %reasoning_is_none)
-        %not_disabled_signal = core.call intrinsic.not(%disabled_signal)
-        %thinking_enabled = core.call intrinsic.and(%has_thinking_signal, %not_disabled_signal)
-        %thinking = core.map
-        core.if %thinking_enabled {
-          core.set %thinking["type"] = "enabled"
-          %is_xhigh = core.call intrinsic.eq(%reasoning, "xhigh")
-          %is_max = core.call intrinsic.eq(%reasoning, "max")
-          %reasoning_is_max = core.call intrinsic.or(%is_xhigh, %is_max)
-          %budget_is_highest = core.call intrinsic.eq(%budget, "highest")
-          %is_max_effort = core.call intrinsic.or(%reasoning_is_max, %budget_is_highest)
-          core.if %is_max_effort {
-            core.set %payload["reasoning_effort"] = "max"
-          } else {
-            core.set %payload["reasoning_effort"] = "high"
-          }
-          core.call intrinsic.map.delete(%payload, "temperature")
-          core.call intrinsic.map.delete(%payload, "top_p")
-          core.call intrinsic.map.delete(%payload, "presence_penalty")
-          core.call intrinsic.map.delete(%payload, "frequency_penalty")
-        } else {
-          core.set %thinking["type"] = "disabled"
-          core.call intrinsic.map.delete(%payload, "reasoning_effort")
-        }
-        core.set %payload["thinking"] = %thinking
-      }
-      core.if %unsupported_tool_choice_left {
-        %tool_choice = core.get %payload["tool_choice"]
-        %choice_none = core.call intrinsic.eq(%tool_choice, "none")
-        core.if %choice_none {
-          core.call intrinsic.map.delete(%payload, "tools")
-        }
-        core.call intrinsic.map.delete(%payload, "tool_choice")
-      }
-      core.return %payload
-    }
-  }
-
-  op ax.provider.semantic @provider_apply_mistral_chat_quirks {
-    attr core_kind = "func"
-    attr emit_module = "ai"
-    attr private = true
-    tag "mistral-openai-compatible-quirks"
+    tag "provider-profile-request-transforms"
     type signature = "(payload:json) -> json"
     body @entry(%payload: json) {
-      %max_completion = core.get %payload["max_completion_tokens"]
-      %has_max_completion = core.call intrinsic.is_not_none(%max_completion)
-      core.if %has_max_completion {
-        core.set %payload["max_tokens"] = %max_completion
-        core.call intrinsic.map.delete(%payload, "max_completion_tokens")
-      }
       %empty_list = core.list
       %messages = core.get %payload["messages"] default %empty_list
       core.for %message in %messages {
@@ -3336,52 +3454,13 @@ module @ax.provider version "0.1" {
     }
   }
 
-  op ax.provider.semantic @provider_apply_grok_chat_quirks {
+  op ax.provider.semantic @provider_apply_search_parameters_option {
     attr core_kind = "func"
     attr emit_module = "ai"
     attr private = true
-    tag "grok-openai-compatible-quirks"
+    tag "provider-profile-request-transforms"
     type signature = "(payload:json, request:json, model_config:json) -> json"
     body @entry(%payload: json, %request: json, %model_config: json) {
-      %model = core.get %payload["model"] default ""
-      %is_grok43 = core.call intrinsic.eq(%model, "grok-4.3")
-      %is_grok43_latest = core.call intrinsic.eq(%model, "grok-4.3-latest")
-      %is_grok43_any = core.call intrinsic.or(%is_grok43, %is_grok43_latest)
-      core.if %is_grok43_any {
-        %budget_snake = core.get %model_config["thinking_token_budget"]
-        %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
-        %has_budget = core.call intrinsic.is_not_none(%budget)
-        core.if %has_budget {
-          %is_none = core.call intrinsic.eq(%budget, "none")
-          %is_minimal = core.call intrinsic.eq(%budget, "minimal")
-          %is_low = core.call intrinsic.eq(%budget, "low")
-          %is_medium = core.call intrinsic.eq(%budget, "medium")
-          %is_high = core.call intrinsic.eq(%budget, "high")
-          %is_highest = core.call intrinsic.eq(%budget, "highest")
-          %lowish = core.call intrinsic.or(%is_minimal, %is_low)
-          %highish = core.call intrinsic.or(%is_high, %is_highest)
-          core.if %is_none {
-            core.set %payload["reasoning_effort"] = "none"
-          } else {
-            core.if %lowish {
-              core.set %payload["reasoning_effort"] = "low"
-            } else {
-              core.if %is_medium {
-                core.set %payload["reasoning_effort"] = "medium"
-              } else {
-                core.if %highish {
-                  core.set %payload["reasoning_effort"] = "high"
-                }
-              }
-            }
-          }
-        }
-        core.call intrinsic.map.delete(%payload, "presence_penalty")
-        core.call intrinsic.map.delete(%payload, "frequency_penalty")
-        core.call intrinsic.map.delete(%payload, "stop")
-      } else {
-        core.call intrinsic.map.delete(%payload, "reasoning_effort")
-      }
       %empty_map = core.map
       %search_snake = core.get %request["search_parameters"]
       %search_camel = core.get %request["searchParameters"] default %search_snake
@@ -3480,11 +3559,12 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string, AxEmbedRequest, options?:json) -> json throws"
     body @entry(%profile: string, %request: AxEmbedRequest, %options: json) {
       %provider_id = core.call @provider_normalize_profile(%profile)
-      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
-      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
+      %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
+      %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
+      %is_anthropic = core.call intrinsic.eq(%transport, "anthropic-messages")
       %payload = core.map
       core.if %is_gemini {
-        %descriptor = core.call @provider_resolve_descriptor(%provider_id, %options)
         %is_vertex = core.get %descriptor["vertex"] default false
         %gemini_payload = core.map
         core.if %is_vertex {
@@ -3516,16 +3596,13 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string, json, string, string) -> AxChatResponse throws"
     body @entry(%profile: string, %raw: json, %ai_name: string, %model: string) {
       %provider_id = core.call @provider_normalize_profile(%profile)
-      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
-      %is_deepseek_responses = core.call intrinsic.eq(%provider_id, "deepseek-responses")
-      %is_responses = core.call intrinsic.or(%is_responses, %is_deepseek_responses)
-      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
-      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
-      %is_deepseek = core.call intrinsic.eq(%provider_id, "deepseek")
-      %reasoning_content_mode = core.let "none"
-      core.if %is_deepseek {
-        %reasoning_content_mode = core.let "deepseek"
-      }
+      %descriptor = core.call @provider_descriptor(%provider_id)
+      %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_responses = core.call intrinsic.eq(%transport, "openai-responses")
+      %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
+      %is_anthropic = core.call intrinsic.eq(%transport, "anthropic-messages")
+      %reasoning_content_mode = core.call @provider_reasoning_field(%provider_id, %model)
+      %reasoning_details_mode = core.call @provider_reasoning_details_field(%provider_id, %model)
       %response = core.map
       core.if %is_responses {
         %responses_response = core.call @openai_responses_normalize_chat_response(%raw, %ai_name, %model)
@@ -3539,7 +3616,7 @@ module @ax.provider version "0.1" {
             %anthropic_response = core.call @anthropic_normalize_chat_response(%raw, %ai_name, %model)
             %response = core.let %anthropic_response
           } else {
-            %compatible_response = core.call @openai_normalize_chat_response_impl(%raw, %ai_name, %model, %reasoning_content_mode)
+            %compatible_response = core.call @openai_normalize_chat_response_impl(%raw, %ai_name, %model, %reasoning_content_mode, %reasoning_details_mode)
             %response = core.let %compatible_response
           }
         }
@@ -3556,16 +3633,13 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string, json, json, string, string) -> AxChatResponse throws"
     body @entry(%profile: string, %raw: json, %state: json, %ai_name: string, %model: string) {
       %provider_id = core.call @provider_normalize_profile(%profile)
-      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
-      %is_deepseek_responses = core.call intrinsic.eq(%provider_id, "deepseek-responses")
-      %is_responses = core.call intrinsic.or(%is_responses, %is_deepseek_responses)
-      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
-      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
-      %is_deepseek = core.call intrinsic.eq(%provider_id, "deepseek")
-      %reasoning_content_mode = core.let "none"
-      core.if %is_deepseek {
-        %reasoning_content_mode = core.let "deepseek"
-      }
+      %descriptor = core.call @provider_descriptor(%provider_id)
+      %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_responses = core.call intrinsic.eq(%transport, "openai-responses")
+      %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
+      %is_anthropic = core.call intrinsic.eq(%transport, "anthropic-messages")
+      %reasoning_content_mode = core.call @provider_reasoning_field(%provider_id, %model)
+      %reasoning_details_mode = core.call @provider_reasoning_details_field(%provider_id, %model)
       %response = core.map
       core.if %is_responses {
         %responses_response = core.call @openai_responses_normalize_stream_delta(%raw, %state, %ai_name, %model)
@@ -3579,7 +3653,7 @@ module @ax.provider version "0.1" {
             %anthropic_response = core.call @anthropic_normalize_stream_delta(%raw, %state, %ai_name, %model)
             %response = core.let %anthropic_response
           } else {
-            %compatible_response = core.call @openai_normalize_stream_delta_impl(%raw, %state, %ai_name, %model, %reasoning_content_mode)
+            %compatible_response = core.call @openai_normalize_stream_delta_impl(%raw, %state, %ai_name, %model, %reasoning_content_mode, %reasoning_details_mode)
             %response = core.let %compatible_response
           }
         }
@@ -3595,9 +3669,11 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string, json) -> json"
     body @entry(%profile: string, %event: json) {
       %provider_id = core.call @provider_normalize_profile(%profile)
+      %descriptor = core.call @provider_descriptor(%provider_id)
+      %transport = core.get %descriptor["transport"] default "openai-chat"
       %none = core.call intrinsic.none()
       %status = core.let %none
-      %is_anthropic = core.call intrinsic.eq(%provider_id, "anthropic")
+      %is_anthropic = core.call intrinsic.eq(%transport, "anthropic-messages")
       core.if %is_anthropic {
         %event_is_object = core.type_is %event type "object"
         core.if %event_is_object {
@@ -3706,7 +3782,9 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string, json, string, string) -> AxEmbedResponse throws"
     body @entry(%profile: string, %raw: json, %ai_name: string, %model: string) {
       %provider_id = core.call @provider_normalize_profile(%profile)
-      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
+      %descriptor = core.call @provider_descriptor(%provider_id)
+      %transport = core.get %descriptor["transport"] default "openai-chat"
+      %is_gemini = core.call intrinsic.eq(%transport, "gemini-generate-content")
       %response = core.map
       core.if %is_gemini {
         %gemini_response = core.call @gemini_normalize_embed_response(%raw, %ai_name, %model)
@@ -3727,17 +3805,18 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string, json) -> json throws"
     body @entry(%profile: string, %request: json) {
       %provider_id = core.call @provider_normalize_profile(%profile)
-      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
-      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
-      %is_grok = core.call intrinsic.eq(%provider_id, "grok")
+      %operation = core.call @provider_operation_descriptor(%provider_id, "transcribe")
+      %dialect = core.get %operation["dialect"] default "openai-transcription"
+      %is_gemini = core.call intrinsic.eq(%dialect, "gemini-generate-content")
+      %is_xai = core.call intrinsic.eq(%dialect, "xai-transcription")
       %payload = core.map
       core.if %is_gemini {
         %gemini_payload = core.call @gemini_build_transcribe_request(%request)
         %payload = core.let %gemini_payload
       } else {
-        core.if %is_grok {
-          %grok_payload = core.call @grok_build_transcribe_request(%request)
-          %payload = core.let %grok_payload
+        core.if %is_xai {
+          %xai_payload = core.call @grok_build_transcribe_request(%request)
+          %payload = core.let %xai_payload
         } else {
           %responses_payload = core.call @openai_responses_build_transcribe_request(%request)
           %payload = core.let %responses_payload
@@ -3755,17 +3834,18 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string, json) -> json throws"
     body @entry(%profile: string, %request: json) {
       %provider_id = core.call @provider_normalize_profile(%profile)
-      %is_responses = core.call intrinsic.eq(%provider_id, "openai-responses")
-      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
-      %is_grok = core.call intrinsic.eq(%provider_id, "grok")
+      %operation = core.call @provider_operation_descriptor(%provider_id, "speak")
+      %dialect = core.get %operation["dialect"] default "openai-speech"
+      %is_gemini = core.call intrinsic.eq(%dialect, "gemini-generate-content")
+      %is_xai = core.call intrinsic.eq(%dialect, "xai-speech")
       %payload = core.map
       core.if %is_gemini {
         %gemini_payload = core.call @gemini_build_speak_request(%request)
         %payload = core.let %gemini_payload
       } else {
-        core.if %is_grok {
-          %grok_payload = core.call @grok_build_speak_request(%request)
-          %payload = core.let %grok_payload
+        core.if %is_xai {
+          %xai_payload = core.call @grok_build_speak_request(%request)
+          %payload = core.let %xai_payload
         } else {
           %responses_payload = core.call @openai_responses_build_speak_request(%request)
           %payload = core.let %responses_payload
@@ -3782,7 +3862,11 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string, json) -> json"
     body @entry(%profile: string, %raw: json) {
       %provider_id = core.call @provider_normalize_profile(%profile)
-      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
+      %descriptor = core.call @provider_descriptor(%provider_id)
+      %operations = core.get %descriptor["operations"]
+      %operation = core.get %operations["transcribe"]
+      %dialect = core.get %operation["dialect"] default "openai-transcription"
+      %is_gemini = core.call intrinsic.eq(%dialect, "gemini-generate-content")
       core.if %is_gemini {
         %gemini_out = core.call @gemini_normalize_transcribe_response(%raw)
         core.return %gemini_out
@@ -3811,7 +3895,11 @@ module @ax.provider version "0.1" {
     type signature = "(profile:string, json, json) -> json"
     body @entry(%profile: string, %raw: json, %request: json) {
       %provider_id = core.call @provider_normalize_profile(%profile)
-      %is_gemini = core.call intrinsic.eq(%provider_id, "google-gemini")
+      %descriptor = core.call @provider_descriptor(%provider_id)
+      %operations = core.get %descriptor["operations"]
+      %operation = core.get %operations["speak"]
+      %dialect = core.get %operation["dialect"] default "openai-speech"
+      %is_gemini = core.call intrinsic.eq(%dialect, "gemini-generate-content")
       core.if %is_gemini {
         %gemini_out = core.call @gemini_normalize_speak_response(%raw, %request)
         core.return %gemini_out

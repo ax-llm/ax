@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .ai import AnthropicClient, AzureOpenAIClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, CohereClient, DeepSeekClient, DeepSeekResponsesClient, GoogleGeminiClient, GrokClient, MistralClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, RekaClient, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_usage_observer
+from .ai import AnthropicClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, ai, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_usage_observer
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
@@ -2349,7 +2349,15 @@ def _run_agent_runtime_protocol(fixture):
 
 def _run_ai_chat(fixture):
     client, transport = _openai_fixture_client(fixture)
-    result = client.chat(fixture["request"], fixture.get("options"))
+    try:
+        result = client.chat(fixture["request"], fixture.get("options"))
+    except Exception as exc:
+        expected = fixture.get("expected_error_contains")
+        if expected and expected in str(exc):
+            return
+        raise
+    if fixture.get("expected_error_contains"):
+        raise FixtureError("expected AI chat request to fail")
     if "expected_output" in fixture:
         _assert_equal(result, fixture["expected_output"], "ai chat output")
     if "expected_request_after" in fixture:
@@ -2446,7 +2454,7 @@ def _run_ai_unsupported(fixture):
 
 
 def _run_ai_provider_descriptor(fixture):
-    provider = fixture.get("provider", "openai-compatible")
+    provider = fixture.get("provider", "openai")
     descriptor = provider_resolve_descriptor(provider, fixture.get("options")) if "options" in fixture else provider_descriptor(provider)
     if "expected_output" in fixture:
         _assert_subset(descriptor, fixture["expected_output"], "provider descriptor")
@@ -2789,56 +2797,16 @@ def _error_category(exc):
 
 def _openai_fixture_client(fixture):
     transport = ScriptedTransport(fixture.get("transport_responses") or fixture.get("responses") or [])
-    provider = provider_normalize_profile(str(fixture.get("provider", "openai-compatible")))
-    if provider == "openai-responses":
-        client_cls = OpenAIResponsesClient
-        default_model = "gpt-4o"
-        default_embed_model = "text-embedding-ada-002"
-    elif provider == "deepseek-responses":
-        client_cls = DeepSeekResponsesClient
-        default_model = "deepseek-v4-flash"
-        default_embed_model = ""
-    elif provider == "google-gemini":
-        client_cls = GoogleGeminiClient
-        default_model = "gemini-2.5-flash"
-        default_embed_model = "gemini-embedding-2"
-    elif provider == "anthropic":
-        client_cls = AnthropicClient
-        default_model = "claude-3-7-sonnet-latest"
-        default_embed_model = ""
-    elif provider == "azure-openai":
-        client_cls = AzureOpenAIClient
-        default_model = "gpt-5-mini"
-        default_embed_model = "text-embedding-3-small"
-    elif provider == "deepseek":
-        client_cls = DeepSeekClient
-        default_model = "deepseek-v4-flash"
-        default_embed_model = ""
-    elif provider == "mistral":
-        client_cls = MistralClient
-        default_model = "mistral-small-latest"
-        default_embed_model = "mistral-embed"
-    elif provider == "reka":
-        client_cls = RekaClient
-        default_model = "reka-core"
-        default_embed_model = ""
-    elif provider == "cohere":
-        client_cls = CohereClient
-        default_model = "command-r-plus"
-        default_embed_model = "embed-english-v3.0"
-    elif provider == "grok":
-        client_cls = GrokClient
-        default_model = "grok-4.3"
-        default_embed_model = ""
-    else:
-        client_cls = OpenAICompatibleClient
-        default_model = "gpt-4.1-mini"
-        default_embed_model = "text-embedding-3-small"
+    provider = provider_normalize_profile(str(fixture.get("provider", "openai")))
+    descriptor = provider_descriptor(provider)
+    default_model = descriptor.get("defaultModel") or ""
+    default_embed_model = descriptor.get("defaultEmbedModel") or ""
     extra_options = {}
     for key in ("base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version"):
         if key in fixture:
             extra_options[key] = fixture[key]
-    client = client_cls(
+    client = ai(
+        provider,
         model=fixture.get("model", default_model),
         embed_model=fixture.get("embed_model", default_embed_model),
         api_key="test-key",

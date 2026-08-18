@@ -147,21 +147,6 @@
         },
         {
           "target_name": "rust",
-          "canonical_name": "DeepSeekResponsesClient",
-          "public_name": "DeepSeekResponsesClient",
-          "kind": "type",
-          "description": "DeepSeek Responses provider mapping with stateless reasoning and function-call replay.",
-          "form": "DeepSeekResponsesClient / ai(provider, options)",
-          "important_options": [
-            "api key",
-            "model",
-            "thinking",
-            "transport"
-          ],
-          "returns": "provider client"
-        },
-        {
-          "target_name": "rust",
           "canonical_name": "GoogleGeminiClient",
           "public_name": "GoogleGeminiClient",
           "kind": "type",

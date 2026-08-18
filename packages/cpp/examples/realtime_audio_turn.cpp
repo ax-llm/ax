@@ -18,10 +18,10 @@ namespace {
 }  // namespace
 
 int main() {
-  axllm::GrokClient client(axllm::object({
+  auto client = std::dynamic_pointer_cast<axllm::OpenAICompatibleClient>(axllm::ai("grok", axllm::object({
       {"model", "grok-voice-think-fast-1.0"},
       {"api_key", "test-key"},
-  }));
+  })));
   axllm::Value request = axllm::object({
       {"model", "grok-voice-think-fast-1.0"},
       {"chat_prompt",
@@ -43,7 +43,7 @@ int main() {
   };
 
   axllm::ScriptedRealtimeTransport transport(inbound);
-  axllm::Value final_response = client.realtime_chat(request, &transport);
+  axllm::Value final_response = client->realtime_chat(request, &transport);
 
   std::string sent;
   for (const auto& event : transport.sent) sent += axllm::stringify(axllm::Core::get(event, "type")) + " ";

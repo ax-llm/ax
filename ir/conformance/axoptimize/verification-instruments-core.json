@@ -10,7 +10,7 @@
     "embedCount": 1,
     "streamContent": "delta",
     "toolName": "lookup",
-    "profileId": "openai-compatible",
+    "profileId": "openai",
     "geminiText": "transcript",
     "geminiAudio": "audio-bytes",
     "grokCodec": "pcm",

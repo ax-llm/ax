@@ -3,7 +3,7 @@
     {
       "model_usage": {
         "ai": "anthropic",
-        "model": "claude-3-7-sonnet-latest",
+        "model": "claude-sonnet-4-5",
         "tokens": {
           "cache_read_tokens": 1,
           "completion_tokens": 0,
@@ -83,7 +83,7 @@
     {
       "model_usage": {
         "ai": "anthropic",
-        "model": "claude-3-7-sonnet-latest",
+        "model": "claude-sonnet-4-5",
         "tokens": {
           "cache_creation_tokens": 0,
           "cache_read_tokens": 1,
@@ -124,7 +124,7 @@
   },
   "transport_responses": [
     {
-      "body": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_stream_a\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-3-7-sonnet-latest\",\"stop_reason\":null,\"usage\":{\"input_tokens\":4,\"output_tokens\":0,\"cache_read_input_tokens\":1}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hel\"}}\n\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_stream\",\"name\":\"search\",\"input\":{}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"Ax\\\"}\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"plan\"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":3}}\n\n",
+      "body": "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_stream_a\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4-5\",\"stop_reason\":null,\"usage\":{\"input_tokens\":4,\"output_tokens\":0,\"cache_read_input_tokens\":1}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hel\"}}\n\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_stream\",\"name\":\"search\",\"input\":{}}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"Ax\\\"}\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"plan\"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":3}}\n\n",
       "status": 200
     }
   ]

@@ -10,7 +10,7 @@
         }
       },
       "structured_outputs": false,
-      "thinking": true
+      "thinking": false
     },
     "id": "deepseek",
     "name": "DeepSeek",
