@@ -162,6 +162,7 @@ ontext
 openai
 OPENAI
 openrouter
+orcarouter
 Opentable
 opentelemetry
 overwriter

@@ -526,7 +526,7 @@ const result = await optimizer.compile(
 | Skills | `onSkillsSearch`, `consult(...)` | on-demand prompt-section loader |
 | Sandboxed JS runtime | `AxJSRuntime`, `AxJSRuntimePermission` | TypeScript runtime for Node, Bun, Deno, browser |
 | Recursive runtime (RLM) | `agent({ runtime, contextFields })` | long-context REPL with checkpointed replay |
-| Deployment profiles | `ai({ name: ... })` | 45 named native, router/cloud, hosted-inference, and configurable-runtime deployments |
+| Deployment profiles | `ai({ name: ... })` | 46 named native, router/cloud, hosted-inference, and configurable-runtime deployments |
 | Custom OpenAI-compatible endpoint | `ai({ name: "openai-compatible", apiURL, apiKey, config: { model } })` | conservative capabilities; unknown names are errors |
 | Observability | OpenTelemetry, `actorTurnCallback`, `onFunctionCall` | per-turn telemetry, tool-call tracing |
 | MCP | `AxMCPClient`, `AxMCPStreamableHTTPTransport`, `AxMCPStdioTransport` | use any MCP server as a tool source |

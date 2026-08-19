@@ -353,6 +353,12 @@
         "name": "openrouter"
       },
       {
+        "displayName": "OrcaRouter",
+        "isDynamic": true,
+        "models": [],
+        "name": "orcarouter"
+      },
+      {
         "displayName": "Fireworks AI",
         "isDynamic": true,
         "models": [],
@@ -535,8 +541,10 @@
     ],
     "modelCount": 12,
     "openaiFirstModel": "gpt-audio",
-    "openaiModelTypes": ["audio"],
-    "providerCount": 45,
+    "openaiModelTypes": [
+      "audio"
+    ],
+    "providerCount": 46,
     "providerNames": [
       "google-gemini",
       "openai",
@@ -553,6 +561,7 @@
       "reka",
       "together",
       "openrouter",
+      "orcarouter",
       "fireworks",
       "huggingface-router",
       "amazon-bedrock",

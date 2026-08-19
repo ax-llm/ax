@@ -38,7 +38,7 @@ const createMockFetch = (capture: Capture) =>
 describe('named AI deployment profiles', () => {
   it('publishes the fixed profile catalog with unique aliases and sources', () => {
     const profiles = axAIProfiles();
-    expect(profiles).toHaveLength(45);
+    expect(profiles).toHaveLength(46);
     expect(new Set(profiles.map((profile) => profile.id)).size).toBe(
       profiles.length
     );
@@ -58,6 +58,27 @@ describe('named AI deployment profiles', () => {
     expect(
       axGetAIProfile('openai-compatible').capabilities.structuredOutputs
     ).toBe(false);
+  });
+
+  it('resolves OrcaRouter as a named OpenAI-compatible gateway', async () => {
+    const profile = axGetAIProfile('orcarouter');
+    expect(axResolveAIProfileId('orcarouter')).toBe('orcarouter');
+    expect(profile.baseURL).toBe('https://api.orcarouter.ai/v1');
+    expect(profile.authentication.required).toBe(true);
+    expect(profile.defaultModel).toBe('orcarouter/auto');
+    expect(profile.capabilities.functions).toBe(true);
+    expect(profile.capabilities.structuredOutputs).toBe(false);
+
+    const capture: Capture = {};
+    const service = ai({
+      name: 'orcarouter',
+      apiKey: 'key',
+      config: { model: 'orcarouter/auto', stream: false },
+      options: { fetch: createMockFetch(capture) },
+    });
+    await service.chat({ chatPrompt: [{ role: 'user', content: 'ping' }] });
+    expect(capture.url).toBe('https://api.orcarouter.ai/v1/chat/completions');
+    expect(capture.headers?.has('authorization')).toBe(true);
   });
 
   it('rejects unknown names instead of silently selecting OpenAI compatibility', () => {

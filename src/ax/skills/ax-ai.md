@@ -609,7 +609,7 @@ the event runtime sees the request.
 ## Critical Rules
 
 - Use `ai()` factory for all providers.
-- Use `axAIProfiles()` as the source of truth for names. Core names include `'openai'`, `'openai-compatible'`, `'openai-responses'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'deepseek'`, `'mistral'`, `'cohere'`, `'grok'`, routers such as `'together'` and `'openrouter'`, hosted inference profiles, and configurable local runtimes.
+- Use `axAIProfiles()` as the source of truth for names. Core names include `'openai'`, `'openai-compatible'`, `'openai-responses'`, `'anthropic'`, `'google-gemini'`, `'azure-openai'`, `'deepseek'`, `'mistral'`, `'cohere'`, `'grok'`, routers such as `'together'`, `'openrouter'`, and `'orcarouter'`, hosted inference profiles, and configurable local runtimes.
 - Thinking constraints on Anthropic: every adaptive-thinking model omits
   `temperature`, `topP`, and `topK`; older thinking models ignore `temperature` and `topK`, with
   `topP` only sent if >= 0.95.

@@ -1086,7 +1086,10 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": ["deepseek-chat", "deepseek-reasoner"],
+            "aliases": [
+              "deepseek-chat",
+              "deepseek-reasoner"
+            ],
             "cacheReadTokenCostPer1M": 0.0028,
             "capabilities": {
               "audioInput": false,
@@ -1147,7 +1150,10 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": ["deepseek-chat", "deepseek-reasoner"],
+            "aliases": [
+              "deepseek-chat",
+              "deepseek-reasoner"
+            ],
             "cacheReadTokenCostPer1M": 0.0028,
             "capabilities": {
               "audioInput": false,
@@ -1941,7 +1947,9 @@
             "type": "text"
           },
           {
-            "aliases": ["gpt-5.6"],
+            "aliases": [
+              "gpt-5.6"
+            ],
             "cacheReadTokenCostPer1M": 0.5,
             "cacheWriteTokenCostPer1M": 6.25,
             "capabilities": {
@@ -2901,7 +2909,9 @@
             "type": "text"
           },
           {
-            "aliases": ["gpt-5.6"],
+            "aliases": [
+              "gpt-5.6"
+            ],
             "cacheReadTokenCostPer1M": 0.5,
             "cacheWriteTokenCostPer1M": 6.25,
             "capabilities": {
@@ -3141,7 +3151,9 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": ["grok-4-1-fast-non-reasoning-latest"],
+            "aliases": [
+              "grok-4-1-fast-non-reasoning-latest"
+            ],
             "cacheReadTokenCostPer1M": 0.05,
             "capabilities": {
               "audioInput": false,
@@ -3165,7 +3177,9 @@
             "type": "text"
           },
           {
-            "aliases": ["grok-4-1-fast-reasoning-latest"],
+            "aliases": [
+              "grok-4-1-fast-reasoning-latest"
+            ],
             "cacheReadTokenCostPer1M": 0.05,
             "capabilities": {
               "audioInput": false,
@@ -3293,7 +3307,10 @@
             "type": "text"
           },
           {
-            "aliases": ["grok-4.3-latest", "grok-latest"],
+            "aliases": [
+              "grok-4.3-latest",
+              "grok-latest"
+            ],
             "cacheReadTokenCostPer1M": 0.2,
             "capabilities": {
               "audioInput": false,
@@ -3339,7 +3356,10 @@
             "type": "text"
           },
           {
-            "aliases": ["grok-4.5-latest", "grok-build-latest"],
+            "aliases": [
+              "grok-4.5-latest",
+              "grok-build-latest"
+            ],
             "cacheReadTokenCostPer1M": 0.3,
             "capabilities": {
               "audioInput": false,
@@ -4507,6 +4527,12 @@
         "name": "openrouter"
       },
       {
+        "displayName": "OrcaRouter",
+        "isDynamic": true,
+        "models": [],
+        "name": "orcarouter"
+      },
+      {
         "displayName": "Fireworks AI",
         "isDynamic": true,
         "models": [],
@@ -4689,8 +4715,11 @@
     ],
     "modelCount": 181,
     "openaiFirstModel": "gpt-5-nano",
-    "openaiModelTypes": ["code", "text"],
-    "providerCount": 45,
+    "openaiModelTypes": [
+      "code",
+      "text"
+    ],
+    "providerCount": 46,
     "providerNames": [
       "google-gemini",
       "webllm",
@@ -4707,6 +4736,7 @@
       "azure-openai",
       "together",
       "openrouter",
+      "orcarouter",
       "fireworks",
       "huggingface-router",
       "amazon-bedrock",

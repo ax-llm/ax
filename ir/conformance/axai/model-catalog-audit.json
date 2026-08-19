@@ -17,6 +17,7 @@
       "reka",
       "together",
       "openrouter",
+      "orcarouter",
       "fireworks",
       "huggingface-router",
       "amazon-bedrock",
@@ -48,9 +49,15 @@
       "localai",
       "baseten-engine"
     ],
-    "filterOptions": ["all", "text", "embeddings", "code", "audio"],
+    "filterOptions": [
+      "all",
+      "text",
+      "embeddings",
+      "code",
+      "audio"
+    ],
     "nextMilestone": "Generated catalog provider clients match the active catalog",
-    "providerCount": 45,
+    "providerCount": 46,
     "providerNames": [
       "google-gemini",
       "webllm",
@@ -67,6 +74,7 @@
       "azure-openai",
       "together",
       "openrouter",
+      "orcarouter",
       "fireworks",
       "huggingface-router",
       "amazon-bedrock",
@@ -122,7 +130,7 @@
     },
     "openaiDefaultModel": "gpt-5-mini",
     "openaiFirstModel": "text-embedding-3-small",
-    "providerCount": 45,
+    "providerCount": 46,
     "providerNames": [
       "google-gemini",
       "webllm",
@@ -139,6 +147,7 @@
       "azure-openai",
       "together",
       "openrouter",
+      "orcarouter",
       "fireworks",
       "huggingface-router",
       "amazon-bedrock",
@@ -186,6 +195,7 @@
       "azure-openai",
       "together",
       "openrouter",
+      "orcarouter",
       "fireworks",
       "huggingface-router",
       "amazon-bedrock",
