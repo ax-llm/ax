@@ -1,7 +1,7 @@
 ---
 name: "ax-java-llm"
 description: "Use when writing Java code with `dev.axllm:ax` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "23.0.16"
+version: "24.0.0"
 ---
 # Ax LLM Quick Reference For Java
 

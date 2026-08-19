@@ -1,5 +1,23 @@
 # Changelog
 
+## [24.0.0](https://github.com/ax-llm/ax/compare/23.0.15...23.0.16) (2026-08-19)
+
+### Features
+
+* add AxGen multi-sampling parity ([#582](https://github.com/ax-llm/ax/issues/582)) ([4483dd8](https://github.com/ax-llm/ax/commit/4483dd85ca2eff4f6f3c34f423c2b0ef3500e752))
+* add named AI deployment profiles ([dec44b8](https://github.com/ax-llm/ax/commit/dec44b8fdd4a8e8deb776de0d441385d974e1f27))
+* add portable structured output and renewable credentials ([1b3b597](https://github.com/ax-llm/ax/commit/1b3b5979e2a39c391c06f7018dcaef467d58cac8))
+
+### Bug Fixes
+
+* **ci:** recognize provider kwargs term ([97c1032](https://github.com/ax-llm/ax/commit/97c10320462a77f5e4b6b7b7b73b448f361078b1))
+
+## [23.0.16](https://github.com/ax-llm/ax/compare/23.0.15...23.0.16) (2026-08-17)
+
+### Bug Fixes
+
+* **agent:** document native MCP tools to the RLM actor as mcp.<ns>.tools.<name> ([#575](https://github.com/ax-llm/ax/issues/575)) ([#578](https://github.com/ax-llm/ax/issues/578)) ([d1174c1](https://github.com/ax-llm/ax/commit/d1174c10bbb3944020a423267e560cb6b9f739db))
+
 ## Next major
 
 - Added named deployment profiles, `AxAIProfileId`, `AxAIProfileSummary`,
