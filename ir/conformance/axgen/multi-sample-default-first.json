@@ -1,0 +1,41 @@
+{
+  "name": "multi-sample-default-first",
+  "kind": "forward",
+  "signature": "question:string -> answer:string",
+  "input": {
+    "question": "Choose a greeting"
+  },
+  "options": {
+    "sample_count": 3
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "{\"answer\":\"first\"}",
+          "function_calls": []
+        },
+        {
+          "index": 1,
+          "content": "{\"answer\":\"second\"}",
+          "function_calls": []
+        },
+        {
+          "index": 2,
+          "content": "{\"answer\":\"third\"}",
+          "function_calls": []
+        }
+      ]
+    }
+  ],
+  "expected_output": {
+    "answer": "first"
+  },
+  "expected_request": {
+    "model_config": {
+      "n": 3
+    }
+  },
+  "expected_request_count": 1
+}

@@ -1,0 +1,29 @@
+{
+  "name": "multi-sample-structured-validation",
+  "kind": "forward",
+  "signature": "question:string -> answer:string, score:number",
+  "input": {
+    "question": "Validate every candidate"
+  },
+  "options": {
+    "sample_count": 2,
+    "validation_retries": 0
+  },
+  "responses": [
+    {
+      "results": [
+        {
+          "index": 0,
+          "content": "{\"answer\":\"valid\",\"score\":1}",
+          "function_calls": []
+        },
+        {
+          "index": 1,
+          "content": "{\"answer\":\"missing score\"}",
+          "function_calls": []
+        }
+      ]
+    }
+  ],
+  "expected_error_contains": "Required field is missing"
+}

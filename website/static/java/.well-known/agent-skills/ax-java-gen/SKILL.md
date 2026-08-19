@@ -1,6 +1,6 @@
 ---
 name: "ax-java-gen"
-description: "Use when writing Java code with `dev.axllm:ax` for AxGen programs, forward calls, streaming, tools, assertions, traces, usage, and output parsing."
+description: "Use when writing Java code with `dev.axllm:ax` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing."
 version: "23.0.16"
 ---
 # AxGen Structured Generation For Java
@@ -11,6 +11,7 @@ This skill helps an agent write Java code with the generated Ax package `dev.axl
 
 - Build a structured generation program from a signature.
 - Attach typed tools or MCP-derived tools to a generation call.
+- Generate multiple validated structured samples and select a winner with a native callback.
 - Use package examples for no-key scripted clients and provider-api calls.
 
 ## Package Facts
@@ -34,6 +35,13 @@ var out = program.forward(llm, java.util.Map.of("question", "What is Ax?"));
 ## Provider Forward Options
 
 AxGen merges constructor and per-call forward options before invoking the provider. Provider-facing keys such as `promptCacheKey`, `sessionId`, and `contextCache` therefore reach the chat request without being copied into program inputs. Per-call values override constructor defaults.
+
+## Multi-Sampling
+
+- Set `sampleCount` / `sample_count` to request N provider candidates. Core parses and validates every candidate, preserving each provider result index.
+- Without a result picker, AxGen returns candidate 0. A result picker receives all `{ index, sample }` structured candidates and returns the winning list index; Core rejects an index outside `0..N-1`.
+- Native callback surface: `setSampleCount` / `setResultPicker`.
+- OpenAI-compatible Chat and Gemini map multi-sampling to `n` and `candidateCount`. Anthropic rejects `n > 1` explicitly.
 
 ## Relevant API Surface
 

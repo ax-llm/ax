@@ -129,6 +129,11 @@ static std::map<std::string, std::function<Value(Value)>>& flow_mapper_registry(
   return handlers;
 }
 
+static std::map<std::string, std::function<int(const Value&)>>& result_picker_registry() {
+  static std::map<std::string, std::function<int(const Value&)>> handlers;
+  return handlers;
+}
+
 static Value register_flow_mapper(std::string prefix, std::function<Value(Value)> mapper) {
   std::string id = std::move(prefix) + ":flow_mapper:" + std::to_string(flow_mapper_registry().size());
   flow_mapper_registry()[id] = std::move(mapper);
@@ -1058,6 +1063,11 @@ Value Core::object_call_method(Value target, Value method_name, Value arg) {
     return render_prompt(get_key(target, "signature"), arg, get_key(target, "functions", Value::array()), get_key(target, "options", Value::object()));
   }
   if (str(method_name) == "call") {
+    std::string picker_id = str(get_key(target, "__result_picker_id"));
+    auto picker = result_picker_registry().find(picker_id);
+    if (picker != result_picker_registry().end()) {
+      return Value(picker->second(get_key(arg, "results", Value::array())));
+    }
     std::string mapper_id = str(get_key(target, "__flow_mapper_id"));
     auto it = flow_mapper_registry().find(mapper_id);
     if (it != flow_mapper_registry().end()) return it->second(arg);
@@ -3216,6 +3226,22 @@ AxGen& AxGen::set_examples(Value examples) {
 
 AxGen& AxGen::set_demos(Value demos) {
   Core::set(state_, "demos", demos);
+  return *this;
+}
+
+AxGen& AxGen::set_sample_count(int sample_count) {
+  Value options = Core::get(state_, "options", Value::object());
+  Core::set(options, "sampleCount", sample_count);
+  Core::set(state_, "options", options);
+  return *this;
+}
+
+AxGen& AxGen::set_result_picker(std::function<int(const Value&)> result_picker) {
+  std::string id = pointer_id(this) + ":result_picker:" + std::to_string(result_picker_registry().size());
+  result_picker_registry()[id] = std::move(result_picker);
+  Value options = Core::get(state_, "options", Value::object());
+  Core::set(options, "resultPicker", object({{"__result_picker_id", id}}));
+  Core::set(state_, "options", options);
   return *this;
 }
 

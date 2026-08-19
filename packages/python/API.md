@@ -48,7 +48,7 @@ Parsed signature with input/output fields, descriptions, and JSON schema helpers
 
 ## AxGen
 
-Run structured generation with Core-owned prompts, tool loops, retries, streaming folds, traces, usage, examples, and field processors.
+Run structured generation with Core-owned prompts, indexed multi-sampling, result selection, tool loops, retries, streaming folds, traces, usage, examples, and field processors.
 
 ### `ax`
 
@@ -58,7 +58,7 @@ Create an AxGen program from a string or parsed signature.
 - Kind: `function`
 - Form: `ax(signature, options=None)`
 - Returns: `AxGen`
-- Important options: functions, examples, demos, modelConfig, maxRetries, streaming assertions, field processors
+- Important options: functions, examples, demos, sample count, result picker, modelConfig, maxRetries, streaming assertions, field processors
 
 ```python
 qa = ax("question:string -> answer:string")
@@ -66,13 +66,13 @@ qa = ax("question:string -> answer:string")
 
 ### `AxGen`
 
-Structured generation program with forward, streaming, optimization, trace, usage, and tool-call behavior.
+Structured generation program with indexed multi-sampling, winner selection, forward, streaming, optimization, trace, usage, and tool-call behavior.
 
 - Canonical Ax concept: `AxGen`
 - Kind: `type`
 - Form: `AxGen(signature, options=None)`
 - Returns: `program object`
-- Important options: signature, functions, examples, demos, memory, prompt template
+- Important options: signature, functions, examples, demos, sample count, result picker, memory, prompt template
 
 
 ## AxAI

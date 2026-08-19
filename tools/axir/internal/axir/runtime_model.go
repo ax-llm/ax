@@ -167,6 +167,7 @@ func BuildRuntimeModel(core Module) (AxRuntimeModel, error) {
 			"axgen_context_cache":                          true,
 			"axgen_prompt_cache_key":                       true,
 			"axgen_callbacks":                              true,
+			"axgen_multi_sampling":                         true,
 			"axgen_function_trace":                         true,
 			"axgen_trace":                                  true,
 			"axgen_stop_functions":                         true,

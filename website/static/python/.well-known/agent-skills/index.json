@@ -32,9 +32,9 @@
     {
       "name": "ax-python-gen",
       "type": "skill-md",
-      "description": "Use when writing Python code with `axllm` for AxGen programs, forward calls, streaming, tools, assertions, traces, usage, and output parsing.",
+      "description": "Use when writing Python code with `axllm` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-python-gen/SKILL.md",
-      "digest": "sha256:6ad985d745a565fd37dd29d20fff16ce3bd1c888b61b4a9afabc1e3cd43050a9"
+      "digest": "sha256:8ee653a89fd30e21e2212063dc2cd62af041989e7fb7cbe7f959b80bb3fb1162"
     },
     {
       "name": "ax-python-flow",

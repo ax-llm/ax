@@ -679,6 +679,14 @@ static void run_forward(Value fixture) {
   if (!Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions")).is_null()) {
     gen.set_stop_functions(Core::get(fixture, "stop_functions", Core::get(fixture, "stopFunctions", Value::array())));
   }
+  Value picker_index = Core::get(fixture, "result_picker_index");
+  if (!picker_index.is_null()) {
+    gen.set_result_picker([fixture, picker_index](const Value& samples) {
+      Value expected = Core::get(fixture, "expected_picker_samples");
+      if (!expected.is_null()) assert_equal(samples, expected, "result picker samples");
+      return std::stoi(display(picker_index));
+    });
+  }
   ConformanceScriptedAI client(Core::get(fixture, "responses", Value::array()), Core::get(fixture, "features"));
   Value input = Core::get(fixture, "input", Core::get(fixture, "values", Value::object()));
   Value output = expect_maybe_error([&] { return gen.forward(client, input, Core::get(fixture, "forward_options", Value::object())); }, fixture);

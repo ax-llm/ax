@@ -961,6 +961,12 @@ def _run_forward(fixture):
         gen.add_field_processor(processor.get("field"), processor.get("processor", processor.get("op")))
     if "stop_functions" in fixture or "stopFunctions" in fixture:
         gen.set_stop_functions(fixture.get("stop_functions") or fixture.get("stopFunctions") or [])
+    if "result_picker_index" in fixture:
+        def pick_result(samples):
+            if "expected_picker_samples" in fixture:
+                _assert_equal(samples, fixture["expected_picker_samples"], "result picker samples")
+            return fixture["result_picker_index"]
+        gen.set_result_picker(pick_result)
     client = ConformanceScriptedAI(fixture.get("responses") or [], fixture.get("stream_events") or [], fixture.get("transcribe_responses") or [], fixture.get("features"))
     try:
         output = gen.forward(client, fixture.get("input") or {}, fixture.get("forward_options"))

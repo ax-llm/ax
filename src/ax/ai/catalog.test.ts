@@ -7,6 +7,7 @@ import {
   AxAIGoogleGeminiModel,
 } from './google-gemini/types.js';
 import { AxAIOpenAIModel } from './openai/chat_types.js';
+import { axAIProfiles } from './provider_profiles.js';
 // axir-nonportable:start webllm
 import { AxAIWebLLMModel } from './webllm/types.js';
 
@@ -36,7 +37,7 @@ describe('axGetSupportedAIModels', () => {
       ])
     );
     // axir-nonportable:start webllm
-    expect(providerNames).toHaveLength(12);
+    expect(providerNames).toHaveLength(axAIProfiles().length);
     // axir-nonportable:end webllm
   });
 

@@ -32,6 +32,12 @@ result = program.forward(aiClient, inputs, runOptions)
 
 Use `streamingForward()` when you need incremental output. Use `forward()` when the caller needs one parsed result object.
 
+## Multi-Sampling
+
+Set the target's `sampleCount` / `sample_count` option to ask a supported provider for N candidates. AxGen keeps the provider result index, parses and validates every structured candidate, then returns candidate 0 unless you attach a result-picker callback. The picker receives all `{ index, sample }` candidates and returns the winning list index; an index outside `0..N-1` is rejected.
+
+OpenAI-compatible Chat maps the count to `n`, and Gemini maps it to `candidateCount`. Anthropic does not support this request shape and rejects counts greater than one explicitly.
+
 ## Structured Output Portability
 
 The prompt always names every exact output wire key and shape; the provider schema is enforcement, not the only copy of the contract. In automatic mode, Ax uses strict `json_schema` when the model supports it. Without native schema support, a single required string or code field uses validated `json_object`; richer outputs use the synthetic `__axOutput` function when function calling is available, then fall back to validated `json_object` when it is not.

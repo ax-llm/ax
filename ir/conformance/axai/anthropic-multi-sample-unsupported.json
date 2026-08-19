@@ -1,0 +1,15 @@
+{
+  "name": "anthropic-multi-sample-unsupported",
+  "kind": "ai_error",
+  "provider": "anthropic",
+  "request": {
+    "chat_prompt": [{ "role": "user", "content": "Give two answers." }],
+    "model_config": {
+      "n": 2,
+      "stream": false
+    }
+  },
+  "transport_responses": [],
+  "expected_error_type": "AxUnsupportedCapabilityError",
+  "expected_error_contains": "Anthropic does not support sampling (n > 1)"
+}

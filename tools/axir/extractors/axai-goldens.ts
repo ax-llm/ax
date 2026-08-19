@@ -4401,6 +4401,10 @@ writeFixture('gemini-simple-chat', {
               googleMapsWidgetContextToken: 'maps-token',
             },
           },
+          {
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'Ax runs everywhere.' }] },
+          },
         ],
         usageMetadata: {
           promptTokenCount: 12,
@@ -4420,6 +4424,12 @@ writeFixture('gemini-simple-chat', {
         function_calls: [],
         finish_reason: 'stop',
         citations: [{ url: 'https://axllm.dev', title: 'Ax', license: 'CC' }],
+      },
+      {
+        index: 1,
+        content: 'Ax runs everywhere.',
+        function_calls: [],
+        finish_reason: 'stop',
       },
     ],
     remote_id: 'gem_resp_1',

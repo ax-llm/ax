@@ -5425,7 +5425,8 @@ module @ax.provider version "0.1" {
       %maps_widget_token = core.call intrinsic.none()
       core.for %candidate in %candidates {
         %result = core.map
-        core.set %result["index"] = 0
+        %candidate_index = core.call intrinsic.len(%results)
+        core.set %result["index"] = %candidate_index
         %finish = core.get %candidate["finishReason"] default "STOP"
         %is_max = core.call intrinsic.eq(%finish, "MAX_TOKENS")
         core.if %is_max {

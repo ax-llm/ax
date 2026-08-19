@@ -61,6 +61,7 @@
     "axgen-context-cache",
     "axgen-prompt-cache-key",
     "axgen-callbacks",
+    "axgen-multi-sampling",
     "axgen-function-trace",
     "axgen-assertions",
     "axgen-field-processors",

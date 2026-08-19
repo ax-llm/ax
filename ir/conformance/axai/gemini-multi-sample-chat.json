@@ -1,0 +1,54 @@
+{
+  "name": "gemini-multi-sample-chat",
+  "kind": "ai_chat",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [{ "role": "user", "content": "Give two answers." }],
+    "model_config": {
+      "n": 2,
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "candidates": [
+          {
+            "finishReason": "STOP",
+            "content": { "parts": [{ "text": "first" }] }
+          },
+          {
+            "finishReason": "STOP",
+            "content": { "parts": [{ "text": "second" }] }
+          }
+        ]
+      }
+    }
+  ],
+  "expected_transport_request": {
+    "method": "POST",
+    "json": {
+      "generationConfig": {
+        "candidateCount": 2
+      }
+    }
+  },
+  "expected_output": {
+    "model_usage": null,
+    "results": [
+      {
+        "index": 0,
+        "content": "first",
+        "finish_reason": "stop",
+        "function_calls": []
+      },
+      {
+        "index": 1,
+        "content": "second",
+        "finish_reason": "stop",
+        "function_calls": []
+      }
+    ]
+  }
+}

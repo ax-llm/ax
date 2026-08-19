@@ -469,16 +469,13 @@ module @ax.ai version "0.1" {
     }
   }
 
-  op ax.ai.semantic @chat_response_to_completion {
+  op ax.ai.semantic @chat_result_to_completion {
     attr core_kind = "func"
     attr emit_module = "ai"
-    tag "legacy-completion-compat"
-    type signature = "(AxChatResponse) -> json"
-    body @entry(%response: AxChatResponse) {
-      %empty_results = core.list
-      %results = core.get %response["results"] default %empty_results
-      %empty_result = core.map
-      %result = core.call intrinsic.list.get(%results, 0, %empty_result)
+    attr private = true
+    tag "indexed-completion-compat"
+    type signature = "(json, number) -> json"
+    body @entry(%result: json, %fallback_index: number) {
       %content = core.get %result["content"] default ""
       %calls = core.list
       %empty_calls = core.list
@@ -494,15 +491,55 @@ module @ax.ai version "0.1" {
         core.set %compat_call["params"] = %params
         core.append %calls, %compat_call
       }
-      %model_usage = core.get %response["model_usage"]
-      %usage = core.get %model_usage["tokens"]
+      %index = core.get %result["index"] default %fallback_index
       %thought = core.get %result["thought"]
       %has_thought = core.call intrinsic.is_not_none(%thought)
       %thought_blocks = core.get %result["thought_blocks"]
       %has_thought_blocks = core.call intrinsic.is_not_none(%thought_blocks)
+      %completion = core.map
+      core.set %completion["index"] = %index
+      core.set %completion["content"] = %content
+      core.set %completion["function_calls"] = %calls
+      core.if %has_thought {
+        core.set %completion["thought"] = %thought
+      }
+      core.if %has_thought_blocks {
+        core.set %completion["thought_blocks"] = %thought_blocks
+      }
+      core.return %completion
+    }
+  }
+
+  op ax.ai.semantic @chat_response_to_completion {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "legacy-completion-compat"
+    type signature = "(AxChatResponse) -> json"
+    body @entry(%response: AxChatResponse) {
+      %empty_results = core.list
+      %results = core.get %response["results"] default %empty_results
+      %completions = core.list
+      %position = core.const 0
+      core.for %result in %results {
+        %completion = core.call @chat_result_to_completion(%result, %position)
+        core.append %completions, %completion
+        %next_position = core.call intrinsic.add(%position, 1)
+        %position = core.let %next_position
+      }
+      %empty_completion = core.map
+      %first = core.call intrinsic.list.get(%completions, 0, %empty_completion)
+      %content = core.get %first["content"] default ""
+      %calls = core.get %first["function_calls"] default %empty_results
+      %model_usage = core.get %response["model_usage"]
+      %usage = core.get %model_usage["tokens"]
+      %thought = core.get %first["thought"]
+      %has_thought = core.call intrinsic.is_not_none(%thought)
+      %thought_blocks = core.get %first["thought_blocks"]
+      %has_thought_blocks = core.call intrinsic.is_not_none(%thought_blocks)
       %out = core.map
       core.set %out["content"] = %content
       core.set %out["function_calls"] = %calls
+      core.set %out["results"] = %completions
       core.set %out["usage"] = %usage
       core.if %has_thought {
         core.set %out["thought"] = %thought

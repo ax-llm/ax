@@ -48,7 +48,7 @@ Parsed signature with input/output fields, descriptions, and JSON schema helpers
 
 ## AxGen
 
-Run structured generation with Core-owned prompts, tool loops, retries, streaming folds, traces, usage, examples, and field processors.
+Run structured generation with Core-owned prompts, indexed multi-sampling, result selection, tool loops, retries, streaming folds, traces, usage, examples, and field processors.
 
 ### `axllm.NewAx`
 
@@ -58,7 +58,7 @@ Create an AxGen program from a string or parsed signature.
 - Kind: `function`
 - Form: `axllm.NewAx(signature, options)`
 - Returns: `AxGen`
-- Important options: functions, examples, demos, modelConfig, maxRetries, streaming assertions, field processors
+- Important options: functions, examples, demos, sample count, result picker, modelConfig, maxRetries, streaming assertions, field processors
 
 ```go
 qa := axllm.NewAx("question:string -> answer:string", nil)
@@ -66,13 +66,13 @@ qa := axllm.NewAx("question:string -> answer:string", nil)
 
 ### `axllm.AxGen`
 
-Structured generation program with forward, streaming, optimization, trace, usage, and tool-call behavior.
+Structured generation program with indexed multi-sampling, winner selection, forward, streaming, optimization, trace, usage, and tool-call behavior.
 
 - Canonical Ax concept: `AxGen`
 - Kind: `type`
 - Form: `axllm.NewGen(signature, options)`
 - Returns: `program object`
-- Important options: signature, functions, examples, demos, memory, prompt template
+- Important options: signature, functions, examples, demos, sample count, result picker, memory, prompt template
 
 
 ## AxAI

@@ -529,6 +529,7 @@ func TestBuildRuntimeModel(t *testing.T) {
 		"axgen_demos",
 		"axgen_assertions",
 		"axgen_field_processors",
+		"axgen_multi_sampling",
 		"axgen_trace",
 		"axgen_stop_functions",
 		"cache_aware_prompt_inputs",
