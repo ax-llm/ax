@@ -19,6 +19,8 @@ export * from './processor.js';
 export * from './router.js';
 // Re-export enhanced types and features
 export type {
+  AxAICredentialProvider,
+  AxAICredentialRequest,
   AxAIService,
   AxAIServiceOptions,
   AxAudioFormat,
@@ -27,6 +29,8 @@ export type {
   AxChatRequest,
   AxContextCacheInfo,
   AxContextCacheOptions,
+  AxStructuredOutputMode,
+  AxStructuredOutputRung,
   AxUsageContext,
   AxUsageEvent,
   AxUsageObserver,

@@ -1,0 +1,15 @@
+{
+  "name": "structured-output-explicit-json-object-unsupported",
+  "kind": "forward",
+  "signature": "question:string -> answer:string, confidence:number",
+  "input": { "question": "What is Ax?" },
+  "features": {
+    "structured_outputs": false,
+    "structured_output_modes": ["function"],
+    "functions": true
+  },
+  "forward_options": { "structured_output_mode": "json_object" },
+  "expected_error_contains": "requires JSON object response-format support",
+  "expected_request_count": 0,
+  "expect_chat_path": false
+}

@@ -54,6 +54,11 @@ const allowedAuth = new Set([
   'none',
 ]);
 const ruleRank = { exact: 0, prefix: 1, contains: 2 };
+const allowedStructuredOutputModes = new Set([
+  'native',
+  'function',
+  'json_object',
+]);
 const allowedRequestRuleKeys = new Set([
   'reasoning',
   'toolChoice',
@@ -69,7 +74,32 @@ const allowedRequestRuleKeys = new Set([
   'imageURLShape',
   'reasoningObjectFields',
   'optionDialect',
+  'thinkingBoolean',
 ]);
+const validateStructuredOutputModes = (capabilities, context) => {
+  const modes = capabilities?.structuredOutputModes;
+  if (!Array.isArray(modes)) {
+    throw new Error(`${context}.structuredOutputModes must be an array`);
+  }
+  if (
+    modes.some((mode) => !allowedStructuredOutputModes.has(mode)) ||
+    new Set(modes).size !== modes.length
+  ) {
+    throw new Error(
+      `${context}.structuredOutputModes must contain unique legal modes`
+    );
+  }
+  if (modes.includes('native') !== Boolean(capabilities.structuredOutputs)) {
+    throw new Error(
+      `${context}.structuredOutputs must match native mode availability`
+    );
+  }
+  if (modes.includes('function') && !capabilities.functions) {
+    throw new Error(
+      `${context} cannot advertise function output when functions=false`
+    );
+  }
+};
 const validateStringMap = (value, context) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${context} must be an object`);
@@ -160,9 +190,21 @@ const validateRequestRules = (rules, context) => {
   if (rules.optionDialect && rules.optionDialect !== 'search-parameters') {
     throw new Error(`${context} has invalid option dialect`);
   }
+  if (rules.thinkingBoolean) {
+    const path = rules.thinkingBoolean.path;
+    if (
+      !Array.isArray(path) ||
+      path.length !== 2 ||
+      path.some((part) => typeof part !== 'string' || !part)
+    ) {
+      throw new Error(
+        `${context}.thinkingBoolean.path must name a nested object and field`
+      );
+    }
+  }
 };
 
-if (source.schemaVersion !== 'provider-profiles-v2') {
+if (source.schemaVersion !== 'provider-profiles-v3') {
   throw new Error(`unsupported profile schema ${source.schemaVersion}`);
 }
 
@@ -190,6 +232,7 @@ for (const [id, profile] of Object.entries(source.profiles)) {
     throw new Error(`profile ${id} must not declare an HTTP endpoint`);
   if (!profile.defaults || typeof profile.defaults !== 'object')
     throw new Error(`profile ${id} is missing defaults`);
+  validateStructuredOutputModes(profile.capabilities, `profile ${id}`);
   if (!profile.operations || Object.keys(profile.operations).length === 0)
     throw new Error(`profile ${id} has no operation dialects`);
   for (const [operationName, operation] of Object.entries(profile.operations)) {
@@ -227,6 +270,10 @@ for (const [id, profile] of Object.entries(source.profiles)) {
       );
     previousRuleRank = rank;
     validateRequestRules(rule.request, `profile ${id} model rule`);
+    validateStructuredOutputModes(
+      { ...profile.capabilities, ...rule.capabilities },
+      `profile ${id} model rule`
+    );
     for (const model of rule.match.exact ?? []) {
       if (exactModels.has(model))
         throw new Error(`profile ${id} repeats exact model rule ${model}`);
@@ -327,6 +374,7 @@ const descriptors = Object.fromEntries(
           functions: profile.capabilities.functions,
           streaming: profile.capabilities.streaming,
           structured_outputs: profile.capabilities.structuredOutputs,
+          structured_output_modes: profile.capabilities.structuredOutputModes,
           thinking: profile.capabilities.thinking,
           multi_turn: profile.capabilities.multiTurn,
           media: {
@@ -389,6 +437,13 @@ const modelRuleCaveat = (rule) => {
   if (rule.capabilities?.structuredOutputs === false) {
     details.push('no native structured output');
   }
+  if (rule.capabilities?.structuredOutputModes) {
+    details.push(
+      `structured modes ${rule.capabilities.structuredOutputModes
+        .map((mode) => `\`${mode}\``)
+        .join(' -> ')}`
+    );
+  }
   if (rule.request?.defaultThinkingLevel) {
     details.push(`default thinking \`${rule.request.defaultThinkingLevel}\``);
   }
@@ -409,6 +464,9 @@ const matrixRows = Object.values(source.profiles).map((profile) => {
     profile.capabilities.functions ? 'tools' : null,
     profile.capabilities.streaming ? 'stream' : null,
     profile.capabilities.structuredOutputs ? 'structured' : null,
+    profile.capabilities.structuredOutputModes.length
+      ? `modes ${profile.capabilities.structuredOutputModes.join(' -> ')}`
+      : 'no verified structured mode',
     profile.capabilities.thinking ? 'thinking' : null,
     profile.capabilities.images ? 'images' : null,
     profile.capabilities.audio ? 'audio' : null,

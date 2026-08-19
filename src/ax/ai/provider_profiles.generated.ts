@@ -26,7 +26,12 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "images": true,
       "audio": true,
-      "audioOutput": true
+      "audioOutput": true,
+      "structuredOutputModes": [
+        "native",
+        "function",
+        "json_object"
+      ]
     },
     "operations": {
       "chat": {
@@ -116,7 +121,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -161,7 +169,12 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "images": true,
       "audio": true,
-      "audioOutput": true
+      "audioOutput": true,
+      "structuredOutputModes": [
+        "native",
+        "function",
+        "json_object"
+      ]
     },
     "operations": {
       "chat": {
@@ -261,7 +274,10 @@ export const axAIProviderProfiles = {
           "ephemeral"
         ],
         "cacheBreakpoints": true
-      }
+      },
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -310,7 +326,11 @@ export const axAIProviderProfiles = {
         "types": [
           "persistent"
         ]
-      }
+      },
+      "structuredOutputModes": [
+        "native",
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -405,7 +425,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -445,7 +468,11 @@ export const axAIProviderProfiles = {
       "structuredOutputs": true,
       "thinking": true,
       "multiTurn": true,
-      "images": true
+      "images": true,
+      "structuredOutputModes": [
+        "native",
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -522,7 +549,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -542,7 +572,10 @@ export const axAIProviderProfiles = {
           "thinking": true,
           "thinkingBudget": true,
           "showThoughts": true,
-          "structuredOutputs": false
+          "structuredOutputs": false,
+          "structuredOutputModes": [
+            "function"
+          ]
         },
         "request": {
           "reasoning": "thinking-object",
@@ -585,7 +618,10 @@ export const axAIProviderProfiles = {
           "thinking": true,
           "thinkingBudget": false,
           "showThoughts": true,
-          "structuredOutputs": false
+          "structuredOutputs": false,
+          "structuredOutputModes": [
+            "function"
+          ]
         },
         "request": {
           "toolChoice": "unforced"
@@ -628,7 +664,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": true,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -678,7 +717,11 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "images": true,
       "audio": true,
-      "audioOutput": true
+      "audioOutput": true,
+      "structuredOutputModes": [
+        "native",
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -732,7 +775,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -778,7 +824,11 @@ export const axAIProviderProfiles = {
       "images": true,
       "audio": true,
       "audioOutput": true,
-      "webSearch": true
+      "webSearch": true,
+      "structuredOutputModes": [
+        "native",
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -846,7 +896,11 @@ export const axAIProviderProfiles = {
         "capabilities": {
           "thinking": true,
           "thinkingBudget": true,
-          "structuredOutputs": true
+          "structuredOutputs": true,
+          "structuredOutputModes": [
+            "native",
+            "function"
+          ]
         },
         "request": {
           "reasoning": "effort",
@@ -882,7 +936,11 @@ export const axAIProviderProfiles = {
         "capabilities": {
           "thinking": true,
           "thinkingBudget": true,
-          "structuredOutputs": true
+          "structuredOutputs": true,
+          "structuredOutputModes": [
+            "native",
+            "function"
+          ]
         },
         "request": {
           "reasoning": "effort",
@@ -919,7 +977,11 @@ export const axAIProviderProfiles = {
           "thinking": true,
           "thinkingBudget": true,
           "showThoughts": true,
-          "structuredOutputs": true
+          "structuredOutputs": true,
+          "structuredOutputModes": [
+            "native",
+            "function"
+          ]
         },
         "request": {
           "reasoning": "effort",
@@ -969,7 +1031,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1006,7 +1071,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1029,7 +1097,10 @@ export const axAIProviderProfiles = {
           "thinking": true,
           "thinkingBudget": true,
           "showThoughts": true,
-          "structuredOutputs": false
+          "structuredOutputs": false,
+          "structuredOutputModes": [
+            "function"
+          ]
         },
         "request": {
           "reasoning": "effort",
@@ -1083,7 +1154,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1102,7 +1176,10 @@ export const axAIProviderProfiles = {
           "thinking": true,
           "thinkingBudget": true,
           "showThoughts": true,
-          "structuredOutputs": false
+          "structuredOutputs": false,
+          "structuredOutputModes": [
+            "function"
+          ]
         },
         "request": {
           "reasoning": "openrouter",
@@ -1161,7 +1238,11 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": true,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "native",
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1184,7 +1265,10 @@ export const axAIProviderProfiles = {
           "thinking": true,
           "thinkingBudget": true,
           "showThoughts": true,
-          "structuredOutputs": false
+          "structuredOutputs": false,
+          "structuredOutputModes": [
+            "function"
+          ]
         },
         "request": {
           "reasoning": "effort",
@@ -1241,7 +1325,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1278,7 +1365,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1316,7 +1406,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1352,7 +1445,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1360,11 +1456,62 @@ export const axAIProviderProfiles = {
         "dialect": "openai-chat"
       }
     },
-    "modelRules": [],
-    "sources": [
-      "https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library"
+    "modelRules": [
+      {
+        "match": {
+          "exact": [
+            "google/gemma-4-26b-a4b-it-maas"
+          ]
+        },
+        "capabilities": {
+          "structuredOutputs": false,
+          "structuredOutputModes": [
+            "json_object",
+            "function"
+          ],
+          "thinking": true
+        },
+        "request": {
+          "defaultThinkingLevel": "max",
+          "thinkingBoolean": {
+            "path": [
+              "chat_template_kwargs",
+              "enable_thinking"
+            ]
+          }
+        },
+        "response": {
+          "reasoningFields": [
+            "reasoning_content"
+          ]
+        },
+        "replay": {
+          "assistantReasoningField": "reasoning_content"
+        }
+      },
+      {
+        "match": {
+          "prefix": [
+            "google/gemini-",
+            "gemini-"
+          ]
+        },
+        "capabilities": {
+          "structuredOutputs": true,
+          "structuredOutputModes": [
+            "native",
+            "function",
+            "json_object"
+          ]
+        }
+      }
     ],
-    "reviewedAt": "2026-08-17"
+    "sources": [
+      "https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library",
+      "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output",
+      "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking"
+    ],
+    "reviewedAt": "2026-08-18"
   },
   "databricks": {
     "id": "databricks",
@@ -1387,7 +1534,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1422,7 +1572,11 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": true,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "native",
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1457,7 +1611,11 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": true,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "native",
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1548,7 +1706,11 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": true,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "native",
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1638,7 +1800,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1701,7 +1866,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1736,7 +1904,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1772,7 +1943,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1807,7 +1981,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1842,7 +2019,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1878,7 +2058,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1914,7 +2097,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1950,7 +2136,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -1985,7 +2174,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -2021,7 +2213,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -2056,7 +2251,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -2092,7 +2290,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -2128,7 +2329,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -2164,7 +2368,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -2199,7 +2406,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -2234,7 +2444,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -2270,7 +2483,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -2306,7 +2522,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -2342,7 +2561,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {
@@ -2378,7 +2600,10 @@ export const axAIProviderProfiles = {
       "streaming": true,
       "structuredOutputs": false,
       "thinking": false,
-      "multiTurn": true
+      "multiTurn": true,
+      "structuredOutputModes": [
+        "function"
+      ]
     },
     "operations": {
       "chat": {

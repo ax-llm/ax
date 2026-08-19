@@ -566,6 +566,8 @@ import {
 } from './ai/router.js';
 import type {
   AxAgentCompletionProtocol,
+  AxAICredentialProvider,
+  AxAICredentialRequest,
   AxAIInputModelList,
   AxAIModelList,
   AxAIModelListBase,
@@ -598,6 +600,8 @@ import type {
   AxModelUsage,
   AxProviderMetadata,
   AxRateLimiterFunction,
+  AxStructuredOutputMode,
+  AxStructuredOutputRung,
   AxThoughtBlockItem,
   AxTokenUsage,
   AxUsageContext,
@@ -1636,6 +1640,8 @@ export type { AxAIAnthropicThinkingTokenBudgetLevels };
 export type { AxAIAnthropicThinkingWire };
 export type { AxAIAnthropicWebSearchTool };
 export type { AxAIArgs };
+export type { AxAICredentialProvider };
+export type { AxAICredentialRequest };
 export type { AxAIDeploymentProfileArgs };
 export type { AxAIDeploymentProfileId };
 export type { AxAIEmbedModels };
@@ -2347,6 +2353,8 @@ export type { AxStepUsage };
 export type { AxStreamingAssertion };
 export type { AxStreamingEvent };
 export type { AxStreamingFieldProcessorProcess };
+export type { AxStructuredOutputMode };
+export type { AxStructuredOutputRung };
 export type { AxSynthExample };
 export type { AxSynthOptions };
 export type { AxSynthResult };

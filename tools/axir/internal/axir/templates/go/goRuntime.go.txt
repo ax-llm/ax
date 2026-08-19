@@ -1651,6 +1651,13 @@ func (c contextBoundAIClient) Stream(ctx context.Context, request map[string]Val
 	return c.inner.Stream(c.ctx, request, options)
 }
 
+func (c contextBoundAIClient) GetFeatures(model string) map[string]Value {
+	if provider, ok := c.inner.(interface{ GetFeatures(string) map[string]Value }); ok {
+		return cloneMap(provider.GetFeatures(model))
+	}
+	return Object("functions", true, "structured_outputs", true)
+}
+
 func (c contextBoundAIClient) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	if t, ok := c.inner.(interface {
 		Transcribe(context.Context, map[string]Value, map[string]Value) (Value, error)
@@ -1738,6 +1745,23 @@ func encodeMultipart(payload map[string]Value) ([]byte, string) {
 }
 
 type HTTPTransport struct{ Client *http.Client }
+
+type AxCredentialRequest struct {
+	Profile   string
+	Operation string
+	Method    string
+	URL       string
+}
+
+type AxCredentialProvider interface {
+	Credentials(context.Context, AxCredentialRequest) (map[string]string, error)
+}
+
+type AxCredentialProviderFunc func(context.Context, AxCredentialRequest) (map[string]string, error)
+
+func (f AxCredentialProviderFunc) Credentials(ctx context.Context, request AxCredentialRequest) (map[string]string, error) {
+	return f(ctx, request)
+}
 
 func (t HTTPTransport) Call(ctx context.Context, request Value) (Value, error) {
 	req := asMap(request)
@@ -1861,6 +1885,11 @@ func NewAI(provider string, options map[string]Value) AIClient {
 		panic(AxError{Category: "provider", Message: "unsupported AxAI provider: " + provider})
 	}
 	descriptor := asMap(mustCore(provider_descriptor(profile)))
+	credentialProvider := coreGet(options, "credential_provider", coreGet(options, "credentialProvider", nil))
+	apiKey := display(coreGet(options, "api_key", coreGet(options, "apiKey", "")))
+	if coreTruthy(coreGet(descriptor, "authRequired", false)) && apiKey == "" && credentialProvider == nil {
+		panic(AxError{Category: "authentication", Message: profile + " requires api_key or credential_provider"})
+	}
 	switch display(coreGet(descriptor, "transport", "")) {
 	case "openai-responses":
 		return newOpenAIResponsesClient(profile, options)
@@ -1944,7 +1973,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		}
 		config := coreGet(req, "model_config", Object())
 		c.setLastChat(model, config)
-		transportReq := c.requestJSON("chat", req, false, mergedOptions)
+		transportReq := c.requestJSON(ctx, "chat", req, false, mergedOptions)
 		if body, handled := c.contextCacheChat(ctx, req, mergedOptions, model, transportReq); handled {
 			return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model))
 		}
@@ -2101,7 +2130,7 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 		}
 		model := coreGet(req, "embed_model", coreGet(req, "embedModel", coreGet(opts, "embed_model", nil)))
 		c.setLastEmbed(model)
-		transportReq := c.requestJSON("embed", req, false, mergedOptions)
+		transportReq := c.requestJSON(ctx, "embed", req, false, mergedOptions)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
@@ -2137,10 +2166,10 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]
 		mustCore(validate_chat_request(req))
 		opts := c.optionsSnapshot()
 		model := coreGet(req, "model", coreGet(opts, "model", nil))
-		transportReq := c.requestJSON("stream_chat", req, true, mergedOptions)
 		maxRetries, initialDelay, maxDelay, backoff := streamRetryParams(mergedOptions)
 		attempt := 0
 		for {
+			transportReq := c.requestJSON(ctx, "stream_chat", req, true, mergedOptions)
 			raw, err := c.Transport.Call(ctx, transportReq)
 			if err != nil {
 				panic(AxError{Category: "network", Message: err.Error()})
@@ -2192,7 +2221,7 @@ func (c *OpenAICompatibleClient) prepareChatRequest(request map[string]Value, op
 	coreSet(req, "model_config", config)
 	return req
 }
-func (c *OpenAICompatibleClient) requestJSON(operation string, request map[string]Value, stream bool, options map[string]Value) Value {
+func (c *OpenAICompatibleClient) requestJSON(ctx context.Context, operation string, request map[string]Value, stream bool, options map[string]Value) Value {
 	opts := mergeAIOptions(c.optionsSnapshot(), options)
 	payload := mustCore(provider_build_chat_request(c.Profile, request, opts))
 	if operation == "embed" {
@@ -2247,6 +2276,20 @@ func (c *OpenAICompatibleClient) requestJSON(operation string, request map[strin
 		requestURL += sep + "api-version=" + url.QueryEscape(strings.TrimPrefix(apiVersion, "api-version="))
 	}
 	method := strings.ToUpper(display(coreGet(operationDescriptor, "method", "POST")))
+	credentialValue := coreGet(opts, "credential_provider", coreGet(opts, "credentialProvider", nil))
+	if credentialValue != nil {
+		provider, ok := credentialValue.(AxCredentialProvider)
+		if !ok {
+			panic(AxError{Category: "authentication", Message: "credential_provider must implement AxCredentialProvider"})
+		}
+		fresh, err := provider.Credentials(ctx, AxCredentialRequest{Profile: c.Profile, Operation: operation, Method: method, URL: requestURL})
+		if err != nil {
+			panic(AxError{Category: "authentication", Message: err.Error()})
+		}
+		for key, value := range fresh {
+			coreSet(headers, key, value)
+		}
+	}
 	out := Object("method", method, "url", requestURL, "headers", headers, "stream", stream)
 	bodyKey := "json"
 	if display(coreGet(operationDescriptor, "body", "json")) == "multipart" {
@@ -2273,7 +2316,7 @@ func normalizeTransportPayload(raw Value) Value {
 
 func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	return safeValue(func() Value {
-		transportReq := c.requestJSON("transcribe", request, false, options)
+		transportReq := c.requestJSON(ctx, "transcribe", request, false, options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
@@ -2283,7 +2326,7 @@ func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[str
 }
 func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	return safeValue(func() Value {
-		transportReq := c.requestJSON("speak", request, false, options)
+		transportReq := c.requestJSON(ctx, "speak", request, false, options)
 		raw, err := c.Transport.Call(ctx, transportReq)
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
@@ -2506,7 +2549,10 @@ func (c *OpenAICompatibleClient) GetID() string {
 }
 func (c *OpenAICompatibleClient) GetName() string { return c.Name }
 func (c *OpenAICompatibleClient) GetFeatures(model string) map[string]Value {
-	return asMap(coreGet(mustCore(provider_descriptor(c.Profile)), "features", routerDefaultFeatures()))
+	if model == "" {
+		model = display(coreGet(c.optionsSnapshot(), "model", ""))
+	}
+	return asMap(mustCore(provider_resolve_features(c.Profile, model, c.optionsSnapshot())))
 }
 func (c *OpenAICompatibleClient) GetModelList() Value {
 	opts := c.optionsSnapshot()
@@ -3266,8 +3312,16 @@ func (b *AxBalancer) GetModelList() Value {
 }
 func (b *AxBalancer) GetFeatures(model string) map[string]Value {
 	features := balancerBaseFeatures()
+	modes := MutableArray()
+	allModesAdvertised := len(b.services) > 0
 	for _, service := range b.services {
 		raw := service.GetFeatures(model)
+		rawModes := coreGet(raw, "structuredOutputModes", coreGet(raw, "structured_output_modes", nil))
+		if rawModes == nil {
+			allModesAdvertised = false
+		} else {
+			appendUnique(modes, rawModes)
+		}
 		for _, pair := range []struct{ key, alt string }{{"functions", ""}, {"streaming", ""}, {"thinking", ""}, {"multiTurn", "multi_turn"}, {"structuredOutputs", "structured_outputs"}, {"functionCot", "function_cot"}, {"hasThinkingBudget", "has_thinking_budget"}, {"hasShowThoughts", "has_show_thoughts"}} {
 			if featureBool(raw, pair.key, pair.alt) {
 				coreSet(features, pair.key, true)
@@ -3309,6 +3363,9 @@ func (b *AxBalancer) GetFeatures(model string) map[string]Value {
 		cacheTypes := MutableArray(asSlice(coreGet(outCaching, "types", Array()))...)
 		appendUnique(cacheTypes, coreGet(caching, "types", Array()))
 		coreSet(outCaching, "types", cacheTypes.Items)
+	}
+	if allModesAdvertised {
+		coreSet(features, "structured_output_modes", modes.Items)
 	}
 	return features
 }
@@ -7542,6 +7599,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAIStream(fixture)
 	case "ai_usage_observer":
 		runConformanceAIUsageObserver(fixture)
+	case "ai_credential_wrapper":
+		runConformanceAICredentialWrapper(fixture)
 	case "ai_provider_descriptor":
 		profile := display(coreGet(fixture, "provider", coreGet(fixture, "profile", "")))
 		descriptor := mustCore(provider_descriptor(profile))
@@ -7549,6 +7608,10 @@ func runConformanceFixture(fixture map[string]Value) {
 			descriptor = mustCore(provider_resolve_descriptor(profile, coreGet(fixture, "options", Object())))
 		}
 		assertSubset(descriptor, coreGet(fixture, "expected_output", coreGet(fixture, "expected_descriptor_subset", coreGet(fixture, "expected_descriptor", Object()))), "provider descriptor")
+	case "ai_provider_features":
+		client, _ := conformanceAIClient(fixture)
+		model := display(coreGet(fixture, "model", ""))
+		assertSubset(client.GetFeatures(model), coreGet(fixture, "expected_output", Object()), "provider features")
 	case "ai_provider_registry":
 		assertSubset(mustCore(provider_profile_registry()), coreGet(fixture, "expected_registry_subset", coreGet(fixture, "expected_registry", Object())), "provider registry")
 	case "ai_model_catalog_audit":
@@ -8685,6 +8748,29 @@ func conformanceAIClient(fixture map[string]Value) (*OpenAICompatibleClient, *Sc
 	if modelConfig := coreGet(fixture, "model_config", nil); modelConfig != nil {
 		coreSet(options, "model_config", cloneValue(modelConfig))
 	}
+	if rawCredentialFixture := coreGet(fixture, "credential_provider_fixture", nil); rawCredentialFixture != nil {
+		credentialFixture := asMap(rawCredentialFixture)
+		credentialHeaders := asSlice(coreGet(credentialFixture, "headers", Array()))
+		credentialCalls := 0
+		coreSet(fixture, "__credential_requests", Array())
+		provider := AxCredentialProviderFunc(func(_ context.Context, request AxCredentialRequest) (map[string]string, error) {
+			recorded := asSlice(coreGet(fixture, "__credential_requests", Array()))
+			recorded = append(recorded, Object("profile", request.Profile, "operation", request.Operation, "method", request.Method, "url", request.URL))
+			coreSet(fixture, "__credential_requests", recorded)
+			if message := display(coreGet(credentialFixture, "error", "")); message != "" {
+				return nil, fmt.Errorf("%s", message)
+			}
+			fresh := map[string]string{}
+			if len(credentialHeaders) > 0 {
+				index := credentialCalls
+				if index >= len(credentialHeaders) { index = len(credentialHeaders) - 1 }
+				for key, value := range asMap(credentialHeaders[index]) { fresh[key] = display(value) }
+			}
+			credentialCalls++
+			return fresh, nil
+		})
+		coreSet(options, "credential_provider", provider)
+	}
 	coreSet(options, "transport", transport)
 	client := NewAI(provider, options)
 	switch c := client.(type) {
@@ -8722,8 +8808,15 @@ func runConformanceAIChat(fixture map[string]Value) {
 				panic("estimated cost mismatch")
 			}
 		}
-		assertTransportRequest(fixture, transport)
 	}
+	assertTransportRequest(fixture, transport)
+}
+func runConformanceAICredentialWrapper(fixture map[string]Value) {
+	client, transport := conformanceAIClient(fixture)
+	router, err := NewMultiServiceRouter([]Value{RouterServiceEntry{Key: "wrapped", Service: client}})
+	if err != nil { panic(err) }
+	if _, err = router.Chat(context.Background(), asMap(coreGet(fixture, "request", Object())), Object()); err != nil { panic(err) }
+	assertTransportRequest(fixture, transport)
 }
 
 func runConformanceAIUsageObserver(fixture map[string]Value) {
@@ -8776,9 +8869,23 @@ func jsonPathExists(value Value, path string) bool {
 func assertTransportRequest(fixture map[string]Value, transport *ScriptedTransport) {
 	expected := coreGet(fixture, "expected_transport_request", nil)
 	expectedAbsent := coreIter(coreGet(fixture, "expected_transport_json_absent", Array()))
-	if expected == nil && len(expectedAbsent) == 0 {
+	expectedRequests := asSlice(coreGet(fixture, "expected_transport_requests", Array()))
+	expectedCredentialRequests := coreGet(fixture, "expected_credential_requests", nil)
+	expectedCount := coreGet(fixture, "expected_transport_request_count", nil)
+	if expected == nil && len(expectedAbsent) == 0 && len(expectedRequests) == 0 && expectedCredentialRequests == nil && expectedCount == nil {
 		return
 	}
+	if expectedCount != nil && len(transport.Requests) != int(num(expectedCount)) {
+		panic(AxError{Category: "fixture", Message: "provider transport request count mismatch"})
+	}
+	if expectedCredentialRequests != nil {
+		assertEqual(coreGet(fixture, "__credential_requests", Array()), expectedCredentialRequests, "credential requests")
+	}
+	for index, expectedRequest := range expectedRequests {
+		if index >= len(transport.Requests) { panic(AxError{Category: "fixture", Message: "missing provider transport request"}) }
+		assertSubset(transport.Requests[index], expectedRequest, fmt.Sprintf("transport request %d", index))
+	}
+	if expected == nil && len(expectedAbsent) == 0 { return }
 	if len(transport.Requests) == 0 {
 		panic(AxError{Category: "fixture", Message: "expected provider transport request but none were sent"})
 	}

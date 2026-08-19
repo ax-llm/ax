@@ -13,6 +13,7 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js';
 import type {
+  AxAICredentialProvider,
   AxAIInputModelList,
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -276,7 +277,9 @@ export interface AxAIOpenAIBaseArgs<
   TModelKey,
   TChatReq extends AxAIOpenAIChatRequest<TModel>,
 > {
-  apiKey: string;
+  apiKey?: string;
+  credentialProvider?: AxAICredentialProvider;
+  credentialProfile?: string;
   apiURL?: string;
   config: Readonly<AxAIOpenAIConfig<TModel, TEmbedModel>>;
   options?: Readonly<AxAIServiceOptions & { streamingUsage?: boolean }>;
@@ -968,6 +971,8 @@ export class AxAIOpenAIBase<
 
   constructor({
     apiKey,
+    credentialProvider,
+    credentialProfile,
     config,
     options,
     apiURL,
@@ -983,13 +988,15 @@ export class AxAIOpenAIBase<
   }: Readonly<
     AxAIOpenAIBaseInternalArgs<TModel, TEmbedModel, TModelKey, TChatReq>
   >) {
-    if (!apiKey || apiKey === '') {
+    if ((!apiKey || apiKey === '') && !credentialProvider) {
       throw new Error('OpenAI API key not set');
     }
 
+    const effectiveApiKey = apiKey || 'renewable-credential';
+
     const aiImpl = new AxAIOpenAIImpl<TModel, TEmbedModel, TChatReq>(
       config,
-      apiKey,
+      effectiveApiKey,
       options?.streamingUsage ?? true,
       options,
       chatReqUpdater,
@@ -1004,7 +1011,12 @@ export class AxAIOpenAIBase<
     super(aiImpl, {
       name: 'OpenAI',
       apiURL: resolvedApiURL,
-      headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
+      headers: async () =>
+        apiKey
+          ? { Authorization: `Bearer ${apiKey}` }
+          : ({} as Record<string, string>),
+      profile: credentialProfile,
+      credentialProvider,
       modelInfo,
       defaults: {
         model: config.model,
@@ -1015,7 +1027,7 @@ export class AxAIOpenAIBase<
       models,
     });
 
-    this.openAICompatibleApiKey = apiKey;
+    this.openAICompatibleApiKey = apiKey ?? '';
     this.openAICompatibleApiURL = resolvedApiURL;
   }
 
@@ -1034,7 +1046,14 @@ export class AxAIOpenAIBase<
     const serviceOptions = this.getOptions();
     return await axFetchMultipartTranscription({
       url: `${this.openAICompatibleApiURL}/audio/transcriptions`,
-      headers: { Authorization: `Bearer ${this.openAICompatibleApiKey}` },
+      headers: await this.buildHeaders(
+        {},
+        {
+          operation: 'transcribe',
+          method: 'POST',
+          url: `${this.openAICompatibleApiURL}/audio/transcriptions`,
+        }
+      ),
       audio: req.audio,
       fields: {
         model: model ?? this.batchAudioConfig.transcriptionModel,
@@ -1064,7 +1083,14 @@ export class AxAIOpenAIBase<
     const serviceOptions = this.getOptions();
     return await axFetchJsonSpeech({
       url: `${this.openAICompatibleApiURL}/audio/speech`,
-      headers: { Authorization: `Bearer ${this.openAICompatibleApiKey}` },
+      headers: await this.buildHeaders(
+        {},
+        {
+          operation: 'speak',
+          method: 'POST',
+          url: `${this.openAICompatibleApiURL}/audio/speech`,
+        }
+      ),
       body: {
         model,
         input: req.text,
@@ -1087,6 +1113,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
 > {
   constructor({
     apiKey,
+    credentialProvider,
     apiURL,
     config,
     options,
@@ -1103,7 +1130,7 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
       'name'
     >
   >) {
-    if (!apiKey || apiKey === '') {
+    if ((!apiKey || apiKey === '') && !credentialProvider) {
       throw new Error('OpenAI API key not set');
     }
 
@@ -1125,12 +1152,19 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
       const isRealtimeModel = axIsOpenAIRealtimeModel(model);
       const isRealtimeTranscriptionModel =
         axIsOpenAIRealtimeTranscriptionModel(model);
+      const nativeStructuredOutputs = mi?.supported?.structuredOutputs ?? true;
+      const structuredOutputModes =
+        mi?.supported?.structuredOutputModes ??
+        (nativeStructuredOutputs
+          ? (['native', 'function', 'json_object'] as const)
+          : (['function', 'json_object'] as const));
       return {
         functions: true,
         streaming: true,
         hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
         hasShowThoughts: mi?.supported?.showThoughts ?? false,
-        structuredOutputs: mi?.supported?.structuredOutputs ?? false,
+        structuredOutputs: structuredOutputModes.includes('native'),
+        structuredOutputModes,
         media: {
           images: {
             supported: true,
@@ -1264,6 +1298,8 @@ export class AxAIOpenAI<TModelKey = string> extends AxAIOpenAIBase<
 
     super({
       apiKey,
+      credentialProvider,
+      credentialProfile: 'openai',
       apiURL,
       config: {
         ...axAIOpenAIDefaultConfig(),

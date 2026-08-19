@@ -51,6 +51,7 @@ import {
 } from './metrics.js';
 import { countChatPromptContentChars } from './promptMetrics.js';
 import type {
+  AxAICredentialProvider,
   AxAIInputModelList,
   AxAIService,
   AxAIServiceImpl,
@@ -71,6 +72,7 @@ import type {
   AxProviderMetadata,
   AxSpeechRequest,
   AxSpeechResponse,
+  AxStructuredOutputRung,
   AxTokenUsage,
   AxTranscriptionRequest,
   AxTranscriptionResponse,
@@ -490,6 +492,8 @@ export interface AxAIFeatures {
   hasShowThoughts?: boolean;
   /** Whether the provider supports complex structured outputs (JSON schema) */
   structuredOutputs?: boolean;
+  /** Ordered, verified structured-output strategies for the selected model. */
+  structuredOutputModes?: readonly AxStructuredOutputRung[];
   /** Enhanced media capability specifications */
   media: {
     /** Image processing capabilities */
@@ -563,6 +567,8 @@ export interface AxBaseAIArgs<TModel, TEmbedModel, TModelKey> {
   name: string;
   apiURL?: string; // Make optional for local LLMs
   headers: () => Promise<Record<string, string>>;
+  profile?: string;
+  credentialProvider?: AxAICredentialProvider;
   modelInfo: Readonly<AxModelInfo[]>;
   defaults: Readonly<{ model: TModel; embedModel?: TEmbedModel }>;
   options?: Readonly<AxAIServiceOptions>;
@@ -664,6 +670,9 @@ export class AxBaseAI<
   protected name: string;
   protected id: string;
   protected headers: () => Promise<Record<string, string>>;
+  private readonly credentialProvider?: AxAICredentialProvider;
+  private readonly credentialProfile: string;
+  private chatCredentialOperation: 'chat' | 'responses' = 'chat';
   protected supportFor: AxAIFeatures | ((model: TModel) => AxAIFeatures);
 
   // Add private metrics tracking properties
@@ -712,6 +721,8 @@ export class AxBaseAI<
       name,
       apiURL,
       headers,
+      profile,
+      credentialProvider,
       modelInfo,
       defaults,
       options = {},
@@ -722,6 +733,8 @@ export class AxBaseAI<
     this.name = name;
     this.apiURL = apiURL || '';
     this.headers = headers;
+    this.credentialProvider = credentialProvider;
+    this.credentialProfile = profile ?? name;
     this.supportFor = supportFor;
     this.modelInfo = modelInfo;
     this.models = models;
@@ -1993,7 +2006,17 @@ export class AxBaseAI<
           method: apiConfig.method,
           put: apiConfig.put,
           localCall: apiConfig.localCall,
-          headers: await this.buildHeaders(apiConfig.headers),
+          resolveHeaders: async ({ method, url }) =>
+            await this.buildHeaders(apiConfig.headers, {
+              operation:
+                this.chatCredentialOperation === 'responses'
+                  ? 'responses'
+                  : modelConfig.stream
+                    ? 'stream_chat'
+                    : 'chat',
+              method,
+              url,
+            }),
           stream: modelConfig.stream,
           timeout: this.timeout,
           verbose,
@@ -2538,7 +2561,12 @@ export class AxBaseAI<
           method: apiConfig.method,
           put: apiConfig.put,
           localCall: apiConfig.localCall,
-          headers: await this.buildHeaders(apiConfig.headers),
+          resolveHeaders: async ({ method, url }) =>
+            await this.buildHeaders(apiConfig.headers, {
+              operation: 'embed',
+              method,
+              url,
+            }),
           verbose,
           fetch: this.fetch,
           timeout: this.timeout,
@@ -2636,10 +2664,23 @@ export class AxBaseAI<
     return res;
   }
 
-  private async buildHeaders(
-    headers: Record<string, string> = {}
+  protected async buildHeaders(
+    headers: Record<string, string> = {},
+    request?: Omit<import('./types.js').AxAICredentialRequest, 'profile'>
   ): Promise<Record<string, string>> {
-    return { ...(await this.headers()), ...headers };
+    const staticHeaders = { ...(await this.headers()), ...headers };
+    if (!this.credentialProvider || !request) return staticHeaders;
+    return {
+      ...staticHeaders,
+      ...(await this.credentialProvider({
+        profile: this.credentialProfile,
+        ...request,
+      })),
+    };
+  }
+
+  protected setChatCredentialOperation(operation: 'chat' | 'responses'): void {
+    this.chatCredentialOperation = operation;
   }
 
   private getModelByKey(
@@ -3008,7 +3049,12 @@ export class AxBaseAI<
           method: op.apiConfig.method,
           put: op.apiConfig.put,
           localCall: op.apiConfig.localCall,
-          headers: await this.buildHeaders(op.apiConfig.headers),
+          resolveHeaders: async ({ method, url }) =>
+            await this.buildHeaders(op.apiConfig.headers, {
+              operation: 'chat',
+              method,
+              url,
+            }),
           stream: false,
           timeout: this.timeout,
           verbose,

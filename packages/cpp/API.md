@@ -81,17 +81,37 @@ Call supported providers through the shared provider descriptor registry, script
 
 ### `axllm::ai`
 
-Create a provider client from a provider name and options.
+Create a provider client from a named deployment profile and options.
 
 - Canonical Ax concept: `ai`
 - Kind: `function`
 - Form: `axllm::ai(provider, options)`
 - Returns: `AI client/service`
-- Important options: api key, model, api URL, headers, transport
+- Important options: api key or credential provider, model, api URL, headers, transport
 
 ```cpp
 auto client = axllm::ai("openai", axllm::object({{"apiKey", std::getenv("OPENAI_API_KEY")}}));
 ```
+
+### `axllm::AxCredentialRequest`
+
+Request metadata passed to a renewable credential callback for every transport attempt.
+
+- Canonical Ax concept: `AxCredentialRequest`
+- Kind: `type`
+- Form: `axllm::AxCredentialRequest`
+- Returns: `credential request`
+- Important options: profile, operation, method, URL
+
+### `axllm::AxCredentialProvider`
+
+Return fresh request headers that override static profile authentication.
+
+- Canonical Ax concept: `AxCredentialProvider`
+- Kind: `interface`
+- Form: `axllm::AxCredentialProvider`
+- Returns: `header map or credential error`
+- Important options: chat, stream, embeddings, Responses, audio, retries
 
 ### `axllm::OpenAICompatibleClient`
 

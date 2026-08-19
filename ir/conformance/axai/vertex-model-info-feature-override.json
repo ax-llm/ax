@@ -1,0 +1,25 @@
+{
+  "name": "vertex-model-info-feature-override",
+  "kind": "ai_provider_features",
+  "provider": "vertex-ai",
+  "base_url": "https://vertex.test/v1",
+  "model": "custom-vertex-model",
+  "service_options": {
+    "model_info": [
+      {
+        "name": "custom-vertex-model",
+        "supported": {
+          "structured_output_modes": ["json_object"],
+          "thinking_budget": true,
+          "show_thoughts": true
+        }
+      }
+    ]
+  },
+  "expected_output": {
+    "structured_outputs": false,
+    "structured_output_modes": ["json_object"],
+    "has_thinking_budget": true,
+    "has_show_thoughts": true
+  }
+}

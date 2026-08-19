@@ -153,11 +153,10 @@
         "verified": true,
         "requiresCredentials": true,
         "code": [
-          "client := ax.NewGoogleGeminiClient(map[string]ax.Value{",
-          "    \"api_key\": required(\"GOOGLE_VERTEX_ACCESS_TOKEN\"),",
-          "    \"project_id\": required(\"GOOGLE_PROJECT_ID\"),",
-          "    \"region\": required(\"GOOGLE_REGION\"),",
-          "    \"model\": model,",
+          "client := ax.NewAI(\"vertex-ai\", map[string]ax.Value{",
+          "    \"api_url\": required(\"VERTEX_AI_API_URL\"),",
+          "    \"model\": \"google/gemma-4-26b-a4b-it-maas\",",
+          "    \"credential_provider\": vertexCredentialProvider(),",
           "})"
         ]
       }

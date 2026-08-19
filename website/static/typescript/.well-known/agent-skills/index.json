@@ -13,7 +13,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.",
       "url": "ax-ai/SKILL.md",
-      "digest": "sha256:99c4f277bdc61e96ff9cab7338cafff0dd2dbd87782284b34a11d4d64825f184"
+      "digest": "sha256:d297374e0f100df2163e9866bd645f83dad5976062c5454eff7816859335c428"
     },
     {
       "name": "ax-audio",
@@ -34,7 +34,7 @@
       "type": "skill-md",
       "description": "This skill helps an LLM generate correct AxGen code using @ax-llm/ax. Use when the user asks about ax(), AxGen, generators, forward(), streamingForward(), validation, assertions, streaming assertions, field processors, step hooks, self-tuning, or structured outputs. For MCP clients, transports, prompts, resources, tasks, subscriptions, or authentication use ax-mcp alongside this skill.",
       "url": "ax-gen/SKILL.md",
-      "digest": "sha256:fdb68338e378ff3eff48dcf41c62aec7392e752d2838e1cd6f898db095df07c3"
+      "digest": "sha256:963a498b67d5f6c7689653ac14ea80a49d530480407a30caef68d8fbfcbf2dbb"
     },
     {
       "name": "ax-mcp",

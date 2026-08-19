@@ -7,6 +7,7 @@ import {
 } from '../../util/apicall.js';
 import { AxBaseAI, axBaseAIDefaultConfig } from '../base.js';
 import type {
+  AxAICredentialProvider,
   AxAIInputModelList,
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -260,6 +261,7 @@ type ExtractModelKeys<T> = T extends readonly { key: infer K }[] ? K : never;
 export interface AxAIAnthropicArgs<TModelKey = string> {
   name: 'anthropic';
   apiKey?: string | (() => Promise<string>);
+  credentialProvider?: AxAICredentialProvider;
   projectId?: string;
   region?: string;
   config?: Readonly<Partial<AxAIAnthropicConfig>>;
@@ -1152,6 +1154,7 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
 
   constructor({
     apiKey,
+    credentialProvider,
     projectId,
     region,
     config,
@@ -1164,10 +1167,12 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
     let headers: () => Promise<Record<string, string>>;
 
     if (projectId !== undefined && region !== undefined) {
-      if (!apiKey) {
-        throw new Error('Anthropic Vertex API key not set');
+      if (!apiKey && !credentialProvider) {
+        throw new Error(
+          'Anthropic Vertex API key or credential provider not set'
+        );
       }
-      if (typeof apiKey !== 'function') {
+      if (apiKey && typeof apiKey !== 'function') {
         throw new Error(
           'Anthropic Vertex API key must be a function for token-based authentication'
         );
@@ -1175,18 +1180,25 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       const host = resolveVertexAIHost(region);
       apiURL = `https://${host}/v1/projects/${projectId}/locations/${region}/publishers/anthropic/`;
       headers = async () => ({
-        Authorization: `Bearer ${await apiKey()}`,
+        ...(typeof apiKey === 'function'
+          ? { Authorization: `Bearer ${await apiKey()}` }
+          : {}),
         'anthropic-beta': 'web-search-2025-03-05',
       });
     } else {
-      if (!apiKey) {
-        throw new Error('Anthropic API key not set');
+      if (!apiKey && !credentialProvider) {
+        throw new Error('Anthropic API key or credential provider not set');
       }
       apiURL = 'https://api.anthropic.com/v1';
       headers = async () => ({
         'anthropic-version': '2023-06-01',
         'anthropic-beta': buildAnthropicBetaHeader(),
-        'x-api-key': typeof apiKey === 'function' ? await apiKey() : apiKey,
+        ...(apiKey
+          ? {
+              'x-api-key':
+                typeof apiKey === 'function' ? await apiKey() : apiKey,
+            }
+          : {}),
       });
     }
 
@@ -1209,12 +1221,19 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
         modelInfo: axModelInfoAnthropic,
         models,
       });
+      const nativeStructuredOutputs = mi?.supported?.structuredOutputs ?? false;
+      const structuredOutputModes =
+        mi?.supported?.structuredOutputModes ??
+        (nativeStructuredOutputs
+          ? (['native', 'function'] as const)
+          : (['function'] as const));
       return {
         functions: true,
         streaming: true,
         hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
         hasShowThoughts: mi?.supported?.showThoughts ?? false,
-        structuredOutputs: mi?.supported?.structuredOutputs ?? false,
+        structuredOutputs: structuredOutputModes.includes('native'),
+        structuredOutputModes,
         functionCot: true,
         media: {
           images: {
@@ -1322,6 +1341,8 @@ export class AxAIAnthropic<TModelKey = string> extends AxBaseAI<
       modelInfo: axModelInfoAnthropic,
       defaults: { model: Config.model },
       options,
+      credentialProvider,
+      profile: 'anthropic',
       supportFor,
       models: normalizedModels ?? models,
     });

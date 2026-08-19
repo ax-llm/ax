@@ -32,6 +32,7 @@ const usesServerManagedSampling = (model: string): boolean =>
   model === 'gemini-3.5-flash-lite';
 
 import type {
+  AxAICredentialProvider,
   AxAIInputModelList,
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -309,6 +310,7 @@ export interface AxAIGoogleGeminiOptionsTools {
 export interface AxAIGoogleGeminiArgs<TModelKey> {
   name: 'google-gemini';
   apiKey?: string | (() => Promise<string>);
+  credentialProvider?: AxAICredentialProvider;
   projectId?: string;
   region?: string;
   endpointId?: string;
@@ -346,6 +348,7 @@ class AxAIGoogleGeminiImpl
     private vertexConfig: { projectId: string; region: string } | undefined,
     private endpointId?: string,
     private apiKey?: string | (() => Promise<string>),
+    private credentialProvider?: AxAICredentialProvider,
     private options?: AxAIGoogleGeminiArgs<any>['options'],
     private vertexApiURLForModel?: (model: string, beta?: boolean) => string
   ) {
@@ -441,7 +444,7 @@ class AxAIGoogleGeminiImpl
       typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
     const url = this.isVertex
       ? `${this.getVertexApiURL(model as string, options?.beta)}/models/${model}:generateContent`
-      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keyValue}`;
+      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent${keyValue ? `?key=${keyValue}` : ''}`;
     const body = {
       contents: [
         {
@@ -465,14 +468,25 @@ class AxAIGoogleGeminiImpl
       ],
     };
 
+    const staticHeaders = {
+      'Content-Type': 'application/json',
+      ...(this.isVertex && keyValue
+        ? { Authorization: `Bearer ${keyValue}` }
+        : {}),
+    };
     const response = await (options?.fetch ?? globalThis.fetch)(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(this.isVertex && keyValue
-          ? { Authorization: `Bearer ${keyValue}` }
-          : {}),
-      },
+      headers: this.credentialProvider
+        ? {
+            ...staticHeaders,
+            ...(await this.credentialProvider({
+              profile: 'google-gemini',
+              operation: 'transcribe',
+              method: 'POST',
+              url,
+            })),
+          }
+        : staticHeaders,
       body: JSON.stringify(body),
       signal: options?.abortSignal,
     });
@@ -500,15 +514,24 @@ class AxAIGoogleGeminiImpl
       typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
     const url = this.isVertex
       ? `${this.getVertexApiURL(model as string, options?.beta)}/models/${model}:generateContent`
-      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keyValue}`;
+      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent${keyValue ? `?key=${keyValue}` : ''}`;
     const voice =
       typeof req.voice === 'object' ? req.voice.id : (req.voice ?? 'Kore');
     return await axFetchJsonSpeech({
       url,
-      headers:
-        this.isVertex && keyValue
+      headers: {
+        ...(this.isVertex && keyValue
           ? { Authorization: `Bearer ${keyValue}` }
-          : {},
+          : {}),
+        ...(this.credentialProvider
+          ? await this.credentialProvider({
+              profile: 'google-gemini',
+              operation: 'speak',
+              method: 'POST',
+              url,
+            })
+          : {}),
+      },
       body: {
         contents: [{ role: 'user', parts: [{ text: req.text }] }],
         generationConfig: {
@@ -806,7 +829,7 @@ class AxAIGoogleGeminiImpl
       const pf = stream ? '&' : '?';
       const keyValue =
         typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
-      apiConfig.name += `${pf}key=${keyValue}`;
+      if (keyValue) apiConfig.name += `${pf}key=${keyValue}`;
     }
 
     const systemPrompts = req.chatPrompt
@@ -1266,9 +1289,9 @@ class AxAIGoogleGeminiImpl
       };
     } else {
       const keyValue =
-        typeof this.apiKey === 'function' ? this.apiKey() : this.apiKey;
+        typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
       apiConfig = {
-        name: `/models/${model}:batchEmbedContents?key=${keyValue}`,
+        name: `/models/${model}:batchEmbedContents${keyValue ? `?key=${keyValue}` : ''}`,
       };
 
       reqValue = {
@@ -1623,7 +1646,7 @@ class AxAIGoogleGeminiImpl
       // Add API key for non-Vertex
       const keyValue =
         typeof this.apiKey === 'function' ? 'ASYNC_KEY' : this.apiKey;
-      apiPath = `/cachedContents?key=${keyValue}`;
+      apiPath = `/cachedContents${keyValue ? `?key=${keyValue}` : ''}`;
     }
 
     return {
@@ -1796,7 +1819,7 @@ class AxAIGoogleGeminiImpl
       const pf = stream ? '&' : '?';
       const keyValue =
         typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
-      apiConfig.name += `${pf}key=${keyValue}`;
+      if (keyValue) apiConfig.name += `${pf}key=${keyValue}`;
     }
 
     // Build the generation config using existing logic
@@ -2179,6 +2202,7 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
 
   constructor({
     apiKey,
+    credentialProvider,
     projectId,
     region,
     endpointId,
@@ -2204,10 +2228,12 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
 
     if (vertexConfig) {
       const { projectId, region } = vertexConfig;
-      if (!apiKey) {
-        throw new Error('GoogleGemini Vertex API key not set');
+      if (!apiKey && !credentialProvider) {
+        throw new Error(
+          'GoogleGemini Vertex API key or credential provider not set'
+        );
       }
-      if (typeof apiKey !== 'function') {
+      if (apiKey && typeof apiKey !== 'function') {
         throw new Error(
           'GoogleGemini Vertex API key must be a function for token-based authentication'
         );
@@ -2225,11 +2251,19 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
         `https://${host}/${getVertexGeminiAPIVersion(model, beta)}/projects/${projectId}/locations/${region}/${path}`;
       apiURL = buildVertexApiURL(Config.model);
       headers = async () => ({
-        Authorization: `Bearer ${typeof apiKey === 'function' ? await apiKey() : apiKey}`,
+        ...(apiKey
+          ? {
+              Authorization: `Bearer ${
+                typeof apiKey === 'function' ? await apiKey() : apiKey
+              }`,
+            }
+          : {}),
       });
     } else {
-      if (!apiKey) {
-        throw new Error('GoogleGemini AI API key not set');
+      if (!apiKey && !credentialProvider) {
+        throw new Error(
+          'GoogleGemini AI API key or credential provider not set'
+        );
       }
       apiURL = 'https://generativelanguage.googleapis.com/v1beta';
       headers = async () => ({});
@@ -2240,6 +2274,7 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       vertexConfig,
       endpointId,
       apiKey,
+      credentialProvider,
       options,
       buildVertexApiURL
     );
@@ -2259,12 +2294,19 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
         modelInfo,
         models,
       });
+      const nativeStructuredOutputs = mi?.supported?.structuredOutputs ?? true;
+      const structuredOutputModes =
+        mi?.supported?.structuredOutputModes ??
+        (nativeStructuredOutputs
+          ? (['native', 'function'] as const)
+          : (['function'] as const));
       return {
         functions: true,
         streaming: true,
         hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
         hasShowThoughts: mi?.supported?.showThoughts ?? false,
-        structuredOutputs: mi?.supported?.structuredOutputs ?? false,
+        structuredOutputs: structuredOutputModes.includes('native'),
+        structuredOutputModes,
         media: {
           images: {
             supported: true,
@@ -2405,6 +2447,8 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
         embedModel: Config.embedModel as AxAIGoogleGeminiEmbedModel,
       },
       options,
+      credentialProvider,
+      profile: 'google-gemini',
       supportFor,
       models: normalizedModels ?? models,
     });

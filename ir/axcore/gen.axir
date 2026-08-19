@@ -10,6 +10,9 @@ module @ax.gen version "0.1" {
     body @entry(%signature: AxSignature, %features: json, %options: json) {
       %native_snake = core.get %features["structured_outputs"]
       %native_raw = core.get %features["structuredOutputs"] default %native_snake
+      %modes_snake = core.get %features["structured_output_modes"]
+      %modes = core.get %features["structuredOutputModes"] default %modes_snake
+      %has_modes = core.call intrinsic.is_not_none(%modes)
       %native_missing = core.call intrinsic.is_none(%native_raw)
       %supports_native = core.let true
       core.if %native_missing {
@@ -24,6 +27,26 @@ module @ax.gen version "0.1" {
         %supports_functions = core.let true
       } else {
         %supports_functions = core.call intrinsic.truthy(%functions_raw)
+      }
+      %supports_json_object = core.let true
+      core.if %has_modes {
+        %supports_native = core.let false
+        %supports_functions = core.let false
+        %supports_json_object = core.let false
+        core.for %candidate_mode in %modes {
+          %candidate_native = core.call intrinsic.eq(%candidate_mode, "native")
+          core.if %candidate_native {
+            %supports_native = core.let true
+          }
+          %candidate_function = core.call intrinsic.eq(%candidate_mode, "function")
+          core.if %candidate_function {
+            %supports_functions = core.let true
+          }
+          %candidate_json_object = core.call intrinsic.eq(%candidate_mode, "json_object")
+          core.if %candidate_json_object {
+            %supports_json_object = core.let true
+          }
+        }
       }
       %mode_snake = core.get %options["structured_output_mode"]
       %mode = core.get %options["structuredOutputMode"] default %mode_snake
@@ -50,9 +73,26 @@ module @ax.gen version "0.1" {
         core.set %selection["rung"] = "function"
         core.return %selection
       }
-      core.if %supports_native {
-        core.set %selection["rung"] = "native"
+      %explicit_json_object = core.call intrinsic.eq(%mode, "json_object")
+      core.if %explicit_json_object {
+        %unsupported_json_object = core.call intrinsic.not(%supports_json_object)
+        core.if %unsupported_json_object {
+          core.raise "Structured output mode 'json_object' requires JSON object response-format support"
+        }
+        core.set %selection["rung"] = "json_object"
         core.return %selection
+      }
+      core.if %has_modes {
+        %mode_count = core.call intrinsic.len(%modes)
+        %no_modes = core.call intrinsic.eq(%mode_count, 0)
+        core.if %no_modes {
+          core.raise "Structured output is not verified for the selected provider and model"
+        }
+      } else {
+        core.if %supports_native {
+          core.set %selection["rung"] = "native"
+          core.return %selection
+        }
       }
       %output_fields = core.get %signature["output_fields"]
       %visible_fields = core.list
@@ -81,8 +121,17 @@ module @ax.gen version "0.1" {
       %required_singleton = core.call intrinsic.and(%singleton, %required)
       %singleton_string = core.call intrinsic.and(%required_singleton, %string_or_code)
       %simple_shape = core.call intrinsic.and(%singleton_string, %not_array)
-      core.if %simple_shape {
-        core.set %selection["rung"] = "json_object"
+      %native_unavailable = core.call intrinsic.not(%supports_native)
+      %json_object_optimization = core.call intrinsic.and(%simple_shape, %native_unavailable)
+      core.if %json_object_optimization {
+        core.if %supports_json_object {
+          core.set %selection["rung"] = "json_object"
+          core.return %selection
+        }
+      }
+      core.if %has_modes {
+        %preferred_mode = core.call intrinsic.list.get(%modes, 0, "")
+        core.set %selection["rung"] = %preferred_mode
         core.return %selection
       }
       core.if %supports_functions {
@@ -398,6 +447,7 @@ module @ax.gen version "0.1" {
       %mode_snake = core.get %options["function_call_mode"]
       %mode_raw = core.get %options["functionCallMode"] default %mode_snake
       %mode = core.call @function_call_mode_impl(%mode_raw)
+      core.set %request["function_call"] = %mode
       %signature = core.get %gen["signature"]
       %output_fields = core.get %signature["output_fields"]
       %rung = core.get %selection["rung"]
@@ -415,11 +465,10 @@ module @ax.gen version "0.1" {
         core.if %no_user_functions {
           %forced_function = core.map
           core.set %forced_function["name"] = "__axOutput"
-          %mode = core.let %forced_function
+          core.set %request["function_call"] = %forced_function
         }
       }
       core.set %request["functions"] = %function_specs
-      core.set %request["function_call"] = %mode
       %use_native = core.call intrinsic.eq(%rung, "native")
       core.if %use_native {
         %schema_options = core.map

@@ -73,6 +73,12 @@ export interface AxAPIConfig
   abortSignal?: AbortSignal;
   corsProxy?: string;
   onResponseMetadata?: (metadata: Readonly<AxAPIResponseMetadata>) => void;
+  /** Resolve headers for each HTTP attempt, including retries. */
+  resolveHeaders?: (request: {
+    method: string;
+    url: string;
+    retryCount: number;
+  }) => Promise<Record<string, string>>;
   /** Whether to include request body in error messages. Defaults to true. Set to false when request may contain sensitive data or large base64 content. */
   includeRequestBodyInErrors?: boolean;
 }
@@ -642,6 +648,15 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
   let attempt = 0;
 
   while (true) {
+    // Credential/header provider failures are configuration failures. Resolve
+    // outside the transport try/catch so they abort without network retries.
+    const requestHeaders = api.resolveHeaders
+      ? await api.resolveHeaders({
+          method,
+          url: apiUrl.href,
+          retryCount: attempt,
+        })
+      : api.headers;
     // Combine user abort signal with timeout signal
     const combinedAbortController = new AbortController();
 
@@ -696,7 +711,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
               'Content-Type': 'application/json',
               'X-Request-ID': requestId,
               'X-Retry-Count': attempt.toString(),
-              ...api.headers,
+              ...requestHeaders,
             },
             null,
             2
@@ -713,7 +728,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
           'Content-Type': 'application/json',
           'X-Request-ID': requestId,
           'X-Retry-Count': attempt.toString(),
-          ...api.headers,
+          ...requestHeaders,
         },
         body: JSON.stringify(json),
         signal: combinedAbortController.signal,

@@ -78,6 +78,14 @@ using AxUsageContext = Value;
 using AxUsageEvent = Value;
 using AxUsageObserver = std::function<void(AxUsageEvent)>;
 
+struct AxCredentialRequest {
+  std::string profile;
+  std::string operation;
+  std::string method;
+  std::string url;
+};
+using AxCredentialProvider = std::function<std::map<std::string, std::string>(const AxCredentialRequest&)>;
+
 void set_usage_observer(AxUsageObserver observer);
 
 class AxError : public std::runtime_error {
@@ -381,6 +389,7 @@ struct Core {
   static Value _openai_realtime_content_parts_impl(Value content);
   static Value _provider_model_matches(Value match, Value model);
   static Value _provider_resolve_model_rule(Value profile, Value model);
+  static Value provider_resolve_features(Value profile, Value model, Value options);
   static Value _provider_reasoning_field(Value profile, Value model);
   static Value _provider_reasoning_details_field(Value profile, Value model);
   static Value _provider_reasoning_replay_field(Value profile, Value model);
@@ -463,70 +472,70 @@ struct Core {
   static Value stream_extraction_route(Value has_complex_fields);
   static Value stream_structured_delta(Value fields, Value parsed_values, Value previous_values, Value partial_array_incomplete);
   static Value _validate_optimization_component_value(Value component, Value value);
-  static Value _structured_output_scalar_placeholder(Value typ);
   static Value _validate_optimization_component_map(Value components, Value component_map);
+  static Value _structured_output_scalar_placeholder(Value typ);
   static Value _stream_event_content_parts_impl(Value event);
   static Value _validate_optimized_artifact_provenance(Value artifact, Value components);
-  static Value _structured_output_type_placeholder(Value typ);
   static Value _validate_optimized_artifact(Value artifact, Value components);
+  static Value _structured_output_type_placeholder(Value typ);
   static Value _structured_output_shape(Value output_fields);
-  static Value _append_structured_output_instruction(Value messages, Value output_fields, Value selection);
-  static Value _assert_no_reserved_output_functions(Value functions);
   static Value _serialize_optimized_artifact(Value artifact);
-  static Value _find_structured_output_call(Value calls);
+  static Value _append_structured_output_instruction(Value messages, Value output_fields, Value selection);
   static Value _deserialize_optimized_artifact(Value text, Value components);
   static Value _optimization_changed_components(Value components, Value component_map);
-  static Value _structured_output_call_args(Value call);
+  static Value _assert_no_reserved_output_functions(Value functions);
   static Value _optimization_component_current_map(Value components);
-  static Value _build_gen_chat_request(Value gen, Value messages, Value options, Value selection);
+  static Value _find_structured_output_call(Value calls);
   static Value _normalize_optimization_dataset(Value dataset);
+  static Value _structured_output_call_args(Value call);
   static Value _normalize_optimization_metric_scores(Value raw);
+  static Value _build_gen_chat_request(Value gen, Value messages, Value options, Value selection);
   static Value _scalarize_optimization_scores(Value scores, Value options);
   static Value _optimization_action_name_matches(Value expected, Value call);
   static Value _adjust_optimization_score_for_actions(Value score, Value task, Value prediction);
   static Value _parse_sample_outputs(Value gen, Value output_fields, Value response, Value validate_exact_json);
   static Value _select_sample_index(Value samples, Value options);
-  static Value _forward_impl(Value gen, Value client, Value values, Value options);
   static Value _build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error);
   static Value _build_optimization_eval_result(Value rows, Value candidate_map, Value phase);
+  static Value _forward_impl(Value gen, Value client, Value values, Value options);
   static Value _filter_optimization_components(Value components, Value target);
   static Value _build_optimizer_request(Value program_kind, Value components, Value dataset, Value options, Value trace);
-  static Value _set_examples(Value gen, Value examples);
   static Value _prepare_optimizer_run(Value program_kind, Value components, Value dataset, Value options, Value trace, Value evaluator_available);
+  static Value _normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components);
+  static Value _set_examples(Value gen, Value examples);
   static Value _set_demos(Value gen, Value demos);
   static Value _render_examples(Value gen);
   static Value _render_demos(Value gen);
-  static Value _normalize_optimizer_engine_response(Value response, Value engine_name, Value engine_version, Value components);
   static Value _apply_field_processors(Value gen, Value output);
   static Value _run_assertions(Value gen, Value output);
+  static Value _build_optimizer_evidence_batch(Value eval_result, Value components);
   static Value _append_assertion_retry_messages(Value messages, Value response, Value error);
   static Value _record_trace(Value gen, Value input, Value output, Value status);
   static Value _should_continue_steps(Value gen, Value calls);
   static Value _complete_with_retries_impl(Value client, Value request, Value options, Value retries);
-  static Value _build_optimizer_evidence_batch(Value eval_result, Value components);
   static Value _parse_output_impl(Value content);
   static Value _is_flexible_json_field(Value typ);
-  static Value _parse_json_string_value(Value value);
-  static Value _parse_json_string_for_field(Value field, Value value);
   static Value _ace_estimate_token_count(Value text);
+  static Value _parse_json_string_value(Value value);
   static Value _ace_recompute_playbook_stats(Value playbook);
-  static Value _parse_json_string_fields(Value output_fields, Value values);
+  static Value _parse_json_string_for_field(Value field, Value value);
   static Value _ace_empty_playbook(Value description, Value now);
-  static Value _parse_json_string_for_fields(Value fields_map, Value values);
   static Value _ace_render_playbook(Value playbook);
-  static Value _validate_exact_output_keys(Value fields, Value values, Value context);
+  static Value _parse_json_string_fields(Value output_fields, Value values);
+  static Value _parse_json_string_for_fields(Value fields_map, Value values);
   static Value _ace_update_bullet_feedback(Value playbook, Value bullet_id, Value tag, Value now);
+  static Value _validate_exact_output_keys(Value fields, Value values, Value context);
+  static Value _ace_dedupe_playbook(Value playbook);
   static Value _tool_spec_impl(Value fn);
   static Value _function_call_mode_impl(Value mode);
-  static Value _ace_dedupe_playbook(Value playbook);
+  static Value _ace_prune_section_for_addition(Value section, Value protected_ids);
   static Value _response_function_calls_impl(Value response);
   static Value _append_tool_call_messages_impl(Value messages, Value response, Value calls);
-  static Value _ace_prune_section_for_addition(Value section, Value protected_ids);
   static Value _completion_call_to_chat_impl(Value call);
   static Value _tool_result_message_impl(Value call, Value result);
+  static Value _ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now);
   static Value _tool_error_message_impl(Value call, Value error);
   static Value _append_validation_retry_messages_impl(Value messages, Value response, Value error);
-  static Value _ace_apply_curator_operations(Value playbook, Value operations, Value options, Value now);
   static Value _ace_is_noop_acknowledgment(Value content);
   static Value _ace_normalize_curator_operations(Value operations);
   static Value _ace_locate_bullet_section(Value playbook, Value bullet_id);
@@ -1133,8 +1142,8 @@ class ScriptedRealtimeTransport : public RealtimeTransport {
 
 class OpenAICompatibleClient : public AxBaseAI {
  public:
-  explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr);
-  OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model);
+  explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
+  OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model, AxCredentialProvider credential_provider = {});
   std::vector<Value> stream(Value request) override;
   Value transcribe(Value request) override;
   Value speak(Value request) override;
@@ -1142,8 +1151,10 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value realtime_audio_setup(Value request);
   Value realtime_audio_input(Value request);
   Value realtime_chat(Value request, RealtimeTransport* transport = nullptr);
+  Value get_features(Value model = Value()) override;
   double get_estimated_cost(Value model_usage) override;
   OpenAICompatibleClient& context_cache_registry(AxContextCacheRegistry* registry);
+  OpenAICompatibleClient& credential_provider(AxCredentialProvider provider);
 
  protected:
   Value do_chat(Value request, Value options) override;
@@ -1159,6 +1170,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   std::unique_ptr<Transport> owned_transport_;
   Transport* transport_;
   AxContextCacheRegistry* context_cache_registry_ = nullptr;
+  AxCredentialProvider credential_provider_;
   Value context_cache_entries_ = Value::object();
   Value context_cache_chat(Value request, Value options, Value payload, Value model, const std::string& endpoint);
   Value request_json(const std::string& endpoint, Value payload, bool stream);

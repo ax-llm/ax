@@ -325,8 +325,13 @@ public final class AxBalancer implements AxAIService {
   public Map<String, Object> getFeatures(String model) {
     Map<String, Object> features = balancerBaseFeatures();
     Map<String, Object> media = Core.asMap(features.get("media"));
+    List<Object> structuredOutputModes = new ArrayList<>();
+    boolean allModesAdvertised = !services.isEmpty();
     for (AxAIService service : services) {
       Map<String, Object> raw = service.getFeatures(model);
+      Object rawModes = raw.containsKey("structuredOutputModes") ? raw.get("structuredOutputModes") : raw.get("structured_output_modes");
+      if (rawModes == null) allModesAdvertised = false;
+      else appendUnique(structuredOutputModes, rawModes);
       for (String key : List.of("functions", "streaming", "thinking", "multiTurn", "structuredOutputs", "functionCot", "hasThinkingBudget", "hasShowThoughts")) {
         String alt = switch (key) {
           case "multiTurn" -> "multi_turn";
@@ -356,6 +361,7 @@ public final class AxBalancer implements AxAIService {
       if (Core.truthy(caching.get("supported"))) Core.asMap(features.get("caching")).put("supported", true);
       appendUnique(Core.asList(Core.asMap(features.get("caching")).get("types")), caching.get("types"));
     }
+    if (allModesAdvertised) features.put("structured_output_modes", structuredOutputModes);
     return features;
   }
 

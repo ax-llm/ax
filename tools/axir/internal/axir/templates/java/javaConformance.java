@@ -568,9 +568,11 @@ public final class Conformance {
       case "ai_embed" -> runAIEmbed(fixture);
       case "ai_stream" -> runAIStream(fixture);
       case "ai_usage_observer" -> runAIUsageObserver(fixture);
+      case "ai_credential_wrapper" -> runAICredentialWrapper(fixture);
       case "ai_error" -> runAIError(fixture);
       case "ai_unsupported" -> runAIUnsupported(fixture);
       case "ai_provider_descriptor" -> runAIProviderDescriptor(fixture);
+      case "ai_provider_features" -> runAIProviderFeatures(fixture);
       case "ai_provider_registry" -> runAIProviderRegistry(fixture);
       case "ai_model_catalog_audit" -> runAIModelCatalogAudit(fixture);
       case "ai_model_catalog_runtime" -> runAIModelCatalogRuntime(fixture);
@@ -2081,7 +2083,7 @@ public final class Conformance {
       try { return cf.client.chat(Core.asMap(fixture.get("request"))); }
       catch (Exception e) { throw Core.asRuntime(e); }
     }, fixture);
-    if (fixture.containsKey("expected_error_contains")) return;
+    if (fixture.containsKey("expected_error_contains")) { assertTransport(fixture, cf.transport); return; }
     if (fixture.containsKey("expected_output")) assertEqual(result, fixture.get("expected_output"), "ai chat output");
     if (fixture.containsKey("expected_request_after")) assertEqual(fixture.get("request"), fixture.get("expected_request_after"), "ai chat input mutation");
     if (fixture.containsKey("expected_estimated_cost")) {
@@ -2089,6 +2091,14 @@ public final class Conformance {
       double expectedCost = Core.asDouble(fixture.get("expected_estimated_cost"));
       if (Math.abs(actualCost - expectedCost) > 1e-12) throw new FixtureError("estimated cost mismatch: " + actualCost + " != " + expectedCost);
     }
+    assertTransport(fixture, cf.transport);
+  }
+
+  static void runAICredentialWrapper(Map<String, Object> fixture) {
+    ClientFixture cf = openaiClient(fixture);
+    AxMultiServiceRouter router = new AxMultiServiceRouter(List.of(new AxMultiServiceRouter.Entry("wrapped", cf.client, "")));
+    try { router.chat(Core.asMap(fixture.getOrDefault("request", Map.of()))); }
+    catch (Exception e) { throw Core.asRuntime(e); }
     assertTransport(fixture, cf.transport);
   }
 
@@ -2174,6 +2184,15 @@ public final class Conformance {
       ? Core.provider_resolve_descriptor(provider, fixture.get("options"))
       : Core.provider_descriptor(provider);
     if (fixture.containsKey("expected_output")) assertSubset(descriptor, fixture.get("expected_output"), "provider descriptor");
+  }
+
+  static void runAIProviderFeatures(Map<String, Object> fixture) {
+    ClientFixture cf = openaiClient(fixture);
+    assertSubset(
+      cf.client.getFeatures(String.valueOf(fixture.getOrDefault("model", ""))),
+      fixture.getOrDefault("expected_output", Map.of()),
+      "provider features"
+    );
   }
 
   static void runAIProviderRegistry(Map<String, Object> fixture) {
@@ -2567,6 +2586,26 @@ public final class Conformance {
     for (String key : List.of("base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version")) {
       if (fixture.containsKey(key)) options.put(key, fixture.get(key));
     }
+    if (fixture.containsKey("credential_provider_fixture")) {
+      Map<String, Object> credentialFixture = Core.asMap(fixture.get("credential_provider_fixture"));
+      List<Object> credentialHeaders = Core.asList(credentialFixture.getOrDefault("headers", List.of()));
+      List<Object> credentialRequests = new ArrayList<>();
+      fixture.put("__credential_requests", credentialRequests);
+      int[] credentialCalls = {0};
+      options.put("credential_provider", (OpenAICompatibleClient.CredentialProvider) request -> {
+        credentialRequests.add(new LinkedHashMap<>(Map.of(
+            "profile", request.profile(), "operation", request.operation(),
+            "method", request.method(), "url", request.url())));
+        if (credentialFixture.containsKey("error")) throw new RuntimeException(String.valueOf(credentialFixture.get("error")));
+        Map<String, String> fresh = new LinkedHashMap<>();
+        if (!credentialHeaders.isEmpty()) {
+          int index = Math.min(credentialCalls[0], credentialHeaders.size() - 1);
+          credentialCalls[0]++;
+          for (Map.Entry<String, Object> entry : Core.asMap(credentialHeaders.get(index)).entrySet()) fresh.put(entry.getKey(), String.valueOf(entry.getValue()));
+        }
+        return fresh;
+      });
+    }
     OpenAICompatibleClient client = geminiProvider ? new GoogleGeminiClient(provider, options)
       : anthropicProvider ? new AnthropicClient(provider, options)
       : responsesProvider ? new OpenAIResponsesClient(provider, options)
@@ -2584,6 +2623,13 @@ public final class Conformance {
   }
 
   static void assertTransport(Map<String, Object> fixture, ScriptedTransport transport) {
+    if (fixture.containsKey("expected_transport_request_count")) assertEqual(transport.requests.size(), fixture.get("expected_transport_request_count"), "provider request count");
+    if (fixture.containsKey("expected_credential_requests")) assertEqual(fixture.getOrDefault("__credential_requests", List.of()), fixture.get("expected_credential_requests"), "credential requests");
+    List<Object> expectedRequests = Core.asList(fixture.getOrDefault("expected_transport_requests", List.of()));
+    for (int index = 0; index < expectedRequests.size(); index++) {
+      if (index >= transport.requests.size()) throw new FixtureError("missing provider transport request");
+      assertSubset(transport.requests.get(index), expectedRequests.get(index), "provider request " + index);
+    }
     if (!fixture.containsKey("expected_transport_request") && !fixture.containsKey("expected_transport_json_absent")) return;
     if (transport.requests.isEmpty()) throw new FixtureError("expected provider transport request but none were sent");
     if (fixture.containsKey("expected_transport_request")) assertSubset(transport.requests.get(0), fixture.get("expected_transport_request"), "provider request");

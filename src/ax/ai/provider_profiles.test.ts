@@ -400,6 +400,220 @@ describe('named AI deployment profiles', () => {
     ).toBe(false);
   });
 
+  it('resolves Vertex structured-output modes per model', () => {
+    expect(
+      axResolveAIProfileFeatures('vertex-ai', 'unknown-third-party-model')
+        .structuredOutputModes
+    ).toEqual(['function']);
+    expect(
+      axResolveAIProfileFeatures('vertex-ai', 'google/gemini-3.5-flash')
+        .structuredOutputModes
+    ).toEqual(['native', 'function', 'json_object']);
+    expect(
+      axResolveAIProfileFeatures('vertex-ai', 'google/gemma-4-26b-a4b-it-maas')
+        .structuredOutputModes
+    ).toEqual(['json_object', 'function']);
+  });
+
+  it('applies Vertex Gemma MaaS thinking defaults and explicit disable', async () => {
+    const capture: Capture = {};
+    const service = ai({
+      name: 'vertex-ai',
+      apiKey: 'vertex-token',
+      apiURL: 'https://vertex.test/v1',
+      config: {
+        model: 'google/gemma-4-26b-a4b-it-maas',
+        stream: false,
+      },
+      options: { fetch: createMockFetch(capture) },
+    });
+
+    await service.chat({
+      chatPrompt: [{ role: 'user', content: 'think' }],
+      responseFormat: { type: 'json_object' },
+    });
+    expect(capture.body?.chat_template_kwargs).toEqual({
+      enable_thinking: true,
+    });
+
+    await service.chat(
+      { chatPrompt: [{ role: 'user', content: 'answer directly' }] },
+      { thinkingTokenBudget: 'none' }
+    );
+    expect(capture.body?.chat_template_kwargs).toEqual({
+      enable_thinking: false,
+    });
+  });
+
+  it('renews credentials for every attempt and lets fresh headers override static auth', async () => {
+    const headers: Headers[] = [];
+    let calls = 0;
+    const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      headers.push(new Headers(init?.headers));
+      calls++;
+      if (calls === 1) {
+        return new Response(JSON.stringify({ error: { message: 'retry' } }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          id: 'renewed',
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: 'ok' },
+              finish_reason: 'stop',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
+    let token = 0;
+    const credentialRequests: Record<string, unknown>[] = [];
+    const service = ai({
+      name: 'vertex-ai',
+      apiKey: 'stale-token',
+      apiURL: 'https://vertex.test/v1',
+      config: { model: 'google/gemini-3.5-flash', stream: false },
+      credentialProvider: async (request) => {
+        credentialRequests.push(request);
+        token++;
+        return { Authorization: `Bearer fresh-${token}` };
+      },
+      options: { fetch },
+    });
+
+    await service.chat(
+      { chatPrompt: [{ role: 'user', content: 'hello' }] },
+      { retry: { initialDelayMs: 0 } }
+    );
+
+    expect(headers.map((value) => value.get('authorization'))).toEqual([
+      'Bearer fresh-1',
+      'Bearer fresh-2',
+    ]);
+    expect(credentialRequests).toEqual([
+      {
+        profile: 'vertex-ai',
+        operation: 'chat',
+        method: 'POST',
+        url: 'https://vertex.test/v1/chat/completions',
+      },
+      {
+        profile: 'vertex-ai',
+        operation: 'chat',
+        method: 'POST',
+        url: 'https://vertex.test/v1/chat/completions',
+      },
+    ]);
+  });
+
+  it('identifies Responses API credential requests by operation', async () => {
+    const credentialRequests: Record<string, unknown>[] = [];
+    const service = ai({
+      name: 'openai-responses',
+      config: { model: 'gpt-5-mini', stream: false },
+      credentialProvider: async (request) => {
+        credentialRequests.push(request);
+        return { Authorization: 'Bearer fresh-token' };
+      },
+      options: {
+        fetch: vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                id: 'resp-renewed',
+                object: 'response',
+                model: 'gpt-5-mini',
+                output: [
+                  {
+                    type: 'message',
+                    id: 'msg-renewed',
+                    role: 'assistant',
+                    status: 'completed',
+                    content: [
+                      { type: 'output_text', text: 'ok', annotations: [] },
+                    ],
+                  },
+                ],
+                usage: {
+                  input_tokens: 1,
+                  output_tokens: 1,
+                  total_tokens: 2,
+                },
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } }
+            )
+        ),
+      },
+    });
+
+    await service.chat({ chatPrompt: [{ role: 'user', content: 'hello' }] });
+
+    expect(credentialRequests).toEqual([
+      {
+        profile: 'openai-responses',
+        operation: 'responses',
+        method: 'POST',
+        url: 'https://api.openai.com/v1/responses',
+      },
+    ]);
+  });
+
+  it('aborts credential-provider failures before transport', async () => {
+    const fetch = vi.fn();
+    const service = ai({
+      name: 'vertex-ai',
+      apiURL: 'https://vertex.test/v1',
+      config: { model: 'google/gemini-3.5-flash', stream: false },
+      credentialProvider: async () => {
+        throw new Error('credential refresh failed');
+      },
+      options: { fetch },
+    });
+
+    await expect(
+      service.chat({ chatPrompt: [{ role: 'user', content: 'hello' }] })
+    ).rejects.toThrow('credential refresh failed');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a completed 401 after credential refresh', async () => {
+    let credentialCalls = 0;
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ error: { message: 'bad fresh token' } }),
+          {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+    );
+    const service = ai({
+      name: 'vertex-ai',
+      apiURL: 'https://vertex.test/v1',
+      config: { model: 'google/gemini-3.5-flash', stream: false },
+      credentialProvider: async () => {
+        credentialCalls++;
+        return { Authorization: 'Bearer rejected-fresh-token' };
+      },
+      options: { fetch },
+    });
+
+    await expect(
+      service.chat(
+        { chatPrompt: [{ role: 'user', content: 'hello' }] },
+        { retry: { initialDelayMs: 0, maxRetries: 3 } }
+      )
+    ).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(credentialCalls).toBe(1);
+  });
+
   it('applies exact caller modelInfo before profile model rules and defaults', () => {
     const service = ai({
       name: 'openai-compatible',

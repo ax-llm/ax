@@ -967,6 +967,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"examples/axgen_scripted_client_tool/main.go",
 				"examples/axgen_openai_api/main.go",
 				"examples/vertex_gemini_api/main.go",
+				"examples/vertex_gemma_maas_no_key/main.go",
 				"examples/provider_mapping_no_key/main.go",
 				"examples/adaptive_balancer_no_key/main.go",
 				"examples/provider_stream_no_key/main.go",

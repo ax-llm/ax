@@ -21,6 +21,8 @@ import type {
   AxChatResponse,
   AxChatResponseResult,
   AxFunction,
+  AxStructuredOutputMode,
+  AxStructuredOutputRung,
 } from '../ai/types.js';
 import { axMergeUsageContexts } from '../ai/usage.js';
 import { axResolveMCPExecutionContext } from '../mcp/execution.js';
@@ -121,8 +123,6 @@ import {
 const STRUCTURED_OUTPUT_FUNCTION_NAME = '__axOutput';
 const LEGACY_STRUCTURED_OUTPUT_FUNCTION_NAME = '__finalResult';
 
-type StructuredOutputRung = 'native' | 'function' | 'json_object';
-
 const isReservedStructuredOutputFunctionName = (name: string): boolean =>
   name === STRUCTURED_OUTPUT_FUNCTION_NAME ||
   name === LEGACY_STRUCTURED_OUTPUT_FUNCTION_NAME;
@@ -145,19 +145,29 @@ const selectStructuredOutputRung = (
   features:
     | Readonly<{
         structuredOutputs?: boolean;
+        structuredOutputModes?: readonly AxStructuredOutputRung[];
         functions?: boolean;
       }>
     | undefined,
-  mode: 'auto' | 'native' | 'function',
+  mode: AxStructuredOutputMode,
   providerLabel: string
-): StructuredOutputRung | undefined => {
+): AxStructuredOutputRung | undefined => {
   if (!signature.hasComplexFields()) return undefined;
 
   // Missing capability flags belong to custom/unknown clients. Preserve the
   // historical compatibility assumption that those clients support native
   // structured outputs and functions unless they explicitly say otherwise.
-  const supportsNative = features?.structuredOutputs !== false;
-  const supportsFunctions = features?.functions !== false;
+  const advertisedModes = features?.structuredOutputModes;
+  const hasAdvertisedModes = advertisedModes !== undefined;
+  const supportsNative = hasAdvertisedModes
+    ? advertisedModes.includes('native')
+    : features?.structuredOutputs !== false;
+  const supportsFunctions = hasAdvertisedModes
+    ? advertisedModes.includes('function')
+    : features?.functions !== false;
+  const supportsJSONObject = hasAdvertisedModes
+    ? advertisedModes.includes('json_object')
+    : true;
 
   if (mode === 'native') {
     if (!supportsNative) {
@@ -177,7 +187,22 @@ const selectStructuredOutputRung = (
     return 'function';
   }
 
-  if (supportsNative) return 'native';
+  if (mode === 'json_object') {
+    if (!supportsJSONObject) {
+      throw new Error(
+        `Structured output mode 'json_object' requires JSON object response-format support, but ${providerLabel} does not advertise it.`
+      );
+    }
+    return 'json_object';
+  }
+
+  if (hasAdvertisedModes && advertisedModes.length === 0) {
+    throw new Error(
+      `Structured output is not verified for ${providerLabel}; add an exact modelInfo override to opt in.`
+    );
+  }
+
+  if (!hasAdvertisedModes && supportsNative) return 'native';
 
   const providerVisibleFields = signature
     .getOutputFields()
@@ -192,7 +217,10 @@ const selectStructuredOutputRung = (
       onlyField.type.name === 'string' ||
       onlyField.type.name === 'code');
 
-  if (isRequiredSingletonString) return 'json_object';
+  if (isRequiredSingletonString && !supportsNative && supportsJSONObject) {
+    return 'json_object';
+  }
+  if (hasAdvertisedModes) return advertisedModes[0];
   if (supportsFunctions) return 'function';
   return 'json_object';
 };
@@ -252,7 +280,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private thoughtFieldName: string;
   private signatureToolCallingManager?: SignatureToolCallingManager;
   private structuredOutputFunctionFallback = false;
-  private structuredOutputRung?: StructuredOutputRung;
+  private structuredOutputRung?: AxStructuredOutputRung;
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
   private chatLog: AxChatLogEntry[] = [];

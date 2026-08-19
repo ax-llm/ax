@@ -19,6 +19,18 @@
   Qwen, Cerebras GPT-OSS and Gemma, and DeepInfra DeepSeek R1 rules. Explicit
   `none` now fails before network I/O for models whose deployment cannot disable
   reasoning; dynamic Hugging Face Router routes remain conservative.
+- Added ordered `native`, `function`, and `json_object` structured-output modes
+  to profile/model capability resolution and direct AxGen/Agent forward options.
+  Explicit unsupported modes now fail before transport.
+- Added the exact Vertex Gemma MaaS rule for
+  `google/gemma-4-26b-a4b-it-maas`: JSON-object output without native schema,
+  maximum thinking by default, nested `enable_thinking`, and
+  `reasoning_content` extraction/replay. Unknown Vertex models stay
+  conservative.
+- Added per-request renewable credential providers across TypeScript and all
+  five generated runtimes. Fresh headers override static authentication for
+  chat, stream, embeddings, Responses, audio, and retries; completed 401/403
+  responses are not replayed automatically.
 
 ## [23.0.16](https://github.com/ax-llm/ax/compare/23.0.14...23.0.15) (2026-08-17)
 

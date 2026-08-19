@@ -74,6 +74,50 @@ before the request. A profile may demote Ax's synthetic `__axOutput` forced tool
 choice when the deployment supports tools but not `tool_choice`; a caller's
 explicitly forced tool choice fails instead of being silently changed.
 
+## Structured-Output Modes
+
+`AxStructuredOutputRung` is `native | function | json_object`, and
+`AxStructuredOutputMode` adds `auto`. Profiles and model rules advertise an
+ordered `structuredOutputModes` list. `auto` uses that order, except that a
+required singleton string or code field can take the optimized `json_object`
+path when native schema is unavailable. An explicit mode must be advertised or
+Ax fails before network I/O. Custom clients that do not expose the new list keep
+the legacy capability heuristic.
+
+`structuredOutputs` remains the compatibility alias for native JSON Schema
+support. It does not imply `json_object`: direct `json_schema` and
+`json_object` chat requests validate those capabilities independently.
+
+Vertex rules are deliberately model-scoped. Documented Gemini MaaS IDs prefer
+`native`, then `function`, then `json_object`. The exact
+`google/gemma-4-26b-a4b-it-maas` rule prefers `json_object`, supports
+`function`, and excludes native schema. Unknown Vertex models remain at the
+conservative profile default.
+
+## Renewable Credentials
+
+Use `credentialProvider` when a deployment token can expire. Ax calls it for
+each request attempt with `{ profile, operation, method, url }`; its returned
+headers override static authentication headers. The callback covers chat,
+streaming, embeddings, Responses, transcription, speech, and retries. Callback
+errors stop before transport. Ax does not automatically replay a completed 401
+or 403 because generation requests are not assumed idempotent.
+
+```ts
+const vertex = ai({
+  name: 'vertex-ai',
+  apiURL: process.env.VERTEX_AI_API_URL!,
+  config: { model: 'google/gemma-4-26b-a4b-it-maas' },
+  credentialProvider: async ({ operation, url }) => ({
+    Authorization: `Bearer ${await accessTokens.getFreshToken({ operation, url })}`,
+  }),
+});
+```
+
+Authentication-required profiles accept either `apiKey` or a credential
+provider. Keep cloud SDK and ADC dependencies in the host application; the
+provider callback is the dependency-free Ax boundary.
+
 Thinking defaults are deployment- and model-scoped request rules. Omitting
 `thinkingTokenBudget` selects Ax's logical `max` level for verified reasoning
 models and maps it to the strongest effort documented by that deployment:
@@ -113,6 +157,38 @@ Completions, OpenAI Responses, Anthropic Messages, Gemini GenerateContent, and
 WebLLM. Generated Go, Python, Rust, Java, and C++ packages follow the same
 boundary: their named factories resolve a profile and construct a retained
 transport client; branded client constructors no longer exist.
+
+### GraphJin Vertex migration
+
+Remove the request-rewriting `responseFormatClient`. Select Vertex explicitly,
+let the profile resolve the model's output modes, and refresh credentials at the
+request boundary:
+
+```go
+client := ax.NewAI("vertex-ai", map[string]ax.Value{
+    "api_url": vertexOpenAIURL,
+    "model": "google/gemma-4-26b-a4b-it-maas",
+    "credential_provider": ax.AxCredentialProviderFunc(
+        func(ctx context.Context, request ax.AxCredentialRequest) (map[string]string, error) {
+            token, err := vertexAccessToken(ctx) // host-owned ADC or token source
+            if err != nil { return nil, err }
+            return map[string]string{"Authorization": "Bearer " + token}, nil
+        },
+    ),
+})
+```
+
+Ax's Gemma rule sends `response_format: {type: "json_object"}`, defaults
+thinking to `max`, writes `chat_template_kwargs.enable_thinking: true`, and
+extracts/replays `reasoning_content`. AxGen already supplies the exact-shape
+prompt and client-side validation, so do not append a second schema prompt. To
+make the rich-output choice explicit, pass
+`structured_output_mode: "json_object"` in the generated Go forward options.
+This mapping is scoped from the
+[GraphJin compatibility workaround](https://github.com/dosco/graphjin/commit/e8a6e1a5fd59242eb406c7062c21a90da8e15353),
+Google's official [structured-output](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/structured-output)
+and [thinking](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/capabilities/thinking)
+documentation, and the official [Vertex OpenAI-compatible endpoint guide](https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-vertex-using-openai-library).
 
 ## Maintaining The Catalog
 

@@ -336,12 +336,14 @@ Rules:
 
 - `.useStructured()` asks providers with native support, including OpenAI, Anthropic, and Gemini, for schema-constrained JSON.
 - Output names and shapes are part of the prompt contract as well as the provider schema. Ax renders every exact wire key, required/optional status, type, constraints, and nested shape so capability fallback does not erase the contract.
-- `structuredOutputMode: 'auto'` uses strict `json_schema` when the selected model supports it.
-- Without native schema support, one required non-array `string` or `code` output uses `json_object` plus an exact-shape prompt, client-side validation, and bounded correction retries. This is the path used by an AxAgent actor's single `javascriptCode` field on DeepSeek; it does not require provider tool calling.
-- Richer shapes without native schema support use the synthetic `__axOutput` function when function calling is available. If functions are unavailable, Ax uses the same validated `json_object` path instead.
+- `structuredOutputMode: 'auto'` follows the selected profile/model's ordered `structuredOutputModes` capability list. Exact caller `modelInfo` overrides win over profile model rules and defaults.
+- Without native schema support, one required non-array `string` or `code` output can use `json_object` plus an exact-shape prompt, client-side validation, and bounded correction retries. This optimized path is provider-neutral and does not require provider-visible tools.
+- Richer shapes use the first advertised rung. A `json_object` selection sends no synthetic `__axOutput`; Ax keeps the exact-shape prompt, strict parsing, and correction retry.
 - Ax advertises only `__axOutput`. It accepts legacy inbound `__finalResult` calls so stored trajectories remain replayable, and rejects user functions that collide with either reserved name.
 - Use `structuredOutputMode: 'native'` to require native schema enforcement; Ax reports an error instead of silently weakening that requirement.
 - Use `structuredOutputMode: 'function'` to require the function-argument path; Ax reports an error before sending a request when function calling is unavailable.
+- Use `structuredOutputMode: 'json_object'` to require JSON object mode for rich or singleton output; Ax reports an error before transport when the selected profile/model has not verified it.
+- Direct `json_schema` and `json_object` chat requests validate their corresponding capabilities independently. `structuredOutputs` remains the compatibility alias for native JSON Schema only.
 - Chat-log provenance records the selected path at `providerMetadata.ax.structured_output_rung` (`native`, `function`, or `json_object`).
 - Native structured-output schemas list every object property in `required`, set `additionalProperties: false` on objects, and express optional fields as nullable types.
 - Flexible `json` fields and unshaped `object` fields are sent as JSON-encoded strings for native structured outputs, then parsed back into normal JavaScript values.

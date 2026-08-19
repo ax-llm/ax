@@ -878,6 +878,27 @@ pub trait AxTransport: Send {
     fn send(&mut self, request: Value) -> AxResult<Value>;
 }
 
+#[derive(Clone, Debug)]
+pub struct AxCredentialRequest {
+    pub profile: String,
+    pub operation: String,
+    pub method: String,
+    pub url: String,
+}
+
+pub trait AxCredentialProvider: Send + Sync {
+    fn credentials(&self, request: &AxCredentialRequest) -> AxResult<BTreeMap<String, String>>;
+}
+
+impl<F> AxCredentialProvider for F
+where
+    F: Fn(&AxCredentialRequest) -> AxResult<BTreeMap<String, String>> + Send + Sync,
+{
+    fn credentials(&self, request: &AxCredentialRequest) -> AxResult<BTreeMap<String, String>> {
+        self(request)
+    }
+}
+
 // Hosts can provide a tenant-aware registry; keys remain the stable
 // provider:model:contentHash tuple used by the in-process registry.
 pub trait AxContextCacheRegistry: Send {
@@ -921,6 +942,7 @@ pub struct OpenAICompatibleClient {
     pub model_config: Value,
     pub options: Value,
     pub transport: Option<Box<dyn AxTransport>>,
+    pub credential_provider: Option<Box<dyn AxCredentialProvider>>,
     pub context_cache_registry: Option<Box<dyn AxContextCacheRegistry>>,
     context_cache_entries: BTreeMap<String, Value>,
 }
@@ -938,6 +960,7 @@ impl OpenAICompatibleClient {
             model_config: json!({}),
             options: json!({}),
             transport: None,
+            credential_provider: None,
             context_cache_registry: None,
             context_cache_entries: BTreeMap::new(),
         }
@@ -945,6 +968,11 @@ impl OpenAICompatibleClient {
 
     pub fn with_transport(mut self, transport: impl AxTransport + 'static) -> Self {
         self.transport = Some(Box::new(transport));
+        self
+    }
+
+    pub fn with_credential_provider(mut self, provider: impl AxCredentialProvider + 'static) -> Self {
+        self.credential_provider = Some(Box::new(provider));
         self
     }
 
@@ -1081,6 +1109,22 @@ impl OpenAICompatibleClient {
             "json"
         };
         let method = operation_descriptor.get("method").and_then(Value::as_str).unwrap_or("POST").to_ascii_uppercase();
+        if descriptor.get("authRequired").and_then(Value::as_bool).unwrap_or(false)
+            && self.api_key.is_empty()
+            && self.credential_provider.is_none()
+        {
+            return Err(AxError::new("authentication", format!("{} requires api_key or credential_provider", self.profile)));
+        }
+        if let Some(provider) = self.credential_provider.as_ref() {
+            for (key, value) in provider.credentials(&AxCredentialRequest {
+                profile: self.profile.clone(),
+                operation: operation.to_string(),
+                method: method.clone(),
+                url: url.clone(),
+            })? {
+                headers.insert(key, json!(value));
+            }
+        }
         let mut out = json!({"method": method, "url": url, "headers": Value::Object(headers), "stream": stream});
         out[body_key] = payload.clone();
         Ok(out)
@@ -1324,21 +1368,31 @@ impl OpenAICompatibleClient {
         }
     }
 
-    fn post_json(&mut self, path: &str, body: Value, binary: bool) -> AxResult<Value> {
+    fn post_json(&mut self, path: &str, body: Value, binary: bool, operation: &str) -> AxResult<Value> {
         let url = self.endpoint_url(path);
+        let mut headers = serde_json::Map::new();
+        if !self.api_key.is_empty() { headers.insert("Authorization".to_string(), json!(format!("Bearer {}", self.api_key))); }
+        if let Some(provider) = self.credential_provider.as_ref() {
+            for (key, value) in provider.credentials(&AxCredentialRequest { profile: self.profile.clone(), operation: operation.to_string(), method: "POST".to_string(), url: url.clone() })? {
+                headers.insert(key, json!(value));
+            }
+        }
         if let Some(transport) = self.transport.as_mut() {
             return transport.send(json!({
                 "method": "POST",
                 "url": url,
-                "headers": {"authorization": "Bearer test-key"},
+                "headers": Value::Object(headers),
                 "json": body
             }));
         }
-        let raw = HttpClient::builder()
+        let client = HttpClient::builder()
             .timeout(Duration::from_secs(60))
-            .build()?
-            .post(url)
-            .bearer_auth(&self.api_key)
+            .build()?;
+        let mut request_builder = client.post(url);
+        for (key, value) in &headers {
+            request_builder = request_builder.header(key, value.as_str().unwrap_or_default());
+        }
+        let raw = request_builder
             .json(&body)
             .send()?
             .error_for_status()?;
@@ -1353,24 +1407,34 @@ impl OpenAICompatibleClient {
         Ok(json!({"status": 200, "json": response}))
     }
 
-    fn post_data(&mut self, path: &str, data: Value) -> AxResult<Value> {
+    fn post_data(&mut self, path: &str, data: Value, operation: &str) -> AxResult<Value> {
         let url = self.endpoint_url(path);
+        let mut headers = serde_json::Map::new();
+        if !self.api_key.is_empty() { headers.insert("Authorization".to_string(), json!(format!("Bearer {}", self.api_key))); }
+        if let Some(provider) = self.credential_provider.as_ref() {
+            for (key, value) in provider.credentials(&AxCredentialRequest { profile: self.profile.clone(), operation: operation.to_string(), method: "POST".to_string(), url: url.clone() })? {
+                headers.insert(key, json!(value));
+            }
+        }
         if let Some(transport) = self.transport.as_mut() {
             return transport.send(json!({
                 "method": "POST",
                 "url": url,
-                "headers": {"authorization": "Bearer test-key"},
+                "headers": Value::Object(headers),
                 "data": data
             }));
         }
         // `data` operations (e.g. OpenAI /audio/transcriptions) are multipart/form-data,
         // not JSON. Encode the payload as a binary multipart body and override Content-Type.
         let (body, content_type) = encode_multipart(&data);
-        let response: Value = HttpClient::builder()
+        let client = HttpClient::builder()
             .timeout(Duration::from_secs(60))
-            .build()?
-            .post(url)
-            .bearer_auth(&self.api_key)
+            .build()?;
+        let mut request_builder = client.post(url);
+        for (key, value) in &headers {
+            request_builder = request_builder.header(key, value.as_str().unwrap_or_default());
+        }
+        let response: Value = request_builder
             .header("Content-Type", content_type)
             .body(body)
             .send()?
@@ -1484,10 +1548,10 @@ impl OpenAICompatibleClient {
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
                     self.api_key
                 );
-                self.post_json(&path, body, false)?
+                self.post_json(&path, body, false, "transcribe")?
             }
-            "grok" => self.post_data("/stt", body)?,
-            _ => self.post_data("/audio/transcriptions", body)?,
+            "grok" => self.post_data("/stt", body, "transcribe")?,
+            _ => self.post_data("/audio/transcriptions", body, "transcribe")?,
         };
         let payload = normalize_passthrough_response(raw)?;
         let normalized = provider_normalize_transcribe_response(&[
@@ -1520,11 +1584,11 @@ impl OpenAICompatibleClient {
                     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
                     self.api_key
                 );
-                self.post_json(&path, body, binary)?
+                self.post_json(&path, body, binary, "speak")?
             }
-            "grok" => self.post_json("/tts", body, binary)?,
-            "mistral" => self.post_json("/audio/speech", body, binary)?,
-            _ => self.post_json("/audio/speech", body, binary)?,
+            "grok" => self.post_json("/tts", body, binary, "speak")?,
+            "mistral" => self.post_json("/audio/speech", body, binary, "speak")?,
+            _ => self.post_json("/audio/speech", body, binary, "speak")?,
         };
         let payload = normalize_passthrough_response(raw)?;
         let normalized = provider_normalize_speak_response(&[
@@ -1865,6 +1929,15 @@ impl WsRealtimeTransport {
 impl AxAIClient for OpenAICompatibleClient {
     fn get_id(&self) -> String { format!("{}:{}", self.profile, self.model) }
     fn get_name(&self) -> String { self.profile.clone() }
+    fn get_features(&self, model: Option<&str>) -> Value {
+        provider_resolve_features(&[
+            CoreValue::from(self.profile.as_str()),
+            CoreValue::from(model.unwrap_or(self.model.as_str())),
+            core_value_from_json(&self.options),
+        ])
+        .map(|value| core_value_to_json(&value))
+        .unwrap_or_else(|_| router_default_features())
+    }
     fn get_model_list(&self) -> Value {
         self.options.get("modelList").or_else(|| self.options.get("model_list")).cloned().unwrap_or_else(|| json!([{"key": self.model, "model": self.model}]))
     }
@@ -1951,7 +2024,6 @@ impl AxAIClient for OpenAICompatibleClient {
             core_value_from_json(&self.options),
         ])?);
         let model = req.get("model").and_then(Value::as_str).unwrap_or(self.model.as_str()).to_string();
-        let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
         let cfg = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(&self.options)])?);
         let max_retries = cfg.get("max_retries").and_then(Value::as_i64).unwrap_or(3);
         let initial_delay = cfg.get("initial_delay_ms").and_then(Value::as_f64).unwrap_or(1000.0);
@@ -1959,6 +2031,7 @@ impl AxAIClient for OpenAICompatibleClient {
         let backoff = cfg.get("backoff_factor").and_then(Value::as_f64).unwrap_or(2.0);
         let mut attempt: i64 = 0;
         loop {
+            let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
             let response = self.dispatch_transport_request(call.clone())?;
             let events = extract_stream_events(response)?;
             // Pre-content streaming retry: peek the first raw SSE event before any stateful
@@ -5946,6 +6019,14 @@ impl AxBalancer {
         self
     }
 
+    pub fn get_features(&self, model: Option<&str>) -> Value {
+        merge_balancer_feature_values(
+            self.services
+                .iter()
+                .map(|service| service.get_features(model)),
+        )
+    }
+
     fn current_service(&mut self) -> AxResult<&mut Box<dyn AxAIClient>> {
         if self.services.is_empty() {
             return Err(AxError::validation("AxBalancer requires at least one service"));
@@ -6017,6 +6098,19 @@ impl MultiServiceRouter {
     pub fn with_service(mut self, key: impl Into<String>, service: OpenAICompatibleClient) -> Self {
         self.services.insert(key.into(), service);
         self
+    }
+
+    pub fn get_features(&self, model: Option<&str>) -> Value {
+        if let Some(model) = model {
+            if let Some(service) = self.services.get(model) {
+                return service.get_features(Some(model));
+            }
+        }
+        self.services
+            .values()
+            .next()
+            .map(|service| service.get_features(model))
+            .unwrap_or_else(router_default_features)
     }
 
     fn service_key(&self, request: &Value) -> AxResult<String> {
@@ -6517,11 +6611,13 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
         "ai_embed" => run_ai_embed_fixture(&fixture)?,
         "ai_usage_observer" => run_ai_usage_observer_fixture(&fixture)?,
+        "ai_credential_wrapper" => run_ai_credential_wrapper_fixture(&fixture)?,
         "ai_transcribe" => run_ai_transcribe_fixture(&fixture)?,
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
         "ai_realtime" => run_ai_realtime_fixture(&fixture)?,
         "ai_context_cache" => run_ai_context_cache_fixture(&fixture)?,
         "ai_provider_descriptor"
+        | "ai_provider_features"
         | "ai_provider_registry"
         | "ai_model_catalog_audit"
         | "ai_model_catalog_runtime"
@@ -6931,7 +7027,7 @@ fn run_stream_fixture(fixture: &Value) -> AxResult<()> {
 
 fn run_ai_support_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
     match kind {
-        "ai_provider_descriptor" | "ai_provider_registry" | "ai_model_catalog_audit" | "ai_model_catalog_runtime" => {
+        "ai_provider_descriptor" | "ai_provider_features" | "ai_provider_registry" | "ai_model_catalog_audit" | "ai_model_catalog_runtime" => {
             let actual = conformance_ai_registry_result(kind, fixture)?;
             if let Some(expected) = fixture.get("expected_output") {
                 expect_json_subset("AI registry fixture", &actual, expected)?;
@@ -6965,7 +7061,7 @@ fn run_ai_support_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
 // python: _run_ai_error / _run_ai_unsupported. Dispatches the real client
 // method and matches message, error type, and status on the failure.
 fn run_ai_error_fixture(kind: &str, fixture: &Value) -> AxResult<()> {
-    let (mut client, _requests) = fixture_client(fixture)?;
+    let (mut client, _requests, _credential_requests) = fixture_client(fixture)?;
     let default_method = if kind == "ai_unsupported" { "transcribe" } else { "chat" };
     let method = fixture
         .get("method")
@@ -7331,6 +7427,15 @@ fn conformance_ai_registry_result(kind: &str, fixture: &Value) -> AxResult<Value
             } else {
                 Ok(core_value_to_json(&provider_descriptor(&[CoreValue::from(provider)])?))
             }
+        }
+        "ai_provider_features" => {
+            let provider = fixture.get("provider").and_then(Value::as_str).unwrap_or("openai-compatible");
+            let model = fixture.get("model").and_then(Value::as_str).unwrap_or("");
+            let options = fixture.get("service_options").or_else(|| fixture.get("options")).cloned().unwrap_or_else(|| json!({}));
+            let client = OpenAICompatibleClient::new("test-key", model)
+                .with_profile(provider)
+                .with_options(options);
+            Ok(client.get_features(Some(model)))
         }
         "ai_provider_registry" => Ok(core_value_to_json(&provider_profile_registry(&[])?)),
         "ai_model_catalog_audit" => Ok(core_value_to_json(&provider_model_catalog_summary(&[])?)),
@@ -8071,10 +8176,20 @@ fn append_unique(target: &mut Vec<Value>, values: &Value) {
     }
 }
 
-fn merged_balancer_features(services: &[RouterFixtureService]) -> Value {
+fn merge_balancer_feature_values(features: impl IntoIterator<Item = Value>) -> Value {
+    let feature_values = features.into_iter().collect::<Vec<_>>();
     let mut out = balancer_base_features();
-    for service in services {
-        let raw = &service.features;
+    let mut structured_output_modes = Vec::new();
+    let mut all_modes_advertised = !feature_values.is_empty();
+    for raw in &feature_values {
+        let raw_modes = raw
+            .get("structuredOutputModes")
+            .or_else(|| raw.get("structured_output_modes"));
+        if let Some(raw_modes) = raw_modes {
+            append_unique(&mut structured_output_modes, raw_modes);
+        } else {
+            all_modes_advertised = false;
+        }
         for (key, aliases) in [
             ("functions", vec![]),
             ("streaming", vec![]),
@@ -8147,7 +8262,14 @@ fn merged_balancer_features(services: &[RouterFixtureService]) -> Value {
         append_unique(&mut cache_types, caching.get("types").unwrap_or(&Value::Null));
         out["caching"]["types"] = Value::Array(cache_types);
     }
+    if all_modes_advertised {
+        out["structured_output_modes"] = Value::Array(structured_output_modes);
+    }
     out
+}
+
+fn merged_balancer_features(services: &[RouterFixtureService]) -> Value {
+    merge_balancer_feature_values(services.iter().map(|service| service.features.clone()))
 }
 
 fn balancer_metrics(services: &[RouterFixtureService]) -> Value {
@@ -12220,11 +12342,13 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
 }
 
 fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
-    let (mut client, requests) = fixture_client(fixture)?;
+    let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     let output_result = client.chat(request);
     if fixture.get("expected_error_contains").is_some() {
-        return expect_validation_result(output_result.map(|_| ()), fixture);
+        let result = expect_validation_result(output_result.map(|_| ()), fixture);
+        expect_transport_request_subset(fixture, &requests, &credential_requests)?;
+        return result;
     }
     let output = output_result?;
     if let Some(expected) = fixture.get("expected_output") {
@@ -12239,34 +12363,41 @@ fn run_ai_chat_fixture(fixture: &Value) -> AxResult<()> {
             return Err(AxError::runtime("estimated cost mismatch"));
         }
     }
-    expect_transport_request_subset(fixture, &requests)?;
+    expect_transport_request_subset(fixture, &requests, &credential_requests)?;
     Ok(())
 }
 
+fn run_ai_credential_wrapper_fixture(fixture: &Value) -> AxResult<()> {
+    let (client, requests, credential_requests) = fixture_client(fixture)?;
+    let mut router = MultiServiceRouter::from_services(vec![("wrapped", client)]);
+    router.chat(fixture.get("request").cloned().unwrap_or_else(|| json!({})))?;
+    expect_transport_request_subset(fixture, &requests, &credential_requests)
+}
+
 fn run_ai_stream_fixture(fixture: &Value) -> AxResult<()> {
-    let (mut client, requests) = fixture_client(fixture)?;
+    let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     let output = Value::Array(client.stream(request)?);
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("ai stream output", &output, expected)?;
     }
-    expect_transport_request_subset(fixture, &requests)?;
+    expect_transport_request_subset(fixture, &requests, &credential_requests)?;
     Ok(())
 }
 
 fn run_ai_embed_fixture(fixture: &Value) -> AxResult<()> {
-    let (mut client, requests) = fixture_client(fixture)?;
+    let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     let output = client.embed(request)?;
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("ai embed output", &output, expected)?;
     }
-    expect_transport_request_subset(fixture, &requests)?;
+    expect_transport_request_subset(fixture, &requests, &credential_requests)?;
     Ok(())
 }
 
 fn run_ai_usage_observer_fixture(fixture: &Value) -> AxResult<()> {
-    let (mut client, _requests) = fixture_client(fixture)?;
+    let (mut client, _requests, _credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     let options = fixture
         .get("call_options")
@@ -12323,24 +12454,24 @@ fn run_ai_usage_observer_fixture(fixture: &Value) -> AxResult<()> {
 }
 
 fn run_ai_transcribe_fixture(fixture: &Value) -> AxResult<()> {
-    let (mut client, requests) = fixture_client(fixture)?;
+    let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     let output = client.transcribe(request)?;
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("ai transcribe output", &output, expected)?;
     }
-    expect_transport_request_subset(fixture, &requests)?;
+    expect_transport_request_subset(fixture, &requests, &credential_requests)?;
     Ok(())
 }
 
 fn run_ai_speak_fixture(fixture: &Value) -> AxResult<()> {
-    let (mut client, requests) = fixture_client(fixture)?;
+    let (mut client, requests, credential_requests) = fixture_client(fixture)?;
     let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
     let output = client.speak(request)?;
     if let Some(expected) = fixture.get("expected_output") {
         expect_json_equal("ai speak output", &output, expected)?;
     }
-    expect_transport_request_subset(fixture, &requests)?;
+    expect_transport_request_subset(fixture, &requests, &credential_requests)?;
     Ok(())
 }
 
@@ -12392,7 +12523,7 @@ fn run_ai_realtime_fixture_inner(client: &OpenAICompatibleClient, fixture: &Valu
     Ok(())
 }
 
-fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mutex<Vec<Value>>>)> {
+fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mutex<Vec<Value>>>, Arc<Mutex<Vec<Value>>>)> {
     let provider = fixture.get("provider").and_then(Value::as_str).unwrap_or("openai");
     let responses = fixture
         .get("transport_responses")
@@ -12400,6 +12531,7 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
         .cloned()
         .unwrap_or_default();
     let requests = Arc::new(Mutex::new(Vec::new()));
+    let credential_requests = Arc::new(Mutex::new(Vec::new()));
     let transport = RecordingTransport::new(responses, Arc::clone(&requests));
     let mut options = fixture
         .get("service_options")
@@ -12431,8 +12563,40 @@ fn fixture_client(fixture: &Value) -> AxResult<(OpenAICompatibleClient, Arc<Mute
             options[key] = value.clone();
         }
     }
-    let client = ai(provider, options)?.with_transport(transport);
-    Ok((client, requests))
+    if fixture.get("credential_provider_fixture").is_some() {
+        options["api_key"] = json!("");
+    }
+    let mut client = ai(provider, options)?.with_transport(transport);
+    if let Some(credential_fixture) = fixture.get("credential_provider_fixture") {
+        let header_sets = credential_fixture.get("headers").and_then(Value::as_array).cloned().unwrap_or_default();
+        let error = credential_fixture.get("error").and_then(Value::as_str).map(ToString::to_string);
+        let calls = Arc::new(Mutex::new(0usize));
+        let captured_requests = Arc::clone(&credential_requests);
+        client = client.with_credential_provider(move |request: &AxCredentialRequest| {
+            captured_requests.lock().unwrap().push(json!({
+                "profile": request.profile.clone(),
+                "operation": request.operation.clone(),
+                "method": request.method.clone(),
+                "url": request.url.clone(),
+            }));
+            if let Some(message) = error.as_ref() {
+                return Err(AxError::new("authentication", message.clone()));
+            }
+            let mut headers = BTreeMap::new();
+            if !header_sets.is_empty() {
+                let mut call_count = calls.lock().unwrap();
+                let index = (*call_count).min(header_sets.len() - 1);
+                *call_count += 1;
+                if let Some(values) = header_sets[index].as_object() {
+                    for (key, value) in values {
+                        headers.insert(key.clone(), value.as_str().unwrap_or_default().to_string());
+                    }
+                }
+            }
+            Ok(headers)
+        });
+    }
+    Ok((client, requests, credential_requests))
 }
 
 fn json_path_exists(value: &Value, path: &str) -> bool {
@@ -12449,13 +12613,24 @@ fn json_path_exists(value: &Value, path: &str) -> bool {
 fn expect_transport_request_subset(
     fixture: &Value,
     requests: &Arc<Mutex<Vec<Value>>>,
+    credential_requests: &Arc<Mutex<Vec<Value>>>,
 ) -> AxResult<()> {
+    let requests = requests.lock().unwrap();
+    if let Some(expected) = fixture.get("expected_transport_request_count").and_then(Value::as_u64) {
+        if requests.len() != expected as usize { return Err(AxError::new("fixture", "provider transport request count mismatch")); }
+    }
+    if let Some(expected) = fixture.get("expected_credential_requests") {
+        expect_json_equal("credential requests", &Value::Array(credential_requests.lock().unwrap().clone()), expected)?;
+    }
+    for (index, expected) in fixture.get("expected_transport_requests").and_then(Value::as_array).into_iter().flatten().enumerate() {
+        let actual = requests.get(index).ok_or_else(|| AxError::new("fixture", "missing provider transport request"))?;
+        expect_json_subset(&format!("transport request {index}"), actual, expected)?;
+    }
     let expected = fixture.get("expected_transport_request");
     let expected_absent = fixture.get("expected_transport_json_absent");
     if expected.is_none() && expected_absent.is_none() {
         return Ok(());
     }
-    let requests = requests.lock().unwrap();
     let actual = requests
         .first()
         .ok_or_else(|| AxError::new("fixture", "fixture expected a transport request"))?;

@@ -1,0 +1,28 @@
+{
+  "name": "structured-output-advertised-json-object",
+  "kind": "forward",
+  "signature": "question:string -> answer:string, confidence:number",
+  "input": { "question": "What is Ax?" },
+  "features": {
+    "structured_outputs": false,
+    "structured_output_modes": ["json_object", "function"],
+    "functions": true
+  },
+  "responses": [
+    { "content": "{\"answer\":\"A framework\",\"confidence\":0.9}" }
+  ],
+  "expected_output": { "answer": "A framework", "confidence": 0.9 },
+  "expected_request": {
+    "response_format": { "type": "json_object" },
+    "functions": [],
+    "provider_metadata": {
+      "ax": { "structured_output_rung": "json_object" }
+    }
+  },
+  "expected_chat_prompt_contains": [
+    "Answer (wire key: `answer`)",
+    "Confidence (wire key: `confidence`)",
+    "no prose or Markdown fences"
+  ],
+  "expected_request_count": 1
+}

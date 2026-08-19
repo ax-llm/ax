@@ -81,17 +81,37 @@ Call supported providers through the shared provider descriptor registry, script
 
 ### `ai`
 
-Create a provider client from a provider name and options.
+Create a provider client from a named deployment profile and options.
 
 - Canonical Ax concept: `ai`
 - Kind: `function`
 - Form: `ai(provider='openai', **options)`
 - Returns: `AI client/service`
-- Important options: api key, model, api URL, headers, transport
+- Important options: api key or credential provider, model, api URL, headers, transport
 
 ```python
 client = ai("openai", api_key=os.environ["OPENAI_API_KEY"])
 ```
+
+### `dict[str, str]`
+
+Request metadata passed to a renewable credential callback for every transport attempt.
+
+- Canonical Ax concept: `AxCredentialRequest`
+- Kind: `type`
+- Form: `dict[str, str]`
+- Returns: `credential request`
+- Important options: profile, operation, method, URL
+
+### `Callable[[dict[str, str]], dict[str, str]]`
+
+Return fresh request headers that override static profile authentication.
+
+- Canonical Ax concept: `AxCredentialProvider`
+- Kind: `interface`
+- Form: `Callable[[dict[str, str]], dict[str, str]]`
+- Returns: `header map or credential error`
+- Important options: chat, stream, embeddings, Responses, audio, retries
 
 ### `OpenAICompatibleClient`
 

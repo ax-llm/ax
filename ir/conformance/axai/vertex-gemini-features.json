@@ -1,0 +1,11 @@
+{
+  "name": "vertex-gemini-features",
+  "kind": "ai_provider_features",
+  "provider": "vertex-ai",
+  "base_url": "https://vertex.test/v1",
+  "model": "google/gemini-3.5-flash",
+  "expected_output": {
+    "structured_outputs": true,
+    "structured_output_modes": ["native", "function", "json_object"]
+  }
+}

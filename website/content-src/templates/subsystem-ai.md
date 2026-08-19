@@ -51,14 +51,36 @@ result = program.forward(client, inputs)
 - Use model catalog helpers before runtime when the UI needs provider/model selectors.
 - Use routers or balancers when provider fallback is part of the product.
 
-Provider capability metadata also selects structured-output enforcement. Native schema support uses `json_schema`; unsupported providers degrade by output shape to validated `json_object` or the `__axOutput` function path. The selected rung is recorded with the chat log so runs remain comparable and debuggable.
+Provider/model capability metadata exposes an ordered `native`, `function`, and
+`json_object` list. `auto` follows that order, while the singleton string/code
+optimization can choose validated `json_object` when native schema is absent.
+An explicit unsupported mode fails before transport. `structuredOutputs`
+remains the compatibility alias for native JSON Schema support, not for every
+JSON response format. The selected rung is recorded with the chat log so runs
+remain comparable and debuggable.
+
+### Renewable credentials
+
+Use the language's `credentialProvider` / `credential_provider` callback for
+expiring deployment tokens. It receives the profile, operation, method, and URL
+for every request attempt. Returned headers override static authentication;
+callback failures stop before transport. Ax refreshes on retries but does not
+automatically replay a completed 401 or 403. Keep ADC or cloud-SDK token sources
+in the host application rather than Ax core.
 
 ### Vertex routing and OpenAI prompt caching
 
 Gemini and Anthropic Vertex clients accept a project, location, and optional
 endpoint. Ax resolves global, US/EU multi-region, and regional hosts; an
-explicit base URL takes precedence. Generated packages take a caller-supplied
-bearer access token and leave ADC refresh to the host application.
+explicit base URL takes precedence. Generated packages accept a renewable
+credential callback, leaving ADC acquisition and refresh to the host
+application.
+
+The OpenAI-compatible `vertex-ai` profile keeps unknown models conservative.
+Documented Gemini MaaS IDs prefer native schema. The exact
+`google/gemma-4-26b-a4b-it-maas` rule prefers JSON-object output, excludes native
+schema, defaults thinking to `max`, writes nested `enable_thinking`, and
+extracts/replays `reasoning_content`.
 
 GPT-5.6 OpenAI Chat requests can opt into stable explicit prompt-cache
 breakpoints. Give AxGen a stable `promptCacheKey` plus `contextCache`; those

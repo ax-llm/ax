@@ -1,9 +1,9 @@
 // ax-example:start
-// title: Go Vertex Gemini Routing
+// title: Go Vertex MaaS Renewable Credentials
 // group: generation
-// description: Calls Gemini through Vertex with project and multi-region routing.
-// provider: google-gemini
-// env: GOOGLE_VERTEX_ACCESS_TOKEN, GOOGLE_PROJECT_ID, GOOGLE_REGION
+// description: Calls a Vertex MaaS OpenAI-compatible endpoint with a fresh bearer token per request.
+// provider: vertex-ai
+// env: VERTEX_AI_API_URL, GOOGLE_VERTEX_ACCESS_TOKEN
 // level: intermediate
 // order: 35
 // ax-example:end
@@ -25,19 +25,33 @@ func required(name string) string {
 	return value
 }
 
+func vertexCredentialProvider() ax.AxCredentialProvider {
+	return ax.AxCredentialProviderFunc(
+		func(_ context.Context, _ ax.AxCredentialRequest) (map[string]string, error) {
+			// Replace this environment lookup with the host application's ADC token
+			// source. Ax calls the hook again for every request attempt and retry.
+			token := os.Getenv("GOOGLE_VERTEX_ACCESS_TOKEN")
+			if token == "" {
+				return nil, fmt.Errorf("set GOOGLE_VERTEX_ACCESS_TOKEN to run this example")
+			}
+			return map[string]string{"Authorization": "Bearer " + token}, nil
+		},
+	)
+}
+
 func main() {
 	model := os.Getenv("AX_VERTEX_MODEL")
 	if model == "" {
-		model = "gemini-3.5-flash"
+		model = "google/gemma-4-26b-a4b-it-maas"
 	}
-	client := ax.NewGoogleGeminiClient(map[string]ax.Value{
-		"api_key":    required("GOOGLE_VERTEX_ACCESS_TOKEN"),
-		"project_id": required("GOOGLE_PROJECT_ID"),
-		"region":     required("GOOGLE_REGION"),
-		"model":      model,
+	client := ax.NewAI("vertex-ai", map[string]ax.Value{
+		"api_url":             required("VERTEX_AI_API_URL"),
+		"model":               model,
+		"credential_provider": vertexCredentialProvider(),
 	})
 	out, err := client.Chat(context.Background(), map[string]ax.Value{
-		"chat_prompt": ax.Array(ax.Object("role", "user", "content", "Reply with the word ready.")),
+		"chat_prompt":     ax.Array(ax.Object("role", "user", "content", "Reply with the word ready.")),
+		"response_format": ax.Object("type", "json_object"),
 	}, nil)
 	if err != nil {
 		panic(err)

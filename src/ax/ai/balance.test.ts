@@ -12,6 +12,10 @@ import type { AxAIService } from './types.js';
 const createMockService = ({
   name = 'test-service',
   latencyMs = 100,
+  features = {
+    functions: true,
+    streaming: true,
+  },
   chatResponse = async () => ({
     results: [
       {
@@ -33,6 +37,7 @@ const createMockService = ({
 }: {
   name?: string;
   latencyMs?: number;
+  features?: AxMockAIServiceConfig<string>['features'];
   chatResponse?: AxMockAIServiceConfig['chatResponse'];
 } = {}) => {
   return new AxMockAIService({
@@ -43,10 +48,7 @@ const createMockService = ({
       promptTokenCostPer1M: 200,
       completionTokenCostPer1M: 150,
     },
-    features: {
-      functions: true,
-      streaming: true,
-    },
+    features,
     chatResponse,
     latencyMs,
   });
@@ -119,6 +121,43 @@ describe('AxBalancer Interface Compatibility', () => {
 });
 
 describe('AxBalancer', () => {
+  test('preserves advertised structured output mode order', () => {
+    const balancer = new AxBalancer([
+      createMockService({
+        features: {
+          functions: true,
+          structuredOutputModes: ['native', 'function'],
+        },
+      }),
+      createMockService({
+        features: {
+          functions: true,
+          structuredOutputModes: ['json_object', 'function'],
+        },
+      }),
+    ]);
+
+    expect(balancer.getFeatures('fixture-model').structuredOutputModes).toEqual(
+      ['native', 'function', 'json_object']
+    );
+  });
+
+  test('preserves legacy selection when any service omits output modes', () => {
+    const balancer = new AxBalancer([
+      createMockService({
+        features: {
+          functions: true,
+          structuredOutputModes: ['native', 'function'],
+        },
+      }),
+      createMockService({ features: { functions: true } }),
+    ]);
+
+    expect(
+      balancer.getFeatures('fixture-model').structuredOutputModes
+    ).toBeUndefined();
+  });
+
   test('first service works', async () => {
     let calledService: number | undefined;
     const services: AxAIService[] = [

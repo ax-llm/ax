@@ -495,6 +495,71 @@ describe('Structured Output Function-Call Fallback (__axOutput)', () => {
     expect(capturedReq.functions ?? []).toHaveLength(0);
   });
 
+  it('uses the advertised profile ordering for rich structured output', async () => {
+    const gen = ax(createSig());
+    const mockAI = new AxMockAIService({
+      name: 'vertex-gemma',
+      features: {
+        functions: true,
+        streaming: false,
+        structuredOutputs: false,
+        structuredOutputModes: ['json_object', 'function'],
+      },
+    });
+    let capturedReq: any;
+    mockAI.chat = async (req) => {
+      capturedReq = req;
+      return {
+        results: [
+          {
+            index: 0,
+            content: JSON.stringify({ user: { name: 'Gemma', age: 4 } }),
+          },
+        ],
+      };
+    };
+
+    await gen.forward(mockAI, { question: 'Who?' });
+
+    expect(capturedReq.responseFormat).toEqual({ type: 'json_object' });
+    expect(capturedReq.functions ?? []).toHaveLength(0);
+  });
+
+  it('prefers advertised native output before the singleton json_object optimization', async () => {
+    const gen = ax(
+      f()
+        .input('task', f.string())
+        .output('javascriptCode', f.code())
+        .useStructured()
+        .build()
+    );
+    const mockAI = new AxMockAIService({
+      name: 'native-first',
+      features: {
+        functions: true,
+        streaming: false,
+        structuredOutputs: true,
+        structuredOutputModes: ['native', 'function', 'json_object'],
+      },
+    });
+    let capturedReq: any;
+    mockAI.chat = async (req) => {
+      capturedReq = req;
+      return {
+        results: [
+          {
+            index: 0,
+            content: JSON.stringify({ javascriptCode: 'final(42);' }),
+          },
+        ],
+      };
+    };
+
+    await gen.forward(mockAI, { task: 'write code' });
+
+    expect(capturedReq.responseFormat?.type).toBe('json_schema');
+  });
+
   it('fails explicit capability modes before sending a request', async () => {
     const gen = ax(createSig());
     const mockAI = new AxMockAIService({
@@ -525,6 +590,23 @@ describe('Structured Output Function-Call Fallback (__axOutput)', () => {
         { structuredOutputMode: 'function' }
       )
     ).rejects.toThrow(/requires function calling support/);
+    const advertisedMock = new AxMockAIService({
+      name: 'function-only',
+      features: {
+        functions: true,
+        streaming: false,
+        structuredOutputs: false,
+        structuredOutputModes: ['function'],
+      },
+    });
+    advertisedMock.chat = mockAI.chat;
+    await expect(
+      gen.forward(
+        advertisedMock,
+        { question: 'test' },
+        { structuredOutputMode: 'json_object' }
+      )
+    ).rejects.toThrow(/requires JSON object response-format support/);
     expect(calls).toBe(0);
   });
 

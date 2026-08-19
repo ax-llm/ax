@@ -107,10 +107,10 @@
           "canonical_name": "ai",
           "public_name": "axllm::ai",
           "kind": "function",
-          "description": "Create a provider client from a provider name and options.",
+          "description": "Create a provider client from a named deployment profile and options.",
           "form": "axllm::ai(provider, options)",
           "important_options": [
-            "api key",
+            "api key or credential provider",
             "model",
             "api URL",
             "headers",
@@ -118,6 +118,38 @@
           ],
           "returns": "AI client/service",
           "example": "auto client = axllm::ai(\"openai\", axllm::object({{\"apiKey\", std::getenv(\"OPENAI_API_KEY\")}}));"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxCredentialRequest",
+          "public_name": "axllm::AxCredentialRequest",
+          "kind": "type",
+          "description": "Request metadata passed to a renewable credential callback for every transport attempt.",
+          "form": "axllm::AxCredentialRequest",
+          "important_options": [
+            "profile",
+            "operation",
+            "method",
+            "URL"
+          ],
+          "returns": "credential request"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxCredentialProvider",
+          "public_name": "axllm::AxCredentialProvider",
+          "kind": "interface",
+          "description": "Return fresh request headers that override static profile authentication.",
+          "form": "axllm::AxCredentialProvider",
+          "important_options": [
+            "chat",
+            "stream",
+            "embeddings",
+            "Responses",
+            "audio",
+            "retries"
+          ],
+          "returns": "header map or credential error"
         },
         {
           "target_name": "cpp",

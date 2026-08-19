@@ -29,6 +29,7 @@ export type AxMockAIServiceConfig<TModelKey> = {
     functions?: boolean;
     streaming?: boolean;
     structuredOutputs?: boolean;
+    structuredOutputModes?: AxAIFeatures['structuredOutputModes'];
     media?: Partial<AxAIFeatures['media']>;
   };
   models?: AxAIModelList<TModelKey>;
@@ -113,6 +114,11 @@ export class AxMockAIService<TModelKey>
       // unknown/custom clients. Tests that need a provider without native
       // structured outputs must advertise `structuredOutputs: false`.
       structuredOutputs: this.config.features?.structuredOutputs,
+      ...(this.config.features?.structuredOutputModes
+        ? {
+            structuredOutputModes: this.config.features.structuredOutputModes,
+          }
+        : {}),
       media: {
         images: {
           supported: media?.images?.supported ?? false,

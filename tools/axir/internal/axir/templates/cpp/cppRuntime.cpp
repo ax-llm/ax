@@ -2502,10 +2502,10 @@ static std::string url_component(std::string value) {
   return out.str();
 }
 
-OpenAICompatibleClient::OpenAICompatibleClient(Value options, Transport* transport)
-    : OpenAICompatibleClient("openai-compatible", "openai", std::move(options), transport, "gpt-4.1-mini", "text-embedding-3-small") {}
+OpenAICompatibleClient::OpenAICompatibleClient(Value options, Transport* transport, AxCredentialProvider credential_provider)
+    : OpenAICompatibleClient("openai-compatible", "openai", std::move(options), transport, "gpt-4.1-mini", "text-embedding-3-small", std::move(credential_provider)) {}
 
-OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model)
+OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model, AxCredentialProvider credential_provider)
     : AxBaseAI(
           std::move(name),
           option_string(options, "model", "model", default_model),
@@ -2518,6 +2518,7 @@ OpenAICompatibleClient::OpenAICompatibleClient(std::string profile, std::string 
       api_key_(option_string(options, "api_key", "apiKey", env_or_default("OPENAI_API_KEY", ""))),
       api_version_(str(Core::get(descriptor_, "apiVersion", option_string(options, "api_version", "apiVersion", "")))),
       timeout_seconds_(Core::get(options, "timeout", 60).is_number() ? num(Core::get(options, "timeout", 60)) : 60.0),
+      credential_provider_(std::move(credential_provider)),
       transport_(transport) {
   if (transport_ == nullptr) {
     owned_transport_ = std::make_unique<HttpTransport>();
@@ -2537,6 +2538,11 @@ OpenAIResponsesClient::OpenAIResponsesClient(std::string profile, Value options,
 
 double OpenAICompatibleClient::get_estimated_cost(Value model_usage) {
   return num(Core::provider_estimate_cost(std::move(model_usage)));
+}
+
+Value OpenAICompatibleClient::get_features(Value model) {
+  std::string selected = model.is_null() || display(model).empty() ? model_ : display(model);
+  return Core::provider_resolve_features(profile_, selected, options_);
 }
 
 GoogleGeminiClient::GoogleGeminiClient(Value options, Transport* transport)
@@ -2571,6 +2577,11 @@ AnthropicClient::AnthropicClient(std::string profile, Value options, Transport* 
 
 OpenAICompatibleClient& OpenAICompatibleClient::context_cache_registry(AxContextCacheRegistry* registry) {
   context_cache_registry_ = registry;
+  return *this;
+}
+
+OpenAICompatibleClient& OpenAICompatibleClient::credential_provider(AxCredentialProvider provider) {
+  credential_provider_ = std::move(provider);
   return *this;
 }
 
@@ -2987,13 +2998,24 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
   Core::set(call, "method", method.empty() ? "POST" : method);
   bool absolute = endpoint.rfind("http://", 0) == 0 || endpoint.rfind("https://", 0) == 0;
   Core::set(call, "url", absolute ? endpoint : base_url_ + endpoint);
-  Core::set(call, "headers", headers());
+  Value resolved_headers = headers();
+  std::string request_url = str(Core::get(call, "url"));
+  std::string operation = stream ? "stream_chat" : "chat";
+  if (!stream && body_key == "data") operation = binary_response ? "speak" : "transcribe";
+  if (!stream && endpoint.find("embedding") != std::string::npos) operation = "embed";
+  if (!stream && str(Core::get(descriptor_, "transport")) == "openai-responses") operation = "responses";
+  if (credential_provider_) {
+    for (const auto& [key, value] : credential_provider_(AxCredentialRequest{profile_, operation, method, request_url})) {
+      Core::set(resolved_headers, key, value);
+    }
+  }
+  Core::set(call, "headers", resolved_headers);
   Core::set(call, body_key.empty() ? "json" : body_key, payload);
   Core::set(call, "stream", stream);
   // Signals the transport to return the raw body as base64 instead of JSON.
   if (binary_response) Core::set(call, "binary", Value(true));
   Core::set(call, "timeout", timeout_seconds_);
-  if (api_key_.empty() || api_key_ == "null") throw Core::as_error(Core::ai_error_auth("OPENAI_API_KEY is required", Value(), Value(), Value(), call));
+  if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) throw Core::as_error(Core::ai_error_auth("api_key or credential_provider is required", Value(), Value(), Value(), call));
   if (transport_ != nullptr) return transport_result(transport_->call(call), call);
   throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
 }
@@ -5883,8 +5905,13 @@ Value AxBalancer::get_model_list() {
 
 Value AxBalancer::get_features(Value model) {
   Value features = balancer_base_features_cpp();
+  Value structured_output_modes = Value::array();
+  bool all_modes_advertised = !services_.empty();
   for (const auto& service : services_) {
     Value raw = service->get_features(model);
+    Value raw_modes = Core::get(raw, "structuredOutputModes", Core::get(raw, "structured_output_modes", Value()));
+    if (raw_modes.is_null()) all_modes_advertised = false;
+    else append_unique_cpp(structured_output_modes, raw_modes);
     for (const auto& pair : std::vector<std::pair<std::string, std::string>>{{"functions", ""}, {"streaming", ""}, {"thinking", ""}, {"multiTurn", "multi_turn"}, {"structuredOutputs", "structured_outputs"}, {"functionCot", "function_cot"}, {"hasThinkingBudget", "has_thinking_budget"}, {"hasShowThoughts", "has_show_thoughts"}}) {
       if (feature_truthy_cpp(raw, pair.first, pair.second)) Core::set(features, pair.first, true);
     }
@@ -5918,6 +5945,7 @@ Value AxBalancer::get_features(Value model) {
     Core::set(caching, "types", types);
     Core::set(features, "caching", caching);
   }
+  if (all_modes_advertised) Core::set(features, "structured_output_modes", structured_output_modes);
   return features;
 }
 

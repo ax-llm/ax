@@ -295,10 +295,17 @@ async function checkProviderCatalog(repoRoot, generatedRoot, write) {
     'model-catalog-audit'
   );
   if (write) {
-    writeProviderDataJson(repoRoot, 'registry', tsProfileRegistry);
     writeProviderDataJson(repoRoot, 'summary', tsCatalogSummary);
     writeProviderDataJson(repoRoot, 'catalog', tsCatalog);
-    return [];
+    const axirProfileRegistry = readProviderDataJson(repoRoot, 'registry');
+    return compareValues(
+      axirProfileRegistry,
+      tsProfileRegistry,
+      'provider_profile_registry'
+    ).map(
+      (diff) =>
+        `AxIR provider profile registry drift: ${diff}; run npm run profiles:generate first`
+    );
   }
   const axirCatalog = readProviderDataJson(repoRoot, 'catalog');
   const axirProfileRegistry = readProviderDataJson(repoRoot, 'registry');

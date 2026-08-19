@@ -107,10 +107,10 @@
           "canonical_name": "ai",
           "public_name": "Ax.ai",
           "kind": "function",
-          "description": "Create a provider client from a provider name and options.",
+          "description": "Create a provider client from a named deployment profile and options.",
           "form": "Ax.ai(provider, options)",
           "important_options": [
-            "api key",
+            "api key or credential provider",
             "model",
             "api URL",
             "headers",
@@ -118,6 +118,38 @@
           ],
           "returns": "AI client/service",
           "example": "AxAIService client = Ax.ai(\"openai\", Map.of(\"apiKey\", System.getenv(\"OPENAI_API_KEY\")));"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxCredentialRequest",
+          "public_name": "OpenAICompatibleClient.CredentialRequest",
+          "kind": "type",
+          "description": "Request metadata passed to a renewable credential callback for every transport attempt.",
+          "form": "OpenAICompatibleClient.CredentialRequest",
+          "important_options": [
+            "profile",
+            "operation",
+            "method",
+            "URL"
+          ],
+          "returns": "credential request"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxCredentialProvider",
+          "public_name": "OpenAICompatibleClient.CredentialProvider",
+          "kind": "interface",
+          "description": "Return fresh request headers that override static profile authentication.",
+          "form": "OpenAICompatibleClient.CredentialProvider",
+          "important_options": [
+            "chat",
+            "stream",
+            "embeddings",
+            "Responses",
+            "audio",
+            "retries"
+          ],
+          "returns": "header map or credential error"
         },
         {
           "target_name": "java",

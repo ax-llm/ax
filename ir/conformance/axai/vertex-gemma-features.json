@@ -1,0 +1,12 @@
+{
+  "name": "vertex-gemma-features",
+  "kind": "ai_provider_features",
+  "provider": "vertex-ai",
+  "base_url": "https://vertex.test/v1",
+  "model": "google/gemma-4-26b-a4b-it-maas",
+  "expected_output": {
+    "structured_outputs": false,
+    "structured_output_modes": ["json_object", "function"],
+    "thinking": true
+  }
+}

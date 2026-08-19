@@ -46,6 +46,37 @@ Profile-only branded classes were removed in the major-version migration. Use
 Mistral, Reka, and Grok. Retained low-level classes represent genuine
 transports/runtimes only; legacy model enum and catalog exports remain usable.
 
+## Renewable Credentials
+
+Use `credentialProvider` for expiring bearer tokens. The callback runs for each
+request attempt and receives `{ profile, operation, method, url }`. Fresh
+headers override static authentication headers.
+
+```typescript
+const vertex = ai({
+  name: 'vertex-ai',
+  apiURL: process.env.VERTEX_AI_API_URL!,
+  config: { model: 'google/gemma-4-26b-a4b-it-maas' },
+  credentialProvider: async ({ operation, url }) => ({
+    Authorization: `Bearer ${await tokenSource.fresh({ operation, url })}`,
+  }),
+});
+```
+
+- Authentication-required profiles accept `apiKey` or `credentialProvider`.
+- The hook covers chat, stream, embeddings, Responses, transcription, speech,
+  and retry attempts. A hook error stops before transport.
+- Do not expect an automatic replay after a completed 401 or 403; generation
+  requests are not safely idempotent.
+- Keep ADC or cloud-SDK dependencies in the host. Ax core only owns the neutral
+  callback contract.
+
+Vertex capability rules are model-aware. Documented Gemini MaaS IDs prefer
+native schema. The exact `google/gemma-4-26b-a4b-it-maas` rule prefers
+`json_object`, excludes native schema, defaults thinking to `max`, writes
+`chat_template_kwargs.enable_thinking`, and extracts/replays
+`reasoning_content`. Unknown Vertex models remain conservative.
+
 <!-- axir-nonportable:start webllm -->
 WebLLM is browser-only and requires a host-created WebLLM engine. The host
 loads or reloads models with WebLLM APIs such as `CreateMLCEngine(...)`; Ax

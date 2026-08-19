@@ -5,6 +5,7 @@ import type {
   AxChatResponse,
   AxModelConfig,
   AxSpeechConfig,
+  AxStructuredOutputMode,
 } from '../ai/types.js';
 import type { AxEventContext, AxEventInheritance } from '../event/types.js';
 import type { AxMCPClient } from '../mcp/client.js';
@@ -230,7 +231,7 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   streamingAsserts?: AxStreamingAssertion[];
   showThoughts?: boolean;
   functionCallMode?: 'auto' | 'native' | 'prompt';
-  structuredOutputMode?: 'auto' | 'native' | 'function';
+  structuredOutputMode?: AxStructuredOutputMode;
 
   // Caching hook
   cachingFunction?: (

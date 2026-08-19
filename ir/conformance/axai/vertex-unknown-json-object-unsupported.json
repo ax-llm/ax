@@ -1,0 +1,13 @@
+{
+  "name": "vertex-unknown-json-object-unsupported",
+  "kind": "ai_chat",
+  "provider": "vertex-ai",
+  "base_url": "https://vertex.test/v1",
+  "model": "unknown-third-party-model",
+  "request": {
+    "chat_prompt": [{ "role": "user", "content": "Return JSON." }],
+    "response_format": { "type": "json_object" },
+    "model_config": { "stream": false }
+  },
+  "expected_error_contains": "JSON object output is not supported"
+}

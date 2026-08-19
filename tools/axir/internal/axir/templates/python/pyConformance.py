@@ -496,12 +496,16 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_stream(fixture)
         elif kind == "ai_usage_observer":
             _run_ai_usage_observer(fixture)
+        elif kind == "ai_credential_wrapper":
+            _run_ai_credential_wrapper(fixture)
         elif kind == "ai_error":
             _run_ai_error(fixture)
         elif kind == "ai_unsupported":
             _run_ai_unsupported(fixture)
         elif kind == "ai_provider_descriptor":
             _run_ai_provider_descriptor(fixture)
+        elif kind == "ai_provider_features":
+            _run_ai_provider_features(fixture)
         elif kind == "ai_provider_registry":
             _run_ai_provider_registry(fixture)
         elif kind == "ai_model_catalog_audit":
@@ -2360,6 +2364,7 @@ def _run_ai_chat(fixture):
     except Exception as exc:
         expected = fixture.get("expected_error_contains")
         if expected and expected in str(exc):
+            _assert_transport_request(fixture, transport)
             return
         raise
     if fixture.get("expected_error_contains"):
@@ -2372,6 +2377,13 @@ def _run_ai_chat(fixture):
         actual_cost = client.get_estimated_cost(result.get("model_usage"))
         if abs(actual_cost - fixture["expected_estimated_cost"]) > 1e-12:
             raise FixtureError(f"estimated cost mismatch: {actual_cost} != {fixture['expected_estimated_cost']}")
+    _assert_transport_request(fixture, transport)
+
+
+def _run_ai_credential_wrapper(fixture):
+    client, transport = _openai_fixture_client(fixture)
+    router = MultiServiceRouter([{"key": "wrapped", "service": client}])
+    router.chat(fixture.get("request") or {})
     _assert_transport_request(fixture, transport)
 
 
@@ -2464,6 +2476,15 @@ def _run_ai_provider_descriptor(fixture):
     descriptor = provider_resolve_descriptor(provider, fixture.get("options")) if "options" in fixture else provider_descriptor(provider)
     if "expected_output" in fixture:
         _assert_subset(descriptor, fixture["expected_output"], "provider descriptor")
+
+
+def _run_ai_provider_features(fixture):
+    client, _transport = _openai_fixture_client(fixture)
+    _assert_subset(
+        client.get_features(fixture.get("model")),
+        fixture.get("expected_output") or {},
+        "provider features",
+    )
 
 
 def _run_ai_provider_registry(fixture):
@@ -2811,6 +2832,23 @@ def _openai_fixture_client(fixture):
     for key in ("base_url", "baseUrl", "resource_name", "resourceName", "deployment_name", "deploymentName", "api_version", "apiVersion", "version"):
         if key in fixture:
             extra_options[key] = fixture[key]
+    credential_provider = None
+    credential_fixture = fixture.get("credential_provider_fixture")
+    if credential_fixture is not None:
+        fixture["__credential_requests"] = []
+        credential_headers = list(credential_fixture.get("headers") or [])
+        credential_calls = 0
+
+        def credential_provider(request):
+            nonlocal credential_calls
+            fixture["__credential_requests"].append(copy.deepcopy(request))
+            if credential_fixture.get("error"):
+                raise RuntimeError(str(credential_fixture["error"]))
+            if not credential_headers:
+                return {}
+            index = min(credential_calls, len(credential_headers) - 1)
+            credential_calls += 1
+            return copy.deepcopy(credential_headers[index])
     client = ai(
         provider,
         model=fixture.get("model", default_model),
@@ -2819,6 +2857,7 @@ def _openai_fixture_client(fixture):
         transport=transport,
         model_config=fixture.get("model_config"),
         options=fixture.get("service_options") or fixture.get("options") or {},
+        credential_provider=credential_provider,
         **extra_options,
     )
     return client, transport
@@ -2834,6 +2873,14 @@ def _json_path_exists(value, path):
 
 
 def _assert_transport_request(fixture, transport):
+    if "expected_transport_request_count" in fixture:
+        _assert_equal(len(transport.requests), fixture["expected_transport_request_count"], "provider request count")
+    if "expected_credential_requests" in fixture:
+        _assert_equal(fixture.get("__credential_requests") or [], fixture["expected_credential_requests"], "credential requests")
+    for index, expected in enumerate(fixture.get("expected_transport_requests") or []):
+        if index >= len(transport.requests):
+            raise FixtureError("missing provider transport request")
+        _assert_subset(transport.requests[index], expected, f"provider request {index}")
     if "expected_transport_request" not in fixture and "expected_transport_json_absent" not in fixture:
         return
     if not transport.requests:

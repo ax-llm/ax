@@ -3122,6 +3122,135 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @provider_resolve_features {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-profile-model-features"
+    type signature = "(profile:string, model:string, options?:json) -> json"
+    body @entry(%profile: string, %model: string, %options: json) {
+      %descriptor = core.call @provider_descriptor(%profile)
+      %empty_map = core.map
+      %base_features = core.get %descriptor["features"] default %empty_map
+      %features = core.call intrinsic.map.merge(%empty_map, %base_features)
+      %rule = core.call @provider_resolve_model_rule(%profile, %model)
+      %capabilities = core.get %rule["capabilities"] default %empty_map
+      %capability_keys = core.call intrinsic.map.keys(%capabilities)
+      core.for %key in %capability_keys {
+        %value = core.get %capabilities[%key]
+        %is_structured_outputs = core.call intrinsic.eq(%key, "structuredOutputs")
+        %is_structured_modes = core.call intrinsic.eq(%key, "structuredOutputModes")
+        %is_multi_turn = core.call intrinsic.eq(%key, "multiTurn")
+        %is_thinking_budget = core.call intrinsic.eq(%key, "thinkingBudget")
+        %is_show_thoughts = core.call intrinsic.eq(%key, "showThoughts")
+        core.if %is_structured_outputs {
+          core.set %features["structured_outputs"] = %value
+        } else {
+          core.if %is_structured_modes {
+            core.set %features["structured_output_modes"] = %value
+          } else {
+            core.if %is_multi_turn {
+              core.set %features["multi_turn"] = %value
+            } else {
+              core.if %is_thinking_budget {
+                core.set %features["has_thinking_budget"] = %value
+              } else {
+                core.if %is_show_thoughts {
+                  core.set %features["has_show_thoughts"] = %value
+                } else {
+                  core.set %features[%key] = %value
+                }
+              }
+            }
+          }
+        }
+      }
+      %model_info_snake = core.get %options["model_info"]
+      %empty_list = core.list
+      %model_info = core.get %options["modelInfo"] default %model_info_snake
+      %model_info_missing = core.call intrinsic.is_none(%model_info)
+      core.if %model_info_missing {
+        %model_info = core.let %empty_list
+      }
+      core.for %item in %model_info {
+        %item_name = core.get %item["name"] default ""
+        %matches_name = core.call intrinsic.eq(%item_name, %model)
+        %matches_alias = core.let false
+        %aliases = core.get %item["aliases"] default %empty_list
+        core.for %alias in %aliases {
+          %alias_match = core.call intrinsic.eq(%alias, %model)
+          core.if %alias_match {
+            %matches_alias = core.let true
+          }
+        }
+        %matches = core.call intrinsic.or(%matches_name, %matches_alias)
+        core.if %matches {
+          %supported = core.get %item["supported"] default %empty_map
+          %override_modes_snake = core.get %supported["structured_output_modes"]
+          %override_modes = core.get %supported["structuredOutputModes"] default %override_modes_snake
+          %has_override_modes = core.call intrinsic.is_not_none(%override_modes)
+          core.if %has_override_modes {
+            core.set %features["structured_output_modes"] = %override_modes
+            %has_native = core.let false
+            core.for %override_mode in %override_modes {
+              %override_native = core.call intrinsic.eq(%override_mode, "native")
+              core.if %override_native {
+                %has_native = core.let true
+              }
+            }
+            core.set %features["structured_outputs"] = %has_native
+          }
+          %override_native_snake = core.get %supported["structured_outputs"]
+          %override_native = core.get %supported["structuredOutputs"] default %override_native_snake
+          %has_override_native = core.call intrinsic.is_not_none(%override_native)
+          %no_override_modes = core.call intrinsic.not(%has_override_modes)
+          %apply_native_override = core.call intrinsic.and(%has_override_native, %no_override_modes)
+          core.if %apply_native_override {
+            core.set %features["structured_outputs"] = %override_native
+            %current_modes = core.get %features["structured_output_modes"] default %empty_list
+            %modes_without_native = core.list
+            core.for %current_mode in %current_modes {
+              %current_is_native = core.call intrinsic.eq(%current_mode, "native")
+              %current_is_not_native = core.call intrinsic.not(%current_is_native)
+              core.if %current_is_not_native {
+                core.append %modes_without_native, %current_mode
+              }
+            }
+            core.if %override_native {
+              %modes_with_native = core.list
+              core.append %modes_with_native, "native"
+              core.for %non_native_mode in %modes_without_native {
+                core.append %modes_with_native, %non_native_mode
+              }
+              core.set %features["structured_output_modes"] = %modes_with_native
+            } else {
+              core.set %features["structured_output_modes"] = %modes_without_native
+            }
+          }
+          %thinking_budget_snake = core.get %supported["thinking_budget"]
+          %thinking_budget = core.get %supported["thinkingBudget"] default %thinking_budget_snake
+          %has_thinking_budget = core.call intrinsic.is_not_none(%thinking_budget)
+          core.if %has_thinking_budget {
+            core.set %features["has_thinking_budget"] = %thinking_budget
+          }
+          %show_thoughts_snake = core.get %supported["show_thoughts"]
+          %show_thoughts = core.get %supported["showThoughts"] default %show_thoughts_snake
+          %has_show_thoughts = core.call intrinsic.is_not_none(%show_thoughts)
+          core.if %has_show_thoughts {
+            core.set %features["has_show_thoughts"] = %show_thoughts
+          }
+          %has_thinking_override = core.call intrinsic.or(%has_thinking_budget, %has_show_thoughts)
+          core.if %has_thinking_override {
+            %thinking_budget_enabled = core.get %features["has_thinking_budget"] default false
+            %show_thoughts_enabled = core.get %features["has_show_thoughts"] default false
+            %thinking_enabled = core.call intrinsic.or(%thinking_budget_enabled, %show_thoughts_enabled)
+            core.set %features["thinking"] = %thinking_enabled
+          }
+        }
+      }
+      core.return %features
+    }
+  }
+
   op ax.provider.semantic @provider_reasoning_field {
     attr core_kind = "func"
     attr emit_module = "ai"
@@ -3197,6 +3326,7 @@ module @ax.provider version "0.1" {
     type signature = "(payload:json, request:json, rules:json) -> json throws"
     body @entry(%payload: json, %request: json, %rules: json) {
       %empty_map = core.map
+      %empty_list = core.list
       %model_config = core.get %request["model_config"] default %empty_map
       %budget_snake = core.get %model_config["thinking_token_budget"]
       %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
@@ -3232,6 +3362,17 @@ module @ax.provider version "0.1" {
       %effective_enabled = core.call intrinsic.not(%effective_disabled)
       %has_reasoning = core.call intrinsic.and(%has_requested_effort, %effective_enabled)
       %has_serializable_reasoning_effort = core.call intrinsic.and(%has_requested_effort, %effective_is_present)
+      %thinking_boolean = core.get %rules["thinkingBoolean"] default %empty_map
+      %thinking_boolean_path = core.get %thinking_boolean["path"] default %empty_list
+      %has_thinking_boolean = core.call intrinsic.truthy(%thinking_boolean_path)
+      core.if %has_thinking_boolean {
+        %thinking_object_name = core.call intrinsic.list.get(%thinking_boolean_path, 0, "")
+        %thinking_field_name = core.call intrinsic.list.get(%thinking_boolean_path, 1, "")
+        %thinking_nested = core.get %payload[%thinking_object_name] default %empty_map
+        %thinking_nested_copy = core.call intrinsic.map.merge(%empty_map, %thinking_nested)
+        core.set %thinking_nested_copy[%thinking_field_name] = %effective_enabled
+        core.set %payload[%thinking_object_name] = %thinking_nested_copy
+      }
       %reasoning_mode = core.get %rules["reasoning"] default ""
       %is_thinking_object_mode = core.call intrinsic.eq(%reasoning_mode, "thinking-object")
       core.if %is_thinking_object_mode {
@@ -3278,7 +3419,6 @@ module @ax.provider version "0.1" {
         }
         core.call intrinsic.map.delete(%payload, "tool_choice")
       }
-      %empty_list = core.list
       %drop_when_thinking = core.get %rules["dropWhenThinking"] default %empty_list
       core.if %has_reasoning {
         core.for %field in %drop_when_thinking {
@@ -3414,11 +3554,42 @@ module @ax.provider version "0.1" {
         }
       }
       %empty_rules = core.map
+      %empty_list = core.list
       %profile_rules = core.get %descriptor["request"] default %empty_rules
       %payload = core.call @provider_apply_request_rules(%payload, %request, %profile_rules)
       %model_rule = core.call @provider_resolve_model_rule(%provider_id, %model)
       %model_rules = core.get %model_rule["request"] default %empty_rules
       %payload = core.call @provider_apply_request_rules(%payload, %request, %model_rules)
+      %features = core.call @provider_resolve_features(%provider_id, %model, %options)
+      %response_format = core.get %payload["response_format"] default %empty_rules
+      %response_format_type = core.get %response_format["type"] default ""
+      %is_json_schema = core.call intrinsic.eq(%response_format_type, "json_schema")
+      core.if %is_json_schema {
+        %native_support = core.get %features["structured_outputs"] default false
+        %native_unsupported = core.call intrinsic.not(%native_support)
+        core.if %native_unsupported {
+          %native_message = core.call intrinsic.string.format("native JSON Schema output is not supported by profile {} model {}", %provider_id, %model)
+          %native_error = core.call intrinsic.ai.error.unsupported(%native_message)
+          core.raise %native_error
+        }
+      }
+      %is_json_object = core.call intrinsic.eq(%response_format_type, "json_object")
+      core.if %is_json_object {
+        %structured_modes = core.get %features["structured_output_modes"] default %empty_list
+        %supports_json_object = core.let false
+        core.for %structured_mode in %structured_modes {
+          %mode_is_json_object = core.call intrinsic.eq(%structured_mode, "json_object")
+          core.if %mode_is_json_object {
+            %supports_json_object = core.let true
+          }
+        }
+        %json_object_unsupported = core.call intrinsic.not(%supports_json_object)
+        core.if %json_object_unsupported {
+          %json_object_message = core.call intrinsic.string.format("JSON object output is not supported by profile {} model {}", %provider_id, %model)
+          %json_object_error = core.call intrinsic.ai.error.unsupported(%json_object_message)
+          core.raise %json_object_error
+        }
+      }
       core.return %payload
     }
   }

@@ -35,7 +35,7 @@ System.out.println(schema.get("properties"));
 
 - Signatures and schemas: describe inputs and outputs once, then reuse that shape for validation, prompts, tools, and typed results.
 - AxGen: run structured generation with retries, tool calls, field processors, assertions, traces, usage, and provider-backed output parsing.
-- AxAI: call OpenAI-compatible, OpenAI Responses, Gemini, Anthropic, Azure OpenAI, DeepSeek, Mistral, Reka, Cohere, and Grok clients through one provider boundary.
+- AxAI: select named deployment profiles independently from model IDs, resolve model-aware structured-output modes, and attach renewable request credentials through one provider boundary.
 - Audio and realtime: `.chat()` accepts `input_audio` content parts, `transcribe()`/`speak()` do batch speech-to-text and text-to-speech, and realtime-capable models stream audio over a WebSocket — transparently through `chat()` or via the productized `realtime_chat()` driver (Go: `RealtimeChat`).
 - AxAgent and RLM: let an agent plan and execute actor-code steps while Ax keeps envelopes, state, logs, traces, context, discovery, recall, and final typed responses aligned.
 - AxFlow: compose AxGen, AxAgent, and nested flows into a portable program graph.
@@ -49,7 +49,7 @@ System.out.println(schema.get("properties"));
 - Optional QuickJS4J metadata stays under `examples/runtime_profiles/`
 - Network support: available
 
-Shared Ax behavior is Core-owned. The generated target code stays focused on idiomatic wrappers, transports, dynamic value helpers, and host-runtime boundaries.
+Shared Ax behavior is Core-owned. The generated target code stays focused on idiomatic wrappers, transports, dynamic value helpers, and host-runtime boundaries. Authentication-required profiles accept a static key or a credential callback; the callback is invoked on every request attempt and its headers override static profile authentication.
 
 ## Examples
 
@@ -75,7 +75,7 @@ Shared Ax behavior is Core-owned. The generated target code stays focused on idi
 - `examples/AxMCPModernRoundtripExample.java`: modern MCP discovery, cache, task, and roots MRTR over an in-process HTTP loopback
 - `examples/ContextCacheRecoveryExample.java`: Gemini managed-context-cache recovery through a scripted transport
 
-`provider-api` examples make a real provider call. OpenAI examples require `OPENAI_API_KEY`; Vertex examples require `GOOGLE_VERTEX_ACCESS_TOKEN`, `GOOGLE_PROJECT_ID`, and `GOOGLE_REGION`:
+`provider-api` examples make a real provider call. OpenAI examples require `OPENAI_API_KEY`; each Vertex command below lists its native-routing or OpenAI-compatible endpoint variables:
 
 - `OPENAI_API_KEY=... javac -cp . dev/axllm/ax/*.java examples/AxGenOpenAIExample.java && java -cp .:examples AxGenOpenAIExample`: GPT-5.6 prompt-cached AxGen with the OpenAI Chat API
 - `GOOGLE_VERTEX_ACCESS_TOKEN=... GOOGLE_PROJECT_ID=... GOOGLE_REGION=... javac -cp . dev/axllm/ax/*.java examples/VertexGeminiExample.java && java -cp .:examples VertexGeminiExample`: Gemini through Vertex routing

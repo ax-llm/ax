@@ -25,6 +25,13 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Object call(Map<String, Object> request) throws Exception;
   }
 
+  public record CredentialRequest(String profile, String operation, String method, String url) {}
+
+  @FunctionalInterface
+  public interface CredentialProvider {
+    Map<String, String> credentials(CredentialRequest request) throws Exception;
+  }
+
   // Host registries receive a tenant namespace separately from the stable
   // provider:model:contentHash key.
   public interface ContextCacheRegistry {
@@ -41,6 +48,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
   private final String apiVersion;
   private final double timeoutSeconds;
   private final Transport transport;
+  private final CredentialProvider credentialProvider;
   private final HttpClient http = HttpClient.newHttpClient();
   private final Map<String, Map<String,Object>> contextCacheEntries = new LinkedHashMap<>();
 
@@ -70,11 +78,27 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Object timeout = options.getOrDefault("timeout", 60.0);
     this.timeoutSeconds = timeout instanceof Number n ? n.doubleValue() : 60.0;
     this.transport = options.get("transport") instanceof Transport t ? t : null;
+    Object rawCredentialProvider = options.getOrDefault("credential_provider", options.get("credentialProvider"));
+    this.credentialProvider = rawCredentialProvider instanceof CredentialProvider provider ? provider : null;
+    if (Core.truthy(this.descriptor.get("authRequired")) &&
+        (this.apiKey == null || this.apiKey.isBlank() || "null".equals(this.apiKey)) &&
+        this.credentialProvider == null) {
+      throw new AxAIServiceAuthenticationError(profile + " requires api_key or credential_provider", null, null, null, null);
+    }
   }
 
   @Override
   public double getEstimatedCost(Map<String, Object> modelUsage) {
     return Core.asDouble(Core.provider_estimate_cost(modelUsage == null ? Map.of() : modelUsage));
+  }
+
+  @Override
+  public Map<String, Object> getFeatures(String model) {
+    return Core.asMap(Core.provider_resolve_features(
+      profile,
+      model == null || model.isBlank() ? this.model : model,
+      options
+    ));
   }
 
   protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) throws Exception {
@@ -90,14 +114,14 @@ public class OpenAICompatibleClient extends AxBaseAI {
     }
     Object modelName = request.getOrDefault("model", payload.getOrDefault("model", model));
     Object raw = contextCacheChat(request, options, payload, modelName);
-    if (raw == null) raw = requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"));
+    if (raw == null) raw = requestJson(operationPath("chat", modelName), payload, false, "json", false, operationMethod("chat"), "openai-responses".equals(descriptor.get("transport")) ? "responses" : "chat");
     return Core.asMap(Core.provider_normalize_chat_response(profile, raw, name, modelName));
   }
 
   protected Map<String, Object> doEmbed(Map<String, Object> request, Map<String, Object> options) throws Exception {
     Map<String, Object> payload = Core.asMap(Core.provider_build_embed_request(profile, request, options));
     Object modelName = request.getOrDefault("embed_model", request.getOrDefault("embedModel", payload.getOrDefault("model", embedModel)));
-    Object raw = requestJson(operationPath("embed", modelName), payload, false, "json", false, operationMethod("embed"));
+    Object raw = requestJson(operationPath("embed", modelName), payload, false, "json", false, operationMethod("embed"), "embed");
     return Core.asMap(Core.provider_normalize_embed_response(profile, raw, name, modelName));
   }
 
@@ -213,7 +237,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     int attempt = 0;
     while (true) {
       List<Object> events = new ArrayList<>();
-      for (Object event : iterSseJson(requestJson(operationPath("stream_chat", modelName), payload, true, "json", false, operationMethod("stream_chat")))) events.add(event);
+      for (Object event : iterSseJson(requestJson(operationPath("stream_chat", modelName), payload, true, "json", false, operationMethod("stream_chat"), "stream_chat"))) events.add(event);
       // Pre-content streaming retry: peek the first raw SSE event before any stateful normalize
       // runs (so peeking has no side effects); if the provider classifies it as a retryable
       // transient status (e.g. Anthropic's HTTP-200 overloaded_error event), re-issue with the
@@ -254,7 +278,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Object modelName = request.getOrDefault("model", model);
     Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "transcribe"));
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
-    Object raw = requestJson(operationPath("transcribe", modelName), payload, false, bodyKey, false, operationMethod("transcribe"));
+    Object raw = requestJson(operationPath("transcribe", modelName), payload, false, bodyKey, false, operationMethod("transcribe"), "transcribe");
     return Core.asMap(Core.provider_normalize_transcribe_response(profile, raw));
   }
 
@@ -264,7 +288,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Map<String, Object> descriptor = Core.asMap(Core.provider_operation_descriptor(profile, "speak"));
     String bodyKey = "multipart".equals(String.valueOf(descriptor.getOrDefault("body", "json"))) ? "data" : "json";
     boolean binary = "binary".equals(String.valueOf(descriptor.get("response")));
-    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary, operationMethod("speak"));
+    Object raw = requestJson(operationPath("speak", modelName), payload, false, bodyKey, binary, operationMethod("speak"), "speak");
     return Core.asMap(Core.provider_normalize_speak_response(profile, raw, request));
   }
 
@@ -472,12 +496,24 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey, boolean binaryResponse, String method) throws Exception {
+    return requestJson(endpoint, payload, stream, bodyKey, binaryResponse, method, stream ? "stream_chat" : "chat");
+  }
+
+  private Object requestJson(String endpoint, Map<String, Object> payload, boolean stream, String bodyKey, boolean binaryResponse, String method, String operation) throws Exception {
     Map<String, Object> call = new LinkedHashMap<>();
     method = method == null || method.isBlank() ? "POST" : method.toUpperCase(Locale.ROOT);
     call.put("method", method);
     String requestUrl = endpoint.startsWith("http://") || endpoint.startsWith("https://") ? endpoint : baseUrl + endpoint;
     call.put("url", requestUrl);
-    call.put("headers", headers());
+    Map<String, Object> resolvedHeaders = headers();
+    if (credentialProvider != null) {
+      Map<String, String> fresh = credentialProvider.credentials(
+        new CredentialRequest(profile, operation, method, requestUrl)
+      );
+      if (fresh == null) throw new AxAIServiceAuthenticationError("credential_provider returned null headers", null, null, null, null);
+      resolvedHeaders.putAll(fresh);
+    }
+    call.put("headers", resolvedHeaders);
     String resolvedBodyKey = bodyKey == null || bodyKey.isBlank() ? "json" : bodyKey;
     call.put(resolvedBodyKey, payload);
     call.put("stream", stream);
@@ -486,7 +522,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
     HttpRequest.Builder builder = HttpRequest.newBuilder()
       .uri(URI.create(requestUrl))
       .timeout(Duration.ofMillis((long) (timeoutSeconds * 1000)));
-    Map<String, Object> requestHeaders = headers();
+    Map<String, Object> requestHeaders = new LinkedHashMap<>(resolvedHeaders);
     HttpRequest.BodyPublisher bodyPublisher;
     if ("data".equals(resolvedBodyKey)) {
       byte[] multipartBody = encodeMultipart(payload, MULTIPART_BOUNDARY);

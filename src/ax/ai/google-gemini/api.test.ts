@@ -131,6 +131,59 @@ function installFakeGeminiLiveWebSocket(messages: unknown[]) {
 }
 
 describe('AxAIGoogleGemini schema validation', () => {
+  it('accepts a renewable credential provider without a static API key', async () => {
+    const requests: Array<{
+      profile: string;
+      operation: string;
+      method: string;
+      url: string;
+    }> = [];
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async (_url: RequestInfo | URL, init?: RequestInit) => {
+          expect(new Headers(init?.headers).get('authorization')).toBe(
+            'Bearer renewable-gemini-token'
+          );
+          return new Response(
+            JSON.stringify({
+              candidates: [
+                {
+                  content: { role: 'model', parts: [{ text: 'ok' }] },
+                  finishReason: 'STOP',
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+        }
+      );
+    const ai = new AxAIGoogleGemini({
+      credentialProvider: async (request) => {
+        requests.push(request);
+        return { Authorization: 'Bearer renewable-gemini-token' };
+      },
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+      options: { fetch },
+    });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+
+    expect(requests).toEqual([
+      expect.objectContaining({
+        profile: 'google-gemini',
+        operation: 'chat',
+        method: 'POST',
+      }),
+    ]);
+  });
+
   it('preserves strict nullable structured-output schema fields Gemini supports', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',

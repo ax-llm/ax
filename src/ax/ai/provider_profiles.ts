@@ -24,11 +24,13 @@ import {
   axAIProviderProfiles,
 } from './provider_profiles.generated.js';
 import type {
+  AxAICredentialProvider,
   AxAIInputModelList,
   AxAIServiceOptions,
   AxModelInfo,
   AxSpeechRequest,
   AxSpeechResponse,
+  AxStructuredOutputRung,
   AxTranscriptionRequest,
   AxTranscriptionResponse,
 } from './types.js';
@@ -50,6 +52,7 @@ export type AxAIProfileCapabilities = {
   functions: boolean;
   streaming: boolean;
   structuredOutputs: boolean;
+  structuredOutputModes: readonly AxStructuredOutputRung[];
   thinking: boolean;
   multiTurn: boolean;
   thinkingBudget?: boolean;
@@ -83,6 +86,7 @@ export type AxAIProfileRequestRules = {
   imageURLShape?: 'object';
   reasoningObjectFields?: readonly string[];
   optionDialect?: 'search-parameters';
+  thinkingBoolean?: { path: readonly string[] };
 };
 
 export type AxAIProfileModelRule = {
@@ -269,6 +273,7 @@ export const axResolveAIProfileFeatures = (
     functions: capabilities.functions,
     streaming: capabilities.streaming,
     structuredOutputs: capabilities.structuredOutputs,
+    structuredOutputModes: capabilities.structuredOutputModes,
     hasThinkingBudget:
       capabilities.thinkingBudget ?? capabilities.thinking ?? false,
     hasShowThoughts:
@@ -382,6 +387,20 @@ const applyRequestRules = (
     (mappedEffort !== null || !rules.effortMap);
   const hasSerializableReasoningEffort =
     requestedEffort !== undefined && mappedEffort !== null;
+  if (rules.thinkingBoolean) {
+    let target = payload;
+    const path = rules.thinkingBoolean.path;
+    for (const part of path.slice(0, -1)) {
+      const current = target[part];
+      const nested =
+        current && typeof current === 'object' && !Array.isArray(current)
+          ? { ...(current as Record<string, unknown>) }
+          : {};
+      target[part] = nested;
+      target = nested;
+    }
+    target[path[path.length - 1]!] = requestedEffort !== 'none';
+  }
   if (rules.reasoning === 'thinking-object') {
     payload.thinking = { type: hasReasoning ? 'enabled' : 'disabled' };
   } else if (rules.reasoning === 'openrouter') {
@@ -464,13 +483,26 @@ const applyExactModelInfoOverride = (
   const hasThinkingOverride =
     override.thinkingBudget !== undefined ||
     override.showThoughts !== undefined;
+  let structuredOutputModes = features.structuredOutputModes;
+  if (override.structuredOutputModes !== undefined) {
+    structuredOutputModes = [...override.structuredOutputModes];
+  } else if (override.structuredOutputs !== undefined) {
+    const withoutNative = (structuredOutputModes ?? []).filter(
+      (mode) => mode !== 'native'
+    );
+    structuredOutputModes = override.structuredOutputs
+      ? ['native', ...withoutNative]
+      : withoutNative;
+  }
   return {
     ...features,
     hasThinkingBudget:
       override.thinkingBudget ?? features.hasThinkingBudget ?? false,
     hasShowThoughts: override.showThoughts ?? features.hasShowThoughts ?? false,
-    structuredOutputs:
-      override.structuredOutputs ?? features.structuredOutputs ?? false,
+    structuredOutputs: structuredOutputModes
+      ? structuredOutputModes.includes('native')
+      : (override.structuredOutputs ?? features.structuredOutputs ?? false),
+    ...(structuredOutputModes ? { structuredOutputModes } : {}),
     thinking: hasThinkingOverride
       ? Boolean(override.thinkingBudget || override.showThoughts)
       : features.thinking,
@@ -506,9 +538,20 @@ const applyProfileChatRequest = <TModel>(
       `Thinking is not verified for profile ${profile.id} and model ${model}; add an exact modelInfo override to opt in`
     );
   }
-  if (payload.response_format && !features.structuredOutputs) {
+  const responseFormat = payload.response_format as
+    | { type?: unknown }
+    | undefined;
+  if (responseFormat?.type === 'json_schema' && !features.structuredOutputs) {
     throw new Error(
-      `Structured output is not verified for profile ${profile.id} and model ${model}`
+      `Structured output is not verified for profile ${profile.id} and model ${model}: native JSON Schema is unsupported`
+    );
+  }
+  if (
+    responseFormat?.type === 'json_object' &&
+    !features.structuredOutputModes?.includes('json_object')
+  ) {
+    throw new Error(
+      `Structured output is not verified for profile ${profile.id} and model ${model}: JSON object mode is unsupported`
     );
   }
 
@@ -585,11 +628,25 @@ const applyCapabilityGates = (
   if (!gate) return features;
   const raw = String(args[gate.option] ?? '');
   const value = raw.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? '';
-  return { ...features, structuredOutputs: value >= gate.min };
+  const structuredOutputs = value >= gate.min;
+  const withoutNative = (features.structuredOutputModes ?? []).filter(
+    (mode) => mode !== 'native'
+  );
+  return {
+    ...features,
+    structuredOutputs,
+    structuredOutputModes: structuredOutputs
+      ? ['native', ...withoutNative]
+      : withoutNative,
+  };
 };
 
-const validateProfileKey = (profile: ProfileSpec, apiKey?: string): string => {
-  if (profile.auth.required && !apiKey) {
+const validateProfileKey = (
+  profile: ProfileSpec,
+  apiKey?: string,
+  credentialProvider?: AxAICredentialProvider
+): string => {
+  if (profile.auth.required && !apiKey && !credentialProvider) {
     throw new Error(`${profile.name} API key not set`);
   }
   return apiKey ?? '';
@@ -625,6 +682,7 @@ const profileHeaders = (
 export type AxAIProfileArgs<TModelKey = string> = {
   name: AxAIProfileId;
   apiKey?: string;
+  credentialProvider?: AxAICredentialProvider;
   apiURL?: string;
   config?: Partial<AxAIOpenAIConfig<string, string>>;
   options?: Readonly<AxAIServiceOptions> & Record<string, unknown>;
@@ -651,7 +709,6 @@ export class AxAIOpenAIProfile<TModelKey = string> extends AxAIOpenAIBase<
   TModelKey
 > {
   private readonly profileSpec: ProfileSpec;
-  private readonly profileApiKey: string;
   private readonly profileApiURL: string;
 
   constructor(args: Readonly<AxAIProfileArgs<TModelKey>>) {
@@ -659,7 +716,11 @@ export class AxAIOpenAIProfile<TModelKey = string> extends AxAIOpenAIBase<
     if (profile.transport !== 'openai-chat') {
       throw new Error(`${profile.id} is not an OpenAI Chat profile`);
     }
-    const apiKey = validateProfileKey(profile, args.apiKey);
+    const apiKey = validateProfileKey(
+      profile,
+      args.apiKey,
+      args.credentialProvider
+    );
     const apiURL = resolveProfileURL(profile, args as Record<string, unknown>);
     const config = {
       model: profile.defaults.model,
@@ -682,6 +743,8 @@ export class AxAIOpenAIProfile<TModelKey = string> extends AxAIOpenAIBase<
 
     super({
       apiKey: apiKey || 'local-no-key',
+      credentialProvider: args.credentialProvider,
+      credentialProfile: profile.id,
       apiURL,
       config,
       options: args.options,
@@ -711,7 +774,6 @@ export class AxAIOpenAIProfile<TModelKey = string> extends AxAIOpenAIBase<
     this.setName(profile.name);
     this.setHeaders(async () => profileHeaders(profile, apiKey));
     this.profileSpec = profile;
-    this.profileApiKey = apiKey;
     this.profileApiURL = apiURL;
   }
 
@@ -743,7 +805,14 @@ export class AxAIOpenAIProfile<TModelKey = string> extends AxAIOpenAIBase<
           };
     return await axFetchMultipartTranscription({
       url: `${this.profileApiURL.replace(/\/$/, '')}${operation.path}`,
-      headers: profileHeaders(this.profileSpec, this.profileApiKey),
+      headers: await this.buildHeaders(
+        {},
+        {
+          operation: 'transcribe',
+          method: 'POST',
+          url: `${this.profileApiURL.replace(/\/$/, '')}${operation.path}`,
+        }
+      ),
       audio: req.audio,
       fields,
       fetch: options?.fetch ?? serviceOptions.fetch,
@@ -801,7 +870,14 @@ export class AxAIOpenAIProfile<TModelKey = string> extends AxAIOpenAIBase<
     }
     return await axFetchJsonSpeech({
       url: `${this.profileApiURL.replace(/\/$/, '')}${operation.path}`,
-      headers: profileHeaders(this.profileSpec, this.profileApiKey),
+      headers: await this.buildHeaders(
+        {},
+        {
+          operation: 'speak',
+          method: 'POST',
+          url: `${this.profileApiURL.replace(/\/$/, '')}${operation.path}`,
+        }
+      ),
       body,
       format,
       transcript: req.text,
@@ -824,7 +900,11 @@ export class AxAIOpenAIResponsesProfile<
     if (profile.transport !== 'openai-responses') {
       throw new Error(`${profile.id} is not an OpenAI Responses profile`);
     }
-    const apiKey = validateProfileKey(profile, args.apiKey);
+    const apiKey = validateProfileKey(
+      profile,
+      args.apiKey,
+      args.credentialProvider
+    );
     const apiURL = resolveProfileURL(profile, args as Record<string, unknown>);
     const config = {
       model: profile.defaults.model,
@@ -837,6 +917,8 @@ export class AxAIOpenAIResponsesProfile<
 
     super({
       apiKey: apiKey || 'local-no-key',
+      credentialProvider: args.credentialProvider,
+      credentialProfile: profile.id,
       apiURL,
       config,
       options: args.options,

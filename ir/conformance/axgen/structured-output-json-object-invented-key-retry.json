@@ -3,7 +3,11 @@
   "kind": "forward",
   "signature": "task:string -> javascriptCode:code",
   "input": { "task": "write a program" },
-  "features": { "structured_outputs": false, "functions": false },
+  "features": {
+    "structured_outputs": false,
+    "structured_output_modes": ["json_object", "function"],
+    "functions": true
+  },
   "options": { "validation_retries": 1 },
   "responses": [
     { "content": "{\"request\":\"wrong key\"}" },

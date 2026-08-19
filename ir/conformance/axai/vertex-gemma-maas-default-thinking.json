@@ -1,0 +1,90 @@
+{
+  "name": "vertex-gemma-maas-default-thinking",
+  "kind": "ai_chat",
+  "provider": "vertex-ai",
+  "base_url": "https://vertex.test/v1",
+  "model": "google/gemma-4-26b-a4b-it-maas",
+  "request": {
+    "chat_prompt": [
+      { "role": "user", "content": "Continue." },
+      {
+        "role": "assistant",
+        "content": "Previous answer.",
+        "thought": "Previous reasoning."
+      },
+      { "role": "user", "content": "Return JSON." }
+    ],
+    "response_format": { "type": "json_object" },
+    "model_config": { "stream": false }
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "id": "vertex-gemma",
+        "model": "google/gemma-4-26b-a4b-it-maas",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "{\"answer\":\"ok\"}",
+              "reasoning_content": "Fresh reasoning."
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected_transport_request": {
+    "method": "POST",
+    "url": "https://vertex.test/v1/chat/completions",
+    "json": {
+      "model": "google/gemma-4-26b-a4b-it-maas",
+      "response_format": { "type": "json_object" },
+      "chat_template_kwargs": { "enable_thinking": true },
+      "messages": [
+        { "role": "user", "content": "Continue." },
+        {
+          "role": "assistant",
+          "content": "Previous answer.",
+          "reasoning_content": "Previous reasoning."
+        },
+        { "role": "user", "content": "Return JSON." },
+        {
+          "role": "system",
+          "content": "JSON output is required. Return only the requested JSON object."
+        }
+      ]
+    }
+  },
+  "expected_request_after": {
+    "chat_prompt": [
+      { "role": "user", "content": "Continue." },
+      {
+        "role": "assistant",
+        "content": "Previous answer.",
+        "thought": "Previous reasoning."
+      },
+      { "role": "user", "content": "Return JSON." }
+    ],
+    "response_format": { "type": "json_object" },
+    "model_config": { "stream": false }
+  },
+  "expected_output": {
+    "remote_id": "vertex-gemma",
+    "model_usage": null,
+    "results": [
+      {
+        "index": 0,
+        "id": "0",
+        "content": "{\"answer\":\"ok\"}",
+        "thought": "Fresh reasoning.",
+        "thought_blocks": [{ "data": "Fresh reasoning.", "encrypted": false }],
+        "function_calls": [],
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}

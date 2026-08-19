@@ -35,6 +35,7 @@ import type {
   AxModelUsage,
   AxSpeechRequest,
   AxSpeechResponse,
+  AxStructuredOutputRung,
   AxTranscriptionRequest,
   AxTranscriptionResponse,
 } from './types.js';
@@ -274,9 +275,20 @@ export class AxBalancer<
       },
       caching: { supported: false, types: [] },
     };
+    const structuredOutputModes: AxStructuredOutputRung[] = [];
+    let allServicesAdvertiseStructuredOutputModes = this.services.length > 0;
 
     for (const service of this.services) {
       const f = service.getFeatures(model);
+      if (f.structuredOutputModes === undefined) {
+        allServicesAdvertiseStructuredOutputModes = false;
+      } else {
+        for (const mode of f.structuredOutputModes) {
+          if (!structuredOutputModes.includes(mode)) {
+            structuredOutputModes.push(mode);
+          }
+        }
+      }
       if (f.functions) features.functions = true;
       if (f.streaming) features.streaming = true;
       if (f.thinking) features.thinking = true;
@@ -311,6 +323,9 @@ export class AxBalancer<
       features.caching.types = Array.from(
         new Set([...features.caching.types, ...f.caching.types])
       );
+    }
+    if (allServicesAdvertiseStructuredOutputModes) {
+      features.structuredOutputModes = structuredOutputModes;
     }
     return features;
   }

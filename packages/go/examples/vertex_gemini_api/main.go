@@ -19,13 +19,20 @@ func required(name string) string {
   return value
 }
 
+func vertexCredentials() ax.AxCredentialProvider {
+  return ax.AxCredentialProviderFunc(func(_ context.Context, _ ax.AxCredentialRequest) (map[string]string, error) {
+    token := os.Getenv("GOOGLE_VERTEX_ACCESS_TOKEN")
+    if token == "" { return nil, fmt.Errorf("set GOOGLE_VERTEX_ACCESS_TOKEN to run this Vertex provider API example") }
+    return map[string]string{"Authorization": "Bearer " + token}, nil
+  })
+}
+
 func main() {
   model := os.Getenv("AX_VERTEX_MODEL")
-  if model == "" { model = "gemini-3.5-flash" }
-  client := ax.NewGoogleGeminiClient(map[string]ax.Value{
-    "api_key": required("GOOGLE_VERTEX_ACCESS_TOKEN"),
-    "project_id": required("GOOGLE_PROJECT_ID"),
-    "region": required("GOOGLE_REGION"),
+  if model == "" { model = "google/gemini-3.5-flash" }
+  client := ax.NewAI("vertex-ai", map[string]ax.Value{
+    "api_url": required("VERTEX_AI_API_URL"),
+    "credential_provider": vertexCredentials(),
     "model": model,
   })
   ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

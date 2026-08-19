@@ -521,6 +521,8 @@ class ProviderOperationClient(AxBaseAI):
         options: dict[str, Any] | None = None,
         model_config: dict[str, Any] | None = None,
         transport: Callable[[dict[str, Any]], Any] | None = None,
+        credential_provider: Callable[[dict[str, str]], dict[str, str]] | None = None,
+        credentialProvider: Callable[[dict[str, str]], dict[str, str]] | None = None,
         usage_context: AxUsageContext | None = None,
         usageContext: AxUsageContext | None = None,
         **runtime_options,
@@ -545,6 +547,11 @@ class ProviderOperationClient(AxBaseAI):
         self.descriptor = descriptor
         self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL") or descriptor.get("baseUrl") or "https://api.openai.com/v1").rstrip("/")
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.credential_provider = credential_provider or credentialProvider
+        if self.descriptor.get("authRequired") and not self.api_key and not self.credential_provider:
+            raise AxAIServiceAuthenticationError(
+                f"{self.profile} requires api_key or credential_provider"
+            )
         self.api_version = descriptor.get("apiVersion") or api_version
         self.timeout = timeout
         self.transport = transport
@@ -559,6 +566,15 @@ class ProviderOperationClient(AxBaseAI):
     def get_estimated_cost(self, model_usage: dict[str, Any] | None = None) -> float:
         return float(provider_estimate_cost(model_usage or {}))
 
+    def get_features(self, model: str | None = None) -> dict[str, Any]:
+        return copy.deepcopy(
+            provider_resolve_features(
+                self.profile,
+                str(model or self.model),
+                self.options,
+            )
+        )
+
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
         realtime_model = request.get("model") or self.model
         if provider_should_use_realtime(self.profile, str(realtime_model or ""), request):
@@ -570,7 +586,8 @@ class ProviderOperationClient(AxBaseAI):
         endpoint = self._operation_path("chat", model)
         raw = self._context_cache_chat(request, payload, model, endpoint, options)
         if raw is None:
-            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"))
+            operation = "responses" if self.descriptor.get("transport") == "openai-responses" else "chat"
+            raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("chat"), operation=operation)
         return provider_normalize_chat_response(self.profile, raw, self.name, model)
 
     def _context_cache_chat(self, request, payload, model, endpoint, options):
@@ -719,7 +736,7 @@ class ProviderOperationClient(AxBaseAI):
         payload = provider_build_embed_request(self.profile, request, options)
         model = request.get("embed_model") or request.get("embedModel") or payload.get("model") or self.embed_model
         endpoint = self._operation_path("embed", model)
-        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"))
+        raw = self._request_json(endpoint, payload, stream=False, method=self._operation_method("embed"), operation="embed")
         return provider_normalize_embed_response(self.profile, raw, self.name, model)
 
     def _stream_chat(self, payload: dict[str, Any], request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -737,7 +754,7 @@ class ProviderOperationClient(AxBaseAI):
             # normalize runs (so peeking has no side effects). If the provider classifies it as
             # a retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
             # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
-            raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"))
+            raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat")
             events = _iter_sse_json(raw)
             first = next(events, sentinel)
             if first is not sentinel:
@@ -760,7 +777,7 @@ class ProviderOperationClient(AxBaseAI):
         model = request.get("model") or self.model
         descriptor = provider_operation_descriptor(self.profile, "transcribe")
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
-        raw = self._request_json(self._operation_path("transcribe", model), payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"))
+        raw = self._request_json(self._operation_path("transcribe", model), payload, stream=False, body_key=body_key, method=self._operation_method("transcribe"), operation="transcribe")
         return provider_normalize_transcribe_response(self.profile, raw)
 
     def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -769,7 +786,7 @@ class ProviderOperationClient(AxBaseAI):
         descriptor = provider_operation_descriptor(self.profile, "speak")
         body_key = "data" if descriptor.get("body") == "multipart" else "json"
         binary_response = descriptor.get("response") == "binary"
-        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"))
+        raw = self._request_json(self._operation_path("speak", model), payload, stream=False, body_key=body_key, binary_response=binary_response, method=self._operation_method("speak"), operation="speak")
         return provider_normalize_speak_response(self.profile, raw, request)
 
     def realtime(self, events: Iterable[dict[str, Any]], model: str | None = None):
@@ -883,13 +900,27 @@ class ProviderOperationClient(AxBaseAI):
         descriptor = (self.descriptor.get("operations") or {}).get(operation) or provider_operation_descriptor(self.profile, operation)
         return str(descriptor.get("method") or "POST").upper()
 
-    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None):
+    def _request_json(self, endpoint: str, payload: dict[str, Any], *, stream: bool, body_key: str = "json", binary_response: bool = False, method: str = "POST", base_url: str | None = None, operation: str = "chat"):
         method = str(method or "POST").upper()
         request_base_url = (base_url or self.base_url).rstrip("/")
+        request_url = request_base_url + endpoint
+        headers = self._headers()
+        if self.credential_provider:
+            fresh = self.credential_provider({
+                "profile": self.profile,
+                "operation": operation,
+                "method": method,
+                "url": request_url,
+            })
+            if not isinstance(fresh, dict):
+                raise AxAIServiceAuthenticationError(
+                    "credential_provider must return a header dictionary"
+                )
+            headers.update({str(key): str(value) for key, value in fresh.items()})
         call = {
             "method": method,
-            "url": request_base_url + endpoint,
-            "headers": self._headers(),
+            "url": request_url,
+            "headers": headers,
             body_key: payload,
             "stream": stream,
         }
@@ -1639,8 +1670,15 @@ class AxBalancer(AxAIService):
             },
             "caching": {"supported": False, "types": []},
         }
+        structured_output_modes: list[Any] = []
+        all_modes_advertised = bool(self.services)
         for service in self.services:
             raw = service.get_features(model) or {}
+            raw_modes = raw.get("structuredOutputModes", raw.get("structured_output_modes"))
+            if raw_modes is None:
+                all_modes_advertised = False
+            else:
+                _append_unique(structured_output_modes, list(raw_modes or []))
             for key in ("functions", "streaming", "thinking", "multiTurn", "structuredOutputs", "functionCot", "hasThinkingBudget", "hasShowThoughts"):
                 if _feature_bool(raw, key):
                     features[key] = True
@@ -1664,6 +1702,8 @@ class AxBalancer(AxAIService):
             if caching.get("supported"):
                 features["caching"]["supported"] = True
             _append_unique(features["caching"]["types"], list(caching.get("types") or []))
+        if all_modes_advertised:
+            features["structured_output_modes"] = structured_output_modes
         return features
 
     def get_metrics(self) -> dict[str, Any]:

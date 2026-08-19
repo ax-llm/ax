@@ -107,10 +107,10 @@
           "canonical_name": "ai",
           "public_name": "ai",
           "kind": "function",
-          "description": "Create a provider client from a provider name and options.",
+          "description": "Create a provider client from a named deployment profile and options.",
           "form": "ai(provider='openai', **options)",
           "important_options": [
-            "api key",
+            "api key or credential provider",
             "model",
             "api URL",
             "headers",
@@ -118,6 +118,38 @@
           ],
           "returns": "AI client/service",
           "example": "client = ai(\"openai\", api_key=os.environ[\"OPENAI_API_KEY\"])"
+        },
+        {
+          "target_name": "python",
+          "canonical_name": "AxCredentialRequest",
+          "public_name": "dict[str, str]",
+          "kind": "type",
+          "description": "Request metadata passed to a renewable credential callback for every transport attempt.",
+          "form": "dict[str, str]",
+          "important_options": [
+            "profile",
+            "operation",
+            "method",
+            "URL"
+          ],
+          "returns": "credential request"
+        },
+        {
+          "target_name": "python",
+          "canonical_name": "AxCredentialProvider",
+          "public_name": "Callable[[dict[str, str]], dict[str, str]]",
+          "kind": "interface",
+          "description": "Return fresh request headers that override static profile authentication.",
+          "form": "Callable[[dict[str, str]], dict[str, str]]",
+          "important_options": [
+            "chat",
+            "stream",
+            "embeddings",
+            "Responses",
+            "audio",
+            "retries"
+          ],
+          "returns": "header map or credential error"
         },
         {
           "target_name": "python",

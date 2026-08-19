@@ -1,0 +1,33 @@
+{
+  "name": "structured-output-native-order-before-singleton-optimization",
+  "kind": "forward",
+  "signature": "question:string -> answer:string",
+  "input": { "question": "What is Ax?" },
+  "features": {
+    "structured_outputs": true,
+    "structured_output_modes": ["native", "function", "json_object"],
+    "functions": true
+  },
+  "responses": [{ "content": "{\"answer\":\"A framework\"}" }],
+  "expected_output": { "answer": "A framework" },
+  "expected_request": {
+    "response_format": {
+      "type": "json_schema",
+      "schema": {
+        "name": "output",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "title": "output",
+          "properties": { "answer": { "type": "string" } },
+          "required": ["answer"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "provider_metadata": {
+      "ax": { "structured_output_rung": "native" }
+    }
+  },
+  "expected_request_count": 1
+}

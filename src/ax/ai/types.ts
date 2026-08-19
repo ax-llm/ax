@@ -76,6 +76,8 @@ export type AxModelInfo = {
     thinkingBudget?: boolean;
     showThoughts?: boolean;
     structuredOutputs?: boolean;
+    /** Ordered, verified structured-output strategies for this exact model. */
+    structuredOutputModes?: readonly AxStructuredOutputRung[];
   };
   notSupported?: {
     temperature?: boolean;
@@ -92,6 +94,31 @@ export type AxModelInfo = {
   /** ISO date (YYYY-MM-DD) the upstream provider will stop serving this model. */
   deprecatedOn?: string;
 };
+
+/** A concrete strategy Ax can use to obtain a typed structured result. */
+export type AxStructuredOutputRung = 'native' | 'function' | 'json_object';
+
+/** Structured-output selection policy. `auto` follows provider/model preference order. */
+export type AxStructuredOutputMode = 'auto' | AxStructuredOutputRung;
+
+export type AxAICredentialRequest = Readonly<{
+  profile: string;
+  operation:
+    | 'chat'
+    | 'stream_chat'
+    | 'embed'
+    | 'responses'
+    | 'transcribe'
+    | 'speak'
+    | 'realtime';
+  method: string;
+  url: string;
+}>;
+
+/** Supplies fresh authentication headers immediately before each HTTP attempt. */
+export type AxAICredentialProvider = (
+  request: AxAICredentialRequest
+) => Promise<Record<string, string>>;
 
 export type AxTokenUsage = {
   promptTokens: number;

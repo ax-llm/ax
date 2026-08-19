@@ -3,6 +3,7 @@ import { getModelInfo } from '../../dsp/modelinfo.js';
 import type { AxAIFeatures } from '../base.js';
 import { AxBaseAI } from '../base.js';
 import type {
+  AxAICredentialProvider,
   AxAIInputModelList,
   AxAIServiceOptions,
   AxModelConfig,
@@ -60,7 +61,9 @@ interface AxAIOpenAIResponsesBaseArgs<
   TModelKey,
   TResponsesReq extends AxAIOpenAIResponsesRequest<TModel>,
 > {
-  apiKey: string;
+  apiKey?: string;
+  credentialProvider?: AxAICredentialProvider;
+  credentialProfile?: string;
   config: AxAIOpenAIResponsesConfig<TModel, TEmbedModel>;
   options?: {
     streamingUsage?: boolean;
@@ -94,6 +97,8 @@ export class AxAIOpenAIResponsesBase<
 > {
   constructor({
     apiKey,
+    credentialProvider,
+    credentialProfile,
     config,
     options,
     apiURL,
@@ -133,7 +138,7 @@ export class AxAIOpenAIResponsesBase<
   }: Readonly<
     AxAIOpenAIResponsesBaseArgs<TModel, TEmbedModel, TModelKey, TResponsesReq>
   >) {
-    if (!apiKey || apiKey === '') {
+    if ((!apiKey || apiKey === '') && !credentialProvider) {
       throw new Error('OpenAI API key not set');
     }
 
@@ -210,7 +215,12 @@ export class AxAIOpenAIResponsesBase<
     super(aiImpl, {
       name: 'OpenAI',
       apiURL: apiURL ? apiURL : 'https://api.openai.com/v1',
-      headers: async () => ({ Authorization: `Bearer ${apiKey}` }),
+      headers: async () =>
+        apiKey
+          ? { Authorization: `Bearer ${apiKey}` }
+          : ({} as Record<string, string>),
+      profile: credentialProfile,
+      credentialProvider,
       modelInfo,
       defaults: {
         model: (config.model ?? AxAIOpenAIResponsesModel.GPT4O) as any,
@@ -221,6 +231,7 @@ export class AxAIOpenAIResponsesBase<
       supportFor,
       models: normalizedModels ?? models,
     });
+    this.setChatCredentialOperation('responses');
   }
 }
 
@@ -262,6 +273,7 @@ export class AxAIOpenAIResponses<
 > {
   constructor({
     apiKey,
+    credentialProvider,
     config,
     options,
     models,
@@ -277,7 +289,7 @@ export class AxAIOpenAIResponses<
       'name'
     >
   >) {
-    if (!apiKey || apiKey === '') {
+    if ((!apiKey || apiKey === '') && !credentialProvider) {
       throw new Error('OpenAI API key not set');
     }
 
@@ -294,12 +306,19 @@ export class AxAIOpenAIResponses<
         modelInfo,
         models,
       });
+      const nativeStructuredOutputs = mi?.supported?.structuredOutputs ?? true;
+      const structuredOutputModes =
+        mi?.supported?.structuredOutputModes ??
+        (nativeStructuredOutputs
+          ? (['native', 'function', 'json_object'] as const)
+          : (['function', 'json_object'] as const));
       return {
         functions: true,
         streaming: true,
         hasThinkingBudget: mi?.supported?.thinkingBudget ?? false,
         hasShowThoughts: mi?.supported?.showThoughts ?? false,
-        structuredOutputs: mi?.supported?.structuredOutputs ?? false,
+        structuredOutputs: structuredOutputModes.includes('native'),
+        structuredOutputModes,
         media: {
           images: {
             supported: false,
@@ -331,6 +350,8 @@ export class AxAIOpenAIResponses<
 
     super({
       apiKey,
+      credentialProvider,
+      credentialProfile: 'openai-responses',
       config: {
         ...axAIOpenAIResponsesDefaultConfig(),
         ...config,

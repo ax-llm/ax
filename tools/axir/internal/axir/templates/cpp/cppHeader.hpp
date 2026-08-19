@@ -78,6 +78,14 @@ using AxUsageContext = Value;
 using AxUsageEvent = Value;
 using AxUsageObserver = std::function<void(AxUsageEvent)>;
 
+struct AxCredentialRequest {
+  std::string profile;
+  std::string operation;
+  std::string method;
+  std::string url;
+};
+using AxCredentialProvider = std::function<std::map<std::string, std::string>(const AxCredentialRequest&)>;
+
 void set_usage_observer(AxUsageObserver observer);
 
 class AxError : public std::runtime_error {
@@ -542,8 +550,8 @@ class ScriptedRealtimeTransport : public RealtimeTransport {
 
 class OpenAICompatibleClient : public AxBaseAI {
  public:
-  explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr);
-  OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model);
+  explicit OpenAICompatibleClient(Value options = Value::object(), Transport* transport = nullptr, AxCredentialProvider credential_provider = {});
+  OpenAICompatibleClient(std::string profile, std::string name, Value options, Transport* transport, std::string default_model, std::string default_embed_model, AxCredentialProvider credential_provider = {});
   std::vector<Value> stream(Value request) override;
   Value transcribe(Value request) override;
   Value speak(Value request) override;
@@ -551,8 +559,10 @@ class OpenAICompatibleClient : public AxBaseAI {
   Value realtime_audio_setup(Value request);
   Value realtime_audio_input(Value request);
   Value realtime_chat(Value request, RealtimeTransport* transport = nullptr);
+  Value get_features(Value model = Value()) override;
   double get_estimated_cost(Value model_usage) override;
   OpenAICompatibleClient& context_cache_registry(AxContextCacheRegistry* registry);
+  OpenAICompatibleClient& credential_provider(AxCredentialProvider provider);
 
  protected:
   Value do_chat(Value request, Value options) override;
@@ -568,6 +578,7 @@ class OpenAICompatibleClient : public AxBaseAI {
   std::unique_ptr<Transport> owned_transport_;
   Transport* transport_;
   AxContextCacheRegistry* context_cache_registry_ = nullptr;
+  AxCredentialProvider credential_provider_;
   Value context_cache_entries_ = Value::object();
   Value context_cache_chat(Value request, Value options, Value payload, Value model, const std::string& endpoint);
   Value request_json(const std::string& endpoint, Value payload, bool stream);

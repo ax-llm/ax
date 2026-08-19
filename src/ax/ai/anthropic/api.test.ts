@@ -39,6 +39,60 @@ function createMockStreamFetch(chunks: readonly unknown[]) {
 }
 
 describe('AxAIAnthropic Vertex URL composition', () => {
+  it('accepts a renewable credential provider without a static API key', async () => {
+    const requests: Array<{
+      profile: string;
+      operation: string;
+      method: string;
+      url: string;
+    }> = [];
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async (_url: RequestInfo | URL, init?: RequestInit) => {
+          expect(new Headers(init?.headers).get('authorization')).toBe(
+            'Bearer renewable-anthropic-token'
+          );
+          return new Response(
+            JSON.stringify({
+              id: 'id',
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'text', text: 'ok' }],
+              model: AxAIAnthropicModel.Claude48Opus,
+              stop_reason: 'end_turn',
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+        }
+      );
+    const ai = new AxAIAnthropic({
+      credentialProvider: async (request) => {
+        requests.push(request);
+        return { Authorization: 'Bearer renewable-anthropic-token' };
+      },
+      config: { model: AxAIAnthropicModel.Claude48Opus },
+      options: { fetch },
+    });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+
+    expect(requests).toEqual([
+      expect.objectContaining({
+        profile: 'anthropic',
+        operation: 'chat',
+        method: 'POST',
+      }),
+    ]);
+  });
+
   it('routes requests through the US multi-region endpoint', async () => {
     const fetch = createMockFetch({
       id: 'id',
