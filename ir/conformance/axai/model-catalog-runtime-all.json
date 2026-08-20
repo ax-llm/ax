@@ -1833,9 +1833,7 @@
             "type": "text"
           },
           {
-            "aliases": [
-              "gpt-5.6"
-            ],
+            "aliases": ["gpt-5.6"],
             "cacheReadTokenCostPer1M": 0.5,
             "cacheWriteTokenCostPer1M": 6.25,
             "capabilities": {
@@ -2459,10 +2457,7 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": [
-              "deepseek-chat",
-              "deepseek-reasoner"
-            ],
+            "aliases": ["deepseek-chat", "deepseek-reasoner"],
             "cacheReadTokenCostPer1M": 0.0028,
             "capabilities": {
               "audioInput": false,
@@ -2523,10 +2518,7 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": [
-              "deepseek-chat",
-              "deepseek-reasoner"
-            ],
+            "aliases": ["deepseek-chat", "deepseek-reasoner"],
             "cacheReadTokenCostPer1M": 0.0028,
             "capabilities": {
               "audioInput": false,
@@ -3363,9 +3355,7 @@
             "type": "text"
           },
           {
-            "aliases": [
-              "gpt-5.6"
-            ],
+            "aliases": ["gpt-5.6"],
             "cacheReadTokenCostPer1M": 0.5,
             "cacheWriteTokenCostPer1M": 6.25,
             "capabilities": {
@@ -3605,9 +3595,7 @@
         "isDynamic": false,
         "models": [
           {
-            "aliases": [
-              "grok-4-1-fast-non-reasoning-latest"
-            ],
+            "aliases": ["grok-4-1-fast-non-reasoning-latest"],
             "cacheReadTokenCostPer1M": 0.05,
             "capabilities": {
               "audioInput": false,
@@ -3631,9 +3619,7 @@
             "type": "text"
           },
           {
-            "aliases": [
-              "grok-4-1-fast-reasoning-latest"
-            ],
+            "aliases": ["grok-4-1-fast-reasoning-latest"],
             "cacheReadTokenCostPer1M": 0.05,
             "capabilities": {
               "audioInput": false,
@@ -3761,10 +3747,7 @@
             "type": "text"
           },
           {
-            "aliases": [
-              "grok-4.3-latest",
-              "grok-latest"
-            ],
+            "aliases": ["grok-4.3-latest", "grok-latest"],
             "cacheReadTokenCostPer1M": 0.2,
             "capabilities": {
               "audioInput": false,
@@ -3810,10 +3793,7 @@
             "type": "text"
           },
           {
-            "aliases": [
-              "grok-4.5-latest",
-              "grok-build-latest"
-            ],
+            "aliases": ["grok-4.5-latest", "grok-build-latest"],
             "cacheReadTokenCostPer1M": 0.3,
             "capabilities": {
               "audioInput": false,
@@ -5121,12 +5101,7 @@
     ],
     "modelCount": 202,
     "openaiFirstModel": "text-embedding-3-small",
-    "openaiModelTypes": [
-      "audio",
-      "code",
-      "embeddings",
-      "text"
-    ],
+    "openaiModelTypes": ["audio", "code", "embeddings", "text"],
     "providerCount": 46,
     "providerNames": [
       "google-gemini",

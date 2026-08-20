@@ -463,8 +463,11 @@ module @ax.gen version "0.1" {
         core.append %function_specs, %synthetic
         %no_user_functions = core.call intrinsic.eq(%fn_count, 0)
         core.if %no_user_functions {
+          %forced_function_ref = core.map
+          core.set %forced_function_ref["name"] = "__axOutput"
           %forced_function = core.map
-          core.set %forced_function["name"] = "__axOutput"
+          core.set %forced_function["type"] = "function"
+          core.set %forced_function["function"] = %forced_function_ref
           core.set %request["function_call"] = %forced_function
         }
       }

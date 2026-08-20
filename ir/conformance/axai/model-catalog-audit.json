@@ -49,13 +49,7 @@
       "localai",
       "baseten-engine"
     ],
-    "filterOptions": [
-      "all",
-      "text",
-      "embeddings",
-      "code",
-      "audio"
-    ],
+    "filterOptions": ["all", "text", "embeddings", "code", "audio"],
     "nextMilestone": "Generated catalog provider clients match the active catalog",
     "providerCount": 46,
     "providerNames": [

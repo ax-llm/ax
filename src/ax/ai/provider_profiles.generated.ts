@@ -551,7 +551,8 @@ export const axAIProviderProfiles = {
       "thinking": false,
       "multiTurn": true,
       "structuredOutputModes": [
-        "function"
+        "function",
+        "json_object"
       ]
     },
     "operations": {
@@ -1069,11 +1070,13 @@ export const axAIProviderProfiles = {
     "capabilities": {
       "functions": true,
       "streaming": true,
-      "structuredOutputs": false,
+      "structuredOutputs": true,
       "thinking": false,
       "multiTurn": true,
       "structuredOutputModes": [
-        "function"
+        "native",
+        "function",
+        "json_object"
       ]
     },
     "operations": {

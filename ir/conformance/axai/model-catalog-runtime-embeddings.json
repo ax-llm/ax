@@ -461,9 +461,7 @@
     ],
     "modelCount": 9,
     "openaiFirstModel": "text-embedding-3-small",
-    "openaiModelTypes": [
-      "embeddings"
-    ],
+    "openaiModelTypes": ["embeddings"],
     "providerCount": 46,
     "providerNames": [
       "openai",

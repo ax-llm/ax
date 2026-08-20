@@ -86,449 +86,322 @@
     "deferredCatalogProviderIds": [],
     "profiles": {
       "amazon-bedrock": {
-        "aliases": [
-          "amazon-bedrock",
-          "bedrock"
-        ],
+        "aliases": ["amazon-bedrock", "bedrock"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "amazon-bedrock",
         "transport": "openai-chat"
       },
       "anthropic": {
-        "aliases": [
-          "anthropic",
-          "claude"
-        ],
+        "aliases": ["anthropic", "claude"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "AnthropicClient",
         "id": "anthropic",
         "transport": "anthropic-messages"
       },
       "azure-foundry": {
-        "aliases": [
-          "azure-foundry",
-          "azure-ai-foundry",
-          "microsoft-foundry"
-        ],
+        "aliases": ["azure-foundry", "azure-ai-foundry", "microsoft-foundry"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "azure-foundry",
         "transport": "openai-chat"
       },
       "azure-openai": {
-        "aliases": [
-          "azure-openai",
-          "azure_openai",
-          "azure"
-        ],
+        "aliases": ["azure-openai", "azure_openai", "azure"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "azure-openai",
         "transport": "openai-chat"
       },
       "baseten": {
-        "aliases": [
-          "baseten"
-        ],
+        "aliases": ["baseten"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "baseten",
         "transport": "openai-chat"
       },
       "baseten-engine": {
-        "aliases": [
-          "baseten-engine",
-          "truss"
-        ],
+        "aliases": ["baseten-engine", "truss"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "baseten-engine",
         "transport": "openai-chat"
       },
       "cerebras": {
-        "aliases": [
-          "cerebras"
-        ],
+        "aliases": ["cerebras"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "cerebras",
         "transport": "openai-chat"
       },
       "cloudflare-workers-ai": {
-        "aliases": [
-          "cloudflare-workers-ai",
-          "workers-ai"
-        ],
+        "aliases": ["cloudflare-workers-ai", "workers-ai"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "cloudflare-workers-ai",
         "transport": "openai-chat"
       },
       "cohere": {
-        "aliases": [
-          "cohere"
-        ],
+        "aliases": ["cohere"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "cohere",
         "transport": "openai-chat"
       },
       "databricks": {
-        "aliases": [
-          "databricks"
-        ],
+        "aliases": ["databricks"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "databricks",
         "transport": "openai-chat"
       },
       "deepinfra": {
-        "aliases": [
-          "deepinfra"
-        ],
+        "aliases": ["deepinfra"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "deepinfra",
         "transport": "openai-chat"
       },
       "deepseek": {
-        "aliases": [
-          "deepseek"
-        ],
+        "aliases": ["deepseek"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "deepseek",
         "transport": "openai-chat"
       },
       "deepseek-responses": {
-        "aliases": [
-          "deepseek-responses",
-          "deepseek_responses"
-        ],
+        "aliases": ["deepseek-responses", "deepseek_responses"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAIResponsesClient",
         "id": "deepseek-responses",
         "transport": "openai-responses"
       },
       "featherless": {
-        "aliases": [
-          "featherless",
-          "featherless-ai"
-        ],
+        "aliases": ["featherless", "featherless-ai"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "featherless",
         "transport": "openai-chat"
       },
       "fireworks": {
-        "aliases": [
-          "fireworks",
-          "fireworks-ai"
-        ],
+        "aliases": ["fireworks", "fireworks-ai"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "fireworks",
         "transport": "openai-chat"
       },
       "friendli": {
-        "aliases": [
-          "friendli",
-          "friendli-ai"
-        ],
+        "aliases": ["friendli", "friendli-ai"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "friendli",
         "transport": "openai-chat"
       },
       "google-gemini": {
-        "aliases": [
-          "google-gemini",
-          "google_gemini",
-          "gemini"
-        ],
+        "aliases": ["google-gemini", "google_gemini", "gemini"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "GoogleGeminiClient",
         "id": "google-gemini",
         "transport": "gemini-generate-content"
       },
       "grok": {
-        "aliases": [
-          "grok",
-          "xai",
-          "x-grok",
-          "x_grok"
-        ],
+        "aliases": ["grok", "xai", "x-grok", "x_grok"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "grok",
         "transport": "openai-chat"
       },
       "groq": {
-        "aliases": [
-          "groq"
-        ],
+        "aliases": ["groq"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "groq",
         "transport": "openai-chat"
       },
       "huggingface-router": {
-        "aliases": [
-          "huggingface-router",
-          "huggingface",
-          "hf-router"
-        ],
+        "aliases": ["huggingface-router", "huggingface", "hf-router"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "huggingface-router",
         "transport": "openai-chat"
       },
       "hyperbolic": {
-        "aliases": [
-          "hyperbolic"
-        ],
+        "aliases": ["hyperbolic"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "hyperbolic",
         "transport": "openai-chat"
       },
       "llama-cpp": {
-        "aliases": [
-          "llama-cpp",
-          "llama.cpp"
-        ],
+        "aliases": ["llama-cpp", "llama.cpp"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "llama-cpp",
         "transport": "openai-chat"
       },
       "lm-studio": {
-        "aliases": [
-          "lm-studio",
-          "lmstudio"
-        ],
+        "aliases": ["lm-studio", "lmstudio"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "lm-studio",
         "transport": "openai-chat"
       },
       "localai": {
-        "aliases": [
-          "localai",
-          "local-ai"
-        ],
+        "aliases": ["localai", "local-ai"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "localai",
         "transport": "openai-chat"
       },
       "mistral": {
-        "aliases": [
-          "mistral"
-        ],
+        "aliases": ["mistral"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "mistral",
         "transport": "openai-chat"
       },
       "nebius": {
-        "aliases": [
-          "nebius"
-        ],
+        "aliases": ["nebius"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "nebius",
         "transport": "openai-chat"
       },
       "novita": {
-        "aliases": [
-          "novita",
-          "novita-ai"
-        ],
+        "aliases": ["novita", "novita-ai"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "novita",
         "transport": "openai-chat"
       },
       "nscale": {
-        "aliases": [
-          "nscale"
-        ],
+        "aliases": ["nscale"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "nscale",
         "transport": "openai-chat"
       },
       "nvidia-nim": {
-        "aliases": [
-          "nvidia-nim",
-          "nim"
-        ],
+        "aliases": ["nvidia-nim", "nim"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "nvidia-nim",
         "transport": "openai-chat"
       },
       "ollama": {
-        "aliases": [
-          "ollama"
-        ],
+        "aliases": ["ollama"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "ollama",
         "transport": "openai-chat"
       },
       "openai": {
-        "aliases": [
-          "openai"
-        ],
+        "aliases": ["openai"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "openai",
         "transport": "openai-chat"
       },
       "openai-compatible": {
-        "aliases": [
-          "openai-compatible",
-          "openai_compatible",
-          "compatible"
-        ],
+        "aliases": ["openai-compatible", "openai_compatible", "compatible"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "openai-compatible",
         "transport": "openai-chat"
       },
       "openai-responses": {
-        "aliases": [
-          "openai-responses",
-          "openai_responses",
-          "responses"
-        ],
+        "aliases": ["openai-responses", "openai_responses", "responses"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAIResponsesClient",
         "id": "openai-responses",
         "transport": "openai-responses"
       },
       "openrouter": {
-        "aliases": [
-          "openrouter"
-        ],
+        "aliases": ["openrouter"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "openrouter",
         "transport": "openai-chat"
       },
       "orcarouter": {
-        "aliases": [
-          "orcarouter"
-        ],
+        "aliases": ["orcarouter"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "orcarouter",
         "transport": "openai-chat"
       },
       "ovhcloud": {
-        "aliases": [
-          "ovhcloud",
-          "ovh"
-        ],
+        "aliases": ["ovhcloud", "ovh"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "ovhcloud",
         "transport": "openai-chat"
       },
       "reka": {
-        "aliases": [
-          "reka"
-        ],
+        "aliases": ["reka"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "reka",
         "transport": "openai-chat"
       },
       "runpod-vllm": {
-        "aliases": [
-          "runpod-vllm",
-          "runpod"
-        ],
+        "aliases": ["runpod-vllm", "runpod"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "runpod-vllm",
         "transport": "openai-chat"
       },
       "sagemaker-vllm": {
-        "aliases": [
-          "sagemaker-vllm",
-          "sagemaker"
-        ],
+        "aliases": ["sagemaker-vllm", "sagemaker"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "sagemaker-vllm",
         "transport": "openai-chat"
       },
       "sambanova": {
-        "aliases": [
-          "sambanova",
-          "sambanova-cloud"
-        ],
+        "aliases": ["sambanova", "sambanova-cloud"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "sambanova",
         "transport": "openai-chat"
       },
       "scaleway": {
-        "aliases": [
-          "scaleway"
-        ],
+        "aliases": ["scaleway"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "scaleway",
         "transport": "openai-chat"
       },
       "siliconflow": {
-        "aliases": [
-          "siliconflow"
-        ],
+        "aliases": ["siliconflow"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "siliconflow",
         "transport": "openai-chat"
       },
       "together": {
-        "aliases": [
-          "together",
-          "together-ai",
-          "together_ai"
-        ],
+        "aliases": ["together", "together-ai", "together_ai"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "together",
         "transport": "openai-chat"
       },
       "vertex-ai": {
-        "aliases": [
-          "vertex-ai",
-          "vertex-openai"
-        ],
+        "aliases": ["vertex-ai", "vertex-openai"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "vertex-ai",
         "transport": "openai-chat"
       },
       "vllm": {
-        "aliases": [
-          "vllm"
-        ],
+        "aliases": ["vllm"],
         "catalogStatus": "descriptor-covered",
         "generatedClient": "OpenAICompatibleClient",
         "id": "vllm",
         "transport": "openai-chat"
       },
       "webllm": {
-        "aliases": [
-          "webllm"
-        ],
+        "aliases": ["webllm"],
         "catalogStatus": "typescript-only",
         "generatedClient": null,
         "id": "webllm",

@@ -76,7 +76,9 @@ describe('named AI deployment profiles', () => {
       config: { model: 'orcarouter/auto', stream: false },
       options: { fetch: createMockFetch(capture) },
     });
-    await service.chat({ chatPrompt: [{ role: 'user', content: 'ping' }] });
+    await service.chat({
+      chatPrompt: [{ role: 'user', content: 'ping' }],
+    });
     expect(capture.url).toBe('https://api.orcarouter.ai/v1/chat/completions');
     expect(capture.headers?.has('authorization')).toBe(true);
   });

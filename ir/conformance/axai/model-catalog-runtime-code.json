@@ -594,9 +594,7 @@
     ],
     "modelCount": 12,
     "openaiFirstModel": "gpt-5.1-codex-mini",
-    "openaiModelTypes": [
-      "code"
-    ],
+    "openaiModelTypes": ["code"],
     "providerCount": 46,
     "providerNames": [
       "mistral",
