@@ -4913,6 +4913,12 @@
         "name": "openrouter"
       },
       {
+        "displayName": "OrcaRouter",
+        "isDynamic": true,
+        "models": [],
+        "name": "orcarouter"
+      },
+      {
         "displayName": "Fireworks AI",
         "isDynamic": true,
         "models": [],
@@ -5096,7 +5102,7 @@
     "modelCount": 202,
     "openaiFirstModel": "text-embedding-3-small",
     "openaiModelTypes": ["audio", "code", "embeddings", "text"],
-    "providerCount": 45,
+    "providerCount": 46,
     "providerNames": [
       "google-gemini",
       "webllm",
@@ -5113,6 +5119,7 @@
       "azure-openai",
       "together",
       "openrouter",
+      "orcarouter",
       "fireworks",
       "huggingface-router",
       "amazon-bedrock",

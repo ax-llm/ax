@@ -56,6 +56,7 @@
     "openai-compatible": "openai-compatible",
     "openai-responses": "openai-responses",
     "openrouter": "openrouter",
+    "orcarouter": "orcarouter",
     "ovh": "ovhcloud",
     "ovhcloud": "ovhcloud",
     "reka": "reka",
@@ -322,6 +323,13 @@
         "id": "openrouter",
         "transport": "openai-chat"
       },
+      "orcarouter": {
+        "aliases": ["orcarouter"],
+        "catalogStatus": "descriptor-covered",
+        "generatedClient": "OpenAICompatibleClient",
+        "id": "orcarouter",
+        "transport": "openai-chat"
+      },
       "ovhcloud": {
         "aliases": ["ovhcloud", "ovh"],
         "catalogStatus": "descriptor-covered",
@@ -417,6 +425,7 @@
       "reka",
       "together",
       "openrouter",
+      "orcarouter",
       "fireworks",
       "huggingface-router",
       "amazon-bedrock",
