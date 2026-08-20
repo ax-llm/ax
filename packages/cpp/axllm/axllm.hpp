@@ -494,8 +494,8 @@ struct Core {
   static Value _optimization_action_name_matches(Value expected, Value call);
   static Value _adjust_optimization_score_for_actions(Value score, Value task, Value prediction);
   static Value _parse_sample_outputs(Value gen, Value output_fields, Value response, Value validate_exact_json);
-  static Value _select_sample_index(Value samples, Value options);
   static Value _build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error);
+  static Value _select_sample_index(Value samples, Value options);
   static Value _build_optimization_eval_result(Value rows, Value candidate_map, Value phase);
   static Value _forward_impl(Value gen, Value client, Value values, Value options);
   static Value _filter_optimization_components(Value components, Value target);

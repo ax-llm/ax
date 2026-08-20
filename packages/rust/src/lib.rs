@@ -44336,6 +44336,7 @@ fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_fn = CoreValue::Null;
     let mut v_fn_count = CoreValue::Null;
     let mut v_forced_function = CoreValue::Null;
+    let mut v_forced_function_ref = CoreValue::Null;
     let mut v_frequency_penalty = CoreValue::Null;
     let mut v_function_schema = CoreValue::Null;
     let mut v_function_specs = CoreValue::Null;
@@ -44605,11 +44606,22 @@ fn _build_gen_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         core_append(&v_function_specs, v_synthetic.clone())?;
         v_no_user_functions = core_eq(&[v_fn_count.clone(), CoreValue::Num(0f64)])?;
         if core_truthy(&v_no_user_functions) {
+            v_forced_function_ref = CoreValue::new_map();
+            core_set(
+                &v_forced_function_ref,
+                CoreValue::from("name"),
+                CoreValue::from("__axOutput"),
+            )?;
             v_forced_function = CoreValue::new_map();
             core_set(
                 &v_forced_function,
-                CoreValue::from("name"),
-                CoreValue::from("__axOutput"),
+                CoreValue::from("type"),
+                CoreValue::from("function"),
+            )?;
+            core_set(
+                &v_forced_function,
+                CoreValue::from("function"),
+                v_forced_function_ref.clone(),
             )?;
             core_set(
                 &v_request,
@@ -44984,6 +44996,36 @@ fn _parse_sample_outputs(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _build_optimization_eval_row(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_build_optimization_eval_row");
+    let mut v_task = core_arg(args, 0);
+    let mut v_prediction = core_arg(args, 1);
+    let mut v_scores = core_arg(args, 2);
+    let mut v_scalar = core_arg(args, 3);
+    let mut v_trace = core_arg(args, 4);
+    let mut v_error = core_arg(args, 5);
+    let mut v_has_error = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("input"), v_task.clone())?;
+    core_set(&v_out, CoreValue::from("prediction"), v_prediction.clone())?;
+    core_set(&v_out, CoreValue::from("scores"), v_scores.clone())?;
+    core_set(&v_out, CoreValue::from("scalar"), v_scalar.clone())?;
+    core_set(&v_out, CoreValue::from("trace"), v_trace.clone())?;
+    v_has_error = core_is_not_none(&[v_error.clone()])?;
+    if core_truthy(&v_has_error) {
+        core_set(&v_out, CoreValue::from("error"), v_error.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _select_sample_index(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_select_sample_index");
     let mut v_samples = core_arg(args, 0);
@@ -45048,36 +45090,6 @@ fn _select_sample_index(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         return Err(core_as_error(&v_error));
     }
     return Ok(v_selected.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _build_optimization_eval_row(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_build_optimization_eval_row");
-    let mut v_task = core_arg(args, 0);
-    let mut v_prediction = core_arg(args, 1);
-    let mut v_scores = core_arg(args, 2);
-    let mut v_scalar = core_arg(args, 3);
-    let mut v_trace = core_arg(args, 4);
-    let mut v_error = core_arg(args, 5);
-    let mut v_has_error = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("input"), v_task.clone())?;
-    core_set(&v_out, CoreValue::from("prediction"), v_prediction.clone())?;
-    core_set(&v_out, CoreValue::from("scores"), v_scores.clone())?;
-    core_set(&v_out, CoreValue::from("scalar"), v_scalar.clone())?;
-    core_set(&v_out, CoreValue::from("trace"), v_trace.clone())?;
-    v_has_error = core_is_not_none(&[v_error.clone()])?;
-    if core_truthy(&v_has_error) {
-        core_set(&v_out, CoreValue::from("error"), v_error.clone())?;
-    }
-    return Ok(v_out.clone());
 }
 
 #[allow(

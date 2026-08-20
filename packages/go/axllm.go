@@ -21431,6 +21431,7 @@ func _build_gen_chat_request(args ...Value) (Value, error) {
 	var v_fn Value
 	var v_fn_count Value
 	var v_forced_function Value
+	var v_forced_function_ref Value
 	var v_frequency_penalty Value
 	var v_function_schema Value
 	var v_function_specs Value
@@ -21496,6 +21497,7 @@ func _build_gen_chat_request(args ...Value) (Value, error) {
 	_ = v_fn
 	_ = v_fn_count
 	_ = v_forced_function
+	_ = v_forced_function_ref
 	_ = v_frequency_penalty
 	_ = v_function_schema
 	_ = v_function_specs
@@ -21658,8 +21660,11 @@ func _build_gen_chat_request(args ...Value) (Value, error) {
 		v_function_specs = coreAppend(v_function_specs, v_synthetic)
 		v_no_user_functions = _core_eq(v_fn_count, 0)
 		if coreTruthy(v_no_user_functions) {
+			v_forced_function_ref = Object()
+			if err := coreSet(v_forced_function_ref, "name", "__axOutput"); err != nil { return nil, err }
 			v_forced_function = Object()
-			if err := coreSet(v_forced_function, "name", "__axOutput"); err != nil { return nil, err }
+			if err := coreSet(v_forced_function, "type", "function"); err != nil { return nil, err }
+			if err := coreSet(v_forced_function, "function", v_forced_function_ref); err != nil { return nil, err }
 			if err := coreSet(v_request, "function_call", v_forced_function); err != nil { return nil, err }
 		} else {
 		// empty
@@ -21992,6 +21997,45 @@ func _parse_sample_outputs(args ...Value) (Value, error) {
 	return v_bundle, nil
 }
 
+func _build_optimization_eval_row(args ...Value) (Value, error) {
+	axirCoverageMark("_build_optimization_eval_row")
+	var v_task Value
+	var v_prediction Value
+	var v_scores Value
+	var v_scalar Value
+	var v_trace Value
+	var v_error Value
+	var v_has_error Value
+	var v_out Value
+	if len(args) > 0 { v_task = args[0] }
+	_ = v_task
+	if len(args) > 1 { v_prediction = args[1] }
+	_ = v_prediction
+	if len(args) > 2 { v_scores = args[2] }
+	_ = v_scores
+	if len(args) > 3 { v_scalar = args[3] }
+	_ = v_scalar
+	if len(args) > 4 { v_trace = args[4] }
+	_ = v_trace
+	if len(args) > 5 { v_error = args[5] }
+	_ = v_error
+	_ = v_has_error
+	_ = v_out
+	v_out = Object()
+	if err := coreSet(v_out, "input", v_task); err != nil { return nil, err }
+	if err := coreSet(v_out, "prediction", v_prediction); err != nil { return nil, err }
+	if err := coreSet(v_out, "scores", v_scores); err != nil { return nil, err }
+	if err := coreSet(v_out, "scalar", v_scalar); err != nil { return nil, err }
+	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
+	v_has_error = _core_is_not_none(v_error)
+	if coreTruthy(v_has_error) {
+		if err := coreSet(v_out, "error", v_error); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return v_out, nil
+}
+
 func _select_sample_index(args ...Value) (Value, error) {
 	axirCoverageMark("_select_sample_index")
 	var v_samples Value
@@ -22064,45 +22108,6 @@ func _select_sample_index(args ...Value) (Value, error) {
 	// empty
 	}
 	return v_selected, nil
-}
-
-func _build_optimization_eval_row(args ...Value) (Value, error) {
-	axirCoverageMark("_build_optimization_eval_row")
-	var v_task Value
-	var v_prediction Value
-	var v_scores Value
-	var v_scalar Value
-	var v_trace Value
-	var v_error Value
-	var v_has_error Value
-	var v_out Value
-	if len(args) > 0 { v_task = args[0] }
-	_ = v_task
-	if len(args) > 1 { v_prediction = args[1] }
-	_ = v_prediction
-	if len(args) > 2 { v_scores = args[2] }
-	_ = v_scores
-	if len(args) > 3 { v_scalar = args[3] }
-	_ = v_scalar
-	if len(args) > 4 { v_trace = args[4] }
-	_ = v_trace
-	if len(args) > 5 { v_error = args[5] }
-	_ = v_error
-	_ = v_has_error
-	_ = v_out
-	v_out = Object()
-	if err := coreSet(v_out, "input", v_task); err != nil { return nil, err }
-	if err := coreSet(v_out, "prediction", v_prediction); err != nil { return nil, err }
-	if err := coreSet(v_out, "scores", v_scores); err != nil { return nil, err }
-	if err := coreSet(v_out, "scalar", v_scalar); err != nil { return nil, err }
-	if err := coreSet(v_out, "trace", v_trace); err != nil { return nil, err }
-	v_has_error = _core_is_not_none(v_error)
-	if coreTruthy(v_has_error) {
-		if err := coreSet(v_out, "error", v_error); err != nil { return nil, err }
-	} else {
-	// empty
-	}
-	return v_out, nil
 }
 
 func _build_optimization_eval_result(args ...Value) (Value, error) {
