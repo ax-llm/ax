@@ -558,6 +558,9 @@ export async function runExternalContributionPolicy({
     login: pull.user?.login,
     type: pull.user?.type,
   });
+  core.info(
+    `PR #${number} author metadata: login=${pull.user?.login ?? 'unknown'}, type=${pull.user?.type ?? 'unknown'}, association=${pull.author_association ?? 'unknown'}, trusted=${trusted}.`
+  );
   const headSha = pull.head.sha;
   const targetUrl = actionsRunUrl(owner, repo);
   await publishStatus({
