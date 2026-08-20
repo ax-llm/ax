@@ -263,10 +263,8 @@ function currentCommit(root) {
 
 function inferSurface(paths) {
   for (const filePath of paths) {
-    const normalized = normalizePath(filePath);
-    for (const [root, surface] of portableRoots) {
-      if (normalized.startsWith(root)) return surface;
-    }
+    const surface = portableSurfaceForPath(filePath);
+    if (surface) return surface;
   }
   return 'unknown';
 }
@@ -790,6 +788,14 @@ function eventHasNoImpactLabel() {
 export function isPortableTsPath(filePath) {
   const normalized = normalizePath(filePath);
   return portableRoots.some(([root]) => normalized.startsWith(root));
+}
+
+export function portableSurfaceForPath(filePath) {
+  const normalized = normalizePath(filePath);
+  for (const [root, surface] of portableRoots) {
+    if (normalized.startsWith(root)) return surface;
+  }
+  return null;
 }
 
 export function isAxirSemanticPath(filePath) {
