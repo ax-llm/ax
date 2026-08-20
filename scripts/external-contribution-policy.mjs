@@ -94,6 +94,32 @@ export function isTrustedAuthor({ association, login, type } = {}) {
   return isTrustedAssociation(association);
 }
 
+function pullRequestAuthorMetadata({ context, pull, prNumber }) {
+  const eventPull =
+    context.eventName === 'pull_request_target'
+      ? context.payload.pull_request
+      : undefined;
+  const eventNumber = Number(context.payload.number ?? eventPull?.number);
+  if (
+    eventPull &&
+    eventNumber === prNumber &&
+    eventPull.head?.sha === pull.head.sha
+  ) {
+    return {
+      association: eventPull.author_association,
+      login: eventPull.user?.login,
+      type: eventPull.user?.type,
+      source: 'signed pull_request_target event',
+    };
+  }
+  return {
+    association: pull.author_association,
+    login: pull.user?.login,
+    type: pull.user?.type,
+    source: 'pull request API',
+  };
+}
+
 export function classifyExternalPath(filePath) {
   const normalized = normalizePath(filePath);
   if (!isSafeRepositoryPath(normalized)) {
@@ -553,13 +579,10 @@ export async function runExternalContributionPolicy({
   const pull = (
     await github.rest.pulls.get({ owner, repo, pull_number: number })
   ).data;
-  const trusted = isTrustedAuthor({
-    association: pull.author_association,
-    login: pull.user?.login,
-    type: pull.user?.type,
-  });
+  const author = pullRequestAuthorMetadata({ context, pull, prNumber: number });
+  const trusted = isTrustedAuthor(author);
   core.info(
-    `PR #${number} author metadata: login=${pull.user?.login ?? 'unknown'}, type=${pull.user?.type ?? 'unknown'}, association=${pull.author_association ?? 'unknown'}, trusted=${trusted}.`
+    `PR #${number} author metadata (${author.source}): login=${author.login ?? 'unknown'}, type=${author.type ?? 'unknown'}, association=${author.association ?? 'unknown'}, trusted=${trusted}.`
   );
   const headSha = pull.head.sha;
   const targetUrl = actionsRunUrl(owner, repo);
@@ -638,9 +661,9 @@ export async function runExternalContributionPolicy({
     }
 
     const result = evaluateExternalContribution({
-      association: pull.author_association,
-      authorLogin: pull.user?.login,
-      authorType: pull.user?.type,
+      association: author.association,
+      authorLogin: author.login,
+      authorType: author.type,
       files,
       changedFilesCount: pull.changed_files,
       prNumber: number,
