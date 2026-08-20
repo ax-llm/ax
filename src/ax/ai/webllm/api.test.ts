@@ -473,6 +473,105 @@ describe('AxAIWebLLM', () => {
     expect(lastChunk?.results[0]?.finishReason).toBe('function_call');
   });
 
+  it('degrades typed function-result parts to text on the wire', async () => {
+    const create = vi.fn().mockResolvedValue({
+      id: 'webllm-typed-function-response',
+      object: 'chat.completion',
+      created: 0,
+      model: AxAIWebLLMModel.Llama32_3B_Instruct,
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'done' },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: {
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        total_tokens: 3,
+      },
+    });
+
+    const llm = ai({
+      name: 'webllm',
+      engine: createEngine(create),
+      config: {
+        model: AxAIWebLLMModel.Llama32_3B_Instruct,
+        stream: false,
+        supportsFunctions: true,
+      },
+    });
+
+    await llm.chat({
+      chatPrompt: [
+        { role: 'user', content: 'Use a tool' },
+        {
+          role: 'assistant',
+          functionCalls: [
+            {
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'lookup', params: { id: 1 } },
+            },
+          ],
+        },
+        {
+          role: 'function',
+          functionId: 'call-1',
+          // Plain-string fallback that must NOT win when typed parts exist.
+          result: 'RESULT_ONLY_FALLBACK',
+          content: [
+            { type: 'text', text: 'Weather report' },
+            {
+              type: 'image',
+              mimeType: 'image/png',
+              image: 'QUJD',
+              altText: 'a temperature chart',
+            },
+            {
+              type: 'audio',
+              data: 'QUJD',
+              mimeType: 'audio/wav',
+              transcription: 'spoken forecast',
+            },
+            {
+              type: 'url',
+              url: 'https://example.com/report',
+              title: 'Report',
+              description: 'Full report',
+              cachedContent: 'cached report body',
+            },
+            {
+              type: 'file',
+              data: 'QUJD',
+              filename: 'report.pdf',
+              mimeType: 'application/pdf',
+              extractedText: 'extracted report text',
+            },
+          ],
+        },
+      ],
+    });
+
+    const sent = create.mock.calls[0]?.[0] as {
+      messages: { role: string; content: string }[];
+    };
+    const toolMsg = sent.messages.find((m) => m.role === 'tool');
+
+    // Typed parts must be degraded to text, not silently dropped in favor of
+    // the plain-string `result`.
+    expect(toolMsg?.content).toBe(
+      [
+        'Weather report',
+        'a temperature chart',
+        'spoken forecast',
+        'cached report body',
+        'extracted report text',
+      ].join('\n')
+    );
+  });
+
   it('preserves thrown engine errors as cause', async () => {
     const cause = new Error('engine failed');
     const llm = ai({
