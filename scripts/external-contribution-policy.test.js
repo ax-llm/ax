@@ -418,6 +418,58 @@ describe('policy comments and runner', () => {
     ]);
   });
 
+  it('uses matching signed event metadata when the API hides membership', async () => {
+    const pull = pullFixture({
+      author_association: 'COLLABORATOR',
+      changed_files: 99,
+    });
+    const mocks = githubMock({ pull, files: [], comments: [] });
+    const context = contextFixture();
+    context.eventName = 'pull_request_target';
+    context.payload.number = 700;
+    context.payload.pull_request = {
+      number: 700,
+      author_association: 'MEMBER',
+      user: { login: 'member', type: 'User' },
+      head: { sha: 'head-sha' },
+    };
+    const result = await runExternalContributionPolicy({
+      github: mocks.github,
+      context,
+      core: { info: vi.fn() },
+      prNumber: 700,
+    });
+    expect(result).toEqual(
+      expect.objectContaining({ ok: true, trusted: true })
+    );
+    expect(mocks.paginate).toHaveBeenCalledOnce();
+  });
+
+  it('ignores signed event metadata for a different head commit', async () => {
+    const pull = pullFixture({ author_association: 'COLLABORATOR' });
+    const mocks = githubMock({
+      pull,
+      files: [file('packages/go/axllm.go')],
+      comments: [],
+    });
+    const context = contextFixture();
+    context.eventName = 'pull_request_target';
+    context.payload.number = 700;
+    context.payload.pull_request = {
+      number: 700,
+      author_association: 'MEMBER',
+      user: { login: 'member', type: 'User' },
+      head: { sha: 'different-head' },
+    };
+    const result = await runExternalContributionPolicy({
+      github: mocks.github,
+      context,
+      core: { info: vi.fn() },
+      prNumber: 700,
+    });
+    expect(result).toEqual(expect.objectContaining({ ok: false }));
+  });
+
   it('treats a bot with a member association as external', async () => {
     const pull = pullFixture({
       author_association: 'MEMBER',
