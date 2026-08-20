@@ -1936,8 +1936,11 @@ def _build_gen_chat_request(gen: AxGen, messages: list[Any], options: Any, selec
         function_specs.append(synthetic)
         no_user_functions = _core_eq(fn_count, 0)
         if no_user_functions:
+            forced_function_ref = {}
+            forced_function_ref["name"] = "__axOutput"
             forced_function = {}
-            forced_function["name"] = "__axOutput"
+            forced_function["type"] = "function"
+            forced_function["function"] = forced_function_ref
             request["function_call"] = forced_function
         else:
             pass
@@ -2102,6 +2105,22 @@ def _parse_sample_outputs(gen: AxGen, output_fields: list[Any], response: Any, v
     return bundle
 
 
+def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
+    _core_coverage_mark("_build_optimization_eval_row")
+    out = {}
+    out["input"] = task
+    out["prediction"] = prediction
+    out["scores"] = scores
+    out["scalar"] = scalar
+    out["trace"] = trace
+    has_error = _core_is_not_none(error)
+    if has_error:
+        out["error"] = error
+    else:
+        pass
+    return out
+
+
 def _select_sample_index(samples: list[Any], options: Any) -> number:
     _core_coverage_mark("_select_sample_index")
     picker_snake = _core_get(options, "result_picker", None)
@@ -2132,22 +2151,6 @@ def _select_sample_index(samples: list[Any], options: Any) -> number:
     else:
         pass
     return selected
-
-
-def _build_optimization_eval_row(task: Any, prediction: Any, scores: Any, scalar: Any, trace: Any, error: Any) -> Any:
-    _core_coverage_mark("_build_optimization_eval_row")
-    out = {}
-    out["input"] = task
-    out["prediction"] = prediction
-    out["scores"] = scores
-    out["scalar"] = scalar
-    out["trace"] = trace
-    has_error = _core_is_not_none(error)
-    if has_error:
-        out["error"] = error
-    else:
-        pass
-    return out
 
 
 def _build_optimization_eval_result(rows: Any, candidate_map: Any, phase: str) -> Any:

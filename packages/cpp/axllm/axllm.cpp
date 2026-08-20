@@ -11739,8 +11739,11 @@ Value Core::_build_gen_chat_request(Value gen, Value messages, Value options, Va
     Core::append(function_specs, synthetic);
     Value no_user_functions = Core::eq(fn_count, Value(0));
     if (Core::truthy(no_user_functions)) {
+      Value forced_function_ref = Value::object();
+      Core::set(forced_function_ref, Value("name"), Value("__axOutput"));
       Value forced_function = Value::object();
-      Core::set(forced_function, Value("name"), Value("__axOutput"));
+      Core::set(forced_function, Value("type"), Value("function"));
+      Core::set(forced_function, Value("function"), forced_function_ref);
       Core::set(request, Value("function_call"), forced_function);
     }
   }
@@ -11898,6 +11901,21 @@ Value Core::_parse_sample_outputs(Value gen, Value output_fields, Value response
   return bundle;
 }
 
+Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
+  axir_coverage_mark("_build_optimization_eval_row");
+  Value out = Value::object();
+  Core::set(out, Value("input"), task);
+  Core::set(out, Value("prediction"), prediction);
+  Core::set(out, Value("scores"), scores);
+  Core::set(out, Value("scalar"), scalar);
+  Core::set(out, Value("trace"), trace);
+  Value has_error = Core::is_not_none(error);
+  if (Core::truthy(has_error)) {
+    Core::set(out, Value("error"), error);
+  }
+  return out;
+}
+
 Value Core::_select_sample_index(Value samples, Value options) {
   axir_coverage_mark("_select_sample_index");
   Value picker_snake = Core::get(options, Value("result_picker"), Value());
@@ -11926,21 +11944,6 @@ Value Core::_select_sample_index(Value samples, Value options) {
     throw Core::as_error(error);
   }
   return selected;
-}
-
-Value Core::_build_optimization_eval_row(Value task, Value prediction, Value scores, Value scalar, Value trace, Value error) {
-  axir_coverage_mark("_build_optimization_eval_row");
-  Value out = Value::object();
-  Core::set(out, Value("input"), task);
-  Core::set(out, Value("prediction"), prediction);
-  Core::set(out, Value("scores"), scores);
-  Core::set(out, Value("scalar"), scalar);
-  Core::set(out, Value("trace"), trace);
-  Value has_error = Core::is_not_none(error);
-  if (Core::truthy(has_error)) {
-    Core::set(out, Value("error"), error);
-  }
-  return out;
 }
 
 Value Core::_build_optimization_eval_result(Value rows, Value candidate_map, Value phase) {

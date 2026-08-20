@@ -10671,8 +10671,11 @@ final class Core {
       Core.append(function_specs, synthetic);
       Object no_user_functions = Core.eq(fn_count, 0);
       if (Core.truthy(no_user_functions)) {
+        Object forced_function_ref = new java.util.LinkedHashMap<String, Object>();
+        Core.set(forced_function_ref, "name", "__axOutput");
         Object forced_function = new java.util.LinkedHashMap<String, Object>();
-        Core.set(forced_function, "name", "__axOutput");
+        Core.set(forced_function, "type", "function");
+        Core.set(forced_function, "function", forced_function_ref);
         Core.set(request, "function_call", forced_function);
       }
     }
@@ -10830,6 +10833,21 @@ final class Core {
     return bundle;
   }
 
+  static Object _build_optimization_eval_row(Object task, Object prediction, Object scores, Object scalar, Object trace, Object error) {
+    axirCoverageMark("_build_optimization_eval_row");
+    Object out = new java.util.LinkedHashMap<String, Object>();
+    Core.set(out, "input", task);
+    Core.set(out, "prediction", prediction);
+    Core.set(out, "scores", scores);
+    Core.set(out, "scalar", scalar);
+    Core.set(out, "trace", trace);
+    Object has_error = Core.isNotNone(error);
+    if (Core.truthy(has_error)) {
+      Core.set(out, "error", error);
+    }
+    return out;
+  }
+
   static Object _select_sample_index(Object samples, Object options) {
     axirCoverageMark("_select_sample_index");
     Object picker_snake = Core.get(options, "result_picker", null);
@@ -10858,21 +10876,6 @@ final class Core {
       throw Core.asRuntime(error);
     }
     return selected;
-  }
-
-  static Object _build_optimization_eval_row(Object task, Object prediction, Object scores, Object scalar, Object trace, Object error) {
-    axirCoverageMark("_build_optimization_eval_row");
-    Object out = new java.util.LinkedHashMap<String, Object>();
-    Core.set(out, "input", task);
-    Core.set(out, "prediction", prediction);
-    Core.set(out, "scores", scores);
-    Core.set(out, "scalar", scalar);
-    Core.set(out, "trace", trace);
-    Object has_error = Core.isNotNone(error);
-    if (Core.truthy(has_error)) {
-      Core.set(out, "error", error);
-    }
-    return out;
   }
 
   static Object _build_optimization_eval_result(Object rows, Object candidate_map, Object phase) {
