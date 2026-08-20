@@ -5,7 +5,9 @@
 - **What is the new behavior (if this is a feature change)?**
 
 - **AxIR portable behavior check**:
-  If this changes portable TypeScript behavior under `src/ax/ai/`, `src/ax/dsp/`, `src/ax/agent/`, or `src/ax/flow/`, either update AxIR/conformance or add an entry with `npm run axir:backlog -- add ...`.
-  If the change is TS-only, add the `axir-no-impact` label or include `axir-no-impact` in a commit message.
+  External contributors must submit handwritten TypeScript only. Do not commit AxIR or generated-language changes.
+  If this changes portable TypeScript behavior, add a PR-bound entry with exact changed paths:
+  `npm run axir:backlog -- add --title "..." --surface <surface> --impact "..." --paths <exact-ts-files> --pr <pull-request-number>`.
+  Commit only the resulting `ir/axir-backlog.json` and `docs/AXIR_BACKLOG.md` alongside the TypeScript change.
 
 - **Other information**:
