@@ -63,13 +63,7 @@ if (existsSync(cliSourcePath)) {
   };
 }
 
-// Conditionally add postinstall script (only if scripts/ directory exists)
 const scriptsSourcePath = path.join(packagePath, 'scripts');
-if (existsSync(scriptsSourcePath)) {
-  packageJson.scripts = {
-    postinstall: 'node ./scripts/postinstall.mjs',
-  };
-}
 
 // Write the modified package.json to the build folder
 await writeFile(
