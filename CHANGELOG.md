@@ -1,5 +1,28 @@
 # Changelog
 
+## [24.0.1](https://github.com/ax-llm/ax/compare/23.0.16...24.0.0) (2026-08-20)
+
+### Features
+
+* add OrcaRouter named deployment profile ([#584](https://github.com/ax-llm/ax/issues/584)) ([95e4fab](https://github.com/ax-llm/ax/commit/95e4fab0c00e62805322989d0993bb9e2269882b))
+
+### Bug Fixes
+
+* **axir:** wrap forced structured-output tool_choice in a function envelope ([#585](https://github.com/ax-llm/ax/issues/585)) ([a7e05ed](https://github.com/ax-llm/ax/commit/a7e05ed2daeba734dc198b5bf5641b63425c9645)), closes [#518](https://github.com/ax-llm/ax/issues/518)
+* **profiles:** declare the structured-output modes deepseek and together actually serve ([#586](https://github.com/ax-llm/ax/issues/586)) ([bf2460a](https://github.com/ax-llm/ax/commit/bf2460a5feb4347ea79a678f524695ef9ba231c4))
+
+## [24.0.0](https://github.com/ax-llm/ax/compare/23.0.16...24.0.0) (2026-08-19)
+
+### Features
+
+* add AxGen multi-sampling parity ([#582](https://github.com/ax-llm/ax/issues/582)) ([4483dd8](https://github.com/ax-llm/ax/commit/4483dd85ca2eff4f6f3c34f423c2b0ef3500e752))
+* add named AI deployment profiles ([dec44b8](https://github.com/ax-llm/ax/commit/dec44b8fdd4a8e8deb776de0d441385d974e1f27))
+* add portable structured output and renewable credentials ([1b3b597](https://github.com/ax-llm/ax/commit/1b3b5979e2a39c391c06f7018dcaef467d58cac8))
+
+### Bug Fixes
+
+* **ci:** recognize provider kwargs term ([97c1032](https://github.com/ax-llm/ax/commit/97c10320462a77f5e4b6b7b7b73b448f361078b1))
+
 ## [24.0.0](https://github.com/ax-llm/ax/compare/23.0.15...23.0.16) (2026-08-19)
 
 ### Features
