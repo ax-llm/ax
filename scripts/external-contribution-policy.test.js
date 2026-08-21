@@ -61,6 +61,28 @@ describe('external contribution trust boundary', () => {
     expect(isTrustedAssociation(association)).toBe(false);
   });
 
+  it('trusts dosco by immutable GitHub user ID', () => {
+    expect(
+      isTrustedAuthor({
+        association: 'COLLABORATOR',
+        id: 832235,
+        login: 'dosco',
+        type: 'User',
+      })
+    ).toBe(true);
+  });
+
+  it('does not trust the dosco login without its allowlisted user ID', () => {
+    expect(
+      isTrustedAuthor({
+        association: 'COLLABORATOR',
+        id: 123456,
+        login: 'dosco',
+        type: 'User',
+      })
+    ).toBe(false);
+  });
+
   it('does not trust Dependabot or other bots by name', () => {
     expect(
       isTrustedAuthor({
@@ -73,6 +95,14 @@ describe('external contribution trust boundary', () => {
       isTrustedAuthor({
         association: 'OWNER',
         login: 'renovate[bot]',
+        type: 'Bot',
+      })
+    ).toBe(false);
+    expect(
+      isTrustedAuthor({
+        association: 'COLLABORATOR',
+        id: 832235,
+        login: 'dosco[bot]',
         type: 'Bot',
       })
     ).toBe(false);
@@ -418,6 +448,29 @@ describe('policy comments and runner', () => {
     ]);
   });
 
+  it('trusts an allowlisted maintainer without reading contributor files', async () => {
+    const pull = pullFixture({
+      author_association: 'COLLABORATOR',
+      user: { id: 832235, login: 'dosco', type: 'User' },
+      changed_files: 99,
+    });
+    const mocks = githubMock({ pull, files: [], comments: [] });
+    const result = await runExternalContributionPolicy({
+      github: mocks.github,
+      context: contextFixture(),
+      core: { info: vi.fn() },
+      prNumber: 700,
+    });
+    expect(result).toEqual(
+      expect.objectContaining({ ok: true, trusted: true })
+    );
+    expect(mocks.paginate).toHaveBeenCalledOnce();
+    expect(mocks.statusCalls.map((call) => call.state)).toEqual([
+      'pending',
+      'success',
+    ]);
+  });
+
   it('uses matching signed event metadata when the API hides membership', async () => {
     const pull = pullFixture({
       author_association: 'COLLABORATOR',
@@ -431,6 +484,33 @@ describe('policy comments and runner', () => {
       number: 700,
       author_association: 'MEMBER',
       user: { login: 'member', type: 'User' },
+      head: { sha: 'head-sha' },
+    };
+    const result = await runExternalContributionPolicy({
+      github: mocks.github,
+      context,
+      core: { info: vi.fn() },
+      prNumber: 700,
+    });
+    expect(result).toEqual(
+      expect.objectContaining({ ok: true, trusted: true })
+    );
+    expect(mocks.paginate).toHaveBeenCalledOnce();
+  });
+
+  it('uses an allowlisted user ID from matching signed event metadata', async () => {
+    const pull = pullFixture({
+      author_association: 'COLLABORATOR',
+      changed_files: 99,
+    });
+    const mocks = githubMock({ pull, files: [], comments: [] });
+    const context = contextFixture();
+    context.eventName = 'pull_request_target';
+    context.payload.number = 700;
+    context.payload.pull_request = {
+      number: 700,
+      author_association: 'COLLABORATOR',
+      user: { id: 832235, login: 'dosco', type: 'User' },
       head: { sha: 'head-sha' },
     };
     const result = await runExternalContributionPolicy({

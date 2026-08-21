@@ -14,6 +14,9 @@ export const MAX_PR_FILES = 3000;
 export const MAX_LEDGER_BYTES = 1024 * 1024;
 
 const trustedAssociations = new Set(['OWNER', 'MEMBER']);
+const trustedUserIds = new Set([
+  832235, // dosco
+]);
 const typescriptExtensions = ['.ts', '.tsx', '.mts', '.cts'];
 const generatedLanguageRoots = [
   'packages/python/',
@@ -88,10 +91,10 @@ export function isTrustedAssociation(association) {
   return trustedAssociations.has(String(association));
 }
 
-export function isTrustedAuthor({ association, login, type } = {}) {
+export function isTrustedAuthor({ association, id, login, type } = {}) {
   const normalizedLogin = String(login ?? '').toLowerCase();
   if (type === 'Bot' || normalizedLogin.endsWith('[bot]')) return false;
-  return isTrustedAssociation(association);
+  return isTrustedAssociation(association) || trustedUserIds.has(Number(id));
 }
 
 function pullRequestAuthorMetadata({ context, pull, prNumber }) {
@@ -107,6 +110,7 @@ function pullRequestAuthorMetadata({ context, pull, prNumber }) {
   ) {
     return {
       association: eventPull.author_association,
+      id: eventPull.user?.id,
       login: eventPull.user?.login,
       type: eventPull.user?.type,
       source: 'signed pull_request_target event',
@@ -114,6 +118,7 @@ function pullRequestAuthorMetadata({ context, pull, prNumber }) {
   }
   return {
     association: pull.author_association,
+    id: pull.user?.id,
     login: pull.user?.login,
     type: pull.user?.type,
     source: 'pull request API',
@@ -376,6 +381,7 @@ export function evaluateBacklogDelta({
 
 export function evaluateExternalContribution({
   association,
+  authorId,
   authorLogin,
   authorType,
   files = [],
@@ -387,6 +393,7 @@ export function evaluateExternalContribution({
   if (
     isTrustedAuthor({
       association,
+      id: authorId,
       login: authorLogin,
       type: authorType,
     })
@@ -582,7 +589,7 @@ export async function runExternalContributionPolicy({
   const author = pullRequestAuthorMetadata({ context, pull, prNumber: number });
   const trusted = isTrustedAuthor(author);
   core.info(
-    `PR #${number} author metadata (${author.source}): login=${author.login ?? 'unknown'}, type=${author.type ?? 'unknown'}, association=${author.association ?? 'unknown'}, trusted=${trusted}.`
+    `PR #${number} author metadata (${author.source}): login=${author.login ?? 'unknown'}, id=${author.id ?? 'unknown'}, type=${author.type ?? 'unknown'}, association=${author.association ?? 'unknown'}, trusted=${trusted}.`
   );
   const headSha = pull.head.sha;
   const targetUrl = actionsRunUrl(owner, repo);
@@ -662,6 +669,7 @@ export async function runExternalContributionPolicy({
 
     const result = evaluateExternalContribution({
       association: author.association,
+      authorId: author.id,
       authorLogin: author.login,
       authorType: author.type,
       files,
@@ -678,7 +686,7 @@ export async function runExternalContributionPolicy({
       state: result.ok ? 'success' : 'failure',
       description: result.ok
         ? result.trusted
-          ? 'Trusted organization member'
+          ? 'Trusted maintainer identity'
           : 'External contribution policy passed'
         : `${result.violations.length} policy violation${result.violations.length === 1 ? '' : 's'}`,
       targetUrl,
