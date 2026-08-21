@@ -39,6 +39,19 @@ function ledger(entries = [], nonPortableExemptions = []) {
   return { schemaVersion: 2, entries, nonPortableExemptions };
 }
 
+function exemption(overrides = {}) {
+  return {
+    id: 'webllm-browser-only',
+    surface: 'axai',
+    reason: 'Browser-only host runtime',
+    paths: ['src/ax/ai/webllm'],
+    scopedFiles: [],
+    tags: ['webllm', 'browser-only'],
+    createdAt: '2026-08-20',
+    ...overrides,
+  };
+}
+
 function file(filename, previousFilename) {
   return {
     filename,
@@ -328,6 +341,140 @@ describe('external backlog integrity', () => {
     );
   });
 
+  it('accepts portable paths covered by a base-owned directory exemption', () => {
+    const result = evaluateExternalContribution({
+      association: 'CONTRIBUTOR',
+      files: [
+        file('src/ax/ai/webllm/api.ts'),
+        file('src/ax/ai/webllm/api.test.ts'),
+      ],
+      changedFilesCount: 2,
+      prNumber: 700,
+      baseLedger: ledger([], [exemption()]),
+    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        exemptPortablePaths: [
+          'src/ax/ai/webllm/api.test.ts',
+          'src/ax/ai/webllm/api.ts',
+        ],
+      })
+    );
+  });
+
+  it('does not trust an exemption supplied only by the contributor head', () => {
+    const result = evaluateExternalContribution({
+      association: 'CONTRIBUTOR',
+      files: [file('src/ax/ai/webllm/api.ts')],
+      changedFilesCount: 1,
+      prNumber: 700,
+      baseLedger: ledger(),
+      headLedger: ledger([], [exemption()]),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'missing-backlog-pair' }),
+      ])
+    );
+  });
+
+  it('keeps marker-scoped exemptions fail-closed without line evidence', () => {
+    const result = evaluateExternalContribution({
+      association: 'CONTRIBUTOR',
+      files: [file('src/ax/ai/wrap.ts')],
+      changedFilesCount: 1,
+      prNumber: 700,
+      baseLedger: ledger(
+        [],
+        [
+          exemption({
+            paths: [],
+            scopedFiles: ['src/ax/ai/wrap.ts'],
+          }),
+        ]
+      ),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'missing-backlog-pair' }),
+      ])
+    );
+  });
+
+  it('accepts marker-scoped exemptions with matching line evidence', () => {
+    const filePath = 'src/ax/ai/wrap.ts';
+    const result = evaluateExternalContribution({
+      association: 'CONTRIBUTOR',
+      files: [file(filePath)],
+      changedFilesCount: 1,
+      prNumber: 700,
+      baseLedger: ledger(
+        [],
+        [
+          exemption({
+            paths: [],
+            scopedFiles: [filePath],
+          }),
+        ]
+      ),
+      changedLineRanges: { [filePath]: [{ start: 2, end: 2 }] },
+      readFile: () =>
+        [
+          '// axir-nonportable:start browser-only',
+          'const browserOnly = true;',
+          '// axir-nonportable:end browser-only',
+        ].join('\n'),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.exemptPortablePaths).toEqual([filePath]);
+  });
+
+  it('requires backlog coverage only for non-exempt portable paths', () => {
+    const baseExemption = exemption();
+    const result = evaluateExternalContribution({
+      association: 'CONTRIBUTOR',
+      files: [
+        file('src/ax/ai/webllm/api.ts'),
+        file(changedPath),
+        file(BACKLOG_PATH),
+        file(BACKLOG_DOC_PATH),
+      ],
+      changedFilesCount: 4,
+      prNumber: 700,
+      baseLedger: ledger([], [baseExemption]),
+      headLedger: ledger([openEntry()], [baseExemption]),
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects workaround backlog entries for already exempt paths', () => {
+    const baseExemption = exemption();
+    const result = evaluateExternalContribution({
+      association: 'CONTRIBUTOR',
+      files: [
+        file('src/ax/ai/webllm/api.ts'),
+        file(BACKLOG_PATH),
+        file(BACKLOG_DOC_PATH),
+      ],
+      changedFilesCount: 3,
+      prNumber: 700,
+      baseLedger: ledger([], [baseExemption]),
+      headLedger: ledger(
+        [openEntry({ tsPaths: ['src/ax/ai/webllm/api.ts'] })],
+        [baseExemption]
+      ),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'backlog-without-portable-ts' }),
+      ])
+    );
+  });
+
   it('rejects malformed and oversized ledgers without executing them', () => {
     expect(parseLedgerText('{', 'head backlog')).toEqual(
       expect.objectContaining({ ok: false })
@@ -382,6 +529,108 @@ describe('policy comments and runner', () => {
       expect.objectContaining({ comment_id: 41 })
     );
     expect(createComment).not.toHaveBeenCalled();
+  });
+
+  it('reads trusted base exemptions for portable external changes', async () => {
+    const mocks = githubMock({
+      pull: pullFixture(),
+      files: [file('src/ax/ai/webllm/api.ts')],
+      comments: [],
+      contents: [JSON.stringify(ledger([], [exemption()]))],
+    });
+    const result = await runExternalContributionPolicy({
+      github: mocks.github,
+      context: contextFixture(),
+      core: { info: vi.fn() },
+      prNumber: 700,
+    });
+    expect(result).toEqual(
+      expect.objectContaining({ ok: true, trusted: false })
+    );
+    expect(mocks.getContent).toHaveBeenCalledOnce();
+    expect(mocks.statusCalls.map((call) => call.state)).toEqual([
+      'pending',
+      'success',
+    ]);
+  });
+
+  it('verifies marker-scoped exemptions from the head patch and file', async () => {
+    const filePath = 'src/ax/ai/wrap.ts';
+    const scopedExemption = exemption({
+      paths: [],
+      scopedFiles: [filePath],
+    });
+    const mocks = githubMock({
+      pull: pullFixture(),
+      files: [
+        {
+          ...file(filePath),
+          additions: 1,
+          deletions: 1,
+          patch:
+            '@@ -1,3 +1,3 @@\n // axir-nonportable:start browser-only\n-const browserOnly = false;\n+const browserOnly = true;\n // axir-nonportable:end browser-only',
+        },
+      ],
+      comments: [],
+      contents: [
+        JSON.stringify(ledger([], [scopedExemption])),
+        [
+          '// axir-nonportable:start browser-only',
+          'const browserOnly = true;',
+          '// axir-nonportable:end browser-only',
+        ].join('\n'),
+      ],
+    });
+    const result = await runExternalContributionPolicy({
+      github: mocks.github,
+      context: contextFixture(),
+      core: { info: vi.fn() },
+      prNumber: 700,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.exemptPortablePaths).toEqual([filePath]);
+    expect(mocks.getContent).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails scoped exemptions closed when GitHub truncates the patch', async () => {
+    const filePath = 'src/ax/ai/wrap.ts';
+    const scopedExemption = exemption({
+      paths: [],
+      scopedFiles: [filePath],
+    });
+    const mocks = githubMock({
+      pull: pullFixture(),
+      files: [
+        {
+          ...file(filePath),
+          additions: 2,
+          deletions: 2,
+          patch:
+            '@@ -1,3 +1,3 @@\n // axir-nonportable:start browser-only\n-const browserOnly = false;\n+const browserOnly = true;\n // axir-nonportable:end browser-only',
+        },
+      ],
+      comments: [],
+      contents: [
+        JSON.stringify(ledger([], [scopedExemption])),
+        [
+          '// axir-nonportable:start browser-only',
+          'const browserOnly = true;',
+          '// axir-nonportable:end browser-only',
+        ].join('\n'),
+      ],
+    });
+    const result = await runExternalContributionPolicy({
+      github: mocks.github,
+      context: contextFixture(),
+      core: { info: vi.fn() },
+      prNumber: 700,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'missing-backlog-pair' }),
+      ])
+    );
   });
 
   it('creates one explanatory comment and a failure status for violations', async () => {
@@ -676,6 +925,7 @@ function githubMock({ pull, files, comments, contents = [] }) {
     updateComment,
     createComment,
     paginate,
+    getContent,
     github: {
       paginate,
       rest: {
