@@ -1,5 +1,7 @@
 # Changelog
 
+## [24.0.4](https://github.com/ax-llm/ax/compare/24.0.1...24.0.3) (2026-08-21)
+
 ## [24.0.3](https://github.com/ax-llm/ax/compare/24.0.1...24.0.1) (2026-08-21)
 
 ## [24.0.2](https://github.com/ax-llm/ax/compare/24.0.0...24.0.1) (2026-08-21)
