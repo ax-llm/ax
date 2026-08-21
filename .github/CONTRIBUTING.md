@@ -2,9 +2,10 @@
 
 ## External pull requests
 
-Pull requests authored by anyone other than a GitHub organization `OWNER` or
-`MEMBER` are limited to handwritten TypeScript. Allowed file extensions are
-`.ts`, `.tsx`, `.mts`, and `.cts`.
+Pull requests authored by anyone other than a GitHub organization `OWNER`,
+`MEMBER`, or explicitly allowlisted maintainer identity are limited to
+handwritten TypeScript. Allowed file extensions are `.ts`, `.tsx`, `.mts`, and
+`.cts`.
 
 Do not run AxIR generation or commit changes to AxIR, generated TypeScript,
 Python, Java, C++, Go, Rust, generated examples, generated website files,
