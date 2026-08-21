@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 
 import {
+  coveredByNonPortableExemption,
   isPortableTsPath,
   portableSurfaceForPath,
   validateLedger,
@@ -226,6 +227,65 @@ export function evaluateChangedFiles({ files, changedFilesCount }) {
   };
 }
 
+function changedLineRangesFromFiles(files) {
+  const ranges = {};
+  for (const file of files.filter(hasCompletePatch)) {
+    const fileRanges = [];
+    let newLine = null;
+    for (const line of file.patch.split(/\r?\n/)) {
+      if (line.startsWith('@@')) {
+        const match = /\+(\d+)(?:,(\d+))?/.exec(line);
+        newLine = match ? Number(match[1]) : null;
+        continue;
+      }
+      if (newLine === null || line.startsWith('\\')) continue;
+      if (line.startsWith('+')) {
+        const previous = fileRanges.at(-1);
+        if (previous?.end === newLine - 1) previous.end = newLine;
+        else fileRanges.push({ start: newLine, end: newLine });
+        newLine++;
+      } else if (!line.startsWith('-')) {
+        newLine++;
+      }
+    }
+    if (fileRanges.length > 0) {
+      ranges[normalizePath(file.filename)] = fileRanges;
+    }
+  }
+  return ranges;
+}
+
+function hasCompletePatch(file) {
+  if (
+    typeof file?.filename !== 'string' ||
+    typeof file?.patch !== 'string' ||
+    !Number.isInteger(file.additions) ||
+    !Number.isInteger(file.deletions)
+  ) {
+    return false;
+  }
+  let additions = 0;
+  let deletions = 0;
+  for (const line of file.patch.split(/\r?\n/)) {
+    if (line.startsWith('+')) additions++;
+    else if (line.startsWith('-')) deletions++;
+  }
+  return additions === file.additions && deletions === file.deletions;
+}
+
+function scopedExemptionPaths(portablePaths, exemptions) {
+  const portablePathSet = new Set(portablePaths.map(normalizePath));
+  return [
+    ...new Set(
+      exemptions.flatMap((exemption) =>
+        exemption.scopedFiles
+          .map(normalizePath)
+          .filter((filePath) => portablePathSet.has(filePath))
+      )
+    ),
+  ].sort();
+}
+
 export function parseLedgerText(content, label = 'ledger') {
   if (typeof content !== 'string') {
     return { ok: false, error: `${label} content is not text.` };
@@ -389,6 +449,8 @@ export function evaluateExternalContribution({
   prNumber,
   baseLedger,
   headLedger,
+  changedLineRanges,
+  readFile,
 }) {
   if (
     isTrustedAuthor({
@@ -410,6 +472,17 @@ export function evaluateExternalContribution({
   const violations = [...fileResult.violations];
   const backlogPairChanged =
     fileResult.backlogChanged && fileResult.backlogDocChanged;
+  const baseExemptions = baseLedger?.nonPortableExemptions ?? [];
+  const exemptPortablePaths = fileResult.portablePaths.filter((filePath) =>
+    coveredByNonPortableExemption(filePath, baseExemptions, {
+      changedLineRanges,
+      readFile,
+    })
+  );
+  const exemptPortablePathSet = new Set(exemptPortablePaths);
+  const uncoveredPortablePaths = fileResult.portablePaths.filter(
+    (filePath) => !exemptPortablePathSet.has(filePath)
+  );
 
   if (fileResult.backlogChanged !== fileResult.backlogDocChanged) {
     violations.push({
@@ -417,7 +490,7 @@ export function evaluateExternalContribution({
       message: `${BACKLOG_PATH} and ${BACKLOG_DOC_PATH} must change together.`,
     });
   }
-  if (fileResult.portablePaths.length > 0 && !backlogPairChanged) {
+  if (uncoveredPortablePaths.length > 0 && !backlogPairChanged) {
     violations.push({
       code: 'missing-backlog-pair',
       message:
@@ -437,7 +510,7 @@ export function evaluateExternalContribution({
           baseLedger,
           headLedger,
           prNumber,
-          portablePaths: fileResult.portablePaths,
+          portablePaths: uncoveredPortablePaths,
         })
       );
     }
@@ -448,6 +521,7 @@ export function evaluateExternalContribution({
     trusted: false,
     violations,
     portablePaths: fileResult.portablePaths,
+    exemptPortablePaths,
   };
 }
 
@@ -479,7 +553,7 @@ export function buildPolicyComment({ result, prNumber }) {
 
 ## External contribution policy
 
-This PR is blocked because outside contributors may submit only handwritten TypeScript plus a new PR-bound AxIR backlog entry.
+This PR is blocked because outside contributors may submit only handwritten TypeScript. Portable TypeScript must be covered by a base-owned non-portable exemption or a new PR-bound AxIR backlog entry.
 
 ${lines.join('\n')}
 
@@ -488,6 +562,8 @@ For portable TypeScript changes, add exact changed files with:
 \`\`\`bash
 npm run axir:backlog -- add --title "Describe the portable behavior" --surface <surface> --impact "Describe generated-language drift" --paths <exact-ts-files> --pr ${prNumber}
 \`\`\`
+
+Do not add backlog files for paths already covered by a base-owned non-portable exemption.
 
 Do not run AxIR generation or commit Python, Java, C++, Go, Rust, generated TypeScript, generated examples, or generated website files. A maintainer must recreate any needed generated changes on a member-owned branch.`;
 }
@@ -631,10 +707,13 @@ export async function runExternalContributionPolicy({
         });
     let baseLedger;
     let headLedger;
+    let exemptionChangedLineRanges;
+    let exemptionReadFile;
+    const backlogPairChanged =
+      filePreview.backlogChanged && filePreview.backlogDocChanged;
     if (
       !trusted &&
-      filePreview.backlogChanged &&
-      filePreview.backlogDocChanged
+      (filePreview.portablePaths.length > 0 || backlogPairChanged)
     ) {
       const baseText = await readRepositoryFile({
         github,
@@ -647,6 +726,37 @@ export async function runExternalContributionPolicy({
       if (!baseParsed.ok) throw new Error(baseParsed.error);
       baseLedger = baseParsed.ledger;
 
+      const scopedPaths = scopedExemptionPaths(
+        filePreview.portablePaths,
+        baseLedger.nonPortableExemptions
+      );
+      if (scopedPaths.length > 0 && pull.head.repo) {
+        const headFiles = new Map();
+        for (const filePath of scopedPaths) {
+          try {
+            headFiles.set(
+              filePath,
+              await readRepositoryFile({
+                github,
+                owner: pull.head.repo.owner.login,
+                repo: pull.head.repo.name,
+                filePath,
+                ref: headSha,
+              })
+            );
+          } catch (error) {
+            core.info(
+              `Unable to read scoped exemption file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
+        }
+        exemptionChangedLineRanges = changedLineRangesFromFiles(files);
+        exemptionReadFile = (filePath) =>
+          headFiles.get(normalizePath(filePath));
+      }
+    }
+
+    if (!trusted && backlogPairChanged) {
       if (!pull.head.repo) {
         throw new Error('The PR head repository is unavailable.');
       }
@@ -677,6 +787,8 @@ export async function runExternalContributionPolicy({
       prNumber: number,
       baseLedger,
       headLedger,
+      changedLineRanges: exemptionChangedLineRanges,
+      readFile: exemptionReadFile,
     });
     await publishStatus({
       github,

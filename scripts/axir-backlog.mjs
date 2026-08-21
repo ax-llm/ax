@@ -866,7 +866,7 @@ function fileContentFor(readFile, changedPath) {
   }
 }
 
-function coveredByNonPortableExemption(
+export function coveredByNonPortableExemption(
   changedPath,
   exemptions,
   { changedLineRanges, readFile } = {}
