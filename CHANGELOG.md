@@ -1,5 +1,18 @@
 # Changelog
 
+## [24.0.2](https://github.com/ax-llm/ax/compare/24.0.0...24.0.1) (2026-08-21)
+
+## [24.0.1](https://github.com/ax-llm/ax/compare/24.0.0...24.0.1) (2026-08-20)
+
+### Features
+
+* add OrcaRouter named deployment profile ([#584](https://github.com/ax-llm/ax/issues/584)) ([95e4fab](https://github.com/ax-llm/ax/commit/95e4fab0c00e62805322989d0993bb9e2269882b))
+
+### Bug Fixes
+
+* **axir:** wrap forced structured-output tool_choice in a function envelope ([#585](https://github.com/ax-llm/ax/issues/585)) ([a7e05ed](https://github.com/ax-llm/ax/commit/a7e05ed2daeba734dc198b5bf5641b63425c9645)), closes [#518](https://github.com/ax-llm/ax/issues/518)
+* **profiles:** declare the structured-output modes deepseek and together actually serve ([#586](https://github.com/ax-llm/ax/issues/586)) ([bf2460a](https://github.com/ax-llm/ax/commit/bf2460a5feb4347ea79a678f524695ef9ba231c4))
+
 ## [24.0.1](https://github.com/ax-llm/ax/compare/23.0.16...24.0.0) (2026-08-20)
 
 ### Features
