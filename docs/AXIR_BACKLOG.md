@@ -18,13 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-08-20-webllm-function-result-typed-parts-degrade-to-text` [axai] WebLLM function-result typed parts degrade to text
-  - Status: open
-  - Source PR: #591
-  - Source commit: `924f83f015750cf1a4e2533de37693ee781d0b01`
-  - TS paths: `src/ax/ai/webllm/api.ts`
-  - Impact: Generated languages can drift if their WebLLM provider keeps serializing only msg.result and drops typed image/audio/url/file function-result parts
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 

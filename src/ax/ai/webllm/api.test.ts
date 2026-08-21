@@ -526,12 +526,12 @@ describe('AxAIWebLLM', () => {
             {
               type: 'image',
               mimeType: 'image/png',
-              image: 'QUJD',
+              image: 'data',
               altText: 'a temperature chart',
             },
             {
               type: 'audio',
-              data: 'QUJD',
+              data: 'data',
               mimeType: 'audio/wav',
               transcription: 'spoken forecast',
             },
@@ -544,7 +544,7 @@ describe('AxAIWebLLM', () => {
             },
             {
               type: 'file',
-              data: 'QUJD',
+              data: 'data',
               filename: 'report.pdf',
               mimeType: 'application/pdf',
               extractedText: 'extracted report text',
@@ -570,6 +570,22 @@ describe('AxAIWebLLM', () => {
         'extracted report text',
       ].join('\n')
     );
+
+    await llm.chat({
+      chatPrompt: [
+        {
+          role: 'function',
+          functionId: 'call-2',
+          result: 'EMPTY_CONTENT_FALLBACK',
+          content: [],
+        },
+      ],
+    });
+
+    const fallbackSent = create.mock.calls[1]?.[0] as {
+      messages: { role: string; content: string }[];
+    };
+    expect(fallbackSent.messages[0]?.content).toBe('EMPTY_CONTENT_FALLBACK');
   });
 
   it('preserves thrown engine errors as cause', async () => {

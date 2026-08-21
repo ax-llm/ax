@@ -1139,25 +1139,6 @@
       "completedAt": "2026-08-16",
       "completedByCommit": "43c98eceafbbefcb6cf9ed99086ced5a52ebb7f0",
       "verification": "Exact MCP/UCP runtime-module paths, dynamic executor authority, and no actor provider-native leakage are covered by the execution-context-ucp fixture across generated Python, Java, C++, Go, and Rust; axir:conformance:check, axir:check-packages, and the full generated-example matrix pass. npm run test:axir compiled the generated packages before unrelated audio HTTP examples hit the sandbox loopback-bind restriction."
-    },
-    {
-      "id": "axir-2026-08-20-webllm-function-result-typed-parts-degrade-to-text",
-      "status": "open",
-      "title": "WebLLM function-result typed parts degrade to text",
-      "createdAt": "2026-08-20",
-      "sourcePR": 591,
-      "sourceCommit": "924f83f015750cf1a4e2533de37693ee781d0b01",
-      "tsPaths": ["src/ax/ai/webllm/api.ts"],
-      "portableSurface": "axai",
-      "impact": "Generated languages can drift if their WebLLM provider keeps serializing only msg.result and drops typed image/audio/url/file function-result parts",
-      "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
     }
   ],
   "nonPortableExemptions": [
