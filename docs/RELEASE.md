@@ -153,11 +153,11 @@ optimizer artifacts, and GEPA.
 
 ## Publishing Shape
 
-Publishing is secret-gated per ecosystem and runs from GitHub Actions after a
-GitHub Release is published:
+Publishing runs from GitHub Actions after a GitHub Release is published, with
+manual dispatch available for retries and verification:
 
-- `.github/workflows/npm-publish.yml` runs `npm run publish` for the npm
-  workspaces with `NODE_AUTH_TOKEN`.
+- `.github/workflows/npm-publish.yml` publishes the npm workspaces through npm
+  trusted publishing with GitHub Actions OIDC and signed provenance.
 - `.github/workflows/package-publish.yml` separately publishes generated
   packages from the same release event.
 - Current generated-package publishing covers Python/PyPI and Rust/crates.io.
