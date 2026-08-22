@@ -104,13 +104,45 @@ class AxAIWebLLMImpl
 
     const messages = req.chatPrompt.map((msg) => {
       if (msg.role === 'function') {
+        // Degrade typed function-result parts (image/audio/url/file) to text
+        // so tool/MCP output is not silently dropped on the WebLLM wire, which
+        // has no native multimodal tool-result channel. Mirrors the OpenAI
+        // provider's text-degrade in src/ax/ai/openai/api.ts.
+        const content = msg.content?.length
+          ? msg.content
+              .map((part) => {
+                if (part.type === 'text') return part.text;
+                if (part.type === 'image') {
+                  return part.altText ?? `[MCP image result: ${part.mimeType}]`;
+                }
+                if (part.type === 'audio') {
+                  return (
+                    part.transcription ??
+                    `[MCP audio result: ${part.mimeType ?? 'application/octet-stream'}]`
+                  );
+                }
+                if (part.type === 'url') {
+                  return (
+                    part.cachedContent ??
+                    [part.title, part.description, part.url]
+                      .filter(Boolean)
+                      .join('\n')
+                  );
+                }
+                return (
+                  part.extractedText ??
+                  `[MCP file result: ${part.filename ?? 'file'} (${part.mimeType})]`
+                );
+              })
+              .join('\n')
+          : typeof msg.result === 'string'
+            ? msg.result
+            : JSON.stringify(msg.result);
+
         return {
           role: 'tool' as const,
           tool_call_id: msg.functionId,
-          content:
-            typeof msg.result === 'string'
-              ? msg.result
-              : JSON.stringify(msg.result),
+          content,
         };
       }
 
