@@ -8,9 +8,7 @@
       "createdAt": "2026-06-07",
       "sourcePR": null,
       "sourceCommit": "4e8da4ba",
-      "tsPaths": [
-        "src/ax/mcp"
-      ],
+      "tsPaths": ["src/ax/mcp"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust packages do not yet expose the modern MCP client, transports, OAuth discovery, or SSRF guard behavior.",
       "suggestedAxirWork": [
@@ -51,9 +49,7 @@
       "createdAt": "2026-06-24",
       "sourcePR": 556,
       "sourceCommit": "2d1a5f96f033640bf4e892e866fde99bc92e8268",
-      "tsPaths": [
-        "src/ax/ai"
-      ],
+      "tsPaths": ["src/ax/ai"],
       "portableSurface": "axai",
       "impact": "Generated Python/Java/C++/Go/Rust packages still map Anthropic streaming error events (overloaded_error/api_error/rate_limit_error) to refusals instead of retryable status errors, and lack the balancer's 529 retryability, pre-content streaming-overload retry-with-backoff, and mid-stream failure recording — so transient Anthropic errors hard-fail there with no retry or failover.",
       "suggestedAxirWork": [
@@ -121,9 +117,7 @@
       "createdAt": "2026-07-01",
       "sourcePR": null,
       "sourceCommit": "6d7286ce",
-      "tsPaths": [
-        "src/ax/agent/agentInternal/coordinator.ts"
-      ],
+      "tsPaths": ["src/ax/agent/agentInternal/coordinator.ts"],
       "portableSurface": "axagent",
       "impact": "In TS the memories block keeps its prompt-cache breakpoint after the agent rebuilds its signature via setSignature(); a narrow coordinator fix restored this. Generated Python/Java/C++/Go/Rust ports may drop the memories cache breakpoint when the signature is rebuilt mid-run, losing prompt-cache reuse for the memories section and paying full tokens for it every turn.",
       "suggestedAxirWork": [
@@ -296,9 +290,7 @@
       "createdAt": "2026-07-12",
       "sourcePR": null,
       "sourceCommit": "9c0520371669a553eed605351fdd5417a734da1f",
-      "tsPaths": [
-        "src/ax/event"
-      ],
+      "tsPaths": ["src/ax/event"],
       "portableSurface": "axprogram",
       "impact": "Generated Python, Java, C++, Go, and Rust now enforce strict same-instance retry ordering and normalize callback/default event input through the destination signature, including cloning accepted values, stripping undeclared fields, and rejecting invalid values before invocation.",
       "suggestedAxirWork": [
@@ -317,9 +309,7 @@
       "createdAt": "2026-07-12",
       "sourcePR": null,
       "sourceCommit": "47856347b35aed15f2ec0f7884c235f0868c3f88",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust now expose catalog snapshots, explicit/all/selector subscription policies, logical ownership, dynamic catalog reconciliation, reconnect restoration, and real Streamable HTTP/SSE wake/resume behavior.",
       "suggestedAxirWork": [
@@ -440,10 +430,7 @@
       "createdAt": "2026-07-14",
       "sourcePR": 561,
       "sourceCommit": "5dfd044af5b6ac2c1839a40262286fec7c55e2ec",
-      "tsPaths": [
-        "src/ax/ai/anthropic/types.ts",
-        "src/ax/ai/anthropic/api.ts"
-      ],
+      "tsPaths": ["src/ax/ai/anthropic/types.ts", "src/ax/ai/anthropic/api.ts"],
       "portableSurface": "axai",
       "impact": "TS now sets thinking.display on the adaptive request: display='summarized' by default (gated on showThoughts) so the human-readable reasoning summary is returned, or 'omitted' when showThoughts===false. The Anthropic IR's adaptive branch (provider.axir, is_adaptive) builds thinking={type:'adaptive'} with no display field, so generated Python/Java/C++/Go/Rust targets inherit Anthropic's server default of display='omitted' on Sonnet 5 / Opus 4.7+ — the model still thinks and bills, but streams empty thinking text, and there is no way to request the summary. Fix: mirror the TS derivation by setting thinking['display'] in the is_adaptive block from the showThoughts option (summarized unless showThoughts is false).",
       "suggestedAxirWork": [
@@ -517,10 +504,7 @@
       "createdAt": "2026-07-21",
       "sourcePR": null,
       "sourceCommit": "f1d93bbcc79a4223e21c4197cf875a23e889c37f",
-      "tsPaths": [
-        "src/ax/ai/balance.ts",
-        "src/ax/ai/balance_adaptive.ts"
-      ],
+      "tsPaths": ["src/ax/ai/balance.ts", "src/ax/ai/balance_adaptive.ts"],
       "portableSurface": "axai",
       "impact": "Adds opt-in chat routing based on shared failure EWMA, log-latency Thompson sampling, deadline risk, and estimated provider cost.",
       "suggestedAxirWork": [
@@ -539,9 +523,7 @@
       "createdAt": "2026-07-21",
       "sourcePR": null,
       "sourceCommit": "1acfd7dede33f7de6c9e2c56a6457bfcec9c95a0",
-      "tsPaths": [
-        "src/ax/ai/google-gemini"
-      ],
+      "tsPaths": ["src/ax/ai/google-gemini"],
       "portableSurface": "axai",
       "impact": "TypeScript exposes the new Gemini 3.6 Flash and 3.5 Flash-Lite model IDs, catalog pricing and limits, explicit context caching, and server-managed sampling behavior. Generated Python, Java, C++, Go, and Rust providers do not yet expose equivalent model metadata or omit temperature, top_p, and top_k for these models.",
       "suggestedAxirWork": [
@@ -627,9 +609,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "8b69691ef0fb0d957428f198de38354b46b26069",
-      "tsPaths": [
-        "src/ax/mcp"
-      ],
+      "tsPaths": ["src/ax/mcp"],
       "portableSurface": "axmcp",
       "impact": "TypeScript gains a dual-era MCP client for the stateless 2026-07-28 protocol while generated Python, Java, C++, Go, and Rust clients remain on the 2025-11-25 lifecycle.",
       "suggestedAxirWork": [
@@ -648,9 +628,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust clients still initialize only the 2025-11-25 stateful lifecycle and do not probe server/discover, classify and cache an endpoint era, retry -32022 with a mutual version, or expose discover and getEra.",
       "suggestedAxirWork": [
@@ -669,9 +647,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/transports/httpStreamTransport.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/transports/httpStreamTransport.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust Streamable HTTP transports still build legacy session headers and do not derive Mcp-Method or Mcp-Name, validate RFC 9110 header values, or omit Mcp-Session-Id for modern requests.",
       "suggestedAxirWork": [
@@ -690,9 +666,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/cache.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/cache.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust catalog and resource readers ignore 2026-07-28 ttlMs and cacheScope metadata and lack the CacheableResult refresh and cache-expiry contract.",
       "suggestedAxirWork": [
@@ -711,9 +685,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/oauth/oauthHelper.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/oauth/oauthHelper.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust OAuth surfaces are currently stubs, so the RFC 9207 authorization-response iss check is a near-noop until their OAuth authorization-code flows become functional.",
       "suggestedAxirWork": [
@@ -732,9 +704,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/tasksV2.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/tasksV2.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust clients implement the legacy task draft only and do not negotiate io.modelcontextprotocol/tasks, expose task outcomes and tasks/update input, or consume embedded terminal results and errors.",
       "suggestedAxirWork": [
@@ -753,9 +723,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/meta.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/meta.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust clients do not attach 2026-07-28 protocolVersion and clientCapabilities metadata to every request, leaving a zero-footprint modern metadata boundary in the generated ports.",
       "suggestedAxirWork": [
@@ -774,9 +742,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust event adapters still use legacy resources/subscribe plus GET/SSE and Last-Event-ID; they do not issue or restart subscriptions/listen POST streams with modern interests.",
       "suggestedAxirWork": [
@@ -795,9 +761,7 @@
       "createdAt": "2026-07-29",
       "sourcePR": null,
       "sourceCommit": "4d479b97f933b977c6c79d98fe2fc4b984fb7b96",
-      "tsPaths": [
-        "src/ax/mcp/mrtr.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/mrtr.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust clients initially could not fulfill modern input_required rounds. This completed first tranche deliberately covered roots only and is superseded by the MRTR elicitation host-callback tranche; sampling remains outside the generated-port scope.",
       "suggestedAxirWork": [
@@ -816,9 +780,7 @@
       "createdAt": "2026-07-30",
       "sourcePR": null,
       "sourceCommit": "4f0d018f",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "TypeScript can dispatch a legacy server-initiated elicitation/create request through the host handler, while generated clients currently expose elicitation only inside modern MRTR input rounds; Rust and C++ also lack general inbound server-request plumbing.",
       "suggestedAxirWork": [
@@ -837,10 +799,7 @@
       "createdAt": "2026-07-30",
       "sourcePR": null,
       "sourceCommit": "4f0d018f",
-      "tsPaths": [
-        "src/ax/mcp/mrtr.ts",
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/mrtr.ts", "src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "The generated Python, Java, C++, Go, and Rust clients can fulfill roots-only modern MRTR rounds but lack host elicitation callbacks and can advertise sampling or elicitation option keys they cannot execute.",
       "suggestedAxirWork": [
@@ -859,9 +818,7 @@
       "createdAt": "2026-07-30",
       "sourcePR": null,
       "sourceCommit": "4f0d018f",
-      "tsPaths": [
-        "src/ax/mcp/client.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/client.ts"],
       "portableSurface": "axmcp",
       "impact": "TypeScript can fulfill input_required task status through tasks/update and continue polling, while generated clients currently auto-await only working and terminal task states and do not run the input-request fulfillment loop.",
       "suggestedAxirWork": [
@@ -907,9 +864,7 @@
       "createdAt": "2026-07-31",
       "sourcePR": null,
       "sourceCommit": "9e4f3ed15f28dcc891556cc611ed7da997bb9aac",
-      "tsPaths": [
-        "src/ax/mcp/oauth/oauthHelper.ts"
-      ],
+      "tsPaths": ["src/ax/mcp/oauth/oauthHelper.ts"],
       "portableSurface": "axmcp",
       "impact": "Generated Python, Java, C++, Go, and Rust OAuth transports fabricate bearer tokens instead of performing RFC 9728 discovery, PKCE authorization-code or client-credentials exchange, 60-second-skew refresh, RFC 8707 resource binding, and RFC 9207 issuer validation against the discovered authorization server.",
       "suggestedAxirWork": [
@@ -1065,10 +1020,7 @@
       "createdAt": "2026-08-12",
       "sourcePR": 576,
       "sourceCommit": "2215088b466141dc82c31b8db9206c64295ada6a",
-      "tsPaths": [
-        "src/ax/ai/anthropic/info.ts",
-        "src/ax/ai/catalog.test.ts"
-      ],
+      "tsPaths": ["src/ax/ai/anthropic/info.ts", "src/ax/ai/catalog.test.ts"],
       "portableSurface": "axai",
       "impact": "Generated Python, Java, C++, Go, and Rust catalogs still embed the pre-correction Claude Sonnet 5 rates ($3/$15 per 1M, $0.30 cache read, $3.75 cache write), so cost estimates on those targets are ~50% high and cheapest-first model ordering ranks Sonnet 5 above its true cost.",
       "suggestedAxirWork": [
@@ -1087,9 +1039,7 @@
       "createdAt": "2026-08-13",
       "sourcePR": null,
       "sourceCommit": "83468e8c20e760ece48dc921c67c2bc874860f3f",
-      "tsPaths": [
-        "src/ax/ai/google-gemini"
-      ],
+      "tsPaths": ["src/ax/ai/google-gemini"],
       "portableSurface": "axai",
       "impact": "TypeScript should expose the Gemini 3.7 Flash model ID, catalog metadata, explicit context caching, and server-managed sampling behavior; generated language providers remain unchanged.",
       "suggestedAxirWork": [
@@ -1154,10 +1104,7 @@
       "createdAt": "2026-08-15",
       "sourcePR": null,
       "sourceCommit": "30ae9feee1833307577cc43408d9c0256f8693d7",
-      "tsPaths": [
-        "src/ax/dsp/prompt.ts",
-        "src/ax/agent/templates/dsp/dspy.md"
-      ],
+      "tsPaths": ["src/ax/dsp/prompt.ts", "src/ax/agent/templates/dsp/dspy.md"],
       "portableSurface": "axgen",
       "impact": "Custom AxGen instructions must compose with identity, tools, exact output wire keys, nested shapes, examples, and formatting rules in TypeScript and every AxIR-generated package instead of replacing the structured prompt.",
       "suggestedAxirWork": [
@@ -1195,7 +1142,7 @@
     },
     {
       "id": "axir-2026-08-18-preserve-native-image-content-in-provider-routing",
-      "status": "open",
+      "status": "done",
       "title": "Preserve native image content in provider routing",
       "createdAt": "2026-08-20",
       "sourcePR": 580,
@@ -1212,9 +1159,9 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-08-22",
+      "completedByCommit": "040f954bce9c7dca44f7fd3436886d036f9e358b",
+      "verification": "TS-derived native-image routing fixture; five-language AxIR dev verifier; npm run axir:check-packages; go test ./internal/axir; focused TypeScript router tests"
     }
   ],
   "nonPortableExemptions": [
@@ -1227,21 +1174,14 @@
         "src/ax/agent/agentInternal/agentStateTypes.ts"
       ],
       "scopedFiles": [],
-      "tags": [
-        "claim-complete",
-        "target-native",
-        "public-inventory"
-      ],
+      "tags": ["claim-complete", "target-native", "public-inventory"],
       "reason": "The claim-complete AxAgent gate inventories the entire inherited TypeScript surface. Members outside the enrolled skills, memories, ranker, observer, prompt, forward, and state lifecycle contract retain target-native generated APIs or TypeScript coordinator/DSP semantics and are explicitly not claimed byte-for-byte portable by this enrollment.",
       "createdAt": "2026-07-22"
     },
     {
       "id": "webllm-browser-only",
       "surface": "axai",
-      "paths": [
-        "src/ax/ai/webllm",
-        "src/examples/webllm-chat.html"
-      ],
+      "paths": ["src/ax/ai/webllm", "src/examples/webllm-chat.html"],
       "scopedFiles": [
         "src/ax/ai/wrap.ts",
         "src/ax/ai/catalog.ts",
@@ -1249,12 +1189,7 @@
         "src/ax/ai/wrap.test.ts",
         "src/ax/skills/ax-ai.md"
       ],
-      "tags": [
-        "webllm",
-        "browser-only",
-        "webgpu",
-        "host-engine"
-      ],
+      "tags": ["webllm", "browser-only", "webgpu", "host-engine"],
       "reason": "WebLLM is browser-specific integration code around a caller-supplied MLCEngine/WebGPU runtime. It is not a portable Ax semantic and should not create Python/Java/C++/Go/Rust AxIR backlog work.",
       "createdAt": "2026-06-26"
     }

@@ -604,7 +604,7 @@ const visionSpec = {
     functions: true,
     streaming: true,
     media: {
-      images: { supported: true, formats: ['png'] },
+      images: { supported: true, formats: ['jpeg', 'png'] },
       audio: {
         supported: false,
         formats: [],
@@ -621,17 +621,37 @@ const routingRequest = {
       role: 'user',
       content: [
         { type: 'text', text: 'see' },
-        { type: 'image', image: 'abc', altText: 'diagram', cache: true },
+        {
+          type: 'image',
+          image: 'first-image-bytes',
+          mimeType: 'image/jpeg',
+          details: 'high',
+          cache: true,
+          optimize: 'quality',
+          altText: 'first diagram',
+        },
+        { type: 'text', text: 'then compare' },
+        {
+          type: 'image',
+          image: 'second-image-bytes',
+          mimeType: 'image/png',
+          details: 'low',
+          cache: false,
+          optimize: 'size',
+          altText: 'second diagram',
+        },
       ],
     },
   ],
   functions: [{ name: 'tool' }],
   modelConfig: { stream: true },
 };
+const textOnlyProvider = new FixtureAIService(textOnlySpec);
+const visionProvider = new FixtureAIService(visionSpec);
 const providerRouter = new AxProviderRouter({
   providers: {
-    primary: new FixtureAIService(textOnlySpec) as any,
-    alternatives: [new FixtureAIService(visionSpec) as any],
+    primary: textOnlyProvider as any,
+    alternatives: [visionProvider as any],
   },
   routing: {
     preferenceOrder: ['capability'],
@@ -642,6 +662,18 @@ const providerRouter = new AxProviderRouter({
 const recommendation = await providerRouter.getRoutingRecommendation(
   routingRequest as any
 );
+const providerRouterValidation = await providerRouter.validateRequest(
+  routingRequest as any
+);
+const providerRouterStats = providerRouter.getRoutingStats();
+await providerRouter.chat(
+  routingRequest as any,
+  {
+    traceLabel: 'native-image-preservation',
+  } as any
+);
+const forwardedContent = visionProvider.requests[0]?.req?.chatPrompt?.[0]
+  ?.content as Json;
 writeFixture('provider-router-recommendation', {
   kind: 'ai_provider_router',
   services: [textOnlySpec, visionSpec],
@@ -658,10 +690,9 @@ writeFixture('provider-router-recommendation', {
       degradations: recommendation.degradations,
       warnings: recommendation.warnings,
     },
-    validation: (await providerRouter.validateRequest(routingRequest as any)) as
-      | Json
-      | any,
-    stats: providerRouter.getRoutingStats() as any,
+    forwardedContent,
+    validation: providerRouterValidation as Json | any,
+    stats: providerRouterStats as any,
   },
 });
 

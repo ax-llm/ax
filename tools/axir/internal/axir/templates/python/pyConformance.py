@@ -156,6 +156,7 @@ class RouterFixtureService(AxBaseAI):
         self.fixture_id = spec.get("id", f"{self.name}-id")
         self.model_list = copy.deepcopy(spec.get("modelList", spec.get("model_list")))
         self.requests = []
+        self.last_chat_request = None
         self.responses = list(spec.get("responses") or [])
         self.metrics_value = copy.deepcopy(spec.get("metrics") or {"service": self.name, "calls": 0})
         self.estimated_cost = float(spec.get("estimatedCost", spec.get("estimated_cost", 0)))
@@ -176,6 +177,7 @@ class RouterFixtureService(AxBaseAI):
         return self.estimated_cost
 
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
+        self.last_chat_request = copy.deepcopy(request)
         self.requests.append({"method": "chat", "opt": copy.deepcopy(options or {})})
         if self.responses:
             next_response = self.responses.pop(0)
@@ -2594,8 +2596,14 @@ def _run_ai_provider_router(fixture):
         "validation": router.validate_request(request),
         "stats": router.get_routing_stats(),
     }
+    expected_output = fixture.get("expected_output") or {}
+    if "forwardedContent" in expected_output:
+        router.chat(request, {})
+        forwarded_request = provider.last_chat_request if provider else {}
+        prompt = forwarded_request.get("chatPrompt") or forwarded_request.get("chat_prompt") or []
+        actual["forwardedContent"] = copy.deepcopy((prompt[0] if prompt else {}).get("content"))
     if "expected_output" in fixture:
-        _assert_subset(actual, fixture["expected_output"], "provider router")
+        _assert_subset(actual, expected_output, "provider router")
 
 
 def _run_ai_balancer(fixture):

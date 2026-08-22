@@ -1439,6 +1439,71 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @provider_route_preprocess_request {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    tag "provider-routing-runtime"
+    tag "provider-routing-native-image-preservation"
+    type signature = "(features:json, request:json) -> json"
+    body @entry(%features: json, %request: json) {
+      %supports_images = core.call @provider_features_support(%features, "images")
+      %does_not_support_images = core.call intrinsic.not(%supports_images)
+      core.if %does_not_support_images {
+        core.return %request
+      }
+
+      %has_camel_prompt = core.call intrinsic.map.contains(%request, "chatPrompt")
+      %has_snake_prompt = core.call intrinsic.map.contains(%request, "chat_prompt")
+      %has_any_prompt = core.call intrinsic.or(%has_camel_prompt, %has_snake_prompt)
+      %missing_prompt = core.call intrinsic.not(%has_any_prompt)
+      core.if %missing_prompt {
+        core.return %request
+      }
+
+      %prompt_key = core.let "chatPrompt"
+      %prompt = core.get %request["chatPrompt"] default null
+      %missing_camel_prompt = core.call intrinsic.not(%has_camel_prompt)
+      core.if %missing_camel_prompt {
+        %prompt_key = core.let "chat_prompt"
+        %prompt = core.get %request["chat_prompt"] default null
+      }
+      %prompt_is_list = core.type_is %prompt type "list"
+      %prompt_not_list = core.call intrinsic.not(%prompt_is_list)
+      core.if %prompt_not_list {
+        core.return %request
+      }
+
+      %processed_prompt = core.list
+      core.for %message in %prompt {
+        %message_seed = core.map
+        %message_copy = core.call intrinsic.map.merge(%message_seed, %message)
+        %content = core.get %message["content"] default null
+        %content_is_list = core.type_is %content type "list"
+        core.if %content_is_list {
+          %processed_content = core.list
+          core.for %part in %content {
+            %part_type = core.get %part["type"] default "text"
+            %is_image = core.call intrinsic.eq(%part_type, "image")
+            core.if %is_image {
+              %image_seed = core.map
+              %image_copy = core.call intrinsic.map.merge(%image_seed, %part)
+              core.append %processed_content, %image_copy
+            } else {
+              core.append %processed_content, %part
+            }
+          }
+          core.set %message_copy["content"] = %processed_content
+        }
+        core.append %processed_prompt, %message_copy
+      }
+
+      %request_seed = core.map
+      %out = core.call intrinsic.map.merge(%request_seed, %request)
+      core.set %out[%prompt_key] = %processed_prompt
+      core.return %out
+    }
+  }
+
   op ax.provider.semantic @provider_route_score {
     attr core_kind = "func"
     attr emit_module = "ai"

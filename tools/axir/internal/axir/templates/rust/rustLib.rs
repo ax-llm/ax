@@ -6216,12 +6216,35 @@ impl ProviderRouter {
             .ok_or_else(|| AxError::validation(format!("ProviderRouter provider {key} not found")))
     }
 
+    fn preprocess_request(&self, key: &str, request: &Value) -> AxResult<Value> {
+        let provider = self
+            .providers
+            .get(key)
+            .ok_or_else(|| AxError::validation(format!("ProviderRouter provider {key} not found")))?;
+        let features = <OpenAICompatibleClient as AxAIClient>::get_features(provider, None);
+        provider_route_preprocess_request(&[
+            core_value_from_json(&features),
+            core_value_from_json(request),
+        ])
+        .map(|value| core_value_to_json(&value))
+    }
+
     pub fn chat(&mut self, request: Value) -> AxResult<Value> {
-        self.provider_for(&request)?.chat(request)
+        let key = self.provider_key(&request)?;
+        let processed_request = self.preprocess_request(&key, &request)?;
+        self.providers
+            .get_mut(&key)
+            .ok_or_else(|| AxError::validation(format!("ProviderRouter provider {key} not found")))?
+            .chat(processed_request)
     }
 
     pub fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
-        self.provider_for(&request)?.stream(request)
+        let key = self.provider_key(&request)?;
+        let processed_request = self.preprocess_request(&key, &request)?;
+        self.providers
+            .get_mut(&key)
+            .ok_or_else(|| AxError::validation(format!("ProviderRouter provider {key} not found")))?
+            .stream(processed_request)
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
@@ -8127,7 +8150,7 @@ fn conformance_provider_router_result(fixture: &Value) -> AxResult<Value> {
         .cloned()
         .unwrap_or_else(|| Value::String(String::new()));
     let recommendation = json!({
-        "provider": provider_name,
+        "provider": provider_name.clone(),
         "processingApplied": rec.get("processingApplied").cloned().unwrap_or(Value::Null),
         "degradations": rec.get("degradations").cloned().unwrap_or(Value::Null),
         "warnings": rec.get("warnings").cloned().unwrap_or(Value::Null)
@@ -8139,7 +8162,33 @@ fn conformance_provider_router_result(fixture: &Value) -> AxResult<Value> {
         core_value_from_json(&routing),
     ])?);
     let stats = core_value_to_json(&provider_routing_stats(&[core_value_from_json(&providers)])?);
-    Ok(json!({"recommendation": recommendation, "validation": validation, "stats": stats}))
+    let mut actual = json!({"recommendation": recommendation, "validation": validation, "stats": stats});
+    if fixture
+        .get("expected_output")
+        .and_then(|expected| expected.get("forwardedContent"))
+        .is_some()
+    {
+        let selected_features = ordered
+            .iter()
+            .find(|service| service.name == provider_name.as_str().unwrap_or_default())
+            .map(RouterFixtureService::provider_record)
+            .and_then(|record| record.get("features").cloned())
+            .unwrap_or_else(router_default_features);
+        let forwarded_request = core_value_to_json(&provider_route_preprocess_request(&[
+            core_value_from_json(&selected_features),
+            core_value_from_json(&request),
+        ])?);
+        let prompt = forwarded_request
+            .get("chatPrompt")
+            .or_else(|| forwarded_request.get("chat_prompt"))
+            .and_then(Value::as_array);
+        actual["forwardedContent"] = prompt
+            .and_then(|messages| messages.first())
+            .and_then(|message| message.get("content"))
+            .cloned()
+            .unwrap_or(Value::Null);
+    }
+    Ok(actual)
 }
 
 fn balancer_base_features() -> Value {

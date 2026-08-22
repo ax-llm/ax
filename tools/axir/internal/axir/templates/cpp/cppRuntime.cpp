@@ -6348,14 +6348,16 @@ Value ProviderRouter::chat(Value request, Value options) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  return object({{"response", provider->chat(request, options)}, {"routing", rec}});
+  Value processed_request = Core::provider_route_preprocess_request(provider->get_features(Value()), request);
+  return object({{"response", provider->chat(processed_request, options)}, {"routing", rec}});
 }
 
 std::vector<Value> ProviderRouter::stream(Value request) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  return provider->stream(std::move(request));
+  Value processed_request = Core::provider_route_preprocess_request(provider->get_features(Value()), request);
+  return provider->stream(std::move(processed_request));
 }
 
 Value ProviderRouter::embed(Value request, Value options) {

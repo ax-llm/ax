@@ -62,14 +62,17 @@ public final class AxProviderRouter {
   public Map<String, Object> chat(Map<String, Object> request, Map<String, Object> options) throws Exception {
     Map<String, Object> rec = getRoutingRecommendation(request);
     AxAIService provider = selectedProvider(request);
+    Map<String, Object> processedRequest = Core.asMap(Core.provider_route_preprocess_request(provider.getFeatures(null), request));
     Map<String, Object> out = new LinkedHashMap<>();
-    out.put("response", provider.chat(request, options));
+    out.put("response", provider.chat(processedRequest, options));
     out.put("routing", rec);
     return out;
   }
 
   public Iterable<Map<String, Object>> stream(Map<String, Object> request, Map<String, Object> options) throws Exception {
-    return selectedProvider(request).stream(request);
+    AxAIService provider = selectedProvider(request);
+    Map<String, Object> processedRequest = Core.asMap(Core.provider_route_preprocess_request(provider.getFeatures(null), request));
+    return provider.stream(processedRequest);
   }
 
   public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> options) throws Exception {

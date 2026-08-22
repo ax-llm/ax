@@ -1069,7 +1069,7 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("update_balancer_route_stats", "function", "Purely reduce one success or failure observation into route statistics.", []string{"current stats", "observation"}, "route stats"),
 				sym("sample_balancer_route_health", "function", "Sample failure and deadline-miss probability for adaptive exploration.", []string{"route stats", "deadline"}, "sampled health"),
 				sym("MultiServiceRouter", "type", "Choose a service by capability or model routing policy.", []string{"services", "routing"}, "AI service"),
-				sym("ProviderRouter", "type", "Route provider requests to registered provider clients.", []string{"providers", "routing", "processing"}, "AI service"),
+				sym("ProviderRouter", "type", "Route requests by capability, preserving native media for supporting providers and degrading only when required.", []string{"providers", "routing", "processing"}, "AI service"),
 			},
 		},
 		{

@@ -5975,6 +5975,62 @@ Value Core::_provider_features_support(Value features, Value path) {
   return Value(false);
 }
 
+Value Core::provider_route_preprocess_request(Value features, Value request) {
+  axir_coverage_mark("provider_route_preprocess_request");
+  Value supports_images = Core::_provider_features_support(features, Value("images"));
+  Value does_not_support_images = Core::not_(supports_images);
+  if (Core::truthy(does_not_support_images)) {
+    return request;
+  }
+  Value has_camel_prompt = Core::map_contains(request, Value("chatPrompt"));
+  Value has_snake_prompt = Core::map_contains(request, Value("chat_prompt"));
+  Value has_any_prompt = Core::or_(has_camel_prompt, has_snake_prompt);
+  Value missing_prompt = Core::not_(has_any_prompt);
+  if (Core::truthy(missing_prompt)) {
+    return request;
+  }
+  Value prompt_key = Value("chatPrompt");
+  Value prompt = Core::get(request, Value("chatPrompt"), Value());
+  Value missing_camel_prompt = Core::not_(has_camel_prompt);
+  if (Core::truthy(missing_camel_prompt)) {
+    prompt_key = Value("chat_prompt");
+    prompt = Core::get(request, Value("chat_prompt"), Value());
+  }
+  Value prompt_is_list = Core::type_is(prompt, Value("list"));
+  Value prompt_not_list = Core::not_(prompt_is_list);
+  if (Core::truthy(prompt_not_list)) {
+    return request;
+  }
+  Value processed_prompt = Value::array();
+  for (auto message : Core::iter(prompt)) {
+    Value message_seed = Value::object();
+    Value message_copy = Core::map_merge(message_seed, message);
+    Value content = Core::get(message, Value("content"), Value());
+    Value content_is_list = Core::type_is(content, Value("list"));
+    if (Core::truthy(content_is_list)) {
+      Value processed_content = Value::array();
+      for (auto part : Core::iter(content)) {
+        Value part_type = Core::get(part, Value("type"), Value("text"));
+        Value is_image = Core::eq(part_type, Value("image"));
+        if (Core::truthy(is_image)) {
+          Value image_seed = Value::object();
+          Value image_copy = Core::map_merge(image_seed, part);
+          Core::append(processed_content, image_copy);
+        }
+        if (!Core::truthy(is_image)) {
+          Core::append(processed_content, part);
+        }
+      }
+      Core::set(message_copy, Value("content"), processed_content);
+    }
+    Core::append(processed_prompt, message_copy);
+  }
+  Value request_seed = Value::object();
+  Value out = Core::map_merge(request_seed, request);
+  Core::set(out, prompt_key, processed_prompt);
+  return out;
+}
+
 Value Core::_provider_route_score(Value provider, Value requirements) {
   axir_coverage_mark("_provider_route_score");
   Value features = Core::get(provider, Value("features"), Value());
@@ -30769,14 +30825,16 @@ Value ProviderRouter::chat(Value request, Value options) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  return object({{"response", provider->chat(request, options)}, {"routing", rec}});
+  Value processed_request = Core::provider_route_preprocess_request(provider->get_features(Value()), request);
+  return object({{"response", provider->chat(processed_request, options)}, {"routing", rec}});
 }
 
 std::vector<Value> ProviderRouter::stream(Value request) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
-  return provider->stream(std::move(request));
+  Value processed_request = Core::provider_route_preprocess_request(provider->get_features(Value()), request);
+  return provider->stream(std::move(processed_request));
 }
 
 Value ProviderRouter::embed(Value request, Value options) {

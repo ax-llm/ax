@@ -35,6 +35,11 @@ flowchart LR
 
 Routing has two distinct jobs. The multi-service router combines provider model lists and dispatches the model key the caller already chose; it does not select a model. `AxBalancer` handles equivalent services behind shared model aliases, preserving the Ax request shape while applying capability filters and provider failover.
 
+`ProviderRouter` selects by request capability and degrades media only when the
+selected provider cannot handle it. An image-capable provider receives native
+image parts unchanged, including their payload, MIME type, detail level, cache
+and optimization hints, alt text, and ordering with surrounding text.
+
 Every supported language can opt into adaptive `AxBalancer` routing. It learns transient provider failure rate and successful latency, then weighs the probability of a failure or deadline miss against estimated request cost. This is operational provider selection, not semantic prompt-to-model selection, so every model behind an alias must be an acceptable substitute.
 
 {{aiBalancerExample}}

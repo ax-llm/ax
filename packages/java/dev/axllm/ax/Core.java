@@ -4903,6 +4903,62 @@ final class Core {
     return Boolean.FALSE;
   }
 
+  static Object provider_route_preprocess_request(Object features, Object request) {
+    axirCoverageMark("provider_route_preprocess_request");
+    Object supports_images = Core._provider_features_support(features, "images");
+    Object does_not_support_images = Core.not(supports_images);
+    if (Core.truthy(does_not_support_images)) {
+      return request;
+    }
+    Object has_camel_prompt = Core.mapContains(request, "chatPrompt");
+    Object has_snake_prompt = Core.mapContains(request, "chat_prompt");
+    Object has_any_prompt = Core.or(has_camel_prompt, has_snake_prompt);
+    Object missing_prompt = Core.not(has_any_prompt);
+    if (Core.truthy(missing_prompt)) {
+      return request;
+    }
+    Object prompt_key = "chatPrompt";
+    Object prompt = Core.get(request, "chatPrompt", null);
+    Object missing_camel_prompt = Core.not(has_camel_prompt);
+    if (Core.truthy(missing_camel_prompt)) {
+      prompt_key = "chat_prompt";
+      prompt = Core.get(request, "chat_prompt", null);
+    }
+    Object prompt_is_list = Core.typeIs(prompt, "list");
+    Object prompt_not_list = Core.not(prompt_is_list);
+    if (Core.truthy(prompt_not_list)) {
+      return request;
+    }
+    Object processed_prompt = new java.util.ArrayList<Object>();
+    for (Object message : Core.iter(prompt)) {
+      Object message_seed = new java.util.LinkedHashMap<String, Object>();
+      Object message_copy = Core.mapMerge(message_seed, message);
+      Object content = Core.get(message, "content", null);
+      Object content_is_list = Core.typeIs(content, "list");
+      if (Core.truthy(content_is_list)) {
+        Object processed_content = new java.util.ArrayList<Object>();
+        for (Object part : Core.iter(content)) {
+          Object part_type = Core.get(part, "type", "text");
+          Object is_image = Core.eq(part_type, "image");
+          if (Core.truthy(is_image)) {
+            Object image_seed = new java.util.LinkedHashMap<String, Object>();
+            Object image_copy = Core.mapMerge(image_seed, part);
+            Core.append(processed_content, image_copy);
+          }
+          if (!Core.truthy(is_image)) {
+            Core.append(processed_content, part);
+          }
+        }
+        Core.set(message_copy, "content", processed_content);
+      }
+      Core.append(processed_prompt, message_copy);
+    }
+    Object request_seed = new java.util.LinkedHashMap<String, Object>();
+    Object out = Core.mapMerge(request_seed, request);
+    Core.set(out, prompt_key, processed_prompt);
+    return out;
+  }
+
   static Object _provider_route_score(Object provider, Object requirements) {
     axirCoverageMark("_provider_route_score");
     Object features = Core.get(provider, "features", null);
