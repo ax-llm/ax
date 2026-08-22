@@ -40,7 +40,8 @@ const formatChatMessage = (
           return colorize(item.text, 'green');
         }
         if (item.type === 'image') {
-          const content = hideContent ? '[Image]' : `[Image: ${item.image}]`;
+          const source = 'fileUri' in item ? item.fileUri : item.image;
+          const content = hideContent ? '[Image]' : `[Image: ${source}]`;
           return colorize(content, 'green');
         }
         if (item.type === 'audio') {
