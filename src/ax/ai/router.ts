@@ -261,10 +261,11 @@ export class AxProviderRouter {
           // Keep as array format
           processedChatPrompt.push({
             ...message,
-            content: processedContent.map((item) => ({
-              type: 'text' as const,
-              text: item.text,
-            })),
+            content: processedContent.map((item) =>
+              item.type === 'image'
+                ? item
+                : { type: 'text' as const, text: item.text }
+            ),
           });
         }
       } else {

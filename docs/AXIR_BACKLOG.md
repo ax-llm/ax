@@ -18,7 +18,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-08-18-preserve-native-image-content-in-provider-routing` [axai] Preserve native image content in provider routing
+  - Status: open
+  - Source PR: #580
+  - Source commit: `9ef377ef736a22d60164e807dcd51bc72b4e7498`
+  - TS paths: `src/ax/ai/processor.ts`, `src/ax/ai/router.test.ts`, `src/ax/ai/router.ts`
+  - Impact: TypeScript provider routing now keeps image payloads intact when the selected provider supports images, while generated Python, Java, C++, Go, and Rust routers may still replace supported images with text placeholders and lose image bytes, MIME type, ordering, and metadata.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

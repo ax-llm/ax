@@ -1,12 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AxProviderRouter } from './router.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  AxMediaNotSupportedError,
   AxContentProcessingError,
+  AxMediaNotSupportedError,
 } from '../util/apicall.js';
+import { AxProviderRouter } from './router.js';
 import type {
-  AxAIService,
   AxAIFeatures,
+  AxAIService,
   AxChatRequest,
   AxChatResponse,
 } from './types.js';
@@ -187,6 +187,77 @@ describe('AxProviderRouter', () => {
       expect(result.response).toBeDefined();
       expect(result.routing.provider.getName()).toBe('MultiModal');
       expect(result.routing.processingApplied).toHaveLength(0);
+    });
+
+    it('should preserve native image content for an image-capable provider', async () => {
+      const request: AxChatRequest = {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'What is in this image?' },
+              {
+                type: 'image',
+                image: 'base64data',
+                mimeType: 'image/jpeg',
+                details: 'high',
+                cache: true,
+                optimize: 'quality',
+                altText: 'A detailed chart',
+              },
+            ],
+          },
+        ],
+      };
+
+      (mockMultiModalProvider.chat as ReturnType<typeof vi.fn>).mockClear();
+      await router.chat(request);
+
+      const sentRequest = (
+        mockMultiModalProvider.chat as ReturnType<typeof vi.fn>
+      ).mock.calls[0][0] as AxChatRequest;
+      expect(sentRequest.chatPrompt[0]).toEqual({
+        role: 'user',
+        content: [
+          { type: 'text', text: 'What is in this image?' },
+          {
+            type: 'image',
+            image: 'base64data',
+            mimeType: 'image/jpeg',
+            details: 'high',
+            cache: true,
+            optimize: 'quality',
+            altText: 'A detailed chart',
+          },
+        ],
+      });
+    });
+
+    it('should preserve multiple native images in their original order', async () => {
+      const request: AxChatRequest = {
+        chatPrompt: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', image: 'first', mimeType: 'image/jpeg' },
+              { type: 'image', image: 'second', mimeType: 'image/png' },
+            ],
+          },
+        ],
+      };
+
+      (mockMultiModalProvider.chat as ReturnType<typeof vi.fn>).mockClear();
+      await router.chat(request);
+
+      const sentRequest = (
+        mockMultiModalProvider.chat as ReturnType<typeof vi.fn>
+      ).mock.calls[0][0] as AxChatRequest;
+      expect(sentRequest.chatPrompt[0]).toMatchObject({
+        content: [
+          { type: 'image', image: 'first', mimeType: 'image/jpeg' },
+          { type: 'image', image: 'second', mimeType: 'image/png' },
+        ],
+      });
     });
 
     it('should apply content processing when provider lacks capability', async () => {
