@@ -379,7 +379,7 @@
           "canonical_name": "ProviderRouter",
           "public_name": "axllm::ProviderRouter",
           "kind": "type",
-          "description": "Route provider requests to registered provider clients.",
+          "description": "Route requests by capability, preserving native media for supporting providers and degrading only when required.",
           "form": "axllm::ProviderRouter(providers, routing, processing)",
           "important_options": [
             "providers",

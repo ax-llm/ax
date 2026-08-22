@@ -14,6 +14,7 @@ This skill helps an agent write Java code with the generated Ax package `dev.axl
 - Attach renewable per-request credentials for expiring cloud tokens.
 - Resolve structured-output modes from the selected profile and model.
 - Choose between model-list routing, ordered failover, and adaptive operational routing.
+- Route multimodal requests without flattening native images when the selected provider supports them.
 - Use scripted transports for deterministic no-key examples.
 - Use provider-api examples only when explicit provider credentials are available.
 
@@ -64,6 +65,7 @@ var llm = Ax.ai("openai", java.util.Map.of("apiKey", System.getenv("OPENAI_API_K
 ## Routing And Balancing
 
 - Use the multi-service router when a logical model key selects a configured service or concrete model. It combines model lists; it does not learn from outcomes.
+- Use `ProviderRouter` for capability-based selection and optional media degradation. When the selected provider supports images, preserve every native image part with its payload, MIME type, detail level, cache and optimization hints, alt text, and ordering with surrounding text.
 - Use the default `AxBalancer` for deterministic ordered/metric failover with its existing retry policy.
 - Opt into `AxBalancerAdaptiveStrategy` only for operational routing among application-approved equivalent aliases. It learns transient reliability and successful latency, combines them with estimated cost and a deadline, and explores with Thompson sampling.
 - Put centralized decision state in an `AxBalancerStatsStore`. The routing-event callback is best-effort analytics and observability, not a state replication mechanism.

@@ -277,7 +277,7 @@ Choose a service by capability or model routing policy.
 
 ### `axllm.ProviderRouter`
 
-Route provider requests to registered provider clients.
+Route requests by capability, preserving native media for supporting providers and degrading only when required.
 
 - Canonical Ax concept: `ProviderRouter`
 - Kind: `type`

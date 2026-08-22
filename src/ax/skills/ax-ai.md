@@ -141,6 +141,7 @@ Dynamic providers such as Azure OpenAI deployments are marked with `isDynamic: t
 Choose the primitive by responsibility:
 
 - `AxMultiServiceRouter` combines model lists and dispatches the model key the caller already selected. It does not select a model.
+- `AxProviderRouter` selects a provider by request capability and may degrade unsupported media through configured processors. When the selected provider supports images natively, each image remains an image object with its payload, MIME type, detail level, cache and optimization hints, alt text, and ordering with surrounding text intact.
 - `AxBalancer` without a strategy orders equivalent services once with a comparator, retries transient provider failures, and fails over in that order.
 - `AxBalancer` with `strategy.type: 'adaptive'` selects among services exposing the same logical model aliases using learned provider reliability, successful latency, and estimated cost.
 

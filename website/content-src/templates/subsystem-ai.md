@@ -51,6 +51,11 @@ result = program.forward(client, inputs)
 - Use model catalog helpers before runtime when the UI needs provider/model selectors.
 - Use routers or balancers when provider fallback is part of the product.
 
+`ProviderRouter` selects a provider by request capability and degrades media only
+when the selected provider cannot handle it. For an image-capable provider,
+native image parts retain their payload, MIME type, detail level, cache and
+optimization hints, alt text, and ordering with surrounding text.
+
 Provider/model capability metadata exposes an ordered `native`, `function`, and
 `json_object` list. `auto` follows that order, while the singleton string/code
 optimization can choose validated `json_object` when native schema is absent.
