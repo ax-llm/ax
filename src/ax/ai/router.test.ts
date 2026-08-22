@@ -196,7 +196,15 @@ describe('AxProviderRouter', () => {
             role: 'user',
             content: [
               { type: 'text', text: 'What is in this image?' },
-              { type: 'image', image: 'base64data', mimeType: 'image/jpeg' },
+              {
+                type: 'image',
+                image: 'base64data',
+                mimeType: 'image/jpeg',
+                details: 'high',
+                cache: true,
+                optimize: 'quality',
+                altText: 'A detailed chart',
+              },
             ],
           },
         ],
@@ -208,11 +216,19 @@ describe('AxProviderRouter', () => {
       const sentRequest = (
         mockMultiModalProvider.chat as ReturnType<typeof vi.fn>
       ).mock.calls[0][0] as AxChatRequest;
-      expect(sentRequest.chatPrompt[0]).toMatchObject({
+      expect(sentRequest.chatPrompt[0]).toEqual({
         role: 'user',
         content: [
           { type: 'text', text: 'What is in this image?' },
-          { type: 'image', image: 'base64data', mimeType: 'image/jpeg' },
+          {
+            type: 'image',
+            image: 'base64data',
+            mimeType: 'image/jpeg',
+            details: 'high',
+            cache: true,
+            optimize: 'quality',
+            altText: 'A detailed chart',
+          },
         ],
       });
     });

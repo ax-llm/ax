@@ -2,7 +2,14 @@ import {
   AxContentProcessingError,
   AxMediaNotSupportedError,
 } from '../util/apicall.js';
-import type { AxAIService, AxFunctionResultContent } from './types.js';
+import type { AxAIService, AxChatRequest } from './types.js';
+
+type AxUserMessage = Extract<
+  AxChatRequest['chatPrompt'][number],
+  { role: 'user' }
+>;
+type AxUserContentItem = Exclude<AxUserMessage['content'], string>[number];
+type AxUserImageContent = Extract<AxUserContentItem, { type: 'image' }>;
 
 /**
  * Configuration options for content processing and fallback behavior
@@ -26,7 +33,7 @@ export interface ProcessingOptions {
  */
 export type ProcessedContent =
   | { type: 'text'; text: string }
-  | Extract<AxFunctionResultContent[number], { type: 'image' }>;
+  | AxUserImageContent;
 
 /**
  * Indicates what types of media content are present in a request
@@ -101,12 +108,7 @@ export async function axProcessContentForProvider(
         case 'image':
           if (features.media.images.supported) {
             // Preserve native image content for providers that support it.
-            processedContent.push(
-              item as Extract<
-                AxFunctionResultContent[number],
-                { type: 'image' }
-              >
-            );
+            processedContent.push(item as AxUserImageContent);
           } else if (item.altText) {
             // Fallback to alt text
             processedContent.push({ type: 'text', text: item.altText });
