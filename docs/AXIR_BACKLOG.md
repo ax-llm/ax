@@ -18,13 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-08-18-preserve-native-image-content-in-provider-routing` [axai] Preserve native image content in provider routing
-  - Status: open
-  - Source PR: #580
-  - Source commit: `9ef377ef736a22d60164e807dcd51bc72b4e7498`
-  - TS paths: `src/ax/ai/processor.ts`, `src/ax/ai/router.test.ts`, `src/ax/ai/router.ts`
-  - Impact: TypeScript provider routing now keeps image payloads intact when the selected provider supports images, while generated Python, Java, C++, Go, and Rust routers may still replace supported images with text placeholders and lose image bytes, MIME type, ordering, and metadata.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -499,3 +493,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-08-16
   - Completed by: `43c98eceafbbefcb6cf9ed99086ced5a52ebb7f0`
   - Verification: `Exact MCP/UCP runtime-module paths, dynamic executor authority, and no actor provider-native leakage are covered by the execution-context-ucp fixture across generated Python, Java, C++, Go, and Rust; axir:conformance:check, axir:check-packages, and the full generated-example matrix pass. npm run test:axir compiled the generated packages before unrelated audio HTTP examples hit the sandbox loopback-bind restriction.`
+- `axir-2026-08-18-preserve-native-image-content-in-provider-routing` [axai] Preserve native image content in provider routing
+  - Status: done
+  - Source PR: #580
+  - Source commit: `9ef377ef736a22d60164e807dcd51bc72b4e7498`
+  - TS paths: `src/ax/ai/processor.ts`, `src/ax/ai/router.test.ts`, `src/ax/ai/router.ts`
+  - Impact: TypeScript provider routing now keeps image payloads intact when the selected provider supports images, while generated Python, Java, C++, Go, and Rust routers may still replace supported images with text placeholders and lose image bytes, MIME type, ordering, and metadata.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-22
+  - Completed by: `040f954bce9c7dca44f7fd3436886d036f9e358b`
+  - Verification: `TS-derived native-image routing fixture; five-language AxIR dev verifier; npm run axir:check-packages; go test ./internal/axir; focused TypeScript router tests`
