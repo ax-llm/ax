@@ -1,6 +1,34 @@
 {
   "alternative_indices": [1],
   "expected_output": {
+    "forwardedContent": [
+      {
+        "text": "see",
+        "type": "text"
+      },
+      {
+        "altText": "first diagram",
+        "cache": true,
+        "details": "high",
+        "image": "first-image-bytes",
+        "mimeType": "image/jpeg",
+        "optimize": "quality",
+        "type": "image"
+      },
+      {
+        "text": "then compare",
+        "type": "text"
+      },
+      {
+        "altText": "second diagram",
+        "cache": false,
+        "details": "low",
+        "image": "second-image-bytes",
+        "mimeType": "image/png",
+        "optimize": "size",
+        "type": "image"
+      }
+    ],
     "recommendation": {
       "degradations": [],
       "processingApplied": [],
@@ -34,9 +62,25 @@
             "type": "text"
           },
           {
-            "altText": "diagram",
+            "altText": "first diagram",
             "cache": true,
-            "image": "abc",
+            "details": "high",
+            "image": "first-image-bytes",
+            "mimeType": "image/jpeg",
+            "optimize": "quality",
+            "type": "image"
+          },
+          {
+            "text": "then compare",
+            "type": "text"
+          },
+          {
+            "altText": "second diagram",
+            "cache": false,
+            "details": "low",
+            "image": "second-image-bytes",
+            "mimeType": "image/png",
+            "optimize": "size",
             "type": "image"
           }
         ],
@@ -119,7 +163,7 @@
             "uploadMethod": "none"
           },
           "images": {
-            "formats": ["png"],
+            "formats": ["jpeg", "png"],
             "supported": true
           },
           "urls": {

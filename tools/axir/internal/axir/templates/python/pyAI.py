@@ -1880,12 +1880,14 @@ class ProviderRouter:
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         rec, provider = self._selected_provider(request)
-        response = provider.chat(request, options)
+        processed_request = provider_route_preprocess_request(provider.get_features(), request)
+        response = provider.chat(processed_request, options)
         return {"response": response, "routing": rec}
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         _rec, provider = self._selected_provider(request)
-        return provider.stream(request, options)
+        processed_request = provider_route_preprocess_request(provider.get_features(), request)
+        return provider.stream(processed_request, options)
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         _rec, provider = self._selected_provider(request)
@@ -2079,6 +2081,7 @@ for _axir_provider_public_name in (
     "provider_model_catalog_summary",
     "provider_model_catalog",
     "provider_route_request_requirements",
+    "provider_route_preprocess_request",
     "provider_route_recommendation",
     "provider_route_validation",
     "provider_balancer_retry_policy",

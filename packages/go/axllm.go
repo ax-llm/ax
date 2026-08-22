@@ -9561,6 +9561,127 @@ func _provider_features_support(args ...Value) (Value, error) {
 	return false, nil
 }
 
+func provider_route_preprocess_request(args ...Value) (Value, error) {
+	axirCoverageMark("provider_route_preprocess_request")
+	var v_features Value
+	var v_request Value
+	var v_content Value
+	var v_content_is_list Value
+	var v_does_not_support_images Value
+	var v_has_any_prompt Value
+	var v_has_camel_prompt Value
+	var v_has_snake_prompt Value
+	var v_image_copy Value
+	var v_image_seed Value
+	var v_is_image Value
+	var v_message Value
+	var v_message_copy Value
+	var v_message_seed Value
+	var v_missing_camel_prompt Value
+	var v_missing_prompt Value
+	var v_out Value
+	var v_part Value
+	var v_part_type Value
+	var v_processed_content Value
+	var v_processed_prompt Value
+	var v_prompt Value
+	var v_prompt_is_list Value
+	var v_prompt_key Value
+	var v_prompt_not_list Value
+	var v_request_seed Value
+	var v_supports_images Value
+	if len(args) > 0 { v_features = args[0] }
+	_ = v_features
+	if len(args) > 1 { v_request = args[1] }
+	_ = v_request
+	_ = v_content
+	_ = v_content_is_list
+	_ = v_does_not_support_images
+	_ = v_has_any_prompt
+	_ = v_has_camel_prompt
+	_ = v_has_snake_prompt
+	_ = v_image_copy
+	_ = v_image_seed
+	_ = v_is_image
+	_ = v_message
+	_ = v_message_copy
+	_ = v_message_seed
+	_ = v_missing_camel_prompt
+	_ = v_missing_prompt
+	_ = v_out
+	_ = v_part
+	_ = v_part_type
+	_ = v_processed_content
+	_ = v_processed_prompt
+	_ = v_prompt
+	_ = v_prompt_is_list
+	_ = v_prompt_key
+	_ = v_prompt_not_list
+	_ = v_request_seed
+	_ = v_supports_images
+	{ v, err := _provider_features_support(v_features, "images"); if err != nil { return nil, err }; v_supports_images = v }
+	v_does_not_support_images = _core_not(v_supports_images)
+	if coreTruthy(v_does_not_support_images) {
+		return v_request, nil
+	} else {
+	// empty
+	}
+	v_has_camel_prompt = _core_map_contains(v_request, "chatPrompt")
+	v_has_snake_prompt = _core_map_contains(v_request, "chat_prompt")
+	v_has_any_prompt = _core_or(v_has_camel_prompt, v_has_snake_prompt)
+	v_missing_prompt = _core_not(v_has_any_prompt)
+	if coreTruthy(v_missing_prompt) {
+		return v_request, nil
+	} else {
+	// empty
+	}
+	v_prompt_key = "chatPrompt"
+	v_prompt = coreGet(v_request, "chatPrompt", nil)
+	v_missing_camel_prompt = _core_not(v_has_camel_prompt)
+	if coreTruthy(v_missing_camel_prompt) {
+		v_prompt_key = "chat_prompt"
+		v_prompt = coreGet(v_request, "chat_prompt", nil)
+	} else {
+	// empty
+	}
+	v_prompt_is_list = coreTypeIs(v_prompt, "list")
+	v_prompt_not_list = _core_not(v_prompt_is_list)
+	if coreTruthy(v_prompt_not_list) {
+		return v_request, nil
+	} else {
+	// empty
+	}
+	v_processed_prompt = MutableArray()
+	for _, v_message = range coreIter(v_prompt) {
+		v_message_seed = Object()
+		v_message_copy = _core_map_merge(v_message_seed, v_message)
+		v_content = coreGet(v_message, "content", nil)
+		v_content_is_list = coreTypeIs(v_content, "list")
+		if coreTruthy(v_content_is_list) {
+			v_processed_content = MutableArray()
+			for _, v_part = range coreIter(v_content) {
+				v_part_type = coreGet(v_part, "type", "text")
+				v_is_image = _core_eq(v_part_type, "image")
+				if coreTruthy(v_is_image) {
+					v_image_seed = Object()
+					v_image_copy = _core_map_merge(v_image_seed, v_part)
+					v_processed_content = coreAppend(v_processed_content, v_image_copy)
+				} else {
+					v_processed_content = coreAppend(v_processed_content, v_part)
+				}
+			}
+			if err := coreSet(v_message_copy, "content", v_processed_content); err != nil { return nil, err }
+		} else {
+		// empty
+		}
+		v_processed_prompt = coreAppend(v_processed_prompt, v_message_copy)
+	}
+	v_request_seed = Object()
+	v_out = _core_map_merge(v_request_seed, v_request)
+	if err := coreSet(v_out, v_prompt_key, v_processed_prompt); err != nil { return nil, err }
+	return v_out, nil
+}
+
 func _provider_route_score(args ...Value) (Value, error) {
 	axirCoverageMark("_provider_route_score")
 	var v_provider Value
@@ -54823,7 +54944,8 @@ func (r *ProviderRouter) Chat(ctx context.Context, request map[string]Value, opt
 	if err != nil {
 		return nil, err
 	}
-	response, err := service.Chat(ctx, request, options)
+	processedRequest := asMap(mustCore(provider_route_preprocess_request(service.GetFeatures(""), request)))
+	response, err := service.Chat(ctx, processedRequest, options)
 	if err != nil {
 		return nil, err
 	}
@@ -54834,7 +54956,8 @@ func (r *ProviderRouter) Stream(ctx context.Context, request map[string]Value, o
 	if err != nil {
 		return nil, err
 	}
-	return service.Stream(ctx, request, options)
+	processedRequest := asMap(mustCore(provider_route_preprocess_request(service.GetFeatures(""), request)))
+	return service.Stream(ctx, processedRequest, options)
 }
 func (r *ProviderRouter) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	_, service, err := r.selectedService(request)
@@ -58972,6 +59095,7 @@ type routerFixtureService struct {
 	estimatedCost float64
 	options       map[string]Value
 	lastChat      Value
+	lastChatRequest Value
 	lastEmbed     Value
 	lastConfig    Value
 }
@@ -59009,6 +59133,7 @@ func newRouterFixtureService(spec map[string]Value) *routerFixtureService {
 }
 
 func (s *routerFixtureService) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	s.lastChatRequest = cloneMap(request)
 	s.requests = append(s.requests, Object("method", "chat", "opt", cloneMap(options)))
 	s.lastChat = coreGet(request, "model", s.model)
 	s.lastConfig = cloneValue(coreGet(request, "model_config", coreGet(request, "modelConfig", nil)))
@@ -59199,7 +59324,26 @@ func runConformanceAIProviderRouter(fixture map[string]Value) {
 	}
 	recommendation := Object("provider", providerName, "processingApplied", coreGet(rec, "processingApplied", nil), "degradations", coreGet(rec, "degradations", nil), "warnings", coreGet(rec, "warnings", nil))
 	actual := Object("recommendation", recommendation, "validation", router.ValidateRequest(request), "stats", router.GetRoutingStats())
-	assertSubset(actual, coreGet(fixture, "expected_output", Object()), "provider router")
+	expected := asMap(coreGet(fixture, "expected_output", Object()))
+	if coreGet(expected, "forwardedContent", nil) != nil {
+		if _, err := router.Chat(context.Background(), request, Object()); err != nil {
+			panic(err)
+		}
+		var forwardedContent Value
+		for _, service := range services {
+			if len(service.requests) == 0 {
+				continue
+			}
+			forwardedRequest := asMap(service.lastChatRequest)
+			prompt := asSlice(coreGet(forwardedRequest, "chatPrompt", coreGet(forwardedRequest, "chat_prompt", Array())))
+			if len(prompt) > 0 {
+				forwardedContent = coreGet(asMap(prompt[0]), "content", nil)
+			}
+			break
+		}
+		coreSet(actual, "forwardedContent", forwardedContent)
+	}
+	assertSubset(actual, expected, "provider router")
 }
 
 func runConformanceAIModelCatalogRuntime(fixture map[string]Value) {

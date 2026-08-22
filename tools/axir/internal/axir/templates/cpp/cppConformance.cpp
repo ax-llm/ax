@@ -130,6 +130,7 @@ struct RouterFixtureService : AxBaseAI {
   Value metrics;
   double estimated_cost;
   std::vector<Value> requests;
+  Value last_chat_request;
   Array responses;
 
   explicit RouterFixtureService(Value spec)
@@ -155,6 +156,7 @@ struct RouterFixtureService : AxBaseAI {
 
  protected:
   Value do_chat(Value request, Value options) override {
+    last_chat_request = request;
     requests.push_back(object({{"method", "chat"}, {"opt", options}}));
     if (!responses.empty()) {
       Value out = responses.front();
@@ -2387,6 +2389,19 @@ static void run_ai_provider_router(Value fixture) {
   Value recommendation = object({{"provider", Core::get(rec, "providerName")}, {"processingApplied", Core::get(rec, "processingApplied")}, {"degradations", Core::get(rec, "degradations")}, {"warnings", Core::get(rec, "warnings")}});
   Value actual = object({{"recommendation", recommendation}, {"validation", router.validate_request(request)}, {"stats", router.get_routing_stats()}});
   Value expected = Core::get(fixture, "expected_output");
+  if (!Core::get(expected, "forwardedContent").is_null()) {
+    (void)router.chat(request, Value::object());
+    Value forwarded_content;
+    for (const auto& service : services) {
+      if (service->requests.empty()) continue;
+      Value forwarded_request = service->last_chat_request;
+      Value prompt = Core::get(forwarded_request, "chatPrompt", Core::get(forwarded_request, "chat_prompt", Value::array()));
+      Array messages = as_array(prompt);
+      if (!messages.empty()) forwarded_content = Core::get(messages.front(), "content");
+      break;
+    }
+    Core::set(actual, "forwardedContent", forwarded_content);
+  }
   if (!expected.is_null()) assert_subset(actual, expected, "provider router");
 }
 

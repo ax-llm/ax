@@ -1663,6 +1663,7 @@ func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
 					"def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):",
 					"def speak(self, request: dict[str, Any], options: dict[str, Any] | None = None):",
 					"def _selected_provider(self, request: dict[str, Any]):",
+					"processed_request = provider_route_preprocess_request(provider.get_features(), request)",
 					"return provider.embed(request, options)",
 					"return provider.transcribe(request, options)",
 					"return provider.speak(request, options)",
@@ -1681,7 +1682,7 @@ func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
 		return []generatedCapabilityGuard{
 			{category: "provider", rel: "dev/axllm/ax/OpenAICompatibleClient.java", contains: []string{"protected Map<String, Object> doChat(", "public Iterable<Map<String, Object>> stream(", "protected Map<String, Object> doEmbed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}, forbidden: []string{"return null;\n}"}},
 			{category: "router", rel: "dev/axllm/ax/AxMultiServiceRouter.java", contains: []string{"public Map<String, Object> chat(", "public Map<String, Object> embed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}},
-			{category: "provider-router", rel: "dev/axllm/ax/AxProviderRouter.java", contains: []string{"public Map<String, Object> chat(", "public Iterable<Map<String, Object>> stream(", "public Map<String, Object> embed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}},
+			{category: "provider-router", rel: "dev/axllm/ax/AxProviderRouter.java", contains: []string{"public Map<String, Object> chat(", "public Iterable<Map<String, Object>> stream(", "public Map<String, Object> embed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak(", "Core.provider_route_preprocess_request("}},
 			{category: "balancer", rel: "dev/axllm/ax/AxBalancer.java", contains: []string{"public Map<String, Object> chat(", "public Map<String, Object> embed(", "public Map<String, Object> transcribe(", "public Map<String, Object> speak("}},
 			{category: "base-service", rel: "dev/axllm/ax/AxAIService.java", contains: []string{"Map<String, Object> transcribe(Map<String, Object> request) throws Exception;", "Map<String, Object> speak(Map<String, Object> request) throws Exception;"}, forbidden: []string{"getModelList() { return null; }", "is not supported by this generated AxAI beta provider"}},
 			{category: "agent", rel: "dev/axllm/ax/AxAgent.java", contains: []string{"public Map<String, Object> forward(", "executeActorStep("}},
@@ -1693,7 +1694,7 @@ func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
 		return []generatedCapabilityGuard{
 			{category: "provider", rel: "axllm/axllm.cpp", contains: []string{"Value OpenAICompatibleClient::do_chat(", "std::vector<Value> OpenAICompatibleClient::stream(", "Value OpenAICompatibleClient::do_embed(", "Value OpenAICompatibleClient::transcribe(", "Value OpenAICompatibleClient::speak("}, forbidden: []string{"not implemented", "Value AxAIService::transcribe(Value) { throw Core::as_error(Core::ai_error_unsupported", "Value AxAIService::speak(Value) { throw Core::as_error(Core::ai_error_unsupported", "Value AxAIService::get_model_list() { return Value(); }"}},
 			{category: "router", rel: "axllm/axllm.cpp", contains: []string{"Value MultiServiceRouter::chat(", "Value MultiServiceRouter::embed(", "Value MultiServiceRouter::transcribe(", "Value MultiServiceRouter::speak("}},
-			{category: "provider-router", rel: "axllm/axllm.cpp", contains: []string{"Value ProviderRouter::chat(", "std::vector<Value> ProviderRouter::stream(", "Value ProviderRouter::embed(", "Value ProviderRouter::transcribe(", "Value ProviderRouter::speak("}},
+			{category: "provider-router", rel: "axllm/axllm.cpp", contains: []string{"Value ProviderRouter::chat(", "std::vector<Value> ProviderRouter::stream(", "Value ProviderRouter::embed(", "Value ProviderRouter::transcribe(", "Value ProviderRouter::speak(", "Core::provider_route_preprocess_request("}},
 			{category: "balancer", rel: "axllm/axllm.cpp", contains: []string{"Value AxBalancer::chat(", "Value AxBalancer::embed(", "Value AxBalancer::transcribe(", "Value AxBalancer::speak("}},
 			{category: "agent-flow-optimizer-runtime", rel: "axllm/axllm.cpp", contains: []string{"Value AxAgent::forward(", "Value AxFlow::forward(", "Value AxGEPA::optimize(", "AxCodeSession* RuntimeProtocolClient::create_session("}},
 		}
@@ -1701,7 +1702,7 @@ func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
 		return []generatedCapabilityGuard{
 			{category: "provider", rel: "axllm.go", contains: []string{"func (c *OpenAICompatibleClient) Chat(", "func (c *OpenAICompatibleClient) Stream(", "func (c *OpenAICompatibleClient) Embed(", "func (c *OpenAICompatibleClient) Transcribe(", "func (c *OpenAICompatibleClient) Speak("}, forbidden: []string{"func (c *OpenAICompatibleClient) GetModelList() Value { return nil }"}},
 			{category: "router", rel: "axllm.go", contains: []string{"func (r *MultiServiceRouter) Chat(", "func (r *MultiServiceRouter) Stream(", "func (r *MultiServiceRouter) Embed(", "func (r *MultiServiceRouter) Transcribe(", "func (r *MultiServiceRouter) Speak("}},
-			{category: "provider-router", rel: "axllm.go", contains: []string{"func (r *ProviderRouter) Chat(", "func (r *ProviderRouter) Stream(", "func (r *ProviderRouter) Embed(", "func (r *ProviderRouter) Transcribe(", "func (r *ProviderRouter) Speak("}},
+			{category: "provider-router", rel: "axllm.go", contains: []string{"func (r *ProviderRouter) Chat(", "func (r *ProviderRouter) Stream(", "func (r *ProviderRouter) Embed(", "func (r *ProviderRouter) Transcribe(", "func (r *ProviderRouter) Speak(", "provider_route_preprocess_request("}},
 			{category: "balancer", rel: "axllm.go", contains: []string{"func (b *AxBalancer) Chat(", "func (b *AxBalancer) Stream(", "func (b *AxBalancer) Embed(", "func (b *AxBalancer) Transcribe(", "func (b *AxBalancer) Speak("}},
 			{category: "agent-flow-optimizer-runtime", rel: "axllm.go", contains: []string{"func (a *AxAgent) Forward(", "func (f *AxFlow) Forward(", "func (g *AxGEPA) Optimize(", "func (r *ProcessCodeRuntime) CreateSession("}},
 		}
@@ -1730,7 +1731,7 @@ func generatedCapabilityGuards(target string) []generatedCapabilityGuard {
 					"pub struct ProviderRouter;",
 				},
 			},
-			{category: "router", rel: "src/lib.rs", contains: []string{"services: BTreeMap<String, OpenAICompatibleClient>", "providers: BTreeMap<String, OpenAICompatibleClient>", "pub fn stream(&mut self, request: Value) -> AxResult<Vec<Value>>"}},
+			{category: "router", rel: "src/lib.rs", contains: []string{"services: BTreeMap<String, OpenAICompatibleClient>", "providers: BTreeMap<String, OpenAICompatibleClient>", "pub fn stream(&mut self, request: Value) -> AxResult<Vec<Value>>", "provider_route_preprocess_request(&["}},
 			{
 				category: "conformance",
 				rel:      "src/lib.rs",
@@ -3675,6 +3676,7 @@ func TestPythonGeneratedIdioms(t *testing.T) {
 		"def provider_model_catalog_summary(",
 		"def provider_model_catalog(",
 		"def provider_route_recommendation(",
+		"def provider_route_preprocess_request(",
 		"def provider_route_validation(",
 		"def provider_routing_stats(",
 		"def provider_descriptor(",
@@ -4129,7 +4131,7 @@ func TestJavaGeneratedCoreRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(javaProviderRouterFile), "public final class AxProviderRouter") || !strings.Contains(string(javaProviderRouterFile), "Core.provider_route_recommendation(") {
+	if !strings.Contains(string(javaProviderRouterFile), "public final class AxProviderRouter") || !strings.Contains(string(javaProviderRouterFile), "Core.provider_route_recommendation(") || !strings.Contains(string(javaProviderRouterFile), "Core.provider_route_preprocess_request(") {
 		t.Fatal("generated Java provider router is missing Core delegation")
 	}
 	axGenFile, err := os.ReadFile(filepath.Join(dir, "dev", "axllm", "ax", "AxGen.java"))
@@ -4406,6 +4408,7 @@ func TestCppGeneratedCoreRuntime(t *testing.T) {
 		"Value Core::provider_model_catalog_summary(",
 		"Value Core::provider_model_catalog(",
 		"Value Core::provider_route_recommendation(",
+		"Value Core::provider_route_preprocess_request(",
 		"Value Core::provider_route_validation(",
 		"Value Core::provider_routing_stats(",
 		"Value Core::provider_descriptor(",

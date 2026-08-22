@@ -8335,12 +8335,34 @@ impl ProviderRouter {
             .ok_or_else(|| AxError::validation(format!("ProviderRouter provider {key} not found")))
     }
 
+    fn preprocess_request(&self, key: &str, request: &Value) -> AxResult<Value> {
+        let provider = self.providers.get(key).ok_or_else(|| {
+            AxError::validation(format!("ProviderRouter provider {key} not found"))
+        })?;
+        let features = <OpenAICompatibleClient as AxAIClient>::get_features(provider, None);
+        provider_route_preprocess_request(&[
+            core_value_from_json(&features),
+            core_value_from_json(request),
+        ])
+        .map(|value| core_value_to_json(&value))
+    }
+
     pub fn chat(&mut self, request: Value) -> AxResult<Value> {
-        self.provider_for(&request)?.chat(request)
+        let key = self.provider_key(&request)?;
+        let processed_request = self.preprocess_request(&key, &request)?;
+        self.providers
+            .get_mut(&key)
+            .ok_or_else(|| AxError::validation(format!("ProviderRouter provider {key} not found")))?
+            .chat(processed_request)
     }
 
     pub fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
-        self.provider_for(&request)?.stream(request)
+        let key = self.provider_key(&request)?;
+        let processed_request = self.preprocess_request(&key, &request)?;
+        self.providers
+            .get_mut(&key)
+            .ok_or_else(|| AxError::validation(format!("ProviderRouter provider {key} not found")))?
+            .stream(processed_request)
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
@@ -11393,7 +11415,7 @@ fn conformance_provider_router_result(fixture: &Value) -> AxResult<Value> {
         .cloned()
         .unwrap_or_else(|| Value::String(String::new()));
     let recommendation = json!({
-        "provider": provider_name,
+        "provider": provider_name.clone(),
         "processingApplied": rec.get("processingApplied").cloned().unwrap_or(Value::Null),
         "degradations": rec.get("degradations").cloned().unwrap_or(Value::Null),
         "warnings": rec.get("warnings").cloned().unwrap_or(Value::Null)
@@ -11407,7 +11429,34 @@ fn conformance_provider_router_result(fixture: &Value) -> AxResult<Value> {
     let stats = core_value_to_json(&provider_routing_stats(&[core_value_from_json(
         &providers,
     )])?);
-    Ok(json!({"recommendation": recommendation, "validation": validation, "stats": stats}))
+    let mut actual =
+        json!({"recommendation": recommendation, "validation": validation, "stats": stats});
+    if fixture
+        .get("expected_output")
+        .and_then(|expected| expected.get("forwardedContent"))
+        .is_some()
+    {
+        let selected_features = ordered
+            .iter()
+            .find(|service| service.name == provider_name.as_str().unwrap_or_default())
+            .map(RouterFixtureService::provider_record)
+            .and_then(|record| record.get("features").cloned())
+            .unwrap_or_else(router_default_features);
+        let forwarded_request = core_value_to_json(&provider_route_preprocess_request(&[
+            core_value_from_json(&selected_features),
+            core_value_from_json(&request),
+        ])?);
+        let prompt = forwarded_request
+            .get("chatPrompt")
+            .or_else(|| forwarded_request.get("chat_prompt"))
+            .and_then(Value::as_array);
+        actual["forwardedContent"] = prompt
+            .and_then(|messages| messages.first())
+            .and_then(|message| message.get("content"))
+            .cloned()
+            .unwrap_or(Value::Null);
+    }
+    Ok(actual)
 }
 
 fn balancer_base_features() -> Value {
@@ -31528,6 +31577,102 @@ fn _provider_features_support(args: &[CoreValue]) -> Result<CoreValue, AxError> 
         return Ok(v_value_caching.clone());
     }
     return Ok(CoreValue::Bool(false));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn provider_route_preprocess_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("provider_route_preprocess_request");
+    let mut v_features = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_content = CoreValue::Null;
+    let mut v_content_is_list = CoreValue::Null;
+    let mut v_does_not_support_images = CoreValue::Null;
+    let mut v_has_any_prompt = CoreValue::Null;
+    let mut v_has_camel_prompt = CoreValue::Null;
+    let mut v_has_snake_prompt = CoreValue::Null;
+    let mut v_image_copy = CoreValue::Null;
+    let mut v_image_seed = CoreValue::Null;
+    let mut v_is_image = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_message_copy = CoreValue::Null;
+    let mut v_message_seed = CoreValue::Null;
+    let mut v_missing_camel_prompt = CoreValue::Null;
+    let mut v_missing_prompt = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_part_type = CoreValue::Null;
+    let mut v_processed_content = CoreValue::Null;
+    let mut v_processed_prompt = CoreValue::Null;
+    let mut v_prompt = CoreValue::Null;
+    let mut v_prompt_is_list = CoreValue::Null;
+    let mut v_prompt_key = CoreValue::Null;
+    let mut v_prompt_not_list = CoreValue::Null;
+    let mut v_request_seed = CoreValue::Null;
+    let mut v_supports_images = CoreValue::Null;
+    v_supports_images =
+        _provider_features_support(&[v_features.clone(), CoreValue::from("images")])?;
+    v_does_not_support_images = core_not(&[v_supports_images.clone()])?;
+    if core_truthy(&v_does_not_support_images) {
+        return Ok(v_request.clone());
+    }
+    v_has_camel_prompt = core_map_contains(&[v_request.clone(), CoreValue::from("chatPrompt")])?;
+    v_has_snake_prompt = core_map_contains(&[v_request.clone(), CoreValue::from("chat_prompt")])?;
+    v_has_any_prompt = core_or(&[v_has_camel_prompt.clone(), v_has_snake_prompt.clone()])?;
+    v_missing_prompt = core_not(&[v_has_any_prompt.clone()])?;
+    if core_truthy(&v_missing_prompt) {
+        return Ok(v_request.clone());
+    }
+    v_prompt_key = CoreValue::from("chatPrompt");
+    v_prompt = core_get(&v_request, &CoreValue::from("chatPrompt"), CoreValue::Null);
+    v_missing_camel_prompt = core_not(&[v_has_camel_prompt.clone()])?;
+    if core_truthy(&v_missing_camel_prompt) {
+        v_prompt_key = CoreValue::from("chat_prompt");
+        v_prompt = core_get(&v_request, &CoreValue::from("chat_prompt"), CoreValue::Null);
+    }
+    v_prompt_is_list = core_type_is(&v_prompt, CoreValue::from("list"));
+    v_prompt_not_list = core_not(&[v_prompt_is_list.clone()])?;
+    if core_truthy(&v_prompt_not_list) {
+        return Ok(v_request.clone());
+    }
+    v_processed_prompt = CoreValue::new_list();
+    for v_message in core_iter(&v_prompt)? {
+        let mut v_message = v_message;
+        v_message_seed = CoreValue::new_map();
+        v_message_copy = core_map_merge(&[v_message_seed.clone(), v_message.clone()])?;
+        v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::Null);
+        v_content_is_list = core_type_is(&v_content, CoreValue::from("list"));
+        if core_truthy(&v_content_is_list) {
+            v_processed_content = CoreValue::new_list();
+            for v_part in core_iter(&v_content)? {
+                let mut v_part = v_part;
+                v_part_type = core_get(&v_part, &CoreValue::from("type"), CoreValue::from("text"));
+                v_is_image = core_eq(&[v_part_type.clone(), CoreValue::from("image")])?;
+                if core_truthy(&v_is_image) {
+                    v_image_seed = CoreValue::new_map();
+                    v_image_copy = core_map_merge(&[v_image_seed.clone(), v_part.clone()])?;
+                    core_append(&v_processed_content, v_image_copy.clone())?;
+                } else {
+                    core_append(&v_processed_content, v_part.clone())?;
+                }
+            }
+            core_set(
+                &v_message_copy,
+                CoreValue::from("content"),
+                v_processed_content.clone(),
+            )?;
+        }
+        core_append(&v_processed_prompt, v_message_copy.clone())?;
+    }
+    v_request_seed = CoreValue::new_map();
+    v_out = core_map_merge(&[v_request_seed.clone(), v_request.clone()])?;
+    core_set(&v_out, v_prompt_key.clone(), v_processed_prompt.clone())?;
+    return Ok(v_out.clone());
 }
 
 #[allow(
@@ -79354,4 +79499,4 @@ fn mcp_oauth_validate_issuer(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (591 of 591 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (592 of 592 core functions)

@@ -351,6 +351,7 @@ struct Core {
   static Value provider_estimate_cost(Value model_usage);
   static Value provider_route_request_requirements(Value request);
   static Value _provider_features_support(Value features, Value path);
+  static Value provider_route_preprocess_request(Value features, Value request);
   static Value _provider_route_score(Value provider, Value requirements);
   static Value provider_route_recommendation(Value providers, Value request, Value options);
   static Value _provider_route_any_supports(Value providers, Value path);

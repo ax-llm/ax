@@ -113,6 +113,7 @@ public final class Conformance {
     final String fixtureId;
     final List<Map<String, Object>> modelList;
     final List<Map<String, Object>> requests = new ArrayList<>();
+    Map<String, Object> lastChatRequest;
     final List<Object> responses;
     final Map<String, Object> features;
     final Map<String, Object> metrics;
@@ -135,6 +136,7 @@ public final class Conformance {
     public double getEstimatedCost(Map<String, Object> modelUsage) { return estimatedCost; }
 
     protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) {
+      lastChatRequest = new LinkedHashMap<>(request);
       requests.add(Map.of("method", "chat", "opt", new LinkedHashMap<>(options)));
       if (!responses.isEmpty()) {
         Object next = responses.remove(0);
@@ -2312,7 +2314,23 @@ public final class Conformance {
     actual.put("recommendation", recommendation);
     actual.put("validation", router.validateRequest(request));
     actual.put("stats", router.getRoutingStats());
-    if (fixture.containsKey("expected_output")) assertSubset(actual, fixture.get("expected_output"), "provider router");
+    Map<String, Object> expectedOutput = Core.asMap(fixture.getOrDefault("expected_output", Map.of()));
+    if (expectedOutput.containsKey("forwardedContent")) {
+      try {
+        router.chat(request, Map.of());
+      } catch (Exception e) {
+        throw Core.asRuntime(e);
+      }
+      RouterFixtureService fixtureProvider = provider instanceof RouterFixtureService
+          ? (RouterFixtureService) provider
+          : null;
+      Map<String, Object> forwardedRequest = fixtureProvider == null || fixtureProvider.lastChatRequest == null
+          ? Map.of()
+          : fixtureProvider.lastChatRequest;
+      List<Object> prompt = Core.asList(forwardedRequest.getOrDefault("chatPrompt", forwardedRequest.getOrDefault("chat_prompt", List.of())));
+      actual.put("forwardedContent", prompt.isEmpty() ? null : Core.asMap(prompt.get(0)).get("content"));
+    }
+    if (fixture.containsKey("expected_output")) assertSubset(actual, expectedOutput, "provider router");
   }
 
   static void runAIBalancer(Map<String, Object> fixture) {

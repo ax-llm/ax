@@ -3838,7 +3838,8 @@ func (r *ProviderRouter) Chat(ctx context.Context, request map[string]Value, opt
 	if err != nil {
 		return nil, err
 	}
-	response, err := service.Chat(ctx, request, options)
+	processedRequest := asMap(mustCore(provider_route_preprocess_request(service.GetFeatures(""), request)))
+	response, err := service.Chat(ctx, processedRequest, options)
 	if err != nil {
 		return nil, err
 	}
@@ -3849,7 +3850,8 @@ func (r *ProviderRouter) Stream(ctx context.Context, request map[string]Value, o
 	if err != nil {
 		return nil, err
 	}
-	return service.Stream(ctx, request, options)
+	processedRequest := asMap(mustCore(provider_route_preprocess_request(service.GetFeatures(""), request)))
+	return service.Stream(ctx, processedRequest, options)
 }
 func (r *ProviderRouter) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
 	_, service, err := r.selectedService(request)
@@ -7987,6 +7989,7 @@ type routerFixtureService struct {
 	estimatedCost float64
 	options       map[string]Value
 	lastChat      Value
+	lastChatRequest Value
 	lastEmbed     Value
 	lastConfig    Value
 }
@@ -8024,6 +8027,7 @@ func newRouterFixtureService(spec map[string]Value) *routerFixtureService {
 }
 
 func (s *routerFixtureService) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
+	s.lastChatRequest = cloneMap(request)
 	s.requests = append(s.requests, Object("method", "chat", "opt", cloneMap(options)))
 	s.lastChat = coreGet(request, "model", s.model)
 	s.lastConfig = cloneValue(coreGet(request, "model_config", coreGet(request, "modelConfig", nil)))
@@ -8214,7 +8218,26 @@ func runConformanceAIProviderRouter(fixture map[string]Value) {
 	}
 	recommendation := Object("provider", providerName, "processingApplied", coreGet(rec, "processingApplied", nil), "degradations", coreGet(rec, "degradations", nil), "warnings", coreGet(rec, "warnings", nil))
 	actual := Object("recommendation", recommendation, "validation", router.ValidateRequest(request), "stats", router.GetRoutingStats())
-	assertSubset(actual, coreGet(fixture, "expected_output", Object()), "provider router")
+	expected := asMap(coreGet(fixture, "expected_output", Object()))
+	if coreGet(expected, "forwardedContent", nil) != nil {
+		if _, err := router.Chat(context.Background(), request, Object()); err != nil {
+			panic(err)
+		}
+		var forwardedContent Value
+		for _, service := range services {
+			if len(service.requests) == 0 {
+				continue
+			}
+			forwardedRequest := asMap(service.lastChatRequest)
+			prompt := asSlice(coreGet(forwardedRequest, "chatPrompt", coreGet(forwardedRequest, "chat_prompt", Array())))
+			if len(prompt) > 0 {
+				forwardedContent = coreGet(asMap(prompt[0]), "content", nil)
+			}
+			break
+		}
+		coreSet(actual, "forwardedContent", forwardedContent)
+	}
+	assertSubset(actual, expected, "provider router")
 }
 
 func runConformanceAIModelCatalogRuntime(fixture map[string]Value) {

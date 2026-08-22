@@ -1879,12 +1879,14 @@ class ProviderRouter:
 
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         rec, provider = self._selected_provider(request)
-        response = provider.chat(request, options)
+        processed_request = provider_route_preprocess_request(provider.get_features(), request)
+        response = provider.chat(processed_request, options)
         return {"response": response, "routing": rec}
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         _rec, provider = self._selected_provider(request)
-        return provider.stream(request, options)
+        processed_request = provider_route_preprocess_request(provider.get_features(), request)
+        return provider.stream(processed_request, options)
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         _rec, provider = self._selected_provider(request)
@@ -3956,6 +3958,63 @@ def _provider_features_support(features: Any, path: str) -> bool:
     else:
         pass
     return False
+
+
+def provider_route_preprocess_request(features: Any, request: Any) -> Any:
+    _core_coverage_mark("provider_route_preprocess_request")
+    supports_images = _provider_features_support(features, "images")
+    does_not_support_images = _core_not(supports_images)
+    if does_not_support_images:
+        return request
+    else:
+        pass
+    has_camel_prompt = _core_map_contains(request, "chatPrompt")
+    has_snake_prompt = _core_map_contains(request, "chat_prompt")
+    has_any_prompt = _core_or(has_camel_prompt, has_snake_prompt)
+    missing_prompt = _core_not(has_any_prompt)
+    if missing_prompt:
+        return request
+    else:
+        pass
+    prompt_key = "chatPrompt"
+    prompt = _core_get(request, "chatPrompt", None)
+    missing_camel_prompt = _core_not(has_camel_prompt)
+    if missing_camel_prompt:
+        prompt_key = "chat_prompt"
+        prompt = _core_get(request, "chat_prompt", None)
+    else:
+        pass
+    prompt_is_list = _core_type_is(prompt, "list")
+    prompt_not_list = _core_not(prompt_is_list)
+    if prompt_not_list:
+        return request
+    else:
+        pass
+    processed_prompt = []
+    for message in prompt:
+        message_seed = {}
+        message_copy = _core_map_merge(message_seed, message)
+        content = _core_get(message, "content", None)
+        content_is_list = _core_type_is(content, "list")
+        if content_is_list:
+            processed_content = []
+            for part in content:
+                part_type = _core_get(part, "type", "text")
+                is_image = _core_eq(part_type, "image")
+                if is_image:
+                    image_seed = {}
+                    image_copy = _core_map_merge(image_seed, part)
+                    processed_content.append(image_copy)
+                else:
+                    processed_content.append(part)
+            message_copy["content"] = processed_content
+        else:
+            pass
+        processed_prompt.append(message_copy)
+    request_seed = {}
+    out = _core_map_merge(request_seed, request)
+    out[prompt_key] = processed_prompt
+    return out
 
 
 def _provider_route_score(provider: Any, requirements: Any) -> Any:
@@ -8991,6 +9050,7 @@ for _axir_provider_public_name in (
     "provider_model_catalog_summary",
     "provider_model_catalog",
     "provider_route_request_requirements",
+    "provider_route_preprocess_request",
     "provider_route_recommendation",
     "provider_route_validation",
     "provider_balancer_retry_policy",
