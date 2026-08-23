@@ -1,5 +1,14 @@
 # Changelog
 
+## [24.0.5](https://github.com/ax-llm/ax/compare/24.0.3...24.0.1) (2026-08-23)
+
+### Bug Fixes
+
+* **axir:** preserve native images in provider routing ([#597](https://github.com/ax-llm/ax/issues/597)) ([3751f79](https://github.com/ax-llm/ax/commit/3751f79eda7aa4c3c50bcf2c9a0a458661c36eed))
+* **ci:** honor AxIR non-portable exemptions ([#596](https://github.com/ax-llm/ax/issues/596)) ([f0f155c](https://github.com/ax-llm/ax/commit/f0f155c0b14d4340770d26ec6a51c6e6f8321298))
+* preserve native images in provider router ([#580](https://github.com/ax-llm/ax/issues/580)) ([f78e287](https://github.com/ax-llm/ax/commit/f78e28737c67f67de7995c9c7aee1b739d58d5b9))
+* **webllm:** preserve typed function-result parts on the wire ([#591](https://github.com/ax-llm/ax/issues/591)) ([72f9f73](https://github.com/ax-llm/ax/commit/72f9f732c54d5b1015ba0990e74aa1a755971a0b))
+
 ## [24.0.4](https://github.com/ax-llm/ax/compare/24.0.3...24.0.1) (2026-08-22)
 
 ### Bug Fixes
