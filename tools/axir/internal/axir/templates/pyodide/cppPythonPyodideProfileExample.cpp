@@ -61,7 +61,11 @@ struct PyodideProfileTransport : axllm::RuntimeTransport {
       } else if (code.find("search") != std::string::npos) {
         result = axllm::object({{"type", "final"}, {"args", axllm::array({axllm::object({{"title", "Docs"}})})}});
       } else if (code.find("badTool") != std::string::npos) {
-        result = axllm::object({{"type", "final"}, {"args", axllm::array({axllm::object({{"error", "tool failed"}})})}});
+        if (code.find("try:") != std::string::npos) {
+          result = axllm::object({{"type", "final"}, {"args", axllm::array({axllm::object({{"caught", "tool failed"}, {"category", "runtime"}})})}});
+        } else {
+          result = axllm::RuntimeEnvelope::error("tool failed", "runtime");
+        }
       } else if (code.find("loadPackage") != std::string::npos) {
         result = axllm::object({{"type", "final"}, {"args", axllm::array({axllm::object({{"error", "Pyodide package loading is disabled by runtimePolicy"}})})}});
       } else if (code.find("raise") != std::string::npos) {
@@ -183,7 +187,11 @@ int main() {
   if (!axllm::equal(axllm::Core::get(session->execute("reportFailure('bad')"), "kind"), "status")) return 25;
   if (!axllm::equal(axllm::Core::get(session->execute("guideAgent('try this')"), "type"), "guide_agent")) return 10;
   if (!axllm::equal(axllm::Core::get(axllm::Core::get(axllm::Core::get(session->execute("hit = search({'query': inputs['question']})\nfinal({'title': hit['title']})"), "args", axllm::Value::array()), 0), "title"), "Docs")) return 11;
-  if (!axllm::equal(axllm::Core::get(axllm::Core::get(axllm::Core::get(session->execute("err = badTool({})\nfinal({'error': err['error']})"), "args", axllm::Value::array()), 0), "error"), "tool failed")) return 12;
+  axllm::Value caught = session->execute("caught = ''\ncategory = ''\ntry:\n    badTool({})\nexcept Exception as error:\n    caught = str(error)\n    category = str(getattr(error, 'error_category', ''))\nfinal({'caught': caught, 'category': category})");
+  axllm::Value caught_payload = axllm::Core::get(axllm::Core::get(caught, "args", axllm::Value::array()), 0);
+  if (axllm::display(axllm::Core::get(caught_payload, "caught")).find("tool failed") == std::string::npos || !axllm::equal(axllm::Core::get(caught_payload, "category"), "runtime")) return 12;
+  axllm::Value failed = session->execute("badTool({})\nfinal({'unreachable': True})");
+  if (!axllm::equal(axllm::Core::get(failed, "is_error"), true) || !axllm::equal(axllm::Core::get(failed, "error_category"), "runtime") || axllm::display(axllm::Core::get(failed, "error")).find("tool failed") == std::string::npos) return 27;
   if (axllm::stringify(session->execute("pkg = loadPackage('numpy')\nfinal({'error': pkg['error']})")).find("package loading is disabled") == std::string::npos) return 26;
   axllm::Value snapshot = session->snapshot_globals();
   if (!axllm::Core::get(axllm::Core::get(snapshot, "bindings", axllm::Value::object()), "inputs").is_null()) return 13;

@@ -21,7 +21,9 @@ command suitable for `ProcessCodeRuntime`. `axir verify` also accepts
 run the generated helper.
 
 Host callbacks are exposed to Python actor code as ordinary functions and must
-use JSON-compatible arguments/results. Filesystem, network, package loading, and
+use JSON-compatible arguments/results. Callback failures raise Python exceptions;
+actor code may catch them, while uncaught failures stop the turn and preserve the
+runtime category. Filesystem, network, package loading, and
 process permissions remain adapter-owned and are not exposed by default.
 
 Runtime productization policy is explicit and deny-by-default. Set

@@ -260,7 +260,7 @@ impl AxCodeSession for QuickJsCodeSession {
             .unwrap_or_default();
         let body_literal = serde_json::to_string(&format!("with (globalThis) {{\n{code}\n{persist_suffix}\n}}"))?;
         let run_source = format!(
-            "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; __ax_install_host_callables(); (async function(){{}}).constructor({body_literal})().then(function(){{}}, function(e){{ globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); }});"
+            "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; __ax_install_host_callables(); (async function(){{}}).constructor({body_literal})().then(function(){{}}, function(e){{ globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); }});"
         );
         let run_result = self
             .context
@@ -288,7 +288,14 @@ impl AxCodeSession for QuickJsCodeSession {
                 .to_string(),
         )?)?;
         if let Some(message) = actor_error.as_str() {
-            return Ok(error_envelope(message.to_string(), "runtime"));
+            let actor_category: Value = serde_json::from_str(&self.eval_json_string(
+                "JSON.stringify(globalThis.__ax_error_category === undefined ? 'runtime' : globalThis.__ax_error_category)"
+                    .to_string(),
+            )?)?;
+            return Ok(error_envelope(
+                message.to_string(),
+                actor_category.as_str().unwrap_or("runtime"),
+            ));
         }
         let completion = self.eval_json_string(
             "JSON.stringify(globalThis.__ax_completion === undefined ? {kind: 'result', result: null} : globalThis.__ax_completion)"
@@ -550,25 +557,20 @@ function __ax_clone_json(value) {
   if (value === undefined) return null;
   return JSON.parse(JSON.stringify(value));
 }
+function __ax_host_callable_error(message, category) {
+  const error = new Error(String(message || "host callable failed"));
+  error.error_category = String(category || "runtime");
+  return error;
+}
 function __ax_make_host_callable(name, spec) {
   return function(params) {
     if (spec && spec.native === true) {
       const response = JSON.parse(globalThis.__ax_host_call(name, JSON.stringify(params === undefined ? null : params)));
       if (response.ok) return response.result;
-      return {
-        kind: "error",
-        is_error: true,
-        error_category: String(response.category || "runtime"),
-        error: String(response.error || ("host callable failed: " + name))
-      };
+      throw __ax_host_callable_error(response.error || ("host callable failed: " + name), response.category);
     }
     if (spec && spec.error) {
-      return {
-        kind: "error",
-        is_error: true,
-        error_category: String(spec.error.category || "runtime"),
-        error: String(spec.error.message || spec.error.error || ("host callable failed: " + name))
-      };
+      throw __ax_host_callable_error(spec.error.message || spec.error.error || ("host callable failed: " + name), spec.error.category);
     }
     if (spec && Object.prototype.hasOwnProperty.call(spec, "result")) return __ax_clone_json(spec.result);
     return { kind: "result", result: null };

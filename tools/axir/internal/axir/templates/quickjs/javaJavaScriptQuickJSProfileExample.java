@@ -127,8 +127,15 @@ public final class JavaScriptQuickJsExample {
       );
       Map<String, Object> bridged = asMap(hostSession.execute("const hit = search({query: inputs.question}); final({title: hit.title})", Map.of()));
       if (!"Docs".equals(asMap(((List<?>) bridged.get("args")).get(0)).get("title"))) throw new RuntimeException("host callable bridge failed: " + bridged);
-      Map<String, Object> failedCall = asMap(hostSession.execute("final({error: badTool({}).error})", Map.of()));
-      if (!"tool failed".equals(asMap(((List<?>) failedCall.get("args")).get(0)).get("error"))) throw new RuntimeException("host callable error bridge failed: " + failedCall);
+      Map<String, Object> caughtCall = asMap(hostSession.execute("let caught = ''; let category = ''; try { badTool({}); } catch (error) { caught = String(error); category = String(error.error_category || ''); } final({caught, category})", Map.of()));
+      Map<String, Object> caughtPayload = asMap(((List<?>) caughtCall.get("args")).get(0));
+      if (!String.valueOf(caughtPayload.get("caught")).contains("tool failed") || !"runtime".equals(caughtPayload.get("category"))) {
+        throw new RuntimeException("host callable catch bridge failed: " + caughtCall);
+      }
+      Map<String, Object> failedCall = asMap(hostSession.execute("badTool({}); final({unreachable: true})", Map.of()));
+      if (!Boolean.TRUE.equals(failedCall.get("is_error")) || !"runtime".equals(failedCall.get("error_category")) || !String.valueOf(failedCall.get("error")).contains("tool failed")) {
+        throw new RuntimeException("host callable error bridge failed: " + failedCall);
+      }
       hostSession.close();
       Map<String, Object> ambient = asMap(session.execute("final({fetchType: typeof fetch, requireType: typeof require, processType: typeof process})", Map.of()));
       Map<String, Object> ambientPayload = asMap(((List<?>) ambient.get("args")).get(0));

@@ -100,25 +100,20 @@ function __ax_clone_json(value) {
   if (value === undefined) return null;
   return JSON.parse(JSON.stringify(value));
 }
+function __ax_host_callable_error(message, category) {
+  const error = new Error(String(message || "host callable failed"));
+  error.error_category = String(category || "runtime");
+  return error;
+}
 function __ax_make_host_callable(name, spec) {
   return function(params) {
     if (spec && spec.native === true) {
       const response = JSON.parse(globalThis.__ax_host_call(name, JSON.stringify(params === undefined ? null : params)));
       if (response.ok) return response.result;
-      return {
-        kind: "error",
-        is_error: true,
-        error_category: String(response.category || "runtime"),
-        error: String(response.error || ("host callable failed: " + name))
-      };
+      throw __ax_host_callable_error(response.error || ("host callable failed: " + name), response.category);
     }
     if (spec && spec.error) {
-      return {
-        kind: "error",
-        is_error: true,
-        error_category: String(spec.error.category || "runtime"),
-        error: String(spec.error.message || spec.error.error || ("host callable failed: " + name))
-      };
+      throw __ax_host_callable_error(spec.error.message || spec.error.error || ("host callable failed: " + name), spec.error.category);
     }
     if (spec && Object.prototype.hasOwnProperty.call(spec, "result")) return __ax_clone_json(spec.result);
     return { kind: "result", result: null };
@@ -222,7 +217,7 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
   int timeout_ms = int_option(options, "timeoutMs", int_option(runtime_policy_, "timeoutMs", 5000));
   auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
   JS_SetInterruptHandler(runtime_, quickjs_interrupt_handler, &deadline);
-  JS_FreeValue(context_, JS_Eval(context_, "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_logs = []; __ax_install_host_callables();", std::strlen("globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_logs = []; __ax_install_host_callables();"), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
+  JS_FreeValue(context_, JS_Eval(context_, "globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; globalThis.__ax_logs = []; __ax_install_host_callables();", std::strlen("globalThis.__ax_completion = undefined; globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; globalThis.__ax_logs = []; __ax_install_host_callables();"), "<ax-before-execute>", JS_EVAL_TYPE_GLOBAL));
   // RLM actor code uses top-level await (`await final(...)`), illegal in a plain script eval.
   // Pass the code in via a global string (avoids host-side JS escaping) and run it through the
   // AsyncFunction constructor so await is legal; then drain the job queue so awaited
@@ -234,7 +229,7 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
   }
   static const char kRunActor[] =
       "(async function(){}).constructor('with (globalThis) {\\n' + (globalThis.__ax_code || '') + '\\n' + axPersistSuffix(globalThis.__ax_code || '') + '\\n}')()"
-      ".then(function(){}, function(e){ globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); });";
+      ".then(function(){}, function(e){ globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); globalThis.__ax_error = String((e && e.message) ? ((e.name ? e.name + ': ' : '') + e.message + (e.stack ? (' ' + e.stack) : '')) : ((e && e.stack) ? e.stack : e)); });";
   JSValue result = JS_Eval(context_, kRunActor, std::strlen(kRunActor), "<actor>", JS_EVAL_TYPE_GLOBAL);
   if (JS_IsException(result)) {
     JSValue exception = JS_GetException(context_);
@@ -258,13 +253,18 @@ Value QuickJsCodeSession::execute(Value code, Value options) {
   if (!JS_IsNull(actor_error) && !JS_IsUndefined(actor_error)) {
     const char* etext = JS_ToCString(context_, actor_error);
     std::string emsg = etext ? etext : "QuickJS actor error";
+    JSValue actor_category = JS_Eval(context_, "globalThis.__ax_error_category === undefined ? 'runtime' : globalThis.__ax_error_category", std::strlen("globalThis.__ax_error_category === undefined ? 'runtime' : globalThis.__ax_error_category"), "<ax-error-category>", JS_EVAL_TYPE_GLOBAL);
+    const char* ctext = JS_ToCString(context_, actor_category);
+    std::string category = ctext ? ctext : "runtime";
     JS_FreeCString(context_, etext);
+    JS_FreeCString(context_, ctext);
+    JS_FreeValue(context_, actor_category);
     JS_FreeValue(context_, actor_error);
     JS_SetInterruptHandler(runtime_, nullptr, nullptr);
     if (std::chrono::steady_clock::now() > deadline || emsg.find("interrupted") != std::string::npos) {
       return RuntimeEnvelope::timeout("QuickJS execution timed out");
     }
-    return RuntimeEnvelope::error(emsg, "runtime");
+    return RuntimeEnvelope::error(emsg, category.empty() ? "runtime" : category);
   }
   JS_FreeValue(context_, actor_error);
   result = JS_Eval(context_, "globalThis.__ax_completion === undefined ? {kind:'result', result:null} : globalThis.__ax_completion", std::strlen("globalThis.__ax_completion === undefined ? {kind:'result', result:null} : globalThis.__ax_completion"), "<ax-completion>", JS_EVAL_TYPE_GLOBAL);

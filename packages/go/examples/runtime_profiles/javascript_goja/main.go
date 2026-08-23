@@ -65,7 +65,7 @@ func main() {
 			return map[string]ax.Value{"title": "Docs", "query": query}, nil
 		}),
 		axgoja.WithCallable("badTool", func(params ax.Value) (ax.Value, error) {
-			return nil, fmt.Errorf("tool failed")
+			return nil, ax.AxError{Category: "tool", Message: "tool failed"}
 		}),
 	)
 	policy := runtime.RuntimePolicy()
@@ -117,9 +117,14 @@ func main() {
 	if asMap(asSlice(protectedCallable["args"])[0])["title"] != "Docs" {
 		panic(fmt.Sprintf("host callable overwrite protection failed: %#v", protectedCallable))
 	}
-	failedCall := mustKind(session.Execute("final({error: badTool({}).error})", nil), "type", "final")
-	if asMap(asSlice(failedCall["args"])[0])["error"] != "tool failed" {
-		panic(fmt.Sprintf("host callable error normalization failed: %#v", failedCall))
+	caughtCall := mustKind(session.Execute("let caught = ''; let category = ''; try { badTool({}); } catch (e) { caught = String(e); category = String(e.error_category || ''); } final({caught, category})", nil), "type", "final")
+	caughtPayload := asMap(asSlice(caughtCall["args"])[0])
+	if !strings.Contains(fmt.Sprint(caughtPayload["caught"]), "tool failed") || caughtPayload["category"] != "tool" {
+		panic(fmt.Sprintf("host callable error was not catchable: %#v", caughtCall))
+	}
+	failedCall := asMap(session.Execute("badTool({}); final({unreachable: true})", nil))
+	if failedCall["is_error"] != true || failedCall["error_category"] != "tool" || !strings.Contains(fmt.Sprint(failedCall["error"]), "tool failed") {
+		panic(fmt.Sprintf("uncaught host callable error did not fail the turn: %#v", failedCall))
 	}
 	ambient := mustKind(session.Execute("final({fetchType: typeof fetch, requireType: typeof require, processType: typeof process})", nil), "type", "final")
 	ambientPayload := asMap(asSlice(ambient["args"])[0])

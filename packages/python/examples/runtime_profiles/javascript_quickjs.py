@@ -126,8 +126,13 @@ try:
         bridged = session.execute("const hit = search({query: inputs.question}); final({title: hit.title})")
         assert bridged["type"] == "final", bridged
         assert bridged["args"][0]["title"] == "Docs", bridged
-        failed = session.execute("final({error: badTool({}).error})")
-        assert failed["args"][0]["error"] == "tool failed", failed
+        caught = session.execute("let caught = ''; let category = ''; try { badTool({}); } catch (error) { caught = String(error); category = String(error.error_category || ''); } final({caught, category})")
+        assert "tool failed" in caught["args"][0]["caught"], caught
+        assert caught["args"][0]["category"] == "runtime", caught
+        failed = session.execute("badTool({}); final({unreachable: true})")
+        assert failed["is_error"] is True, failed
+        assert failed["error_category"] == "runtime", failed
+        assert "tool failed" in failed["error"], failed
         snapshot = session.snapshot_globals()
         assert "inputs" not in snapshot["bindings"], snapshot
         session.patch_globals({"bindings": {"safe": 9}})

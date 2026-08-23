@@ -126,8 +126,13 @@ try:
         bridged = session.execute("hit = search({'query': inputs['question']})\nfinal({'title': hit['title']})")
         assert bridged["type"] == "final", bridged
         assert bridged["args"][0]["title"] == "Docs", bridged
-        failed = session.execute("err = badTool({})\nfinal({'error': err['error']})")
-        assert failed["args"][0]["error"] == "tool failed", failed
+        caught = session.execute("caught = ''\ncategory = ''\ntry:\n    badTool({})\nexcept Exception as error:\n    caught = str(error)\n    category = str(getattr(error, 'error_category', ''))\nfinal({'caught': caught, 'category': category})")
+        assert "tool failed" in caught["args"][0]["caught"], caught
+        assert caught["args"][0]["category"] == "runtime", caught
+        failed = session.execute("badTool({})\nfinal({'unreachable': True})")
+        assert failed["is_error"] is True, failed
+        assert failed["error_category"] == "runtime", failed
+        assert "tool failed" in failed["error"], failed
         diagnostic = session.execute("print('hello from pyodide')\nfinal({'ok': True})")
         assert "hello from pyodide" in str(diagnostic), diagnostic
         package_denied = session.execute("pkg = loadPackage('numpy')\nfinal({'error': pkg['error']})")

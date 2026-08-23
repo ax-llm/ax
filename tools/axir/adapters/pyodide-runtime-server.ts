@@ -461,18 +461,21 @@ def micropipInstall(*names):
         return {"kind": "error", "is_error": True, "error_category": "runtime", "error": "Pyodide micropip is disabled by runtimePolicy"}
     return loadPackage(*names)
 
+class AxHostCallableError(RuntimeError):
+    def __init__(self, message, category="runtime"):
+        super().__init__(message)
+        self.error_category = str(category or "runtime")
+
 def __ax_make_host_callable(name):
     def __ax_call(params=None):
         raw = globalThis.__ax_host_call(__ax_session_id, name, json.dumps(params))
         response = json.loads(str(raw))
         if response.get("ok"):
             return response.get("result")
-        return {
-            "kind": "error",
-            "is_error": True,
-            "error_category": str(response.get("category") or "runtime"),
-            "error": str(response.get("error") or ("host callable failed: " + name)),
-        }
+        raise AxHostCallableError(
+            str(response.get("error") or ("host callable failed: " + name)),
+            response.get("category"),
+        )
     return __ax_call
 
 def __ax_json_safe_bindings(values):
@@ -545,7 +548,7 @@ except Exception as __ax_error:
         __ax_diagnostics = []
     __ax_response_json = json.dumps({
         "ok": False,
-        "category": "runtime",
+        "category": str(getattr(__ax_error, "error_category", "runtime") or "runtime"),
         "error": str(__ax_error),
         "traceback": traceback.format_exc(),
         "bindings": __ax_json_safe_bindings(__ax_globals),
@@ -837,10 +840,26 @@ async function selfTest(): Promise<void> {
   if (JSON.stringify(bridgedResult).includes('Docs') === false) {
     throw new Error(`host callable bridge failed: ${JSON.stringify(bridged)}`);
   }
-  const failed = (
-    await execute('13', "err = badTool({})\nfinal({'error': err['error']})")
+  const caught = (
+    await execute(
+      '13',
+      "caught = ''\ncategory = ''\ntry:\n    badTool({})\nexcept Exception as error:\n    caught = str(error)\n    category = str(getattr(error, 'error_category', ''))\nfinal({'caught': caught, 'category': category})"
+    )
   ).result as JsonObject;
-  if (!JSON.stringify(failed).includes('tool failed')) {
+  if (
+    !JSON.stringify(caught).includes('tool failed') ||
+    !JSON.stringify(caught).includes('runtime')
+  ) {
+    throw new Error(`host callable catch failed: ${JSON.stringify(caught)}`);
+  }
+  const failed = (
+    await execute('13b', "badTool({})\nfinal({'unreachable': True})")
+  ).result as JsonObject;
+  if (
+    failed.is_error !== true ||
+    failed.error_category !== 'runtime' ||
+    !String(failed.error).includes('tool failed')
+  ) {
     throw new Error(`host callable error failed: ${JSON.stringify(failed)}`);
   }
   const diagnostics = (

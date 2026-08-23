@@ -132,8 +132,11 @@ public final class PythonPyodideExample {
       if (!"guide_agent".equals(asMap(session.execute("guideAgent('try this')", Map.of())).get("type"))) throw new RuntimeException("guideAgent failed");
       Map<String, Object> bridged = asMap(session.execute("hit = search({'query': inputs['question']})\nfinal({'title': hit['title']})", Map.of()));
       if (!"Docs".equals(asMap(((List<?>) bridged.get("args")).get(0)).get("title"))) throw new RuntimeException("host bridge failed: " + bridged);
-      Map<String, Object> failed = asMap(session.execute("err = badTool({})\nfinal({'error': err['error']})", Map.of()));
-      if (!"tool failed".equals(asMap(((List<?>) failed.get("args")).get(0)).get("error"))) throw new RuntimeException("host error failed: " + failed);
+      Map<String, Object> caught = asMap(session.execute("caught = ''\ncategory = ''\ntry:\n    badTool({})\nexcept Exception as error:\n    caught = str(error)\n    category = str(getattr(error, 'error_category', ''))\nfinal({'caught': caught, 'category': category})", Map.of()));
+      Map<String, Object> caughtPayload = asMap(((List<?>) caught.get("args")).get(0));
+      if (!String.valueOf(caughtPayload.get("caught")).contains("tool failed") || !"runtime".equals(caughtPayload.get("category"))) throw new RuntimeException("host catch failed: " + caught);
+      Map<String, Object> failed = asMap(session.execute("badTool({})\nfinal({'unreachable': True})", Map.of()));
+      if (!Boolean.TRUE.equals(failed.get("is_error")) || !"runtime".equals(failed.get("error_category")) || !String.valueOf(failed.get("error")).contains("tool failed")) throw new RuntimeException("host error failed: " + failed);
       Map<String, Object> diagnostic = asMap(session.execute("print('hello from pyodide')\nfinal({'ok': True})", Map.of()));
       if (!String.valueOf(diagnostic).contains("hello from pyodide")) throw new RuntimeException("diagnostics failed: " + diagnostic);
       Map<String, Object> packageDenied = asMap(session.execute("pkg = loadPackage('numpy')\nfinal({'error': pkg['error']})", Map.of()));

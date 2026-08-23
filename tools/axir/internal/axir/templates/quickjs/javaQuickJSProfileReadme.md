@@ -32,7 +32,8 @@ QuickJS4J classpath is available.
 
 Host callbacks are registered with `AxQuickJsCodeRuntime.registerCallable` and
 are exposed to actor JavaScript as ordinary functions. Arguments and results must
-be JSON-compatible. Callback failures are normalized to runtime error objects;
+be JSON-compatible. Callback failures throw JavaScript exceptions; actor code may
+catch them, while uncaught failures stop the turn and preserve the runtime category;
 filesystem, network, process, and arbitrary host object access are not exposed by
 default.
 
