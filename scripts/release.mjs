@@ -242,6 +242,10 @@ export function parseReleaseArguments(argv) {
   return { mode, value };
 }
 
+export function publishFetchArguments() {
+  return ['fetch', '--prune', 'origin', mainBranch];
+}
+
 function prepare(increment = 'patch') {
   assertClean();
   assertBranch(mainBranch);
@@ -330,7 +334,9 @@ function recreateLocalTag(version, head) {
 function publish(requestedVersion) {
   assertClean();
   assertBranch(mainBranch);
-  run('git', ['fetch', '--prune', '--tags', 'origin', mainBranch]);
+  // Remote tag identity is checked with ls-remote below. Fetching every tag can
+  // fail when a checkout still has a pre-squash tag from an older release.
+  run('git', publishFetchArguments());
   const head = git('rev-parse', 'HEAD');
   const remoteHead = git('rev-parse', `origin/${mainBranch}`);
   if (head !== remoteHead) {

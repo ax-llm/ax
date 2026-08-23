@@ -38,6 +38,8 @@ to `main`, or create a GitHub Release.
 
 After the release pull request passes the required checks and is merged, run
 `npm run release:publish -- <version>` from the synchronized `main` branch.
+The publish phase checks the requested tag directly on the remote; unrelated
+historical local tags do not need to be cleaned up first.
 The publish phase verifies that the release reached `main` through a merged
 pull request with passing required checks, replaces any stale local tag left by
 an older failed release attempt, pushes an annotated tag for the merged commit,
