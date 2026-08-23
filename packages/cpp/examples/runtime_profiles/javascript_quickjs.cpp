@@ -129,8 +129,11 @@ int main() {
   );
   axllm::Value bridged = host_session->execute("const hit = search({query: inputs.question}); final({title: hit.title})");
   if (!axllm::equal(axllm::Core::get(axllm::Core::get(axllm::Core::get(bridged, "args", axllm::Value::array()), 0), "title"), "Docs")) return 15;
-  axllm::Value failed_call = host_session->execute("final({error: badTool({}).error})");
-  if (!axllm::equal(axllm::Core::get(axllm::Core::get(axllm::Core::get(failed_call, "args", axllm::Value::array()), 0), "error"), "tool failed")) return 16;
+  axllm::Value caught_call = host_session->execute("let caught = ''; let category = ''; try { badTool({}); } catch (error) { caught = String(error); category = String(error.error_category || ''); } final({caught, category})");
+  axllm::Value caught_payload = axllm::Core::get(axllm::Core::get(caught_call, "args", axllm::Value::array()), 0);
+  if (axllm::display(axllm::Core::get(caught_payload, "caught")).find("tool failed") == std::string::npos || !axllm::equal(axllm::Core::get(caught_payload, "category"), "runtime")) return 16;
+  axllm::Value failed_call = host_session->execute("badTool({}); final({unreachable: true})");
+  if (!axllm::equal(axllm::Core::get(failed_call, "is_error"), true) || !axllm::equal(axllm::Core::get(failed_call, "error_category"), "runtime") || axllm::display(axllm::Core::get(failed_call, "error")).find("tool failed") == std::string::npos) return 31;
   host_session->close();
   delete host_session;
   axllm::Value ambient = session->execute("final({fetchType: typeof fetch, requireType: typeof require, processType: typeof process})");

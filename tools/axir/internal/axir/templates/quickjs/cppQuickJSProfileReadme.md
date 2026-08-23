@@ -12,7 +12,9 @@ Homebrew systems, `axir verify` auto-detects the usual QuickJS prefix when
 `AXIR_QUICKJS_CFLAGS` and `AXIR_QUICKJS_LDFLAGS` are not set.
 Host callbacks are registered with `QuickJsCodeRuntime::register_callable`
 and are exposed to actor JavaScript as ordinary functions returning
-JSON-compatible values.
+JSON-compatible values. Callback failures throw JavaScript exceptions; actor
+code may catch them, while uncaught failures stop the turn and preserve the
+runtime error category.
 
 Runtime policy is explicit and deny-by-default. Pass a policy object to
 `QuickJsCodeRuntime` to tune `timeoutMs`, `maxSnapshotBytes`, or

@@ -34,7 +34,8 @@ _PRELUDE = (
     "function reportSuccess(m){return axComplete({kind:'status',status:{type:'success',message:String(m||'')}});}"
     "function reportFailure(m){return axComplete({kind:'status',status:{type:'failed',message:String(m||'')}});}"
     "function guideAgent(g){return axComplete({type:'guide_agent',guidance:String(g||'')});}"
-    "function axHc(name){return function(params){var r=JSON.parse(globalThis.__ax_host_call(name,JSON.stringify(params===undefined?null:params)));if(r.ok)return r.result;return{kind:'error',is_error:true,error_category:String(r.category||'runtime'),error:String(r.error||('host callable failed: '+name))};};}"
+    "function axHe(m,c){var e=new Error(String(m||'host callable failed'));e.error_category=String(c||'runtime');return e;}"
+    "function axHc(name){return function(params){var r=JSON.parse(globalThis.__ax_host_call(name,JSON.stringify(params===undefined?null:params)));if(r.ok)return r.result;throw axHe(r.error||('host callable failed: '+name),r.category);};}"
     "function axSnap(){var R=globalThis.__ax_reserved||{};var o={};for(var k of Object.getOwnPropertyNames(globalThis)){if(k.indexOf('__ax_')===0)continue;if(R[k])continue;var v=globalThis[k];if(typeof v==='function'||typeof v==='undefined')continue;try{JSON.stringify(v);o[k]=v;}catch(e){}}return JSON.stringify(o);}"
     # console: the executor inspects intermediate values with console.log; capture each
     # turn's output into __ax_logs so the host can surface it back into the action log.
@@ -75,7 +76,8 @@ class AxQuickJsCodeSession(AxCodeSession):
         try:
             return json.dumps({"ok": True, "result": handler(json.loads(params_json))})
         except Exception as exc:
-            return json.dumps({"ok": False, "category": "runtime", "error": str(exc)})
+            category = getattr(exc, "error_category", None) or getattr(exc, "category", None) or "runtime"
+            return json.dumps({"ok": False, "category": str(category), "error": str(exc)})
 
     def execute(self, code: str, options: dict[str, Any] | None = None) -> Any:
         if self.closed:
@@ -86,7 +88,7 @@ class AxQuickJsCodeSession(AxCodeSession):
         # synchronous host primitives that set __ax_completion actually run before we read it.
         self.ctx.eval(
             "globalThis.__ax_completion=undefined;globalThis.__ax_result=undefined;"
-            "globalThis.__ax_error=undefined;globalThis.__ax_logs=[];"
+            "globalThis.__ax_error=undefined;globalThis.__ax_error_category=undefined;globalThis.__ax_logs=[];"
         )
         try:
             persist_suffix = self.ctx.eval("axPersistSuffix(" + json.dumps(code) + ")") or ""
@@ -95,7 +97,7 @@ class AxQuickJsCodeSession(AxCodeSession):
         wrapper = (
             "(async()=>{\n" + code + "\n" + persist_suffix + "\n})().then("
             "function(r){globalThis.__ax_result=r;},"
-            "function(e){globalThis.__ax_error=String((e&&e.message)?((e.name?e.name+': ':'')+e.message+(e.stack?(' '+e.stack):'')):((e&&e.stack)?e.stack:e));});"
+            "function(e){globalThis.__ax_error_category=String((e&&(e.error_category||e.category))||'runtime');globalThis.__ax_error=String((e&&e.message)?((e.name?e.name+': ':'')+e.message+(e.stack?(' '+e.stack):'')):((e&&e.stack)?e.stack:e));});"
         )
         try:
             self.ctx.eval(wrapper)
@@ -106,7 +108,8 @@ class AxQuickJsCodeSession(AxCodeSession):
             return {"kind": "error", "is_error": True, "error_category": "runtime", "error": str(exc)}
         err = self.ctx.eval("globalThis.__ax_error===undefined?null:globalThis.__ax_error")
         if err is not None:
-            return {"kind": "error", "is_error": True, "error_category": "runtime", "error": str(err)}
+            category = self.ctx.eval("globalThis.__ax_error_category===undefined?'runtime':globalThis.__ax_error_category")
+            return {"kind": "error", "is_error": True, "error_category": str(category or "runtime"), "error": str(err)}
         try:
             logs = json.loads(self.ctx.eval("JSON.stringify(globalThis.__ax_logs||[])"))
         except Exception:

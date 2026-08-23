@@ -52,8 +52,13 @@ fn main() -> AxResult<()> {
     assert_eq!(session.execute("guideAgent('try this')", json!({}))?.payload["type"], "guide_agent");
     assert_eq!(session.execute("final(search({query: inputs.question}))", json!({}))?.payload["args"][0]["answer"], "result for host");
     assert_eq!(session.execute("final(marker())", json!({}))?.payload["args"][0]["ok"], true);
-    let failed = session.execute("final({error: badTool({}).error})", json!({}))?;
-    assert_eq!(failed.payload["args"][0]["error"], "bad tool failed");
+    let caught = session.execute("let caught = ''; let category = ''; try { badTool({}); } catch (error) { caught = String(error); category = String(error.error_category || ''); } final({caught, category})", json!({}))?;
+    assert!(caught.payload["args"][0]["caught"].as_str().unwrap_or("").contains("bad tool failed"));
+    assert_eq!(caught.payload["args"][0]["category"], "runtime");
+    let failed = session.execute("badTool({}); final({unreachable: true})", json!({}))?;
+    assert_eq!(failed.payload["is_error"], true);
+    assert_eq!(failed.payload["error_category"], "runtime");
+    assert!(failed.payload["error"].as_str().unwrap_or("").contains("bad tool failed"));
     assert_eq!(session.execute("throw new Error('boom')", json!({}))?.payload["error_category"], "runtime");
     assert_eq!(session.execute("while (true) {}", json!({"timeoutMs": 1}))?.payload["error_category"], "timeout");
     session.patch_globals(json!({"bindings": {"final": "blocked", "answer": "patched"}}), json!({}))?;

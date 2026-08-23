@@ -190,25 +190,20 @@ async function __ax_run(payloadJson) {
     if (value === undefined) return null;
     return JSON.parse(JSON.stringify(value));
   }
+  function hostCallableError(message, category) {
+    const error = new Error(String(message || "host callable failed"));
+    error.error_category = String(category || "runtime");
+    return error;
+  }
   function makeHostCallable(name, spec) {
     return function(params) {
       if (spec.native === true) {
         const response = JSON.parse(axir_host.__ax_host_call(name, JSON.stringify(params === undefined ? null : params)));
         if (response.ok) return response.result;
-        return {
-          kind: "error",
-          is_error: true,
-          error_category: String(response.category || "runtime"),
-          error: String(response.error || ("host callable failed: " + name))
-        };
+        throw hostCallableError(response.error || ("host callable failed: " + name), response.category);
       }
       if (spec.error) {
-        return {
-          kind: "error",
-          is_error: true,
-          error_category: String(spec.error.category || "runtime"),
-          error: String(spec.error.message || spec.error.error || ("host callable failed: " + name))
-        };
+        throw hostCallableError(spec.error.message || spec.error.error || ("host callable failed: " + name), spec.error.category);
       }
       if (Object.prototype.hasOwnProperty.call(spec, "result")) return cloneJson(spec.result);
       return {kind: "result", result: null};
@@ -251,7 +246,7 @@ async function __ax_run(payloadJson) {
     await (async function(){}).constructor("with (globalThis) { " + (payload.code || "") + "\\n" + axPersistSuffix(payload.code || "") + "\\n}")();
     result = globalThis.__ax_completion;
   } catch (error) {
-    return JSON.stringify({ok: false, category: "runtime", error: String((error && error.message) || error)});
+    return JSON.stringify({ok: false, category: String((error && (error.error_category || error.category)) || "runtime"), error: String((error && error.message) || error)});
   }
   const out = {};
   for (const key of Object.getOwnPropertyNames(globalThis)) {

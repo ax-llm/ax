@@ -47,8 +47,11 @@ public final class AxQuickJsProtocolServer {
       if (!"guide_agent".equals(Json.asObject(session.execute("guideAgent('try this')", Map.of())).get("type"))) throw new RuntimeException("guideAgent failed");
       Map<String, Object> bridged = Json.asObject(session.execute("const hit = search({query: inputs.question}); final({title: hit.title})", Map.of()));
       if (!"Docs".equals(Json.asObject(((java.util.List<?>) bridged.get("args")).get(0)).get("title"))) throw new RuntimeException("bad host callable result: " + bridged);
-      Map<String, Object> failedCall = Json.asObject(session.execute("final({error: badTool({}).error})", Map.of()));
-      if (!"tool failed".equals(Json.asObject(((java.util.List<?>) failedCall.get("args")).get(0)).get("error"))) throw new RuntimeException("bad host callable error: " + failedCall);
+      Map<String, Object> caughtCall = Json.asObject(session.execute("let caught = ''; let category = ''; try { badTool({}); } catch (error) { caught = String(error); category = String(error.error_category || ''); } final({caught, category})", Map.of()));
+      Map<String, Object> caughtPayload = Json.asObject(((java.util.List<?>) caughtCall.get("args")).get(0));
+      if (!String.valueOf(caughtPayload.get("caught")).contains("tool failed") || !"runtime".equals(caughtPayload.get("category"))) throw new RuntimeException("bad host callable catch: " + caughtCall);
+      Map<String, Object> failedCall = Json.asObject(session.execute("badTool({}); final({unreachable: true})", Map.of()));
+      if (!Boolean.TRUE.equals(failedCall.get("is_error")) || !"runtime".equals(failedCall.get("error_category")) || !String.valueOf(failedCall.get("error")).contains("tool failed")) throw new RuntimeException("bad host callable error: " + failedCall);
       Map<String, Object> ambient = Json.asObject(session.execute("final({fetchType: typeof fetch, requireType: typeof require, processType: typeof process})", Map.of()));
       Map<String, Object> ambientPayload = Json.asObject(((java.util.List<?>) ambient.get("args")).get(0));
       if (!"undefined".equals(ambientPayload.get("fetchType")) || !"undefined".equals(ambientPayload.get("requireType")) || !"undefined".equals(ambientPayload.get("processType"))) {

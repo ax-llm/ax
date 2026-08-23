@@ -2,6 +2,7 @@ package goja
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -199,7 +200,7 @@ func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
 	// before we read the result. Without it the throw's error_category would be silently lost.
 	// The synchronous host primitives that set the completion run before the first await
 	// suspends, so the completion is captured too.
-	_, err := s.vm.RunString("globalThis.__ax_error = undefined; (async function(){}).constructor(" + string(body) + ")().then(function(){}, function(e){ globalThis.__ax_error = String((e && e.stack) ? e.stack : e); });")
+	_, err := s.vm.RunString("globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; (async function(){}).constructor(" + string(body) + ")().then(function(){}, function(e){ globalThis.__ax_error = String((e && e.stack) ? e.stack : e); globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); });")
 	if timer != nil && !timer.Stop() {
 		s.vm.ClearInterrupt()
 	}
@@ -209,7 +210,11 @@ func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
 		return runtimeError(err.Error(), errorCategory(err))
 	}
 	if actorError := s.vm.Get("__ax_error"); actorError != nil && !gojavm.IsUndefined(actorError) && !gojavm.IsNull(actorError) {
-		return runtimeError(fmt.Sprint(actorError.Export()), "runtime")
+		category := "runtime"
+		if actorCategory := s.vm.Get("__ax_error_category"); actorCategory != nil && !gojavm.IsUndefined(actorCategory) && !gojavm.IsNull(actorCategory) {
+			category = fmt.Sprint(actorCategory.Export())
+		}
+		return runtimeError(fmt.Sprint(actorError.Export()), category)
 	}
 	s.restoreReservedGlobals()
 	s.installBuiltins()
@@ -366,11 +371,11 @@ func (s *Session) installBuiltins() {
 			}
 			result, err := h(params)
 			if err != nil {
-				return s.vm.ToValue(runtimeError(err.Error(), "runtime"))
+				panic(s.hostCallableError(err, axErrorCategory(err)))
 			}
 			safe, ok := jsonSafe(result)
 			if !ok {
-				return s.vm.ToValue(runtimeError("host callable returned a non-JSON-compatible value", "runtime"))
+				panic(s.hostCallableError(errors.New("host callable returned a non-JSON-compatible value"), "runtime"))
 			}
 			return s.vm.ToValue(safe)
 		}))
@@ -382,7 +387,7 @@ func (s *Session) installBuiltins() {
 			if errObj := asMap(valueFromMap(spec, "error")); len(errObj) > 0 {
 				category := stringOption(valueFromMap(errObj, "category"), "runtime")
 				message := stringOption(valueFromMap(errObj, "message"), stringOption(valueFromMap(errObj, "error"), "host callable failed: "+callableName))
-				return s.vm.ToValue(runtimeError(message, category))
+				panic(s.hostCallableError(errors.New(message), category))
 			}
 			if result, ok := spec["result"]; ok {
 				safe, _ := jsonSafe(result)
@@ -391,6 +396,27 @@ func (s *Session) installBuiltins() {
 			return s.vm.ToValue(map[string]ax.Value{"kind": "result", "result": nil})
 		}))
 	}
+}
+
+func (s *Session) hostCallableError(err error, category string) *gojavm.Object {
+	if category == "" {
+		category = "runtime"
+	}
+	value := s.vm.NewGoError(err)
+	_ = value.Set("error_category", category)
+	return value
+}
+
+func axErrorCategory(err error) string {
+	var value ax.AxError
+	if errors.As(err, &value) && value.Category != "" {
+		return value.Category
+	}
+	var pointer *ax.AxError
+	if errors.As(err, &pointer) && pointer != nil && pointer.Category != "" {
+		return pointer.Category
+	}
+	return "runtime"
 }
 
 func (s *Session) setPrimitive(name string, builder func([]ax.Value) ax.Value) {

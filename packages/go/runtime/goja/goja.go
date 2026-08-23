@@ -200,7 +200,7 @@ func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
 	// before we read the result. Without it the throw's error_category would be silently lost.
 	// The synchronous host primitives that set the completion run before the first await
 	// suspends, so the completion is captured too.
-	_, err := s.vm.RunString("globalThis.__ax_error = undefined; (async function(){}).constructor(" + string(body) + ")().then(function(){}, function(e){ globalThis.__ax_error = String((e && e.stack) ? e.stack : e); });")
+	_, err := s.vm.RunString("globalThis.__ax_error = undefined; globalThis.__ax_error_category = undefined; (async function(){}).constructor(" + string(body) + ")().then(function(){}, function(e){ globalThis.__ax_error = String((e && e.stack) ? e.stack : e); globalThis.__ax_error_category = String((e && (e.error_category || e.category)) || 'runtime'); });")
 	if timer != nil && !timer.Stop() {
 		s.vm.ClearInterrupt()
 	}
@@ -210,7 +210,11 @@ func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
 		return runtimeError(err.Error(), errorCategory(err))
 	}
 	if actorError := s.vm.Get("__ax_error"); actorError != nil && !gojavm.IsUndefined(actorError) && !gojavm.IsNull(actorError) {
-		return runtimeError(fmt.Sprint(actorError.Export()), "runtime")
+		category := "runtime"
+		if actorCategory := s.vm.Get("__ax_error_category"); actorCategory != nil && !gojavm.IsUndefined(actorCategory) && !gojavm.IsNull(actorCategory) {
+			category = fmt.Sprint(actorCategory.Export())
+		}
+		return runtimeError(fmt.Sprint(actorError.Export()), category)
 	}
 	s.restoreReservedGlobals()
 	s.installBuiltins()
@@ -367,17 +371,11 @@ func (s *Session) installBuiltins() {
 			}
 			result, err := h(params)
 			if err != nil {
-				// Parity with the TypeScript runtime (runtimeGlobals.ts), which
-				// rethrows host callable errors into the model's code. Returning
-				// an {is_error} object instead meant straight-line generated
-				// code — `const res = await tool(...); await final("done")` —
-				// sailed past every failure: in JavaScript, no exception reads
-				// as success.
-				panic(s.vm.NewGoError(err))
+				panic(s.hostCallableError(err, axErrorCategory(err)))
 			}
 			safe, ok := jsonSafe(result)
 			if !ok {
-				panic(s.vm.NewGoError(errors.New("host callable returned a non-JSON-compatible value")))
+				panic(s.hostCallableError(errors.New("host callable returned a non-JSON-compatible value"), "runtime"))
 			}
 			return s.vm.ToValue(safe)
 		}))
@@ -387,10 +385,9 @@ func (s *Session) installBuiltins() {
 		callableName := name
 		s.defineProtected(callableName, s.vm.ToValue(func(call gojavm.FunctionCall) gojavm.Value {
 			if errObj := asMap(valueFromMap(spec, "error")); len(errObj) > 0 {
+				category := stringOption(valueFromMap(errObj, "category"), "runtime")
 				message := stringOption(valueFromMap(errObj, "message"), stringOption(valueFromMap(errObj, "error"), "host callable failed: "+callableName))
-				// Marker callables stand in for host callables in tests, so
-				// they fail the same way real ones do: by throwing.
-				panic(s.vm.NewGoError(errors.New(message)))
+				panic(s.hostCallableError(errors.New(message), category))
 			}
 			if result, ok := spec["result"]; ok {
 				safe, _ := jsonSafe(result)
@@ -399,6 +396,27 @@ func (s *Session) installBuiltins() {
 			return s.vm.ToValue(map[string]ax.Value{"kind": "result", "result": nil})
 		}))
 	}
+}
+
+func (s *Session) hostCallableError(err error, category string) *gojavm.Object {
+	if category == "" {
+		category = "runtime"
+	}
+	value := s.vm.NewGoError(err)
+	_ = value.Set("error_category", category)
+	return value
+}
+
+func axErrorCategory(err error) string {
+	var value ax.AxError
+	if errors.As(err, &value) && value.Category != "" {
+		return value.Category
+	}
+	var pointer *ax.AxError
+	if errors.As(err, &pointer) && pointer != nil && pointer.Category != "" {
+		return pointer.Category
+	}
+	return "runtime"
 }
 
 func (s *Session) setPrimitive(name string, builder func([]ax.Value) ax.Value) {
