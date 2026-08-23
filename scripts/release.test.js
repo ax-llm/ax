@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   assertAlignedReleaseVersions,
   parseReleaseArguments,
+  parseRemoteTagTarget,
   releaseBranchName,
   resolveReleaseVersion,
 } from './release.mjs';
@@ -44,6 +45,22 @@ describe('protected-main release workflow', () => {
 
   it('uses a version-specific protected release branch', () => {
     expect(releaseBranchName('24.0.6')).toBe('codex/release-24-0-6');
+  });
+
+  it('resolves annotated and lightweight remote tags to their release commit', () => {
+    expect(
+      parseRemoteTagTarget(
+        [
+          'tag-object refs/tags/24.0.6',
+          'release-commit refs/tags/24.0.6^{}',
+        ].join('\n'),
+        '24.0.6'
+      )
+    ).toBe('release-commit');
+    expect(
+      parseRemoteTagTarget('release-commit refs/tags/24.0.6', '24.0.6')
+    ).toBe('release-commit');
+    expect(parseRemoteTagTarget('', '24.0.6')).toBeNull();
   });
 
   it('parses only the prepare and publish phases', () => {

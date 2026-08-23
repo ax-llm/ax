@@ -141,6 +141,30 @@ function remoteRefs(...refs) {
   return capture('git', ['ls-remote', 'origin', ...refs], { quiet: true });
 }
 
+export function parseRemoteTagTarget(output, version) {
+  const refs = new Map(
+    output
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [sha, ref] = line.trim().split(/\s+/, 2);
+        return [ref, sha];
+      })
+  );
+  return (
+    refs.get(`refs/tags/${version}^{}`) ||
+    refs.get(`refs/tags/${version}`) ||
+    null
+  );
+}
+
+function remoteTagTarget(version) {
+  return parseRemoteTagTarget(
+    remoteRefs(`refs/tags/${version}`, `refs/tags/${version}^{}`),
+    version
+  );
+}
+
 function assertRefAvailable(version, branch) {
   if (localRefExists(`refs/tags/${version}`)) {
     fail(
@@ -326,32 +350,35 @@ function publish(requestedVersion) {
     fail(`HEAD is not the ${version} release commit: ${subject}`);
   }
 
-  const remoteTag = remoteRefs(
-    `refs/tags/${version}`,
-    `refs/tags/${version}^{}`
-  );
-  if (remoteTag) fail(`Remote tag ${version} already exists:\n${remoteTag}`);
-  if (githubReleaseExists(version))
-    fail(`GitHub Release ${version} already exists.`);
+  const existingRemoteTagTarget = remoteTagTarget(version);
+  if (existingRemoteTagTarget && existingRemoteTagTarget !== head) {
+    fail(
+      `Remote tag ${version} points to ${existingRemoteTagTarget}; expected ${head}.`
+    );
+  }
 
   const pull = associatedMergedPullRequest(head);
   run('gh', ['pr', 'checks', String(pull.number), '--required']);
   recreateLocalTag(version, head);
-  run('git', ['push', 'origin', `refs/tags/${version}`]);
-  run('gh', [
-    'release',
-    'create',
-    version,
-    '--verify-tag',
-    '--title',
-    `Release ${version}`,
-    '--generate-notes',
-  ]);
+  if (!existingRemoteTagTarget) {
+    run('git', ['push', 'origin', `refs/tags/${version}`]);
+  }
+  if (!githubReleaseExists(version)) {
+    run('gh', [
+      'release',
+      'create',
+      version,
+      '--verify-tag',
+      '--title',
+      `Release ${version}`,
+      '--generate-notes',
+    ]);
+  }
 
-  const publishedTag = remoteRefs(`refs/tags/${version}^{}`);
-  if (!publishedTag.startsWith(head)) {
+  const publishedTagTarget = remoteTagTarget(version);
+  if (publishedTagTarget !== head) {
     fail(
-      `Remote tag ${version} does not dereference to ${head}:\n${publishedTag}`
+      `Remote tag ${version} points to ${publishedTagTarget || '(missing)'}; expected ${head}.`
     );
   }
   run('gh', ['release', 'view', version]);
