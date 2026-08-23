@@ -8,6 +8,7 @@ import {
   assertAlignedReleaseVersions,
   parseReleaseArguments,
   parseRemoteTagTarget,
+  publishFetchArguments,
   releaseBranchName,
   resolveReleaseVersion,
 } from './release.mjs';
@@ -73,6 +74,16 @@ describe('protected-main release workflow', () => {
       value: '24.0.6',
     });
     expect(() => parseReleaseArguments(['ship'])).toThrow(/Usage/);
+  });
+
+  it('does not fetch unrelated historical tags before publishing', () => {
+    expect(publishFetchArguments()).toEqual([
+      'fetch',
+      '--prune',
+      'origin',
+      'main',
+    ]);
+    expect(publishFetchArguments()).not.toContain('--tags');
   });
 
   it('cannot tag, push main, or publish from release-it directly', () => {
