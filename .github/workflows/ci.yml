@@ -69,6 +69,8 @@ jobs:
         run: npm ci
       - name: Test external contribution policy
         run: npm run test:contribution-policy
+      - name: Test protected-main release workflow
+        run: npm run test:release-workflow
       - name: Check AxIR backlog coverage for portable TypeScript changes
         # On push events origin/main already equals HEAD, so diff against the
         # pre-push tip; the script falls back safely when it is unreachable.

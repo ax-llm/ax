@@ -29,9 +29,20 @@ development fallback.
 
 ## Release Flow
 
-`npm run release` is the normal TypeScript workspace release path. It runs the
-workspace release steps and then the root `release-it --no-increment` step that
-creates the final release commit, tag, and GitHub Release.
+`npm run release` is the normal release preparation path. It verifies that
+local `main` is clean and synchronized with `origin/main`, creates a
+`codex/release-<version>` branch, runs the workspace version bumps, regenerates
+the generated packages, creates the release commit, validates it, pushes the
+branch, and opens a pull request. It intentionally does not tag, push directly
+to `main`, or create a GitHub Release.
+
+After the release pull request passes the required checks and is merged, run
+`npm run release:publish -- <version>` from the synchronized `main` branch.
+The publish phase verifies that the release reached `main` through a merged
+pull request with passing required checks, replaces any stale local tag left by
+an older failed release attempt, pushes an annotated tag for the merged commit,
+and creates the GitHub Release. Publishing workflows then upload the registry
+packages from that exact tag.
 
 Generated package source is checked in under `packages/<language>`. Built
 registry artifacts, such as Python wheels, source distributions, Rust cargo
@@ -47,27 +58,32 @@ release commit/tag.
 
 ## Maintainer How-To
 
-For an ordinary TypeScript-only release, use the existing one-command flow:
+Prepare a patch release and open its protected-main pull request:
 
 ```bash
 npm run release
 ```
 
-For an AxIR/generated-language release, expand the current root release script
-into phases so the generated packages pick up the bumped root version:
+Pass `minor`, `major`, or an exact stable version when needed:
 
 ```bash
-npm run release --workspaces --if-present
-npm run axir:generate-packages
-npm run axir:check-packages
-npm run axir:verify:release
-npm exec -- release-it --no-increment
+npm run release -- minor
+npm run release -- 25.0.0
 ```
 
-The first command is the existing workspace-version-bump phase from
-`npm run release`. The final command is the existing root release phase. Keep
-the regenerated `packages/*` changes in the same release commit/tag as the
-TypeScript version bump.
+Once the release pull request is merged and `main` is synchronized, publish the
+same version:
+
+```bash
+git switch main
+git pull --ff-only origin main
+npm run release:publish -- 24.0.6
+```
+
+Never rerun `npm run release` to recover a rejected push. The preparation
+command refuses to run from an unsynchronized or dirty branch, and the root
+`release-it` configuration disables direct pushes, tags, and GitHub Releases.
+Preserve any prepared release commit first, then land it through a pull request.
 
 ## Local Release Smoke
 
