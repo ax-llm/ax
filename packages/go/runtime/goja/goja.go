@@ -2,6 +2,7 @@ package goja
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -366,11 +367,17 @@ func (s *Session) installBuiltins() {
 			}
 			result, err := h(params)
 			if err != nil {
-				return s.vm.ToValue(runtimeError(err.Error(), "runtime"))
+				// Parity with the TypeScript runtime (runtimeGlobals.ts), which
+				// rethrows host callable errors into the model's code. Returning
+				// an {is_error} object instead meant straight-line generated
+				// code — `const res = await tool(...); await final("done")` —
+				// sailed past every failure: in JavaScript, no exception reads
+				// as success.
+				panic(s.vm.NewGoError(err))
 			}
 			safe, ok := jsonSafe(result)
 			if !ok {
-				return s.vm.ToValue(runtimeError("host callable returned a non-JSON-compatible value", "runtime"))
+				panic(s.vm.NewGoError(errors.New("host callable returned a non-JSON-compatible value")))
 			}
 			return s.vm.ToValue(safe)
 		}))
@@ -380,9 +387,10 @@ func (s *Session) installBuiltins() {
 		callableName := name
 		s.defineProtected(callableName, s.vm.ToValue(func(call gojavm.FunctionCall) gojavm.Value {
 			if errObj := asMap(valueFromMap(spec, "error")); len(errObj) > 0 {
-				category := stringOption(valueFromMap(errObj, "category"), "runtime")
 				message := stringOption(valueFromMap(errObj, "message"), stringOption(valueFromMap(errObj, "error"), "host callable failed: "+callableName))
-				return s.vm.ToValue(runtimeError(message, category))
+				// Marker callables stand in for host callables in tests, so
+				// they fail the same way real ones do: by throwing.
+				panic(s.vm.NewGoError(errors.New(message)))
 			}
 			if result, ok := spec["result"]; ok {
 				safe, _ := jsonSafe(result)
