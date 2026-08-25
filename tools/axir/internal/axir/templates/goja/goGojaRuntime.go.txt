@@ -35,6 +35,14 @@ type Session struct {
 	closed          bool
 	stdout          []string
 	stderr          []string
+	// turnLogs collects this turn's console output. The axir step normalizer
+	// reads it off the result as `logs` and joins it into the output the model
+	// sees, which is the entire observation loop of the REPL contract: without
+	// it, console.log runs, captures into the session snapshot, and the model
+	// is never shown a byte — measured downstream as blind re-fetching of
+	// results already in hand. Reset each Execute; the TS, Python and C++
+	// runtimes all surface per-turn logs this way.
+	turnLogs []string
 }
 
 func NewRuntime(options ...Option) *Runtime {
@@ -169,6 +177,7 @@ func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
 		return runtimeError("session closed", "session_closed")
 	}
 	s.completion = nil
+	s.turnLogs = nil
 	s.installBuiltins()
 	timeoutMs := intOption(valueFromMap(options, "timeoutMs"), intOption(valueFromMap(s.runtimePolicy, "timeoutMs"), 5000))
 	var timer *time.Timer
@@ -219,12 +228,35 @@ func (s *Session) Execute(code string, options map[string]ax.Value) ax.Value {
 	s.restoreReservedGlobals()
 	s.installBuiltins()
 	if s.completion == nil {
-		return map[string]ax.Value{"kind": "result", "result": nil}
+		return s.withTurnLogs(map[string]ax.Value{"kind": "result", "result": nil})
 	}
 	if safe, ok := jsonSafe(s.completion); ok {
-		return safe
+		return s.withTurnLogs(safe)
 	}
 	return runtimeError("goja actor output is not JSON-compatible", "runtime")
+}
+
+// withTurnLogs surfaces this turn's console output as `logs` on the payload,
+// where the axir step normalizer joins it into the output shown to the model.
+// Completion payloads get it too, mirroring the Python runtime; a payload that
+// already carries logs, or is not a map, is returned untouched.
+func (s *Session) withTurnLogs(payload ax.Value) ax.Value {
+	if len(s.turnLogs) == 0 {
+		return payload
+	}
+	m, ok := payload.(map[string]ax.Value)
+	if !ok {
+		return payload
+	}
+	if _, exists := m["logs"]; exists {
+		return payload
+	}
+	logs := make([]ax.Value, 0, len(s.turnLogs))
+	for _, line := range s.turnLogs {
+		logs = append(logs, line)
+	}
+	m["logs"] = logs
+	return m
 }
 
 func (s *Session) Inspect(options map[string]ax.Value) ax.Value {
@@ -299,8 +331,19 @@ func (s *Session) Close() ax.Value {
 func (s *Session) installBuiltins() {
 	s.installFreezeHelper()
 	console := s.vm.NewObject()
-	_ = console.DefineDataProperty("log", s.vm.ToValue(func(values ...gojavm.Value) { s.appendDiagnostic(&s.stdout, values...) }), gojavm.FLAG_FALSE, gojavm.FLAG_FALSE, gojavm.FLAG_TRUE)
-	_ = console.DefineDataProperty("error", s.vm.ToValue(func(values ...gojavm.Value) { s.appendDiagnostic(&s.stderr, values...) }), gojavm.FLAG_FALSE, gojavm.FLAG_FALSE, gojavm.FLAG_TRUE)
+	logTo := func(target *[]string) func(values ...gojavm.Value) {
+		return func(values ...gojavm.Value) {
+			s.appendDiagnostic(target, values...)
+			s.appendDiagnostic(&s.turnLogs, values...)
+		}
+	}
+	// warn/info/debug exist in every sibling runtime's console shim; leaving
+	// them undefined here turned a model's console.info into a TypeError that
+	// failed the whole turn.
+	for _, name := range []string{"log", "warn", "info", "debug"} {
+		_ = console.DefineDataProperty(name, s.vm.ToValue(logTo(&s.stdout)), gojavm.FLAG_FALSE, gojavm.FLAG_FALSE, gojavm.FLAG_TRUE)
+	}
+	_ = console.DefineDataProperty("error", s.vm.ToValue(logTo(&s.stderr)), gojavm.FLAG_FALSE, gojavm.FLAG_FALSE, gojavm.FLAG_TRUE)
 	s.defineProtected("console", console)
 	s.setPrimitive("final", func(args []ax.Value) ax.Value {
 		return map[string]ax.Value{"type": "final", "args": args}
