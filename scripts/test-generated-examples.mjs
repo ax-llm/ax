@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPublicExampleCatalog } from './example-catalog.mjs';
@@ -110,12 +111,21 @@ async function main(args = process.argv.slice(2)) {
   const targets = selectGeneratedExampleTargets(args);
   console.log(`Generated example targets: ${targets.join(', ')}`);
 
+  if (targets.includes('cpp')) {
+    const generatedRoot = path.join(repoRoot, 'src', 'examples', '.generated');
+    await Promise.all(
+      ['cpp-package-build', 'cpp-package-install'].map((name) =>
+        rm(path.join(generatedRoot, name), { force: true, recursive: true })
+      )
+    );
+  }
+
   // Preserve the existing all-target catalog smoke without printing the entire
   // catalog once per CI shard. Targeted runs still parse the same catalog below.
   if (args.length === 0) run(process.execPath, [runner, 'list']);
   for (const [language, file] of generatedExamplesForTargets(targets)) {
     console.log(`[example] ${language}: ${file}`);
-    run(process.execPath, [runner, language, file]);
+    run(process.execPath, [runner, language, file], language);
   }
 
   const catalog = await readPublicExampleCatalog({ repoRoot });
@@ -123,19 +133,21 @@ async function main(args = process.argv.slice(2)) {
     console.log(
       `[mcp compile] ${example.language.runner}: ${example.sourcePath}`
     );
-    run(process.execPath, [
-      runner,
-      example.language.runner,
-      example.sourcePath,
-      '--compile-only',
-    ]);
+    run(
+      process.execPath,
+      [runner, example.language.runner, example.sourcePath, '--compile-only'],
+      example.language.runner
+    );
   }
 }
 
-function run(command, args) {
+function run(command, args, language) {
   const result = spawnSync(command, args, {
     cwd: repoRoot,
-    env: process.env,
+    env: {
+      ...process.env,
+      ...(language === 'cpp' ? { AXIR_CPP_REUSE_PACKAGE_BUILD: '1' } : {}),
+    },
     stdio: 'inherit',
     shell: false,
   });
