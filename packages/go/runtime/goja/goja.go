@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	ax "github.com/ax-llm/ax/packages/go"
 	gojavm "github.com/dop251/goja"
@@ -478,11 +479,43 @@ func (s *Session) appendDiagnostic(target *[]string, values ...gojavm.Value) {
 	for _, value := range values {
 		parts = append(parts, fmt.Sprint(normalizeExport(value.Export())))
 	}
-	*target = append(*target, strings.Join(parts, " "))
 	limit := intOption(valueFromMap(s.runtimePolicy, "maxDiagnosticsBytes"), 16384)
-	for len(strings.Join(*target, "\n")) > limit && len(*target) > 0 {
+	*target = append(*target, truncateDiagnostic(strings.Join(parts, " "), limit))
+	// Drop the oldest entries when the budget is exceeded, but never the entry
+	// just written: it is the one the actor asked to see this turn, and the
+	// line above has already bounded it on its own.
+	for len(strings.Join(*target, "\n")) > limit && len(*target) > 1 {
 		*target = (*target)[1:]
 	}
+}
+
+// truncateDiagnostic bounds one logged line, replacing the overflow with a note
+// that says what happened and what to do instead.
+//
+// Trimming a line to fit is what "the runtime truncates long values" means to
+// the actor writing the code: it inspects a large object, sees the head of it
+// plus the notice, and narrows to a slice on the next turn. Dropping the line
+// entirely — which is what the enclosing budget loop did to any single line
+// over the limit — is indistinguishable from console.log doing nothing, and
+// leaves nothing to learn from. Measured downstream: logging a 25KB discovery
+// seed produced no output at all, and the actor re-fetched what it already had.
+func truncateDiagnostic(line string, limit int) string {
+	if limit <= 0 || len(line) <= limit {
+		return line
+	}
+	const shortNotice = "[truncated]"
+	if limit <= len(shortNotice) {
+		return shortNotice[:limit]
+	}
+	notice := fmt.Sprintf(" [truncated from %d bytes; log a slice or fewer fields instead]", len(line))
+	if len(notice) >= limit {
+		notice = " " + shortNotice
+	}
+	prefixBytes := limit - len(notice)
+	for prefixBytes > 0 && !utf8.RuneStart(line[prefixBytes]) {
+		prefixBytes--
+	}
+	return line[:prefixBytes] + notice
 }
 
 func (s *Session) restoreReservedGlobals() {
