@@ -95,6 +95,9 @@ var goSum string
 //go:embed templates/goja/goGojaRuntime.go.txt
 var goGojaRuntime string
 
+//go:embed templates/goja/goGojaRuntimeTest.go.txt
+var goGojaRuntimeTest string
+
 //go:embed templates/goja/goJavaScriptGojaProfileExample.go.txt
 var goJavaScriptGojaProfileExample string
 

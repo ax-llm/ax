@@ -374,6 +374,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"axllm.go":                          renderPackageTemplate(core, version),
 		"mcp.go":                            goMCP,
 		"runtime/goja/goja.go":              goGojaRuntime,
+		"runtime/goja/goja_test.go":         goGojaRuntimeTest,
 		"axir-capabilities.json":            mustCapabilityManifest(model, "go"),
 		"axir-api.json":                     mustAPIReferenceManifest(model, "go"),
 		"conformance-coverage.json":         mustConformanceCoverageManifest(model, "go"),

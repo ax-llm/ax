@@ -959,6 +959,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"go.sum",
 				"axllm.go",
 				"runtime/goja/goja.go",
+				"runtime/goja/goja_test.go",
 				"axir-capabilities.json",
 				"axir-api.json",
 				"conformance-coverage.json",
@@ -1213,6 +1214,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				checkGeneratedFileContains(t, dir, "go.mod", "module github.com/ax-llm/ax/packages/go", "go 1.23", "github.com/dop251/goja", "github.com/coder/websocket")
 				checkGeneratedFileContains(t, dir, "axllm.go", "package axllm", "type Value = any", "func NewSignature", "type HTTPTransport struct")
 				checkGeneratedFileContains(t, dir, "runtime/goja/goja.go", "package goja", "func NewRuntime(options ...Option) *Runtime", "func (r *Runtime) RegisterCallable", "gojavm.New")
+				checkGeneratedFileContains(t, dir, "runtime/goja/goja_test.go", "TestExecuteSurfacesConsoleLogsOnIntermediateStep", "TestExecuteResetsLogsBetweenTurns", "TestConsoleVariantsDoNotThrow")
 				checkGeneratedFileContains(t, dir, "examples/runtime_profiles/javascript_goja/main.go", "go-javascript-goja-profile-ok", "ax.NewAgent", "agent.Test(runtime", "while (true) {}")
 			case "rust":
 				checkGeneratedFileContains(t, dir, "Cargo.toml", `name = "axllm"`, "reqwest", "rustls-tls", "rquickjs", "runtime-quickjs", `required-features = ["runtime-quickjs"]`, "tungstenite", `realtime = ["dep:tungstenite"]`)
