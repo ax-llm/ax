@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPublicExampleCatalog } from './example-catalog.mjs';
@@ -9,7 +10,15 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
 const runner = path.join(repoRoot, 'scripts', 'run-example.mjs');
 
-const examples = [
+export const GENERATED_EXAMPLE_TARGETS = [
+  'python',
+  'java',
+  'cpp',
+  'go',
+  'rust',
+];
+
+export const generatedExamples = [
   ['python', 'signature_schema.py'],
   ['python', 'provider_mapping_no_key.py'],
   ['python', 'provider_stream_no_key.py'],
@@ -69,28 +78,91 @@ const examples = [
   ['rust', 'mcp_scripted_tools.rs'],
 ];
 
-run(process.execPath, [runner, 'list']);
-for (const [language, file] of examples) {
-  run(process.execPath, [runner, language, file]);
+export function selectGeneratedExampleTargets(args = []) {
+  const requested = args.length > 0 ? args : GENERATED_EXAMPLE_TARGETS;
+  const unknown = requested.filter(
+    (target) => !GENERATED_EXAMPLE_TARGETS.includes(target)
+  );
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unsupported generated-example target(s): ${[...new Set(unknown)].join(', ')}. Expected one or more of: ${GENERATED_EXAMPLE_TARGETS.join(', ')}.`
+    );
+  }
+  const selected = new Set(requested);
+  return GENERATED_EXAMPLE_TARGETS.filter((target) => selected.has(target));
 }
 
-const catalog = await readPublicExampleCatalog({ repoRoot });
-for (const example of catalog.all.filter((value) => value.group === 'mcp')) {
-  run(process.execPath, [
-    runner,
-    example.language.runner,
-    example.sourcePath,
-    '--compile-only',
-  ]);
+export function generatedExamplesForTargets(
+  targets,
+  values = generatedExamples
+) {
+  const selected = new Set(targets);
+  return values.filter(([language]) => selected.has(language));
 }
 
-function run(command, args) {
+export function generatedMcpExamplesForTargets(catalog, targets) {
+  const selected = new Set(targets);
+  return catalog.all.filter(
+    (value) => value.group === 'mcp' && selected.has(value.language.runner)
+  );
+}
+
+async function main(args = process.argv.slice(2)) {
+  const targets = selectGeneratedExampleTargets(args);
+  console.log(`Generated example targets: ${targets.join(', ')}`);
+
+  if (targets.includes('cpp')) {
+    const generatedRoot = path.join(repoRoot, 'src', 'examples', '.generated');
+    await Promise.all(
+      ['cpp-package-build', 'cpp-package-install'].map((name) =>
+        rm(path.join(generatedRoot, name), { force: true, recursive: true })
+      )
+    );
+  }
+
+  // Preserve the existing all-target catalog smoke without printing the entire
+  // catalog once per CI shard. Targeted runs still parse the same catalog below.
+  if (args.length === 0) run(process.execPath, [runner, 'list']);
+  for (const [language, file] of generatedExamplesForTargets(targets)) {
+    console.log(`[example] ${language}: ${file}`);
+    run(process.execPath, [runner, language, file], language);
+  }
+
+  const catalog = await readPublicExampleCatalog({ repoRoot });
+  for (const example of generatedMcpExamplesForTargets(catalog, targets)) {
+    console.log(
+      `[mcp compile] ${example.language.runner}: ${example.sourcePath}`
+    );
+    run(
+      process.execPath,
+      [runner, example.language.runner, example.sourcePath, '--compile-only'],
+      example.language.runner
+    );
+  }
+}
+
+function run(command, args, language) {
   const result = spawnSync(command, args, {
     cwd: repoRoot,
-    env: process.env,
+    env: {
+      ...process.env,
+      ...(language === 'cpp' ? { AXIR_CPP_REUSE_PACKAGE_BUILD: '1' } : {}),
+    },
     stdio: 'inherit',
     shell: false,
   });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+const isMain =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) ===
+    path.resolve(fileURLToPath(import.meta.url));
+
+if (isMain) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }

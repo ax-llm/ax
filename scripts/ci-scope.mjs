@@ -12,6 +12,8 @@ const defaultRepoRoot = path.resolve(scriptDir, '..');
 const gitMaxBuffer = 512 * 1024 * 1024;
 const fullScopeSentinel = '.github/workflows/ci.yml';
 
+export const AXIR_TARGETS = ['python', 'java', 'cpp', 'go', 'rust'];
+
 const generatedLanguageRoots = [
   'packages/python/',
   'packages/java/',
@@ -24,6 +26,51 @@ const generatedLanguageRoots = [
   'src/examples/go/',
   'src/examples/rust/',
 ];
+
+const targetOwnedRoots = new Map([
+  [
+    'python',
+    [
+      'packages/python/',
+      'src/examples/python/',
+      'tools/axir/internal/axir/templates/python/',
+    ],
+  ],
+  [
+    'java',
+    [
+      'packages/java/',
+      'src/examples/java/',
+      'tools/axir/internal/axir/templates/java/',
+    ],
+  ],
+  [
+    'cpp',
+    [
+      'packages/cpp/',
+      'src/examples/cpp/',
+      'tools/axir/internal/axir/templates/cpp/',
+    ],
+  ],
+  [
+    'go',
+    [
+      'packages/go/',
+      'src/examples/go/',
+      'tools/axir/internal/axir/templates/go/',
+      'tools/axir/internal/axir/templates/goja/',
+    ],
+  ],
+  [
+    'rust',
+    [
+      'packages/rust/',
+      'src/examples/rust/',
+      'tools/axir/internal/axir/templates/rust/',
+      'tools/axir/internal/axir/templates/rust_quickjs/',
+    ],
+  ],
+]);
 
 const axirMatrixFiles = new Set([
   // Not currently tracked, but adding it can change every npm ci result.
@@ -115,6 +162,29 @@ export function axirMatrixPaths(changedFiles) {
   return changedFiles.map(normalizePath).filter(isAxirMatrixPath);
 }
 
+function targetForAxirPath(filePath) {
+  const normalized = normalizePath(filePath);
+  for (const [target, roots] of targetOwnedRoots) {
+    if (roots.some((root) => normalized.startsWith(root))) return target;
+  }
+  return null;
+}
+
+export function axirTargets(changedFiles) {
+  const paths = axirMatrixPaths(changedFiles);
+  if (paths.length === 0) return [];
+
+  const selected = new Set();
+  for (const filePath of paths) {
+    const target = targetForAxirPath(filePath);
+    // Shared compiler/IR inputs and any unclassified AxIR path fail open to the
+    // complete target matrix. Only clearly target-owned roots may narrow CI.
+    if (!target) return [...AXIR_TARGETS];
+    selected.add(target);
+  }
+  return AXIR_TARGETS.filter((target) => selected.has(target));
+}
+
 export function isCoreTestPath(filePath) {
   const normalized = normalizePath(filePath);
   return !isDocumentationOnlyPath(normalized);
@@ -186,10 +256,14 @@ function main(argv = process.argv.slice(2)) {
   const githubOutput = option(argv, 'github-output');
   const changedFiles = changedFilesFromGit(base, head, root);
   const axirPaths = axirMatrixPaths(changedFiles);
+  const targets = axirTargets(changedFiles);
   const corePaths = coreTestPaths(changedFiles);
-  const runAxir = axirPaths.length > 0;
+  const runAxir = targets.length > 0;
   const runCore = corePaths.length > 0;
 
+  console.log(
+    runAxir ? `AxIR targets: ${targets.join(', ')}` : 'AxIR targets: none'
+  );
   console.log(
     runAxir
       ? `AxIR/language matrix required by:\n${axirPaths.map((file) => `- ${file}`).join('\n')}`
@@ -203,6 +277,7 @@ function main(argv = process.argv.slice(2)) {
 
   if (githubOutput) {
     appendFileSync(githubOutput, `run_axir=${runAxir}\n`);
+    appendFileSync(githubOutput, `axir_targets=${JSON.stringify(targets)}\n`);
     appendFileSync(githubOutput, `run_core=${runCore}\n`);
   }
 }

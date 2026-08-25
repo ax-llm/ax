@@ -306,46 +306,65 @@ async function runCpp(examplePath, rest) {
   const qjs = wantsRuntime ? resolveQuickjsCppFlags() : null;
 
   if (cmake) {
-    const buildDir = path.join(generatedRoot, 'cpp-cmake-build', stem);
-    const installDir = path.join(generatedRoot, 'cpp-install', stem);
+    // The generated-example harness invokes this script once per example. Its
+    // opt-in lets those child processes share one package build per profile;
+    // standalone runs keep their existing clean-build behavior.
+    const reusePackageBuild = env.AXIR_CPP_REUSE_PACKAGE_BUILD === '1';
+    const packageBuildKey = wantsRuntime ? 'quickjs' : 'base';
+    const buildDir = path.join(
+      generatedRoot,
+      reusePackageBuild ? 'cpp-package-build' : 'cpp-cmake-build',
+      reusePackageBuild ? packageBuildKey : stem
+    );
+    const installDir = path.join(
+      generatedRoot,
+      reusePackageBuild ? 'cpp-package-install' : 'cpp-install',
+      reusePackageBuild ? packageBuildKey : stem
+    );
     const scratchDir = path.join(generatedRoot, 'cpp-run', stem);
     const scratchBuildDir = path.join(generatedRoot, 'cpp-run-build', stem);
-    await rm(buildDir, { recursive: true, force: true });
-    await rm(installDir, { recursive: true, force: true });
+    if (!reusePackageBuild) {
+      await rm(buildDir, { recursive: true, force: true });
+      await rm(installDir, { recursive: true, force: true });
+    }
     await rm(scratchDir, { recursive: true, force: true });
     await rm(scratchBuildDir, { recursive: true, force: true });
     await mkdir(scratchDir, { recursive: true });
 
-    const configureArgs = [
-      '-S',
-      outDir,
-      '-B',
-      buildDir,
-      '-DAX_BUILD_EXAMPLES=OFF',
-      '-DAX_BUILD_CONFORMANCE=OFF',
-    ];
-    if (wantsRuntime) {
-      configureArgs.push(
-        '-DAX_BUILD_QUICKJS_PROFILE=ON',
-        `-DAX_QUICKJS_CFLAGS=${qjs.cflags}`,
-        `-DAX_QUICKJS_LDFLAGS=${qjs.ldflags}`
-      );
-    }
-    run(cmake, configureArgs, { cwd: repoRoot, env });
-    run(cmake, ['--build', buildDir, '--target', 'axllm'], {
-      cwd: repoRoot,
-      env,
-    });
-    if (wantsRuntime) {
-      run(cmake, ['--build', buildDir, '--target', 'axllm_quickjs'], {
+    const packageReady = path.join(installDir, '.axir-example-package-ready');
+    if (!reusePackageBuild || !existsSync(packageReady)) {
+      const configureArgs = [
+        '-S',
+        outDir,
+        '-B',
+        buildDir,
+        '-DAX_BUILD_EXAMPLES=OFF',
+        '-DAX_BUILD_CONFORMANCE=OFF',
+      ];
+      if (wantsRuntime) {
+        configureArgs.push(
+          '-DAX_BUILD_QUICKJS_PROFILE=ON',
+          `-DAX_QUICKJS_CFLAGS=${qjs.cflags}`,
+          `-DAX_QUICKJS_LDFLAGS=${qjs.ldflags}`
+        );
+      }
+      run(cmake, configureArgs, { cwd: repoRoot, env });
+      run(cmake, ['--build', buildDir, '--target', 'axllm'], {
         cwd: repoRoot,
         env,
       });
+      if (wantsRuntime) {
+        run(cmake, ['--build', buildDir, '--target', 'axllm_quickjs'], {
+          cwd: repoRoot,
+          env,
+        });
+      }
+      run(cmake, ['--install', buildDir, '--prefix', installDir], {
+        cwd: repoRoot,
+        env,
+      });
+      if (reusePackageBuild) await writeFile(packageReady, '');
     }
-    run(cmake, ['--install', buildDir, '--prefix', installDir], {
-      cwd: repoRoot,
-      env,
-    });
 
     await writeFile(
       path.join(scratchDir, 'CMakeLists.txt'),
