@@ -119,3 +119,51 @@ func TestConsoleVariantsDoNotThrow(t *testing.T) {
 		t.Fatalf("console variants logs = %v, want all four captured", logs)
 	}
 }
+
+// A single line over the diagnostics budget used to delete itself: the budget
+// loop dropped entries until the total fit, and with one oversized entry that
+// left nothing. To the actor that is indistinguishable from console.log doing
+// nothing. Measured downstream: logging a 25KB discovery seed against the 16KB
+// default produced no output at all, in 14 of 17 remaining blind steps.
+func TestOversizedLogIsTruncatedNotDropped(t *testing.T) {
+	session := newTestSession(t)
+	result := session.Execute(`const big = "x".repeat(40000); console.log(big);`, nil)
+	payload := payloadMap(t, result)
+	logs := logsOf(t, payload)
+	if len(logs) != 1 {
+		t.Fatalf("oversized log produced %d entries, want it kept and trimmed: %v", len(logs), logs)
+	}
+	if !strings.Contains(logs[0], "truncated") || !strings.Contains(logs[0], "40000") {
+		t.Fatalf("truncated line must say what happened: %q", logs[0][max(0, len(logs[0])-160):])
+	}
+	if len(logs[0]) > 16384 {
+		t.Fatalf("truncated line is %d bytes, over the 16384 budget", len(logs[0]))
+	}
+	if !strings.HasPrefix(logs[0], "xxxx") {
+		t.Fatalf("truncation must keep the head of the value: %q", logs[0][:40])
+	}
+}
+
+// Many small lines still evict oldest-first, and the newest always survives.
+func TestDiagnosticBudgetEvictsOldestAndKeepsNewest(t *testing.T) {
+	session := newTestSession(t)
+	result := session.Execute(`for (let i = 0; i < 40; i++) { console.log("line" + i + ":" + "y".repeat(1000)); }`, nil)
+	payload := payloadMap(t, result)
+	logs := logsOf(t, payload)
+	if len(logs) == 0 {
+		t.Fatal("budget eviction removed every line")
+	}
+	if !strings.HasPrefix(logs[len(logs)-1], "line39:") {
+		t.Fatalf("newest line was evicted; last entry starts %q", logs[len(logs)-1][:12])
+	}
+	if total := len(strings.Join(logs, "\n")); total > 16384 {
+		t.Fatalf("retained logs are %d bytes, over budget", total)
+	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
