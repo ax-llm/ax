@@ -1,5 +1,18 @@
 # Changelog
 
+## [24.0.8](https://github.com/ax-llm/ax/compare/24.0.6...24.0.7) (2026-08-25)
+
+### Bug Fixes
+
+* **go/goja:** truncate an oversized log line instead of deleting it ([#604](https://github.com/ax-llm/ax/issues/604)) ([736ae2b](https://github.com/ax-llm/ax/commit/736ae2b9f1a3d14572a357133294b046635aff72)), closes [#602](https://github.com/ax-llm/ax/issues/602) [#602](https://github.com/ax-llm/ax/issues/602)
+
+## [24.0.7](https://github.com/ax-llm/ax/compare/24.0.6...24.0.7) (2026-08-25)
+
+### Bug Fixes
+
+* **go/goja:** surface console output to the actor as per-turn logs ([#602](https://github.com/ax-llm/ax/issues/602)) ([e8b2618](https://github.com/ax-llm/ax/commit/e8b261853617a203a540c595e2408105785614ad))
+* **release:** ignore unrelated local tags ([#601](https://github.com/ax-llm/ax/issues/601)) ([16d893e](https://github.com/ax-llm/ax/commit/16d893e859692ced866c158810be4b7327757075))
+
 ## [24.0.7](https://github.com/ax-llm/ax/compare/24.0.5...24.0.6) (2026-08-25)
 
 ### Bug Fixes
