@@ -1,5 +1,18 @@
 # Changelog
 
+## [24.0.7](https://github.com/ax-llm/ax/compare/24.0.5...24.0.6) (2026-08-25)
+
+### Bug Fixes
+
+* **go/goja:** surface console output to the actor as per-turn logs ([#602](https://github.com/ax-llm/ax/issues/602)) ([e8b2618](https://github.com/ax-llm/ax/commit/e8b261853617a203a540c595e2408105785614ad))
+* **release:** ignore unrelated local tags ([#601](https://github.com/ax-llm/ax/issues/601)) ([16d893e](https://github.com/ax-llm/ax/commit/16d893e859692ced866c158810be4b7327757075))
+
+## [24.0.6](https://github.com/ax-llm/ax/compare/24.0.5...24.0.6) (2026-08-23)
+
+### Bug Fixes
+
+* **runtime:** throw host callable errors into actor code ([#599](https://github.com/ax-llm/ax/issues/599)) ([b846449](https://github.com/ax-llm/ax/commit/b846449d5d3ef19e05d8623bb42bf43006d433fd))
+
 ## [24.0.6](https://github.com/ax-llm/ax/compare/24.0.1...24.0.5) (2026-08-23)
 
 ### Bug Fixes
