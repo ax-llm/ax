@@ -3,7 +3,7 @@
 // fixtures and assert every target FAILS that fixture. A target that passes
 // a perturbed fixture has a runner that is not actually checking behavior.
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
   cpSync,
   mkdtempSync,
@@ -21,6 +21,10 @@ export const repoRoot = path.resolve(scriptDir, '..');
 export const conformanceRoot = path.join(repoRoot, 'ir', 'conformance');
 
 export const DEFAULT_TARGETS = ['python', 'go', 'rust', 'java', 'cpp'];
+export const PERTURB_RUNNER_ROOT_ENV = 'AXIR_PERTURB_RUNNER_ROOT';
+
+const PREPARED_RUNNER_VERSION = 1;
+const PREPARED_RUNNER_MANIFEST = '.axir-perturb-runner.json';
 
 // Engine-required suites: their fixtures need an optional in-process engine
 // (goja/quickjs) that the default conformance runner here does NOT load, so they
@@ -105,6 +109,38 @@ function run(command, args, options = {}) {
   });
 }
 
+function runAsync(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const { envExtra, ...spawnOptions } = options;
+    const startedAt = performance.now();
+    const child = spawn(command, args, {
+      ...spawnOptions,
+      env: cleanEnv(envExtra),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.on('error', reject);
+    child.on('close', (status, signal) => {
+      resolve({
+        status,
+        signal,
+        stdout,
+        stderr,
+        durationMs: performance.now() - startedAt,
+      });
+    });
+  });
+}
+
 export function compileTarget(target, outDir) {
   execFileSync(
     'node',
@@ -121,9 +157,7 @@ export function compileTarget(target, outDir) {
   );
 }
 
-// Build each target's conformance runner once; return a function that runs
-// it against a suite directory and reports pass/fail.
-export function buildRunner(target, outDir) {
+function runnerForTarget(target, outDir) {
   switch (target) {
     case 'python':
       return (suiteDir) =>
@@ -132,13 +166,47 @@ export function buildRunner(target, outDir) {
         });
     case 'go': {
       const bin = path.join(outDir, 'conformance_bin');
+      return (suiteDir) => run(bin, [suiteDir], { cwd: outDir });
+    }
+    case 'rust': {
+      // cargo honors CARGO_TARGET_DIR (CI sets it for build caching); resolve the
+      // binary from the same dir cargo built into rather than assuming outDir/target.
+      const targetDir = path.resolve(
+        outDir,
+        process.env.CARGO_TARGET_DIR || 'target'
+      );
+      const bin = path.join(targetDir, 'debug', 'axllm-conformance');
+      return (suiteDir) => run(bin, [suiteDir], { cwd: outDir });
+    }
+    case 'java': {
+      return (suiteDir) =>
+        run('java', ['-cp', outDir, 'dev.axllm.ax.Conformance', suiteDir]);
+    }
+    case 'cpp': {
+      const bin = path.join(outDir, 'conformance_bin');
+      return (suiteDir) => run(bin, [suiteDir]);
+    }
+    default:
+      throw new Error(`unsupported target ${target}`);
+  }
+}
+
+// Build each target's conformance runner once; return a function that runs it
+// against a suite directory and reports pass/fail. C++ has three independent
+// translation units, so compile them concurrently before the final link.
+export async function buildRunner(target, outDir) {
+  switch (target) {
+    case 'python':
+      break;
+    case 'go': {
+      const bin = path.join(outDir, 'conformance_bin');
       const build = run('go', ['build', '-o', bin, './conformance'], {
         cwd: outDir,
       });
       if (build.status !== 0) {
         throw new Error(`go build failed:\n${build.stdout}${build.stderr}`);
       }
-      return (suiteDir) => run(bin, [suiteDir], { cwd: outDir });
+      break;
     }
     case 'rust': {
       const build = run(
@@ -156,14 +224,7 @@ export function buildRunner(target, outDir) {
       if (build.status !== 0) {
         throw new Error(`cargo build failed:\n${build.stdout}${build.stderr}`);
       }
-      // cargo honors CARGO_TARGET_DIR (CI sets it for build caching); resolve the
-      // binary from the same dir cargo built into rather than assuming outDir/target.
-      const targetDir = path.resolve(
-        outDir,
-        process.env.CARGO_TARGET_DIR || 'target'
-      );
-      const bin = path.join(targetDir, 'debug', 'axllm-conformance');
-      return (suiteDir) => run(bin, [suiteDir], { cwd: outDir });
+      break;
     }
     case 'java': {
       const files = readdirSync(path.join(outDir, 'dev', 'axllm', 'ax'))
@@ -174,49 +235,129 @@ export function buildRunner(target, outDir) {
       if (build.status !== 0) {
         throw new Error(`javac failed:\n${build.stdout}${build.stderr}`);
       }
-      return (suiteDir) =>
-        run('java', ['-cp', outDir, 'dev.axllm.ax.Conformance', suiteDir]);
+      break;
     }
     case 'cpp': {
       const compiler = process.env.CXX || 'c++';
-      const ax = path.join(outDir, 'ax.o');
-      const mcp = path.join(outDir, 'mcp.o');
-      for (const [source, object] of [
-        [path.join(outDir, 'axllm', 'axllm.cpp'), ax],
-        [path.join(outDir, 'axllm', 'mcp.cpp'), mcp],
-      ]) {
-        const step = run(compiler, [
-          '-std=c++17',
-          '-I',
-          outDir,
-          '-c',
-          source,
-          '-o',
-          object,
-        ]);
-        if (step.status !== 0) {
-          throw new Error(`c++ compile failed:\n${step.stdout}${step.stderr}`);
+      const compileSteps = [
+        {
+          label: 'axllm.cpp',
+          source: path.join(outDir, 'axllm', 'axllm.cpp'),
+          object: path.join(outDir, 'ax.o'),
+        },
+        {
+          label: 'mcp.cpp',
+          source: path.join(outDir, 'axllm', 'mcp.cpp'),
+          object: path.join(outDir, 'mcp.o'),
+        },
+        {
+          label: 'conformance.cpp',
+          source: path.join(outDir, 'conformance.cpp'),
+          object: path.join(outDir, 'conformance.o'),
+        },
+      ];
+      const results = await Promise.all(
+        compileSteps.map(async ({ label, source, object }) => {
+          const result = await runAsync(compiler, [
+            '-std=c++17',
+            '-I',
+            outDir,
+            '-c',
+            source,
+            '-o',
+            object,
+          ]);
+          console.log(
+            `[compile] cpp ${label} ${(result.durationMs / 1000).toFixed(1)}s`
+          );
+          return { label, object, result };
+        })
+      );
+      for (const { label, result } of results) {
+        if (result.status !== 0) {
+          throw new Error(
+            `c++ compile failed (${label}):\n${result.stdout}${result.stderr}`
+          );
         }
       }
       const bin = path.join(outDir, 'conformance_bin');
+      const linkStartedAt = performance.now();
       const link = run(compiler, [
-        '-std=c++17',
-        '-I',
-        outDir,
-        path.join(outDir, 'conformance.cpp'),
-        ax,
-        mcp,
+        ...results.map(({ object }) => object),
         '-o',
         bin,
       ]);
+      console.log(
+        `[link] cpp conformance_bin ${(
+          (performance.now() - linkStartedAt) / 1000
+        ).toFixed(1)}s`
+      );
       if (link.status !== 0) {
         throw new Error(`c++ link failed:\n${link.stdout}${link.stderr}`);
       }
-      return (suiteDir) => run(bin, [suiteDir]);
+      break;
     }
     default:
       throw new Error(`unsupported target ${target}`);
   }
+  return runnerForTarget(target, outDir);
+}
+
+function runnerManifestPath(outDir) {
+  return path.join(outDir, PREPARED_RUNNER_MANIFEST);
+}
+
+export async function prepareTargetRunner(target, outDir) {
+  const generationStartedAt = performance.now();
+  compileTarget(target, outDir);
+  console.log(
+    `[generate] ${target} ${(
+      (performance.now() - generationStartedAt) / 1000
+    ).toFixed(1)}s`
+  );
+  const runner = await buildRunner(target, outDir);
+  writeFileSync(
+    runnerManifestPath(outDir),
+    `${JSON.stringify({ version: PREPARED_RUNNER_VERSION, target })}\n`
+  );
+  return runner;
+}
+
+export function loadPreparedRunner(target, outDir) {
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(runnerManifestPath(outDir), 'utf8'));
+  } catch (error) {
+    throw new Error(
+      `prepared AxIR runner for ${target} is missing or invalid at ${outDir}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (
+    manifest.version !== PREPARED_RUNNER_VERSION ||
+    manifest.target !== target
+  ) {
+    throw new Error(
+      `prepared AxIR runner mismatch at ${outDir}: expected version ${PREPARED_RUNNER_VERSION} target ${target}`
+    );
+  }
+  return runnerForTarget(target, outDir);
+}
+
+export async function loadOrPrepareRunners(selected, outDirForTarget) {
+  const runners = {};
+  const preparedRoot = process.env[PERTURB_RUNNER_ROOT_ENV];
+  for (const target of selected) {
+    if (preparedRoot) {
+      const outDir = path.join(path.resolve(preparedRoot), target);
+      console.log(`[reuse] ${target} runner from ${outDir}`);
+      runners[target] = loadPreparedRunner(target, outDir);
+      continue;
+    }
+    const outDir = outDirForTarget(target);
+    console.log(`[build] ${target}`);
+    runners[target] = await prepareTargetRunner(target, outDir);
+  }
+  return runners;
 }
 
 async function main() {
@@ -228,13 +369,9 @@ async function main() {
   );
 
   const work = mkdtempSync(path.join(os.tmpdir(), 'axir-perturb-'));
-  const runners = {};
-  for (const target of selected) {
-    const outDir = path.join(work, target);
-    console.log(`[build] ${target}`);
-    compileTarget(target, outDir);
-    runners[target] = buildRunner(target, outDir);
-  }
+  const runners = await loadOrPrepareRunners(selected, (target) =>
+    path.join(work, target)
+  );
 
   // Self-test: the pristine tree must pass every sampled suite everywhere.
   for (const target of selected) {

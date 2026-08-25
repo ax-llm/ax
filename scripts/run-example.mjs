@@ -303,14 +303,19 @@ async function runCpp(examplePath, rest) {
   const stem = path.basename(examplePath, path.extname(examplePath));
   const cmake = findOptionalCommand(['cmake'], ['--version']);
   const wantsRuntime = exampleNeedsJsRuntime(examplePath);
-  const qjs = wantsRuntime ? resolveQuickjsCppFlags() : null;
 
   if (cmake) {
     // The generated-example harness invokes this script once per example. Its
     // opt-in lets those child processes share one package build per profile;
     // standalone runs keep their existing clean-build behavior.
     const reusePackageBuild = env.AXIR_CPP_REUSE_PACKAGE_BUILD === '1';
-    const packageBuildKey = wantsRuntime ? 'quickjs' : 'base';
+    const sharedQuickjsBuild =
+      reusePackageBuild &&
+      Boolean(env.AXIR_QUICKJS_CFLAGS?.trim()) &&
+      Boolean(env.AXIR_QUICKJS_LDFLAGS?.trim());
+    const packageNeedsRuntime = wantsRuntime || sharedQuickjsBuild;
+    const qjs = packageNeedsRuntime ? resolveQuickjsCppFlags() : null;
+    const packageBuildKey = packageNeedsRuntime ? 'quickjs' : 'base';
     const buildDir = path.join(
       generatedRoot,
       reusePackageBuild ? 'cpp-package-build' : 'cpp-cmake-build',
@@ -341,7 +346,7 @@ async function runCpp(examplePath, rest) {
         '-DAX_BUILD_EXAMPLES=OFF',
         '-DAX_BUILD_CONFORMANCE=OFF',
       ];
-      if (wantsRuntime) {
+      if (packageNeedsRuntime) {
         configureArgs.push(
           '-DAX_BUILD_QUICKJS_PROFILE=ON',
           `-DAX_QUICKJS_CFLAGS=${qjs.cflags}`,
@@ -353,7 +358,7 @@ async function runCpp(examplePath, rest) {
         cwd: repoRoot,
         env,
       });
-      if (wantsRuntime) {
+      if (packageNeedsRuntime) {
         run(cmake, ['--build', buildDir, '--target', 'axllm_quickjs'], {
           cwd: repoRoot,
           env,
@@ -399,6 +404,7 @@ ${wantsRuntime ? `target_compile_options(${stem} PRIVATE ${qjs.cflags})` : ''}
   const cxx = findCommand([env.CXX, 'c++', 'clang++', 'g++'].filter(Boolean), [
     '--version',
   ]);
+  const qjs = wantsRuntime ? resolveQuickjsCppFlags() : null;
   const bin = path.join(generatedRoot, 'cpp-bin', stem);
   await mkdir(path.dirname(bin), { recursive: true });
   const cppSources = [path.join(outDir, 'axllm', 'axllm.cpp')];

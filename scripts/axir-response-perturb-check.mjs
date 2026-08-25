@@ -26,11 +26,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  buildRunner,
-  compileTarget,
   conformanceRoot,
   DEFAULT_TARGETS,
   ENGINE_ONLY_SUITES,
+  loadOrPrepareRunners,
 } from './axir-perturb-check.mjs';
 
 // Shortest string we trust as a model-output marker. Below this, coincidental
@@ -169,13 +168,9 @@ async function main() {
   }
 
   const work = mkdtempSync(path.join(os.tmpdir(), 'axir-respperturb-'));
-  const runners = {};
-  for (const target of selected) {
-    const outDir = path.join(work, `pkg-${target}`);
-    console.log(`[build] ${target}`);
-    compileTarget(target, outDir);
-    runners[target] = buildRunner(target, outDir);
-  }
+  const runners = await loadOrPrepareRunners(selected, (target) =>
+    path.join(work, `pkg-${target}`)
+  );
 
   // A fixture is anti-hardcode-verified for a target when mutating AT LEAST ONE
   // of its load-bearing responses makes the run fail — i.e. some asserted value
