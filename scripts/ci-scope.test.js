@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import {
+  AXIR_TARGETS,
   axirMatrixPaths,
+  axirTargets,
   changedFilesFromGit,
   coreTestPaths,
   isAxirMatrixPath,
@@ -78,6 +80,68 @@ describe('AxIR CI scope', () => {
     'README.md',
   ])('does not run the generated-language matrix for %s', (filePath) => {
     expect(isAxirMatrixPath(filePath)).toBe(false);
+  });
+
+  it.each([
+    ['python', 'packages/python/axllm/agent.py'],
+    ['java', 'src/examples/java/generation/AxGenOpenAIExample.java'],
+    ['cpp', 'tools/axir/internal/axir/templates/cpp/cppHeader.hpp'],
+    ['go', 'tools/axir/internal/axir/templates/goja/goGojaRuntime.go.txt'],
+    [
+      'rust',
+      'tools/axir/internal/axir/templates/rust_quickjs/rustQuickJSRuntime.rs',
+    ],
+  ])('narrows a target-owned %s path to its language', (target, filePath) => {
+    expect(axirTargets([filePath])).toEqual([target]);
+  });
+
+  it('narrows the complete PR 604 path set to Go', () => {
+    expect(
+      axirTargets([
+        'packages/go/runtime/goja/goja.go',
+        'packages/go/runtime/goja/goja_test.go',
+        'tools/axir/internal/axir/templates/goja/goGojaRuntime.go.txt',
+        'tools/axir/internal/axir/templates/goja/goGojaRuntimeTest.go.txt',
+      ])
+    ).toEqual(['go']);
+  });
+
+  it('unions mixed target-owned paths in canonical matrix order', () => {
+    expect(
+      axirTargets([
+        'packages/rust/src/lib.rs',
+        'packages/go/axllm.go',
+        'packages/python/axllm/agent.py',
+      ])
+    ).toEqual(['python', 'go', 'rust']);
+  });
+
+  it.each([
+    'ir/axcore/agent.axir',
+    'ir/conformance/axagent/basic.json',
+    'tools/axir/internal/axir/codegen.go',
+    'tools/axir/internal/axir/templates/mcp/goMCP.go.txt',
+    'scripts/run-example.mjs',
+    'scripts/test-generated-examples.mjs',
+    'package-lock.json',
+    '.github/workflows/ci.yml',
+  ])(
+    'fails open to every target for shared or ambiguous input %s',
+    (filePath) => {
+      expect(axirTargets([filePath])).toEqual(AXIR_TARGETS);
+    }
+  );
+
+  it('lets a shared input override otherwise target-owned paths', () => {
+    expect(
+      axirTargets(['packages/go/axllm.go', 'ir/axcore/agent.axir'])
+    ).toEqual(AXIR_TARGETS);
+  });
+
+  it('returns no targets for documentation-only or unrelated changes', () => {
+    expect(
+      axirTargets(['docs/ARCHITECTURE.md', 'src/ax/agent/agent.ts'])
+    ).toEqual([]);
   });
 
   it.each([
@@ -187,7 +251,7 @@ describe('AxIR CI scope', () => {
         { cwd: repoRoot, stdio: 'pipe' }
       );
       expect(readFileSync(noChangesOutput, 'utf8')).toBe(
-        'run_axir=false\nrun_core=false\n'
+        'run_axir=false\naxir_targets=[]\nrun_core=false\n'
       );
 
       execFileSync(
@@ -204,7 +268,7 @@ describe('AxIR CI scope', () => {
         { cwd: repoRoot, stdio: 'pipe' }
       );
       expect(readFileSync(failOpenOutput, 'utf8')).toBe(
-        'run_axir=true\nrun_core=true\n'
+        'run_axir=true\naxir_targets=["python","java","cpp","go","rust"]\nrun_core=true\n'
       );
     } finally {
       rmSync(tempRoot, { force: true, recursive: true });
