@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	ax "github.com/ax-llm/ax/packages/go"
 	gojavm "github.com/dop251/goja"
@@ -502,11 +503,19 @@ func truncateDiagnostic(line string, limit int) string {
 	if limit <= 0 || len(line) <= limit {
 		return line
 	}
-	notice := fmt.Sprintf("… [truncated: %d of %d bytes shown; log a slice or fewer fields instead]", limit, len(line))
-	if len(notice) >= limit {
-		return notice
+	const shortNotice = "[truncated]"
+	if limit <= len(shortNotice) {
+		return shortNotice[:limit]
 	}
-	return line[:limit-len(notice)] + notice
+	notice := fmt.Sprintf(" [truncated from %d bytes; log a slice or fewer fields instead]", len(line))
+	if len(notice) >= limit {
+		notice = " " + shortNotice
+	}
+	prefixBytes := limit - len(notice)
+	for prefixBytes > 0 && !utf8.RuneStart(line[prefixBytes]) {
+		prefixBytes--
+	}
+	return line[:prefixBytes] + notice
 }
 
 func (s *Session) restoreReservedGlobals() {

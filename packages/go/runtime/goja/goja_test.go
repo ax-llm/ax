@@ -3,6 +3,7 @@ package goja
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	ax "github.com/ax-llm/ax/packages/go"
 )
@@ -134,7 +135,11 @@ func TestOversizedLogIsTruncatedNotDropped(t *testing.T) {
 		t.Fatalf("oversized log produced %d entries, want it kept and trimmed: %v", len(logs), logs)
 	}
 	if !strings.Contains(logs[0], "truncated") || !strings.Contains(logs[0], "40000") {
-		t.Fatalf("truncated line must say what happened: %q", logs[0][max(0, len(logs[0])-160):])
+		tail := logs[0]
+		if len(tail) > 160 {
+			tail = tail[len(tail)-160:]
+		}
+		t.Fatalf("truncated line must say what happened: %q", tail)
 	}
 	if len(logs[0]) > 16384 {
 		t.Fatalf("truncated line is %d bytes, over the 16384 budget", len(logs[0]))
@@ -161,9 +166,21 @@ func TestDiagnosticBudgetEvictsOldestAndKeepsNewest(t *testing.T) {
 	}
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
+func TestTruncateDiagnosticRespectsSmallBudgetsAndUTF8(t *testing.T) {
+	line := strings.Repeat("界", 100)
+	for _, limit := range []int{1, 5, 11, 12, 13, 17, 64} {
+		got := truncateDiagnostic(line, limit)
+		if len(got) > limit {
+			t.Errorf("limit %d produced %d bytes: %q", limit, len(got), got)
+		}
+		if !utf8.ValidString(got) {
+			t.Errorf("limit %d split a UTF-8 character: %q", limit, got)
+		}
+		if limit >= len("[truncated]") && !strings.Contains(got, "truncated") {
+			t.Errorf("limit %d omitted the truncation marker: %q", limit, got)
+		}
 	}
-	return b
+	if got := truncateDiagnostic("short", 16); got != "short" {
+		t.Errorf("short line changed to %q", got)
+	}
 }
