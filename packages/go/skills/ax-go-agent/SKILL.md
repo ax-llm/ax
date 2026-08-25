@@ -1,7 +1,7 @@
 ---
 name: "ax-go-agent"
 description: "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping."
-version: "24.0.6"
+version: "24.0.7"
 ---
 # AxAgent For Go
 
