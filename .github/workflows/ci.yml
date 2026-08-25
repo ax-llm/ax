@@ -180,10 +180,19 @@ jobs:
         env:
           AXIR_QUICKJS_CFLAGS: '-I/usr/include/quickjs'
           AXIR_QUICKJS_LDFLAGS: '/usr/lib/quickjs/libquickjs.a -lm -ldl -pthread'
+          CMAKE_BUILD_PARALLEL_LEVEL: '3'
+      - name: Prepare AxIR mutation runner
+        run: npm run axir:perturb:prepare -- ${{ matrix.target }}
+        env:
+          AXIR_PERTURB_RUNNER_ROOT: ${{ runner.temp }}/axir-perturb-runners
       - name: AxIR perturbation gate (expected-mutation)
         run: npm run axir:perturb:check -- ${{ matrix.target }}
+        env:
+          AXIR_PERTURB_RUNNER_ROOT: ${{ runner.temp }}/axir-perturb-runners
       - name: AxIR anti-hardcode gate (model-response mutation)
         run: npm run axir:gate:response-perturb -- ${{ matrix.target }}
+        env:
+          AXIR_PERTURB_RUNNER_ROOT: ${{ runner.temp }}/axir-perturb-runners
 
   axir-packages:
     name: AxIR Package Freshness
@@ -301,6 +310,8 @@ jobs:
         run: npm ci
       - name: Verify AxIR ${{ matrix.target }} package
         run: npm run axir:verify:release -- --targets ${{ matrix.target }}
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: '3'
 
   axir-agent-antidote:
     # Real-engine antidote (see docs/AXIR_GATES.md). Runs the WHOLE ir/conformance/axagent-real
