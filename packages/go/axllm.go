@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -80,6 +81,51 @@ func (e AxError) Error() string {
 type SignatureError struct{ AxError }
 type ValidationError struct{ AxError }
 type AIServiceError struct{ AxError }
+
+// Unwrap exposes the embedded envelope so errors.As(err, &AxError{}) reaches
+// Status, Code, and Retryable without the caller having to know which concrete
+// Ax error type carries them. Embedding alone does not satisfy errors.As: the
+// concrete type is SignatureError, not AxError.
+func (e SignatureError) Unwrap() error  { return e.AxError }
+func (e ValidationError) Unwrap() error { return e.AxError }
+func (e AIServiceError) Unwrap() error  { return e.AxError }
+
+// AsAxError returns the structured envelope carried by err, following wrapping.
+// Callers that map Ax failures onto their own error vocabulary should use this
+// rather than matching on Error() text, which renders Message alone and drops
+// the status a provider actually reported.
+func AsAxError(err error) (AxError, bool) {
+	var axErr AxError
+	if errors.As(err, &axErr) {
+		return axErr, true
+	}
+	return AxError{}, false
+}
+
+// IsRetryable reports whether err is a transient failure worth another attempt.
+// Status classification stays Core-owned via is_retryable_status so hosts,
+// balancers, and every generated target agree on the same set.
+func IsRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	var serviceErr AIServiceError
+	if errors.As(err, &serviceErr) {
+		switch serviceErr.Type {
+		case "AxAIServiceAuthenticationError":
+			return false
+		case "AxAIServiceStatusError":
+			return coreTruthy(mustCore(is_retryable_status(serviceErr.Status)))
+		case "AxAIServiceNetworkError", "AxAIServiceResponseError", "AxAIServiceStreamTerminatedError", "AxAIServiceTimeoutError":
+			return true
+		}
+		return serviceErr.Retryable
+	}
+	if axErr, ok := AsAxError(err); ok {
+		return axErr.Category == "network" || axErr.Retryable
+	}
+	return false
+}
 
 // coreFlow carries non-local exits (return/break/continue) out of core.try
 // closures in emitted Core functions, mirroring the Rust runtime's CoreFlow
@@ -54356,22 +54402,6 @@ func (b *AxBalancer) canRetryService(service AxAIService) bool {
 }
 func (b *AxBalancer) handleFailure(service AxAIService) { b.serviceFailures[service.GetID()]++ }
 func (b *AxBalancer) handleSuccess(service AxAIService) { delete(b.serviceFailures, service.GetID()) }
-func isRetryableAIError(err error) bool {
-	switch e := err.(type) {
-	case AIServiceError:
-		if e.Type == "AxAIServiceAuthenticationError" {
-			return false
-		}
-		if e.Type == "AxAIServiceStatusError" {
-			return e.Status == 408 || e.Status == 429 || e.Status == 500 || e.Status == 502 || e.Status == 503 || e.Status == 504 || e.Status == 529
-		}
-		return e.Type == "AxAIServiceNetworkError" || e.Type == "AxAIServiceResponseError" || e.Type == "AxAIServiceStreamTerminatedError" || e.Type == "AxAIServiceTimeoutError"
-	case AxError:
-		return e.Category == "network" || e.Retryable
-	default:
-		return false
-	}
-}
 func (b *AxBalancer) candidateServices(request map[string]Value) ([]AxAIService, error) {
 	out := []AxAIService{}
 	model := display(coreGet(request, "model", ""))
@@ -54707,7 +54737,7 @@ func (b *AxBalancer) Chat(ctx context.Context, request map[string]Value, options
 			if ctx.Err() != nil {
 				return nil, err
 			}
-			if !isRetryableAIError(err) {
+			if !IsRetryable(err) {
 				return nil, err
 			}
 			last = err
@@ -54755,7 +54785,7 @@ func (b *AxBalancer) Chat(ctx context.Context, request map[string]Value, options
 			b.handleSuccess(current)
 			return response, nil
 		}
-		if !isRetryableAIError(err) {
+		if !IsRetryable(err) {
 			return nil, err
 		}
 		b.handleFailure(current)
@@ -54797,7 +54827,7 @@ func (b *AxBalancer) Stream(ctx context.Context, request map[string]Value, optio
 			if ctx.Err() != nil {
 				return nil, err
 			}
-			if !isRetryableAIError(err) {
+			if !IsRetryable(err) {
 				return nil, err
 			}
 			last = err

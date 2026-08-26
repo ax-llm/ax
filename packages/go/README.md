@@ -38,6 +38,7 @@ func main() {
 - Base package uses the Go standard library for HTTP/process boundaries
 - Optional JavaScript actor execution lives in `runtime/goja` and is opt-in by import
 - An `AIClient` decorator must forward the optional `GetFeatures(model) map[string]Value` method when the wrapped client implements it; otherwise AxGen uses permissive fallback capabilities
+- Failures carry an `AxError` envelope: `ax.AsAxError(err)` or `errors.As(err, &ax.AxError{})` reaches the provider `Status` and `Code`, and `ax.IsRetryable(err)` reports transient failures; `Error()` renders the message alone, so never classify on its wording
 - Network support: available
 
 Shared Ax behavior is Core-owned. The generated target code stays focused on idiomatic wrappers, transports, dynamic value helpers, and host-runtime boundaries. Authentication-required profiles accept a static key or a credential callback; the callback is invoked on every request attempt and its headers override static profile authentication.

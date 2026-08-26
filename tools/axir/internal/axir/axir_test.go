@@ -958,6 +958,7 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 				"go.mod",
 				"go.sum",
 				"axllm.go",
+				"errors_test.go",
 				"runtime/goja/goja.go",
 				"runtime/goja/goja_test.go",
 				"axir-capabilities.json",
@@ -1213,8 +1214,10 @@ func TestCapabilityManifestsAndGeneratedPackageShape(t *testing.T) {
 			case "go":
 				checkGeneratedFileContains(t, dir, "go.mod", "module github.com/ax-llm/ax/packages/go", "go 1.23", "github.com/dop251/goja", "github.com/coder/websocket")
 				checkGeneratedFileContains(t, dir, "axllm.go", "package axllm", "type Value = any", "func NewSignature", "type HTTPTransport struct")
+				checkGeneratedFileContains(t, dir, "axllm.go", "func AsAxError(err error) (AxError, bool)", "func IsRetryable(err error) bool", "func (e AIServiceError) Unwrap() error")
 				checkGeneratedFileContains(t, dir, "runtime/goja/goja.go", "package goja", "func NewRuntime(options ...Option) *Runtime", "func (r *Runtime) RegisterCallable", "gojavm.New")
 				checkGeneratedFileContains(t, dir, "runtime/goja/goja_test.go", "TestExecuteSurfacesConsoleLogsOnIntermediateStep", "TestExecuteResetsLogsBetweenTurns", "TestConsoleVariantsDoNotThrow")
+				checkGeneratedFileContains(t, dir, "errors_test.go", "TestErrorsAsReachesAxErrorThroughServiceError", "TestAsAxErrorReportsEnvelopePresence", "TestIsRetryableFollowsCoreStatusSet")
 				checkGeneratedFileContains(t, dir, "examples/runtime_profiles/javascript_goja/main.go", "go-javascript-goja-profile-ok", "ax.NewAgent", "agent.Test(runtime", "while (true) {}")
 			case "rust":
 				checkGeneratedFileContains(t, dir, "Cargo.toml", `name = "axllm"`, "reqwest", "rustls-tls", "rquickjs", "runtime-quickjs", `required-features = ["runtime-quickjs"]`, "tungstenite", `realtime = ["dep:tungstenite"]`)
