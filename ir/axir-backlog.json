@@ -1217,6 +1217,27 @@
       "verification": "TS-derived native-image routing fixture; five-language AxIR dev verifier; npm run axir:check-packages; go test ./internal/axir; focused TypeScript router tests"
     },
     {
+      "id": "axir-2026-08-26-serialize-gemini-inference-service-tiers",
+      "status": "open",
+      "title": "Serialize Gemini inference service tiers",
+      "createdAt": "2026-08-26",
+      "sourcePR": 609,
+      "sourceCommit": "80a46e2ff83ecdf2f5ab90f6e9723a6477f046c2",
+      "tsPaths": [
+        "src/ax/ai/google-gemini/api.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Track Gemini service_tier request serialization for generated-language parity",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
+    },
+    {
       "id": "axir-2026-08-26-support-gemini-inference-service-tiers",
       "status": "open",
       "title": "Support Gemini inference service tiers",
