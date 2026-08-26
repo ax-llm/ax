@@ -1221,6 +1221,9 @@ class AxAIGoogleGeminiImpl
       systemInstruction,
       generationConfig,
       safetySettings,
+      ...(this.config.serviceTier
+        ? { service_tier: this.config.serviceTier }
+        : {}),
     };
 
     if (useLiveAudio) {
@@ -1864,6 +1867,9 @@ class AxAIGoogleGeminiImpl
       cachedContent: existingCacheName,
       generationConfig,
       safetySettings,
+      ...(this.config.serviceTier
+        ? { service_tier: this.config.serviceTier }
+        : {}),
     };
 
     if (!cacheableTools) {

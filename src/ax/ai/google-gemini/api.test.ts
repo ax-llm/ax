@@ -2487,6 +2487,41 @@ describe('AxAIGoogleGemini Live audio chat', () => {
     ).rejects.toThrow('structured response formats');
   });
 
+  it.each(['flex', 'priority'] as const)(
+    'sends the %s inference service tier', async (serviceTier) => {
+      const capture: { lastBody?: any } = {};
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: {
+          model: AxAIGoogleGeminiModel.Gemini25Flash,
+          serviceTier,
+        },
+        models: [],
+      });
+
+      ai.setOptions({
+        fetch: createMockFetch(
+          {
+            candidates: [
+              {
+                content: { parts: [{ text: 'ok' }] },
+                finishReason: 'STOP',
+              },
+            ],
+          },
+          capture
+        ),
+      });
+
+      await ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'hello' }] },
+        { stream: false }
+      );
+
+      expect(capture.lastBody?.service_tier).toBe(serviceTier);
+    }
+  );
+
   it('rejects non-PCM input for Live audio', async () => {
     const restore = installFakeGeminiLiveWebSocket([]);
 
