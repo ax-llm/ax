@@ -25,6 +25,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - TS paths: `src/ax/ai/google-gemini/types.ts`
   - Impact: Keep generated-language providers aligned with Gemini service_tier request configuration
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+- `axir-2026-08-26-test-gemini-inference-service-tier-serialization` [axai] Test Gemini inference service tier serialization
+  - Status: open
+  - Source PR: #609
+  - Source commit: `7075fe691f8581818c3a188e23f00273820410a5`
+  - TS paths: `src/ax/ai/google-gemini/api.test.ts`
+  - Impact: Track the portable Gemini request regression coverage
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

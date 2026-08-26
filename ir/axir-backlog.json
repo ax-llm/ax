@@ -1236,6 +1236,27 @@
       "completedAt": null,
       "completedByCommit": null,
       "verification": null
+    },
+    {
+      "id": "axir-2026-08-26-test-gemini-inference-service-tier-serialization",
+      "status": "open",
+      "title": "Test Gemini inference service tier serialization",
+      "createdAt": "2026-08-26",
+      "sourcePR": 609,
+      "sourceCommit": "7075fe691f8581818c3a188e23f00273820410a5",
+      "tsPaths": [
+        "src/ax/ai/google-gemini/api.test.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Track the portable Gemini request regression coverage",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [
