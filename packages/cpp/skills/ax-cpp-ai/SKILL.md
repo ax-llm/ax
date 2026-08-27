@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-ai"
 description: "Use when writing C++ code with `axllm` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers."
-version: "24.0.8"
+version: "24.0.9"
 ---
 # AxAI Providers For C++
 
