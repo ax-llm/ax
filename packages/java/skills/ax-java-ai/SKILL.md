@@ -1,7 +1,7 @@
 ---
 name: "ax-java-ai"
 description: "Use when writing Java code with `dev.axllm:ax` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers."
-version: "24.0.9"
+version: "24.0.10"
 ---
 # AxAI Providers For Java
 

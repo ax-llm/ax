@@ -1,7 +1,7 @@
 ---
 name: "ax-java-agent-observability"
 description: "Use when writing Java code with `dev.axllm:ax` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging."
-version: "24.0.9"
+version: "24.0.10"
 ---
 # AxAgent Observability For Java
 
