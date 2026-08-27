@@ -18,6 +18,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
+- `axir-2026-08-27-preserve-deepseek-medium-reasoning-effort` [axai] Preserve DeepSeek medium reasoning effort
+  - Status: open
+  - Source PR: #616
+  - Source commit: `ce66e454d16a47788797db6b07cb122ad312d043`
+  - TS paths: `src/ax/ai/deepseek/api.test.ts`, `src/ax/ai/provider_profiles.ts`
+  - Impact: Generated language providers still map DeepSeek V4 medium reasoning to high effort until the behavior is migrated into AxIR.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-08-26-support-gemini-inference-service-tiers` [axai] Support Gemini inference service tiers
   - Status: open
   - Source PR: #609

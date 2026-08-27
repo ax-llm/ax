@@ -157,7 +157,7 @@ describe('deepseek profile model defaults', () => {
     }
   );
 
-  it('maps medium thinking budget to DeepSeek high effort', async () => {
+  it('maps medium thinking budget to DeepSeek medium effort', async () => {
     const ai = new AxAIOpenAIProfile({
       name: 'deepseek',
       apiKey: 'key',
@@ -172,7 +172,7 @@ describe('deepseek profile model defaults', () => {
     );
 
     expect(capture.lastBody?.thinking).toEqual({ type: 'enabled' });
-    expect(capture.lastBody?.reasoning_effort).toBe('high');
+    expect(capture.lastBody?.reasoning_effort).toBe('medium');
   });
 
   it('disables thinking for an explicit none budget', async () => {
