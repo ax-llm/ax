@@ -1,7 +1,7 @@
 ---
 name: ax-ai
 description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
-version: "24.0.8"
+version: "24.0.3"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -233,45 +233,6 @@ Providers without the requested audio endpoint throw `AxMediaNotSupportedError`.
 - `showThoughts`: include thoughts in output
 - `functionCallMode`: `'auto'` | `'native'` | `'prompt'`
 - `debug`, `logger`, `tracer`, `rateLimiter`, `timeout`
-
-## Gemini Inference Service Tiers
-
-The Google Gemini `generateContent` API accepts `standard`, `flex`, and
-`priority` inference tiers. Omit `serviceTier` to use Google's standard
-default. Flex reduces cost for latency-tolerant work and can be shed when
-capacity is unavailable; priority pays a premium for lower latency and can be
-downgraded to standard when priority capacity is exhausted.
-
-```typescript
-import { ai, AxAIGoogleGeminiModel } from '@ax-llm/ax';
-
-const gemini = ai({
-  name: 'google-gemini',
-  apiKey: process.env.GOOGLE_APIKEY!,
-  config: {
-    model: AxAIGoogleGeminiModel.Gemini37Flash,
-    serviceTier: 'flex',
-  },
-});
-
-const result = await gemini.chat(
-  {
-    chatPrompt: [{ role: 'user', content: 'Summarize this report.' }],
-  },
-  { stream: false }
-);
-
-if (result instanceof ReadableStream) {
-  throw new Error('Expected a non-streaming Gemini response.');
-}
-
-console.log(result.modelUsage?.tokens?.serviceTier);
-```
-
-Ax reports the tier that actually handled the request through
-`modelUsage.tokens.serviceTier`, normalizing an unspecified provider response
-to `standard`. Inference service tiers are not part of the Vertex AI or Gemini
-Live API contracts; Ax rejects those combinations before transport.
 
 ## Global Runtime Defaults
 
@@ -667,7 +628,6 @@ Fetch these for full working code:
 - [OpenAI Web Search](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/openai-web-search.ts) — OpenAI web search
 - [OpenAI Responses](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/openai-responses.ts) — OpenAI responses API
 - [o3 Reasoning](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/reasoning-o3-example.ts) — o3 reasoning
-- [Gemini Flex Inference](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/typescript/generation/gemini-service-tier.ts) — Gemini inference service tiers
 - [Gemini Context Cache](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/gemini-context-cache.ts) — Gemini context caching
 - [Gemini Files](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/gemini-file-support.ts) — Gemini file handling
 - [Grok Live Search](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/grok-live-search.ts) — Grok live search

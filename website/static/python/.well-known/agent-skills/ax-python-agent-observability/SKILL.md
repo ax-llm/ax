@@ -1,7 +1,7 @@
 ---
 name: "ax-python-agent-observability"
 description: "Use when writing Python code with `axllm` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging."
-version: "24.0.8"
+version: "24.0.3"
 ---
 # AxAgent Observability For Python
 
