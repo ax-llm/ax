@@ -1,0 +1,23 @@
+{
+  "expected_error_contains": "transcription backend unavailable",
+  "expected_status": 500,
+  "kind": "ai_error",
+  "method": "transcribe",
+  "name": "openai-transcribe-error-surfaces-error",
+  "request": {
+    "audio": "base64-audio",
+    "format": "json",
+    "language": "en",
+    "model": "whisper-1"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "error": {
+          "message": "transcription backend unavailable"
+        }
+      },
+      "status": 500
+    }
+  ]
+}

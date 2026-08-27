@@ -1,0 +1,22 @@
+{
+  "expected_error_contains": "voice synthesis unavailable",
+  "expected_status": 503,
+  "kind": "ai_error",
+  "method": "speak",
+  "name": "openai-speak-error-surfaces-error",
+  "request": {
+    "format": "mp3",
+    "text": "hello",
+    "voice": "alloy"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "error": {
+          "message": "voice synthesis unavailable"
+        }
+      },
+      "status": 503
+    }
+  ]
+}
