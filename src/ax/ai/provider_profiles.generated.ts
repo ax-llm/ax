@@ -585,7 +585,7 @@ export const axAIProviderProfiles = {
             "none": null,
             "minimal": "low",
             "low": "low",
-            "medium": "medium",
+            "medium": "high",
             "high": "high",
             "highest": "max",
             "xhigh": "max",
