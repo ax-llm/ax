@@ -1,7 +1,7 @@
 ---
 name: "ax-java-refine"
 description: "Use when writing Java code with `dev.axllm:ax` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns."
-version: "24.0.9"
+version: "24.0.10"
 ---
 # Ax Refinement Patterns For Java
 

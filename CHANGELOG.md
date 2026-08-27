@@ -1,5 +1,22 @@
 # Changelog
 
+## [24.0.10](https://github.com/ax-llm/ax/compare/24.0.7...24.0.8) (2026-08-27)
+
+### Features
+
+* **gemini:** support inference service tiers ([#609](https://github.com/ax-llm/ax/issues/609)) ([f7e2dfe](https://github.com/ax-llm/ax/commit/f7e2dfe4cda665b16b9675f7c78fe4f4b4b8197b))
+
+### Bug Fixes
+
+* **axai:** forward the requested embedding size to Gemini ([#612](https://github.com/ax-llm/ax/issues/612)) ([6e2cfb2](https://github.com/ax-llm/ax/commit/6e2cfb2de1ca122e5edd0c8dcc111e0e793398d4))
+* **go:** let hosts read the AxError envelope through errors.As ([#610](https://github.com/ax-llm/ax/issues/610)) ([7b4e478](https://github.com/ax-llm/ax/commit/7b4e478b4e81e90bcd589566cf5ea34b7778df32))
+
+## [24.0.8](https://github.com/ax-llm/ax/compare/24.0.7...24.0.8) (2026-08-25)
+
+### Bug Fixes
+
+* **go/goja:** truncate an oversized log line instead of deleting it ([#604](https://github.com/ax-llm/ax/issues/604)) ([736ae2b](https://github.com/ax-llm/ax/commit/736ae2b9f1a3d14572a357133294b046635aff72)), closes [#602](https://github.com/ax-llm/ax/issues/602) [#602](https://github.com/ax-llm/ax/issues/602)
+
 ## [24.0.9](https://github.com/ax-llm/ax/compare/24.0.7...24.0.8) (2026-08-27)
 
 ### Bug Fixes

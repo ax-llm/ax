@@ -1,7 +1,7 @@
 ---
 name: "ax-java-playbook"
 description: "Use when writing Java code with `dev.axllm:ax` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program."
-version: "24.0.9"
+version: "24.0.10"
 ---
 # Ax Playbook For Java
 

@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-agent"
 description: "Use when writing C++ code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping."
-version: "24.0.9"
+version: "24.0.10"
 ---
 # AxAgent For C++
 
