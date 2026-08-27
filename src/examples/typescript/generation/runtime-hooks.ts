@@ -26,12 +26,12 @@ const limiter =
 
 const span = (name: string): Span =>
   ({
-    addEvent: (event) => console.log(`[span:event] ${name} ${event}`),
+    addEvent: (event: string) => console.log(`[span:event] ${name} ${event}`),
     addLink: () => undefined,
     addLinks: () => undefined,
     end: () => console.log(`[span:end] ${name}`),
     isRecording: () => true,
-    recordException: (error) =>
+    recordException: (error: unknown) =>
       console.log(`[span:error] ${name} ${String(error)}`),
     setAttribute: () => undefined,
     setAttributes: () => undefined,
