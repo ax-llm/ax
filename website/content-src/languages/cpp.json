@@ -152,6 +152,18 @@
   },
   "snippetGroups": {
     "ai": {
+      "serviceTier": {
+        "sourcePath": "src/examples/cpp/generation/gemini_service_tier.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "axllm::GoogleGeminiClient client(axllm::object({",
+          "    {\"api_key\", key},",
+          "    {\"model\", model == nullptr || std::string(model).empty() ? \"gemini-3.7-flash\" : model},",
+          "    {\"service_tier\", \"flex\"},",
+          "}));"
+        ]
+      },
       "vertex": {
         "sourcePath": "src/examples/cpp/generation/vertex_gemini.cpp",
         "verified": true,

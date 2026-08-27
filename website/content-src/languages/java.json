@@ -149,6 +149,17 @@
   },
   "snippetGroups": {
     "ai": {
+      "serviceTier": {
+        "sourcePath": "src/examples/java/generation/GeminiServiceTierExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "GoogleGeminiClient client = new GoogleGeminiClient(Map.of(",
+          "    \"api_key\", apiKey(),",
+          "    \"model\", System.getenv().getOrDefault(\"AX_GEMINI_MODEL\", \"gemini-3.7-flash\"),",
+          "    \"service_tier\", \"flex\"));"
+        ]
+      },
       "vertex": {
         "sourcePath": "src/examples/java/generation/VertexGeminiExample.java",
         "verified": true,

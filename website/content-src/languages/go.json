@@ -147,6 +147,18 @@
   },
   "snippetGroups": {
     "ai": {
+      "serviceTier": {
+        "sourcePath": "src/examples/go/generation/gemini_service_tier.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "client := ax.NewAI(\"google-gemini\", map[string]ax.Value{",
+          "    \"api_key\":      geminiAPIKey(),",
+          "    \"model\":        model,",
+          "    \"service_tier\": \"flex\",",
+          "})"
+        ]
+      },
       "vertex": {
         "sourcePath": "src/examples/go/generation/vertex_gemini.go",
         "verified": true,

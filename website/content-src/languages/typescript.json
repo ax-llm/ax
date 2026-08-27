@@ -511,6 +511,21 @@
       ]
     },
     "ai": {
+      "serviceTier": {
+        "sourcePath": "src/examples/typescript/generation/gemini-service-tier.ts",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "const gemini = ai({",
+          "  name: 'google-gemini',",
+          "  apiKey,",
+          "  config: {",
+          "    model: AxAIGoogleGeminiModel.Gemini37Flash,",
+          "    serviceTier: 'flex',",
+          "  },",
+          "});"
+        ]
+      },
       "balancer": {
         "sourcePath": "src/examples/typescript/generation/adaptive-balancer.ts",
         "verified": true,

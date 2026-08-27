@@ -342,9 +342,9 @@ profile rules are applied only to model IDs verified for the selected deployment
 DeepSeek V4 supports thinking mode. When `thinkingTokenBudget` is omitted, Ax
 selects its logical `max` level and sends `thinking: { type: "enabled" }` with
 `reasoning_effort: "max"`. Set `thinkingTokenBudget: "none"` explicitly to
-disable it. DeepSeek's API exposes `low`, `high`, and `max`:
-Ax maps `minimal` and `low` to `low`, `medium` and `high` to `high`, and
-`highest` to `max`. DeepSeek has no distinct `medium` effort rung. DeepSeek V4
+disable it. DeepSeek's API exposes `low`, `medium`, `high`, and `max`:
+Ax maps `minimal` and `low` to `low`, preserves `medium`, maps `high` to `high`,
+and maps `highest` to `max`. DeepSeek V4
 thinking models support tools, but reject the `tool_choice` request parameter,
 so Ax omits auto and Ax-generated `__axOutput` tool choices for `deepseek-v4-pro`,
 `deepseek-v4-flash`, and `deepseek-reasoner` while still sending tool

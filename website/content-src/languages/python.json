@@ -166,6 +166,18 @@
   },
   "snippetGroups": {
     "ai": {
+      "serviceTier": {
+        "sourcePath": "src/examples/python/generation/gemini-service-tier.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "client = GoogleGeminiClient(",
+          "    api_key=api_key,",
+          "    model=os.getenv(\"AX_GEMINI_MODEL\", \"gemini-3.7-flash\"),",
+          "    service_tier=\"flex\",",
+          ")"
+        ]
+      },
       "vertex": {
         "sourcePath": "src/examples/python/generation/vertex-gemini.py",
         "verified": true,

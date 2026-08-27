@@ -20,6 +20,8 @@ Groq, Cerebras, and DeepInfra default an omitted thinking level to logical
 explicit `none` is sent only where the selected model and deployment support
 disabling reasoning; otherwise Ax fails before network I/O. Hugging Face Router
 stays conservative because a routing policy can change the underlying provider.
+DeepSeek V4 preserves logical `medium` as provider `medium`; it is not promoted
+to `high`.
 
 ```mermaid
 flowchart LR
@@ -101,6 +103,8 @@ request. An `unspecified` provider response becomes `standard`. Ax rejects a
 configured tier for Vertex AI and Gemini Live before transport. The Generation
 example catalog contains a provider-backed Gemini Flex example with exact
 language-native setup and response syntax.
+
+{{aiServiceTierExample}}
 
 ### Adaptive balancing
 
