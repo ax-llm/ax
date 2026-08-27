@@ -36,15 +36,21 @@ the generated packages, creates the release commit, validates it, pushes the
 branch, and opens a pull request. It intentionally does not tag, push directly
 to `main`, or create a GitHub Release.
 
-After the release pull request passes the required checks and is merged, run
-`npm run release:publish -- <version>` from the synchronized `main` branch.
-The publish phase checks the requested tag directly on the remote; unrelated
+After the release pull request passes the required checks and is merged, the
+`Publish merged release` workflow waits for the merge commit's main-branch
+`Build and Test` run to succeed. It then verifies that the commit is a merged,
+version-aligned release, pushes an annotated tag, creates the GitHub Release,
+and explicitly dispatches the npm and generated-package publication workflows
+at that exact tag. Explicit dispatch is required because GitHub does not start
+new workflows for ordinary events created with a workflow's `GITHUB_TOKEN`.
+
+`npm run release:publish -- <version>` remains the guarded recovery path. Run it
+from a clean, synchronized `main` branch if the automatic workflow needs manual
+recovery. It checks the requested tag directly on the remote, resolves the
+matching release commit from protected `main` history even if newer commits have
+landed, verifies its merged pull request and required checks, replaces any stale
+local tag, pushes the annotated tag, and creates the GitHub Release. Unrelated
 historical local tags do not need to be cleaned up first.
-The publish phase verifies that the release reached `main` through a merged
-pull request with passing required checks, replaces any stale local tag left by
-an older failed release attempt, pushes an annotated tag for the merged commit,
-and creates the GitHub Release. Publishing workflows then upload the registry
-packages from that exact tag.
 
 Generated package source is checked in under `packages/<language>`. Built
 registry artifacts, such as Python wheels, source distributions, Rust cargo
@@ -73,14 +79,19 @@ npm run release -- minor
 npm run release -- 25.0.0
 ```
 
-Once the release pull request is merged and `main` is synchronized, publish the
-same version:
+Once the release pull request is merged, wait for `Publish merged release` and
+both package publication workflows to pass. For manual recovery only, synchronize
+`main` and publish the missed version:
 
 ```bash
 git switch main
 git pull --ff-only origin main
 npm run release:publish -- 24.0.6
 ```
+
+The recovery command also works after `main` has advanced to a newer release;
+it finds the unique matching release commit in protected `main` history rather
+than tagging the newer tip.
 
 Never rerun `npm run release` to recover a rejected push. The preparation
 command refuses to run from an unsynchronized or dirty branch, and the root

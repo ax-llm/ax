@@ -16,6 +16,15 @@ const releaseManifests = [
   'src/tools/package.json',
 ];
 const stableVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const releaseSubjectPattern =
+  /^chore: release v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))(?: \(#\d+\))?$/;
+const publicationWorkflows = [
+  { file: 'npm-publish.yml', fields: [] },
+  {
+    file: 'package-publish.yml',
+    fields: ['--raw-field', 'dry_run=false'],
+  },
+];
 
 function commandText(command, args) {
   return [command, ...args].join(' ');
@@ -69,6 +78,15 @@ export function readReleaseVersions(root = repoRoot) {
   return Object.fromEntries(
     releaseManifests.map((file) => {
       const manifest = JSON.parse(readFileSync(path.join(root, file), 'utf8'));
+      return [file, manifest.version];
+    })
+  );
+}
+
+function readReleaseVersionsAt(ref) {
+  return Object.fromEntries(
+    releaseManifests.map((file) => {
+      const manifest = JSON.parse(git('show', `${ref}:${file}`));
       return [file, manifest.version];
     })
   );
@@ -133,6 +151,28 @@ export function releaseBranchName(version) {
   return `codex/release-${version.replaceAll('.', '-')}`;
 }
 
+export function releaseVersionFromSubject(subject) {
+  return releaseSubjectPattern.exec(subject)?.[1] || null;
+}
+
+export function selectReleaseCommit(version, commits) {
+  parseStableVersion(version, 'release version');
+  const matches = commits.filter(
+    ({ subject }) => releaseVersionFromSubject(subject) === version
+  );
+  if (matches.length === 0) {
+    fail(`Release ${version} is not present in origin/${mainBranch} history.`);
+  }
+  if (matches.length > 1) {
+    fail(
+      `Release ${version} has multiple commits in origin/${mainBranch} history:\n${matches
+        .map(({ sha }) => `- ${sha}`)
+        .join('\n')}`
+    );
+  }
+  return matches[0].sha;
+}
+
 function localRefExists(ref) {
   return attempt('git', ['show-ref', '--verify', '--quiet', ref]).status === 0;
 }
@@ -163,6 +203,20 @@ function remoteTagTarget(version) {
     remoteRefs(`refs/tags/${version}`, `refs/tags/${version}^{}`),
     version
   );
+}
+
+function releaseCommitOnMain(version) {
+  const commits = git('log', `origin/${mainBranch}`, '--format=%H%x00%s')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const separator = line.indexOf('\0');
+      return {
+        sha: line.slice(0, separator),
+        subject: line.slice(separator + 1),
+      };
+    });
+  return selectReleaseCommit(version, commits);
 }
 
 function assertRefAvailable(version, branch) {
@@ -224,7 +278,8 @@ function releasePullRequestBody(version) {
     '- updates the changelog',
     '- creates no tag or GitHub Release before merge',
     '',
-    'After merge, publish with:',
+    'After merge, successful main-branch CI publishes this release automatically.',
+    'If that automation needs recovery, publish with:',
     '',
     '```sh',
     `npm run release:publish -- ${version}`,
@@ -234,11 +289,16 @@ function releasePullRequestBody(version) {
 
 export function parseReleaseArguments(argv) {
   const [mode = 'prepare', value, ...rest] = argv;
-  if (!['prepare', 'publish'].includes(mode) || rest.length > 0) {
+  if (
+    !['prepare', 'publish', 'publish-merged'].includes(mode) ||
+    rest.length > 0
+  ) {
     fail(
-      'Usage: release.mjs prepare [patch|minor|major|VERSION] | publish [VERSION]'
+      'Usage: release.mjs prepare [patch|minor|major|VERSION] | publish [VERSION] | publish-merged SHA'
     );
   }
+  if (mode === 'publish-merged' && !value)
+    fail('publish-merged requires a SHA.');
   return { mode, value };
 }
 
@@ -283,7 +343,9 @@ function prepare(increment = 'patch') {
     releasePullRequestBody(version),
   ]);
   console.log(`\nRelease ${version} prepared: ${url}`);
-  console.log(`After it merges, run: npm run release:publish -- ${version}`);
+  console.log(
+    `After it merges, successful main-branch CI will publish ${version} automatically.`
+  );
 }
 
 function githubReleaseExists(version) {
@@ -331,31 +393,19 @@ function recreateLocalTag(version, head) {
   ]);
 }
 
-function publish(requestedVersion) {
-  assertClean();
-  assertBranch(mainBranch);
-  // Remote tag identity is checked with ls-remote below. Fetching every tag can
-  // fail when a checkout still has a pre-squash tag from an older release.
-  run('git', publishFetchArguments());
-  const head = git('rev-parse', 'HEAD');
-  const remoteHead = git('rev-parse', `origin/${mainBranch}`);
-  if (head !== remoteHead) {
-    fail(
-      `Local ${mainBranch} (${head}) must exactly match origin/${mainBranch} (${remoteHead}).`
-    );
+function assertReleaseCommit(version, head) {
+  const subject = git('log', '-1', '--format=%s', head);
+  const subjectVersion = releaseVersionFromSubject(subject);
+  if (subjectVersion !== version) {
+    fail(`Commit ${head} is not the ${version} release commit: ${subject}`);
   }
-
-  const version =
-    requestedVersion || assertAlignedReleaseVersions(readReleaseVersions());
-  parseStableVersion(version, 'release version');
-  const aligned = assertAlignedReleaseVersions(readReleaseVersions());
-  if (aligned !== version)
-    fail(`Package version is ${aligned}; requested ${version}.`);
-  const subject = git('log', '-1', '--format=%s');
-  if (!subject.startsWith(`chore: release v${version}`)) {
-    fail(`HEAD is not the ${version} release commit: ${subject}`);
+  const aligned = assertAlignedReleaseVersions(readReleaseVersionsAt(head));
+  if (aligned !== version) {
+    fail(`Package version at ${head} is ${aligned}; expected ${version}.`);
   }
+}
 
+function ensureRelease(version, head) {
   const existingRemoteTagTarget = remoteTagTarget(version);
   if (existingRemoteTagTarget && existingRemoteTagTarget !== head) {
     fail(
@@ -388,15 +438,111 @@ function publish(requestedVersion) {
     );
   }
   run('gh', ['release', 'view', version]);
+}
+
+function publicationRuns(workflow, head) {
+  return JSON.parse(
+    capture(
+      'gh',
+      [
+        'run',
+        'list',
+        '--workflow',
+        workflow,
+        '--commit',
+        head,
+        '--limit',
+        '20',
+        '--json',
+        'databaseId,status,conclusion,event,url',
+      ],
+      { quiet: true }
+    )
+  );
+}
+
+function dispatchPublicationWorkflows(version, head) {
+  for (const { file, fields } of publicationWorkflows) {
+    const existing = publicationRuns(file, head);
+    if (existing.length > 0) {
+      console.log(
+        `Publication workflow ${file} already has a run for ${head}; skipping duplicate dispatch.`
+      );
+      continue;
+    }
+    run('gh', ['workflow', 'run', file, '--ref', version, ...fields]);
+  }
+}
+
+function publish(requestedVersion) {
+  assertClean();
+  assertBranch(mainBranch);
+  // Remote tag identity is checked with ls-remote below. Fetching every tag can
+  // fail when a checkout still has a pre-squash tag from an older release.
+  run('git', publishFetchArguments());
+  const currentHead = git('rev-parse', 'HEAD');
+  const remoteHead = git('rev-parse', `origin/${mainBranch}`);
+  if (currentHead !== remoteHead) {
+    fail(
+      `Local ${mainBranch} (${currentHead}) must exactly match origin/${mainBranch} (${remoteHead}).`
+    );
+  }
+
+  const version =
+    requestedVersion || assertAlignedReleaseVersions(readReleaseVersions());
+  parseStableVersion(version, 'release version');
+  const currentSubject = git('log', '-1', '--format=%s', currentHead);
+  const head =
+    releaseVersionFromSubject(currentSubject) === version
+      ? currentHead
+      : releaseCommitOnMain(version);
+  assertReleaseCommit(version, head);
+  ensureRelease(version, head);
   console.log(
     `\nRelease ${version} published from protected ${mainBranch} commit ${head}.`
+  );
+}
+
+function publishMerged(head) {
+  if (!/^[0-9a-f]{40}$/.test(head)) fail(`Invalid release commit SHA: ${head}`);
+  const checkoutHead = git('rev-parse', 'HEAD');
+  if (checkoutHead !== head) {
+    fail(
+      `Workflow checkout is ${checkoutHead}; expected release commit ${head}.`
+    );
+  }
+
+  const subject = git('log', '-1', '--format=%s', head);
+  const version = releaseVersionFromSubject(subject);
+  if (!version) {
+    console.log(`Commit ${head} is not a release commit; nothing to publish.`);
+    return;
+  }
+
+  run('git', publishFetchArguments());
+  const ancestry = attempt('git', [
+    'merge-base',
+    '--is-ancestor',
+    head,
+    `origin/${mainBranch}`,
+  ]);
+  if (ancestry.status !== 0) {
+    fail(`Release commit ${head} is not contained in origin/${mainBranch}.`);
+  }
+
+  assertReleaseCommit(version, head);
+  ensureRelease(version, head);
+  dispatchPublicationWorkflows(version, head);
+  console.log(
+    `\nRelease ${version} automatically published from protected ${mainBranch} commit ${head}.`
   );
 }
 
 function main(argv) {
   const { mode, value } = parseReleaseArguments(argv);
   if (mode === 'prepare') prepare(value);
-  else publish(value);
+  else if (mode === 'publish') publish(value);
+  else publishMerged(value);
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
