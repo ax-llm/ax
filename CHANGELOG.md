@@ -1,5 +1,17 @@
 # Changelog
 
+## [24.0.9](https://github.com/ax-llm/ax/compare/24.0.7...24.0.8) (2026-08-27)
+
+### Bug Fixes
+
+* **go:** let hosts read the AxError envelope through errors.As ([#610](https://github.com/ax-llm/ax/issues/610)) ([7b4e478](https://github.com/ax-llm/ax/commit/7b4e478b4e81e90bcd589566cf5ea34b7778df32))
+
+## [24.0.8](https://github.com/ax-llm/ax/compare/24.0.7...24.0.8) (2026-08-25)
+
+### Bug Fixes
+
+* **go/goja:** truncate an oversized log line instead of deleting it ([#604](https://github.com/ax-llm/ax/issues/604)) ([736ae2b](https://github.com/ax-llm/ax/commit/736ae2b9f1a3d14572a357133294b046635aff72)), closes [#602](https://github.com/ax-llm/ax/issues/602) [#602](https://github.com/ax-llm/ax/issues/602)
+
 ## [24.0.8](https://github.com/ax-llm/ax/compare/24.0.6...24.0.7) (2026-08-25)
 
 ### Bug Fixes
