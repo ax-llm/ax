@@ -9667,6 +9667,11 @@ Value Core::_gemini_build_embed_request(Value request) {
     Value model_name = Core::string_format(Value("models/{}"), model);
     Core::set(item, Value("model"), model_name);
     Core::set(item, Value("content"), content);
+    Value dimensions = Core::get(request, Value("dimensions"), Value());
+    Value has_dimensions = Core::is_not_none(dimensions);
+    if (Core::truthy(has_dimensions)) {
+      Core::set(item, Value("outputDimensionality"), dimensions);
+    }
     Core::append(requests, item);
   }
   Core::set(payload, Value("requests"), requests);

@@ -4840,6 +4840,32 @@ writeFixture('gemini-embeddings', {
   },
 });
 
+writeFixture('gemini-embeddings-output-dimensionality', {
+  kind: 'ai_embed',
+  provider: 'google-gemini',
+  embed_model: geminiDefaultEmbedModel,
+  request: { texts: ['one'], dimensions: 512 },
+  transport_responses: [
+    {
+      status: 200,
+      json: { embeddings: [{ values: [0.1, 0.2] }] },
+    },
+  ],
+  expected_output: { embeddings: [[0.1, 0.2]] },
+  expected_transport_request: {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultEmbedModel}:batchEmbedContents?key=test-key`,
+    json: {
+      requests: [
+        {
+          model: `models/${geminiDefaultEmbedModel}`,
+          content: { parts: [{ text: 'one' }] },
+          outputDimensionality: 512,
+        },
+      ],
+    },
+  },
+});
+
 writeFixture('context-cache-rejection', {
   kind: 'ai_context_cache',
   operation: 'rejection',

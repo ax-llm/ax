@@ -5599,6 +5599,11 @@ module @ax.provider version "0.1" {
         %model_name = core.call intrinsic.string.format("models/{}", %model)
         core.set %item["model"] = %model_name
         core.set %item["content"] = %content
+        %dimensions = core.get %request["dimensions"]
+        %has_dimensions = core.call intrinsic.is_not_none(%dimensions)
+        core.if %has_dimensions {
+          core.set %item["outputDimensionality"] = %dimensions
+        }
         core.append %requests, %item
       }
       core.set %payload["requests"] = %requests
