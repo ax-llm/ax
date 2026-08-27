@@ -7718,6 +7718,12 @@ def _gemini_build_embed_request(request: AxEmbedRequest) -> Any:
         model_name = _core_string_format("models/{}", model)
         item["model"] = model_name
         item["content"] = content
+        dimensions = _core_get(request, "dimensions", None)
+        has_dimensions = _core_is_not_none(dimensions)
+        if has_dimensions:
+            item["outputDimensionality"] = dimensions
+        else:
+            pass
         requests.append(item)
     payload["requests"] = requests
     return payload

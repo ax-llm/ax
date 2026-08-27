@@ -8601,6 +8601,11 @@ final class Core {
       Object model_name = Core.stringFormat("models/{}", model);
       Core.set(item, "model", model_name);
       Core.set(item, "content", content);
+      Object dimensions = Core.get(request, "dimensions", null);
+      Object has_dimensions = Core.isNotNone(dimensions);
+      if (Core.truthy(has_dimensions)) {
+        Core.set(item, "outputDimensionality", dimensions);
+      }
       Core.append(requests, item);
     }
     Core.set(payload, "requests", requests);

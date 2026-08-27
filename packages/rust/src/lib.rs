@@ -40209,7 +40209,9 @@ fn _gemini_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
     axir_coverage_mark("_gemini_build_embed_request");
     let mut v_request = core_arg(args, 0);
     let mut v_content = CoreValue::Null;
+    let mut v_dimensions = CoreValue::Null;
     let mut v_empty_texts = CoreValue::Null;
+    let mut v_has_dimensions = CoreValue::Null;
     let mut v_item = CoreValue::Null;
     let mut v_model = CoreValue::Null;
     let mut v_model_name = CoreValue::Null;
@@ -40240,6 +40242,15 @@ fn _gemini_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError>
         v_model_name = core_string_format(&[CoreValue::from("models/{}"), v_model.clone()])?;
         core_set(&v_item, CoreValue::from("model"), v_model_name.clone())?;
         core_set(&v_item, CoreValue::from("content"), v_content.clone())?;
+        v_dimensions = core_get(&v_request, &CoreValue::from("dimensions"), CoreValue::Null);
+        v_has_dimensions = core_is_not_none(&[v_dimensions.clone()])?;
+        if core_truthy(&v_has_dimensions) {
+            core_set(
+                &v_item,
+                CoreValue::from("outputDimensionality"),
+                v_dimensions.clone(),
+            )?;
+        }
         core_append(&v_requests, v_item.clone())?;
     }
     core_set(&v_payload, CoreValue::from("requests"), v_requests.clone())?;

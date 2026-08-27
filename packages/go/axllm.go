@@ -17380,7 +17380,9 @@ func _gemini_build_embed_request(args ...Value) (Value, error) {
 	axirCoverageMark("_gemini_build_embed_request")
 	var v_request Value
 	var v_content Value
+	var v_dimensions Value
 	var v_empty_texts Value
+	var v_has_dimensions Value
 	var v_item Value
 	var v_model Value
 	var v_model_name Value
@@ -17393,7 +17395,9 @@ func _gemini_build_embed_request(args ...Value) (Value, error) {
 	if len(args) > 0 { v_request = args[0] }
 	_ = v_request
 	_ = v_content
+	_ = v_dimensions
 	_ = v_empty_texts
+	_ = v_has_dimensions
 	_ = v_item
 	_ = v_model
 	_ = v_model_name
@@ -17419,6 +17423,13 @@ func _gemini_build_embed_request(args ...Value) (Value, error) {
 		v_model_name = _core_string_format("models/{}", v_model)
 		if err := coreSet(v_item, "model", v_model_name); err != nil { return nil, err }
 		if err := coreSet(v_item, "content", v_content); err != nil { return nil, err }
+		v_dimensions = coreGet(v_request, "dimensions", nil)
+		v_has_dimensions = _core_is_not_none(v_dimensions)
+		if coreTruthy(v_has_dimensions) {
+			if err := coreSet(v_item, "outputDimensionality", v_dimensions); err != nil { return nil, err }
+		} else {
+		// empty
+		}
 		v_requests = coreAppend(v_requests, v_item)
 	}
 	if err := coreSet(v_payload, "requests", v_requests); err != nil { return nil, err }
