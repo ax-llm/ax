@@ -273,6 +273,138 @@
         },
         {
           "target_name": "rust",
+          "canonical_name": "AxRuntimeHooks",
+          "public_name": "AxRuntimeHooks",
+          "kind": "type",
+          "description": "Non-serializable rate limiter, tracer, and meter overrides for one service or program execution.",
+          "form": "AxRuntimeHooks",
+          "important_options": [
+            "rate limiter",
+            "tracer",
+            "meter",
+            "precedence"
+          ],
+          "returns": "runtime hooks",
+          "example": "let hooks = AxRuntimeHooks::new().rate_limiter(limiter).tracer(tracer).meter(meter);"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxRateLimitInfo",
+          "public_name": "AxRateLimitInfo",
+          "kind": "type",
+          "description": "Provider and model metadata supplied to a request-wrapper rate limiter.",
+          "form": "AxRateLimitInfo",
+          "important_options": [
+            "operation",
+            "provider",
+            "model",
+            "streaming",
+            "previous usage"
+          ],
+          "returns": "rate-limit context"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxRateLimiter",
+          "public_name": "AxRateLimiter",
+          "kind": "interface",
+          "description": "Request wrapper that can delay, reject, or execute a chat or embedding request.",
+          "form": "AxRateLimiter",
+          "important_options": [
+            "next",
+            "metadata",
+            "errors"
+          ],
+          "returns": "provider result"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxTracer",
+          "public_name": "AxTracer",
+          "kind": "interface",
+          "description": "Dependency-neutral tracer that creates metadata-only Ax spans.",
+          "form": "AxTracer",
+          "important_options": [
+            "start span",
+            "parent span",
+            "fail-open"
+          ],
+          "returns": "span"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxMeter",
+          "public_name": "AxMeter",
+          "kind": "interface",
+          "description": "Dependency-neutral meter for Ax counters, histograms, and gauges.",
+          "form": "AxMeter",
+          "important_options": [
+            "counter",
+            "histogram",
+            "gauge",
+            "fail-open"
+          ],
+          "returns": "instrument"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "AxGlobals",
+          "public_name": "AxGlobals",
+          "kind": "type",
+          "description": "Process-wide live defaults for runtime hooks and usage observation.",
+          "form": "AxGlobals",
+          "important_options": [
+            "rate limiter",
+            "tracer",
+            "meter",
+            "usage observer"
+          ],
+          "returns": "global hooks"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "set_rate_limiter",
+          "public_name": "set_rate_limiter",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide request-wrapper rate limiter.",
+          "form": "set_rate_limiter(limiter)",
+          "important_options": [
+            "limiter",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "set_rate_limiter(Some(limiter));"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "set_tracer",
+          "public_name": "set_tracer",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide dependency-neutral tracer.",
+          "form": "set_tracer(tracer)",
+          "important_options": [
+            "tracer",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "set_tracer(Some(tracer));"
+        },
+        {
+          "target_name": "rust",
+          "canonical_name": "set_meter",
+          "public_name": "set_meter",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide dependency-neutral meter.",
+          "form": "set_meter(meter)",
+          "important_options": [
+            "meter",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "set_meter(Some(meter));"
+        },
+        {
+          "target_name": "rust",
           "canonical_name": "AxBalancer",
           "public_name": "AxBalancer",
           "kind": "type",

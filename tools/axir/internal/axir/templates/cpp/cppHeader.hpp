@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -9,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <exception>
 #include <iomanip>
 #include <initializer_list>
 #include <map>
@@ -78,6 +80,74 @@ using AxUsageContext = Value;
 using AxUsageEvent = Value;
 using AxUsageObserver = std::function<void(AxUsageEvent)>;
 
+struct AxRateLimitInfo {
+  std::string operation;
+  std::string provider;
+  std::string model;
+  bool streaming = false;
+  Value previous_model_usage;
+};
+
+using AxRequestExecutor = std::function<Value()>;
+using AxRateLimiter = std::function<Value(AxRequestExecutor, const AxRateLimitInfo&)>;
+
+class AxSpan {
+ public:
+  virtual ~AxSpan() = default;
+  virtual void set_attributes(Value attributes) = 0;
+  virtual void add_event(std::string name, Value attributes = Value::object()) = 0;
+  virtual void record_exception(std::string error) = 0;
+  virtual void set_status(std::string status, std::string description = "") = 0;
+  virtual void end() = 0;
+};
+
+struct AxSpanStart {
+  std::string name;
+  std::string kind;
+  Value attributes;
+  std::shared_ptr<AxSpan> parent;
+};
+
+class AxTracer {
+ public:
+  virtual ~AxTracer() = default;
+  virtual std::shared_ptr<AxSpan> start_span(const AxSpanStart& start) = 0;
+};
+
+struct AxMetricInstrumentOptions {
+  std::string description;
+  std::string unit;
+};
+
+class AxCounter {
+ public:
+  virtual ~AxCounter() = default;
+  virtual void add(double value, Value attributes = Value::object()) = 0;
+};
+class AxHistogram {
+ public:
+  virtual ~AxHistogram() = default;
+  virtual void record(double value, Value attributes = Value::object()) = 0;
+};
+class AxGauge {
+ public:
+  virtual ~AxGauge() = default;
+  virtual void record(double value, Value attributes = Value::object()) = 0;
+};
+class AxMeter {
+ public:
+  virtual ~AxMeter() = default;
+  virtual std::shared_ptr<AxCounter> create_counter(std::string name, AxMetricInstrumentOptions options = {}) = 0;
+  virtual std::shared_ptr<AxHistogram> create_histogram(std::string name, AxMetricInstrumentOptions options = {}) = 0;
+  virtual std::shared_ptr<AxGauge> create_gauge(std::string name, AxMetricInstrumentOptions options = {}) = 0;
+};
+
+struct AxRuntimeHooks {
+  AxRateLimiter rate_limiter;
+  std::shared_ptr<AxTracer> tracer;
+  std::shared_ptr<AxMeter> meter;
+};
+
 struct AxCredentialRequest {
   std::string profile;
   std::string operation;
@@ -87,6 +157,9 @@ struct AxCredentialRequest {
 using AxCredentialProvider = std::function<std::map<std::string, std::string>(const AxCredentialRequest&)>;
 
 void set_usage_observer(AxUsageObserver observer);
+void set_rate_limiter(AxRateLimiter limiter);
+void set_tracer(std::shared_ptr<AxTracer> tracer);
+void set_meter(std::shared_ptr<AxMeter> meter);
 
 class AxError : public std::runtime_error {
  public:
@@ -278,8 +351,10 @@ class AxAIService : public AIClient {
   virtual std::string get_name();
   Value chat(Value request) override;
   Value chat(Value request, Value options) override;
+  virtual Value chat(Value request, Value options, const AxRuntimeHooks& hooks);
   virtual std::vector<Value> stream(Value request);
   virtual Value embed(Value request, Value options);
+  virtual Value embed(Value request, Value options, const AxRuntimeHooks& hooks);
   virtual Value embed(Value request) = 0;
   virtual Value transcribe(Value request) = 0;
   virtual Value transcribe(Value request, Value options);
@@ -295,17 +370,23 @@ class AxAIService : public AIClient {
   virtual Value get_last_used_chat_model();
   virtual Value get_last_used_embed_model();
   virtual Value get_last_used_model_config();
+  virtual AxAIService& set_rate_limiter(AxRateLimiter limiter);
+  virtual AxAIService& set_tracer(std::shared_ptr<AxTracer> tracer);
+  virtual AxAIService& set_meter(std::shared_ptr<AxMeter> meter);
 };
 
 class AxBaseAI : public AxAIService {
  public:
   AxBaseAI(std::string name, std::string model, std::string embed_model,
-           Value model_config = Value::object(), Value options = Value::object());
+           Value model_config = Value::object(), Value options = Value::object(),
+           AxRuntimeHooks hooks = {});
   Value chat(Value request) override;
   Value chat(Value request, Value options) override;
+  Value chat(Value request, Value options, const AxRuntimeHooks& hooks) override;
   Value complete(Value request) override;
   Value embed(Value request) override;
   Value embed(Value request, Value options) override;
+  Value embed(Value request, Value options, const AxRuntimeHooks& hooks) override;
   Value get_model_list() override;
   Value get_features(Value model = Value()) override;
   std::string get_id() override;
@@ -316,6 +397,9 @@ class AxBaseAI : public AxAIService {
   Value get_last_used_chat_model() override;
   Value get_last_used_embed_model() override;
   Value get_last_used_model_config() override;
+  AxBaseAI& set_rate_limiter(AxRateLimiter limiter) override;
+  AxBaseAI& set_tracer(std::shared_ptr<AxTracer> tracer) override;
+  AxBaseAI& set_meter(std::shared_ptr<AxMeter> meter) override;
 
  protected:
   std::string name_;
@@ -326,6 +410,8 @@ class AxBaseAI : public AxAIService {
   Value last_used_chat_model_;
   Value last_used_embed_model_;
   Value last_used_model_config_;
+  Value last_model_usage_;
+  std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   virtual Value do_chat(Value request, Value options) = 0;
   virtual Value do_embed(Value request, Value options) = 0;
 };
@@ -651,6 +737,7 @@ class AxProgram {
  public:
   virtual ~AxProgram() = default;
   virtual Value forward(AIClient& client, Value values, Value options = Value::object()) = 0;
+  virtual Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) = 0;
   virtual Value get_optimizable_components() const { return Value::array(); }
   virtual AxProgram& apply_optimized_components(Value) { return *this; }
   virtual Value get_traces() const { return Value::array(); }
@@ -660,8 +747,12 @@ class AxProgram {
 
 class AxGen : public AxProgram {
  public:
-  explicit AxGen(Value signature, Value options = Value::object());
+  explicit AxGen(Value signature, Value options = Value::object(), AxRuntimeHooks hooks = {});
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
+  AxGen& set_rate_limiter(AxRateLimiter limiter);
+  AxGen& set_tracer(std::shared_ptr<AxTracer> tracer);
+  AxGen& set_meter(std::shared_ptr<AxMeter> meter);
   AxGen& add_tool(const Tool& tool);
   AxGen& set_examples(Value examples);
   AxGen& set_demos(Value demos);
@@ -693,13 +784,14 @@ class AxGen : public AxProgram {
  private:
   Value state_;
   AxMemory memory_;
+  std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   void refresh_prompt_template();
 };
 
 class AxFlow : public AxProgram {
  public:
-  explicit AxFlow(Value options = Value::object());
-  explicit AxFlow(std::string mermaid, Value bindings = Value::object());
+  explicit AxFlow(Value options = Value::object(), AxRuntimeHooks hooks = {});
+  explicit AxFlow(std::string mermaid, Value bindings = Value::object(), AxRuntimeHooks hooks = {});
   AxFlow& execute(std::string name, AxProgram& program, Value options = Value::object());
   AxFlow& derive(std::string name, AxProgram& program, Value options = Value::object());
   AxFlow& map(std::string name, std::function<Value(Value)> mapper);
@@ -713,6 +805,10 @@ class AxFlow : public AxProgram {
   AxFlow& returns(Value spec);
   AxFlow& set_demos(Value demos);
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
+  AxFlow& set_rate_limiter(AxRateLimiter limiter);
+  AxFlow& set_tracer(std::shared_ptr<AxTracer> tracer);
+  AxFlow& set_meter(std::shared_ptr<AxMeter> meter);
   Value streaming_forward(AIClient& client, Value values, Value options = Value::object());
   Value get_plan() const;
   Value get_traces() const;
@@ -731,6 +827,7 @@ class AxFlow : public AxProgram {
  private:
   Value state_;
   std::vector<std::shared_ptr<AxGen>> mermaid_programs_;
+  std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   AxFlow& add_step(Value kind, Value name, Value program, Value options);
   Value hydrate_mermaid_steps(Value steps, Value bindings);
 };
@@ -963,12 +1060,16 @@ class AxPlaybook {
 
 class AxAgent : public AxProgram {
  public:
-  explicit AxAgent(Value signature, Value options = Value::object());
+  explicit AxAgent(Value signature, Value options = Value::object(), AxRuntimeHooks hooks = {});
   AxAgent& set_signature(Value signature);
   Value get_instruction() const;
   AxAgent& set_instruction(Value instruction);
   AxAgent& add_actor_instruction(Value addendum);
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
+  AxAgent& set_rate_limiter(AxRateLimiter limiter);
+  AxAgent& set_tracer(std::shared_ptr<AxTracer> tracer);
+  AxAgent& set_meter(std::shared_ptr<AxMeter> meter);
   AxAgent& set_citations_observer(std::function<void(Value)> observer);
   AxAgent& set_playbook_observer(std::function<void(Value)> observer);
   Value test(AxCodeRuntime& runtime, Value code, Value context_values = Value::object(), Value options = Value::object());
@@ -1017,6 +1118,7 @@ class AxAgent : public AxProgram {
   std::unique_ptr<AxGen> llm_query_;
   Value options_;
   Value playbook_config_;
+  std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   std::unique_ptr<AxPlaybook> playbook_handle_;
   std::function<void(Value)> citations_observer_;
   std::function<void(Value)> playbook_observer_;
@@ -1035,9 +1137,11 @@ Value s(const std::string& signature);
 Value signature(const std::string& source);
 std::string to_string(const Value& signature);
 AxGen ax(const std::string& signature, Value options = Value::object());
+AxGen ax(const std::string& signature, Value options, AxRuntimeHooks hooks);
 AxGen ax(const char* signature, Value options = Value::object());
 AxGen ax(Value signature, Value options = Value::object());
 AxAgent agent(const std::string& signature, Value options = Value::object());
+AxAgent agent(const std::string& signature, Value options, AxRuntimeHooks hooks);
 AxAgent agent(const char* signature, Value options = Value::object());
 AxAgent agent(Value signature, Value options = Value::object());
 // Register a native host search callback and return a marker to place in the agent options
@@ -1050,12 +1154,15 @@ Value register_skills_search(std::function<Value(Value)> fn);
 // onLoadedMemories/onLoadedSkills/onUsedMemories/onUsedSkills option value.
 Value register_agent_observer(std::function<void(Value)> fn);
 AxFlow flow(Value options = Value::object());
+AxFlow flow(Value options, AxRuntimeHooks hooks);
 AxFlow flow(const std::string& mermaid, Value bindings = Value::object());
+AxFlow flow(const std::string& mermaid, Value bindings, AxRuntimeHooks hooks);
 Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxFlow& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxAgent& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 AxPlaybook playbook(AxGen& program, AIClient& student, Value options = Value::object(), AIClient* teacher = nullptr);
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options = Value::object());
+std::shared_ptr<AxAIService> ai(const std::string& provider, Value options, AxRuntimeHooks hooks);
 std::shared_ptr<AxAIService> ai(const char* provider, Value options = Value::object());
 Value to_json_schema(Value fields, const std::string& title = "Schema", Value options = Value::object());
 Value validate_output(Value fields, Value values);

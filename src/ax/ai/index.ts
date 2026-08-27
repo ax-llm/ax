@@ -29,6 +29,8 @@ export type {
   AxChatRequest,
   AxContextCacheInfo,
   AxContextCacheOptions,
+  AxRateLimitInfo,
+  AxRuntimeHooks,
   AxStructuredOutputMode,
   AxStructuredOutputRung,
   AxUsageContext,

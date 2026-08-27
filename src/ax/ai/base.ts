@@ -17,6 +17,10 @@ import {
   defaultRetryConfig,
 } from '../util/apicall.js';
 import { createHash, randomUUID } from '../util/crypto.js';
+import {
+  axGetRuntimeHookFrame,
+  axStartActiveSpanFailOpen,
+} from '../util/telemetry.js';
 import { RespTransformStream } from '../util/transform.js';
 import {
   logChatRequest,
@@ -770,13 +774,37 @@ export class AxBaseAI<
   private getEffectiveTracer(
     options?: Readonly<Pick<AxAIServiceOptions, 'tracer'>>
   ): AxAIServiceOptions['tracer'] {
-    return options?.tracer ?? this.tracer ?? axGlobals.tracer;
+    const frame = axGetRuntimeHookFrame(options);
+    if (frame?.resolved) return options?.tracer;
+    return (
+      options?.tracer ??
+      this.tracer ??
+      frame?.globals.tracer ??
+      axGlobals.tracer
+    );
   }
 
   private getEffectiveMeter(
     options?: Readonly<Pick<AxAIServiceOptions, 'meter'>>
   ): AxAIServiceOptions['meter'] {
-    return options?.meter ?? this.meter ?? axGlobals.meter;
+    const frame = axGetRuntimeHookFrame(options);
+    if (frame?.resolved) return options?.meter;
+    return (
+      options?.meter ?? this.meter ?? frame?.globals.meter ?? axGlobals.meter
+    );
+  }
+
+  private getEffectiveRateLimiter(
+    options?: Readonly<Pick<AxAIServiceOptions, 'rateLimiter'>>
+  ): AxAIServiceOptions['rateLimiter'] {
+    const frame = axGetRuntimeHookFrame(options);
+    if (frame?.resolved) return options?.rateLimiter;
+    return (
+      options?.rateLimiter ??
+      this.rt ??
+      frame?.globals.rateLimiter ??
+      axGlobals.rateLimiter
+    );
   }
 
   private getEffectiveLogger(
@@ -852,7 +880,7 @@ export class AxBaseAI<
     return {
       debug: this.getEffectiveDebug(),
       verbose: this.#verbose,
-      rateLimiter: this.rt,
+      rateLimiter: this.getEffectiveRateLimiter(),
       fetch: this.fetch,
       tracer: this.getEffectiveTracer(),
       meter: this.getEffectiveMeter(),
@@ -1745,7 +1773,8 @@ export class AxBaseAI<
 
     const tracer = this.getEffectiveTracer(options);
     if (tracer) {
-      return await tracer.startActiveSpan(
+      return await axStartActiveSpanFailOpen(
+        tracer,
         'AI Chat Request',
         {
           kind: SpanKind.SERVER,
@@ -2076,9 +2105,19 @@ export class AxBaseAI<
       }
     };
 
-    const rt = options?.rateLimiter ?? this.rt;
+    const rt = this.getEffectiveRateLimiter(options);
     const issueRequest = () =>
-      rt ? rt(fn, { modelUsage: this.modelUsage }) : fn();
+      rt
+        ? rt(fn, {
+            operation: 'chat',
+            provider: this.name,
+            ai: this.name,
+            model: model as string,
+            streaming: Boolean(modelConfig.stream),
+            previousModelUsage: this.modelUsage,
+            modelUsage: this.modelUsage,
+          })
+        : fn();
     let rv: Awaited<ReturnType<typeof fn>>;
     try {
       rv = await issueRequest();
@@ -2486,7 +2525,8 @@ export class AxBaseAI<
 
     const tracer = this.getEffectiveTracer(options);
     if (tracer) {
-      return await tracer.startActiveSpan(
+      return await axStartActiveSpanFailOpen(
+        tracer,
         'AI Embed Request',
         {
           kind: SpanKind.SERVER,
@@ -2584,11 +2624,19 @@ export class AxBaseAI<
       return res;
     };
 
-    const rt = options?.rateLimiter ?? this.rt;
+    const rt = this.getEffectiveRateLimiter(options);
     let resValue: Awaited<ReturnType<typeof fn>>;
     try {
       resValue = rt
-        ? await rt(fn, { modelUsage: this.embedModelUsage })
+        ? await rt(fn, {
+            operation: 'embed',
+            provider: this.name,
+            ai: this.name,
+            model: embedModel as string,
+            streaming: false,
+            previousModelUsage: this.embedModelUsage,
+            modelUsage: this.embedModelUsage,
+          })
         : await fn();
     } catch (error) {
       recordSpanException(span, error);
@@ -3154,9 +3202,9 @@ export class AxBaseAI<
 export function setChatRequestEvents(
   req: Readonly<AxChatRequest<unknown>>,
   span: Span,
-  excludeContentFromTrace?: boolean
+  _excludeContentFromTrace?: boolean
 ): void {
-  const userMessages: string[] = [];
+  let userPartCount = 0;
 
   if (
     req.chatPrompt &&
@@ -3167,20 +3215,16 @@ export function setChatRequestEvents(
       switch (prompt.role) {
         case 'system':
           if (prompt.content) {
-            const eventData: { content?: string } = {};
-            if (!excludeContentFromTrace) {
-              eventData.content = prompt.content;
-            }
-            span.addEvent(axSpanEvents.GEN_AI_SYSTEM_MESSAGE, eventData);
+            span.addEvent(axSpanEvents.GEN_AI_SYSTEM_MESSAGE, {});
           }
           break;
         case 'user':
           if (typeof prompt.content === 'string') {
-            userMessages.push(prompt.content);
+            userPartCount++;
           } else if (Array.isArray(prompt.content)) {
             for (const part of prompt.content) {
               if (part.type === 'text') {
-                userMessages.push(part.text);
+                userPartCount++;
               }
             }
           }
@@ -3196,30 +3240,23 @@ export function setChatRequestEvents(
           });
 
           if (functionCalls && functionCalls.length > 0) {
-            const eventData: { content?: string; function_calls: string } = {
-              function_calls: JSON.stringify(functionCalls, null, 2),
+            const eventData = {
+              function_count: functionCalls.length,
+              function_names: functionCalls
+                .map((call) => call.function)
+                .join(','),
             };
-            if (!excludeContentFromTrace && prompt.content) {
-              eventData.content = prompt.content;
-            }
             span.addEvent(axSpanEvents.GEN_AI_ASSISTANT_MESSAGE, eventData);
           } else if (prompt.content) {
-            const eventData: { content?: string } = {};
-            if (!excludeContentFromTrace) {
-              eventData.content = prompt.content;
-            }
-            span.addEvent(axSpanEvents.GEN_AI_ASSISTANT_MESSAGE, eventData);
+            span.addEvent(axSpanEvents.GEN_AI_ASSISTANT_MESSAGE, {});
           }
           break;
         }
 
         case 'function': {
-          const eventData: { content?: string; id: string } = {
+          const eventData = {
             id: prompt.functionId,
           };
-          if (!excludeContentFromTrace) {
-            eventData.content = prompt.result;
-          }
           span.addEvent(axSpanEvents.GEN_AI_TOOL_MESSAGE, eventData);
           break;
         }
@@ -3228,17 +3265,15 @@ export function setChatRequestEvents(
   }
 
   // Always add user message event, even if empty
-  const userEventData: { content?: string } = {};
-  if (!excludeContentFromTrace) {
-    userEventData.content = userMessages.join('\n');
-  }
-  span.addEvent(axSpanEvents.GEN_AI_USER_MESSAGE, userEventData);
+  span.addEvent(axSpanEvents.GEN_AI_USER_MESSAGE, {
+    part_count: userPartCount,
+  });
 }
 
 export function setChatResponseEvents(
   res: Readonly<AxChatResponse>,
   span: Span,
-  excludeContentFromTrace?: boolean
+  _excludeContentFromTrace?: boolean
 ) {
   setResponseCorrelationAttributes(res, span);
 
@@ -3280,32 +3315,15 @@ export function setChatResponseEvents(
       continue;
     }
 
-    const toolCalls = result.functionCalls?.map((call) => {
-      return {
-        id: call.id,
-        type: call.type,
-        function: call.function.name,
-        arguments: call.function.params,
-      };
-    });
-
-    const message: { content?: string; tool_calls?: unknown[] } = {};
-
-    if (toolCalls && toolCalls.length > 0) {
-      if (!excludeContentFromTrace) {
-        message.content = result.content;
-      }
-      message.tool_calls = toolCalls;
-    } else {
-      if (!excludeContentFromTrace) {
-        message.content = result.content ?? '';
-      }
-    }
+    const toolNames = result.functionCalls?.map((call) => call.function.name);
 
     span.addEvent(axSpanEvents.GEN_AI_CHOICE, {
       finish_reason: result.finishReason,
       index,
-      message: JSON.stringify(message, null, 2),
+      has_content: Boolean(result.content),
+      has_thought: Boolean(result.thought),
+      tool_count: toolNames?.length ?? 0,
+      ...(toolNames?.length ? { tool_names: toolNames.join(',') } : {}),
     });
   }
 }

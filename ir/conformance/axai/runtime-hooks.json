@@ -1,0 +1,59 @@
+{
+  "name": "runtime-hooks-precedence-and-fail-open",
+  "kind": "ai_runtime_hooks",
+  "provider": "openai",
+  "model": "gpt-5.4-mini",
+  "request": {
+    "chat_prompt": [{ "role": "user", "content": "runtime hooks" }],
+    "model_config": { "stream": false }
+  },
+  "transport_responses": [
+    {
+      "status": 200,
+      "json": {
+        "model": "gpt-5.4-mini",
+        "choices": [
+          { "finish_reason": "stop", "message": { "content": "global" } }
+        ]
+      }
+    },
+    {
+      "status": 200,
+      "json": {
+        "model": "gpt-5.4-mini",
+        "choices": [
+          { "finish_reason": "stop", "message": { "content": "service" } }
+        ]
+      }
+    },
+    {
+      "status": 200,
+      "json": {
+        "model": "gpt-5.4-mini",
+        "choices": [
+          { "finish_reason": "stop", "message": { "content": "call" } }
+        ]
+      }
+    },
+    {
+      "status": 200,
+      "json": {
+        "model": "gpt-5.4-mini",
+        "choices": [
+          { "finish_reason": "stop", "message": { "content": "fail-open" } }
+        ]
+      }
+    },
+    {
+      "status": 200,
+      "json": {
+        "model": "gpt-5.4-mini",
+        "choices": [
+          { "finish_reason": "stop", "message": { "content": "cleared" } }
+        ]
+      }
+    }
+  ],
+  "expected_limiter_order": ["global", "service", "call", "global"],
+  "expected_transport_request_count": 5
+}

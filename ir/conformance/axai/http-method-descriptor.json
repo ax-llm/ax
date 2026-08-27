@@ -17,7 +17,7 @@
   "expected": {
     "create": {
       "method": "POST",
-      "path": "/cachedContents?key=gemini-key",
+      "path": "/cachedContents",
       "request": {
         "model": "models/gemini-3.5-flash",
         "systemInstruction": {
@@ -32,12 +32,12 @@
     },
     "delete": {
       "method": "DELETE",
-      "path": "/cachedContents/cache-1?key=gemini-key",
+      "path": "/cachedContents/cache-1",
       "request": {}
     },
     "update": {
       "method": "PATCH",
-      "path": "/cachedContents/cache-1?updateMask=ttl&key=gemini-key",
+      "path": "/cachedContents/cache-1?updateMask=ttl",
       "request": {
         "ttl": "3600s"
       }

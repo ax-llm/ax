@@ -8,6 +8,18 @@ import math
 import re
 from typing import Any
 
+from .ai import (
+    AxMeter,
+    AxRateLimiter,
+    AxRuntimeHooks,
+    AxTracer,
+    _coerce_runtime_hooks,
+    _merge_runtime_hooks,
+    _runtime_hook_scope,
+    _runtime_hooks_from_options,
+    _strip_runtime_hooks,
+)
+
 from .gen import (
     AxGen,
     _core_ai_complete_once,
@@ -1573,8 +1585,9 @@ class AxAgentPlaybook:
 
 
 class AxAgent:
-    def __init__(self, signature, options: dict[str, Any] | None = None):
-        self.options = dict(options or {})
+    def __init__(self, signature, options: dict[str, Any] | None = None, hooks: AxRuntimeHooks | None = None):
+        self.runtime_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
+        self.options = _strip_runtime_hooks(options)
         self.execution_context = resolve_execution_context(self.options)
         if self.execution_context:
             existing = list(self.options.get("functions") or [])
@@ -1586,6 +1599,18 @@ class AxAgent:
         self._rebuild_from_signature(signature)
         if self._playbook_config not in (None, False):
             self._attach_configured_playbook()
+
+    def set_rate_limiter(self, limiter: AxRateLimiter | None):
+        self.runtime_hooks = AxRuntimeHooks(limiter, self.runtime_hooks.tracer, self.runtime_hooks.meter)
+        return self
+
+    def set_tracer(self, tracer: AxTracer | None):
+        self.runtime_hooks = AxRuntimeHooks(self.runtime_hooks.rate_limiter, tracer, self.runtime_hooks.meter)
+        return self
+
+    def set_meter(self, meter: AxMeter | None):
+        self.runtime_hooks = AxRuntimeHooks(self.runtime_hooks.rate_limiter, self.runtime_hooks.tracer, meter)
+        return self
 
     def _rebuild_from_signature(self, signature):
         self.state = _agent_factory(signature, self.options)
@@ -1615,7 +1640,24 @@ class AxAgent:
         self.executor.set_instruction(composed)
         return self
 
-    def forward(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
+    def forward(
+        self,
+        client,
+        values: dict[str, Any],
+        options: dict[str, Any] | None = None,
+        hooks: AxRuntimeHooks | None = None,
+    ):
+        call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
+        with _runtime_hook_scope(
+            call_hooks,
+            self.runtime_hooks,
+            span_name="ax_gen_agent_forward",
+            attributes={"ax.program.id": "root.agent", "ax.program.type": "AxAgent"},
+            metric_prefix="ax_gen_agent",
+        ):
+            return self._forward_unscoped(client, values, _strip_runtime_hooks(options))
+
+    def _forward_unscoped(self, client, values: dict[str, Any], options: dict[str, Any] | None = None):
         options = dict(options or {})
         call_context = resolve_execution_context(options, self.execution_context)
         if call_context:
@@ -1943,8 +1985,8 @@ class AxAgent:
         return self._agent_playbook
 
 
-def agent(signature, config: dict[str, Any] | None = None) -> AxAgent:
-    return AxAgent(signature, config)
+def agent(signature, config: dict[str, Any] | None = None, *, hooks: AxRuntimeHooks | None = None) -> AxAgent:
+    return AxAgent(signature, config, hooks=hooks)
 
 
 def _parse_signature(signature):

@@ -2542,6 +2542,7 @@ module @ax.provider version "0.1" {
           core.set %descriptor["baseUrl"] = %base_url
           core.set %descriptor["auth"] = "bearer"
           core.call intrinsic.map.delete(%descriptor, "apiKeyQuery")
+          core.call intrinsic.map.delete(%descriptor, "apiKeyHeader")
           %operations = core.get %descriptor["operations"]
           %resource_parent = core.call intrinsic.string.format("projects/{}/locations/{}", %project, %region)
           %parent = core.call intrinsic.string.format("/{}", %resource_parent)
@@ -2707,9 +2708,9 @@ module @ax.provider version "0.1" {
     attr effect = "throws"
     attr emit_module = "ai"
     tag "provider-realtime-audio-operation"
-    type signature = "(profile:string, model:string, request:json) -> bool throws"
-    body @entry(%profile: string, %model: string, %request: json) {
-      %descriptor = core.call @provider_descriptor(%profile)
+    type signature = "(profile:string, model:string, request:json, options?:json) -> bool throws"
+    body @entry(%profile: string, %model: string, %request: json, %options: json) {
+      %descriptor = core.call @provider_resolve_descriptor(%profile, %options)
       %operations = core.get %descriptor["operations"]
       %realtime_op = core.get %operations["realtime"]
       %has_realtime = core.call intrinsic.is_not_none(%realtime_op)
@@ -2727,6 +2728,14 @@ module @ax.provider version "0.1" {
       %audio_ok = core.call intrinsic.not(%explicitly_disabled)
       %operation_matches = core.call intrinsic.and(%has_realtime, %matches_model)
       %result = core.call intrinsic.and(%operation_matches, %audio_ok)
+      core.if %result {
+        %grammar = core.get %realtime_op["grammar"] default ""
+        %is_gemini_live = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
+        core.if %is_gemini_live {
+          %is_vertex = core.get %descriptor["vertex"] default false
+          %service_tier = core.call @gemini_service_tier_impl(%request, %options, %is_vertex, true)
+        }
+      }
       core.return %result
     }
   }
@@ -2736,12 +2745,16 @@ module @ax.provider version "0.1" {
     attr effect = "throws"
     attr emit_module = "ai"
     tag "provider-realtime-audio-operation"
-    type signature = "(profile:string, request:json) -> json throws"
-    body @entry(%profile: string, %request: json) {
-      %descriptor = core.call @provider_realtime_audio_descriptor(%profile)
+    type signature = "(profile:string, request:json, options?:json) -> json throws"
+    body @entry(%profile: string, %request: json, %options: json) {
+      %descriptor = core.call @provider_resolve_descriptor(%profile, %options)
+      %is_vertex = core.get %descriptor["vertex"] default false
+      %operations = core.get %descriptor["operations"]
+      %descriptor = core.get %operations["realtime"]
       %grammar = core.get %descriptor["grammar"] default "openai_realtime_compatible"
       %is_gemini_live = core.call intrinsic.eq(%grammar, "gemini_live_bidi")
       core.if %is_gemini_live {
+        %service_tier = core.call @gemini_service_tier_impl(%request, %options, %is_vertex, true)
         %setup = core.call @gemini_live_bidi_build_setup(%descriptor, %request)
         core.return %setup
       }
@@ -3600,7 +3613,8 @@ module @ax.provider version "0.1" {
         %payload = core.let %responses_payload
       } else {
         core.if %is_gemini {
-          %gemini_payload = core.call @gemini_build_chat_request(%request)
+          %is_vertex = core.get %descriptor["vertex"] default false
+          %gemini_payload = core.call @gemini_build_chat_request(%request, %options, %is_vertex)
           %payload = core.let %gemini_payload
         } else {
           core.if %is_anthropic {
@@ -5214,15 +5228,55 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @gemini_service_tier_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "gemini-service-tier-core-helper"
+    type signature = "(request:json, options:json, vertex:bool, live:bool) -> json throws"
+    body @entry(%request: json, %options: json, %vertex: bool, %live: bool) {
+      %option_tier_snake = core.get %options["service_tier"]
+      %option_tier = core.get %options["serviceTier"] default %option_tier_snake
+      %empty_model_config = core.map
+      %model_config_snake = core.get %request["model_config"] default %empty_model_config
+      %model_config = core.get %request["modelConfig"] default %model_config_snake
+      %model_tier_snake = core.get %model_config["service_tier"]
+      %service_tier = core.get %model_config["serviceTier"] default %model_tier_snake
+      %has_model_tier = core.call intrinsic.is_not_none(%service_tier)
+      core.if %has_model_tier {
+      } else {
+        %service_tier = core.let %option_tier
+      }
+      %has_service_tier = core.call intrinsic.is_not_none(%service_tier)
+      core.if %has_service_tier {
+        core.if %vertex {
+          %error = core.call intrinsic.ai.error.unsupported("Gemini inference service tiers are not supported by Vertex AI")
+          core.raise %error
+        }
+        core.if %live {
+          %error = core.call intrinsic.ai.error.unsupported("Gemini inference service tiers are not supported by the Live API")
+          core.raise %error
+        }
+      }
+      core.return %service_tier
+    }
+  }
+
   op ax.provider.semantic @gemini_build_chat_request {
     attr core_kind = "func"
     attr effect = "throws"
     attr emit_module = "ai"
     attr private = true
     tag "src/ax/ai/google-gemini/api.ts"
-    type signature = "(AxChatRequest) -> json throws"
-    body @entry(%request: AxChatRequest) {
+    type signature = "(AxChatRequest, json, bool) -> json throws"
+    body @entry(%request: AxChatRequest, %options: json, %is_vertex: bool) {
       %payload = core.map
+      %service_tier = core.call @gemini_service_tier_impl(%request, %options, %is_vertex, false)
+      %has_service_tier = core.call intrinsic.is_not_none(%service_tier)
+      core.if %has_service_tier {
+        core.set %payload["service_tier"] = %service_tier
+      }
       %empty_prompt = core.list
       %prompt = core.get %request["chat_prompt"] default %empty_prompt
       %system_parts = core.list
@@ -5887,6 +5941,15 @@ module @ax.provider version "0.1" {
       %has_cached = core.call intrinsic.gt(%cached, 0)
       core.if %has_cached {
         core.set %out["cache_read_tokens"] = %cached
+      }
+      %service_tier = core.get %usage["serviceTier"]
+      %has_service_tier = core.call intrinsic.is_not_none(%service_tier)
+      core.if %has_service_tier {
+        %is_unspecified = core.call intrinsic.eq(%service_tier, "unspecified")
+        core.if %is_unspecified {
+          %service_tier = core.let "standard"
+        }
+        core.set %out["service_tier"] = %service_tier
       }
       core.return %out
     }

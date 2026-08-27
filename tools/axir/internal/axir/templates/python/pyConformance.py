@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .ai import AnthropicClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, ai, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_usage_observer
+from .ai import AnthropicClient, AxAIServiceAuthenticationError, AxAIServiceError, AxAIServiceNetworkError, AxAIServiceResponseError, AxAIServiceStatusError, AxAIServiceStreamTerminatedError, AxAIServiceTimeoutError, AxBaseAI, AxBalancer, AxRuntimeHooks, GoogleGeminiClient, MultiServiceRouter, OpenAICompatibleClient, OpenAIResponsesClient, ProviderRouter, _effective_runtime_hooks, _runtime_hook_scope, ai, get_supported_ai_models, provider_descriptor, provider_model_catalog_summary, provider_normalize_profile, provider_profile_registry, provider_resolve_descriptor, set_meter, set_rate_limiter, set_tracer, set_usage_observer
 from .ai import build_chat_request, build_embed_request, normalize_chat_response, normalize_embed_response, normalize_stream_delta, provider_resolve_profile, _gemini_build_speak_request, _gemini_build_transcribe_request, _gemini_normalize_speak_response, _gemini_normalize_transcribe_response, _grok_build_speak_request, _grok_build_transcribe_request, _openai_tool_call_to_provider_impl, ai_context_cache_expiry, ai_context_cache_plan, ai_context_cache_recovery, ai_context_cache_rejection, ai_gemini_cache_ops
 from .ai import AxBalancerAdaptiveStrategy, AxBalancerOptions, AxInMemoryBalancerStatsStore, _core_set_math_random_values, create_balancer_route_stats, provider_balancer_adaptive_score, sample_balancer_route_health, update_balancer_route_stats
 from .gen import (
@@ -498,6 +498,8 @@ def run_fixture(fixture: dict[str, Any], *, source: str | None = None):
             _run_ai_stream(fixture)
         elif kind == "ai_usage_observer":
             _run_ai_usage_observer(fixture)
+        elif kind == "ai_runtime_hooks":
+            _run_ai_runtime_hooks(fixture)
         elif kind == "ai_credential_wrapper":
             _run_ai_credential_wrapper(fixture)
         elif kind == "ai_error":
@@ -2432,6 +2434,79 @@ def _run_ai_usage_observer(fixture):
     client.chat(request, options)
     if len(events) != 1:
         raise FixtureError("cleared usage observer received an event")
+
+
+def _run_ai_runtime_hooks(fixture):
+    from concurrent.futures import ThreadPoolExecutor
+
+    client, transport = _openai_fixture_client(fixture)
+    request = fixture["request"]
+    calls = []
+
+    def limiter(label):
+        def run(next_request, info):
+            if info.operation != "chat" or not info.provider or not info.model or info.streaming:
+                raise FixtureError(f"invalid rate limit info: {info!r}")
+            calls.append(label)
+            return next_request()
+        return run
+
+    class FailingTracer:
+        def start_span(self, _start):
+            raise RuntimeError("tracer failure")
+
+    class FailingMeter:
+        def create_counter(self, _name, _options=None):
+            raise RuntimeError("meter failure")
+        create_histogram = create_counter
+        create_gauge = create_counter
+
+    set_rate_limiter(limiter("global"))
+    try:
+        client.chat(request)
+        client.set_rate_limiter(limiter("service"))
+        client.chat(request)
+        client.chat_with_hooks(request, {}, AxRuntimeHooks(limiter("call"), None, None))
+        client.set_rate_limiter(None)
+        set_tracer(FailingTracer())
+        set_meter(FailingMeter())
+        client.chat(request)
+        try:
+            client.chat_with_hooks(request, {}, AxRuntimeHooks(lambda _next, _info: (_ for _ in ()).throw(RuntimeError("limited")), None, None))
+            raise FixtureError("limiter rejection did not propagate")
+        except RuntimeError as exc:
+            if str(exc) != "limited":
+                raise
+        set_rate_limiter(None)
+        set_tracer(None)
+        set_meter(None)
+        client.chat(request)
+    finally:
+        client.set_rate_limiter(None)
+        set_rate_limiter(None)
+        set_tracer(None)
+        set_meter(None)
+
+    barrier = threading.Barrier(2)
+
+    def isolated(label):
+        hook = limiter(label)
+        with _runtime_hook_scope(
+            AxRuntimeHooks(hook, None, None),
+            None,
+            span_name="ax_gen_conformance",
+            metric_prefix="ax_gen_conformance",
+        ):
+            barrier.wait(timeout=5)
+            return _effective_runtime_hooks().rate_limiter is hook
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        isolated_results = list(executor.map(isolated, ("thread-a", "thread-b")))
+    if isolated_results != [True, True] or _effective_runtime_hooks().rate_limiter is not None:
+        raise FixtureError("runtime hook thread isolation failed")
+
+    _assert_equal(calls, fixture["expected_limiter_order"], "runtime hook limiter order")
+    _assert_equal(len(transport.requests), fixture["expected_transport_request_count"], "runtime hook request count")
 
 
 def _run_ai_error(fixture):

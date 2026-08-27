@@ -123,14 +123,13 @@
       "client := axllm.NewAI(\"openai\", map[string]axllm.Value{\"apiKey\": os.Getenv(\"OPENAI_API_KEY\")})"
     ],
     "telemetry": {
-      "sourcePath": "src/examples/go/generation/usage_observer.go",
+      "sourcePath": "src/examples/go/generation/runtime_hooks.go",
       "code": [
-        "axllm.SetUsageObserver(func(event axllm.AxUsageEvent) {",
-        "    usageQueue <- event",
-        "})",
-        "_, err := client.Chat(ctx, request, axllm.Object(",
-        "    \"usageContext\", axllm.Object(\"tenantId\", tenantID, \"userId\", userID, \"requestId\", requestID),",
-        "))"
+        "axllm.SetRateLimiter(globalLimiter)",
+        "axllm.SetTracer(tracer)",
+        "axllm.SetMeter(meter)",
+        "workflow.ForwardWithHooks(ctx, client, input, nil, axllm.AxRuntimeHooks{RateLimiter: callLimiter, Tracer: tracer, Meter: meter})",
+        "axllm.SetRateLimiter(nil); axllm.SetTracer(nil); axllm.SetMeter(nil)"
       ],
       "verified": true,
       "requiresCredentials": true
@@ -148,6 +147,18 @@
   },
   "snippetGroups": {
     "ai": {
+      "serviceTier": {
+        "sourcePath": "src/examples/go/generation/gemini_service_tier.go",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "client := ax.NewAI(\"google-gemini\", map[string]ax.Value{",
+          "    \"api_key\":      geminiAPIKey(),",
+          "    \"model\":        model,",
+          "    \"service_tier\": \"flex\",",
+          "})"
+        ]
+      },
       "vertex": {
         "sourcePath": "src/examples/go/generation/vertex_gemini.go",
         "verified": true,

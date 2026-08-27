@@ -5,6 +5,11 @@ import java.util.Map;
 
 public interface AxProgram {
   Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options);
+  default Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options, AxRuntimeHooks hooks) {
+    Map<String, Object> resolved = new java.util.LinkedHashMap<>(options == null ? Map.of() : options);
+    resolved.put("runtimeHooks", hooks);
+    return forward(client, values, resolved);
+  }
   List<Map<String, Object>> getOptimizableComponents();
   default AxProgram applyOptimizedComponents(Map<String, Object> componentMap) { return this; }
   default List<Map<String, Object>> getTraces() { return List.of(); }

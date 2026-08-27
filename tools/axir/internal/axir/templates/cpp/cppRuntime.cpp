@@ -54,6 +54,17 @@ static std::map<std::string, AIClient*>& client_registry() {
   return clients;
 }
 
+static std::mutex& client_registry_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+static AIClient* registered_client(const std::string& id) {
+  std::lock_guard<std::mutex> lock(client_registry_mutex());
+  auto it = client_registry().find(id);
+  return it == client_registry().end() ? nullptr : it->second;
+}
+
 static std::map<std::string, AxProgram*>& agent_stage_registry() {
   static std::map<std::string, AxProgram*> stages;
   return stages;
@@ -68,6 +79,8 @@ static std::map<std::string, AxCodeSession*>& code_session_registry() {
   static std::map<std::string, AxCodeSession*> sessions;
   return sessions;
 }
+
+static Value invoke_runtime_tool(const std::string& name, std::function<Value()> next);
 
 // Native host search callbacks: Value cannot hold a closure, so the closures live in
 // a process-lifetime registry keyed by id, and a small marker object ({"__*_search_id": id})
@@ -1020,7 +1033,10 @@ Value Core::coerce_chat_request(Value request) {
 }
 Value Core::client_ref(AIClient& client) {
   std::string id = pointer_id(&client);
-  client_registry()[id] = &client;
+  {
+    std::lock_guard<std::mutex> lock(client_registry_mutex());
+    client_registry()[id] = &client;
+  }
   return Value(Object{{"__client_id", id}});
 }
 Value Core::agent_stage_ref(AxProgram& stage) {
@@ -1088,15 +1104,15 @@ Value Core::program_apply_components(Value program, Value component_map) {
 }
 Value Core::ai_complete_once(Value client, Value request, Value options) {
   std::string id = str(get_key(client, "__client_id"));
-  auto it = client_registry().find(id);
-  if (it == client_registry().end() || it->second == nullptr) throw AxError("runtime", "client does not implement AIClient");
-  return chat_response_to_completion(it->second->chat(request, options));
+  AIClient* registered = registered_client(id);
+  if (registered == nullptr) throw AxError("runtime", "client does not implement AIClient");
+  return chat_response_to_completion(registered->chat(request, options));
 }
 Value Core::ai_client_features(Value client, Value model) {
   std::string id = str(get_key(client, "__client_id"));
-  auto it = client_registry().find(id);
-  if (it != client_registry().end() && it->second != nullptr) {
-    if (auto* service = dynamic_cast<AxAIService*>(it->second)) {
+  AIClient* registered = registered_client(id);
+  if (registered != nullptr) {
+    if (auto* service = dynamic_cast<AxAIService*>(registered)) {
       return service->get_features(model);
     }
   }
@@ -1106,9 +1122,9 @@ Value Core::agent_transcribe(Value client, Value request, Value options) {
   // Backs intrinsic.agent.transcribe: call the AI client's transcribe so audio inputs become
   // text before the agent loop (the client passes through @agent_forward as a real client).
   std::string id = str(get_key(client, "__client_id"));
-  auto it = client_registry().find(id);
-  if (it == client_registry().end() || it->second == nullptr) return object({{"text", std::string("")}});
-  return it->second->transcribe(request, options);
+  AIClient* registered = registered_client(id);
+  if (registered == nullptr) return object({{"text", std::string("")}});
+  return registered->transcribe(request, options);
 }
 Value Core::retry_sleep(Value) { return Value(); }
 Value Core::tool_invoke(Value fn, Value params) {
@@ -1117,7 +1133,9 @@ Value Core::tool_invoke(Value fn, Value params) {
   std::string id = str(get_key(fn, "__tool_id"));
   auto it = tool_registry().find(id);
   if (it == tool_registry().end()) throw AxError("runtime", "unknown tool");
-  Value result = it->second(params.is_null() ? Value::object() : params);
+  Value result = invoke_runtime_tool(str(get_key(fn, "name")), [&]() {
+    return it->second(params.is_null() ? Value::object() : params);
+  });
   Value returns = get_key(fn, "returns", Value::array());
   if (truthy(returns) && result.is_object()) validate_fields(returns, result, "tool." + str(get_key(fn, "name")) + ".return");
   return result;
@@ -1129,11 +1147,11 @@ Value Core::agent_stage_forward(Value stage, Value client, Value values, Value o
     throw AxError("runtime", "agent stage is not AxProgram");
   }
   std::string client_id = str(get_key(client, "__client_id"));
-  auto client_it = client_registry().find(client_id);
-  if (client_it == client_registry().end() || client_it->second == nullptr) {
+  AIClient* registered = registered_client(client_id);
+  if (registered == nullptr) {
     throw AxError("runtime", "client does not implement AIClient");
   }
-  return stage_it->second->forward(*client_it->second, values, options);
+  return stage_it->second->forward(*registered, values, options);
 }
 Value Core::agent_stage_chat_log(Value stage) {
   std::string stage_id = str(get_key(stage, "__agent_stage_id"));
@@ -2329,8 +2347,10 @@ std::string AxAIService::get_id() { return get_name() + "-id"; }
 std::string AxAIService::get_name() { return "ai"; }
 Value AxAIService::chat(Value request) { return AIClient::chat(std::move(request)); }
 Value AxAIService::chat(Value request, Value) { return chat(std::move(request)); }
+Value AxAIService::chat(Value request, Value options, const AxRuntimeHooks&) { return chat(std::move(request), std::move(options)); }
 std::vector<Value> AxAIService::stream(Value request) { return {chat(std::move(request))}; }
 Value AxAIService::embed(Value request, Value) { return embed(std::move(request)); }
+Value AxAIService::embed(Value request, Value options, const AxRuntimeHooks&) { return embed(std::move(request), std::move(options)); }
 Value AxAIService::transcribe(Value request, Value) { return transcribe(std::move(request)); }
 Value AxAIService::speak(Value request, Value) { return speak(std::move(request)); }
 Value AxAIService::get_features(Value) {
@@ -2345,11 +2365,163 @@ void AxAIService::set_options(Value) {}
 Value AxAIService::get_last_used_chat_model() { return Value(); }
 Value AxAIService::get_last_used_embed_model() { return Value(); }
 Value AxAIService::get_last_used_model_config() { return Value(); }
+AxAIService& AxAIService::set_rate_limiter(AxRateLimiter) { return *this; }
+AxAIService& AxAIService::set_tracer(std::shared_ptr<AxTracer>) { return *this; }
+AxAIService& AxAIService::set_meter(std::shared_ptr<AxMeter>) { return *this; }
 
 namespace {
 
 std::mutex usage_observer_mutex;
 AxUsageObserver usage_observer;
+std::mutex runtime_hooks_mutex;
+AxRuntimeHooks global_runtime_hooks;
+
+AxRuntimeHooks merge_runtime_hooks(std::initializer_list<AxRuntimeHooks> layers) {
+  AxRuntimeHooks out;
+  for (const auto& layer : layers) {
+    if (!out.rate_limiter && layer.rate_limiter) out.rate_limiter = layer.rate_limiter;
+    if (!out.tracer && layer.tracer) out.tracer = layer.tracer;
+    if (!out.meter && layer.meter) out.meter = layer.meter;
+  }
+  return out;
+}
+
+AxRuntimeHooks snapshot_runtime_hooks() {
+  std::lock_guard<std::mutex> lock(runtime_hooks_mutex);
+  return global_runtime_hooks;
+}
+
+struct RuntimeHookFrame {
+  AxRuntimeHooks hooks;
+  AxRuntimeHooks globals;
+  std::shared_ptr<AxSpan> span;
+};
+
+thread_local std::vector<RuntimeHookFrame> runtime_hook_frames;
+
+std::shared_ptr<AxSpan> start_runtime_span(const AxRuntimeHooks& hooks, std::string name,
+                                           std::string kind, Value attributes,
+                                           std::shared_ptr<AxSpan> parent = {}) {
+  if (!hooks.tracer) return {};
+  try {
+    return hooks.tracer->start_span(AxSpanStart{std::move(name), std::move(kind), std::move(attributes), std::move(parent)});
+  } catch (...) {
+    return {};
+  }
+}
+
+void finish_runtime_span(const std::shared_ptr<AxSpan>& span, bool failed,
+                         const std::string& message = "") {
+  if (!span) return;
+  try {
+    if (failed) {
+      span->record_exception(message.empty() ? "operation failed" : message);
+      span->set_status("error", message);
+    } else {
+      span->set_status("ok");
+    }
+    span->end();
+  } catch (...) {
+  }
+}
+
+struct MeterInstruments {
+  std::weak_ptr<AxMeter> meter;
+  std::map<std::string, std::shared_ptr<AxCounter>> counters;
+  std::map<std::string, std::shared_ptr<AxHistogram>> histograms;
+};
+
+std::mutex meter_cache_mutex;
+std::map<const AxMeter*, MeterInstruments> meter_cache;
+
+void record_runtime_metric(const std::shared_ptr<AxMeter>& meter, const std::string& kind,
+                           const std::string& name, double value, const Value& attributes) {
+  if (!meter) return;
+  try {
+    std::shared_ptr<AxCounter> counter;
+    std::shared_ptr<AxHistogram> histogram;
+    {
+      std::lock_guard<std::mutex> lock(meter_cache_mutex);
+      auto& cached = meter_cache[meter.get()];
+      auto cached_meter = cached.meter.lock();
+      if (cached_meter.get() != meter.get()) {
+        cached = MeterInstruments{};
+        cached.meter = meter;
+      }
+      if (kind == "counter") {
+        auto it = cached.counters.find(name);
+        if (it != cached.counters.end()) counter = it->second;
+      } else {
+        auto it = cached.histograms.find(name);
+        if (it != cached.histograms.end()) histogram = it->second;
+      }
+    }
+    if (kind == "counter" && !counter) {
+      auto created = meter->create_counter(name);
+      std::lock_guard<std::mutex> lock(meter_cache_mutex);
+      auto& slot = meter_cache[meter.get()].counters[name];
+      if (!slot) slot = created;
+      counter = slot;
+    } else if (kind != "counter" && !histogram) {
+      auto created = meter->create_histogram(name);
+      std::lock_guard<std::mutex> lock(meter_cache_mutex);
+      auto& slot = meter_cache[meter.get()].histograms[name];
+      if (!slot) slot = created;
+      histogram = slot;
+    }
+    if (counter) counter->add(value, attributes);
+    if (histogram) histogram->record(value, attributes);
+  } catch (...) {
+  }
+}
+
+AxRuntimeHooks effective_runtime_hooks(const AxRuntimeHooks& call,
+                                       const AxRuntimeHooks& service = {}) {
+  if (!runtime_hook_frames.empty()) {
+    const auto& frame = runtime_hook_frames.back();
+    return merge_runtime_hooks({call, frame.hooks, service, frame.globals});
+  }
+  return merge_runtime_hooks({call, service, snapshot_runtime_hooks()});
+}
+
+class RuntimeHookScope {
+ public:
+  RuntimeHookScope(const AxRuntimeHooks& call, const AxRuntimeHooks& program,
+                   std::string span_name, std::string metric_prefix, Value attributes)
+      : metric_prefix_(std::move(metric_prefix)), attributes_(std::move(attributes)),
+        started_(std::chrono::steady_clock::now()), exceptions_(std::uncaught_exceptions()) {
+    AxRuntimeHooks inherited;
+    AxRuntimeHooks globals = snapshot_runtime_hooks();
+    std::shared_ptr<AxSpan> parent;
+    if (!runtime_hook_frames.empty()) {
+      inherited = runtime_hook_frames.back().hooks;
+      globals = runtime_hook_frames.back().globals;
+      parent = runtime_hook_frames.back().span;
+    }
+    AxRuntimeHooks scoped = merge_runtime_hooks({call, inherited, program});
+    effective_ = merge_runtime_hooks({scoped, globals});
+    own_span_ = start_runtime_span(effective_, std::move(span_name), "internal", attributes_, parent);
+    runtime_hook_frames.push_back(RuntimeHookFrame{scoped, globals, own_span_ ? own_span_ : parent});
+    record_runtime_metric(effective_.meter, "counter", metric_prefix_ + "_requests_total", 1, attributes_);
+  }
+
+  ~RuntimeHookScope() {
+    bool failed = std::uncaught_exceptions() > exceptions_;
+    if (failed) record_runtime_metric(effective_.meter, "counter", metric_prefix_ + "_errors_total", 1, attributes_);
+    auto duration = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started_).count();
+    record_runtime_metric(effective_.meter, "histogram", metric_prefix_ + "_duration_ms", duration, attributes_);
+    finish_runtime_span(own_span_, failed);
+    if (!runtime_hook_frames.empty()) runtime_hook_frames.pop_back();
+  }
+
+ private:
+  AxRuntimeHooks effective_;
+  std::shared_ptr<AxSpan> own_span_;
+  std::string metric_prefix_;
+  Value attributes_;
+  std::chrono::steady_clock::time_point started_;
+  int exceptions_;
+};
 
 Value clone_usage_value(const Value& value) {
   if (value.is_array()) {
@@ -2403,26 +2575,52 @@ void emit_usage_event(const std::string& operation, const Value& response,
 
 }  // namespace
 
+static Value invoke_runtime_tool(const std::string& name, std::function<Value()> next) {
+  RuntimeHookScope scope(AxRuntimeHooks{}, AxRuntimeHooks{}, "ax_gen_tool", "ax_gen_tool",
+                         object({{"ax.tool.name", name}}));
+  return next();
+}
+
 void set_usage_observer(AxUsageObserver observer) {
   std::lock_guard<std::mutex> lock(usage_observer_mutex);
   usage_observer = std::move(observer);
 }
 
-AxBaseAI::AxBaseAI(std::string name, std::string model, std::string embed_model, Value model_config, Value options)
+void set_rate_limiter(AxRateLimiter limiter) {
+  std::lock_guard<std::mutex> lock(runtime_hooks_mutex);
+  global_runtime_hooks.rate_limiter = std::move(limiter);
+}
+
+void set_tracer(std::shared_ptr<AxTracer> tracer) {
+  std::lock_guard<std::mutex> lock(runtime_hooks_mutex);
+  global_runtime_hooks.tracer = std::move(tracer);
+}
+
+void set_meter(std::shared_ptr<AxMeter> meter) {
+  std::lock_guard<std::mutex> lock(runtime_hooks_mutex);
+  global_runtime_hooks.meter = std::move(meter);
+}
+
+AxBaseAI::AxBaseAI(std::string name, std::string model, std::string embed_model, Value model_config, Value options, AxRuntimeHooks hooks)
     : name_(std::move(name)),
       model_(std::move(model)),
       embed_model_(std::move(embed_model)),
       model_config_(Value(Object{{"temperature", 0}})),
-      options_(std::move(options)) {
+      options_(std::move(options)),
+      runtime_hooks_(std::make_shared<const AxRuntimeHooks>(std::move(hooks))) {
   if (model_.empty()) throw AxError("runtime", "No model defined");
   model_config_ = Core::map_merge(model_config_, std::move(model_config));
 }
 
 Value AxBaseAI::chat(Value request) {
-  return chat(std::move(request), options_);
+  return chat(std::move(request), options_, AxRuntimeHooks{});
 }
 
 Value AxBaseAI::chat(Value request, Value call_options) {
+  return chat(std::move(request), std::move(call_options), AxRuntimeHooks{});
+}
+
+Value AxBaseAI::chat(Value request, Value call_options, const AxRuntimeHooks& call_hooks) {
   Value req = Core::coerce_chat_request(std::move(request));
   Core::validate_chat_request(req);
   Value merged_options = merge_usage_options(options_, call_options);
@@ -2432,9 +2630,38 @@ Value AxBaseAI::chat(Value request, Value call_options) {
   Core::set(req, "model_config", merged_config);
   last_used_chat_model_ = selected_model;
   last_used_model_config_ = merged_config;
-  Value response = do_chat(req, merged_options);
-  emit_usage_event("chat", response, merged_options, Core::truthy(Core::get(merged_config, "stream", false)));
-  return response;
+  bool streaming = Core::truthy(Core::get(merged_config, "stream", false));
+  AxRuntimeHooks service_hooks = *std::atomic_load(&runtime_hooks_);
+  AxRuntimeHooks hooks = effective_runtime_hooks(call_hooks, service_hooks);
+  Value attributes = object({{"ax.operation", "chat"}, {"ax.ai", name_}, {"ax.model", display(selected_model)}, {"ax.streaming", streaming}});
+  std::shared_ptr<AxSpan> parent = runtime_hook_frames.empty() ? nullptr : runtime_hook_frames.back().span;
+  auto span = start_runtime_span(hooks, "ax_llm_chat", "client", attributes, parent);
+  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes);
+  auto started = std::chrono::steady_clock::now();
+  try {
+    AxRequestExecutor next = [&]() { return do_chat(req, merged_options); };
+    Value response = hooks.rate_limiter
+        ? hooks.rate_limiter(next, AxRateLimitInfo{"chat", name_, display(selected_model), streaming, last_model_usage_})
+        : next();
+    last_model_usage_ = Core::get(response, "model_usage", Core::get(response, "modelUsage"));
+    emit_usage_event("chat", response, merged_options, streaming);
+    auto duration = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", duration, attributes);
+    finish_runtime_span(span, false);
+    return response;
+  } catch (const std::exception& error) {
+    record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes);
+    auto duration = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", duration, attributes);
+    finish_runtime_span(span, true, error.what());
+    throw;
+  } catch (...) {
+    record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes);
+    auto duration = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", duration, attributes);
+    finish_runtime_span(span, true, "unknown error");
+    throw;
+  }
 }
 
 Value AxBaseAI::complete(Value request) {
@@ -2442,10 +2669,14 @@ Value AxBaseAI::complete(Value request) {
 }
 
 Value AxBaseAI::embed(Value request) {
-  return embed(std::move(request), options_);
+  return embed(std::move(request), options_, AxRuntimeHooks{});
 }
 
 Value AxBaseAI::embed(Value request, Value call_options) {
+  return embed(std::move(request), std::move(call_options), AxRuntimeHooks{});
+}
+
+Value AxBaseAI::embed(Value request, Value call_options, const AxRuntimeHooks& call_hooks) {
   Value texts = Core::get(request, "texts");
   if (!texts.is_array() || array_ref(texts).empty()) throw Core::as_error(Core::ai_error_response("Embed texts is empty"));
   Value selected = Core::get(request, "embed_model", Core::get(request, "embedModel", embed_model_));
@@ -2454,9 +2685,37 @@ Value AxBaseAI::embed(Value request, Value call_options) {
   Core::set(req, "embed_model", selected);
   last_used_embed_model_ = selected;
   Value merged_options = merge_usage_options(options_, call_options);
-  Value response = do_embed(req, merged_options);
-  emit_usage_event("embed", response, merged_options, false);
-  return response;
+  AxRuntimeHooks service_hooks = *std::atomic_load(&runtime_hooks_);
+  AxRuntimeHooks hooks = effective_runtime_hooks(call_hooks, service_hooks);
+  Value attributes = object({{"ax.operation", "embed"}, {"ax.ai", name_}, {"ax.model", display(selected)}, {"ax.streaming", false}});
+  std::shared_ptr<AxSpan> parent = runtime_hook_frames.empty() ? nullptr : runtime_hook_frames.back().span;
+  auto span = start_runtime_span(hooks, "ax_llm_embed", "client", attributes, parent);
+  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes);
+  auto started = std::chrono::steady_clock::now();
+  try {
+    AxRequestExecutor next = [&]() { return do_embed(req, merged_options); };
+    Value response = hooks.rate_limiter
+        ? hooks.rate_limiter(next, AxRateLimitInfo{"embed", name_, display(selected), false, last_model_usage_})
+        : next();
+    last_model_usage_ = Core::get(response, "model_usage", Core::get(response, "modelUsage"));
+    emit_usage_event("embed", response, merged_options, false);
+    auto duration = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", duration, attributes);
+    finish_runtime_span(span, false);
+    return response;
+  } catch (const std::exception& error) {
+    record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes);
+    auto duration = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", duration, attributes);
+    finish_runtime_span(span, true, error.what());
+    throw;
+  } catch (...) {
+    record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes);
+    auto duration = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", duration, attributes);
+    finish_runtime_span(span, true, "unknown error");
+    throw;
+  }
 }
 
 Value AxBaseAI::get_features(Value) { return AxAIService::get_features(Value()); }
@@ -2471,6 +2730,24 @@ Value AxBaseAI::get_model_list() {
 Value AxBaseAI::get_metrics() { return Value::object(); }
 Value AxBaseAI::get_options() { return options_; }
 void AxBaseAI::set_options(Value options) { options_ = std::move(options); }
+AxBaseAI& AxBaseAI::set_rate_limiter(AxRateLimiter limiter) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_);
+  hooks.rate_limiter = std::move(limiter);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks)));
+  return *this;
+}
+AxBaseAI& AxBaseAI::set_tracer(std::shared_ptr<AxTracer> tracer) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_);
+  hooks.tracer = std::move(tracer);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks)));
+  return *this;
+}
+AxBaseAI& AxBaseAI::set_meter(std::shared_ptr<AxMeter> meter) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_);
+  hooks.meter = std::move(meter);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks)));
+  return *this;
+}
 Value AxBaseAI::get_last_used_chat_model() { return last_used_chat_model_; }
 Value AxBaseAI::get_last_used_embed_model() { return last_used_embed_model_; }
 Value AxBaseAI::get_last_used_model_config() { return last_used_model_config_; }
@@ -2678,20 +2955,43 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
 
 Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   Value realtime_model = Core::coalesce(Core::get(request, "model"), Value(model_));
-  if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request))) {
+  if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request, options))) {
     return realtime_chat(request, nullptr);
   }
   Value payload = Core::provider_build_chat_request(profile_, request, options);
-  bool stream = Core::truthy(Core::get(payload, "stream"));
+  bool stream = Core::truthy(Core::get(
+      payload,
+      "stream",
+      Core::get(Core::get(request, "model_config", Value::object()),
+                "stream",
+                Core::get(options, "stream", false))));
   if (stream) {
     Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
-    Value raw = request_json(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"));
-    Value state = Value::object();
-    Value results = Value::array();
-    for (const auto& event : iter_sse_json(raw)) {
-      Core::append(results, Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
+    Value retry_cfg = Core::resolve_stream_retry(options);
+    int max_retries = static_cast<int>(num(Core::get(retry_cfg, "max_retries", 3)));
+    double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
+    double max_delay = num(Core::get(retry_cfg, "max_delay_ms", 60000));
+    double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
+    int attempt = 0;
+    while (true) {
+      Value raw = request_json(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"));
+      std::vector<Value> events = iter_sse_json(raw);
+      if (!events.empty()) {
+        Value status = Core::provider_classify_stream_error_status(profile_, events[0]);
+        if (!status.is_null() && Core::truthy(Core::is_retryable_status(status)) && attempt < max_retries) {
+          ++attempt;
+          double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
+          if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(delay)));
+          continue;
+        }
+      }
+      Value state = Value::object();
+      Value results = Value::array();
+      for (const auto& event : events) {
+        Core::append(results, Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
+      }
+      return Value(Object{{"results", results}});
     }
-    return Value(Object{{"results", results}});
   }
   Value model = Core::coalesce(Core::get(request, "model"), Core::coalesce(Core::get(payload, "model"), model_));
   std::string endpoint = operation_path("chat", model);
@@ -2709,42 +3009,12 @@ Value OpenAICompatibleClient::do_embed(Value request, Value options) {
 
 std::vector<Value> OpenAICompatibleClient::stream(Value request) {
   Value req = Core::coerce_chat_request(std::move(request));
-  Core::validate_chat_request(req);
   Value config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), Value(Object{{"stream", true}}));
   Core::set(config, "stream", true);
   Core::set(req, "model", Core::coalesce(Core::get(req, "model"), model_));
   Core::set(req, "model_config", config);
-  Value payload = Core::provider_build_chat_request(profile_, req, options_);
-  Value model = Core::get(req, "model", Core::get(payload, "model", model_));
-  Value retry_cfg = Core::resolve_stream_retry(options_);
-  int max_retries = static_cast<int>(num(Core::get(retry_cfg, "max_retries", 3)));
-  double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
-  double max_delay = num(Core::get(retry_cfg, "max_delay_ms", 60000));
-  double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
-  int attempt = 0;
-  while (true) {
-    Value raw = request_json(operation_path("stream_chat", model), payload, true);
-    std::vector<Value> events = iter_sse_json(raw);
-    // Pre-content streaming retry: peek the first raw SSE event before any stateful normalize
-    // runs (so peeking has no side effects); if the provider classifies it as a retryable
-    // transient status (e.g. Anthropic's HTTP-200 overloaded_error event), re-issue with the
-    // same exponential backoff apiCall uses for a 529 before surfacing.
-    if (!events.empty()) {
-      Value status = Core::provider_classify_stream_error_status(profile_, events[0]);
-      if (!status.is_null() && Core::truthy(Core::is_retryable_status(status)) && attempt < max_retries) {
-        attempt++;
-        double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
-        if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(delay)));
-        continue;
-      }
-    }
-    Value state = Value::object();
-    std::vector<Value> out;
-    for (const auto& event : events) out.push_back(Core::provider_normalize_stream_delta(profile_, event, state, name_, model));
-    Value stream_options = merge_usage_options(options_, object({{"stream", true}}));
-    emit_usage_event("chat", object({{"results", Value(Array(out))}}), stream_options, true);
-    return out;
-  }
+  Value response = chat(std::move(req), object({{"stream", true}}));
+  return Core::iter(Core::get(response, "results", Value::array()));
 }
 
 Value OpenAICompatibleClient::transcribe(Value request) {
@@ -2775,7 +3045,7 @@ std::vector<Value> OpenAICompatibleClient::realtime(Value events) {
 }
 
 Value OpenAICompatibleClient::realtime_audio_setup(Value request) {
-  return Core::provider_build_realtime_audio_setup(profile_, request);
+  return Core::provider_build_realtime_audio_setup(profile_, request, options_);
 }
 
 Value OpenAICompatibleClient::realtime_audio_input(Value request) {
@@ -2869,7 +3139,7 @@ bool ScriptedRealtimeTransport::recv(Value& out) {
 
 Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* transport) {
   std::string model = str(Core::get(request, "model", Value(model_)));
-  Value setup = Core::provider_build_realtime_audio_setup(profile_, request);
+  Value setup = Core::provider_build_realtime_audio_setup(profile_, request, options_);
   Value inputs = Core::provider_build_realtime_audio_input(profile_, request);
   std::unique_ptr<RealtimeTransport> owned;
   if (transport == nullptr) {
@@ -3204,7 +3474,8 @@ AxMemory& AxMemory::remove_by_tag(const std::string& tag) {
 Value AxMemory::value() const { return items_; }
 Value& AxMemory::value_ref() { return items_; }
 
-AxGen::AxGen(Value signature, Value options) {
+AxGen::AxGen(Value signature, Value options, AxRuntimeHooks hooks)
+    : runtime_hooks_(std::make_shared<const AxRuntimeHooks>(std::move(hooks))) {
   state_ = Value::object();
   Core::set(state_, "signature", std::move(signature));
   Core::set(state_, "options", options);
@@ -4872,19 +5143,41 @@ AxMemory& AxGen::get_memory() {
 }
 
 Value AxGen::forward(AIClient& client, Value values, Value options) {
+  return forward(client, std::move(values), std::move(options), AxRuntimeHooks{});
+}
+
+Value AxGen::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
+  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_forward", "ax_gen_generation",
+                         object({{"ax.program.id", Core::get(state_, "program_id", "root")}, {"ax.program.type", "AxGen"}}));
   return Core::_forward_impl(state_, Core::client_ref(client), std::move(values), std::move(options));
+}
+
+AxGen& AxGen::set_rate_limiter(AxRateLimiter limiter) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_); hooks.rate_limiter = std::move(limiter);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks))); return *this;
+}
+AxGen& AxGen::set_tracer(std::shared_ptr<AxTracer> tracer) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_); hooks.tracer = std::move(tracer);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks))); return *this;
+}
+AxGen& AxGen::set_meter(std::shared_ptr<AxMeter> meter) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_); hooks.meter = std::move(meter);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks))); return *this;
 }
 
 Value AxGen::value() const { return state_; }
 
-AxFlow::AxFlow(Value options) {
+AxFlow::AxFlow(Value options, AxRuntimeHooks hooks)
+    : runtime_hooks_(std::make_shared<const AxRuntimeHooks>(std::move(hooks))) {
   state_ = Core::_flow_factory(std::move(options));
   Core::set(state_, "mermaidPercent", "%");
   Core::set(state_, "mermaidOpenBrace", "{");
   Core::set(state_, "mermaidCloseBrace", "}");
 }
 
-AxFlow::AxFlow(std::string mermaid, Value bindings) {
+AxFlow::AxFlow(std::string mermaid, Value bindings, AxRuntimeHooks hooks)
+    : runtime_hooks_(std::make_shared<const AxRuntimeHooks>(std::move(hooks))) {
   state_ = Core::_flow_from_mermaid(Value(std::move(mermaid)), bindings);
   Core::set(state_, "mermaidPercent", "%");
   Core::set(state_, "mermaidOpenBrace", "{");
@@ -5028,7 +5321,27 @@ AxFlow& AxFlow::set_demos(Value demos) {
 }
 
 Value AxFlow::forward(AIClient& client, Value values, Value options) {
+  return forward(client, std::move(values), std::move(options), AxRuntimeHooks{});
+}
+
+Value AxFlow::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
+  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_flow_forward", "ax_gen_flow",
+                         object({{"ax.program.id", Core::get(state_, "program_id", "root.flow")}, {"ax.program.type", "AxFlow"}}));
   return Core::_flow_forward(state_, Core::client_ref(client), std::move(values), std::move(options));
+}
+
+AxFlow& AxFlow::set_rate_limiter(AxRateLimiter limiter) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_); hooks.rate_limiter = std::move(limiter);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks))); return *this;
+}
+AxFlow& AxFlow::set_tracer(std::shared_ptr<AxTracer> tracer) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_); hooks.tracer = std::move(tracer);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks))); return *this;
+}
+AxFlow& AxFlow::set_meter(std::shared_ptr<AxMeter> meter) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_); hooks.meter = std::move(meter);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks))); return *this;
 }
 
 Value AxFlow::streaming_forward(AIClient& client, Value values, Value options) {
@@ -5096,7 +5409,8 @@ AxFlow& AxFlow::add_step(Value kind, Value name, Value program, Value options) {
   return *this;
 }
 
-AxAgent::AxAgent(Value signature, Value options) {
+AxAgent::AxAgent(Value signature, Value options, AxRuntimeHooks hooks)
+    : runtime_hooks_(std::make_shared<const AxRuntimeHooks>(std::move(hooks))) {
   options_ = options;
   playbook_config_ = Core::get(options, "playbook", Value());
   state_ = Core::_agent_factory(std::move(signature), options);
@@ -5133,6 +5447,13 @@ AxAgent& AxAgent::add_actor_instruction(Value addendum) {
 }
 
 Value AxAgent::forward(AIClient& client, Value values, Value options) {
+  return forward(client, std::move(values), std::move(options), AxRuntimeHooks{});
+}
+
+Value AxAgent::forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) {
+  AxRuntimeHooks program_hooks = *std::atomic_load(&runtime_hooks_);
+  RuntimeHookScope scope(hooks, program_hooks, "ax_gen_agent_forward", "ax_gen_agent",
+                         object({{"ax.program.id", "root.agent"}, {"ax.program.type", "AxAgent"}}));
   ensure_configured_playbook(client);
   // Wire the built-in llmQuery primitive onto the runtime carried in agent
   // options (the same runtime the actor loop will create sessions on),
@@ -5170,6 +5491,19 @@ Value AxAgent::forward(AIClient& client, Value values, Value options) {
   }
   learn_playbook_failures(output);
   return output;
+}
+
+AxAgent& AxAgent::set_rate_limiter(AxRateLimiter limiter) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_); hooks.rate_limiter = std::move(limiter);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks))); return *this;
+}
+AxAgent& AxAgent::set_tracer(std::shared_ptr<AxTracer> tracer) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_); hooks.tracer = std::move(tracer);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks))); return *this;
+}
+AxAgent& AxAgent::set_meter(std::shared_ptr<AxMeter> meter) {
+  AxRuntimeHooks hooks = *std::atomic_load(&runtime_hooks_); hooks.meter = std::move(meter);
+  std::atomic_store(&runtime_hooks_, std::make_shared<const AxRuntimeHooks>(std::move(hooks))); return *this;
 }
 
 AxAgent& AxAgent::set_citations_observer(std::function<void(Value)> observer) {
@@ -5682,13 +6016,17 @@ Value s(const std::string& source) {
 Value signature(const std::string& source) { return s(source); }
 std::string to_string(const Value& sig) { return display(Core::signature_to_string(sig)); }
 AxGen ax(const std::string& source, Value options) { return AxGen(s(source), std::move(options)); }
+AxGen ax(const std::string& source, Value options, AxRuntimeHooks hooks) { return AxGen(s(source), std::move(options), std::move(hooks)); }
 AxGen ax(const char* source, Value options) { return ax(std::string(source == nullptr ? "" : source), std::move(options)); }
 AxGen ax(Value signature, Value options) { return AxGen(std::move(signature), std::move(options)); }
 AxAgent agent(const std::string& source, Value options) { return AxAgent(Value(source), std::move(options)); }
+AxAgent agent(const std::string& source, Value options, AxRuntimeHooks hooks) { return AxAgent(Value(source), std::move(options), std::move(hooks)); }
 AxAgent agent(const char* source, Value options) { return agent(std::string(source == nullptr ? "" : source), std::move(options)); }
 AxAgent agent(Value signature, Value options) { return AxAgent(std::move(signature), std::move(options)); }
 AxFlow flow(Value options) { return AxFlow(std::move(options)); }
+AxFlow flow(Value options, AxRuntimeHooks hooks) { return AxFlow(std::move(options), std::move(hooks)); }
 AxFlow flow(const std::string& mermaid, Value bindings) { return AxFlow(mermaid, std::move(bindings)); }
+AxFlow flow(const std::string& mermaid, Value bindings, AxRuntimeHooks hooks) { return AxFlow(mermaid, std::move(bindings), std::move(hooks)); }
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
   Value resolved = Core::provider_resolve_profile(provider.empty() ? "openai" : provider);
   if (!Core::truthy(Core::get(resolved, "known"))) {
@@ -5713,6 +6051,13 @@ std::shared_ptr<AxAIService> ai(const std::string& provider, Value options) {
         display(Core::get(descriptor, "defaultEmbedModel", "")));
   }
   throw AxError("runtime", "unsupported transport for AxAI profile: " + canonical);
+}
+std::shared_ptr<AxAIService> ai(const std::string& provider, Value options, AxRuntimeHooks hooks) {
+  auto service = ai(provider, std::move(options));
+  service->set_rate_limiter(std::move(hooks.rate_limiter));
+  service->set_tracer(std::move(hooks.tracer));
+  service->set_meter(std::move(hooks.meter));
+  return service;
 }
 std::shared_ptr<AxAIService> ai(const char* provider, Value options) { return ai(std::string(provider == nullptr ? "" : provider), std::move(options)); }
 

@@ -21,12 +21,20 @@ public final class Ax {
     return new AxGen(signature);
   }
 
+  public static AxGen ax(String signature, java.util.Map<String, Object> options, AxRuntimeHooks hooks) {
+    return new AxGen(AxSignature.create(signature), options, hooks);
+  }
+
   public static AxAgent agent(String signature, java.util.Map<String, Object> options) {
     return new AxAgent(signature, options == null ? java.util.Map.of() : options);
   }
 
   public static AxAgent agent(AxSignature signature, java.util.Map<String, Object> options) {
     return new AxAgent(signature, options == null ? java.util.Map.of() : options);
+  }
+
+  public static AxAgent agent(String signature, java.util.Map<String, Object> options, AxRuntimeHooks hooks) {
+    return new AxAgent(signature, options == null ? java.util.Map.of() : options, hooks);
   }
 
   public static AxFlow flow() {
@@ -37,12 +45,20 @@ public final class Ax {
     return new AxFlow(options == null ? java.util.Map.of() : options);
   }
 
+  public static AxFlow flow(java.util.Map<String, Object> options, AxRuntimeHooks hooks) {
+    return new AxFlow(options == null ? java.util.Map.of() : options, hooks);
+  }
+
   public static AxFlow flow(String mermaid) {
     return new AxFlow(mermaid);
   }
 
   public static AxFlow flow(String mermaid, java.util.Map<String, Object> bindings) {
     return new AxFlow(mermaid, bindings);
+  }
+
+  public static AxFlow flow(String mermaid, java.util.Map<String, Object> bindings, AxRuntimeHooks hooks) {
+    return new AxFlow(mermaid, bindings, hooks);
   }
 
   public static AxAIService ai(String provider, java.util.Map<String, Object> options) {
@@ -73,6 +89,12 @@ public final class Ax {
       );
     }
     throw new IllegalArgumentException("unsupported transport for AxAI profile: " + canonical);
+  }
+
+  public static AxAIService ai(String provider, java.util.Map<String, Object> options, AxRuntimeHooks hooks) {
+    java.util.Map<String, Object> resolved = new java.util.LinkedHashMap<>(options == null ? java.util.Map.of() : options);
+    resolved.put("runtimeHooks", hooks);
+    return ai(provider, resolved);
   }
 
   public static java.util.Map<String, Object> optimize(AxGen program, java.util.List<java.util.Map<String, Object>> examples, java.util.Map<String, Object> options) {

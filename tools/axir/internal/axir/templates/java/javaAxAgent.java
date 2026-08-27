@@ -16,14 +16,21 @@ public final class AxAgent implements AxProgram {
   AxGen llmQuery;
   AxPlaybook playbookHandle;
   Object playbookConfig;
+  volatile AxRuntimeHooks runtimeHooks;
 
   public AxAgent(String signature, Map<String, Object> options) {
-    this((Object) signature, options);
+    this((Object) signature, options, AxRuntimeHooks.empty());
   }
 
   @SuppressWarnings("unchecked")
   public AxAgent(Object signature, Map<String, Object> options) {
-    this.options = options == null ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
+    this(signature, options, AxRuntimeHooks.empty());
+  }
+
+  @SuppressWarnings("unchecked")
+  public AxAgent(Object signature, Map<String, Object> options, AxRuntimeHooks hooks) {
+    this.runtimeHooks = AxRuntimeHooks.merge(hooks, AxRuntimeHooks.fromOptions(options));
+    this.options = AxRuntimeHooks.strip(options);
     this.executionContext = AxExecutionContext.resolve(this.options, null);
     if (executionContext != null) {
       List<Object> functions = new ArrayList<>(Core.asList(this.options.getOrDefault("functions", List.of())));
@@ -37,6 +44,10 @@ public final class AxAgent implements AxProgram {
       attachConfiguredPlaybook();
     }
   }
+
+  public AxAgent setRateLimiter(AxRateLimiter limiter) { this.runtimeHooks = new AxRuntimeHooks(limiter, runtimeHooks.tracer(), runtimeHooks.meter()); return this; }
+  public AxAgent setTracer(AxTracer tracer) { this.runtimeHooks = new AxRuntimeHooks(runtimeHooks.rateLimiter(), tracer, runtimeHooks.meter()); return this; }
+  public AxAgent setMeter(AxMeter meter) { this.runtimeHooks = new AxRuntimeHooks(runtimeHooks.rateLimiter(), runtimeHooks.tracer(), meter); return this; }
 
   @SuppressWarnings("unchecked")
   private void rebuildFromSignature(Object signature) {
@@ -89,6 +100,27 @@ public final class AxAgent implements AxProgram {
   }
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions) {
+    return forward(client, values, forwardOptions, AxRuntimeHooks.fromOptions(forwardOptions));
+  }
+
+  public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions, AxRuntimeHooks hooks) {
+    AxGlobals.Scope scope = AxGlobals.openScope(
+        hooks,
+        runtimeHooks,
+        "ax_gen_agent_forward",
+        "ax_gen_agent",
+        Map.of("ax.program.id", "root.agent", "ax.program.type", "AxAgent"));
+    try {
+      return forwardUnscoped(client, values, AxRuntimeHooks.strip(forwardOptions));
+    } catch (RuntimeException | Error error) {
+      scope.fail(error);
+      throw error;
+    } finally {
+      scope.close();
+    }
+  }
+
+  private Map<String, Object> forwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions) {
     Map<String, Object> callOptions = new LinkedHashMap<>(forwardOptions == null ? Map.of() : forwardOptions);
     AxExecutionContext callContext = AxExecutionContext.resolve(callOptions, executionContext);
     if (callContext != null) {

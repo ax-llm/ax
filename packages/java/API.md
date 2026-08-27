@@ -197,6 +197,112 @@ Register, replace, or clear the process-wide usage observer.
 AxGlobals.setUsageObserver(events::add);
 ```
 
+### `AxRuntimeHooks`
+
+Non-serializable rate limiter, tracer, and meter overrides for one service or program execution.
+
+- Canonical Ax concept: `AxRuntimeHooks`
+- Kind: `type`
+- Form: `new AxRuntimeHooks(rateLimiter, tracer, meter)`
+- Returns: `runtime hooks`
+- Important options: rate limiter, tracer, meter, precedence
+
+```java
+AxRuntimeHooks hooks = new AxRuntimeHooks(limiter, tracer, meter);
+```
+
+### `AxRateLimitInfo`
+
+Provider and model metadata supplied to a request-wrapper rate limiter.
+
+- Canonical Ax concept: `AxRateLimitInfo`
+- Kind: `type`
+- Form: `AxRateLimitInfo`
+- Returns: `rate-limit context`
+- Important options: operation, provider, model, streaming, previous usage
+
+### `AxRateLimiter`
+
+Request wrapper that can delay, reject, or execute a chat or embedding request.
+
+- Canonical Ax concept: `AxRateLimiter`
+- Kind: `interface`
+- Form: `AxRateLimiter`
+- Returns: `provider result`
+- Important options: next, metadata, errors
+
+### `AxTracer`
+
+Dependency-neutral tracer that creates metadata-only Ax spans.
+
+- Canonical Ax concept: `AxTracer`
+- Kind: `interface`
+- Form: `AxTracer`
+- Returns: `span`
+- Important options: start span, parent span, fail-open
+
+### `AxMeter`
+
+Dependency-neutral meter for Ax counters, histograms, and gauges.
+
+- Canonical Ax concept: `AxMeter`
+- Kind: `interface`
+- Form: `AxMeter`
+- Returns: `instrument`
+- Important options: counter, histogram, gauge, fail-open
+
+### `AxGlobals`
+
+Process-wide live defaults for runtime hooks and usage observation.
+
+- Canonical Ax concept: `AxGlobals`
+- Kind: `type`
+- Form: `AxGlobals`
+- Returns: `global hooks`
+- Important options: rate limiter, tracer, meter, usage observer
+
+### `AxGlobals.setRateLimiter`
+
+Register, replace, or clear the process-wide request-wrapper rate limiter.
+
+- Canonical Ax concept: `set_rate_limiter`
+- Kind: `function`
+- Form: `AxGlobals.setRateLimiter(limiter)`
+- Returns: `void`
+- Important options: limiter, clear
+
+```java
+AxGlobals.setRateLimiter(limiter);
+```
+
+### `AxGlobals.setTracer`
+
+Register, replace, or clear the process-wide dependency-neutral tracer.
+
+- Canonical Ax concept: `set_tracer`
+- Kind: `function`
+- Form: `AxGlobals.setTracer(tracer)`
+- Returns: `void`
+- Important options: tracer, clear
+
+```java
+AxGlobals.setTracer(tracer);
+```
+
+### `AxGlobals.setMeter`
+
+Register, replace, or clear the process-wide dependency-neutral meter.
+
+- Canonical Ax concept: `set_meter`
+- Kind: `function`
+- Form: `AxGlobals.setMeter(meter)`
+- Returns: `void`
+- Important options: meter, clear
+
+```java
+AxGlobals.setMeter(meter);
+```
+
 ### `AxBalancer`
 
 Retry and route requests across multiple provider services, with opt-in adaptive cost, reliability, and deadline routing.

@@ -728,9 +728,23 @@ export type AxInternalSpeechRequest<TModel> = Omit<AxSpeechRequest, 'model'> & {
   model?: TModel;
 };
 
+export type AxRateLimitInfo = Readonly<{
+  operation: 'chat' | 'embed';
+  /** Canonical provider identifier. */
+  provider: string;
+  /** @deprecated Use `provider`. */
+  ai: string;
+  model: string;
+  streaming: boolean;
+  /** Usage from the previous completed operation on this service, when available. */
+  previousModelUsage?: AxModelUsage;
+  /** @deprecated Use `previousModelUsage`. */
+  modelUsage?: AxModelUsage;
+}>;
+
 export type AxRateLimiterFunction = <T = unknown>(
   reqFunc: () => Promise<T | ReadableStream<T>>,
-  info: Readonly<{ modelUsage?: AxModelUsage }>
+  info: AxRateLimitInfo
 ) => Promise<T | ReadableStream<T>>;
 
 // Typed logging objects for structured logging
@@ -1163,6 +1177,12 @@ export type AxAIServiceOptions = {
    */
   includeRequestBodyInErrors?: boolean;
 };
+
+/** Non-serializable execution hooks shared by AI services and programs. */
+export type AxRuntimeHooks = Pick<
+  AxAIServiceOptions,
+  'rateLimiter' | 'tracer' | 'meter'
+>;
 
 export interface AxAIService<
   TModel = unknown,

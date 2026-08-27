@@ -1,5 +1,7 @@
+import type { Context, Span, Tracer } from '@opentelemetry/api';
 import { context, trace } from '@opentelemetry/api';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxAIService } from '../ai/types.js';
 import { axGlobals } from '../dsp/globals.js';
 import { AxSignature } from '../dsp/sig.js';
@@ -16,6 +18,7 @@ import { AxMCPClient } from '../mcp/client.js';
 import type { AxMCPExecutionContext } from '../mcp/execution.js';
 import type { AxMCPTransport } from '../mcp/transport.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
+import { axGetRuntimeHookFrame } from '../util/telemetry.js';
 import { flow } from './flow.js';
 
 class TestProgram
@@ -24,11 +27,14 @@ class TestProgram
   private signature: AxSignature;
   public optimizedApplied = false;
   public seenAI: AxAIService | undefined;
+  public seenRateLimiter: unknown | undefined;
   public seenTracer: unknown | undefined;
   public seenTraceContext: unknown | undefined;
   public seenAbortSignal: AbortSignal | undefined;
   public seenMCPExecutionContext: AxMCPExecutionContext | undefined;
   public seenEventContext: unknown | undefined;
+  public defaultRateLimiter: unknown | undefined;
+  public allSeenRateLimiters: unknown[] = [];
   public usage: AxProgramUsage[] = [];
   public traces: AxProgramTrace<any, any>[] = [];
   public chatLog: AxChatLogEntry[] = [];
@@ -48,7 +54,14 @@ class TestProgram
     options?: Readonly<AxProgramForwardOptions<string>>
   ): Promise<{ outputText: string }> {
     this.seenAI = ai as AxAIService;
-    this.seenTracer = (options as any)?.tracer;
+    this.seenRateLimiter =
+      options?.rateLimiter ??
+      this.defaultRateLimiter ??
+      axGetRuntimeHookFrame(options)?.globals.rateLimiter;
+    this.allSeenRateLimiters.push(this.seenRateLimiter);
+    this.seenTracer =
+      (options as any)?.tracer ??
+      axGetRuntimeHookFrame(options)?.globals.tracer;
     this.seenTraceContext = (options as any)?.traceContext;
     this.seenAbortSignal = options?.abortSignal;
     this.seenMCPExecutionContext = options?._mcpExecutionContext;
@@ -87,9 +100,11 @@ class TestProgram
 
 describe('AxFlow propagation and instrumentation', () => {
   const originalTracer = axGlobals.tracer;
+  const originalRateLimiter = axGlobals.rateLimiter;
 
   afterEach(() => {
     axGlobals.tracer = originalTracer;
+    axGlobals.rateLimiter = originalRateLimiter;
   });
 
   it('setDemos propagates to children with name-based IDs', () => {
@@ -205,6 +220,213 @@ describe('AxFlow propagation and instrumentation', () => {
     expect(prog.seenTraceContext).toBeDefined();
   });
 
+  it('parents AxGen node spans under the enclosing flow span', async () => {
+    const starts: Array<{
+      name: string;
+      parentContext?: Context;
+      span: Span;
+    }> = [];
+    const makeSpan = (): Span =>
+      ({
+        addEvent: vi.fn(),
+        addLink: vi.fn(),
+        addLinks: vi.fn(),
+        end: vi.fn(),
+        isRecording: () => true,
+        recordException: vi.fn(),
+        setAttribute: vi.fn(),
+        setAttributes: vi.fn(),
+        setStatus: vi.fn(),
+        spanContext: () => ({
+          traceId: '1'.repeat(32),
+          spanId: '2'.repeat(16),
+          traceFlags: 1,
+        }),
+        updateName: vi.fn(),
+      }) as unknown as Span;
+    const tracer = {
+      startSpan: (name: string, _options: unknown, parentContext?: Context) => {
+        const span = makeSpan();
+        starts.push({ name, parentContext, span });
+        return span;
+      },
+    } as unknown as Tracer;
+    const ai = new AxMockAIService({
+      chatResponse: {
+        results: [
+          {
+            index: 0,
+            content: '{"outputText":"ok"}',
+            finishReason: 'stop',
+          },
+        ],
+      },
+    });
+    const wf = flow<{ inputText: string }>();
+    wf.node('generate', 'inputText:string -> outputText:string').execute(
+      'generate',
+      (state) => ({ inputText: state.inputText })
+    );
+
+    const upstreamSpan = makeSpan();
+    const upstreamContext = trace.setSpan(context.active(), upstreamSpan);
+    await wf.forward(
+      ai,
+      { inputText: 'parentage' },
+      { tracer, traceContext: upstreamContext }
+    );
+
+    const flowStart = starts.find((start) => start.name === 'AxFlow');
+    const genStart = starts.find((start) => start.name.startsWith('AxGen'));
+    expect(flowStart).toBeDefined();
+    expect(genStart).toBeDefined();
+    expect(
+      trace.getSpan(flowStart?.parentContext as Context)?.spanContext()
+    ).toEqual(upstreamSpan.spanContext());
+    expect(
+      trace.getSpan(genStart?.parentContext as Context)?.spanContext()
+    ).toEqual(flowStart?.span.spanContext());
+  });
+
+  it('propagates forward and constructor rate limiters to every node', async () => {
+    const defaultLimiter = vi.fn(async (next: () => Promise<unknown>) =>
+      next()
+    );
+    const overrideLimiter = vi.fn(async (next: () => Promise<unknown>) =>
+      next()
+    );
+    const first = new TestProgram();
+    const second = new TestProgram();
+    const wf = flow<{ userInput: string }>({ rateLimiter: defaultLimiter });
+    wf.node('first', first)
+      .node('second', second)
+      .execute('first', (state) => ({ inputText: state.userInput }))
+      .execute('second', (state) => ({ inputText: state.userInput }));
+    const ai = { name: 'mock' } as unknown as AxAIService;
+
+    await wf.forward(ai, { userInput: 'default' });
+    expect(first.seenRateLimiter).toBe(defaultLimiter);
+    expect(second.seenRateLimiter).toBe(defaultLimiter);
+
+    await wf.forward(
+      ai,
+      { userInput: 'override' },
+      { rateLimiter: overrideLimiter }
+    );
+    expect(first.seenRateLimiter).toBe(overrideLimiter);
+    expect(second.seenRateLimiter).toBe(overrideLimiter);
+  });
+
+  it('snapshots a live global rate limiter for the whole flow run', async () => {
+    const globalLimiter = vi.fn(async (next: () => Promise<unknown>) => next());
+    const replacement = vi.fn(async (next: () => Promise<unknown>) => next());
+    const first = new TestProgram();
+    const second = new TestProgram();
+    const firstForward = first.forward.bind(first);
+    first.forward = async (...args: Parameters<typeof first.forward>) => {
+      const result = await firstForward(...args);
+      axGlobals.rateLimiter = replacement;
+      return result;
+    };
+    const wf = flow<{ userInput: string }>();
+    wf.node('first', first)
+      .node('second', second)
+      .execute('first', (state) => ({ inputText: state.userInput }))
+      .execute('second', (state) => ({ inputText: state.userInput }));
+    const ai = { name: 'mock' } as unknown as AxAIService;
+    axGlobals.rateLimiter = globalLimiter;
+
+    await wf.forward(ai, { userInput: 'snapshot' });
+    expect(first.seenRateLimiter).toBe(globalLimiter);
+    expect(second.seenRateLimiter).toBe(globalLimiter);
+  });
+
+  it('keeps an empty global snapshot empty when the global is replaced mid-run', async () => {
+    const replacement = vi.fn(async (next: () => Promise<unknown>) => next());
+    const first = new TestProgram();
+    const second = new TestProgram();
+    const firstForward = first.forward.bind(first);
+    first.forward = async (...args: Parameters<typeof first.forward>) => {
+      const result = await firstForward(...args);
+      axGlobals.rateLimiter = replacement;
+      return result;
+    };
+    const wf = flow<{ userInput: string }>();
+    wf.node('first', first)
+      .node('second', second)
+      .execute('first', (state) => ({ inputText: state.userInput }))
+      .execute('second', (state) => ({ inputText: state.userInput }));
+    const ai = { name: 'mock' } as unknown as AxAIService;
+    axGlobals.rateLimiter = undefined;
+
+    await wf.forward(ai, { userInput: 'empty-snapshot' });
+    expect(first.seenRateLimiter).toBeUndefined();
+    expect(second.seenRateLimiter).toBeUndefined();
+  });
+
+  it('keeps child defaults above the snapshotted global hook', async () => {
+    const globalLimiter = vi.fn(async (next: () => Promise<unknown>) => next());
+    const childLimiter = vi.fn(async (next: () => Promise<unknown>) => next());
+    const parentLimiter = vi.fn(async (next: () => Promise<unknown>) => next());
+    const child = new TestProgram();
+    child.defaultRateLimiter = childLimiter;
+    const ai = { name: 'mock' } as unknown as AxAIService;
+    axGlobals.rateLimiter = globalLimiter;
+
+    await flow<{ userInput: string }>()
+      .node('child', child)
+      .execute('child', (state) => ({ inputText: state.userInput }))
+      .forward(ai, { userInput: 'child-default' });
+    expect(child.seenRateLimiter).toBe(childLimiter);
+
+    await flow<{ userInput: string }>({ rateLimiter: parentLimiter })
+      .node('child', child)
+      .execute('child', (state) => ({ inputText: state.userInput }))
+      .forward(ai, { userInput: 'parent-default' });
+    expect(child.seenRateLimiter).toBe(parentLimiter);
+  });
+
+  it('isolates concurrent and re-entrant forward hooks', async () => {
+    const firstLimiter = vi.fn(async (next: () => Promise<unknown>) => next());
+    const secondLimiter = vi.fn(async (next: () => Promise<unknown>) => next());
+    const child = new TestProgram();
+    const wf = flow<{ userInput: string }>();
+    wf.node('child', child).execute('child', (state) => ({
+      inputText: state.userInput,
+    }));
+    const ai = { name: 'mock' } as unknown as AxAIService;
+
+    await Promise.all([
+      wf.forward(ai, { userInput: 'one' }, { rateLimiter: firstLimiter }),
+      wf.forward(ai, { userInput: 'two' }, { rateLimiter: secondLimiter }),
+    ]);
+    expect(new Set(child.allSeenRateLimiters)).toEqual(
+      new Set([firstLimiter, secondLimiter])
+    );
+
+    child.allSeenRateLimiters.length = 0;
+    let reentered = false;
+    const baseForward = child.forward.bind(child);
+    child.forward = async (...args: Parameters<typeof child.forward>) => {
+      const result = await baseForward(...args);
+      if (!reentered) {
+        reentered = true;
+        await wf.forward(
+          ai,
+          { userInput: 'inner' },
+          { rateLimiter: secondLimiter }
+        );
+      }
+      return result;
+    };
+    await wf.forward(ai, { userInput: 'outer' }, { rateLimiter: firstLimiter });
+    expect(child.allSeenRateLimiters).toEqual([firstLimiter, secondLimiter]);
+
+    child.allSeenRateLimiters.length = 0;
+    await wf.forward(ai, { userInput: 'after' });
+    expect(child.allSeenRateLimiters).toEqual([undefined]);
+  });
+
   it('uses axGlobals.tracer set after construction for parent and node tracing', async () => {
     const spanEnd = vi.fn();
     const tracer = {
@@ -224,7 +446,8 @@ describe('AxFlow propagation and instrumentation', () => {
 
     expect(tracer.startSpan).toHaveBeenCalledWith(
       'AxFlow',
-      expect.objectContaining({ kind: expect.any(Number) })
+      expect.objectContaining({ kind: expect.any(Number) }),
+      expect.anything()
     );
     expect(prog.seenTracer).toBe(tracer);
     expect(prog.seenTraceContext).toBeDefined();

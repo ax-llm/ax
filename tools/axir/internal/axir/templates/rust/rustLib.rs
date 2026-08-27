@@ -9,7 +9,7 @@ use std::fmt;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "runtime-quickjs")]
@@ -22,6 +22,399 @@ pub type AxResult<T> = Result<T, AxError>;
 pub type AxUsageContext = Value;
 pub type AxUsageEvent = Value;
 pub type AxUsageObserver = Arc<dyn Fn(AxUsageEvent) + Send + Sync>;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct AxRateLimitInfo {
+    pub operation: String,
+    pub provider: String,
+    pub model: String,
+    pub streaming: bool,
+    pub previous_model_usage: Option<Value>,
+}
+
+pub trait AxRateLimiter: Send + Sync {
+    fn run(
+        &self,
+        next: &mut dyn FnMut() -> AxResult<Value>,
+        info: &AxRateLimitInfo,
+    ) -> AxResult<Value>;
+}
+
+impl<F> AxRateLimiter for F
+where
+    F: Fn(&mut dyn FnMut() -> AxResult<Value>, &AxRateLimitInfo) -> AxResult<Value>
+        + Send
+        + Sync,
+{
+    fn run(
+        &self,
+        next: &mut dyn FnMut() -> AxResult<Value>,
+        info: &AxRateLimitInfo,
+    ) -> AxResult<Value> {
+        self(next, info)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AxSpanStart {
+    pub name: String,
+    pub kind: String,
+    pub attributes: BTreeMap<String, Value>,
+    pub parent: Option<Arc<dyn AxSpan>>,
+}
+
+pub trait AxSpan: Send + Sync + fmt::Debug {
+    fn set_attributes(&self, _attributes: &BTreeMap<String, Value>) {}
+    fn add_event(&self, _name: &str, _attributes: &BTreeMap<String, Value>) {}
+    fn record_exception(&self, _error: &AxError) {}
+    fn set_status(&self, _status: &str, _description: Option<&str>) {}
+    fn end(&self) {}
+}
+
+pub trait AxTracer: Send + Sync {
+    fn start_span(&self, start: AxSpanStart) -> Option<Arc<dyn AxSpan>>;
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AxMetricInstrumentOptions {
+    pub description: Option<String>,
+    pub unit: Option<String>,
+}
+
+pub trait AxCounter: Send + Sync {
+    fn add(&self, value: f64, attributes: &BTreeMap<String, Value>);
+}
+
+pub trait AxHistogram: Send + Sync {
+    fn record(&self, value: f64, attributes: &BTreeMap<String, Value>);
+}
+
+pub trait AxGauge: Send + Sync {
+    fn record(&self, value: f64, attributes: &BTreeMap<String, Value>);
+}
+
+pub trait AxMeter: Send + Sync {
+    fn create_counter(
+        &self,
+        name: &str,
+        options: &AxMetricInstrumentOptions,
+    ) -> Option<Arc<dyn AxCounter>>;
+    fn create_histogram(
+        &self,
+        name: &str,
+        options: &AxMetricInstrumentOptions,
+    ) -> Option<Arc<dyn AxHistogram>>;
+    fn create_gauge(
+        &self,
+        name: &str,
+        options: &AxMetricInstrumentOptions,
+    ) -> Option<Arc<dyn AxGauge>>;
+}
+
+#[derive(Clone, Default)]
+pub struct AxRuntimeHooks {
+    pub rate_limiter: Option<Arc<dyn AxRateLimiter>>,
+    pub tracer: Option<Arc<dyn AxTracer>>,
+    pub meter: Option<Arc<dyn AxMeter>>,
+}
+
+static RUNTIME_HOOK_GLOBALS: OnceLock<Mutex<AxRuntimeHooks>> = OnceLock::new();
+
+pub fn set_rate_limiter(rate_limiter: Option<Arc<dyn AxRateLimiter>>) {
+    if let Ok(mut hooks) = RUNTIME_HOOK_GLOBALS
+        .get_or_init(|| Mutex::new(AxRuntimeHooks::default()))
+        .lock()
+    {
+        hooks.rate_limiter = rate_limiter;
+    }
+}
+
+pub fn set_tracer(tracer: Option<Arc<dyn AxTracer>>) {
+    if let Ok(mut hooks) = RUNTIME_HOOK_GLOBALS
+        .get_or_init(|| Mutex::new(AxRuntimeHooks::default()))
+        .lock()
+    {
+        hooks.tracer = tracer;
+    }
+}
+
+pub fn set_meter(meter: Option<Arc<dyn AxMeter>>) {
+    if let Ok(mut hooks) = RUNTIME_HOOK_GLOBALS
+        .get_or_init(|| Mutex::new(AxRuntimeHooks::default()))
+        .lock()
+    {
+        hooks.meter = meter;
+    }
+}
+
+#[derive(Clone, Default)]
+struct RuntimeHookFrame {
+    hooks: AxRuntimeHooks,
+    span: Option<Arc<dyn AxSpan>>,
+}
+
+thread_local! {
+    static RUNTIME_HOOK_FRAMES: RefCell<Vec<RuntimeHookFrame>> = const { RefCell::new(Vec::new()) };
+}
+
+fn snapshot_runtime_globals() -> AxRuntimeHooks {
+    RUNTIME_HOOK_GLOBALS
+        .get_or_init(|| Mutex::new(AxRuntimeHooks::default()))
+        .lock()
+        .map(|hooks| hooks.clone())
+        .unwrap_or_default()
+}
+
+fn merge_runtime_hooks(
+    explicit: Option<&AxRuntimeHooks>,
+    enclosing: Option<&AxRuntimeHooks>,
+    defaults: Option<&AxRuntimeHooks>,
+) -> AxRuntimeHooks {
+    let inherited = RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow().last().cloned());
+    let globals = if inherited.is_none() {
+        snapshot_runtime_globals()
+    } else {
+        AxRuntimeHooks::default()
+    };
+    let sources = [
+        explicit,
+        enclosing,
+        inherited.as_ref().map(|frame| &frame.hooks),
+        defaults,
+        Some(&globals),
+    ];
+    AxRuntimeHooks {
+        rate_limiter: sources.iter().find_map(|source| source.and_then(|h| h.rate_limiter.clone())),
+        tracer: sources.iter().find_map(|source| source.and_then(|h| h.tracer.clone())),
+        meter: sources.iter().find_map(|source| source.and_then(|h| h.meter.clone())),
+    }
+}
+
+fn current_runtime_hooks() -> Option<AxRuntimeHooks> {
+    RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow().last().map(|frame| frame.hooks.clone()))
+}
+
+fn current_runtime_parent_span() -> Option<Arc<dyn AxSpan>> {
+    RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow().last().and_then(|frame| frame.span.clone()))
+}
+
+fn start_runtime_span(
+    hooks: &AxRuntimeHooks,
+    name: &str,
+    kind: &str,
+    attributes: &BTreeMap<String, Value>,
+) -> Option<Arc<dyn AxSpan>> {
+    hooks.tracer.as_ref().and_then(|tracer| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tracer.start_span(AxSpanStart {
+                name: name.to_string(),
+                kind: kind.to_string(),
+                attributes: attributes.clone(),
+                parent: current_runtime_parent_span(),
+            })
+        }))
+        .ok()
+        .flatten()
+    })
+}
+
+fn finish_runtime_span(span: &Option<Arc<dyn AxSpan>>, error: Option<&AxError>) {
+    if let Some(span) = span {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Some(error) = error {
+                span.record_exception(error);
+                span.set_status("error", Some(&error.message));
+            } else {
+                span.set_status("ok", None);
+            }
+            span.end();
+        }));
+    }
+}
+
+struct RuntimeHookScope {
+    finished: bool,
+}
+
+impl RuntimeHookScope {
+    fn enter(hooks: AxRuntimeHooks, span: Option<Arc<dyn AxSpan>>) -> Self {
+        RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow_mut().push(RuntimeHookFrame { hooks, span }));
+        Self { finished: false }
+    }
+
+    fn finish<T>(&mut self, result: &AxResult<T>) {
+        if self.finished {
+            return;
+        }
+        let frame = RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow_mut().pop());
+        if let Some(frame) = frame {
+            finish_runtime_span(&frame.span, result.as_ref().err());
+        }
+        self.finished = true;
+    }
+}
+
+impl Drop for RuntimeHookScope {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        let frame = RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow_mut().pop());
+        if let Some(frame) = frame {
+            if std::thread::panicking() {
+                let error = AxError::runtime("runtime hook scope panicked");
+                finish_runtime_span(&frame.span, Some(&error));
+            } else {
+                finish_runtime_span(&frame.span, None);
+            }
+        }
+        self.finished = true;
+    }
+}
+
+fn with_runtime_scope<T>(
+    explicit: Option<&AxRuntimeHooks>,
+    defaults: Option<&AxRuntimeHooks>,
+    name: &str,
+    kind: &str,
+    attributes: BTreeMap<String, Value>,
+    operation: impl FnOnce() -> AxResult<T>,
+) -> AxResult<T> {
+    let hooks = merge_runtime_hooks(explicit, None, defaults);
+    let span = start_runtime_span(&hooks, name, kind, &attributes);
+    let started = Instant::now();
+    record_runtime_metrics(&hooks, kind, &attributes, None, None);
+    let mut scope = RuntimeHookScope::enter(hooks, span);
+    let result = operation();
+    let active_hooks = current_runtime_hooks().unwrap_or_default();
+    record_runtime_metrics(
+        &active_hooks,
+        kind,
+        &attributes,
+        Some(started.elapsed().as_secs_f64() * 1000.0),
+        result.as_ref().err(),
+    );
+    scope.finish(&result);
+    result
+}
+
+fn with_runtime_binding<T>(
+    explicit: Option<&AxRuntimeHooks>,
+    defaults: Option<&AxRuntimeHooks>,
+    operation: impl FnOnce() -> AxResult<T>,
+) -> AxResult<T> {
+    let hooks = merge_runtime_hooks(explicit, None, defaults);
+    let mut scope = RuntimeHookScope::enter(hooks, None);
+    let result = operation();
+    scope.finish(&result);
+    result
+}
+
+#[derive(Clone, Default)]
+struct RuntimeMeterInstruments {
+    requests: Option<Arc<dyn AxCounter>>,
+    errors: Option<Arc<dyn AxCounter>>,
+    duration: Option<Arc<dyn AxHistogram>>,
+    active: Option<Arc<dyn AxGauge>>,
+}
+
+struct RuntimeMeterCacheEntry {
+    meter: Weak<dyn AxMeter>,
+    instruments: RuntimeMeterInstruments,
+}
+
+static RUNTIME_METER_CACHE: OnceLock<
+    Mutex<BTreeMap<(usize, String), RuntimeMeterCacheEntry>>,
+> = OnceLock::new();
+
+fn runtime_meter_instruments(
+    meter: &Arc<dyn AxMeter>,
+    namespace: &str,
+) -> RuntimeMeterInstruments {
+    let identity = Arc::as_ptr(meter) as *const () as usize;
+    let key = (identity, namespace.to_string());
+    if let Ok(mut cache) = RUNTIME_METER_CACHE
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+    {
+        let cached = cache.get(&key).and_then(|entry| {
+            entry.meter.upgrade().and_then(|cached_meter| {
+                Arc::ptr_eq(&cached_meter, meter).then(|| entry.instruments.clone())
+            })
+        });
+        if let Some(cached) = cached {
+            return cached;
+        }
+        cache.remove(&key);
+    }
+    let created = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let count_options = AxMetricInstrumentOptions {
+            description: Some("Ax runtime operations".to_string()),
+            unit: Some("{operation}".to_string()),
+        };
+        let duration_options = AxMetricInstrumentOptions {
+            description: Some("Ax runtime operation duration".to_string()),
+            unit: Some("ms".to_string()),
+        };
+        RuntimeMeterInstruments {
+            requests: meter.create_counter(&format!("{namespace}_requests"), &count_options),
+            errors: meter.create_counter(&format!("{namespace}_errors"), &count_options),
+            duration: meter.create_histogram(&format!("{namespace}_duration_ms"), &duration_options),
+            active: meter.create_gauge(
+                &format!("{namespace}_active_requests"),
+                &AxMetricInstrumentOptions::default(),
+            ),
+        }
+    }))
+    .unwrap_or_default();
+    if let Ok(mut cache) = RUNTIME_METER_CACHE
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+    {
+        cache.insert(
+            key,
+            RuntimeMeterCacheEntry {
+                meter: Arc::downgrade(meter),
+                instruments: created.clone(),
+            },
+        );
+    }
+    created
+}
+
+fn record_runtime_metrics(
+    hooks: &AxRuntimeHooks,
+    kind: &str,
+    attributes: &BTreeMap<String, Value>,
+    duration_ms: Option<f64>,
+    error: Option<&AxError>,
+) {
+    let Some(meter) = &hooks.meter else { return };
+    let namespace = if kind == "client" { "ax_llm" } else { "ax_gen" };
+    let instruments = runtime_meter_instruments(meter, namespace);
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if let Some(duration_ms) = duration_ms {
+            if let Some(duration) = &instruments.duration {
+                duration.record(duration_ms, attributes);
+            }
+            if let Some(active) = &instruments.active {
+                active.record(0.0, attributes);
+            }
+            if error.is_some() {
+                if let Some(errors) = &instruments.errors {
+                    errors.add(1.0, attributes);
+                }
+            }
+        } else {
+            if let Some(requests) = &instruments.requests {
+                requests.add(1.0, attributes);
+            }
+            if let Some(active) = &instruments.active {
+                active.record(1.0, attributes);
+            }
+        }
+    }));
+}
 
 static USAGE_OBSERVER: OnceLock<Mutex<Option<AxUsageObserver>>> = OnceLock::new();
 
@@ -83,6 +476,51 @@ fn merge_ai_options(defaults: &Value, overrides: &Value) -> AxResult<Value> {
         merged.insert("usageContext".into(), context);
     }
     Ok(Value::Object(merged))
+}
+
+fn response_model_usage(response: &Value) -> Option<Value> {
+    response
+        .get("model_usage")
+        .or_else(|| response.get("modelUsage"))
+        .or_else(|| response.get("usage"))
+        .cloned()
+        .or_else(|| {
+            response
+                .get("results")
+                .and_then(Value::as_array)
+                .and_then(|results| results.last())
+                .and_then(|result| {
+                    result
+                        .get("model_usage")
+                        .or_else(|| result.get("modelUsage"))
+                        .or_else(|| result.get("usage"))
+                })
+                .cloned()
+        })
+}
+
+fn run_ai_runtime_operation(
+    hooks: AxRuntimeHooks,
+    info: &AxRateLimitInfo,
+    next: &mut dyn FnMut() -> AxResult<Value>,
+) -> AxResult<Value> {
+    let mut attributes = BTreeMap::new();
+    attributes.insert("ax.operation".to_string(), json!(info.operation));
+    attributes.insert("ax.provider".to_string(), json!(info.provider));
+    attributes.insert("ax.model".to_string(), json!(info.model));
+    attributes.insert("ax.streaming".to_string(), json!(info.streaming));
+    let limiter = hooks.rate_limiter.clone();
+    with_runtime_scope(
+        Some(&hooks),
+        None,
+        &format!("ax_llm_{}", info.operation),
+        "client",
+        attributes,
+        || match limiter {
+            Some(limiter) => limiter.run(next, info),
+            None => next(),
+        },
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -834,8 +1272,40 @@ pub trait AxAIClient {
         self.chat(request)
     }
 
+    fn chat_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        options: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        with_runtime_scope(
+            Some(&hooks),
+            None,
+            "ax_llm_chat",
+            "client",
+            BTreeMap::new(),
+            || self.chat_with_options(request, options),
+        )
+    }
+
     fn embed(&mut self, _request: Value) -> AxResult<Value> {
         Err(AxError::runtime("embedding is not supported by this AI client"))
+    }
+
+
+    fn embed_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        with_runtime_scope(
+            Some(&hooks),
+            None,
+            "ax_llm_embed",
+            "client",
+            BTreeMap::new(),
+            || self.embed(request),
+        )
     }
 
     fn speak(&mut self, _request: Value) -> AxResult<Value> {
@@ -869,6 +1339,21 @@ pub trait AxAIClient {
                 .collect());
         }
         Ok(vec![response])
+    }
+
+    fn stream_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Vec<Value>> {
+        with_runtime_scope(
+            Some(&hooks),
+            None,
+            "ax_llm_chat",
+            "client",
+            BTreeMap::new(),
+            || self.stream(request),
+        )
     }
 }
 
@@ -945,6 +1430,8 @@ pub struct OpenAICompatibleClient {
     pub credential_provider: Option<Box<dyn AxCredentialProvider>>,
     pub context_cache_registry: Option<Box<dyn AxContextCacheRegistry>>,
     context_cache_entries: BTreeMap<String, Value>,
+    runtime_hooks: AxRuntimeHooks,
+    last_model_usage: Option<Value>,
 }
 
 impl OpenAICompatibleClient {
@@ -963,6 +1450,8 @@ impl OpenAICompatibleClient {
             credential_provider: None,
             context_cache_registry: None,
             context_cache_entries: BTreeMap::new(),
+            runtime_hooks: AxRuntimeHooks::default(),
+            last_model_usage: None,
         }
     }
 
@@ -1004,6 +1493,23 @@ impl OpenAICompatibleClient {
     pub fn with_options(mut self, options: Value) -> Self {
         self.options = if options.is_object() { options } else { json!({}) };
         self
+    }
+
+    pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
+        self.runtime_hooks = hooks;
+        self
+    }
+
+    pub fn set_rate_limiter(&mut self, rate_limiter: Option<Arc<dyn AxRateLimiter>>) {
+        self.runtime_hooks.rate_limiter = rate_limiter;
+    }
+
+    pub fn set_tracer(&mut self, tracer: Option<Arc<dyn AxTracer>>) {
+        self.runtime_hooks.tracer = tracer;
+    }
+
+    pub fn set_meter(&mut self, meter: Option<Arc<dyn AxMeter>>) {
+        self.runtime_hooks.meter = meter;
     }
 
     fn prepare_chat_request(&self, request: &Value) -> AxResult<Value> {
@@ -1358,20 +1864,24 @@ impl OpenAICompatibleClient {
         }
     }
 
-    fn stream_path(&self) -> String {
-        match self.profile.as_str() {
-            "google-gemini" => format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
-                self.model, self.api_key
-            ),
-            _ => self.chat_path().to_string(),
-        }
-    }
-
     fn post_json(&mut self, path: &str, body: Value, binary: bool, operation: &str) -> AxResult<Value> {
         let url = self.endpoint_url(path);
         let mut headers = serde_json::Map::new();
-        if !self.api_key.is_empty() { headers.insert("Authorization".to_string(), json!(format!("Bearer {}", self.api_key))); }
+        if !self.api_key.is_empty() {
+            let descriptor = core_value_to_json(&provider_resolve_descriptor(&[
+                CoreValue::from(self.profile.as_str()),
+                core_value_from_json(&self.options),
+            ])?);
+            if self.profile == "google-gemini"
+                && !descriptor.get("vertex").and_then(Value::as_bool).unwrap_or(false)
+            {
+                // Gemini developer API keys belong in a header. Keeping them out of
+                // request URLs prevents credentials from leaking through URL logs.
+                headers.insert("x-goog-api-key".to_string(), json!(self.api_key.clone()));
+            } else {
+                headers.insert("Authorization".to_string(), json!(format!("Bearer {}", self.api_key)));
+            }
+        }
         if let Some(provider) = self.credential_provider.as_ref() {
             for (key, value) in provider.credentials(&AxCredentialRequest { profile: self.profile.clone(), operation: operation.to_string(), method: "POST".to_string(), url: url.clone() })? {
                 headers.insert(key, json!(value));
@@ -1443,30 +1953,18 @@ impl OpenAICompatibleClient {
         Ok(json!({"status": 200, "json": response}))
     }
 
-    fn post_stream(&mut self, path: &str, body: Value) -> AxResult<Value> {
-        let url = self.endpoint_url(path);
-        if let Some(transport) = self.transport.as_mut() {
-            return transport.send(json!({
-                "method": "POST",
-                "url": url,
-                "headers": {"authorization": "Bearer test-key"},
-                "json": body,
-                "stream": true
-            }));
-        }
-        let text = HttpClient::builder()
-            .timeout(Duration::from_secs(60))
-            .build()?
-            .post(url)
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()?
-            .error_for_status()?
-            .text()?;
-        Ok(json!({"status": 200, "body": text}))
-    }
-
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
+        let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
+        let info = AxRateLimitInfo {
+            operation: "embed".to_string(),
+            provider: self.profile.clone(),
+            model: string_at(&request, "embed_model")
+                .or_else(|| string_at(&request, "embedModel"))
+                .unwrap_or_else(|| self.embed_model.clone()),
+            streaming: false,
+            previous_model_usage: self.last_model_usage.clone(),
+        };
+        let mut next = || -> AxResult<Value> {
         // python: AxBaseAI.embed validation + ProviderOperationClient._embed
         // (provider_build_embed_request -> transport -> provider_normalize_embed_response)
         let texts = request
@@ -1533,6 +2031,12 @@ impl OpenAICompatibleClient {
         let response = core_value_to_json(&normalized);
         emit_usage_event("embed", &response, &self.options, false);
         Ok(response)
+        };
+        let result = run_ai_runtime_operation(hooks, &info, &mut next);
+        if let Ok(response) = &result {
+            self.last_model_usage = response_model_usage(response);
+        }
+        result
     }
 
     pub fn transcribe(&mut self, request: Value) -> AxResult<Value> {
@@ -1545,8 +2049,7 @@ impl OpenAICompatibleClient {
             "google-gemini" => {
                 let model = string_at(&request, "model").unwrap_or_else(|| self.model.clone());
                 let path = format!(
-                    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
-                    self.api_key
+                    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
                 );
                 self.post_json(&path, body, false, "transcribe")?
             }
@@ -1581,8 +2084,7 @@ impl OpenAICompatibleClient {
                 let model = string_at(&request, "model")
                     .unwrap_or_else(|| "gemini-2.5-flash-preview-tts".to_string());
                 let path = format!(
-                    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
-                    self.api_key
+                    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
                 );
                 self.post_json(&path, body, binary, "speak")?
             }
@@ -1633,6 +2135,7 @@ impl OpenAICompatibleClient {
         let built = provider_build_realtime_audio_setup(&[
             CoreValue::from(self.profile.as_str()),
             core_value_from_json(&request),
+            core_value_from_json(&self.options),
         ])?;
         Ok(core_value_to_json(&built))
     }
@@ -1959,7 +2462,43 @@ impl AxAIClient for OpenAICompatibleClient {
         self.options = previous;
         response
     }
+    fn chat_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        options: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        let defaults = self.runtime_hooks.clone();
+        with_runtime_binding(Some(&hooks), Some(&defaults), || {
+            self.chat_with_options(request, options)
+        })
+    }
+    fn embed_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        let defaults = self.runtime_hooks.clone();
+        with_runtime_binding(Some(&hooks), Some(&defaults), || self.embed(request))
+    }
+    fn stream_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Vec<Value>> {
+        let defaults = self.runtime_hooks.clone();
+        with_runtime_binding(Some(&hooks), Some(&defaults), || self.stream(request))
+    }
     fn chat(&mut self, request: Value) -> AxResult<Value> {
+        let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
+        let info = AxRateLimitInfo {
+            operation: "chat".to_string(),
+            provider: self.profile.clone(),
+            model: string_at(&request, "model").unwrap_or_else(|| self.model.clone()),
+            streaming: false,
+            previous_model_usage: self.last_model_usage.clone(),
+        };
+        let mut next = || -> AxResult<Value> {
         let req = self.prepare_chat_request(&request)?;
         // python: AxBaseAI.chat validates the coerced request up front.
         validate_chat_request(&[core_value_from_json(&req)])?;
@@ -1972,6 +2511,7 @@ impl AxAIClient for OpenAICompatibleClient {
             CoreValue::from(self.profile.as_str()),
             CoreValue::from(realtime_model.as_str()),
             core_value_from_json(&req),
+            core_value_from_json(&self.options),
         ])?)
         .as_bool()
         .unwrap_or(false)
@@ -2011,9 +2551,24 @@ impl AxAIClient for OpenAICompatibleClient {
             emit_usage_event("chat", value, &self.options, false);
         }
         response
+        };
+        let result = run_ai_runtime_operation(hooks, &info, &mut next);
+        if let Ok(response) = &result {
+            self.last_model_usage = response_model_usage(response);
+        }
+        result
     }
 
     fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
+        let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
+        let info = AxRateLimitInfo {
+            operation: "chat".to_string(),
+            provider: self.profile.clone(),
+            model: string_at(&request, "model").unwrap_or_else(|| self.model.clone()),
+            streaming: true,
+            previous_model_usage: self.last_model_usage.clone(),
+        };
+        let mut stream_next = || -> AxResult<Vec<Value>> {
         let mut req = self.prepare_chat_request(&request)?;
         let mut model_config = req.get("model_config").cloned().unwrap_or_else(|| json!({}));
         model_config["stream"] = json!(true);
@@ -2059,6 +2614,18 @@ impl AxAIClient for OpenAICompatibleClient {
             emit_usage_event("chat", &json!({"results": response.clone()}), &self.options, true);
             return Ok(response);
         }
+        };
+        let mut next = || stream_next().map(Value::Array);
+        let result = run_ai_runtime_operation(hooks, &info, &mut next).and_then(|value| {
+            value
+                .as_array()
+                .cloned()
+                .ok_or_else(|| AxError::runtime("rate limiter returned a non-array stream result"))
+        });
+        if let Ok(results) = &result {
+            self.last_model_usage = response_model_usage(&json!({"results": results}));
+        }
+        result
     }
 }
 
@@ -2112,6 +2679,14 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
     Ok(client
         .with_options(options.clone())
         .with_model_config(options.get("model_config").cloned().unwrap_or_else(|| json!({}))))
+}
+
+pub fn ai_with_runtime_hooks(
+    provider: &str,
+    options: Value,
+    hooks: AxRuntimeHooks,
+) -> AxResult<OpenAICompatibleClient> {
+    ai(provider, options).map(|service| service.with_runtime_hooks(hooks))
 }
 
 struct ProviderDefaults {
@@ -2275,12 +2850,16 @@ pub struct Tool {
 
 impl Tool {
     pub fn call(&self, args: Value) -> AxResult<Value> {
+        let mut attributes = BTreeMap::new();
+        attributes.insert("ax.tool.name".to_string(), json!(self.name));
+        with_runtime_scope(None, None, "ax_gen_tool", "tool", attributes, || {
         validate_fields(&[
             core_tool_args_fields(&self.args)?,
             core_value_from_json(&args),
             CoreValue::from_string(format!("tool.{}.args", self.name)),
         ])?;
         (self.handler)(args)
+        })
     }
 }
 
@@ -2347,10 +2926,15 @@ pub struct AxGen {
     pub traces: Vec<Value>,
     pub chat_log: Vec<Value>,
     pub result_picker: Option<AxResultPicker>,
+    runtime_hooks: AxRuntimeHooks,
 }
 
 pub fn ax(spec: &str) -> AxResult<AxGen> {
     AxGen::new(spec)
+}
+
+pub fn ax_with_runtime_hooks(spec: &str, hooks: AxRuntimeHooks) -> AxResult<AxGen> {
+    AxGen::new(spec).map(|program| program.with_runtime_hooks(hooks))
 }
 
 impl AxGen {
@@ -2371,6 +2955,7 @@ impl AxGen {
             traces: Vec::new(),
             chat_log: Vec::new(),
             result_picker: None,
+            runtime_hooks: AxRuntimeHooks::default(),
         })
     }
 
@@ -2428,6 +3013,26 @@ impl AxGen {
         self
     }
 
+    pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
+        self.runtime_hooks = hooks;
+        self
+    }
+
+    pub fn set_rate_limiter(&mut self, rate_limiter: Option<Arc<dyn AxRateLimiter>>) -> &mut Self {
+        self.runtime_hooks.rate_limiter = rate_limiter;
+        self
+    }
+
+    pub fn set_tracer(&mut self, tracer: Option<Arc<dyn AxTracer>>) -> &mut Self {
+        self.runtime_hooks.tracer = tracer;
+        self
+    }
+
+    pub fn set_meter(&mut self, meter: Option<Arc<dyn AxMeter>>) -> &mut Self {
+        self.runtime_hooks.meter = meter;
+        self
+    }
+
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, Value::Null)
     }
@@ -2438,6 +3043,10 @@ impl AxGen {
         input: Value,
         options: Value,
     ) -> AxResult<Value> {
+        let defaults = self.runtime_hooks.clone();
+        let mut attributes = BTreeMap::new();
+        attributes.insert("ax.program.kind".to_string(), json!("AxGen"));
+        with_runtime_scope(None, Some(&defaults), "ax_gen_forward", "gen", attributes, || {
         if options.get("mcpInheritance").and_then(Value::as_str) == Some("none") && self.execution_context.is_some() {
             let mut detached = self.clone();
             detached.execution_context = None;
@@ -2471,6 +3080,19 @@ impl AxGen {
         });
         core_gen_writeback(self, &state);
         Ok(core_value_to_json(&result?))
+        })
+    }
+
+    pub fn forward_with_hooks<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        with_runtime_binding(Some(&hooks), None, || {
+            self.forward_with_options(client, input, options)
+        })
     }
 
     pub fn get_traces(&self) -> &[Value] {
@@ -2941,6 +3563,7 @@ pub struct AxAgent {
     playbook_instruction_base: String,
     citations_observer: Option<Box<dyn FnMut(Value)>>,
     playbook_observer: Option<Box<dyn FnMut(Value)>>,
+    runtime_hooks: AxRuntimeHooks,
 }
 
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
@@ -2949,6 +3572,14 @@ pub fn agent(spec: &str) -> AxResult<AxAgent> {
 
 pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
     agent_with_core_options(spec, core_value_from_json(&options))
+}
+
+pub fn agent_with_runtime_hooks(
+    spec: &str,
+    options: Value,
+    hooks: AxRuntimeHooks,
+) -> AxResult<AxAgent> {
+    agent_with_options(spec, options).map(|program| program.with_runtime_hooks(hooks))
 }
 
 static AX_AGENT_OBSERVER_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -3112,15 +3743,38 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
         playbook_instruction_base: base_executor_instruction.as_str().unwrap_or_default().to_string(),
         citations_observer: None,
         playbook_observer: None,
+        runtime_hooks: AxRuntimeHooks::default(),
     })
 }
 
 impl AxAgent {
     pub fn set_signature(&mut self, spec: &str) -> AxResult<&mut Self> {
         let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
-        let rebuilt = agent_with_core_options(spec, options)?;
+        let hooks = self.runtime_hooks.clone();
+        let mut rebuilt = agent_with_core_options(spec, options)?;
+        rebuilt.runtime_hooks = hooks;
         *self = rebuilt;
         Ok(self)
+    }
+
+    pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
+        self.runtime_hooks = hooks;
+        self
+    }
+
+    pub fn set_rate_limiter(&mut self, rate_limiter: Option<Arc<dyn AxRateLimiter>>) -> &mut Self {
+        self.runtime_hooks.rate_limiter = rate_limiter;
+        self
+    }
+
+    pub fn set_tracer(&mut self, tracer: Option<Arc<dyn AxTracer>>) -> &mut Self {
+        self.runtime_hooks.tracer = tracer;
+        self
+    }
+
+    pub fn set_meter(&mut self, meter: Option<Arc<dyn AxMeter>>) -> &mut Self {
+        self.runtime_hooks.meter = meter;
+        self
     }
 
     fn set_executor_instruction(&mut self, instruction: &str) {
@@ -3163,6 +3817,10 @@ impl AxAgent {
         input: Value,
         options: Value,
     ) -> AxResult<Value> {
+        let defaults = self.runtime_hooks.clone();
+        let mut attributes = BTreeMap::new();
+        attributes.insert("ax.program.kind".to_string(), json!("AxAgent"));
+        with_runtime_scope(None, Some(&defaults), "ax_gen_agent_forward", "agent", attributes, || {
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method == "transcribe" {
                 client.transcribe(request)
@@ -3217,6 +3875,19 @@ impl AxAgent {
         }
         self.learn_playbook_failures(client, &output);
         Ok(output)
+        })
+    }
+
+    pub fn forward_with_hooks<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        with_runtime_binding(Some(&hooks), None, || {
+            self.forward_with_options(client, input, options)
+        })
     }
 
     pub fn set_citations_observer<F>(&mut self, observer: F) -> &mut Self
@@ -3866,6 +4537,7 @@ impl AxProgram for AxAgent {
 pub struct AxFlow {
     state: CoreValue,
     execution_context: Option<AxExecutionContext>,
+    runtime_hooks: AxRuntimeHooks,
 }
 
 pub fn flow(source: &str) -> AxFlow {
@@ -3878,7 +4550,11 @@ pub fn flow(source: &str) -> AxFlow {
     let _ = core_set(&state, CoreValue::from("mermaidPercent"), CoreValue::from("%"));
     let _ = core_set(&state, CoreValue::from("mermaidOpenBrace"), CoreValue::from("{"));
     let _ = core_set(&state, CoreValue::from("mermaidCloseBrace"), CoreValue::from("}"));
-    AxFlow { state, execution_context: None }
+    AxFlow { state, execution_context: None, runtime_hooks: AxRuntimeHooks::default() }
+}
+
+pub fn flow_with_runtime_hooks(source: &str, hooks: AxRuntimeHooks) -> AxFlow {
+    flow(source).with_runtime_hooks(hooks)
 }
 
 pub fn flow_with_bindings(source: &str, bindings: Value) -> AxFlow {
@@ -3892,7 +4568,15 @@ pub fn flow_with_bindings(source: &str, bindings: Value) -> AxFlow {
     let hydrated = hydrate_mermaid_steps(&steps, &binding_core)
         .unwrap_or_else(|error| panic!("{}", error.message));
     let _ = core_set(&state, CoreValue::from("steps"), hydrated);
-    AxFlow { state, execution_context: None }
+    AxFlow { state, execution_context: None, runtime_hooks: AxRuntimeHooks::default() }
+}
+
+pub fn flow_with_bindings_and_runtime_hooks(
+    source: &str,
+    bindings: Value,
+    hooks: AxRuntimeHooks,
+) -> AxFlow {
+    flow_with_bindings(source, bindings).with_runtime_hooks(hooks)
 }
 
 fn hydrate_mermaid_steps(steps: &CoreValue, bindings: &CoreValue) -> AxResult<CoreValue> {
@@ -3931,11 +4615,31 @@ pub fn flow_with_execution_context(id: &str, context: AxExecutionContext) -> AxF
 }
 
 impl AxFlow {
+    pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
+        self.runtime_hooks = hooks;
+        self
+    }
+
+    pub fn set_rate_limiter(&mut self, rate_limiter: Option<Arc<dyn AxRateLimiter>>) -> &mut Self {
+        self.runtime_hooks.rate_limiter = rate_limiter;
+        self
+    }
+
+    pub fn set_tracer(&mut self, tracer: Option<Arc<dyn AxTracer>>) -> &mut Self {
+        self.runtime_hooks.tracer = tracer;
+        self
+    }
+
+    pub fn set_meter(&mut self, meter: Option<Arc<dyn AxMeter>>) -> &mut Self {
+        self.runtime_hooks.meter = meter;
+        self
+    }
+
     pub fn to_string_with_options(&self, options: &Value) -> AxResult<String> {
         Ok(_flow_to_mermaid(&[self.state.clone(), core_value_from_json(options)])?.text())
     }
 
-    pub fn execute(self, name: &str, mut program: AxGen) -> Self {
+    pub fn execute(self, name: &str, program: AxGen) -> Self {
         self.execute_with_options(name, program, &Value::Null)
     }
 
@@ -3965,6 +4669,19 @@ impl AxFlow {
     }
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
+        self.forward_with_options(client, input, Value::Null)
+    }
+
+    pub fn forward_with_options<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+    ) -> AxResult<Value> {
+        let defaults = self.runtime_hooks.clone();
+        let mut attributes = BTreeMap::new();
+        attributes.insert("ax.program.kind".to_string(), json!("AxFlow"));
+        with_runtime_scope(None, Some(&defaults), "ax_gen_flow_forward", "flow", attributes, || {
         let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
             if method == "transcribe" {
                 client.transcribe(request)
@@ -3979,10 +4696,23 @@ impl AxFlow {
                 self.state.clone(),
                 CoreValue::Null,
                 core_value_from_json(&input),
-                CoreValue::Null,
+                core_value_from_json(&options),
             ])
         })?;
         Ok(core_value_to_json(&result))
+        })
+    }
+
+    pub fn forward_with_hooks<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        with_runtime_binding(Some(&hooks), None, || {
+            self.forward_with_options(client, input, options)
+        })
     }
 
     pub fn get_plan(&self) -> Value {
@@ -6634,6 +7364,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
         "ai_embed" => run_ai_embed_fixture(&fixture)?,
         "ai_usage_observer" => run_ai_usage_observer_fixture(&fixture)?,
+        "ai_runtime_hooks" => run_ai_runtime_hooks_fixture(&fixture)?,
         "ai_credential_wrapper" => run_ai_credential_wrapper_fixture(&fixture)?,
         "ai_transcribe" => run_ai_transcribe_fixture(&fixture)?,
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
@@ -10609,7 +11340,7 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                         .map(ToString::to_string)
                         .unwrap_or_else(|| format!("root.{name}"));
                     let nested_state = conformance_build_flow_state_from_spec(step, &nested_id)?;
-                    FlowHost::new(AxFlow { state: nested_state, execution_context: None })
+                    FlowHost::new(AxFlow { state: nested_state, execution_context: None, runtime_hooks: AxRuntimeHooks::default() })
                 }
                 "agent" => {
                     let agent = agent_with_options(signature, options.clone())?;
@@ -12268,6 +12999,7 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         traces: Vec::new(),
         chat_log: Vec::new(),
         result_picker: None,
+        runtime_hooks: AxRuntimeHooks::default(),
     };
     if let Some(sample_count) = fixture
         .get("options")
@@ -12498,6 +13230,112 @@ fn run_ai_usage_observer_fixture(fixture: &Value) -> AxResult<()> {
             "fixture",
             "cleared usage observer received an event",
         ));
+    }
+    Ok(())
+}
+
+struct ConformanceFailingTracer;
+impl AxTracer for ConformanceFailingTracer {
+    fn start_span(&self, _start: AxSpanStart) -> Option<Arc<dyn AxSpan>> {
+        panic!("tracer failure")
+    }
+}
+struct ConformanceFailingMeter;
+impl AxMeter for ConformanceFailingMeter {
+    fn create_counter(&self, _name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxCounter>> { panic!("meter failure") }
+    fn create_histogram(&self, _name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxHistogram>> { panic!("meter failure") }
+    fn create_gauge(&self, _name: &str, _options: &AxMetricInstrumentOptions) -> Option<Arc<dyn AxGauge>> { panic!("meter failure") }
+}
+
+fn run_ai_runtime_hooks_fixture(fixture: &Value) -> AxResult<()> {
+    let (mut client, requests, _credential_requests) = fixture_client(fixture)?;
+    let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
+    let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+    let limiter = |label: &'static str| -> Arc<dyn AxRateLimiter> {
+        let captured = Arc::clone(&calls);
+        Arc::new(move |next: &mut dyn FnMut() -> AxResult<Value>, info: &AxRateLimitInfo| {
+            if info.operation != "chat" || info.provider.is_empty() || info.model.is_empty() || info.streaming {
+                return Err(AxError::new("fixture", "invalid rate limit info"));
+            }
+            captured.lock().unwrap().push(label.to_string());
+            next()
+        })
+    };
+    set_rate_limiter(Some(limiter("global")));
+    let result = (|| -> AxResult<()> {
+        client.chat(request.clone())?;
+        client.set_rate_limiter(Some(limiter("service")));
+        client.chat(request.clone())?;
+        client.chat_with_runtime_hooks(request.clone(), json!({}), AxRuntimeHooks {
+            rate_limiter: Some(limiter("call")), tracer: None, meter: None,
+        })?;
+        client.set_rate_limiter(None);
+        set_tracer(Some(Arc::new(ConformanceFailingTracer)));
+        set_meter(Some(Arc::new(ConformanceFailingMeter)));
+        client.chat(request.clone())?;
+        let rejected: Arc<dyn AxRateLimiter> = Arc::new(|_next: &mut dyn FnMut() -> AxResult<Value>, _info: &AxRateLimitInfo| {
+            Err(AxError::new("fixture", "limited"))
+        });
+        let error = client.chat_with_runtime_hooks(request.clone(), json!({}), AxRuntimeHooks {
+            rate_limiter: Some(rejected), tracer: None, meter: None,
+        }).expect_err("limiter rejection did not propagate");
+        if !error.message.contains("limited") { return Err(error); }
+        set_rate_limiter(None); set_tracer(None); set_meter(None);
+        client.chat(request)?;
+        Ok(())
+    })();
+    client.set_rate_limiter(None);
+    set_rate_limiter(None); set_tracer(None); set_meter(None);
+    result?;
+
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let isolated = |label: &'static str| {
+        let barrier = Arc::clone(&barrier);
+        std::thread::spawn(move || -> AxResult<bool> {
+            let local: Arc<dyn AxRateLimiter> = Arc::new(
+                move |next: &mut dyn FnMut() -> AxResult<Value>, _info: &AxRateLimitInfo| {
+                    let _ = next()?;
+                    Ok(json!(label))
+                },
+            );
+            let hooks = AxRuntimeHooks {
+                rate_limiter: Some(Arc::clone(&local)),
+                tracer: None,
+                meter: None,
+            };
+            with_runtime_binding(Some(&hooks), None, || {
+                barrier.wait();
+                let active = current_runtime_hooks().unwrap_or_default();
+                let active_limiter = active
+                    .rate_limiter
+                    .ok_or_else(|| AxError::new("fixture", "missing thread-local limiter"))?;
+                let mut next = || Ok(json!("next"));
+                Ok(active_limiter.run(&mut next, &AxRateLimitInfo {
+                    operation: "chat".to_string(),
+                    provider: "scripted".to_string(),
+                    model: "scripted-chat".to_string(),
+                    streaming: false,
+                    previous_model_usage: None,
+                })? == json!(label))
+            })
+        })
+    };
+    let first = isolated("thread-a");
+    let second = isolated("thread-b");
+    let first_ok = first.join().map_err(|_| AxError::new("fixture", "runtime hook thread panicked"))??;
+    let second_ok = second.join().map_err(|_| AxError::new("fixture", "runtime hook thread panicked"))??;
+    if !first_ok || !second_ok || current_runtime_hooks().is_some() {
+        return Err(AxError::new("fixture", "runtime hook thread isolation failed"));
+    }
+
+    expect_json_equal(
+        "runtime hook limiter order",
+        &json!(*calls.lock().unwrap()),
+        fixture.get("expected_limiter_order").unwrap_or(&Value::Null),
+    )?;
+    let expected = fixture.get("expected_transport_request_count").and_then(Value::as_u64).unwrap_or(0) as usize;
+    if requests.lock().unwrap().len() != expected {
+        return Err(AxError::new("fixture", "runtime hook request count mismatch"));
     }
     Ok(())
 }
@@ -18199,6 +19037,7 @@ fn agent_stage_gen(signature: AxSignature, options: Value) -> CoreValue {
         traces: Vec::new(),
         chat_log: Vec::new(),
         result_picker: None,
+        runtime_hooks: AxRuntimeHooks::default(),
     })
 }
 
@@ -18470,6 +19309,71 @@ fn python_repr(value: &Value) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+    }
+}
+
+#[cfg(test)]
+mod request_url_security_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    struct CapturingTransport {
+        request: Arc<Mutex<Option<Value>>>,
+    }
+
+    impl AxTransport for CapturingTransport {
+        fn send(&mut self, request: Value) -> AxResult<Value> {
+            *self.request.lock().expect("capture request") = Some(request);
+            Ok(json!({
+                "status": 200,
+                "json": {
+                    "candidates": [{"content": {"parts": [{"text": "transcript"}]}}]
+                }
+            }))
+        }
+    }
+
+    #[test]
+    fn gemini_audio_api_key_is_a_header_not_a_url_parameter() -> AxResult<()> {
+        let request = Arc::new(Mutex::new(None));
+        let transport = CapturingTransport {
+            request: Arc::clone(&request),
+        };
+        let mut client = OpenAICompatibleClient::new("test-secret-key", "gemini-3.5-flash")
+            .with_profile("google-gemini")
+            .with_transport(transport);
+
+        let transcript = client.transcribe(json!({
+            "audio": {"data": "audio-bytes", "mimeType": "audio/wav"}
+        }))?;
+        assert_eq!(transcript["text"], "transcript");
+
+        let captured = request
+            .lock()
+            .expect("read captured request")
+            .clone()
+            .expect("request was sent");
+        let url = captured["url"].as_str().expect("request URL");
+        assert!(!url.contains("test-secret-key"), "API key leaked into URL: {url}");
+        assert_eq!(captured["headers"]["x-goog-api-key"], "test-secret-key");
+        assert!(captured["headers"].get("Authorization").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn vertex_gemini_descriptor_clears_developer_api_key_fields() -> AxResult<()> {
+        let descriptor = core_value_to_json(&provider_resolve_descriptor(&[
+            CoreValue::from("google-gemini"),
+            core_value_from_json(&json!({
+                "projectId": "demo-project",
+                "region": "us",
+            })),
+        ])?);
+        assert_eq!(descriptor["auth"], "bearer");
+        assert_eq!(descriptor["vertex"], true);
+        assert!(descriptor.get("apiKeyHeader").is_none());
+        assert!(descriptor.get("apiKeyQuery").is_none());
+        Ok(())
     }
 }
 

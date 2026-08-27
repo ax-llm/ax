@@ -46,7 +46,7 @@ module @ax.ai version "0.1" {
   op ax.ai.record @AxAIServiceOptions {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,thinkingTokenBudget?:string,showThoughts?:bool,sessionId?:string,promptCacheKey?:string,contextCache?:json,usageContext?:AxUsageContext"
+    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,thinkingTokenBudget?:string,showThoughts?:bool,serviceTier?:string,sessionId?:string,promptCacheKey?:string,contextCache?:json,usageContext?:AxUsageContext"
   }
 
   op ax.ai.record @AxTokenUsage {
@@ -80,6 +80,106 @@ module @ax.ai version "0.1" {
     attr public = true
     tag "usage-observer-host-boundary"
     type observe = "(AxUsageEvent) -> void"
+  }
+
+  op ax.ai.record @AxRateLimitInfo {
+    attr core_kind = "record"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type fields = "operation:string,provider:string,model:string,streaming:bool,previousModelUsage?:AxModelUsage"
+  }
+
+  op ax.ai.interface @AxRequestExecutor {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type execute = "() -> json throws"
+  }
+
+  op ax.ai.interface @AxRateLimiter {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type run = "(AxRequestExecutor, AxRateLimitInfo) -> json throws"
+  }
+
+  op ax.ai.record @AxSpanStart {
+    attr core_kind = "record"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type fields = "name:string,kind:string,attributes?:json"
+  }
+
+  op ax.ai.interface @AxSpan {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type setAttributes = "(json) -> void"
+    type addEvent = "(string, json?) -> void"
+    type recordException = "(string) -> void"
+    type setStatus = "(string, string?) -> void"
+    type end = "() -> void"
+  }
+
+  op ax.ai.interface @AxTracer {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type startSpan = "(AxSpanStart, AxSpan?) -> AxSpan"
+  }
+
+  op ax.ai.record @AxMetricInstrumentOptions {
+    attr core_kind = "record"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type fields = "description?:string,unit?:string"
+  }
+
+  op ax.ai.interface @AxCounter {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type add = "(f64, json?) -> void"
+  }
+
+  op ax.ai.interface @AxHistogram {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type record = "(f64, json?) -> void"
+  }
+
+  op ax.ai.interface @AxGauge {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type record = "(f64, json?) -> void"
+  }
+
+  op ax.ai.interface @AxMeter {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type createCounter = "(string, AxMetricInstrumentOptions?) -> AxCounter"
+    type createHistogram = "(string, AxMetricInstrumentOptions?) -> AxHistogram"
+    type createGauge = "(string, AxMetricInstrumentOptions?) -> AxGauge"
+  }
+
+  op ax.ai.record @AxRuntimeHooks {
+    attr core_kind = "record"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type fields = "rateLimiter?:AxRateLimiter,tracer?:AxTracer,meter?:AxMeter"
+  }
+
+  op ax.ai.interface @AxGlobals {
+    attr core_kind = "interface"
+    attr public = true
+    tag "process-global-runtime-hooks"
+    type setRateLimiter = "(AxRateLimiter?) -> void"
+    type setTracer = "(AxTracer?) -> void"
+    type setMeter = "(AxMeter?) -> void"
+    type setUsageObserver = "(AxUsageObserver?) -> void"
   }
 
   op ax.ai.record @AxAIFeatures {
@@ -696,22 +796,9 @@ module @ax.ai version "0.1" {
       %ttl = core.call intrinsic.string.format("{}s", %ttl_seconds)
       %descriptor = core.call @provider_resolve_descriptor("google-gemini", %options)
       %is_vertex = core.get %descriptor["vertex"] default false
-      %api_key_length = core.call intrinsic.len(%api_key)
-      %has_key = core.call intrinsic.gt(%api_key_length, 0)
       %create_path = core.let "/cachedContents"
       %update_path = core.call intrinsic.string.format("/{}?updateMask=ttl", %cache_name)
       %delete_path = core.call intrinsic.string.format("/{}", %cache_name)
-      %vertex_with_key = core.call intrinsic.and(%has_key, %is_vertex)
-      %not_vertex = core.call intrinsic.not(%vertex_with_key)
-      %developer_with_key = core.call intrinsic.and(%has_key, %not_vertex)
-      core.if %developer_with_key {
-        %create_with_key = core.call intrinsic.string.format("/cachedContents?key={}", %api_key)
-        %update_with_key = core.call intrinsic.string.format("/{}?updateMask=ttl&key={}", %cache_name, %api_key)
-        %delete_with_key = core.call intrinsic.string.format("/{}?key={}", %cache_name, %api_key)
-        %create_path = core.let %create_with_key
-        %update_path = core.let %update_with_key
-        %delete_path = core.let %delete_with_key
-      }
       core.if %is_vertex {
         %parent = core.get %descriptor["vertexParent"] default ""
         %create_path = core.call intrinsic.string.format("/{}/cachedContents", %parent)

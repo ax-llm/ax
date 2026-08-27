@@ -1,7 +1,7 @@
 {
   "expected_output": {
-    "apiKeyQuery": "key",
-    "auth": "api_key_query",
+    "apiKeyHeader": "x-goog-api-key",
+    "auth": "api_key_header",
     "defaultEmbedModel": "gemini-embedding-2",
     "defaultModel": "gemini-3.5-flash",
     "features": {

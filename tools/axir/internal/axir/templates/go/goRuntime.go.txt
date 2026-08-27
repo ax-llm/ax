@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -32,6 +33,246 @@ type Value = any
 type AxUsageContext = map[string]Value
 type AxUsageEvent = map[string]Value
 type AxUsageObserver func(AxUsageEvent)
+
+type AxRateLimitInfo struct {
+	Operation          string
+	Provider           string
+	Model              string
+	Streaming          bool
+	PreviousModelUsage Value
+}
+
+type AxRequestExecutor func() (Value, error)
+
+type AxRateLimiter interface {
+	Run(AxRequestExecutor, AxRateLimitInfo) (Value, error)
+}
+
+type AxRateLimiterFunc func(AxRequestExecutor, AxRateLimitInfo) (Value, error)
+
+func (f AxRateLimiterFunc) Run(next AxRequestExecutor, info AxRateLimitInfo) (Value, error) {
+	return f(next, info)
+}
+
+type AxSpan interface {
+	SetAttributes(map[string]Value)
+	AddEvent(string, map[string]Value)
+	RecordException(error)
+	SetStatus(string, string)
+	End()
+}
+
+type AxSpanStart struct {
+	Name       string
+	Kind       string
+	Attributes map[string]Value
+	Parent     AxSpan
+}
+
+type AxTracer interface {
+	StartSpan(AxSpanStart) AxSpan
+}
+
+type AxMetricInstrumentOptions struct {
+	Description string
+	Unit        string
+}
+
+type AxCounter interface { Add(float64, map[string]Value) }
+type AxHistogram interface { Record(float64, map[string]Value) }
+type AxGauge interface { Record(float64, map[string]Value) }
+
+type AxMeter interface {
+	CreateCounter(string, AxMetricInstrumentOptions) AxCounter
+	CreateHistogram(string, AxMetricInstrumentOptions) AxHistogram
+	CreateGauge(string, AxMetricInstrumentOptions) AxGauge
+}
+
+type AxRuntimeHooks struct {
+	RateLimiter AxRateLimiter
+	Tracer      AxTracer
+	Meter       AxMeter
+}
+
+var runtimeHooksState struct {
+	sync.RWMutex
+	hooks AxRuntimeHooks
+}
+
+func SetRateLimiter(limiter AxRateLimiter) {
+	runtimeHooksState.Lock()
+	runtimeHooksState.hooks.RateLimiter = limiter
+	runtimeHooksState.Unlock()
+}
+
+func SetTracer(tracer AxTracer) {
+	runtimeHooksState.Lock()
+	runtimeHooksState.hooks.Tracer = tracer
+	runtimeHooksState.Unlock()
+}
+
+func SetMeter(meter AxMeter) {
+	runtimeHooksState.Lock()
+	runtimeHooksState.hooks.Meter = meter
+	runtimeHooksState.Unlock()
+}
+
+func snapshotGlobalRuntimeHooks() AxRuntimeHooks {
+	runtimeHooksState.RLock()
+	hooks := runtimeHooksState.hooks
+	runtimeHooksState.RUnlock()
+	return hooks
+}
+
+type runtimeHookFrame struct {
+	hooks   AxRuntimeHooks
+	globals AxRuntimeHooks
+	span    AxSpan
+}
+
+type runtimeHookContextKey struct{}
+
+func runtimeHooksFromOptions(options map[string]Value) AxRuntimeHooks {
+	var hooks AxRuntimeHooks
+	if options == nil { return hooks }
+	if value, ok := options["runtimeHooks"].(AxRuntimeHooks); ok { hooks = value }
+	if value, ok := options["runtimeHooks"].(*AxRuntimeHooks); ok && value != nil { hooks = *value }
+	if value, ok := options["runtime_hooks"].(AxRuntimeHooks); ok { hooks = value }
+	if value, ok := options["rateLimiter"].(AxRateLimiter); ok { hooks.RateLimiter = value }
+	if value, ok := options["rate_limiter"].(AxRateLimiter); ok { hooks.RateLimiter = value }
+	if value, ok := options["tracer"].(AxTracer); ok { hooks.Tracer = value }
+	if value, ok := options["meter"].(AxMeter); ok { hooks.Meter = value }
+	return hooks
+}
+
+func stripRuntimeHooks(options map[string]Value) map[string]Value {
+	out := cloneMap(options)
+	for _, key := range []string{"runtimeHooks", "runtime_hooks", "rateLimiter", "rate_limiter", "tracer", "meter"} { delete(out, key) }
+	return out
+}
+
+func mergeRuntimeHooks(layers ...AxRuntimeHooks) AxRuntimeHooks {
+	var out AxRuntimeHooks
+	for _, layer := range layers {
+		if out.RateLimiter == nil && layer.RateLimiter != nil { out.RateLimiter = layer.RateLimiter }
+		if out.Tracer == nil && layer.Tracer != nil { out.Tracer = layer.Tracer }
+		if out.Meter == nil && layer.Meter != nil { out.Meter = layer.Meter }
+	}
+	return out
+}
+
+func runtimeFrameFromContext(ctx context.Context) *runtimeHookFrame {
+	if ctx == nil { return nil }
+	frame, _ := ctx.Value(runtimeHookContextKey{}).(*runtimeHookFrame)
+	return frame
+}
+
+func effectiveRuntimeHooks(ctx context.Context, options map[string]Value, service AxRuntimeHooks) AxRuntimeHooks {
+	frame := runtimeFrameFromContext(ctx)
+	if frame != nil { return mergeRuntimeHooks(runtimeHooksFromOptions(options), frame.hooks, service, frame.globals) }
+	return mergeRuntimeHooks(runtimeHooksFromOptions(options), service, snapshotGlobalRuntimeHooks())
+}
+
+func safeRuntimeHook(callback func()) {
+	defer func() { _ = recover() }()
+	callback()
+}
+
+func startRuntimeSpan(hooks AxRuntimeHooks, parent AxSpan, name, kind string, attributes map[string]Value) AxSpan {
+	if hooks.Tracer == nil { return nil }
+	var span AxSpan
+	safeRuntimeHook(func() { span = hooks.Tracer.StartSpan(AxSpanStart{Name: name, Kind: kind, Attributes: cloneMap(attributes), Parent: parent}) })
+	return span
+}
+
+func finishRuntimeSpan(span AxSpan, err error) {
+	if span == nil { return }
+	safeRuntimeHook(func() {
+		if err != nil { span.RecordException(err); span.SetStatus("error", err.Error()) } else { span.SetStatus("ok", "") }
+		span.End()
+	})
+}
+
+type runtimeMeterInstruments struct {
+	meter AxMeter
+	counters map[string]AxCounter
+	histograms map[string]AxHistogram
+	gauges map[string]AxGauge
+}
+
+var runtimeMeterCache struct {
+	sync.Mutex
+	values map[uintptr]*runtimeMeterInstruments
+}
+
+func meterIdentity(meter AxMeter) uintptr {
+	if meter == nil { return 0 }
+	value := reflect.ValueOf(meter)
+	switch value.Kind() { case reflect.Chan, reflect.Func, reflect.Map, reflect.Ptr, reflect.Slice, reflect.UnsafePointer: return value.Pointer() }
+	return 0
+}
+
+func recordRuntimeMetric(meter AxMeter, kind, name string, value float64, attributes map[string]Value) {
+	if meter == nil { return }
+	safeRuntimeHook(func() {
+		id := meterIdentity(meter)
+		if id == 0 {
+			if kind == "counter" { meter.CreateCounter(name, AxMetricInstrumentOptions{}).Add(value, cloneMap(attributes)) } else { meter.CreateHistogram(name, AxMetricInstrumentOptions{}).Record(value, cloneMap(attributes)) }
+			return
+		}
+		runtimeMeterCache.Lock()
+		if runtimeMeterCache.values == nil { runtimeMeterCache.values = map[uintptr]*runtimeMeterInstruments{} }
+		entry := runtimeMeterCache.values[id]
+		if entry == nil {
+			entry = &runtimeMeterInstruments{meter: meter, counters: map[string]AxCounter{}, histograms: map[string]AxHistogram{}, gauges: map[string]AxGauge{}}
+			runtimeMeterCache.values[id] = entry
+		}
+		if kind == "counter" {
+			instrument := entry.counters[name]
+			runtimeMeterCache.Unlock()
+			if instrument == nil {
+				created := meter.CreateCounter(name, AxMetricInstrumentOptions{})
+				runtimeMeterCache.Lock()
+				instrument = entry.counters[name]
+				if instrument == nil { instrument = created; entry.counters[name] = created }
+				runtimeMeterCache.Unlock()
+			}
+			instrument.Add(value, cloneMap(attributes))
+			return
+		}
+		instrument := entry.histograms[name]
+		runtimeMeterCache.Unlock()
+		if instrument == nil {
+			created := meter.CreateHistogram(name, AxMetricInstrumentOptions{})
+			runtimeMeterCache.Lock()
+			instrument = entry.histograms[name]
+			if instrument == nil { instrument = created; entry.histograms[name] = created }
+			runtimeMeterCache.Unlock()
+		}
+		instrument.Record(value, cloneMap(attributes))
+	})
+}
+
+func beginRuntimeScope(ctx context.Context, callHooks, programHooks AxRuntimeHooks, spanName, metricPrefix string, attributes map[string]Value) (context.Context, AxRuntimeHooks, func(error)) {
+	if ctx == nil { ctx = context.Background() }
+	parent := runtimeFrameFromContext(ctx)
+	inherited := AxRuntimeHooks{}
+	globals := snapshotGlobalRuntimeHooks()
+	var parentSpan AxSpan
+	if parent != nil { inherited = parent.hooks; globals = parent.globals; parentSpan = parent.span }
+	hooks := mergeRuntimeHooks(callHooks, inherited, programHooks)
+	effective := mergeRuntimeHooks(hooks, globals)
+	span := startRuntimeSpan(effective, parentSpan, spanName, "internal", attributes)
+	if span == nil { span = parentSpan }
+	ctx = context.WithValue(ctx, runtimeHookContextKey{}, &runtimeHookFrame{hooks: hooks, globals: globals, span: span})
+	started := time.Now()
+	recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_requests_total", 1, attributes)
+	return ctx, effective, func(err error) {
+		if err != nil { recordRuntimeMetric(effective.Meter, "counter", metricPrefix+"_errors_total", 1, attributes) }
+		recordRuntimeMetric(effective.Meter, "histogram", metricPrefix+"_duration_ms", float64(time.Since(started).Microseconds())/1000, attributes)
+		if span != parentSpan { finishRuntimeSpan(span, err) }
+	}
+}
 
 var usageObserverState struct {
 	sync.RWMutex
@@ -983,7 +1224,7 @@ func _core_program_apply_components(program Value, componentMap Value) Value {
 }
 func _core_ai_complete_once(client Value, request Value, options Value) (Value, error) {
 	if c, ok := client.(AIClient); ok {
-		out, err := c.Chat(context.Background(), asMap(request), asMap(options))
+		out, err := c.Chat(contextForAIClient(c, context.Background()), asMap(request), asMap(options))
 		if err != nil {
 			return nil, err
 		}
@@ -1635,6 +1876,23 @@ func (t Tool) invoke(args map[string]Value) (Value, error) {
 	}
 	return out, nil
 }
+
+func runtimeScopedTools(ctx context.Context, tools []Tool) []Tool {
+	out := append([]Tool(nil), tools...)
+	for index := range out {
+		original := out[index].Handler
+		name := out[index].Name
+		if original == nil { continue }
+		out[index].Handler = func(args map[string]Value) (result Value, err error) {
+			attributes := Object("ax.tool.name", name)
+			toolCtx, _, finish := beginRuntimeScope(ctx, AxRuntimeHooks{}, AxRuntimeHooks{}, "ax_gen_tool", "ax_gen_tool", attributes)
+			_ = toolCtx
+			defer func() { finish(err) }()
+			return original(args)
+		}
+	}
+	return out
+}
 func toolFields(fields map[string]Field) []Field {
 	keys := make([]string, 0, len(fields))
 	for key := range fields {
@@ -1673,6 +1931,15 @@ type AIClient interface {
 	Stream(context.Context, map[string]Value, map[string]Value) ([]Value, error)
 }
 
+// RuntimeHookAIClient is implemented by generated services that accept typed,
+// run-scoped hooks beside the existing JSON option map.
+type RuntimeHookAIClient interface {
+	AIClient
+	ChatWithHooks(context.Context, map[string]Value, map[string]Value, AxRuntimeHooks) (Value, error)
+	EmbedWithHooks(context.Context, map[string]Value, map[string]Value, AxRuntimeHooks) (Value, error)
+	StreamWithHooks(context.Context, map[string]Value, map[string]Value, AxRuntimeHooks) ([]Value, error)
+}
+
 type contextBoundAIClient struct {
 	ctx   context.Context
 	inner AIClient
@@ -1683,6 +1950,17 @@ func bindAIClientContext(ctx context.Context, client AIClient) AIClient {
 		return client
 	}
 	return contextBoundAIClient{ctx: ctx, inner: client}
+}
+
+func contextForAIClient(client AIClient, fallback context.Context) context.Context {
+	for {
+		bound, ok := client.(contextBoundAIClient)
+		if !ok { break }
+		if bound.ctx != nil { return bound.ctx }
+		client = bound.inner
+	}
+	if fallback != nil { return fallback }
+	return context.Background()
 }
 
 func (c contextBoundAIClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
@@ -1865,6 +2143,8 @@ type OpenAICompatibleClient struct {
 	LastEmbed  Value
 	LastConfig Value
 	Metrics    map[string]Value
+	RuntimeHooks AxRuntimeHooks
+	LastUsage Value
 	contextCacheEntries map[string]map[string]Value
 }
 
@@ -1886,7 +2166,8 @@ func newProviderClient(profile, name string, options map[string]Value, defaultMo
 	if options == nil {
 		options = map[string]Value{}
 	}
-	options = cloneMap(options)
+	hooks := runtimeHooksFromOptions(options)
+	options = stripRuntimeHooks(options)
 	if options["model"] == nil {
 		options["model"] = defaultModel
 	}
@@ -1902,7 +2183,7 @@ func newProviderClient(profile, name string, options map[string]Value, defaultMo
 	if transport == nil {
 		transport = HTTPTransport{}
 	}
-	return &OpenAICompatibleClient{Profile: profile, Name: name, Options: options, Transport: transport, ID: name + "-id", Metrics: balancerBaseMetrics(), contextCacheEntries: map[string]map[string]Value{}}
+	return &OpenAICompatibleClient{Profile: profile, Name: name, Options: options, Transport: transport, ID: name + "-id", Metrics: balancerBaseMetrics(), RuntimeHooks: hooks, contextCacheEntries: map[string]map[string]Value{}}
 }
 func NewOpenAIResponsesClient(options map[string]Value) *OpenAIResponsesClient {
 	return newOpenAIResponsesClient("openai-responses", options)
@@ -1947,6 +2228,12 @@ func NewAI(provider string, options map[string]Value) AIClient {
 		return newProviderClient(profile, profile, options, display(coreGet(descriptor, "defaultModel", "")), display(coreGet(descriptor, "defaultEmbedModel", "")))
 	}
 	panic(AxError{Category: "provider", Message: "unsupported transport for AxAI profile: " + profile})
+}
+
+func NewAIWithHooks(provider string, options map[string]Value, hooks AxRuntimeHooks) AIClient {
+	resolved := cloneMap(options)
+	resolved["runtimeHooks"] = hooks
+	return NewAI(provider, resolved)
 }
 
 func normalizeAzureOptions(options map[string]Value) map[string]Value {
@@ -2003,14 +2290,39 @@ func normalizeAnthropicOptions(options map[string]Value) map[string]Value {
 	return options
 }
 
+func invokeRuntimeLimiter(limiter AxRateLimiter, next AxRequestExecutor, info AxRateLimitInfo) (Value, error) {
+	if limiter == nil { return next() }
+	return limiter.Run(next, info)
+}
+
+func beginAIOperation(ctx context.Context, hooks AxRuntimeHooks, operation, ai, model string, streaming bool) (map[string]Value, AxSpan, time.Time) {
+	attributes := Object("ax.operation", operation, "ax.ai", ai, "ax.model", model, "ax.streaming", streaming)
+	var parent AxSpan
+	if frame := runtimeFrameFromContext(ctx); frame != nil { parent = frame.span }
+	span := startRuntimeSpan(hooks, parent, "ax_llm_"+operation, "client", attributes)
+	recordRuntimeMetric(hooks.Meter, "counter", "ax_llm_requests_total", 1, attributes)
+	return attributes, span, time.Now()
+}
+
+func finishAIOperation(hooks AxRuntimeHooks, attributes map[string]Value, span AxSpan, started time.Time, err error) {
+	if err != nil { recordRuntimeMetric(hooks.Meter, "counter", "ax_llm_errors_total", 1, attributes) }
+	recordRuntimeMetric(hooks.Meter, "histogram", "ax_llm_request_duration_ms", float64(time.Since(started).Microseconds())/1000, attributes)
+	finishRuntimeSpan(span, err)
+}
+
 func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	mergedOptions := mergeAIOptions(c.optionsSnapshot(), options)
-	response, err := safeValue(func() Value {
+	hooks, previousUsage := c.runtimeHooksSnapshot()
+	hooks = effectiveRuntimeHooks(ctx, options, hooks)
+	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
+	modelName := display(coreGet(request, "model", coreGet(c.optionsSnapshot(), "model", "")))
+	streaming := coreTruthy(coreGet(coreGet(request, "model_config", Object()), "stream", coreGet(mergedOptions, "stream", false)))
+	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, streaming)
+	next := func() (Value, error) { return safeValue(func() Value {
 		req := c.prepareChatRequest(request, mergedOptions)
 		mustCore(validate_chat_request(req))
 		opts := c.optionsSnapshot()
 		model := coreGet(req, "model", coreGet(opts, "model", nil))
-		if shouldRealtime, _ := mustCore(provider_should_use_realtime(c.Profile, display(model), req)).(bool); shouldRealtime {
+		if shouldRealtime, _ := mustCore(provider_should_use_realtime(c.Profile, display(model), req, mergedOptions)).(bool); shouldRealtime {
 			result, rtErr := c.RealtimeChat(ctx, req, mergedOptions, nil)
 			if rtErr != nil {
 				panic(AxError{Category: "network", Message: rtErr.Error()})
@@ -2029,8 +2341,11 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		}
 		body := normalizeTransportPayload(raw)
 		return mustCore(provider_normalize_chat_response(c.Profile, body, c.Name, model))
-	})
+	}) }
+	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: streaming, PreviousModelUsage: previousUsage})
+	finishAIOperation(hooks, attributes, span, started, err)
 	if err == nil {
+		c.setLastUsage(coreGet(response, "model_usage", coreGet(response, "modelUsage", nil)))
 		emitUsageEvent("chat", response, mergedOptions, false)
 	}
 	return response, err
@@ -2167,8 +2482,12 @@ func (c *OpenAICompatibleClient) contextCacheChat(ctx context.Context, request m
 	body, err = tryCall(fullCall); if err != nil { panic(err) }; return body, true
 }
 func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
-	mergedOptions := mergeAIOptions(c.optionsSnapshot(), options)
-	response, err := safeValue(func() Value {
+	hooks, previousUsage := c.runtimeHooksSnapshot()
+	hooks = effectiveRuntimeHooks(ctx, options, hooks)
+	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
+	modelName := display(coreGet(request, "embed_model", coreGet(request, "embedModel", coreGet(c.optionsSnapshot(), "embed_model", ""))))
+	attributes, span, started := beginAIOperation(ctx, hooks, "embed", c.Name, modelName, false)
+	next := func() (Value, error) { return safeValue(func() Value {
 		req := cloneMap(request)
 		opts := c.optionsSnapshot()
 		if coreGet(req, "embed_model", coreGet(req, "embedModel", nil)) == nil {
@@ -2182,8 +2501,11 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 			panic(AxError{Category: "network", Message: err.Error()})
 		}
 		return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw), c.Name, model))
-	})
+	}) }
+	response, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "embed", Provider: c.Name, Model: modelName, Streaming: false, PreviousModelUsage: previousUsage})
+	finishAIOperation(hooks, attributes, span, started, err)
 	if err == nil {
+		c.setLastUsage(coreGet(response, "model_usage", coreGet(response, "modelUsage", nil)))
 		emitUsageEvent("embed", response, mergedOptions, false)
 	}
 	return response, err
@@ -2206,8 +2528,12 @@ func streamBackoffDelay(initialDelay float64, maxDelay float64, backoff float64,
 }
 
 func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]Value, options map[string]Value) ([]Value, error) {
-	mergedOptions := mergeAIOptions(c.optionsSnapshot(), options)
-	value, err := safeValue(func() Value {
+	hooks, previousUsage := c.runtimeHooksSnapshot()
+	hooks = effectiveRuntimeHooks(ctx, options, hooks)
+	mergedOptions := mergeAIOptions(c.optionsSnapshot(), stripRuntimeHooks(options))
+	modelName := display(coreGet(request, "model", coreGet(c.optionsSnapshot(), "model", "")))
+	attributes, span, started := beginAIOperation(ctx, hooks, "chat", c.Name, modelName, true)
+	next := func() (Value, error) { return safeValue(func() Value {
 		req := c.prepareChatRequest(request, Object("stream", true))
 		mustCore(validate_chat_request(req))
 		opts := c.optionsSnapshot()
@@ -2244,7 +2570,9 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, request map[string]
 			}
 			return out
 		}
-	})
+	}) }
+	value, err := invokeRuntimeLimiter(hooks.RateLimiter, next, AxRateLimitInfo{Operation: "chat", Provider: c.Name, Model: modelName, Streaming: true, PreviousModelUsage: previousUsage})
+	finishAIOperation(hooks, attributes, span, started, err)
 	values := asSlice(value)
 	if err == nil {
 		emitUsageEvent("chat", Object("results", values), mergedOptions, true)
@@ -2489,10 +2817,10 @@ func (c *OpenAICompatibleClient) realtimeWSTarget(model Value, opts map[string]V
 // ScriptedRealtimeTransport to exercise the loop offline without a socket.
 func (c *OpenAICompatibleClient) RealtimeChat(ctx context.Context, request map[string]Value, options map[string]Value, transport RealtimeTransport) (Value, error) {
 	return safeValue(func() Value {
-		opts := c.optionsSnapshot()
+		opts := mergeAIOptions(c.optionsSnapshot(), options)
 		model := coreGet(request, "model", coreGet(opts, "model", nil))
-		setup := mustCore(provider_build_realtime_audio_setup(c.Profile, request, options))
-		inputs := asSlice(mustCore(provider_build_realtime_audio_input(c.Profile, request, options)))
+		setup := mustCore(provider_build_realtime_audio_setup(c.Profile, request, opts))
+		inputs := asSlice(mustCore(provider_build_realtime_audio_input(c.Profile, request, opts)))
 		ownTransport := transport == nil
 		if ownTransport {
 			wsURL, headers := c.realtimeWSTarget(model, opts)
@@ -2622,7 +2950,23 @@ func (c *OpenAICompatibleClient) GetMetrics() map[string]Value {
 func (c *OpenAICompatibleClient) SetOptions(options map[string]Value) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.Options = cloneMap(options)
+	c.RuntimeHooks = runtimeHooksFromOptions(options)
+	c.Options = stripRuntimeHooks(options)
+}
+func (c *OpenAICompatibleClient) SetRateLimiter(limiter AxRateLimiter) *OpenAICompatibleClient { c.mu.Lock(); c.RuntimeHooks.RateLimiter = limiter; c.mu.Unlock(); return c }
+func (c *OpenAICompatibleClient) SetTracer(tracer AxTracer) *OpenAICompatibleClient { c.mu.Lock(); c.RuntimeHooks.Tracer = tracer; c.mu.Unlock(); return c }
+func (c *OpenAICompatibleClient) SetMeter(meter AxMeter) *OpenAICompatibleClient { c.mu.Lock(); c.RuntimeHooks.Meter = meter; c.mu.Unlock(); return c }
+func (c *OpenAICompatibleClient) ChatWithHooks(ctx context.Context, request map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (Value, error) {
+	callOptions := cloneMap(options); callOptions["runtimeHooks"] = hooks
+	return c.Chat(ctx, request, callOptions)
+}
+func (c *OpenAICompatibleClient) EmbedWithHooks(ctx context.Context, request map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (Value, error) {
+	callOptions := cloneMap(options); callOptions["runtimeHooks"] = hooks
+	return c.Embed(ctx, request, callOptions)
+}
+func (c *OpenAICompatibleClient) StreamWithHooks(ctx context.Context, request map[string]Value, options map[string]Value, hooks AxRuntimeHooks) ([]Value, error) {
+	callOptions := cloneMap(options); callOptions["runtimeHooks"] = hooks
+	return c.Stream(ctx, request, callOptions)
 }
 func (c *OpenAICompatibleClient) GetOptions() map[string]Value { return c.optionsSnapshot() }
 func (c *OpenAICompatibleClient) GetLastUsedChatModel() Value {
@@ -2648,6 +2992,16 @@ func (c *OpenAICompatibleClient) optionsSnapshot() map[string]Value {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return cloneMap(c.Options)
+}
+func (c *OpenAICompatibleClient) runtimeHooksSnapshot() (AxRuntimeHooks, Value) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.RuntimeHooks, cloneValue(c.LastUsage)
+}
+func (c *OpenAICompatibleClient) setLastUsage(usage Value) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.LastUsage = cloneValue(usage)
 }
 func (c *OpenAICompatibleClient) setLastChat(model Value, config Value) {
 	c.mu.Lock()
@@ -3931,6 +4285,7 @@ type AxGen struct {
 	PromptTemplate        Value
 	ProgramID             string
 	Instruction           string
+	RuntimeHooks          AxRuntimeHooks
 }
 
 type AxResultPickerSample struct {
@@ -3944,7 +4299,9 @@ func NewAx(signature string, options map[string]Value) *AxGen {
 	if options == nil {
 		options = Object()
 	}
-	g := &AxGen{Signature: NewSignature(signature), Options: options, Examples: Array(), Demos: Array(), Assertions: coreGet(options, "assertions", Array()), StreamingAssertions: coreGet(options, "streaming_assertions", coreGet(options, "streamingAssertions", Array())), FieldProcessors: Object(), StopFunctions: Array(), Memory: Array(), ChatLog: Array(), FunctionCallTraces: Array(), Traces: Array(), ProgramID: display(coreGet(options, "id", coreGet(options, "program_id", coreGet(options, "programId", "root")))), Instruction: display(coreGet(options, "instruction", ""))}
+	hooks := runtimeHooksFromOptions(options)
+	options = stripRuntimeHooks(options)
+	g := &AxGen{Signature: NewSignature(signature), Options: options, Examples: Array(), Demos: Array(), Assertions: coreGet(options, "assertions", Array()), StreamingAssertions: coreGet(options, "streaming_assertions", coreGet(options, "streamingAssertions", Array())), FieldProcessors: Object(), StopFunctions: Array(), Memory: Array(), ChatLog: Array(), FunctionCallTraces: Array(), Traces: Array(), ProgramID: display(coreGet(options, "id", coreGet(options, "program_id", coreGet(options, "programId", "root")))), Instruction: display(coreGet(options, "instruction", "")), RuntimeHooks: hooks}
 	for _, raw := range asSlice(coreGet(options, "functions", Array())) {
 		if tool, ok := raw.(Tool); ok {
 			g.BaseFunctions = append(g.BaseFunctions, tool)
@@ -3960,6 +4317,10 @@ func NewAx(signature string, options map[string]Value) *AxGen {
 	return g
 }
 func NewGen(signature string, options map[string]Value) *AxGen { return NewAx(signature, options) }
+func NewAxWithHooks(signature string, options map[string]Value, hooks AxRuntimeHooks) *AxGen { g := NewAx(signature, options); g.RuntimeHooks = hooks; return g }
+func (g *AxGen) SetRateLimiter(limiter AxRateLimiter) *AxGen { g.RuntimeHooks.RateLimiter = limiter; return g }
+func (g *AxGen) SetTracer(tracer AxTracer) *AxGen { g.RuntimeHooks.Tracer = tracer; return g }
+func (g *AxGen) SetMeter(meter AxMeter) *AxGen { g.RuntimeHooks.Meter = meter; return g }
 func (g *AxGen) SetSampleCount(sampleCount int) *AxGen {
 	g.Options["sampleCount"] = sampleCount
 	return g
@@ -3969,6 +4330,13 @@ func (g *AxGen) SetResultPicker(resultPicker AxResultPicker) *AxGen {
 	return g
 }
 func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	return g.ForwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
+}
+func (g *AxGen) ForwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
+	attributes := Object("ax.program.id", g.ProgramID, "ax.program.type", "AxGen")
+	ctx, _, finish := beginRuntimeScope(ctx, hooks, g.RuntimeHooks, "ax_gen_forward", "ax_gen_generation", attributes)
+	defer func() { finish(err) }()
+	options = stripRuntimeHooks(options)
 	if g.ExecutionContextError != nil {
 		return nil, g.ExecutionContextError
 	}
@@ -3987,9 +4355,16 @@ func (g *AxGen) Forward(ctx context.Context, client AIClient, values map[string]
 			}
 			clone.Functions = append(clone.Functions, tools...)
 		}
-		return clone.Forward(ctx, client, values, map[string]Value{"executionContext": callContext})
+		return clone.ForwardWithHooks(ctx, client, values, map[string]Value{"executionContext": callContext}, AxRuntimeHooks{})
 	}
-	return safeValue(func() Value { return mustCore(_forward_impl(g, bindAIClientContext(ctx, client), values, options)) })
+	clone := *g
+	clone.Functions = runtimeScopedTools(ctx, g.Functions)
+	out, err = safeValue(func() Value { return mustCore(_forward_impl(&clone, bindAIClientContext(ctx, client), values, options)) })
+	g.Memory = clone.Memory
+	g.ChatLog = clone.ChatLog
+	g.FunctionCallTraces = clone.FunctionCallTraces
+	g.Traces = clone.Traces
+	return out, err
 }
 func (g *AxGen) AddAssert(assertion Value) *AxGen {
 	g.Assertions = coreAppend(g.Assertions, assertion)
@@ -4098,6 +4473,7 @@ type AxAgent struct {
 	ExecutionContextError error
 	PlaybookHandle        *AxPlaybook
 	PlaybookConfig        Value
+	RuntimeHooks          AxRuntimeHooks
 }
 
 // AxMemoriesSearchFn / AxSkillsSearchFn are native host callbacks the agent invokes (from the agent
@@ -4119,6 +4495,8 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	if options == nil {
 		options = Object()
 	}
+	hooks := runtimeHooksFromOptions(options)
+	options = stripRuntimeHooks(options)
 	executionContext, contextErr := ResolveAxExecutionContext(options, nil)
 	if executionContext != nil {
 		functions := asSlice(coreGet(options, "functions", Array()))
@@ -4137,8 +4515,12 @@ func NewAgent(signature string, options map[string]Value) *AxAgent {
 	responderSignature := display(coreGet(state, "responder_signature", signature))
 	llmQueryOptions := Object("validation_retries", 1, "id", "rlm.llmquery", "instruction", coreGet(state, "llm_query_description", ""))
 	llmQuerySignature := display(coreGet(state, "llm_query_signature", "task:string, context:json -> answer:string"))
-	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions), ExecutionContext: executionContext, ExecutionContextError: contextErr, PlaybookConfig: coreGet(options, "playbook", nil)}
+	return &AxAgent{Signature: sig, Options: options, State: state, Executor: NewAx(executorSignature, executorOptions), Responder: NewAx(responderSignature, responderOptions), Distiller: NewAx(distillerSignature, distillerOptions), LlmQuery: NewAx(llmQuerySignature, llmQueryOptions), ExecutionContext: executionContext, ExecutionContextError: contextErr, PlaybookConfig: coreGet(options, "playbook", nil), RuntimeHooks: hooks}
 }
+func NewAgentWithHooks(signature string, options map[string]Value, hooks AxRuntimeHooks) *AxAgent { a := NewAgent(signature, options); a.RuntimeHooks = hooks; return a }
+func (a *AxAgent) SetRateLimiter(limiter AxRateLimiter) *AxAgent { a.RuntimeHooks.RateLimiter = limiter; return a }
+func (a *AxAgent) SetTracer(tracer AxTracer) *AxAgent { a.RuntimeHooks.Tracer = tracer; return a }
+func (a *AxAgent) SetMeter(meter AxMeter) *AxAgent { a.RuntimeHooks.Meter = meter; return a }
 func (a *AxAgent) SetSignature(signature string) *AxAgent {
 	state := asMap(mustCore(_agent_factory(signature, a.Options)))
 	a.Signature = NewSignature(signature)
@@ -4176,6 +4558,13 @@ func (a *AxAgent) AddActorInstruction(addendum string) *AxAgent {
 	return a
 }
 func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	return a.ForwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
+}
+func (a *AxAgent) ForwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (output Value, forwardErr error) {
+	attributes := Object("ax.program.id", "root.agent", "ax.program.type", "AxAgent")
+	ctx, _, finish := beginRuntimeScope(ctx, hooks, a.RuntimeHooks, "ax_gen_agent_forward", "ax_gen_agent", attributes)
+	defer func() { finish(forwardErr) }()
+	options = stripRuntimeHooks(options)
 	a.ensureConfiguredPlaybook(client)
 	if a.ExecutionContextError != nil {
 		return nil, a.ExecutionContextError
@@ -4204,7 +4593,7 @@ func (a *AxAgent) Forward(ctx context.Context, client AIClient, values map[strin
 			return _agent_run_llm_query(a.LlmQuery, boundClient, params)
 		})
 	}
-	output, forwardErr := safeValue(func() Value {
+	output, forwardErr = safeValue(func() Value {
 		return mustCore(_agent_forward(a.State, a.Distiller, a.Executor, a.Responder, boundClient, values, callOptions))
 	})
 	if forwardErr == nil {
@@ -4683,34 +5072,44 @@ type AxFlow struct {
 	Options               map[string]Value
 	ExecutionContext      *AxExecutionContext
 	ExecutionContextError error
+	RuntimeHooks          AxRuntimeHooks
 }
 
 func NewFlow(source Value, bindings ...map[string]Value) *AxFlow {
 	if text, ok := source.(string); ok {
 		resolved := Object()
 		if len(bindings) > 0 && bindings[0] != nil {
-			resolved = bindings[0]
+			resolved = cloneMap(bindings[0])
 		}
+		options := asMap(coreGet(resolved, "options", Object()))
+		hooks := runtimeHooksFromOptions(options)
+		options = stripRuntimeHooks(options)
+		resolved["options"] = options
 		state := asMap(mustCore(_flow_from_mermaid(text, resolved)))
 		state["mermaidPercent"] = "%"
 		state["mermaidOpenBrace"] = "{"
 		state["mermaidCloseBrace"] = "}"
 		state["steps"] = hydrateMermaidSteps(coreGet(state, "steps", Array()), resolved)
-		options := asMap(coreGet(resolved, "options", Object()))
 		executionContext, contextErr := ResolveAxExecutionContext(options, nil)
-		return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options, ExecutionContext: executionContext, ExecutionContextError: contextErr}
+		return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options, ExecutionContext: executionContext, ExecutionContextError: contextErr, RuntimeHooks: hooks}
 	}
 	options := asMap(source)
 	if options == nil {
 		options = Object()
 	}
+	hooks := runtimeHooksFromOptions(options)
+	options = stripRuntimeHooks(options)
 	state := asMap(mustCore(_flow_factory(options)))
 	state["mermaidPercent"] = "%"
 	state["mermaidOpenBrace"] = "{"
 	state["mermaidCloseBrace"] = "}"
 	executionContext, contextErr := ResolveAxExecutionContext(options, nil)
-	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options, ExecutionContext: executionContext, ExecutionContextError: contextErr}
+	return &AxFlow{State: state, Steps: coreGet(state, "steps", Array()), Options: options, ExecutionContext: executionContext, ExecutionContextError: contextErr, RuntimeHooks: hooks}
 }
+func NewFlowWithHooks(source Value, hooks AxRuntimeHooks, bindings ...map[string]Value) *AxFlow { f := NewFlow(source, bindings...); f.RuntimeHooks = hooks; return f }
+func (f *AxFlow) SetRateLimiter(limiter AxRateLimiter) *AxFlow { f.RuntimeHooks.RateLimiter = limiter; return f }
+func (f *AxFlow) SetTracer(tracer AxTracer) *AxFlow { f.RuntimeHooks.Tracer = tracer; return f }
+func (f *AxFlow) SetMeter(meter AxMeter) *AxFlow { f.RuntimeHooks.Meter = meter; return f }
 func (f *AxFlow) Execute(name string, program AxProgram, options map[string]Value) *AxFlow {
 	if options == nil {
 		options = Object()
@@ -4767,6 +5166,13 @@ func (f *AxFlow) Returns(mapping map[string]Value) *AxFlow {
 }
 func (f *AxFlow) GetPlan() Value { return mustCore(_flow_plan(f.State)) }
 func (f *AxFlow) Forward(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value) (Value, error) {
+	return f.ForwardWithHooks(ctx, client, values, options, runtimeHooksFromOptions(options))
+}
+func (f *AxFlow) ForwardWithHooks(ctx context.Context, client AIClient, values map[string]Value, options map[string]Value, hooks AxRuntimeHooks) (out Value, err error) {
+	attributes := Object("ax.program.id", display(coreGet(f.State, "program_id", "root.flow")), "ax.program.type", "AxFlow")
+	ctx, _, finish := beginRuntimeScope(ctx, hooks, f.RuntimeHooks, "ax_gen_flow_forward", "ax_gen_flow", attributes)
+	defer func() { finish(err) }()
+	options = stripRuntimeHooks(options)
 	if f.ExecutionContextError != nil {
 		return nil, f.ExecutionContextError
 	}
@@ -7103,13 +7509,14 @@ func _core_axgen_record_function_call(target Value, values ...Value) Value {
 }
 func _core_agent_stage_forward(stage Value, client Value, values Value, options Value) (Value, error) {
 	ai := client.(AIClient)
+	ctx := contextForAIClient(ai, context.Background())
 	switch p := stage.(type) {
 	case *AxGen:
-		return p.Forward(context.Background(), ai, asMap(values), asMap(options))
+		return p.Forward(ctx, ai, asMap(values), asMap(options))
 	case *AxFlow:
-		return p.Forward(context.Background(), ai, asMap(values), asMap(options))
+		return p.Forward(ctx, ai, asMap(values), asMap(options))
 	case *AxAgent:
-		return p.Forward(context.Background(), ai, asMap(values), asMap(options))
+		return p.Forward(ctx, ai, asMap(values), asMap(options))
 	}
 	return Object(), nil
 }
@@ -7631,6 +8038,8 @@ func runConformanceFixture(fixture map[string]Value) {
 		runConformanceAIStream(fixture)
 	case "ai_usage_observer":
 		runConformanceAIUsageObserver(fixture)
+	case "ai_runtime_hooks":
+		runConformanceAIRuntimeHooks(fixture)
 	case "ai_credential_wrapper":
 		runConformanceAICredentialWrapper(fixture)
 	case "ai_provider_descriptor":
@@ -8905,6 +9314,71 @@ func runConformanceAIUsageObserver(fixture map[string]Value) {
 	if len(events) != 1 {
 		panic(AxError{Category: "fixture", Message: "cleared usage observer received an event"})
 	}
+}
+
+type conformanceFailingTracer struct{}
+func (conformanceFailingTracer) StartSpan(AxSpanStart) AxSpan { panic("tracer failure") }
+type conformanceFailingMeter struct{}
+func (conformanceFailingMeter) CreateCounter(string, AxMetricInstrumentOptions) AxCounter { panic("meter failure") }
+func (conformanceFailingMeter) CreateHistogram(string, AxMetricInstrumentOptions) AxHistogram { panic("meter failure") }
+func (conformanceFailingMeter) CreateGauge(string, AxMetricInstrumentOptions) AxGauge { panic("meter failure") }
+
+func runConformanceAIRuntimeHooks(fixture map[string]Value) {
+	client, transport := conformanceAIClient(fixture)
+	request := asMap(coreGet(fixture, "request", Object()))
+	calls := []Value{}
+	limiter := func(label string) AxRateLimiter {
+		return AxRateLimiterFunc(func(next AxRequestExecutor, info AxRateLimitInfo) (Value, error) {
+			if info.Operation != "chat" || info.Provider == "" || info.Model == "" || info.Streaming { panic(FixtureError{Message: "invalid rate limit info"}) }
+			calls = append(calls, label)
+			return next()
+		})
+	}
+	SetRateLimiter(limiter("global"))
+	defer func() { client.SetRateLimiter(nil); SetRateLimiter(nil); SetTracer(nil); SetMeter(nil) }()
+	if _, err := client.Chat(context.Background(), request, nil); err != nil { panic(err) }
+	client.SetRateLimiter(limiter("service"))
+	if _, err := client.Chat(context.Background(), request, nil); err != nil { panic(err) }
+	if _, err := client.ChatWithHooks(context.Background(), request, nil, AxRuntimeHooks{RateLimiter: limiter("call")}); err != nil { panic(err) }
+	client.SetRateLimiter(nil)
+	SetTracer(conformanceFailingTracer{})
+	SetMeter(conformanceFailingMeter{})
+	if _, err := client.Chat(context.Background(), request, nil); err != nil { panic(err) }
+	reject := AxRateLimiterFunc(func(AxRequestExecutor, AxRateLimitInfo) (Value, error) { return nil, errors.New("limited") })
+	if _, err := client.ChatWithHooks(context.Background(), request, nil, AxRuntimeHooks{RateLimiter: reject}); err == nil || !strings.Contains(err.Error(), "limited") { panic(FixtureError{Message: "limiter rejection did not propagate"}) }
+	SetRateLimiter(nil); SetTracer(nil); SetMeter(nil)
+	if _, err := client.Chat(context.Background(), request, nil); err != nil { panic(err) }
+
+	ready := make(chan struct{}, 2)
+	release := make(chan struct{})
+	results := make(chan string, 2)
+	for _, label := range []string{"thread-a", "thread-b"} {
+		label := label
+		go func() {
+			local := AxRateLimiterFunc(func(next AxRequestExecutor, _ AxRateLimitInfo) (Value, error) {
+				value, err := next()
+				if err != nil { return nil, err }
+				return label + ":" + display(value), nil
+			})
+			ctx, _, finish := beginRuntimeScope(context.Background(), AxRuntimeHooks{RateLimiter: local}, AxRuntimeHooks{}, "ax_gen_conformance", "ax_gen_conformance", Object())
+			ready <- struct{}{}
+			<-release
+			active := effectiveRuntimeHooks(ctx, nil, AxRuntimeHooks{})
+			value, err := active.RateLimiter.Run(func() (Value, error) { return "next", nil }, AxRateLimitInfo{})
+			finish(err)
+			if err != nil { results <- "error:" + err.Error(); return }
+			results <- display(value)
+		}()
+	}
+	<-ready; <-ready; close(release)
+	isolated := []string{<-results, <-results}
+	sort.Strings(isolated)
+	if !reflect.DeepEqual(isolated, []string{"thread-a:next", "thread-b:next"}) || effectiveRuntimeHooks(context.Background(), nil, AxRuntimeHooks{}).RateLimiter != nil {
+		panic(FixtureError{Message: "runtime hook goroutine isolation failed"})
+	}
+
+	assertEqual(Array(calls...), coreGet(fixture, "expected_limiter_order", nil), "runtime hook limiter order")
+	assertEqual(len(transport.Requests), int(num(coreGet(fixture, "expected_transport_request_count", 0))), "runtime hook request count")
 }
 
 func jsonPathExists(value Value, path string) bool {

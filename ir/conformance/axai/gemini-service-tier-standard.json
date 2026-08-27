@@ -1,0 +1,76 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "google-gemini",
+      "model": "gemini-3.5-flash",
+      "tokens": {
+        "completion_tokens": 1,
+        "prompt_tokens": 1,
+        "service_tier": "standard",
+        "total_tokens": 2
+      }
+    },
+    "remote_id": "gemini_tier_standard",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "headers": {
+      "x-goog-api-key": "test-key"
+    },
+    "json": {
+      "service_tier": "standard"
+    },
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
+  },
+  "kind": "ai_chat",
+  "name": "gemini-service-tier-standard",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Use the standard tier.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "serviceTier": "standard"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "responseId": "gemini_tier_standard",
+        "usageMetadata": {
+          "candidatesTokenCount": 1,
+          "promptTokenCount": 1,
+          "serviceTier": "standard",
+          "totalTokenCount": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

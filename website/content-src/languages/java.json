@@ -125,13 +125,13 @@
       "var client = Ax.ai(\"openai\", Map.of(\"apiKey\", System.getenv(\"OPENAI_API_KEY\")));"
     ],
     "telemetry": {
-      "sourcePath": "src/examples/java/generation/UsageObserverExample.java",
+      "sourcePath": "src/examples/java/generation/RuntimeHooksExample.java",
       "code": [
-        "AxGlobals.setUsageObserver(usageQueue::add);",
-        "client.chat(",
-        "    request,",
-        "    Map.of(\"usageContext\", Map.of(",
-        "        \"tenantId\", tenantId, \"userId\", userId, \"requestId\", requestId)));"
+        "AxGlobals.setRateLimiter(globalLimiter);",
+        "AxGlobals.setTracer(tracer);",
+        "AxGlobals.setMeter(meter);",
+        "workflow.forward(client, input, Map.of(), new AxRuntimeHooks(callLimiter, tracer, meter));",
+        "AxGlobals.setRateLimiter(null); AxGlobals.setTracer(null); AxGlobals.setMeter(null);"
       ],
       "verified": true,
       "requiresCredentials": true
@@ -149,6 +149,17 @@
   },
   "snippetGroups": {
     "ai": {
+      "serviceTier": {
+        "sourcePath": "src/examples/java/generation/GeminiServiceTierExample.java",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "GoogleGeminiClient client = new GoogleGeminiClient(Map.of(",
+          "    \"api_key\", apiKey(),",
+          "    \"model\", System.getenv().getOrDefault(\"AX_GEMINI_MODEL\", \"gemini-3.7-flash\"),",
+          "    \"service_tier\", \"flex\"));"
+        ]
+      },
       "vertex": {
         "sourcePath": "src/examples/java/generation/VertexGeminiExample.java",
         "verified": true,

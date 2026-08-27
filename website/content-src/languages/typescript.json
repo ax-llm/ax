@@ -167,14 +167,13 @@
       "});"
     ],
     "telemetry": {
-      "sourcePath": "src/examples/typescript/generation/usage-observer.ts",
+      "sourcePath": "src/examples/typescript/generation/runtime-hooks.ts",
       "code": [
-        "import { axGlobals } from '@ax-llm/ax';",
-        "",
-        "axGlobals.onUsage = (event) => usageQueue.enqueue(event);",
-        "await llm.chat(request, {",
-        "  usageContext: { tenantId, userId, requestId },",
-        "});"
+        "axGlobals.rateLimiter = globalLimiter;",
+        "axGlobals.tracer = tracer;",
+        "axGlobals.meter = meter;",
+        "await workflow.forward(llm, input, { rateLimiter: callLimiter, tracer, meter });",
+        "axGlobals.rateLimiter = axGlobals.tracer = axGlobals.meter = undefined;"
       ],
       "verified": true,
       "requiresCredentials": true
@@ -512,6 +511,21 @@
       ]
     },
     "ai": {
+      "serviceTier": {
+        "sourcePath": "src/examples/typescript/generation/gemini-service-tier.ts",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "const gemini = ai({",
+          "  name: 'google-gemini',",
+          "  apiKey,",
+          "  config: {",
+          "    model: AxAIGoogleGeminiModel.Gemini37Flash,",
+          "    serviceTier: 'flex',",
+          "  },",
+          "});"
+        ]
+      },
       "balancer": {
         "sourcePath": "src/examples/typescript/generation/adaptive-balancer.ts",
         "verified": true,

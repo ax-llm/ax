@@ -1,10 +1,20 @@
 # Telemetry
 
-Telemetry answers practical questions: what model was called, how long it took, how much it cost, what tools ran, where retries happened, and how optimization progressed.
+Telemetry answers practical questions: what model was called, how long it took, what tools ran, where retries happened, and how optimization progressed. The portable runtime-hook surface is available in TypeScript, Python, Java, C++, Go, and Rust.
 
 {{telemetryExample}}
 
-The TypeScript package has the richest OpenTelemetry surface. All generated packages also expose the portable global usage observer shown above, plus shared traces, optimizer artifacts, and provider result data from their AxIR contract.
+The example registers a process-wide rate limiter, tracer, and meter, then overrides them for one agent and flow invocation. The override reaches the agent's internal generators and direct model calls, and every flow node, branch, loop, parallel group, and nested program. The existing focused usage-observer example remains the recommended accounting reference.
+
+## Runtime Hooks
+
+`AxRuntimeHooks` contains optional `rateLimiter`, `tracer`, and `meter` values. Register globals during application startup and clear them during test teardown or shutdown. A global snapshot is taken when an operation starts, so replacing a global affects later operations without changing a run already in progress.
+
+Resolution is: forward or direct-call hooks, enclosing program defaults, child program defaults, AI-service hooks, then live globals. Hook objects stay in a native run-scoped frame: Ax never writes them into JSON program state, cache keys, exported runtime state, optimizer artifacts, or portable traces. Concurrent and re-entrant runs can therefore use different hooks without mutating shared child programs.
+
+The limiter wraps chat and embedding provider execution, including streaming chat and the provider retry path. A balancer applies it independently to each selected service. It may delay, reject, skip, or invoke `next` more than once; any limiter error fails the model call. A resolved service binding prevents the same request from being wrapped twice.
+
+Tracer, meter, and usage-observer failures are fail-open. Limiter failures are deliberately fail-closed. Spans are ended once on success or failure, and streaming spans end when the returned stream is consumed, fails, or is cancelled.
 
 ## What To Track
 
@@ -17,6 +27,8 @@ The TypeScript package has the richest OpenTelemetry surface. All generated pack
 ## Tracing
 
 Trace spans should answer where time went: provider calls, structured generation attempts, tool calls, agent actor turns, child-agent delegation, MCP calls, and optimizer rounds. Use trace labels to connect application routes, tenant IDs, model keys, and feature flags without burying that context inside prompts.
+
+Runtime-hook telemetry is metadata-only: it can include operation, provider, model, streaming state, program identity, timing, status, counts, and token usage, but excludes prompts, generated outputs, tool arguments, and tool results. Preserve the Flow → nested program → AxGen → provider/tool parent chain when adapting `AxTracer` to OpenTelemetry.
 
 ```mermaid
 flowchart LR
@@ -31,6 +43,8 @@ flowchart LR
 ## Metrics
 
 Metrics should answer whether production is healthy: request counts, latency histograms, error rates, token usage, estimated cost, validation failures, assertion retries, max-step exits, optimizer convergence, and Pareto front size.
+
+`AxMeter`, `AxCounter`, `AxHistogram`, and `AxGauge` are dependency-neutral interfaces shaped like OpenTelemetry instruments. A thin application adapter can delegate them to an OpenTelemetry meter. Ax caches instruments per meter identity and switches caches when the effective meter changes. These external instruments are separate from a balancer's local `getMetrics()` routing snapshot; neither is derived from the other.
 
 ## Usage And Cost
 
@@ -66,6 +80,6 @@ Trace context pressure, actor turns, tool calls, discovery, recall, loaded skill
 
 ## Production Notes
 
-Keep telemetry opt-in and configurable. Route traces and metrics to your existing OpenTelemetry backend when possible. Avoid logging secrets, raw API keys, or private user data in labels and span names.
+Keep telemetry opt-in and configurable. Route traces and metrics to your existing OpenTelemetry backend with a small implementation of the portable interfaces; generated packages do not require a native OpenTelemetry dependency. Avoid logging secrets, raw API keys, prompts, outputs, tool payloads, or private user data in labels and span names.
 
 See [ai() LLM models]({{langRoot}}/subsystems/ai/) and [{{optimizeName}} GEPA]({{langRoot}}/subsystems/optimize/).

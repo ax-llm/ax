@@ -29,15 +29,22 @@ public final class AxGen implements AxProgram {
   final List<Map<String, Object>> traces;
   final String programId;
   String instruction;
+  volatile AxRuntimeHooks runtimeHooks;
 
   public AxGen(AxSignature signature) {
-    this(signature, java.util.Map.of());
+    this(signature, java.util.Map.of(), AxRuntimeHooks.empty());
   }
 
   @SuppressWarnings("unchecked")
   public AxGen(AxSignature signature, Map<String, Object> options) {
+    this(signature, options, AxRuntimeHooks.empty());
+  }
+
+  @SuppressWarnings("unchecked")
+  public AxGen(AxSignature signature, Map<String, Object> options, AxRuntimeHooks hooks) {
     this.signature = signature;
-    this.options = options == null ? new LinkedHashMap<>() : new LinkedHashMap<>(options);
+    this.runtimeHooks = AxRuntimeHooks.merge(hooks, AxRuntimeHooks.fromOptions(options));
+    this.options = AxRuntimeHooks.strip(options);
     Object funcs = this.options.get("functions");
     this.baseFunctions = funcs instanceof List<?> list ? new ArrayList<>((List<Tool>) list) : new ArrayList<>();
     this.executionContext = AxExecutionContext.resolve(this.options, null);
@@ -69,6 +76,10 @@ public final class AxGen implements AxProgram {
       this.promptTemplate.setInstruction(this.instruction);
     }
   }
+
+  public AxGen setRateLimiter(AxRateLimiter limiter) { this.runtimeHooks = new AxRuntimeHooks(limiter, runtimeHooks.tracer(), runtimeHooks.meter()); return this; }
+  public AxGen setTracer(AxTracer tracer) { this.runtimeHooks = new AxRuntimeHooks(runtimeHooks.rateLimiter(), tracer, runtimeHooks.meter()); return this; }
+  public AxGen setMeter(AxMeter meter) { this.runtimeHooks = new AxRuntimeHooks(runtimeHooks.rateLimiter(), runtimeHooks.tracer(), meter); return this; }
 
   public AxGen addTool(Tool tool) {
     functions.add(tool);
@@ -332,6 +343,27 @@ public final class AxGen implements AxProgram {
   }
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions) {
+    return forward(client, values, forwardOptions, AxRuntimeHooks.fromOptions(forwardOptions));
+  }
+
+  public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions, AxRuntimeHooks hooks) {
+    AxGlobals.Scope scope = AxGlobals.openScope(
+        hooks,
+        runtimeHooks,
+        "ax_gen_forward",
+        "ax_gen_generation",
+        Map.of("ax.program.id", programId, "ax.program.type", "AxGen"));
+    try {
+      return forwardUnscoped(client, values, AxRuntimeHooks.strip(forwardOptions));
+    } catch (RuntimeException | Error error) {
+      scope.fail(error);
+      throw error;
+    } finally {
+      scope.close();
+    }
+  }
+
+  private Map<String, Object> forwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> forwardOptions) {
     AxExecutionContext callContext = AxExecutionContext.resolve(forwardOptions, executionContext);
     if (callContext != executionContext) {
       Map<String, Object> callOptions = new LinkedHashMap<>(options);

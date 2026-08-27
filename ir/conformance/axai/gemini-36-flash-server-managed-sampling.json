@@ -30,6 +30,9 @@
     "generationConfig.topK"
   ],
   "expected_transport_request": {
+    "headers": {
+      "x-goog-api-key": "test-key"
+    },
     "json": {
       "contents": [
         {
@@ -48,7 +51,7 @@
       }
     },
     "method": "POST",
-    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=test-key"
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
   },
   "kind": "ai_chat",
   "model": "gemini-3.6-flash",

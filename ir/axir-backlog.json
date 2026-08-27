@@ -1164,27 +1164,8 @@
       "verification": "TS-derived native-image routing fixture; five-language AxIR dev verifier; npm run axir:check-packages; go test ./internal/axir; focused TypeScript router tests"
     },
     {
-      "id": "axir-2026-08-27-preserve-deepseek-medium-reasoning-effort",
-      "status": "open",
-      "title": "Preserve DeepSeek medium reasoning effort",
-      "createdAt": "2026-08-27",
-      "sourcePR": 616,
-      "sourceCommit": "ce66e454d16a47788797db6b07cb122ad312d043",
-      "tsPaths": ["src/ax/ai/deepseek/api.test.ts", "src/ax/ai/provider_profiles.ts"],
-      "portableSurface": "axai",
-      "impact": "Generated language providers still map DeepSeek V4 medium reasoning to high effort until the behavior is migrated into AxIR.",
-      "suggestedAxirWork": [
-        "Add or update the TS-derived conformance fixture.",
-        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
-        "Run npm run axir:conformance:check and npm run test:axir."
-      ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
-    },
-    {
       "id": "axir-2026-08-26-support-gemini-inference-service-tiers",
-      "status": "open",
+      "status": "done",
       "title": "Support Gemini inference service tiers",
       "createdAt": "2026-08-26",
       "sourcePR": 609,
@@ -1203,9 +1184,31 @@
         "Update AxIR/Core or descriptor data to match the portable TS behavior.",
         "Run npm run axir:conformance:check and npm run test:axir."
       ],
-      "completedAt": null,
-      "completedByCommit": null,
-      "verification": null
+      "completedAt": "2026-08-27",
+      "completedByCommit": "working-tree",
+      "verification": "npm run profiles:check; npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir; npx vitest run src/ax/ai/deepseek/api.test.ts src/ax/ai/google-gemini/api.test.ts src/ax/ai/types.enhanced.test.ts; npm run example -- list --json; npm run website:check"
+    },
+    {
+      "id": "axir-2026-08-27-preserve-deepseek-medium-reasoning-effort",
+      "status": "done",
+      "title": "Preserve DeepSeek medium reasoning effort",
+      "createdAt": "2026-08-27",
+      "sourcePR": 616,
+      "sourceCommit": "ce66e454d16a47788797db6b07cb122ad312d043",
+      "tsPaths": [
+        "src/ax/ai/deepseek/api.test.ts",
+        "src/ax/ai/provider_profiles.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "Generated language providers still map DeepSeek V4 medium reasoning to high effort until the behavior is migrated into AxIR.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": "2026-08-27",
+      "completedByCommit": "working-tree",
+      "verification": "npm run profiles:check; npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir; npx vitest run src/ax/ai/deepseek/api.test.ts src/ax/ai/google-gemini/api.test.ts src/ax/ai/types.enhanced.test.ts; npm run example -- list --json; npm run website:check"
     }
   ],
   "nonPortableExemptions": [

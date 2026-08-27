@@ -41,6 +41,9 @@
     ]
   },
   "expected_transport_request": {
+    "headers": {
+      "x-goog-api-key": "test-key"
+    },
     "json": {
       "contents": [
         {
@@ -69,7 +72,7 @@
       }
     },
     "method": "POST",
-    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=test-key"
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
   },
   "kind": "ai_chat",
   "name": "gemini-simple-chat",

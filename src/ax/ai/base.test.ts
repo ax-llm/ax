@@ -1093,7 +1093,9 @@ describe('setChatResponseEvents', () => {
       {
         finish_reason: 'stop',
         index: 0,
-        message: JSON.stringify({ content: 'Hello' }, null, 2),
+        has_content: true,
+        has_thought: false,
+        tool_count: 0,
       }
     );
     expect(mockSpanInstance.addEvent).toHaveBeenNthCalledWith(
@@ -1102,21 +1104,10 @@ describe('setChatResponseEvents', () => {
       {
         finish_reason: 'tool_calls',
         index: 1,
-        message: JSON.stringify(
-          {
-            content: 'Function call',
-            tool_calls: [
-              {
-                id: 'call1',
-                type: 'function',
-                function: 'funcName',
-                arguments: { arg1: 'val1' },
-              },
-            ],
-          },
-          null,
-          2
-        ),
+        has_content: true,
+        has_thought: false,
+        tool_count: 1,
+        tool_names: 'funcName',
       }
     );
   });
@@ -1191,7 +1182,9 @@ describe('setChatResponseEvents', () => {
       {
         finish_reason: 'stop',
         index: 0,
-        message: JSON.stringify({ content: 'Hello' }, null, 2),
+        has_content: true,
+        has_thought: false,
+        tool_count: 0,
       }
     );
   });
@@ -1242,7 +1235,9 @@ describe('setChatResponseEvents', () => {
       {
         finish_reason: 'stop',
         index: 0,
-        message: JSON.stringify({}, null, 2),
+        has_content: true,
+        has_thought: false,
+        tool_count: 0,
       }
     );
     // Second result should not have content but should have tool_calls
@@ -1252,20 +1247,10 @@ describe('setChatResponseEvents', () => {
       {
         finish_reason: 'tool_calls',
         index: 1,
-        message: JSON.stringify(
-          {
-            tool_calls: [
-              {
-                id: 'call1',
-                type: 'function',
-                function: 'funcName',
-                arguments: { arg1: 'val1' },
-              },
-            ],
-          },
-          null,
-          2
-        ),
+        has_content: true,
+        has_thought: false,
+        tool_count: 1,
+        tool_names: 'funcName',
       }
     );
   });
@@ -1300,12 +1285,12 @@ describe('setChatRequestEvents', () => {
     setChatRequestEvents(req, mockSpanInstance as unknown as Span);
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_SYSTEM_MESSAGE,
-      { content: 'System prompt' }
+      {}
     );
     // User message event should also be called, even if empty
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_USER_MESSAGE,
-      { content: '' }
+      { part_count: 0 }
     );
   });
 
@@ -1316,7 +1301,7 @@ describe('setChatRequestEvents', () => {
     setChatRequestEvents(req, mockSpanInstance as unknown as Span);
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_USER_MESSAGE,
-      { content: 'User message' }
+      { part_count: 1 }
     );
   });
 
@@ -1335,7 +1320,7 @@ describe('setChatRequestEvents', () => {
     setChatRequestEvents(req, mockSpanInstance as unknown as Span);
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_USER_MESSAGE,
-      { content: 'User message part 1\nUser message part 2' }
+      { part_count: 2 }
     );
   });
 
@@ -1346,7 +1331,7 @@ describe('setChatRequestEvents', () => {
     setChatRequestEvents(req, mockSpanInstance as unknown as Span);
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_ASSISTANT_MESSAGE,
-      { content: 'Assistant message' }
+      {}
     );
   });
 
@@ -1370,19 +1355,8 @@ describe('setChatRequestEvents', () => {
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_ASSISTANT_MESSAGE,
       {
-        content: 'Assistant says something',
-        function_calls: JSON.stringify(
-          [
-            {
-              id: 'fc1',
-              type: 'function',
-              function: 'func_name',
-              arguments: { argA: 'valA' },
-            },
-          ],
-          null,
-          2
-        ),
+        function_count: 1,
+        function_names: 'func_name',
       }
     );
   });
@@ -1396,7 +1370,7 @@ describe('setChatRequestEvents', () => {
     setChatRequestEvents(req, mockSpanInstance as unknown as Span);
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_TOOL_MESSAGE,
-      { id: 'fn1', content: 'Function result' }
+      { id: 'fn1' }
     );
   });
 
@@ -1413,16 +1387,16 @@ describe('setChatRequestEvents', () => {
 
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_SYSTEM_MESSAGE,
-      { content: 'System setup' }
+      {}
     );
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_ASSISTANT_MESSAGE,
-      { content: 'Hello!' }
+      {}
     );
     // User messages are aggregated
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_USER_MESSAGE,
-      { content: 'Hi there\nQuestion?' }
+      { part_count: 2 }
     );
   });
 
@@ -1435,7 +1409,7 @@ describe('setChatRequestEvents', () => {
     expect(mockSpanInstance.addEvent).toHaveBeenCalledTimes(1);
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_USER_MESSAGE,
-      { content: '' }
+      { part_count: 0 }
     );
   });
 
@@ -1452,7 +1426,7 @@ describe('setChatRequestEvents', () => {
     setChatRequestEvents(req, mockSpanInstance as unknown as Span);
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_USER_MESSAGE,
-      { content: '' }
+      { part_count: 0 }
     );
   });
 
@@ -1488,7 +1462,7 @@ describe('setChatRequestEvents', () => {
     // User message should not have content
     expect(mockSpanInstance.addEvent).toHaveBeenCalledWith(
       axSpanEvents.GEN_AI_USER_MESSAGE,
-      {}
+      { part_count: 1 }
     );
   });
 });

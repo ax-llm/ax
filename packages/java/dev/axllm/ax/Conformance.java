@@ -570,6 +570,7 @@ public final class Conformance {
       case "ai_embed" -> runAIEmbed(fixture);
       case "ai_stream" -> runAIStream(fixture);
       case "ai_usage_observer" -> runAIUsageObserver(fixture);
+      case "ai_runtime_hooks" -> runAIRuntimeHooks(fixture);
       case "ai_credential_wrapper" -> runAICredentialWrapper(fixture);
       case "ai_error" -> runAIError(fixture);
       case "ai_unsupported" -> runAIUnsupported(fixture);
@@ -2145,6 +2146,84 @@ public final class Conformance {
     } finally {
       AxGlobals.setUsageObserver(null);
     }
+  }
+
+  static void runAIRuntimeHooks(Map<String, Object> fixture) {
+    ClientFixture cf = openaiClient(fixture);
+    Map<String, Object> request = Core.asMap(fixture.get("request"));
+    List<String> calls = new ArrayList<>();
+    java.util.function.Function<String, AxRateLimiter> limiter = label -> (next, info) -> {
+      if (!"chat".equals(info.operation()) || info.provider().isBlank() || info.model().isBlank() || info.streaming()) throw new FixtureError("invalid rate limit info " + info);
+      calls.add(label);
+      return next.execute();
+    };
+    AxTracer failingTracer = start -> { throw new RuntimeException("tracer failure"); };
+    AxMeter failingMeter = new AxMeter() {
+      public AxCounter createCounter(String name, AxMetricInstrumentOptions options) { throw new RuntimeException("meter failure"); }
+      public AxHistogram createHistogram(String name, AxMetricInstrumentOptions options) { throw new RuntimeException("meter failure"); }
+      public AxGauge createGauge(String name, AxMetricInstrumentOptions options) { throw new RuntimeException("meter failure"); }
+    };
+    AxGlobals.setRateLimiter(limiter.apply("global"));
+    try {
+      cf.client.chat(request, Map.of());
+      cf.client.setRateLimiter(limiter.apply("service"));
+      cf.client.chat(request, Map.of());
+      cf.client.chat(request, Map.of(), new AxRuntimeHooks(limiter.apply("call"), null, null));
+      cf.client.setRateLimiter(null);
+      AxGlobals.setTracer(failingTracer);
+      AxGlobals.setMeter(failingMeter);
+      cf.client.chat(request, Map.of());
+      try {
+        cf.client.chat(request, Map.of(), new AxRuntimeHooks((next, info) -> { throw new RuntimeException("limited"); }, null, null));
+        throw new FixtureError("limiter rejection did not propagate");
+      } catch (Exception expected) {
+        if (!String.valueOf(expected.getMessage()).contains("limited")) throw Core.asRuntime(expected);
+      }
+      AxGlobals.setRateLimiter(null); AxGlobals.setTracer(null); AxGlobals.setMeter(null);
+      cf.client.chat(request, Map.of());
+    } catch (Exception error) {
+      throw Core.asRuntime(error);
+    } finally {
+      cf.client.setRateLimiter(null);
+      AxGlobals.setRateLimiter(null); AxGlobals.setTracer(null); AxGlobals.setMeter(null);
+    }
+
+    java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+    java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(2);
+    java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+    AxRateLimiter first = (next, info) -> next.execute();
+    AxRateLimiter second = (next, info) -> next.execute();
+    try {
+      java.util.concurrent.Future<Boolean> firstResult = executor.submit(() -> {
+        try (AxGlobals.Scope ignored = AxGlobals.openScope(
+            new AxRuntimeHooks(first, null, null), null, "ax_gen_conformance", "ax_gen_conformance", Map.of())) {
+          ready.countDown();
+          release.await();
+          return AxGlobals.effective(Map.of(), null).rateLimiter() == first;
+        }
+      });
+      java.util.concurrent.Future<Boolean> secondResult = executor.submit(() -> {
+        try (AxGlobals.Scope ignored = AxGlobals.openScope(
+            new AxRuntimeHooks(second, null, null), null, "ax_gen_conformance", "ax_gen_conformance", Map.of())) {
+          ready.countDown();
+          release.await();
+          return AxGlobals.effective(Map.of(), null).rateLimiter() == second;
+        }
+      });
+      if (!ready.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new FixtureError("runtime hook threads did not start");
+      release.countDown();
+      if (!firstResult.get() || !secondResult.get() || AxGlobals.effective(Map.of(), null).rateLimiter() != null) {
+        throw new FixtureError("runtime hook thread isolation failed");
+      }
+    } catch (Exception error) {
+      throw Core.asRuntime(error);
+    } finally {
+      release.countDown();
+      executor.shutdownNow();
+    }
+
+    assertEqual(calls, fixture.get("expected_limiter_order"), "runtime hook limiter order");
+    assertEqual(cf.transport.requests.size(), fixture.get("expected_transport_request_count"), "runtime hook request count");
   }
 
   static void runAIError(Map<String, Object> fixture) {

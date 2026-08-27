@@ -273,6 +273,138 @@
         },
         {
           "target_name": "java",
+          "canonical_name": "AxRuntimeHooks",
+          "public_name": "AxRuntimeHooks",
+          "kind": "type",
+          "description": "Non-serializable rate limiter, tracer, and meter overrides for one service or program execution.",
+          "form": "new AxRuntimeHooks(rateLimiter, tracer, meter)",
+          "important_options": [
+            "rate limiter",
+            "tracer",
+            "meter",
+            "precedence"
+          ],
+          "returns": "runtime hooks",
+          "example": "AxRuntimeHooks hooks = new AxRuntimeHooks(limiter, tracer, meter);"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxRateLimitInfo",
+          "public_name": "AxRateLimitInfo",
+          "kind": "type",
+          "description": "Provider and model metadata supplied to a request-wrapper rate limiter.",
+          "form": "AxRateLimitInfo",
+          "important_options": [
+            "operation",
+            "provider",
+            "model",
+            "streaming",
+            "previous usage"
+          ],
+          "returns": "rate-limit context"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxRateLimiter",
+          "public_name": "AxRateLimiter",
+          "kind": "interface",
+          "description": "Request wrapper that can delay, reject, or execute a chat or embedding request.",
+          "form": "AxRateLimiter",
+          "important_options": [
+            "next",
+            "metadata",
+            "errors"
+          ],
+          "returns": "provider result"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxTracer",
+          "public_name": "AxTracer",
+          "kind": "interface",
+          "description": "Dependency-neutral tracer that creates metadata-only Ax spans.",
+          "form": "AxTracer",
+          "important_options": [
+            "start span",
+            "parent span",
+            "fail-open"
+          ],
+          "returns": "span"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxMeter",
+          "public_name": "AxMeter",
+          "kind": "interface",
+          "description": "Dependency-neutral meter for Ax counters, histograms, and gauges.",
+          "form": "AxMeter",
+          "important_options": [
+            "counter",
+            "histogram",
+            "gauge",
+            "fail-open"
+          ],
+          "returns": "instrument"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "AxGlobals",
+          "public_name": "AxGlobals",
+          "kind": "type",
+          "description": "Process-wide live defaults for runtime hooks and usage observation.",
+          "form": "AxGlobals",
+          "important_options": [
+            "rate limiter",
+            "tracer",
+            "meter",
+            "usage observer"
+          ],
+          "returns": "global hooks"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "set_rate_limiter",
+          "public_name": "AxGlobals.setRateLimiter",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide request-wrapper rate limiter.",
+          "form": "AxGlobals.setRateLimiter(limiter)",
+          "important_options": [
+            "limiter",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "AxGlobals.setRateLimiter(limiter);"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "set_tracer",
+          "public_name": "AxGlobals.setTracer",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide dependency-neutral tracer.",
+          "form": "AxGlobals.setTracer(tracer)",
+          "important_options": [
+            "tracer",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "AxGlobals.setTracer(tracer);"
+        },
+        {
+          "target_name": "java",
+          "canonical_name": "set_meter",
+          "public_name": "AxGlobals.setMeter",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide dependency-neutral meter.",
+          "form": "AxGlobals.setMeter(meter)",
+          "important_options": [
+            "meter",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "AxGlobals.setMeter(meter);"
+        },
+        {
+          "target_name": "java",
           "canonical_name": "AxBalancer",
           "public_name": "AxBalancer",
           "kind": "type",

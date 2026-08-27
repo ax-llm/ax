@@ -3,6 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import base64
 import copy
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
@@ -16,12 +18,296 @@ import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Protocol
 # AXIR_CORE_IMPORTS
 
 AxUsageContext = dict[str, Any]
 AxUsageEvent = dict[str, Any]
 AxUsageObserver = Callable[[AxUsageEvent], Any]
+
+
+@dataclass(frozen=True)
+class AxRateLimitInfo:
+    operation: str
+    provider: str
+    model: str
+    streaming: bool
+    previous_model_usage: dict[str, Any] | None = None
+
+
+class AxRateLimiter(Protocol):
+    def __call__(self, next_request: Callable[[], Any], info: AxRateLimitInfo) -> Any:
+        ...
+
+
+class AxSpan(Protocol):
+    def set_attributes(self, attributes: dict[str, Any]) -> None:
+        ...
+
+    def add_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
+        ...
+
+    def record_exception(self, error: BaseException | str) -> None:
+        ...
+
+    def set_status(self, status: str, description: str | None = None) -> None:
+        ...
+
+    def end(self) -> None:
+        ...
+
+
+class AxTracer(Protocol):
+    def start_span(
+        self,
+        name: str,
+        *,
+        kind: str = "internal",
+        attributes: dict[str, Any] | None = None,
+        parent: AxSpan | None = None,
+    ) -> AxSpan:
+        ...
+
+
+class AxCounter(Protocol):
+    def add(self, value: float, attributes: dict[str, Any] | None = None) -> None:
+        ...
+
+
+class AxHistogram(Protocol):
+    def record(self, value: float, attributes: dict[str, Any] | None = None) -> None:
+        ...
+
+
+class AxGauge(Protocol):
+    def record(self, value: float, attributes: dict[str, Any] | None = None) -> None:
+        ...
+
+
+class AxMeter(Protocol):
+    def create_counter(self, name: str, **options: Any) -> AxCounter:
+        ...
+
+    def create_histogram(self, name: str, **options: Any) -> AxHistogram:
+        ...
+
+    def create_gauge(self, name: str, **options: Any) -> AxGauge:
+        ...
+
+
+@dataclass(frozen=True)
+class AxRuntimeHooks:
+    rate_limiter: AxRateLimiter | None = None
+    tracer: AxTracer | None = None
+    meter: AxMeter | None = None
+
+
+@dataclass(frozen=True)
+class _AxRuntimeFrame:
+    hooks: AxRuntimeHooks
+    globals: AxRuntimeHooks
+    span: AxSpan | None = None
+
+
+_runtime_hooks_lock = threading.RLock()
+_global_runtime_hooks = AxRuntimeHooks()
+_runtime_frame: ContextVar[_AxRuntimeFrame | None] = ContextVar("ax_runtime_hooks", default=None)
+_meter_cache_lock = threading.RLock()
+_meter_cache: dict[int, tuple[Any, dict[tuple[str, str], Any]]] = {}
+
+
+def set_rate_limiter(limiter: AxRateLimiter | None) -> None:
+    """Set the process-wide rate limiter; pass None to clear it."""
+    global _global_runtime_hooks
+    with _runtime_hooks_lock:
+        _global_runtime_hooks = AxRuntimeHooks(limiter, _global_runtime_hooks.tracer, _global_runtime_hooks.meter)
+
+
+def set_tracer(tracer: AxTracer | None) -> None:
+    """Set the process-wide tracer; pass None to clear it."""
+    global _global_runtime_hooks
+    with _runtime_hooks_lock:
+        _global_runtime_hooks = AxRuntimeHooks(_global_runtime_hooks.rate_limiter, tracer, _global_runtime_hooks.meter)
+
+
+def set_meter(meter: AxMeter | None) -> None:
+    """Set the process-wide meter; pass None to clear it."""
+    global _global_runtime_hooks
+    with _runtime_hooks_lock:
+        _global_runtime_hooks = AxRuntimeHooks(_global_runtime_hooks.rate_limiter, _global_runtime_hooks.tracer, meter)
+
+
+def _snapshot_global_runtime_hooks() -> AxRuntimeHooks:
+    with _runtime_hooks_lock:
+        return _global_runtime_hooks
+
+
+def _coerce_runtime_hooks(value: Any) -> AxRuntimeHooks:
+    if isinstance(value, AxRuntimeHooks):
+        return value
+    if not isinstance(value, dict):
+        return AxRuntimeHooks()
+    return AxRuntimeHooks(
+        value.get("rate_limiter") or value.get("rateLimiter"),
+        value.get("tracer"),
+        value.get("meter"),
+    )
+
+
+def _runtime_hooks_from_options(options: dict[str, Any] | None) -> AxRuntimeHooks:
+    if not isinstance(options, dict):
+        return AxRuntimeHooks()
+    nested = _coerce_runtime_hooks(options.get("runtime_hooks") or options.get("runtimeHooks"))
+    return AxRuntimeHooks(
+        options.get("rate_limiter") or options.get("rateLimiter") or nested.rate_limiter,
+        options.get("tracer") or nested.tracer,
+        options.get("meter") or nested.meter,
+    )
+
+
+def _strip_runtime_hooks(options: dict[str, Any] | None) -> dict[str, Any]:
+    out = dict(options or {})
+    for key in ("runtime_hooks", "runtimeHooks", "rate_limiter", "rateLimiter", "tracer", "meter"):
+        out.pop(key, None)
+    return out
+
+
+def _merge_runtime_hooks(*layers: AxRuntimeHooks | None) -> AxRuntimeHooks:
+    rate_limiter = tracer = meter = None
+    for layer in layers:
+        if layer is None:
+            continue
+        if rate_limiter is None and layer.rate_limiter is not None:
+            rate_limiter = layer.rate_limiter
+        if tracer is None and layer.tracer is not None:
+            tracer = layer.tracer
+        if meter is None and layer.meter is not None:
+            meter = layer.meter
+    return AxRuntimeHooks(rate_limiter, tracer, meter)
+
+
+def _effective_runtime_hooks(call_options: dict[str, Any] | None = None, service_hooks: AxRuntimeHooks | None = None) -> AxRuntimeHooks:
+    frame = _runtime_frame.get()
+    globals_snapshot = frame.globals if frame else _snapshot_global_runtime_hooks()
+    return _merge_runtime_hooks(
+        _runtime_hooks_from_options(call_options),
+        frame.hooks if frame else None,
+        service_hooks,
+        globals_snapshot,
+    )
+
+
+def _call_optional(target: Any, snake: str, camel: str, *args: Any) -> Any:
+    if target is None:
+        return None
+    method = getattr(target, snake, None) or getattr(target, camel, None)
+    if callable(method):
+        return method(*args)
+    return None
+
+
+def _start_runtime_span(hooks: AxRuntimeHooks, name: str, kind: str, attributes: dict[str, Any]) -> AxSpan | None:
+    tracer = hooks.tracer
+    if tracer is None:
+        return None
+    parent = _runtime_frame.get().span if _runtime_frame.get() else None
+    try:
+        start = getattr(tracer, "start_span", None)
+        if callable(start):
+            return start(name, kind=kind, attributes=dict(attributes), parent=parent)
+        start = getattr(tracer, "startSpan", None)
+        if callable(start):
+            return start({"name": name, "kind": kind, "attributes": dict(attributes)}, parent)
+    except BaseException:
+        pass
+    return None
+
+
+def _finish_runtime_span(span: AxSpan | None, error: BaseException | None = None) -> None:
+    if span is None:
+        return
+    try:
+        if error is not None:
+            _call_optional(span, "record_exception", "recordException", error)
+            _call_optional(span, "set_status", "setStatus", "error", str(error))
+        else:
+            _call_optional(span, "set_status", "setStatus", "ok", None)
+        _call_optional(span, "end", "end")
+    except BaseException:
+        pass
+
+
+def _meter_instrument(meter: AxMeter | None, kind: str, name: str) -> Any:
+    if meter is None:
+        return None
+    key = id(meter)
+    with _meter_cache_lock:
+        cached = _meter_cache.get(key)
+        if cached is None or cached[0] is not meter:
+            cached = (meter, {})
+            _meter_cache[key] = cached
+        instruments = cached[1]
+        instrument = instruments.get((kind, name))
+        if instrument is not None:
+            return instrument
+        try:
+            snake = f"create_{kind}"
+            camel = "create" + kind.title()
+            creator = getattr(meter, snake, None) or getattr(meter, camel, None)
+            instrument = creator(name) if callable(creator) else None
+        except BaseException:
+            instrument = None
+        if instrument is not None:
+            instruments[(kind, name)] = instrument
+        return instrument
+
+
+def _record_runtime_metric(meter: AxMeter | None, kind: str, name: str, value: float, attributes: dict[str, Any]) -> None:
+    try:
+        instrument = _meter_instrument(meter, kind, name)
+        if instrument is None:
+            return
+        method = getattr(instrument, "add" if kind == "counter" else "record", None)
+        if callable(method):
+            method(value, dict(attributes))
+    except BaseException:
+        pass
+
+
+@contextmanager
+def _runtime_hook_scope(
+    call_hooks: AxRuntimeHooks | dict[str, Any] | None,
+    program_hooks: AxRuntimeHooks | None,
+    *,
+    span_name: str,
+    span_kind: str = "internal",
+    attributes: dict[str, Any] | None = None,
+    metric_prefix: str = "ax_gen_generation",
+):
+    parent = _runtime_frame.get()
+    hooks = _merge_runtime_hooks(
+        _coerce_runtime_hooks(call_hooks),
+        parent.hooks if parent else None,
+        program_hooks,
+    )
+    globals_snapshot = parent.globals if parent else _snapshot_global_runtime_hooks()
+    effective = _merge_runtime_hooks(hooks, globals_snapshot)
+    attrs = dict(attributes or {})
+    span = _start_runtime_span(effective, span_name, span_kind, attrs)
+    token = _runtime_frame.set(_AxRuntimeFrame(hooks, globals_snapshot, span or (parent.span if parent else None)))
+    started = time.perf_counter()
+    error = None
+    _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_requests_total", 1, attrs)
+    try:
+        yield effective
+    except BaseException as exc:
+        error = exc
+        _record_runtime_metric(effective.meter, "counter", f"{metric_prefix}_errors_total", 1, attrs)
+        raise
+    finally:
+        _record_runtime_metric(effective.meter, "histogram", f"{metric_prefix}_duration_ms", (time.perf_counter() - started) * 1000, attrs)
+        _finish_runtime_span(span, error)
+        _runtime_frame.reset(token)
 
 _usage_observer_lock = threading.RLock()
 _usage_observer: AxUsageObserver | None = None
@@ -72,6 +358,40 @@ def _usage_observed_stream(
     finally:
         if completed and last_usage_response is not None:
             _emit_usage_event("chat", last_usage_response, options, True)
+
+
+def _invoke_rate_limiter(limiter: AxRateLimiter | None, next_request: Callable[[], Any], info: AxRateLimitInfo) -> Any:
+    if limiter is None:
+        return next_request()
+    run = getattr(limiter, "run", None)
+    if callable(run):
+        return run(next_request, info)
+    return limiter(next_request, info)
+
+
+def _runtime_observed_stream(
+    values: Iterable[dict[str, Any]],
+    options: dict[str, Any],
+    span: AxSpan | None,
+    meter: AxMeter | None,
+    attributes: dict[str, Any],
+    started: float,
+):
+    error = None
+    completed = False
+    try:
+        yield from _usage_observed_stream(values, options)
+        completed = True
+    except BaseException as exc:
+        error = exc
+        _record_runtime_metric(meter, "counter", "ax_llm_errors_total", 1, attributes)
+        raise
+    finally:
+        if not completed and error is None:
+            error = RuntimeError("stream terminated before completion")
+            _record_runtime_metric(meter, "counter", "ax_llm_errors_total", 1, attributes)
+        _record_runtime_metric(meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+        _finish_runtime_span(span, error)
 
 
 class AxAIServiceError(Exception):
@@ -326,6 +646,9 @@ class AxAIService(ABC):
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         ...
 
+    def chat_with_hooks(self, request: dict[str, Any], options: dict[str, Any] | None, hooks: AxRuntimeHooks):
+        return self.chat(request, {**(options or {}), "runtime_hooks": hooks})
+
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         stream_request = copy.deepcopy(_coerce_chat_request(request))
         stream_request.setdefault("model_config", {})["stream"] = True
@@ -335,9 +658,15 @@ class AxAIService(ABC):
         else:
             yield from result
 
+    def stream_with_hooks(self, request: dict[str, Any], options: dict[str, Any] | None, hooks: AxRuntimeHooks):
+        return self.stream(request, {**(options or {}), "runtime_hooks": hooks})
+
     @abstractmethod
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         ...
+
+    def embed_with_hooks(self, request: dict[str, Any], options: dict[str, Any] | None, hooks: AxRuntimeHooks):
+        return self.embed(request, {**(options or {}), "runtime_hooks": hooks})
 
     @abstractmethod
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -384,12 +713,14 @@ class AxBaseAI(AIClient):
         self.model = model
         self.embed_model = embed_model
         self.model_config = {"temperature": 0, **(model_config or {})}
-        self.options = dict(options or {})
+        self.runtime_hooks = _runtime_hooks_from_options(options)
+        self.options = _strip_runtime_hooks(options)
         self.features = copy.deepcopy(features or default_features())
         self.metrics = default_metrics()
         self.last_used_chat_model = None
         self.last_used_embed_model = None
         self.last_used_model_config = None
+        self.last_model_usage = None
 
     def get_id(self) -> str:
         return self.id
@@ -421,13 +752,27 @@ class AxBaseAI(AIClient):
         return copy.deepcopy(self.last_used_model_config)
 
     def set_options(self, options: dict[str, Any]):
-        self.options = dict(options)
+        if any(key in options for key in ("runtime_hooks", "runtimeHooks", "rate_limiter", "rateLimiter", "tracer", "meter")):
+            self.runtime_hooks = _runtime_hooks_from_options(options)
+        self.options = _strip_runtime_hooks(options)
+
+    def set_rate_limiter(self, limiter: AxRateLimiter | None):
+        self.runtime_hooks = AxRuntimeHooks(limiter, self.runtime_hooks.tracer, self.runtime_hooks.meter)
+        return self
+
+    def set_tracer(self, tracer: AxTracer | None):
+        self.runtime_hooks = AxRuntimeHooks(self.runtime_hooks.rate_limiter, tracer, self.runtime_hooks.meter)
+        return self
+
+    def set_meter(self, meter: AxMeter | None):
+        self.runtime_hooks = AxRuntimeHooks(self.runtime_hooks.rate_limiter, self.runtime_hooks.tracer, meter)
+        return self
 
     def get_options(self) -> dict[str, Any]:
         return copy.deepcopy(self.options)
 
     def _merged_options(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
-        call_options = dict(options or {})
+        call_options = _strip_runtime_hooks(options)
         merged = {**self.options, **call_options}
         default_context = self.options.get("usage_context") or self.options.get("usageContext")
         call_context = call_options.get("usage_context") or call_options.get("usageContext")
@@ -440,6 +785,9 @@ class AxBaseAI(AIClient):
     def chat(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         started = time.perf_counter()
         is_error = False
+        span = None
+        stream_returned = False
+        hooks = _effective_runtime_hooks(options, self.runtime_hooks)
         try:
             req = _coerce_chat_request(request)
             validate_chat_request(req)
@@ -451,13 +799,27 @@ class AxBaseAI(AIClient):
             req = {**req, "model": model, "model_config": model_config}
             self.last_used_chat_model = model
             self.last_used_model_config = copy.deepcopy(model_config)
-            response = self._chat(req, merged_options)
+            streaming = bool(model_config.get("stream"))
+            attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(model), "ax.streaming": streaming}
+            span = _start_runtime_span(hooks, "ax_llm_chat", "client", attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+            info = AxRateLimitInfo("chat", self.name, str(model), streaming, copy.deepcopy(self.last_model_usage))
+            response = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._chat(req, merged_options), info)
             if isinstance(response, dict):
+                self.last_model_usage = copy.deepcopy(response.get("model_usage") or response.get("modelUsage"))
                 _emit_usage_event("chat", response, merged_options, False)
+                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+                _finish_runtime_span(span)
                 return response
-            return _usage_observed_stream(response, merged_options)
-        except Exception:
+            stream_returned = True
+            return _runtime_observed_stream(response, merged_options, span, hooks.meter, attributes, started)
+        except Exception as exc:
             is_error = True
+            if span is not None:
+                attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(self.last_used_chat_model or self.model), "ax.streaming": bool((options or {}).get("stream"))}
+                _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
+                _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+                _finish_runtime_span(span, exc)
             raise
         finally:
             self._record_metrics("chat", time.perf_counter() - started, is_error)
@@ -465,6 +827,8 @@ class AxBaseAI(AIClient):
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         started = time.perf_counter()
         is_error = False
+        span = None
+        hooks = _effective_runtime_hooks(options, self.runtime_hooks)
         try:
             texts = request.get("texts")
             if not texts:
@@ -475,11 +839,22 @@ class AxBaseAI(AIClient):
             req = {**request, "texts": list(texts), "embed_model": embed_model}
             self.last_used_embed_model = embed_model
             merged_options = self._merged_options(options)
-            response = self._embed(req, merged_options)
+            attributes = {"ax.operation": "embed", "ax.ai": self.name, "ax.model": str(embed_model), "ax.streaming": False}
+            span = _start_runtime_span(hooks, "ax_llm_embed", "client", attributes)
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+            info = AxRateLimitInfo("embed", self.name, str(embed_model), False, copy.deepcopy(self.last_model_usage))
+            response = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._embed(req, merged_options), info)
+            self.last_model_usage = copy.deepcopy(response.get("model_usage") or response.get("modelUsage")) if isinstance(response, dict) else None
             _emit_usage_event("embed", response, merged_options, False)
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _finish_runtime_span(span)
             return response
-        except Exception:
+        except Exception as exc:
             is_error = True
+            attributes = {"ax.operation": "embed", "ax.ai": self.name, "ax.model": str(self.last_used_embed_model or self.embed_model or ""), "ax.streaming": False}
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _finish_runtime_span(span, exc)
             raise
         finally:
             self._record_metrics("embed", time.perf_counter() - started, is_error)
@@ -577,7 +952,7 @@ class ProviderOperationClient(AxBaseAI):
 
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
         realtime_model = request.get("model") or self.model
-        if provider_should_use_realtime(self.profile, str(realtime_model or ""), request):
+        if provider_should_use_realtime(self.profile, str(realtime_model or ""), request, options):
             return self.realtime_chat(request, options)
         payload = provider_build_chat_request(self.profile, request, options)
         if payload.get("stream"):
@@ -727,10 +1102,20 @@ class ProviderOperationClient(AxBaseAI):
         self.last_used_chat_model = model
         self.last_used_model_config = copy.deepcopy(model_config)
         payload = provider_build_chat_request(self.profile, req, merged_options)
-        yield from _usage_observed_stream(
-            self._stream_chat(payload, req, merged_options),
-            merged_options,
-        )
+        hooks = _effective_runtime_hooks(options, self.runtime_hooks)
+        attributes = {"ax.operation": "chat", "ax.ai": self.name, "ax.model": str(model), "ax.streaming": True}
+        span = _start_runtime_span(hooks, "ax_llm_chat", "client", attributes)
+        _record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes)
+        started = time.perf_counter()
+        info = AxRateLimitInfo("chat", self.name, str(model), True, copy.deepcopy(self.last_model_usage))
+        try:
+            result = _invoke_rate_limiter(hooks.rate_limiter, lambda: self._stream_chat(payload, req, merged_options), info)
+        except BaseException as exc:
+            _record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes)
+            _record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", (time.perf_counter() - started) * 1000, attributes)
+            _finish_runtime_span(span, exc)
+            raise
+        yield from _runtime_observed_stream(result, merged_options, span, hooks.meter, attributes, started)
 
     def _embed(self, request: dict[str, Any], options: dict[str, Any]):
         payload = provider_build_embed_request(self.profile, request, options)
@@ -794,8 +1179,8 @@ class ProviderOperationClient(AxBaseAI):
         for event in events:
             yield provider_normalize_realtime_event(self.profile, event, state, self.name, model or self.model)
 
-    def realtime_audio_setup(self, request: dict[str, Any]):
-        return provider_build_realtime_audio_setup(self.profile, request)
+    def realtime_audio_setup(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        return provider_build_realtime_audio_setup(self.profile, request, self._merged_options(options))
 
     def realtime_audio_input(self, request: dict[str, Any]):
         return provider_build_realtime_audio_input(self.profile, request)
@@ -806,7 +1191,7 @@ class ProviderOperationClient(AxBaseAI):
         through the shared realtime codec, and return the final response. Pass a
         ScriptedRealtimeTransport to exercise the loop offline without a socket."""
         model = request.get("model") or self.model
-        setup = provider_build_realtime_audio_setup(self.profile, request)
+        setup = provider_build_realtime_audio_setup(self.profile, request, self._merged_options(options))
         inputs = provider_build_realtime_audio_input(self.profile, request)
         own_transport = transport is None
         if transport is None:

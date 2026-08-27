@@ -1,0 +1,23 @@
+{
+  "expected_error_contains": "not supported by Vertex AI",
+  "kind": "ai_chat",
+  "model": "gemini-3.1-flash-lite",
+  "name": "gemini-service-tier-vertex-error",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "This combination is invalid.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "projectId": "demo-project",
+    "region": "us-central1",
+    "serviceTier": "flex"
+  }
+}

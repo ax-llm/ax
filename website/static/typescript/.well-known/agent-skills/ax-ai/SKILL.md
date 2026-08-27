@@ -1,7 +1,7 @@
 ---
 name: ax-ai
 description: This skill helps an LLM generate correct AI provider setup and configuration code using @ax-llm/ax. Use when the user asks about ai(), providers, models, routing, adaptive balancing, presets, embeddings, batch audio with ai.transcribe() or ai.speak(), extended thinking, context caching, or mentions OpenAI/Anthropic/Google/Azure/DeepSeek/Mistral/Cohere/Reka/Grok with @ax-llm/ax.
-version: "24.0.3"
+version: "24.0.10"
 ---
 
 # AI Provider Codegen Rules (@ax-llm/ax)
@@ -136,6 +136,29 @@ Filter with `{ type: 'all' | 'text' | 'embeddings' | 'code' | 'audio' }` or an a
 
 Dynamic providers such as Azure OpenAI deployments are marked with `isDynamic: true` and may have an empty or static-limited model list.
 
+## Gemini Inference Service Tiers
+
+Gemini GenerateContent accepts `standard`, `flex`, and `priority` tiers. The
+applied tier is normalized into `response.modelUsage.tokens.serviceTier`.
+
+```typescript
+import { ai, AxAIGoogleGeminiModel } from '@ax-llm/ax';
+
+const gemini = ai({
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY!,
+  config: {
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
+    serviceTier: 'flex',
+  },
+});
+```
+
+Service tiers apply only to the Gemini GenerateContent API. Ax rejects them for
+Vertex AI and Gemini Live before opening a provider connection. Generated
+packages expose the same option using their native provider-options shape and
+normalize an `unspecified` provider response to `standard`.
+
 ## Routing And Balancing
 
 Choose the primitive by responsibility:
@@ -240,9 +263,11 @@ Use `axGlobals` when the app wants one live default for AI requests, generator r
 
 ```typescript
 import { ai, axGlobals, axCreateDefaultColorLogger } from '@ax-llm/ax';
-import { trace } from '@opentelemetry/api';
+import { metrics, trace } from '@opentelemetry/api';
 
+axGlobals.rateLimiter = async (next, info) => next();
 axGlobals.tracer = trace.getTracer('my-app');
+axGlobals.meter = metrics.getMeter('my-app');
 axGlobals.debug = true;
 axGlobals.logger = axCreateDefaultColorLogger();
 axGlobals.customLabels = { service: 'api' };
@@ -253,12 +278,24 @@ const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY! });
 
 Rules:
 
-- `axGlobals.tracer`, `meter`, `logger`, `debug`, `abortSignal`, and `customLabels` are live runtime defaults; future calls read the current value even if the AI instance already exists.
+- `axGlobals.rateLimiter`, `tracer`, `meter`, `logger`, `debug`, `abortSignal`, and `customLabels` are live runtime defaults; each operation snapshots them at its start, even if the AI instance already exists.
 - Precedence is: per-call options, then explicit AI/service options, then current `axGlobals`, then built-in defaults.
+- The limiter receives `next` plus operation, provider, model, streaming state, and previous service usage. It wraps chat and embedding provider execution, including streaming and retries; its errors propagate. It may delay, reject, skip, or invoke `next` multiple times.
+- Tracer, meter, and usage-observer failures are fail-open. Limiter failures are fail-closed.
+- Runtime-hook telemetry contains metadata and usage only, never prompts, outputs, tool arguments, or tool results.
+- External meter instruments are independent of balancer-local `getMetrics()` snapshots. Adapt `AxMeter` to OpenTelemetry at the application boundary; generated packages do not require an OpenTelemetry dependency.
 - `customLabels` merge from globals to service to call options; later sources override earlier keys.
 - `abortSignal` values are merged, so either a global shutdown signal or a local request signal can cancel the request.
 - `axGlobals.onUsage` receives one immutable normalized event for each completed chat or embedding call that reports token usage. A fully consumed stream emits once.
 - Usage observers are best-effort and fail-open. Ax does not await them; synchronously enqueue events and persist or aggregate them out of band.
+
+Clear process-wide hooks during shutdown or test teardown:
+
+```typescript
+axGlobals.rateLimiter = undefined;
+axGlobals.tracer = undefined;
+axGlobals.meter = undefined;
+```
 
 Use `usageContext` for multi-tenant and request attribution:
 
@@ -305,9 +342,9 @@ profile rules are applied only to model IDs verified for the selected deployment
 DeepSeek V4 supports thinking mode. When `thinkingTokenBudget` is omitted, Ax
 selects its logical `max` level and sends `thinking: { type: "enabled" }` with
 `reasoning_effort: "max"`. Set `thinkingTokenBudget: "none"` explicitly to
-disable it. DeepSeek's API exposes `low`, `high`, and `max`:
-Ax maps `minimal` and `low` to `low`, `medium` and `high` to `high`, and
-`highest` to `max`. DeepSeek has no distinct `medium` effort rung. DeepSeek V4
+disable it. DeepSeek's API exposes `low`, `medium`, `high`, and `max`:
+Ax maps `minimal` and `low` to `low`, preserves `medium`, maps `high` to `high`,
+and maps `highest` to `max`. DeepSeek V4
 thinking models support tools, but reject the `tool_choice` request parameter,
 so Ax omits auto and Ax-generated `__axOutput` tool choices for `deepseek-v4-pro`,
 `deepseek-v4-flash`, and `deepseek-reasoner` while still sending tool

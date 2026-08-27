@@ -122,14 +122,13 @@
       "let client = ai(\"openai\", json!({\"apiKey\": std::env::var(\"OPENAI_API_KEY\")?}))?;"
     ],
     "telemetry": {
-      "sourcePath": "src/examples/rust/generation/usage_observer.rs",
+      "sourcePath": "src/examples/rust/generation/runtime_hooks.rs",
       "code": [
-        "set_usage_observer(Some(Arc::new(move |event| {",
-        "    usage_queue.lock().unwrap().push(event);",
-        "})));",
-        "client.chat_with_options(request, json!({",
-        "    \"usageContext\": {\"tenantId\": tenant_id, \"userId\": user_id, \"requestId\": request_id}",
-        "}))?;"
+        "set_rate_limiter(Some(global_limiter));",
+        "set_tracer(Some(tracer.clone()));",
+        "set_meter(Some(meter.clone()));",
+        "workflow.forward_with_hooks(&mut client, input, Value::Null, AxRuntimeHooks { rate_limiter: Some(call_limiter), tracer: Some(tracer), meter: Some(meter) })?;",
+        "set_rate_limiter(None); set_tracer(None); set_meter(None);"
       ],
       "verified": true,
       "requiresCredentials": true
@@ -147,6 +146,18 @@
   },
   "snippetGroups": {
     "ai": {
+      "serviceTier": {
+        "sourcePath": "src/examples/rust/generation/gemini_service_tier.rs",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "let mut client = ai(\"google-gemini\", json!({",
+          "    \"api_key\": api_key()?,",
+          "    \"model\": model,",
+          "    \"service_tier\": \"flex\",",
+          "}))?;"
+        ]
+      },
       "vertex": {
         "sourcePath": "src/examples/rust/generation/vertex_gemini.rs",
         "verified": true,

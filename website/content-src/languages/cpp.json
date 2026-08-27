@@ -128,14 +128,13 @@
       "auto client = axllm::ai(\"openai\", axllm::object({{\"apiKey\", std::getenv(\"OPENAI_API_KEY\")}}));"
     ],
     "telemetry": {
-      "sourcePath": "src/examples/cpp/generation/usage_observer.cpp",
+      "sourcePath": "src/examples/cpp/generation/runtime_hooks.cpp",
       "code": [
-        "axllm::set_usage_observer([&](axllm::AxUsageEvent event) {",
-        "  usage_queue.push(std::move(event));",
-        "});",
-        "client.chat(request, axllm::object({",
-        "  {\"usageContext\", axllm::object({{\"tenantId\", tenant_id}, {\"userId\", user_id}, {\"requestId\", request_id}})},",
-        "}));"
+        "axllm::set_rate_limiter(global_limiter);",
+        "axllm::set_tracer(tracer);",
+        "axllm::set_meter(meter);",
+        "workflow.forward(client, input, axllm::Value::object(), axllm::AxRuntimeHooks{call_limiter, tracer, meter});",
+        "axllm::set_rate_limiter({}); axllm::set_tracer({}); axllm::set_meter({});"
       ],
       "verified": true,
       "requiresCredentials": true
@@ -153,6 +152,18 @@
   },
   "snippetGroups": {
     "ai": {
+      "serviceTier": {
+        "sourcePath": "src/examples/cpp/generation/gemini_service_tier.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "axllm::GoogleGeminiClient client(axllm::object({",
+          "    {\"api_key\", key},",
+          "    {\"model\", model == nullptr || std::string(model).empty() ? \"gemini-3.7-flash\" : model},",
+          "    {\"service_tier\", \"flex\"},",
+          "}));"
+        ]
+      },
       "vertex": {
         "sourcePath": "src/examples/cpp/generation/vertex_gemini.cpp",
         "verified": true,

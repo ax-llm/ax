@@ -197,6 +197,112 @@ Register, replace, or clear the process-wide usage observer.
 axllm.SetUsageObserver(func(event axllm.AxUsageEvent) { events = append(events, event) })
 ```
 
+### `axllm.AxRuntimeHooks`
+
+Non-serializable rate limiter, tracer, and meter overrides for one service or program execution.
+
+- Canonical Ax concept: `AxRuntimeHooks`
+- Kind: `type`
+- Form: `axllm.AxRuntimeHooks`
+- Returns: `runtime hooks`
+- Important options: rate limiter, tracer, meter, precedence
+
+```go
+hooks := axllm.AxRuntimeHooks{RateLimiter: limiter, Tracer: tracer, Meter: meter}
+```
+
+### `axllm.AxRateLimitInfo`
+
+Provider and model metadata supplied to a request-wrapper rate limiter.
+
+- Canonical Ax concept: `AxRateLimitInfo`
+- Kind: `type`
+- Form: `axllm.AxRateLimitInfo`
+- Returns: `rate-limit context`
+- Important options: operation, provider, model, streaming, previous usage
+
+### `axllm.AxRateLimiter`
+
+Request wrapper that can delay, reject, or execute a chat or embedding request.
+
+- Canonical Ax concept: `AxRateLimiter`
+- Kind: `interface`
+- Form: `axllm.AxRateLimiter`
+- Returns: `provider result`
+- Important options: next, metadata, errors
+
+### `axllm.AxTracer`
+
+Dependency-neutral tracer that creates metadata-only Ax spans.
+
+- Canonical Ax concept: `AxTracer`
+- Kind: `interface`
+- Form: `axllm.AxTracer`
+- Returns: `span`
+- Important options: start span, parent span, fail-open
+
+### `axllm.AxMeter`
+
+Dependency-neutral meter for Ax counters, histograms, and gauges.
+
+- Canonical Ax concept: `AxMeter`
+- Kind: `interface`
+- Form: `axllm.AxMeter`
+- Returns: `instrument`
+- Important options: counter, histogram, gauge, fail-open
+
+### `axllm.AxGlobals`
+
+Process-wide live defaults for runtime hooks and usage observation.
+
+- Canonical Ax concept: `AxGlobals`
+- Kind: `type`
+- Form: `axllm.AxGlobals`
+- Returns: `global hooks`
+- Important options: rate limiter, tracer, meter, usage observer
+
+### `axllm.SetRateLimiter`
+
+Register, replace, or clear the process-wide request-wrapper rate limiter.
+
+- Canonical Ax concept: `set_rate_limiter`
+- Kind: `function`
+- Form: `axllm.SetRateLimiter(limiter)`
+- Returns: `void`
+- Important options: limiter, clear
+
+```go
+axllm.SetRateLimiter(limiter)
+```
+
+### `axllm.SetTracer`
+
+Register, replace, or clear the process-wide dependency-neutral tracer.
+
+- Canonical Ax concept: `set_tracer`
+- Kind: `function`
+- Form: `axllm.SetTracer(tracer)`
+- Returns: `void`
+- Important options: tracer, clear
+
+```go
+axllm.SetTracer(tracer)
+```
+
+### `axllm.SetMeter`
+
+Register, replace, or clear the process-wide dependency-neutral meter.
+
+- Canonical Ax concept: `set_meter`
+- Kind: `function`
+- Form: `axllm.SetMeter(meter)`
+- Returns: `void`
+- Important options: meter, clear
+
+```go
+axllm.SetMeter(meter)
+```
+
 ### `axllm.AxBalancer`
 
 Retry and route requests across multiple provider services, with opt-in adaptive cost, reliability, and deadline routing.

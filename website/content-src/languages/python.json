@@ -138,14 +138,13 @@
       "client = ai('openai', api_key=os.environ['OPENAI_API_KEY'])"
     ],
     "telemetry": {
-      "sourcePath": "src/examples/python/generation/usage-observer.py",
+      "sourcePath": "src/examples/python/generation/runtime-hooks.py",
       "code": [
-        "from axllm import set_usage_observer",
-        "",
-        "set_usage_observer(usage_queue.put_nowait)",
-        "client.chat(request, {",
-        "    \"usageContext\": {\"tenantId\": tenant_id, \"userId\": user_id, \"requestId\": request_id}",
-        "})"
+        "set_rate_limiter(global_limiter)",
+        "set_tracer(tracer)",
+        "set_meter(meter)",
+        "workflow.forward(client, input, hooks=AxRuntimeHooks(call_limiter, tracer, meter))",
+        "set_rate_limiter(None); set_tracer(None); set_meter(None)"
       ],
       "verified": true,
       "requiresCredentials": true
@@ -167,6 +166,18 @@
   },
   "snippetGroups": {
     "ai": {
+      "serviceTier": {
+        "sourcePath": "src/examples/python/generation/gemini-service-tier.py",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "client = GoogleGeminiClient(",
+          "    api_key=api_key,",
+          "    model=os.getenv(\"AX_GEMINI_MODEL\", \"gemini-3.7-flash\"),",
+          "    service_tier=\"flex\",",
+          ")"
+        ]
+      },
       "vertex": {
         "sourcePath": "src/examples/python/generation/vertex-gemini.py",
         "verified": true,

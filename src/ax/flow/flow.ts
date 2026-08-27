@@ -40,6 +40,11 @@ import {
 } from '../mcp/execution.js';
 import { mergeAbortSignals } from '../util/abort.js';
 import { createHash } from '../util/crypto.js';
+import {
+  axGetRuntimeHookFrame,
+  axRuntimeHookFrame,
+  axStartSpanFailOpen,
+} from '../util/telemetry.js';
 import { processBatches } from './batchUtil.js';
 import { analyzeStateDependencyMetadata } from './dependencyAnalyzer.js';
 import { AxFlowExecutionPlanner } from './executionPlanner.js';
@@ -60,6 +65,11 @@ import {
   compileFlowFromMermaid,
   renderFlowMermaid,
 } from './mermaid.js';
+import {
+  type AxFlowMetricsInstruments,
+  getOrCreateFlowMetricsInstruments,
+  recordFlowMetric,
+} from './metrics.js';
 import {
   type AxFlowBlockLabel,
   type AxFlowExecutionContext,
@@ -160,6 +170,7 @@ export class AxFlow<
       | 'eventContext'
       | 'eventInheritance'
     > & {
+      rateLimiter?: AxProgramForwardOptions<string>['rateLimiter'];
       tracer?: Tracer;
       meter?: Meter;
     }
@@ -187,6 +198,7 @@ export class AxFlow<
       : undefined;
 
     if (
+      options?.rateLimiter ||
       options?.tracer ||
       options?.meter ||
       options?.mcp ||
@@ -197,6 +209,7 @@ export class AxFlow<
       options?.eventInheritance
     ) {
       this.defaultAIOptions = {
+        rateLimiter: options.rateLimiter,
         tracer: options.tracer,
         meter: options.meter,
         mcp: options.mcp,
@@ -668,6 +681,8 @@ export class AxFlow<
     let state: AxFlowState = {};
     let parentSpan: ReturnType<Tracer['startSpan']> | undefined;
     let runAbortController: AbortController | undefined;
+    let flowMetrics: AxFlowMetricsInstruments | undefined;
+    const flowMetricAttributes = { 'ax.program.type': 'AxFlow' };
 
     try {
       this.resetUsage();
@@ -677,14 +692,27 @@ export class AxFlow<
 
       state = { ...values };
 
+      const inheritedHookFrame = axGetRuntimeHookFrame(options);
+      const globalHooks =
+        inheritedHookFrame?.globals ??
+        Object.freeze({
+          rateLimiter: axGlobals.rateLimiter,
+          tracer: axGlobals.tracer,
+          meter: axGlobals.meter,
+        });
+      const propagatedRateLimiter =
+        (options as any)?.rateLimiter ?? this.defaultAIOptions?.rateLimiter;
+      const propagatedTracer: Tracer | undefined =
+        (options as any)?.tracer ?? this.defaultAIOptions?.tracer;
+      const propagatedMeter: Meter | undefined =
+        (options as any)?.meter ?? this.defaultAIOptions?.meter;
+      const aiOptions = ai.getOptions?.() ?? {};
       const tracer: Tracer | undefined =
-        (options as any)?.tracer ??
-        this.defaultAIOptions?.tracer ??
-        axGlobals.tracer;
+        propagatedTracer ?? aiOptions.tracer ?? globalHooks.tracer;
       const meter: Meter | undefined =
-        (options as any)?.meter ??
-        this.defaultAIOptions?.meter ??
-        axGlobals.meter;
+        propagatedMeter ?? aiOptions.meter ?? globalHooks.meter;
+      flowMetrics = getOrCreateFlowMetricsInstruments(meter);
+      recordFlowMetric(flowMetrics?.requests, 1, flowMetricAttributes);
       const providedCtx: OtelContext | undefined = (options as any)
         ?.traceContext;
 
@@ -704,16 +732,26 @@ export class AxFlow<
         const spanName = (options as any)?.traceLabel
           ? `AxFlow > ${(options as any).traceLabel}`
           : 'AxFlow';
-        parentSpan = tracer.startSpan(spanName, {
-          kind: SpanKind.INTERNAL,
-          attributes: {
-            total_steps: executionPlan.totalSteps,
-            parallel_groups: executionPlan.parallelGroups,
-            max_parallelism: executionPlan.maxParallelism,
-            auto_parallel_enabled: executionPlan.autoParallelEnabled,
+        parentSpan = axStartSpanFailOpen(
+          tracer,
+          spanName,
+          {
+            kind: SpanKind.INTERNAL,
+            attributes: {
+              total_steps: executionPlan.totalSteps,
+              parallel_groups: executionPlan.parallelGroups,
+              max_parallelism: executionPlan.maxParallelism,
+              auto_parallel_enabled: executionPlan.autoParallelEnabled,
+            },
           },
-        });
-        parentCtx = trace.setSpan(providedCtx ?? context.active(), parentSpan);
+          providedCtx ?? context.active()
+        );
+        if (parentSpan) {
+          parentCtx = trace.setSpan(
+            providedCtx ?? context.active(),
+            parentSpan
+          );
+        }
       }
 
       runAbortController = new AbortController();
@@ -759,6 +797,7 @@ export class AxFlow<
       const mainOptions: AxProgramForwardOptions<string> = {
         ...(this.defaultAIOptions ?? {}),
         ...(options as any),
+        [axRuntimeHookFrame]: { globals: globalHooks },
         ...(childMCPExecutionContext
           ? { _mcpExecutionContext: childMCPExecutionContext }
           : {}),
@@ -771,8 +810,11 @@ export class AxFlow<
       if ((options as any)?.model) {
         mainOptions.model = String((options as any).model);
       }
-      if (tracer) mainOptions.tracer = tracer;
-      if (meter) mainOptions.meter = meter;
+      if (propagatedRateLimiter) {
+        mainOptions.rateLimiter = propagatedRateLimiter;
+      }
+      if (propagatedTracer) mainOptions.tracer = propagatedTracer;
+      if (propagatedMeter) mainOptions.meter = propagatedMeter;
       if (parentCtx) (mainOptions as any).traceContext = parentCtx;
       if (effectiveAbortSignal) mainOptions.abortSignal = effectiveAbortSignal;
 
@@ -821,6 +863,7 @@ export class AxFlow<
 
       return state as OUT;
     } catch (error) {
+      recordFlowMetric(flowMetrics?.errors, 1, flowMetricAttributes);
       this.flowLogger?.({
         name: 'FlowError',
         timestamp: Date.now(),
@@ -829,6 +872,11 @@ export class AxFlow<
       });
       throw error;
     } finally {
+      recordFlowMetric(
+        flowMetrics?.duration,
+        Date.now() - flowStartTime,
+        flowMetricAttributes
+      );
       parentSpan?.end();
       if (runAbortController) {
         this.activeAbortControllers.delete(runAbortController);

@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-agent-observability"
 description: "Use when writing C++ code with `axllm` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging."
-version: "24.0.3"
+version: "24.0.10"
 ---
 # AxAgent Observability For C++
 
@@ -56,7 +56,7 @@ axllm::set_usage_observer(
 
 ## Relevant API Surface
 
-- AxAI: `axllm::ai`, `axllm::AxCredentialRequest`, `axllm::AxCredentialProvider`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxUsageContext`, `axllm::AxUsageEvent`, `axllm::AxUsageObserver`, `axllm::set_usage_observer`, `axllm::AxBalancer`, `axllm::AxBalancerAdaptiveStrategy`, `axllm::AxBalancerStatsStore`, `axllm::AxInMemoryBalancerStatsStore`, `axllm::create_balancer_route_stats`, `axllm::update_balancer_route_stats`, `axllm::sample_balancer_route_health`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
+- AxAI: `axllm::ai`, `axllm::AxCredentialRequest`, `axllm::AxCredentialProvider`, `axllm::OpenAICompatibleClient`, `axllm::OpenAIResponsesClient`, `axllm::GoogleGeminiClient`, `axllm::AnthropicClient`, `axllm::AxUsageContext`, `axllm::AxUsageEvent`, `axllm::AxUsageObserver`, `axllm::set_usage_observer`, `axllm::AxRuntimeHooks`, `axllm::AxRateLimitInfo`, `axllm::AxRateLimiter`, `axllm::AxTracer`, `axllm::AxMeter`, `axllm::AxGlobals`, `axllm::set_rate_limiter`, `axllm::set_tracer`, `axllm::set_meter`, `axllm::AxBalancer`, `axllm::AxBalancerAdaptiveStrategy`, `axllm::AxBalancerStatsStore`, `axllm::AxInMemoryBalancerStatsStore`, `axllm::create_balancer_route_stats`, `axllm::update_balancer_route_stats`, `axllm::sample_balancer_route_health`, `axllm::MultiServiceRouter`, `axllm::ProviderRouter`
 - Agents And RLM: `axllm::agent`, `axllm::AxAgent`
 - Runtime Profiles: `axllm::ProcessCodeRuntime`, `axllm::RuntimeCapabilities`, `axllm::RuntimeEnvelope`, `javascript-quickjs`, `python-pyodide`
 

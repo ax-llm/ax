@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -9,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <exception>
 #include <iomanip>
 #include <initializer_list>
 #include <map>
@@ -78,6 +80,74 @@ using AxUsageContext = Value;
 using AxUsageEvent = Value;
 using AxUsageObserver = std::function<void(AxUsageEvent)>;
 
+struct AxRateLimitInfo {
+  std::string operation;
+  std::string provider;
+  std::string model;
+  bool streaming = false;
+  Value previous_model_usage;
+};
+
+using AxRequestExecutor = std::function<Value()>;
+using AxRateLimiter = std::function<Value(AxRequestExecutor, const AxRateLimitInfo&)>;
+
+class AxSpan {
+ public:
+  virtual ~AxSpan() = default;
+  virtual void set_attributes(Value attributes) = 0;
+  virtual void add_event(std::string name, Value attributes = Value::object()) = 0;
+  virtual void record_exception(std::string error) = 0;
+  virtual void set_status(std::string status, std::string description = "") = 0;
+  virtual void end() = 0;
+};
+
+struct AxSpanStart {
+  std::string name;
+  std::string kind;
+  Value attributes;
+  std::shared_ptr<AxSpan> parent;
+};
+
+class AxTracer {
+ public:
+  virtual ~AxTracer() = default;
+  virtual std::shared_ptr<AxSpan> start_span(const AxSpanStart& start) = 0;
+};
+
+struct AxMetricInstrumentOptions {
+  std::string description;
+  std::string unit;
+};
+
+class AxCounter {
+ public:
+  virtual ~AxCounter() = default;
+  virtual void add(double value, Value attributes = Value::object()) = 0;
+};
+class AxHistogram {
+ public:
+  virtual ~AxHistogram() = default;
+  virtual void record(double value, Value attributes = Value::object()) = 0;
+};
+class AxGauge {
+ public:
+  virtual ~AxGauge() = default;
+  virtual void record(double value, Value attributes = Value::object()) = 0;
+};
+class AxMeter {
+ public:
+  virtual ~AxMeter() = default;
+  virtual std::shared_ptr<AxCounter> create_counter(std::string name, AxMetricInstrumentOptions options = {}) = 0;
+  virtual std::shared_ptr<AxHistogram> create_histogram(std::string name, AxMetricInstrumentOptions options = {}) = 0;
+  virtual std::shared_ptr<AxGauge> create_gauge(std::string name, AxMetricInstrumentOptions options = {}) = 0;
+};
+
+struct AxRuntimeHooks {
+  AxRateLimiter rate_limiter;
+  std::shared_ptr<AxTracer> tracer;
+  std::shared_ptr<AxMeter> meter;
+};
+
 struct AxCredentialRequest {
   std::string profile;
   std::string operation;
@@ -87,6 +157,9 @@ struct AxCredentialRequest {
 using AxCredentialProvider = std::function<std::map<std::string, std::string>(const AxCredentialRequest&)>;
 
 void set_usage_observer(AxUsageObserver observer);
+void set_rate_limiter(AxRateLimiter limiter);
+void set_tracer(std::shared_ptr<AxTracer> tracer);
+void set_meter(std::shared_ptr<AxMeter> meter);
 
 class AxError : public std::runtime_error {
  public:
@@ -304,39 +377,39 @@ struct Core {
   static Value _prompt_messages_impl(Value system, Value user);
   static Value openai_build_chat_request(Value request, Value options, Value prompt_caching);
   static Value _openai_build_chat_request_impl(Value request, Value options, Value prompt_caching, Value reasoning_content_mode, Value reasoning_details_mode);
-  static Value merge_model_config(Value base, Value override, Value options);
-  static Value validate_chat_request(Value request);
   static Value _openai_apply_cache_breakpoint_impl(Value message);
-  static Value build_chat_request(Value service, Value request, Value options);
-  static Value normalize_chat_response(Value raw);
+  static Value merge_model_config(Value base, Value override, Value options);
   static Value _openai_apply_model_config_impl(Value payload, Value model_config);
+  static Value validate_chat_request(Value request);
+  static Value openai_reasoning_effort(Value model, Value budget);
+  static Value build_chat_request(Value service, Value request, Value options);
+  static Value openai_chat_reasoning_effort(Value model, Value budget);
+  static Value normalize_chat_response(Value raw);
   static Value normalize_stream_delta(Value raw, Value state);
+  static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
   static Value build_embed_request(Value service, Value request, Value options);
+  static Value _openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value normalize_embed_response(Value raw);
   static Value normalize_token_usage(Value usage);
-  static Value openai_reasoning_effort(Value model, Value budget);
-  static Value openai_chat_reasoning_effort(Value model, Value budget);
-  static Value _openai_copy_config_key_impl(Value payload, Value model_config, Value source, Value target);
-  static Value _openai_message_impl(Value message, Value reasoning_content_mode, Value reasoning_details_mode);
   static Value merge_usage_context(Value defaults, Value overrides);
-  static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
-  static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
-  static Value _chat_result_to_completion(Value result, Value fallback_index);
   static Value _openai_content_part_impl(Value part);
-  static Value chat_response_to_completion(Value response);
+  static Value build_usage_event(Value operation, Value response, Value options, Value streaming);
   static Value _openai_tool_call_to_provider_impl(Value call);
-  static Value ai_context_cache_rejection(Value status, Value body_json);
+  static Value _ai_model_usage_impl(Value ai_name, Value model, Value usage);
   static Value _openai_tool_spec_impl(Value fn);
-  static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
+  static Value _chat_result_to_completion(Value result, Value fallback_index);
   static Value openai_build_embed_request(Value request);
-  static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
+  static Value chat_response_to_completion(Value response);
   static Value openai_normalize_chat_response(Value raw, Value ai_name, Value model);
   static Value _openai_normalize_chat_response_impl(Value raw, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
-  static Value ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry);
+  static Value ai_context_cache_rejection(Value status, Value body_json);
   static Value _openai_normalize_choice_impl(Value choice, Value raw, Value reasoning_content_mode, Value reasoning_details_mode);
-  static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
+  static Value ai_context_cache_expiry(Value provider_expire_time, Value now);
+  static Value ai_context_cache_plan(Value configured, Value supported, Value explicit_name, Value existing, Value now, Value refresh_window_ms, Value create_eligible);
   static Value _openai_normalize_tool_calls_impl(Value calls);
+  static Value ai_context_cache_recovery(Value current_entry, Value cache_name, Value external_registry);
   static Value _openai_finish_reason_impl(Value value);
+  static Value ai_gemini_cache_ops(Value cache_name, Value ttl_seconds, Value api_key, Value model, Value create_body, Value options);
   static Value openai_normalize_embed_response(Value raw, Value ai_name, Value model);
   static Value openai_normalize_stream_delta(Value raw, Value state, Value ai_name, Value model);
   static Value _openai_normalize_stream_delta_impl(Value raw, Value state, Value ai_name, Value model, Value reasoning_content_mode, Value reasoning_details_mode);
@@ -378,8 +451,8 @@ struct Core {
   static Value provider_resolve_operation_descriptor(Value profile, Value operation, Value options);
   static Value _provider_realtime_audio_descriptor(Value profile);
   static Value provider_realtime_ws_url(Value profile, Value model, Value api_key);
-  static Value provider_should_use_realtime(Value profile, Value model, Value request);
-  static Value provider_build_realtime_audio_setup(Value profile, Value request);
+  static Value provider_should_use_realtime(Value profile, Value model, Value request, Value options);
+  static Value provider_build_realtime_audio_setup(Value profile, Value request, Value options);
   static Value provider_build_realtime_audio_input(Value profile, Value request);
   static Value _openai_realtime_compatible_build_setup(Value descriptor, Value request);
   static Value _openai_realtime_compatible_build_input(Value descriptor, Value request);
@@ -436,7 +509,8 @@ struct Core {
   static Value _gemini_normalize_speak_response(Value raw, Value request);
   static Value openai_responses_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
   static Value _gemini_live_bidi_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
-  static Value _gemini_build_chat_request(Value request);
+  static Value _gemini_service_tier_impl(Value request, Value options, Value vertex, Value live);
+  static Value _gemini_build_chat_request(Value request, Value options, Value is_vertex);
   static Value _gemini_apply_model_config_impl(Value payload, Value model_config, Value server_managed_sampling);
   static Value _gemini_message_impl(Value message);
   static Value _gemini_content_parts_impl(Value content);
@@ -871,8 +945,10 @@ class AxAIService : public AIClient {
   virtual std::string get_name();
   Value chat(Value request) override;
   Value chat(Value request, Value options) override;
+  virtual Value chat(Value request, Value options, const AxRuntimeHooks& hooks);
   virtual std::vector<Value> stream(Value request);
   virtual Value embed(Value request, Value options);
+  virtual Value embed(Value request, Value options, const AxRuntimeHooks& hooks);
   virtual Value embed(Value request) = 0;
   virtual Value transcribe(Value request) = 0;
   virtual Value transcribe(Value request, Value options);
@@ -888,17 +964,23 @@ class AxAIService : public AIClient {
   virtual Value get_last_used_chat_model();
   virtual Value get_last_used_embed_model();
   virtual Value get_last_used_model_config();
+  virtual AxAIService& set_rate_limiter(AxRateLimiter limiter);
+  virtual AxAIService& set_tracer(std::shared_ptr<AxTracer> tracer);
+  virtual AxAIService& set_meter(std::shared_ptr<AxMeter> meter);
 };
 
 class AxBaseAI : public AxAIService {
  public:
   AxBaseAI(std::string name, std::string model, std::string embed_model,
-           Value model_config = Value::object(), Value options = Value::object());
+           Value model_config = Value::object(), Value options = Value::object(),
+           AxRuntimeHooks hooks = {});
   Value chat(Value request) override;
   Value chat(Value request, Value options) override;
+  Value chat(Value request, Value options, const AxRuntimeHooks& hooks) override;
   Value complete(Value request) override;
   Value embed(Value request) override;
   Value embed(Value request, Value options) override;
+  Value embed(Value request, Value options, const AxRuntimeHooks& hooks) override;
   Value get_model_list() override;
   Value get_features(Value model = Value()) override;
   std::string get_id() override;
@@ -909,6 +991,9 @@ class AxBaseAI : public AxAIService {
   Value get_last_used_chat_model() override;
   Value get_last_used_embed_model() override;
   Value get_last_used_model_config() override;
+  AxBaseAI& set_rate_limiter(AxRateLimiter limiter) override;
+  AxBaseAI& set_tracer(std::shared_ptr<AxTracer> tracer) override;
+  AxBaseAI& set_meter(std::shared_ptr<AxMeter> meter) override;
 
  protected:
   std::string name_;
@@ -919,6 +1004,8 @@ class AxBaseAI : public AxAIService {
   Value last_used_chat_model_;
   Value last_used_embed_model_;
   Value last_used_model_config_;
+  Value last_model_usage_;
+  std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   virtual Value do_chat(Value request, Value options) = 0;
   virtual Value do_embed(Value request, Value options) = 0;
 };
@@ -1244,6 +1331,7 @@ class AxProgram {
  public:
   virtual ~AxProgram() = default;
   virtual Value forward(AIClient& client, Value values, Value options = Value::object()) = 0;
+  virtual Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks) = 0;
   virtual Value get_optimizable_components() const { return Value::array(); }
   virtual AxProgram& apply_optimized_components(Value) { return *this; }
   virtual Value get_traces() const { return Value::array(); }
@@ -1253,8 +1341,12 @@ class AxProgram {
 
 class AxGen : public AxProgram {
  public:
-  explicit AxGen(Value signature, Value options = Value::object());
+  explicit AxGen(Value signature, Value options = Value::object(), AxRuntimeHooks hooks = {});
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
+  AxGen& set_rate_limiter(AxRateLimiter limiter);
+  AxGen& set_tracer(std::shared_ptr<AxTracer> tracer);
+  AxGen& set_meter(std::shared_ptr<AxMeter> meter);
   AxGen& add_tool(const Tool& tool);
   AxGen& set_examples(Value examples);
   AxGen& set_demos(Value demos);
@@ -1286,13 +1378,14 @@ class AxGen : public AxProgram {
  private:
   Value state_;
   AxMemory memory_;
+  std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   void refresh_prompt_template();
 };
 
 class AxFlow : public AxProgram {
  public:
-  explicit AxFlow(Value options = Value::object());
-  explicit AxFlow(std::string mermaid, Value bindings = Value::object());
+  explicit AxFlow(Value options = Value::object(), AxRuntimeHooks hooks = {});
+  explicit AxFlow(std::string mermaid, Value bindings = Value::object(), AxRuntimeHooks hooks = {});
   AxFlow& execute(std::string name, AxProgram& program, Value options = Value::object());
   AxFlow& derive(std::string name, AxProgram& program, Value options = Value::object());
   AxFlow& map(std::string name, std::function<Value(Value)> mapper);
@@ -1306,6 +1399,10 @@ class AxFlow : public AxProgram {
   AxFlow& returns(Value spec);
   AxFlow& set_demos(Value demos);
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
+  AxFlow& set_rate_limiter(AxRateLimiter limiter);
+  AxFlow& set_tracer(std::shared_ptr<AxTracer> tracer);
+  AxFlow& set_meter(std::shared_ptr<AxMeter> meter);
   Value streaming_forward(AIClient& client, Value values, Value options = Value::object());
   Value get_plan() const;
   Value get_traces() const;
@@ -1324,6 +1421,7 @@ class AxFlow : public AxProgram {
  private:
   Value state_;
   std::vector<std::shared_ptr<AxGen>> mermaid_programs_;
+  std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   AxFlow& add_step(Value kind, Value name, Value program, Value options);
   Value hydrate_mermaid_steps(Value steps, Value bindings);
 };
@@ -1556,12 +1654,16 @@ class AxPlaybook {
 
 class AxAgent : public AxProgram {
  public:
-  explicit AxAgent(Value signature, Value options = Value::object());
+  explicit AxAgent(Value signature, Value options = Value::object(), AxRuntimeHooks hooks = {});
   AxAgent& set_signature(Value signature);
   Value get_instruction() const;
   AxAgent& set_instruction(Value instruction);
   AxAgent& add_actor_instruction(Value addendum);
   Value forward(AIClient& client, Value values, Value options = Value::object());
+  Value forward(AIClient& client, Value values, Value options, const AxRuntimeHooks& hooks);
+  AxAgent& set_rate_limiter(AxRateLimiter limiter);
+  AxAgent& set_tracer(std::shared_ptr<AxTracer> tracer);
+  AxAgent& set_meter(std::shared_ptr<AxMeter> meter);
   AxAgent& set_citations_observer(std::function<void(Value)> observer);
   AxAgent& set_playbook_observer(std::function<void(Value)> observer);
   Value test(AxCodeRuntime& runtime, Value code, Value context_values = Value::object(), Value options = Value::object());
@@ -1610,6 +1712,7 @@ class AxAgent : public AxProgram {
   std::unique_ptr<AxGen> llm_query_;
   Value options_;
   Value playbook_config_;
+  std::shared_ptr<const AxRuntimeHooks> runtime_hooks_;
   std::unique_ptr<AxPlaybook> playbook_handle_;
   std::function<void(Value)> citations_observer_;
   std::function<void(Value)> playbook_observer_;
@@ -1628,9 +1731,11 @@ Value s(const std::string& signature);
 Value signature(const std::string& source);
 std::string to_string(const Value& signature);
 AxGen ax(const std::string& signature, Value options = Value::object());
+AxGen ax(const std::string& signature, Value options, AxRuntimeHooks hooks);
 AxGen ax(const char* signature, Value options = Value::object());
 AxGen ax(Value signature, Value options = Value::object());
 AxAgent agent(const std::string& signature, Value options = Value::object());
+AxAgent agent(const std::string& signature, Value options, AxRuntimeHooks hooks);
 AxAgent agent(const char* signature, Value options = Value::object());
 AxAgent agent(Value signature, Value options = Value::object());
 // Register a native host search callback and return a marker to place in the agent options
@@ -1643,12 +1748,15 @@ Value register_skills_search(std::function<Value(Value)> fn);
 // onLoadedMemories/onLoadedSkills/onUsedMemories/onUsedSkills option value.
 Value register_agent_observer(std::function<void(Value)> fn);
 AxFlow flow(Value options = Value::object());
+AxFlow flow(Value options, AxRuntimeHooks hooks);
 AxFlow flow(const std::string& mermaid, Value bindings = Value::object());
+AxFlow flow(const std::string& mermaid, Value bindings, AxRuntimeHooks hooks);
 Value optimize(AxGen& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxFlow& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 Value optimize(AxAgent& program, AIClient& student, Value dataset, Value options = Value::object(), AIClient* teacher = nullptr);
 AxPlaybook playbook(AxGen& program, AIClient& student, Value options = Value::object(), AIClient* teacher = nullptr);
 std::shared_ptr<AxAIService> ai(const std::string& provider, Value options = Value::object());
+std::shared_ptr<AxAIService> ai(const std::string& provider, Value options, AxRuntimeHooks hooks);
 std::shared_ptr<AxAIService> ai(const char* provider, Value options = Value::object());
 Value to_json_schema(Value fields, const std::string& title = "Schema", Value options = Value::object());
 Value validate_output(Value fields, Value values);

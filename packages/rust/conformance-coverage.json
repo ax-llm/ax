@@ -103,6 +103,12 @@
       },
       {
         "suite": "axai",
+        "kind": "ai_runtime_hooks",
+        "runner": "rust:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
         "kind": "ai_transcribe",
         "runner": "rust:axai",
         "category": "transport-boundary"

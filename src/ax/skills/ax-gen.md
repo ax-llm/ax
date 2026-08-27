@@ -130,6 +130,7 @@ import { trace } from '@opentelemetry/api';
 
 const responseCache = new Map<string, any>();
 
+axGlobals.rateLimiter = async (next, info) => next();
 axGlobals.tracer = trace.getTracer('my-app');
 axGlobals.debug = true;
 axGlobals.cachingFunction = async (key, value?) => {
@@ -143,7 +144,9 @@ axGlobals.cachingFunction = async (key, value?) => {
 
 Rules:
 
-- Tracing/logging precedence is: forward options, then generator options, then AI service options, then current `axGlobals`, then built-in defaults.
+- Runtime-hook precedence is: forward options, then generator options, then AI service options, then the globals snapshotted at run start.
+- A forward-scoped `rateLimiter`, `tracer`, or `meter` is carried to every retry and provider call without being serialized or mutating the generator. Concurrent forwards remain isolated.
+- Limiter failures propagate. Tracer and meter failures are ignored, and telemetry contains metadata rather than prompts, outputs, or tool payloads.
 - `abortSignal` from `axGlobals` is merged with local forward signals.
 - `customLabels` merge from globals to AI service to forward options.
 - `cachingFunction` and `functionResultFormatter` also fall back to current `axGlobals` when local options do not provide them.

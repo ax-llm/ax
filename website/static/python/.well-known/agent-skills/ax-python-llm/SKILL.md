@@ -1,7 +1,7 @@
 ---
 name: "ax-python-llm"
 description: "Use when writing Python code with `axllm` for using the generated Ax package, factory functions, package docs, examples, and API reference."
-version: "24.0.3"
+version: "24.0.10"
 ---
 # Ax LLM Quick Reference For Python
 
@@ -38,7 +38,7 @@ llm = ai("openai", api_key=os.environ["OPENAI_API_KEY"])
 
 - Signatures: `s`, `f`, `AxSignature`
 - AxGen: `ax`, `AxGen`
-- AxAI: `ai`, `dict[str, str]`, `Callable[[dict[str, str]], dict[str, str]]`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxUsageContext`, `AxUsageEvent`, `AxUsageObserver`, `set_usage_observer`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter`
+- AxAI: `ai`, `dict[str, str]`, `Callable[[dict[str, str]], dict[str, str]]`, `OpenAICompatibleClient`, `OpenAIResponsesClient`, `GoogleGeminiClient`, `AnthropicClient`, `AxUsageContext`, `AxUsageEvent`, `AxUsageObserver`, `set_usage_observer`, `AxRuntimeHooks`, `AxRateLimitInfo`, `AxRateLimiter`, `AxTracer`, `AxMeter`, `AxGlobals`, `set_rate_limiter`, `set_tracer`, `set_meter`, `AxBalancer`, `AxBalancerAdaptiveStrategy`, `AxBalancerStatsStore`, `AxInMemoryBalancerStatsStore`, `create_balancer_route_stats`, `update_balancer_route_stats`, `sample_balancer_route_health`, `MultiServiceRouter`, `ProviderRouter`
 - Agents And RLM: `agent`, `AxAgent`
 - Flow: `flow`, `AxFlow`
 - Optimizers: `optimize`, `playbook`, `AxPlaybook`, `AxBootstrapFewShot`, `AxGEPA`, `OptimizerEngine`, `OptimizerEvaluator`

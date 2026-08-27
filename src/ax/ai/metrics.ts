@@ -70,36 +70,48 @@ export interface AxAIMetricsInstruments {
   cacheWriteTokensCounter?: Counter;
 }
 
-// Singleton instance for AI metrics instruments
-let globalAIMetricsInstruments: AxAIMetricsInstruments | undefined;
-let globalAIMetricsMeter: Meter | undefined;
+let aiMetricsByMeter = new WeakMap<Meter, AxAIMetricsInstruments>();
 
 // Function to get or create AI metrics instruments (singleton pattern)
 export const getOrCreateAIMetricsInstruments = (
   meter?: Meter
 ): AxAIMetricsInstruments | undefined => {
-  if (!meter) {
-    return globalAIMetricsInstruments;
+  if (!meter) return undefined;
+  const cached = aiMetricsByMeter.get(meter);
+  if (cached) return cached;
+  try {
+    const instruments = createMetricsInstruments(meter);
+    aiMetricsByMeter.set(meter, instruments);
+    return instruments;
+  } catch {
+    return undefined;
   }
-
-  if (!globalAIMetricsInstruments || globalAIMetricsMeter !== meter) {
-    globalAIMetricsInstruments = createMetricsInstruments(meter);
-    globalAIMetricsMeter = meter;
-  }
-
-  return globalAIMetricsInstruments;
 };
 
 // Function to reset the AI metrics singleton (useful for testing)
 export const resetAIMetricsInstruments = (): void => {
-  globalAIMetricsInstruments = undefined;
-  globalAIMetricsMeter = undefined;
+  aiMetricsByMeter = new WeakMap<Meter, AxAIMetricsInstruments>();
 };
+
+const failOpenInstrument = <T extends object>(instrument: T): T =>
+  new Proxy(instrument, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]) => {
+        try {
+          return Reflect.apply(value, target, args);
+        } catch {
+          return undefined;
+        }
+      };
+    },
+  });
 
 export const createMetricsInstruments = (
   meter: Meter
 ): AxAIMetricsInstruments => {
-  return {
+  const instruments: AxAIMetricsInstruments = {
     latencyHistogram: meter.createHistogram('ax_llm_request_duration_ms', {
       description: 'Duration of LLM requests in milliseconds',
       unit: 'ms',
@@ -233,6 +245,12 @@ export const createMetricsInstruments = (
       }
     ),
   };
+  return Object.fromEntries(
+    Object.entries(instruments).map(([name, instrument]) => [
+      name,
+      failOpenInstrument(instrument),
+    ])
+  ) as AxAIMetricsInstruments;
 };
 
 export const recordLatencyMetric = (

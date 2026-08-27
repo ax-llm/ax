@@ -13,13 +13,19 @@ public final class AxFlow implements AxProgram {
   final Map<String, Object> state;
   final Map<String, Object> options;
   final AxExecutionContext executionContext;
+  volatile AxRuntimeHooks runtimeHooks;
 
   public AxFlow() {
     this(Map.of());
   }
 
   public AxFlow(Map<String, Object> options) {
-    this.options = new LinkedHashMap<>(options == null ? Map.of() : options);
+    this(options, AxRuntimeHooks.empty());
+  }
+
+  public AxFlow(Map<String, Object> options, AxRuntimeHooks hooks) {
+    this.runtimeHooks = AxRuntimeHooks.merge(hooks, AxRuntimeHooks.fromOptions(options));
+    this.options = AxRuntimeHooks.strip(options);
     this.executionContext = AxExecutionContext.resolve(this.options, null);
     this.state = Core.asMap(Core._flow_factory(this.options));
     this.state.put("mermaidPercent", "%");
@@ -32,8 +38,15 @@ public final class AxFlow implements AxProgram {
   }
 
   public AxFlow(String mermaid, Map<String, Object> bindings) {
+    this(mermaid, bindings, AxRuntimeHooks.empty());
+  }
+
+  public AxFlow(String mermaid, Map<String, Object> bindings, AxRuntimeHooks hooks) {
     Map<String, Object> normalized = normalizeMermaidBindings(bindings);
-    this.options = new LinkedHashMap<>(Core.asMap(normalized.getOrDefault("options", Map.of())));
+    Map<String, Object> rawOptions = Core.asMap(normalized.getOrDefault("options", Map.of()));
+    this.runtimeHooks = AxRuntimeHooks.merge(hooks, AxRuntimeHooks.fromOptions(rawOptions));
+    this.options = AxRuntimeHooks.strip(rawOptions);
+    normalized.put("options", this.options);
     this.executionContext = AxExecutionContext.resolve(this.options, null);
     this.state = Core.asMap(Core._flow_from_mermaid(mermaid, normalized));
     this.state.put("mermaidPercent", "%");
@@ -41,6 +54,10 @@ public final class AxFlow implements AxProgram {
     this.state.put("mermaidCloseBrace", "}");
     hydrateMermaidSteps(Core.asList(this.state.getOrDefault("steps", List.of())), normalized);
   }
+
+  public AxFlow setRateLimiter(AxRateLimiter limiter) { this.runtimeHooks = new AxRuntimeHooks(limiter, runtimeHooks.tracer(), runtimeHooks.meter()); return this; }
+  public AxFlow setTracer(AxTracer tracer) { this.runtimeHooks = new AxRuntimeHooks(runtimeHooks.rateLimiter(), tracer, runtimeHooks.meter()); return this; }
+  public AxFlow setMeter(AxMeter meter) { this.runtimeHooks = new AxRuntimeHooks(runtimeHooks.rateLimiter(), runtimeHooks.tracer(), meter); return this; }
 
   public AxFlow execute(String name, AxProgram program) {
     return execute(name, program, Map.of());
@@ -228,6 +245,27 @@ public final class AxFlow implements AxProgram {
   }
 
   public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options) {
+    return forward(client, values, options, AxRuntimeHooks.fromOptions(options));
+  }
+
+  public Map<String, Object> forward(AiClient client, Map<String, Object> values, Map<String, Object> options, AxRuntimeHooks hooks) {
+    AxGlobals.Scope scope = AxGlobals.openScope(
+        hooks,
+        runtimeHooks,
+        "ax_gen_flow_forward",
+        "ax_gen_flow",
+        Map.of("ax.program.id", String.valueOf(state.getOrDefault("program_id", "root.flow")), "ax.program.type", "AxFlow"));
+    try {
+      return forwardUnscoped(client, values, AxRuntimeHooks.strip(options));
+    } catch (RuntimeException | Error error) {
+      scope.fail(error);
+      throw error;
+    } finally {
+      scope.close();
+    }
+  }
+
+  private Map<String, Object> forwardUnscoped(AiClient client, Map<String, Object> values, Map<String, Object> options) {
     Map<String, Object> callOptions = new LinkedHashMap<>(options == null ? Map.of() : options);
     AxExecutionContext context = AxExecutionContext.resolve(callOptions, executionContext);
     if (context != null) {

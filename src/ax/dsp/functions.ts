@@ -11,6 +11,7 @@ import type {
   AxLoggerFunction,
 } from '../ai/types.js';
 import type { AxMemory } from '../mem/memory.js';
+import { axStartActiveSpanFailOpen } from '../util/telemetry.js';
 import { ValidationError } from './errors.js';
 import { axGlobals } from './globals.js';
 import { validateJSONSchema } from './jsonSchema.js';
@@ -339,7 +340,6 @@ export const processFunctions = async ({
   traceContext,
   tracer,
   span,
-  excludeContentFromTrace,
   index,
   functionResultFormatter,
   logger,
@@ -493,18 +493,7 @@ export const processFunctions = async ({
               }
             }
             if (span) {
-              const eventData: {
-                name: string;
-                args?: string;
-                result?: string;
-              } = {
-                name: func.name,
-              };
-              if (!excludeContentFromTrace) {
-                eventData.args = func.args;
-                eventData.result = formatted ?? '';
-              }
-              span.addEvent('function.call', eventData);
+              span.addEvent('function.call', { name: func.name });
             }
             const protocolResult = getProtocolResult(func.name, rawResult);
             const protocolContent = getProtocolContent(func.name, rawResult);
@@ -534,19 +523,10 @@ export const processFunctions = async ({
             ok: false,
           });
           if (span) {
-            const errorEventData: {
-              name: string;
-              args?: string;
-              message: string;
-              fixing_instructions?: string;
-            } = {
+            const errorEventData = {
               name: func.name,
-              message: e.toString(),
+              error_type: e.name,
             };
-            if (!excludeContentFromTrace) {
-              errorEventData.args = func.args;
-              errorEventData.fixing_instructions = result;
-            }
             span.addEvent('function.error', errorEventData);
           }
           if (debug) {
@@ -562,136 +542,108 @@ export const processFunctions = async ({
         });
     }
 
-    const startToolSpan = (callback: (toolSpan: any) => Promise<unknown>) =>
-      traceContext
-        ? activeTracer.startActiveSpan(
-            `Tool: ${func.name}`,
-            {},
-            traceContext,
-            callback
-          )
-        : activeTracer.startActiveSpan(`Tool: ${func.name}`, callback);
-
-    return startToolSpan(async (toolSpan: any) => {
-      try {
-        toolSpan?.setAttributes?.({
-          'tool.name': func.name,
-          'tool.mode': 'native',
-          'function.id': func.id,
-          'session.id': sessionId ?? '',
-        });
-        const {
-          formatted,
-          rawResult,
-          parsedArgs,
-        }: { formatted: string; rawResult: unknown; parsedArgs: unknown } =
-          await funcProc.executeWithDetails(func, {
-            sessionId,
-            ai,
-            functionResultFormatter,
-            traceId: toolSpan?.spanContext?.().traceId ?? traceId,
-            stopFunctionNames,
-            step,
-            abortSignal,
-            eventContext,
-            _mcpExecutionContext: mcpExecutionContext,
+    return axStartActiveSpanFailOpen(
+      activeTracer,
+      `Tool: ${func.name}`,
+      {},
+      traceContext,
+      async (toolSpan: any) => {
+        try {
+          toolSpan?.setAttributes?.({
+            'tool.name': func.name,
+            'tool.mode': 'native',
+            'function.id': func.id,
+            'session.id': sessionId ?? '',
           });
-
-        functionsExecuted.add(func.name.toLowerCase());
-        step?._recordFunctionCall(func.name, parsedArgs, rawResult);
-        await emitFunctionTrace(startedAt, func, {
-          args: parsedArgs,
-          result: rawResult,
-          ok: true,
-        });
-        if (stopFunctionNames?.includes(func.name.toLowerCase())) {
-          const spec = findFunctionSpec(func.name);
-          if (spec) {
-            stopMatches.push({
-              func: spec,
-              args: parsedArgs as any,
-              result: rawResult,
+          const {
+            formatted,
+            rawResult,
+            parsedArgs,
+          }: { formatted: string; rawResult: unknown; parsedArgs: unknown } =
+            await funcProc.executeWithDetails(func, {
+              sessionId,
+              ai,
+              functionResultFormatter,
+              traceId: toolSpan?.spanContext?.().traceId ?? traceId,
+              stopFunctionNames,
+              step,
+              abortSignal,
+              eventContext,
+              _mcpExecutionContext: mcpExecutionContext,
             });
-          }
-        }
 
-        if (!excludeContentFromTrace) {
-          toolSpan.addEvent('gen_ai.tool.message', {
-            name: func.name,
-            args: func.args,
-            result: formatted ?? '',
+          functionsExecuted.add(func.name.toLowerCase());
+          step?._recordFunctionCall(func.name, parsedArgs, rawResult);
+          await emitFunctionTrace(startedAt, func, {
+            args: parsedArgs,
+            result: rawResult,
+            ok: true,
           });
-        } else {
-          toolSpan.addEvent('gen_ai.tool.message', { name: func.name });
-        }
-
-        if (span) {
-          const eventData: { name: string; args?: string; result?: string } = {
-            name: func.name,
-          };
-          if (!excludeContentFromTrace) {
-            eventData.args = func.args;
-            eventData.result = formatted ?? '';
+          if (stopFunctionNames?.includes(func.name.toLowerCase())) {
+            const spec = findFunctionSpec(func.name);
+            if (spec) {
+              stopMatches.push({
+                func: spec,
+                args: parsedArgs as any,
+                result: rawResult,
+              });
+            }
           }
-          span.addEvent('function.call', eventData);
-        }
 
-        const protocolResult = getProtocolResult(func.name, rawResult);
-        const protocolContent = getProtocolContent(func.name, rawResult);
-        return {
-          result: formatted ?? '',
-          role: 'function' as const,
-          functionId: func.id,
-          index,
-          ...(protocolResult ? { protocolResult } : {}),
-          ...(protocolContent ? { content: protocolContent } : {}),
-        };
-      } catch (e) {
-        toolSpan?.recordException?.(e as Error);
-        if (e instanceof FunctionError) {
-          const result = e.getFixingInstructions();
+          toolSpan.addEvent('gen_ai.tool.message', { name: func.name });
+
+          if (span) {
+            span.addEvent('function.call', { name: func.name });
+          }
+
+          const protocolResult = getProtocolResult(func.name, rawResult);
+          const protocolContent = getProtocolContent(func.name, rawResult);
+          return {
+            result: formatted ?? '',
+            role: 'function' as const,
+            functionId: func.id,
+            index,
+            ...(protocolResult ? { protocolResult } : {}),
+            ...(protocolContent ? { content: protocolContent } : {}),
+          };
+        } catch (e) {
+          toolSpan?.recordException?.(e as Error);
+          if (e instanceof FunctionError) {
+            const result = e.getFixingInstructions();
+            await emitFunctionTrace(startedAt, func, {
+              args: parseTraceArgs(func),
+              result,
+              ok: false,
+            });
+            const errorEventData = {
+              name: func.name,
+              error_type: e.name,
+            };
+            toolSpan?.addEvent?.('function.error', errorEventData);
+
+            if (debug) {
+              logFunctionError(e, index, result, logger);
+            }
+
+            return {
+              functionId: func.id,
+              isError: true,
+              index,
+              result,
+              role: 'function' as const,
+            };
+          }
           await emitFunctionTrace(startedAt, func, {
             args: parseTraceArgs(func),
-            result,
+            result: e,
             ok: false,
           });
-          const errorEventData: {
-            name: string;
-            args?: string;
-            message: string;
-            fixing_instructions?: string;
-          } = {
-            name: func.name,
-            message: e.toString(),
-          };
-          if (!excludeContentFromTrace) {
-            errorEventData.args = func.args;
-            errorEventData.fixing_instructions = result;
-          }
-          toolSpan?.addEvent?.('function.error', errorEventData);
-
-          if (debug) {
-            logFunctionError(e, index, result, logger);
-          }
-
-          return {
-            functionId: func.id,
-            isError: true,
-            index,
-            result,
-            role: 'function' as const,
-          };
+          throw e;
+        } finally {
+          toolSpan?.end?.();
         }
-        await emitFunctionTrace(startedAt, func, {
-          args: parseTraceArgs(func),
-          result: e,
-          ok: false,
-        });
-        throw e;
-      } finally {
-        toolSpan?.end?.();
       }
-    });
+    );
   });
 
   // Wait for all promises to resolve

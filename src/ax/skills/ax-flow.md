@@ -344,7 +344,7 @@ const fn = wf.toFunction();
 // fn.name, fn.parameters (JSON Schema), fn.func
 ```
 
-## Instrumentation (Tracing)
+## Runtime Hooks And Instrumentation
 
 ```typescript
 import { ai, flow } from '@ax-llm/ax';
@@ -372,15 +372,19 @@ import { metrics } from '@opentelemetry/api';
 
 axGlobals.tracer = tracer;
 axGlobals.meter = metrics.getMeter('axflow');
+axGlobals.rateLimiter = async (next, info) => next();
 
 const result = await wf.forward(llm, { userQuestion: 'hi' });
 ```
 
 Rules:
 
-- `wf.forward(..., { tracer, meter })` overrides flow defaults and `axGlobals`.
+- `wf.forward(..., { rateLimiter, tracer, meter })` overrides flow defaults and `axGlobals`.
 - Constructor/factory flow defaults override `axGlobals`.
-- If no local tracer or meter is provided, `AxFlow` reads current `axGlobals.tracer` and `axGlobals.meter`, creates a parent flow span, and propagates tracer/meter plus trace context to node forwards.
+- Resolution is: forward hooks, enclosing flow defaults, child-program defaults, AI-service hooks, then globals snapshotted at flow start.
+- `AxFlow` carries the resolved hooks to every explicit, generated, extended, and Mermaid node, including branches, loops, feedback bodies, parallel groups, and nested flows or agents. It does not modify child programs, and it restores the run scope on success, failure, cancellation, and stream termination.
+- Flow spans preserve Flow → nested program → AxGen → provider/tool parentage. Hook telemetry is metadata-only.
+- Limiter failures propagate; tracing and metric failures are fail-open. External meter output is separate from balancer `getMetrics()` state.
 - `axGlobals.abortSignal` is merged with flow-level abort signals.
 
 ## Program IDs and Demos

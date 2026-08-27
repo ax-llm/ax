@@ -17,6 +17,7 @@ import {
 } from '../ai/promptMetrics.js';
 import type {
   AxAIService,
+  AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
@@ -38,6 +39,12 @@ import {
   AxAIServiceTimeoutError,
 } from '../util/apicall.js';
 import { createHash } from '../util/crypto.js';
+import {
+  type AxRuntimeHookFramedOptions,
+  axGetRuntimeHookFrame,
+  axRuntimeHookFrame,
+  axStartSpanFailOpen,
+} from '../util/telemetry.js';
 import {
   type AxAssertion,
   AxAssertionError,
@@ -689,8 +696,24 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     return this.signature.getDescription() || 'unknown_signature';
   }
 
-  private getMetricsInstruments(): AxGenMetricsInstruments | undefined {
-    return getOrCreateGenMetricsInstruments();
+  private getMetricsInstruments(
+    meter?: Meter
+  ): AxGenMetricsInstruments | undefined {
+    return getOrCreateGenMetricsInstruments(meter);
+  }
+
+  private getEffectiveMeter(
+    ai: Readonly<AxAIService>,
+    options?: Readonly<Partial<AxProgramForwardOptions<any>>>
+  ): Meter | undefined {
+    const frame = axGetRuntimeHookFrame(options);
+    const globalMeter = frame ? frame.globals.meter : axGlobals.meter;
+    return (
+      options?.meter ??
+      this.options?.meter ??
+      ai.getOptions().meter ??
+      globalMeter
+    );
   }
 
   // Helper to get merged custom labels from globals, AI service, and options
@@ -1214,6 +1237,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               ? 'caller'
               : undefined,
         rateLimiter,
+        tracer: options?.tracer,
+        meter: options?.meter,
+        [axRuntimeHookFrame]: axGetRuntimeHookFrame(options),
         stream,
         debug,
         // Hide system prompt in debug logging for steps > 0 to reduce noise in multi-step workflows
@@ -1239,7 +1265,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           this.options?.usageContext,
           options?.usageContext
         ),
-      }
+      } as AxAIServiceOptions & AxRuntimeHookFramedOptions
     );
 
     if (res instanceof ReadableStream) {
@@ -1694,7 +1720,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     const promptRenderDuration = performance.now() - promptRenderStart;
 
     // Record prompt render performance metric
-    const metricsInstruments = this.getMetricsInstruments();
+    const metricsInstruments = this.getMetricsInstruments(
+      this.getEffectiveMeter(ai, options)
+    );
     const customLabels = this.getMergedCustomLabels(ai, options);
     if (metricsInstruments) {
       recordPerformanceMetric(
@@ -2101,7 +2129,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
                 !effectiveAbortSignal?.aborted
               ) {
                 // Record multi-step generation metric
-                const metricsInstruments = this.getMetricsInstruments();
+                const metricsInstruments = this.getMetricsInstruments(
+                  this.getEffectiveMeter(ai, options)
+                );
                 if (metricsInstruments) {
                   recordMultiStepMetric(
                     metricsInstruments,
@@ -2130,7 +2160,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               }
 
               // Record successful completion metrics
-              const metricsInstruments = this.getMetricsInstruments();
+              const metricsInstruments = this.getMetricsInstruments(
+                this.getEffectiveMeter(ai, options)
+              );
               if (metricsInstruments) {
                 recordMultiStepMetric(
                   metricsInstruments,
@@ -2182,7 +2214,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
               let errorFields: AxIField[] | undefined;
               const debug = this.isDebug(ai, options);
               const logger = this.getLogger(ai, options);
-              const metricsInstruments = this.getMetricsInstruments();
+              const metricsInstruments = this.getMetricsInstruments(
+                this.getEffectiveMeter(ai, options)
+              );
               const signatureName = this.getSignatureName();
 
               const args: HandleErrorForGenerateArgs<Error> = {
@@ -2275,7 +2309,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           }
 
           // Record max retries reached for validation errors
-          const metricsInstruments = this.getMetricsInstruments();
+          const metricsInstruments = this.getMetricsInstruments(
+            this.getEffectiveMeter(ai, options)
+          );
           if (metricsInstruments) {
             recordErrorCorrectionMetric(
               metricsInstruments,
@@ -2591,6 +2627,15 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   ): AxGenStreamingOut<OUT> {
     this.validateInputs(values);
 
+    const inheritedHookFrame = axGetRuntimeHookFrame(options);
+    const globalHooks =
+      inheritedHookFrame?.globals ??
+      Object.freeze({
+        rateLimiter: axGlobals.rateLimiter,
+        tracer: axGlobals.tracer,
+        meter: axGlobals.meter,
+      });
+
     // Create internal abort controller and merge with any user-provided signal
     const abortController = new AbortController();
     this.activeAbortControllers.add(abortController);
@@ -2601,9 +2646,22 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       abortController.signal,
       mergeAbortSignals(options?.abortSignal, axGlobals.abortSignal)
     );
-    const effectiveOptions = effectiveAbortSignal
-      ? { ...options, abortSignal: effectiveAbortSignal }
-      : options;
+    const effectiveOptions = {
+      ...options,
+      rateLimiter:
+        options.rateLimiter ??
+        this.options?.rateLimiter ??
+        ai.getOptions().rateLimiter ??
+        globalHooks.rateLimiter,
+      tracer:
+        options.tracer ??
+        this.options?.tracer ??
+        ai.getOptions().tracer ??
+        globalHooks.tracer,
+      meter: this.getEffectiveMeter(ai, options),
+      [axRuntimeHookFrame]: { globals: globalHooks, resolved: true },
+      ...(effectiveAbortSignal ? { abortSignal: effectiveAbortSignal } : {}),
+    };
 
     try {
       // Track state creation performance
@@ -2612,7 +2670,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       const stateCreationDuration = performance.now() - stateCreationStart;
 
       // Record state creation performance metric
-      const metricsInstruments = this.getMetricsInstruments();
+      const metricsInstruments = this.getMetricsInstruments(
+        effectiveOptions.meter
+      );
       const customLabels = this.getMergedCustomLabels(ai, options);
       if (metricsInstruments) {
         recordPerformanceMetric(
@@ -2624,11 +2684,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         );
       }
 
-      const tracer =
-        options?.tracer ??
-        this.options?.tracer ??
-        ai.getOptions().tracer ??
-        axGlobals.tracer;
+      const tracer = effectiveOptions.tracer;
 
       let functions: AxFunction[] | undefined = this.functions;
 
@@ -2661,21 +2717,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           }
         : effectiveOptions;
 
-      if (!tracer) {
-        yield* this._forward2(ai, values, states, {
-          ...executionOptions,
-          functions,
-        });
-        return;
-      }
-
       const funcNames = functions?.map((f) => f.name).join(',');
 
       const attributes = {
-        signature: JSON.stringify(this.signature.toJSON(), null, 2),
-        ...(this.examples
-          ? { examples: JSON.stringify(this.examples, null, 2) }
-          : {}),
+        signature_name: this.getSignatureName(),
+        input_field_count: this.signature.getInputFields().length,
+        output_field_count: this.signature.getOutputFields().length,
         ...(funcNames ? { provided_functions: funcNames } : {}),
         ...(options?.model ? { model: options.model } : {}),
         ...(options?.thinkingTokenBudget
@@ -2694,18 +2741,31 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           : (options.traceLabel ?? this.traceLabel);
       const spanName = traceLabel ? `AxGen > ${traceLabel}` : 'AxGen';
 
-      const span = tracer.startSpan(spanName, {
-        kind: SpanKind.SERVER,
-        attributes,
-      });
+      const parentContext = options.traceContext ?? context.active();
+      const span = axStartSpanFailOpen(
+        tracer,
+        spanName,
+        {
+          kind: SpanKind.SERVER,
+          attributes,
+        },
+        parentContext
+      );
 
-      const currentContext = context.active();
-      const traceContext = trace.setSpan(currentContext, span);
+      if (!span) {
+        yield* this._forward2(ai, values, states, {
+          ...executionOptions,
+          functions,
+        });
+        return;
+      }
+
+      const traceContext = trace.setSpan(parentContext, span);
 
       try {
-        if (!this.excludeContentFromTrace) {
-          span.addEvent('input', { content: JSON.stringify(values, null, 2) });
-        }
+        span.addEvent('input', {
+          field_count: Object.keys(values as Record<string, unknown>).length,
+        });
 
         yield* this._forward2(
           ai,
@@ -2719,13 +2779,13 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
           traceContext
         );
 
-        if (!this.excludeContentFromTrace) {
-          const valuesList = states.map((s) => s.values);
-          const values = valuesList.length === 1 ? valuesList[0] : valuesList;
-          span.addEvent('output', {
-            content: JSON.stringify(values, null, 2),
-          });
-        }
+        span.addEvent('output', {
+          sample_count: states.length,
+          field_count: Math.max(
+            0,
+            ...states.map((state) => Object.keys(state.values).length)
+          ),
+        });
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         span.recordException(err);
@@ -2869,7 +2929,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
     try {
       // Record signature complexity metrics
-      const metricsInstruments = this.getMetricsInstruments();
+      const metricsInstruments = this.getMetricsInstruments(
+        this.getEffectiveMeter(ai, options)
+      );
       const customLabels = this.getMergedCustomLabels(ai, options);
       if (metricsInstruments) {
         recordSignatureComplexityMetrics(
@@ -2979,7 +3041,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       const duration = performance.now() - startTime;
 
       // Record generation metrics
-      const finalMetricsInstruments = this.getMetricsInstruments();
+      const finalMetricsInstruments = this.getMetricsInstruments(
+        this.getEffectiveMeter(ai, options)
+      );
       const finalCustomLabels = this.getMergedCustomLabels(ai, options);
       if (finalMetricsInstruments) {
         recordGenerationMetric(

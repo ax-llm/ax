@@ -261,7 +261,8 @@ describe('AxGen forward and streamingForward', () => {
 
     expect(tracer.startSpan).toHaveBeenCalledWith(
       'AxGen',
-      expect.objectContaining({ kind: expect.any(Number) })
+      expect.objectContaining({ kind: expect.any(Number) }),
+      expect.anything()
     );
   });
 

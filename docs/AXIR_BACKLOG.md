@@ -18,20 +18,7 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-08-27-preserve-deepseek-medium-reasoning-effort` [axai] Preserve DeepSeek medium reasoning effort
-  - Status: open
-  - Source PR: #616
-  - Source commit: `ce66e454d16a47788797db6b07cb122ad312d043`
-  - TS paths: `src/ax/ai/deepseek/api.test.ts`, `src/ax/ai/provider_profiles.ts`
-  - Impact: Generated language providers still map DeepSeek V4 medium reasoning to high effort until the behavior is migrated into AxIR.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-08-26-support-gemini-inference-service-tiers` [axai] Support Gemini inference service tiers
-  - Status: open
-  - Source PR: #609
-  - Source commit: `d753119b2d16ff5b6e51bfdc7cd4d8f048a91242`
-  - TS paths: `src/ax/ai/google-gemini/api.test.ts`, `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/types.ts`, `src/ax/ai/types.enhanced.test.ts`, `src/ax/ai/types.ts`
-  - Impact: TypeScript configures standard, flex, and priority Gemini GenerateContent requests, reports the applied tier in normalized usage, and rejects unsupported Vertex AI and Live API combinations. Generated Python, Java, C++, Go, and Rust providers do not yet expose the same request, response, and validation contract.
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+No entries.
 
 ## Done
 
@@ -516,3 +503,23 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
   - Completed at: 2026-08-22
   - Completed by: `040f954bce9c7dca44f7fd3436886d036f9e358b`
   - Verification: `TS-derived native-image routing fixture; five-language AxIR dev verifier; npm run axir:check-packages; go test ./internal/axir; focused TypeScript router tests`
+- `axir-2026-08-26-support-gemini-inference-service-tiers` [axai] Support Gemini inference service tiers
+  - Status: done
+  - Source PR: #609
+  - Source commit: `d753119b2d16ff5b6e51bfdc7cd4d8f048a91242`
+  - TS paths: `src/ax/ai/google-gemini/api.test.ts`, `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/types.ts`, `src/ax/ai/types.enhanced.test.ts`, `src/ax/ai/types.ts`
+  - Impact: TypeScript configures standard, flex, and priority Gemini GenerateContent requests, reports the applied tier in normalized usage, and rejects unsupported Vertex AI and Live API combinations. Generated Python, Java, C++, Go, and Rust providers do not yet expose the same request, response, and validation contract.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-27
+  - Completed by: `working-tree`
+  - Verification: `npm run profiles:check; npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir; npx vitest run src/ax/ai/deepseek/api.test.ts src/ax/ai/google-gemini/api.test.ts src/ax/ai/types.enhanced.test.ts; npm run example -- list --json; npm run website:check`
+- `axir-2026-08-27-preserve-deepseek-medium-reasoning-effort` [axai] Preserve DeepSeek medium reasoning effort
+  - Status: done
+  - Source PR: #616
+  - Source commit: `ce66e454d16a47788797db6b07cb122ad312d043`
+  - TS paths: `src/ax/ai/deepseek/api.test.ts`, `src/ax/ai/provider_profiles.ts`
+  - Impact: Generated language providers still map DeepSeek V4 medium reasoning to high effort until the behavior is migrated into AxIR.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
+  - Completed at: 2026-08-27
+  - Completed by: `working-tree`
+  - Verification: `npm run profiles:check; npm run axir:conformance:check; npm run axir:check-packages; npm run test:axir; npx vitest run src/ax/ai/deepseek/api.test.ts src/ax/ai/google-gemini/api.test.ts src/ax/ai/types.enhanced.test.ts; npm run example -- list --json; npm run website:check`

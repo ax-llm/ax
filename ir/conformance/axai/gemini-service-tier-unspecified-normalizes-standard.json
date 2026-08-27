@@ -1,0 +1,64 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "google-gemini",
+      "model": "gemini-3.5-flash",
+      "tokens": {
+        "completion_tokens": 1,
+        "prompt_tokens": 1,
+        "service_tier": "standard",
+        "total_tokens": 2
+      }
+    },
+    "remote_id": "gemini_tier_unspecified",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_json_absent": ["service_tier"],
+  "kind": "ai_chat",
+  "name": "gemini-service-tier-unspecified-normalizes-standard",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Use the default tier.",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "responseId": "gemini_tier_unspecified",
+        "usageMetadata": {
+          "candidatesTokenCount": 1,
+          "promptTokenCount": 1,
+          "serviceTier": "unspecified",
+          "totalTokenCount": 2
+        }
+      },
+      "status": 200
+    }
+  ]
+}

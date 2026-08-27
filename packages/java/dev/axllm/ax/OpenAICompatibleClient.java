@@ -103,7 +103,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
 
   protected Map<String, Object> doChat(Map<String, Object> request, Map<String, Object> options) throws Exception {
     Object realtimeModel = request.getOrDefault("model", model);
-    if (Boolean.TRUE.equals(Core.provider_should_use_realtime(profile, String.valueOf(realtimeModel), request))) {
+    if (Boolean.TRUE.equals(Core.provider_should_use_realtime(profile, String.valueOf(realtimeModel), request, options))) {
       return realtimeChat(request, null);
     }
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, request, options));
@@ -261,6 +261,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
   public Iterable<Map<String, Object>> stream(Map<String, Object> request) throws Exception {
     Map<String, Object> req = Core.coerceChatRequest(request);
     Core.validate_chat_request(req);
+    AxRuntimeHooks hooks = AxGlobals.effective(Map.of("stream", true), runtimeHooks);
     Map<String, Object> modelConfig = Core.asMap(Core.merge_model_config(modelConfig(), req.get("model_config"), Map.of("stream", true)));
     modelConfig.put("stream", true);
     req.put("model", req.getOrDefault("model", model));
@@ -268,9 +269,32 @@ public class OpenAICompatibleClient extends AxBaseAI {
     Map<String, Object> streamOptions = mergedOptions(Map.of("stream", true));
     Map<String, Object> payload = Core.asMap(Core.provider_build_chat_request(profile, req, streamOptions));
     Object modelName = req.getOrDefault("model", payload.getOrDefault("model", model));
-    List<Map<String, Object>> events = streamEvents(payload, modelName);
-    AxGlobals.emitUsage("chat", Map.of("results", events), streamOptions, true);
-    return events;
+    String selectedModel = String.valueOf(modelName);
+    lastUsedChatModel = selectedModel;
+    lastUsedModelConfig = new LinkedHashMap<>(modelConfig);
+    Map<String, Object> attributes = Map.of("ax.operation", "chat", "ax.ai", name, "ax.model", selectedModel, "ax.streaming", true);
+    AxSpan span = AxGlobals.startSpan(hooks, "ax_llm_chat", "client", attributes, AxGlobals.currentSpan());
+    AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_requests_total", 1, attributes);
+    long started = System.nanoTime();
+    Throwable failure = null;
+    try {
+      AxRequestExecutor next = () -> streamEvents(payload, modelName);
+      Object raw = hooks.rateLimiter() == null
+          ? next.execute()
+          : hooks.rateLimiter().run(next, new AxRateLimitInfo("chat", name, selectedModel, true, lastModelUsage == null ? null : new LinkedHashMap<>(lastModelUsage)));
+      List<Map<String, Object>> events = Core.asMapList(raw);
+      AxGlobals.emitUsage("chat", Map.of("results", events), streamOptions, true);
+      return events;
+    } catch (Throwable error) {
+      failure = error;
+      if (error instanceof Exception exception) throw exception;
+      if (error instanceof Error fatal) throw fatal;
+      throw new RuntimeException(error);
+    } finally {
+      if (failure != null) AxGlobals.recordMetric(hooks.meter(), "counter", "ax_llm_errors_total", 1, attributes);
+      AxGlobals.recordMetric(hooks.meter(), "histogram", "ax_llm_request_duration_ms", (System.nanoTime() - started) / 1_000_000.0, attributes);
+      AxGlobals.finishSpan(span, failure);
+    }
   }
 
   public Map<String, Object> transcribe(Map<String, Object> request) throws Exception {
@@ -300,7 +324,7 @@ public class OpenAICompatibleClient extends AxBaseAI {
   }
 
   public Map<String, Object> realtimeAudioSetup(Map<String, Object> request) {
-    return Core.asMap(Core.provider_build_realtime_audio_setup(profile, request));
+    return Core.asMap(Core.provider_build_realtime_audio_setup(profile, request, options));
   }
 
   public List<Object> realtimeAudioInput(Map<String, Object> request) {
