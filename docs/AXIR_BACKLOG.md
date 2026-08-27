@@ -18,26 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-- `axir-2026-08-26-serialize-gemini-inference-service-tiers` [axai] Serialize Gemini inference service tiers
-  - Status: open
-  - Source PR: #609
-  - Source commit: `80a46e2ff83ecdf2f5ab90f6e9723a6477f046c2`
-  - TS paths: `src/ax/ai/google-gemini/api.ts`
-  - Impact: Track Gemini service_tier request serialization for generated-language parity
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 - `axir-2026-08-26-support-gemini-inference-service-tiers` [axai] Support Gemini inference service tiers
   - Status: open
   - Source PR: #609
-  - Source commit: `b8251f72d6828455327367b4fefb9ad410322b67`
-  - TS paths: `src/ax/ai/google-gemini/types.ts`
-  - Impact: Keep generated-language providers aligned with Gemini service_tier request configuration
-  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
-- `axir-2026-08-26-test-gemini-inference-service-tier-serialization` [axai] Test Gemini inference service tier serialization
-  - Status: open
-  - Source PR: #609
-  - Source commit: `7075fe691f8581818c3a188e23f00273820410a5`
-  - TS paths: `src/ax/ai/google-gemini/api.test.ts`
-  - Impact: Track the portable Gemini request regression coverage
+  - Source commit: `d753119b2d16ff5b6e51bfdc7cd4d8f048a91242`
+  - TS paths: `src/ax/ai/google-gemini`, `src/ax/ai/types.ts`
+  - Impact: TypeScript configures standard, flex, and priority Gemini GenerateContent requests, reports the applied tier in normalized usage, and rejects unsupported Vertex AI and Live API combinations. Generated Python, Java, C++, Go, and Rust providers do not yet expose the same request, response, and validation contract.
   - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done

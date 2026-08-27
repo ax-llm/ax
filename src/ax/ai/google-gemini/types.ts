@@ -245,6 +245,8 @@ export type AxAIGoogleGeminiChatResponse = {
     thoughtsTokenCount: number;
     /** Number of tokens in the cached content (from explicit caching) */
     cachedContentTokenCount?: number;
+    /** Service tier that actually handled the request. */
+    serviceTier?: 'unspecified' | 'standard' | 'flex' | 'priority';
   };
 };
 

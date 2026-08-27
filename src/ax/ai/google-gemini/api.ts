@@ -799,6 +799,12 @@ class AxAIGoogleGeminiImpl
       throw new Error('Chat prompt is empty');
     }
 
+    if (useLiveAudio && this.config.serviceTier) {
+      throw new Error(
+        'Gemini inference service tiers are not supported by the Live API'
+      );
+    }
+
     let apiConfig: AxAPI;
     if (useLiveAudio) {
       if (this.isVertex) {
@@ -1519,6 +1525,10 @@ class AxAIGoogleGeminiImpl
 
     if (resp.usageMetadata) {
       const cachedTokens = resp.usageMetadata.cachedContentTokenCount ?? 0;
+      const serviceTier =
+        resp.usageMetadata.serviceTier === 'unspecified'
+          ? 'standard'
+          : resp.usageMetadata.serviceTier;
       this.tokensUsed = {
         totalTokens: resp.usageMetadata.totalTokenCount,
         // Subtract cached tokens so promptTokens represents only uncached input,
@@ -1527,6 +1537,7 @@ class AxAIGoogleGeminiImpl
         completionTokens: resp.usageMetadata.candidatesTokenCount,
         thoughtsTokens: resp.usageMetadata.thoughtsTokenCount,
         ...(cachedTokens > 0 ? { cacheReadTokens: cachedTokens } : {}),
+        ...(serviceTier ? { serviceTier } : {}),
       };
     }
     const response: AxChatResponse = {
@@ -2225,6 +2236,12 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       ...axAIGoogleGeminiDefaultConfig(),
       ...config,
     };
+
+    if (vertexConfig && Config.serviceTier) {
+      throw new Error(
+        'Gemini inference service tiers are not supported by Vertex AI'
+      );
+    }
 
     let apiURL: string;
     let headers: () => Promise<Record<string, string>>;

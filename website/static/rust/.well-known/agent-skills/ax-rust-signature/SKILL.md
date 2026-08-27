@@ -1,7 +1,7 @@
 ---
 name: "ax-rust-signature"
 description: "Use when writing Rust code with `axllm` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes."
-version: "24.0.3"
+version: "24.0.8"
 ---
 # Ax Signatures For Rust
 

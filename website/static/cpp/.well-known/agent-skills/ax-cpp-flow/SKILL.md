@@ -1,7 +1,7 @@
 ---
 name: "ax-cpp-flow"
 description: "Use when writing C++ code with `axllm` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components."
-version: "24.0.3"
+version: "24.0.8"
 ---
 # AxFlow For C++
 

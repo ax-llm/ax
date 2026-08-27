@@ -1,7 +1,7 @@
 ---
 name: ax-agent-observability
 description: This skill helps an LLM generate correct AxAgent observability code using @ax-llm/ax. Use when the user asks about axGlobals.onUsage, usageContext, centralized or multi-tenant usage accounting, actorTurnCallback, onContextEvent, agentStatusCallback, onFunctionCall, reportSuccess, reportFailure, getChatLog(), getUsage(), resetUsage(), debug traces, progress updates, or telemetry for AxAgent runs.
-version: "24.0.3"
+version: "24.0.8"
 ---
 
 # AxAgent Observability Rules (@ax-llm/ax)
