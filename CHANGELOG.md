@@ -1,5 +1,27 @@
 # Changelog
 
+## [24.0.11](https://github.com/ax-llm/ax/compare/24.0.9...24.0.10) (2026-08-27)
+
+### Features
+
+* **axir:** add portable runtime hooks ([#617](https://github.com/ax-llm/ax/issues/617)) ([33ff4a0](https://github.com/ax-llm/ax/commit/33ff4a0639d44cd5979002ba52d880eb8029ad99))
+
+### Bug Fixes
+
+* **deepseek:** preserve medium reasoning effort ([#616](https://github.com/ax-llm/ax/issues/616)) ([5f478be](https://github.com/ax-llm/ax/commit/5f478bef38e78b9296ed0ea94733417ed1a7827a))
+* **go:** surface HTTP errors from embed, transcribe and speak ([#615](https://github.com/ax-llm/ax/issues/615)) ([c4851c8](https://github.com/ax-llm/ax/commit/c4851c898e71321aea7b4b4d45c628439dcdb62e))
+* **release:** publish merged releases automatically ([#614](https://github.com/ax-llm/ax/issues/614)) ([9879cc1](https://github.com/ax-llm/ax/commit/9879cc13123eb1248144ca21f894631de4fd774d))
+
+## [24.0.10](https://github.com/ax-llm/ax/compare/24.0.9...24.0.10) (2026-08-27)
+
+### Features
+
+* **gemini:** support inference service tiers ([#609](https://github.com/ax-llm/ax/issues/609)) ([f7e2dfe](https://github.com/ax-llm/ax/commit/f7e2dfe4cda665b16b9675f7c78fe4f4b4b8197b))
+
+### Bug Fixes
+
+* **axai:** forward the requested embedding size to Gemini ([#612](https://github.com/ax-llm/ax/issues/612)) ([6e2cfb2](https://github.com/ax-llm/ax/commit/6e2cfb2de1ca122e5edd0c8dcc111e0e793398d4))
+
 ## [24.0.10](https://github.com/ax-llm/ax/compare/24.0.7...24.0.8) (2026-08-27)
 
 ### Features
