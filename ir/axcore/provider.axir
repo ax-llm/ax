@@ -2542,6 +2542,7 @@ module @ax.provider version "0.1" {
           core.set %descriptor["baseUrl"] = %base_url
           core.set %descriptor["auth"] = "bearer"
           core.call intrinsic.map.delete(%descriptor, "apiKeyQuery")
+          core.call intrinsic.map.delete(%descriptor, "apiKeyHeader")
           %operations = core.get %descriptor["operations"]
           %resource_parent = core.call intrinsic.string.format("projects/{}/locations/{}", %project, %region)
           %parent = core.call intrinsic.string.format("/{}", %resource_parent)

@@ -1864,20 +1864,24 @@ impl OpenAICompatibleClient {
         }
     }
 
-    fn stream_path(&self) -> String {
-        match self.profile.as_str() {
-            "google-gemini" => format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
-                self.model, self.api_key
-            ),
-            _ => self.chat_path().to_string(),
-        }
-    }
-
     fn post_json(&mut self, path: &str, body: Value, binary: bool, operation: &str) -> AxResult<Value> {
         let url = self.endpoint_url(path);
         let mut headers = serde_json::Map::new();
-        if !self.api_key.is_empty() { headers.insert("Authorization".to_string(), json!(format!("Bearer {}", self.api_key))); }
+        if !self.api_key.is_empty() {
+            let descriptor = core_value_to_json(&provider_resolve_descriptor(&[
+                CoreValue::from(self.profile.as_str()),
+                core_value_from_json(&self.options),
+            ])?);
+            if self.profile == "google-gemini"
+                && !descriptor.get("vertex").and_then(Value::as_bool).unwrap_or(false)
+            {
+                // Gemini developer API keys belong in a header. Keeping them out of
+                // request URLs prevents credentials from leaking through URL logs.
+                headers.insert("x-goog-api-key".to_string(), json!(self.api_key.clone()));
+            } else {
+                headers.insert("Authorization".to_string(), json!(format!("Bearer {}", self.api_key)));
+            }
+        }
         if let Some(provider) = self.credential_provider.as_ref() {
             for (key, value) in provider.credentials(&AxCredentialRequest { profile: self.profile.clone(), operation: operation.to_string(), method: "POST".to_string(), url: url.clone() })? {
                 headers.insert(key, json!(value));
@@ -1947,29 +1951,6 @@ impl OpenAICompatibleClient {
             .error_for_status()?
             .json()?;
         Ok(json!({"status": 200, "json": response}))
-    }
-
-    fn post_stream(&mut self, path: &str, body: Value) -> AxResult<Value> {
-        let url = self.endpoint_url(path);
-        if let Some(transport) = self.transport.as_mut() {
-            return transport.send(json!({
-                "method": "POST",
-                "url": url,
-                "headers": {"authorization": "Bearer test-key"},
-                "json": body,
-                "stream": true
-            }));
-        }
-        let text = HttpClient::builder()
-            .timeout(Duration::from_secs(60))
-            .build()?
-            .post(url)
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()?
-            .error_for_status()?
-            .text()?;
-        Ok(json!({"status": 200, "body": text}))
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
@@ -2068,8 +2049,7 @@ impl OpenAICompatibleClient {
             "google-gemini" => {
                 let model = string_at(&request, "model").unwrap_or_else(|| self.model.clone());
                 let path = format!(
-                    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
-                    self.api_key
+                    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
                 );
                 self.post_json(&path, body, false, "transcribe")?
             }
@@ -2104,8 +2084,7 @@ impl OpenAICompatibleClient {
                 let model = string_at(&request, "model")
                     .unwrap_or_else(|| "gemini-2.5-flash-preview-tts".to_string());
                 let path = format!(
-                    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={}",
-                    self.api_key
+                    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
                 );
                 self.post_json(&path, body, binary, "speak")?
             }
@@ -19330,6 +19309,71 @@ fn python_repr(value: &Value) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+    }
+}
+
+#[cfg(test)]
+mod request_url_security_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    struct CapturingTransport {
+        request: Arc<Mutex<Option<Value>>>,
+    }
+
+    impl AxTransport for CapturingTransport {
+        fn send(&mut self, request: Value) -> AxResult<Value> {
+            *self.request.lock().expect("capture request") = Some(request);
+            Ok(json!({
+                "status": 200,
+                "json": {
+                    "candidates": [{"content": {"parts": [{"text": "transcript"}]}}]
+                }
+            }))
+        }
+    }
+
+    #[test]
+    fn gemini_audio_api_key_is_a_header_not_a_url_parameter() -> AxResult<()> {
+        let request = Arc::new(Mutex::new(None));
+        let transport = CapturingTransport {
+            request: Arc::clone(&request),
+        };
+        let mut client = OpenAICompatibleClient::new("test-secret-key", "gemini-3.5-flash")
+            .with_profile("google-gemini")
+            .with_transport(transport);
+
+        let transcript = client.transcribe(json!({
+            "audio": {"data": "audio-bytes", "mimeType": "audio/wav"}
+        }))?;
+        assert_eq!(transcript["text"], "transcript");
+
+        let captured = request
+            .lock()
+            .expect("read captured request")
+            .clone()
+            .expect("request was sent");
+        let url = captured["url"].as_str().expect("request URL");
+        assert!(!url.contains("test-secret-key"), "API key leaked into URL: {url}");
+        assert_eq!(captured["headers"]["x-goog-api-key"], "test-secret-key");
+        assert!(captured["headers"].get("Authorization").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn vertex_gemini_descriptor_clears_developer_api_key_fields() -> AxResult<()> {
+        let descriptor = core_value_to_json(&provider_resolve_descriptor(&[
+            CoreValue::from("google-gemini"),
+            core_value_from_json(&json!({
+                "projectId": "demo-project",
+                "region": "us",
+            })),
+        ])?);
+        assert_eq!(descriptor["auth"], "bearer");
+        assert_eq!(descriptor["vertex"], true);
+        assert!(descriptor.get("apiKeyHeader").is_none());
+        assert!(descriptor.get("apiKeyQuery").is_none());
+        Ok(())
     }
 }
 

@@ -3287,7 +3287,8 @@ gemini_service = ai('google-gemini', api_key='test', transport=lambda req: (
 assert isinstance(gemini_service, GoogleGeminiClient)
 gemini_chat = gemini_service.chat({'chat_prompt': [{'role': 'user', 'content': 'hello'}], 'model_config': {'stream': False}})
 assert gemini_chat['results'][0]['content'] == 'ok', gemini_chat
-assert gemini_requests[0]['url'].endswith('/models/gemini-3.5-flash:generateContent?key=test'), gemini_requests[0]
+assert gemini_requests[0]['url'].endswith('/models/gemini-3.5-flash:generateContent'), gemini_requests[0]
+assert gemini_requests[0]['headers']['x-goog-api-key'] == 'test', gemini_requests[0]
 anthropic_requests = []
 anthropic_service = ai('anthropic', api_key='test', transport=lambda req: (
     anthropic_requests.append(req) or {

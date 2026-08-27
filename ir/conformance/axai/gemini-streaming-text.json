@@ -33,12 +33,15 @@
     }
   ],
   "expected_transport_request": {
+    "headers": {
+      "x-goog-api-key": "test-key"
+    },
     "json": {
       "generationConfig": {
         "responseMimeType": "text/plain"
       }
     },
-    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse&key=test-key"
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse"
   },
   "kind": "ai_stream",
   "name": "gemini-streaming-text",

@@ -303,7 +303,8 @@ export const axAIProviderProfiles = {
     "baseURL": "https://generativelanguage.googleapis.com/v1beta",
     "requiresApiURL": false,
     "auth": {
-      "type": "api-key-query",
+      "type": "api-key-header",
+      "header": "x-goog-api-key",
       "required": true
     },
     "defaults": {

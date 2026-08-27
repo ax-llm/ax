@@ -444,7 +444,7 @@ class AxAIGoogleGeminiImpl
       typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
     const url = this.isVertex
       ? `${this.getVertexApiURL(model as string, options?.beta)}/models/${model}:generateContent`
-      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent${keyValue ? `?key=${keyValue}` : ''}`;
+      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
     const body = {
       contents: [
         {
@@ -472,7 +472,9 @@ class AxAIGoogleGeminiImpl
       'Content-Type': 'application/json',
       ...(this.isVertex && keyValue
         ? { Authorization: `Bearer ${keyValue}` }
-        : {}),
+        : !this.isVertex && keyValue
+          ? { 'x-goog-api-key': keyValue }
+          : {}),
     };
     const response = await (options?.fetch ?? globalThis.fetch)(url, {
       method: 'POST',
@@ -514,7 +516,7 @@ class AxAIGoogleGeminiImpl
       typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
     const url = this.isVertex
       ? `${this.getVertexApiURL(model as string, options?.beta)}/models/${model}:generateContent`
-      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent${keyValue ? `?key=${keyValue}` : ''}`;
+      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
     const voice =
       typeof req.voice === 'object' ? req.voice.id : (req.voice ?? 'Kore');
     return await axFetchJsonSpeech({
@@ -522,7 +524,9 @@ class AxAIGoogleGeminiImpl
       headers: {
         ...(this.isVertex && keyValue
           ? { Authorization: `Bearer ${keyValue}` }
-          : {}),
+          : !this.isVertex && keyValue
+            ? { 'x-goog-api-key': keyValue }
+            : {}),
         ...(this.credentialProvider
           ? await this.credentialProvider({
               profile: 'google-gemini',
@@ -829,13 +833,6 @@ class AxAIGoogleGeminiImpl
 
     if (!useLiveAudio && this.isVertex) {
       apiConfig.url = this.getVertexApiURL(model as string, config?.beta);
-    }
-
-    if (!useLiveAudio && !this.isVertex) {
-      const pf = stream ? '&' : '?';
-      const keyValue =
-        typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
-      if (keyValue) apiConfig.name += `${pf}key=${keyValue}`;
     }
 
     const systemPrompts = req.chatPrompt
@@ -1297,10 +1294,8 @@ class AxAIGoogleGeminiImpl
         },
       };
     } else {
-      const keyValue =
-        typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
       apiConfig = {
-        name: `/models/${model}:batchEmbedContents${keyValue ? `?key=${keyValue}` : ''}`,
+        name: `/models/${model}:batchEmbedContents`,
       };
 
       reqValue = {
@@ -1657,10 +1652,7 @@ class AxAIGoogleGeminiImpl
     if (vertexCtx) {
       apiPath = `/${vertexCtx.parent}/cachedContents`;
     } else {
-      // Add API key for non-Vertex
-      const keyValue =
-        typeof this.apiKey === 'function' ? 'ASYNC_KEY' : this.apiKey;
-      apiPath = `/cachedContents${keyValue ? `?key=${keyValue}` : ''}`;
+      apiPath = '/cachedContents';
     }
 
     return {
@@ -1738,11 +1730,6 @@ class AxAIGoogleGeminiImpl
     };
 
     const query = new URLSearchParams({ updateMask: 'ttl' });
-    if (!this.isVertex && this.apiKey) {
-      const keyValue =
-        typeof this.apiKey === 'function' ? 'ASYNC_KEY' : this.apiKey;
-      query.set('key', keyValue);
-    }
     const apiPath = `/${cacheName}?${query.toString()}`;
 
     const vertexCtx = this.getVertexCacheContext();
@@ -1771,12 +1758,7 @@ class AxAIGoogleGeminiImpl
    * Build a cache deletion operation.
    */
   buildCacheDeleteOp = (cacheName: string): AxContextCacheOperation => {
-    let apiPath = `/${cacheName}`;
-    if (!this.isVertex && this.apiKey) {
-      const keyValue =
-        typeof this.apiKey === 'function' ? 'ASYNC_KEY' : this.apiKey;
-      apiPath += `?key=${keyValue}`;
-    }
+    const apiPath = `/${cacheName}`;
 
     const vertexCtx = this.getVertexCacheContext();
     return {
@@ -1827,13 +1809,6 @@ class AxAIGoogleGeminiImpl
           ? `/models/${model}:streamGenerateContent?alt=sse`
           : `/models/${model}:generateContent`,
       };
-    }
-
-    if (!this.isVertex) {
-      const pf = stream ? '&' : '?';
-      const keyValue =
-        typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
-      if (keyValue) apiConfig.name += `${pf}key=${keyValue}`;
     }
 
     // Build the generation config using existing logic
@@ -2289,7 +2264,14 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
         );
       }
       apiURL = 'https://generativelanguage.googleapis.com/v1beta';
-      headers = async () => ({});
+      headers = async () => ({
+        ...(apiKey
+          ? {
+              'x-goog-api-key':
+                typeof apiKey === 'function' ? await apiKey() : apiKey,
+            }
+          : {}),
+      });
     }
 
     const aiImpl = new AxAIGoogleGeminiImpl(

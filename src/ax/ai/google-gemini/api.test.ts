@@ -2175,7 +2175,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       );
 
       expect(op.apiConfig).toMatchObject({
-        name: '/cachedContents/abc123?updateMask=ttl&key=gemini-key',
+        name: '/cachedContents/abc123?updateMask=ttl',
         method: 'PATCH',
       });
       expect(op.request).toEqual({ ttl: '7200s' });

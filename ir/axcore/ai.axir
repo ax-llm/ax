@@ -796,22 +796,9 @@ module @ax.ai version "0.1" {
       %ttl = core.call intrinsic.string.format("{}s", %ttl_seconds)
       %descriptor = core.call @provider_resolve_descriptor("google-gemini", %options)
       %is_vertex = core.get %descriptor["vertex"] default false
-      %api_key_length = core.call intrinsic.len(%api_key)
-      %has_key = core.call intrinsic.gt(%api_key_length, 0)
       %create_path = core.let "/cachedContents"
       %update_path = core.call intrinsic.string.format("/{}?updateMask=ttl", %cache_name)
       %delete_path = core.call intrinsic.string.format("/{}", %cache_name)
-      %vertex_with_key = core.call intrinsic.and(%has_key, %is_vertex)
-      %not_vertex = core.call intrinsic.not(%vertex_with_key)
-      %developer_with_key = core.call intrinsic.and(%has_key, %not_vertex)
-      core.if %developer_with_key {
-        %create_with_key = core.call intrinsic.string.format("/cachedContents?key={}", %api_key)
-        %update_with_key = core.call intrinsic.string.format("/{}?updateMask=ttl&key={}", %cache_name, %api_key)
-        %delete_with_key = core.call intrinsic.string.format("/{}?key={}", %cache_name, %api_key)
-        %create_path = core.let %create_with_key
-        %update_path = core.let %update_with_key
-        %delete_path = core.let %delete_with_key
-      }
       core.if %is_vertex {
         %parent = core.get %descriptor["vertexParent"] default ""
         %create_path = core.call intrinsic.string.format("/{}/cachedContents", %parent)

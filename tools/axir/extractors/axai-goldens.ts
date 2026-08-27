@@ -1728,8 +1728,8 @@ writeFixture('gemini-provider-descriptor', {
     name: 'Google Gemini',
     defaultModel: geminiDefaultModel,
     defaultEmbedModel: geminiDefaultEmbedModel,
-    auth: 'api_key_query',
-    apiKeyQuery: 'key',
+    auth: 'api_key_header',
+    apiKeyHeader: 'x-goog-api-key',
     operations: {
       chat: {
         method: 'POST',
@@ -4484,7 +4484,8 @@ writeFixture('gemini-simple-chat', {
   },
   expected_transport_request: {
     method: 'POST',
-    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultModel}:generateContent?key=test-key`,
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultModel}:generateContent`,
+    headers: { 'x-goog-api-key': 'test-key' },
     json: {
       systemInstruction: {
         role: 'user',
@@ -4554,7 +4555,8 @@ for (const serviceTier of ['standard', 'flex', 'priority'] as const) {
     },
     expected_transport_request: {
       method: 'POST',
-      url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultModel}:generateContent?key=test-key`,
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultModel}:generateContent`,
+      headers: { 'x-goog-api-key': 'test-key' },
       json: { service_tier: serviceTier },
     },
   });
@@ -4701,7 +4703,8 @@ for (const [fixtureName, model] of [
     },
     expected_transport_request: {
       method: 'POST',
-      url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=test-key`,
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      headers: { 'x-goog-api-key': 'test-key' },
       json: {
         contents: [{ role: 'user', parts: [{ text: 'Answer briefly.' }] }],
         generationConfig: {
@@ -4872,7 +4875,8 @@ writeFixture('gemini-streaming-text', {
     },
   ],
   expected_transport_request: {
-    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultModel}:streamGenerateContent?alt=sse&key=test-key`,
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultModel}:streamGenerateContent?alt=sse`,
+    headers: { 'x-goog-api-key': 'test-key' },
     json: { generationConfig: { responseMimeType: 'text/plain' } },
   },
 });
@@ -4961,7 +4965,8 @@ writeFixture('gemini-embeddings', {
     ],
   },
   expected_transport_request: {
-    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultEmbedModel}:batchEmbedContents?key=test-key`,
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultEmbedModel}:batchEmbedContents`,
+    headers: { 'x-goog-api-key': 'test-key' },
     json: {
       requests: [
         {
@@ -4990,7 +4995,8 @@ writeFixture('gemini-embeddings-output-dimensionality', {
   ],
   expected_output: { embeddings: [[0.1, 0.2]] },
   expected_transport_request: {
-    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultEmbedModel}:batchEmbedContents?key=test-key`,
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultEmbedModel}:batchEmbedContents`,
+    headers: { 'x-goog-api-key': 'test-key' },
     json: {
       requests: [
         {
@@ -5201,7 +5207,7 @@ writeFixture('http-method-descriptor', {
   expected: {
     create: {
       method: 'POST',
-      path: '/cachedContents?key=gemini-key',
+      path: '/cachedContents',
       request: {
         model: 'models/gemini-3.5-flash',
         systemInstruction: { parts: [{ text: 'stable context' }] },
@@ -5210,12 +5216,12 @@ writeFixture('http-method-descriptor', {
     },
     update: {
       method: 'PATCH',
-      path: '/cachedContents/cache-1?updateMask=ttl&key=gemini-key',
+      path: '/cachedContents/cache-1?updateMask=ttl',
       request: { ttl: '3600s' },
     },
     delete: {
       method: 'DELETE',
-      path: '/cachedContents/cache-1?key=gemini-key',
+      path: '/cachedContents/cache-1',
       request: {},
     },
   },

@@ -4,6 +4,9 @@
     "embeddings": [[0.1, 0.2]]
   },
   "expected_transport_request": {
+    "headers": {
+      "x-goog-api-key": "test-key"
+    },
     "json": {
       "requests": [
         {
@@ -19,7 +22,7 @@
         }
       ]
     },
-    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:batchEmbedContents?key=test-key"
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:batchEmbedContents"
   },
   "kind": "ai_embed",
   "name": "gemini-embeddings-output-dimensionality",
