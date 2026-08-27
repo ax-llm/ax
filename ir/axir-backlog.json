@@ -1162,6 +1162,31 @@
       "completedAt": "2026-08-22",
       "completedByCommit": "040f954bce9c7dca44f7fd3436886d036f9e358b",
       "verification": "TS-derived native-image routing fixture; five-language AxIR dev verifier; npm run axir:check-packages; go test ./internal/axir; focused TypeScript router tests"
+    },
+    {
+      "id": "axir-2026-08-26-support-gemini-inference-service-tiers",
+      "status": "open",
+      "title": "Support Gemini inference service tiers",
+      "createdAt": "2026-08-26",
+      "sourcePR": 609,
+      "sourceCommit": "d753119b2d16ff5b6e51bfdc7cd4d8f048a91242",
+      "tsPaths": [
+        "src/ax/ai/google-gemini/api.test.ts",
+        "src/ax/ai/google-gemini/api.ts",
+        "src/ax/ai/google-gemini/types.ts",
+        "src/ax/ai/types.enhanced.test.ts",
+        "src/ax/ai/types.ts"
+      ],
+      "portableSurface": "axai",
+      "impact": "TypeScript configures standard, flex, and priority Gemini GenerateContent requests, reports the applied tier in normalized usage, and rejects unsupported Vertex AI and Live API combinations. Generated Python, Java, C++, Go, and Rust providers do not yet expose the same request, response, and validation contract.",
+      "suggestedAxirWork": [
+        "Add or update the TS-derived conformance fixture.",
+        "Update AxIR/Core or descriptor data to match the portable TS behavior.",
+        "Run npm run axir:conformance:check and npm run test:axir."
+      ],
+      "completedAt": null,
+      "completedByCommit": null,
+      "verification": null
     }
   ],
   "nonPortableExemptions": [

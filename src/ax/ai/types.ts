@@ -128,7 +128,7 @@ export type AxTokenUsage = {
   reasoningTokens?: number; // For O1-style models
   cacheCreationTokens?: number; // Cost of creating cache entries
   cacheReadTokens?: number; // Tokens read from cache (often free)
-  serviceTier?: 'standard' | 'priority' | 'batch'; // Service level used
+  serviceTier?: 'standard' | 'flex' | 'priority' | 'batch'; // Service level used
   speed?: 'standard' | 'fast'; // Provider speed tier used when reported
 };
 

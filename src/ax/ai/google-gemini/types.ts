@@ -185,6 +185,7 @@ export type AxAIGoogleGeminiChatRequest = {
   safetySettings?: AxAIGoogleGeminiSafetySettings;
   /** Reference to a cached content resource (for explicit context caching) */
   cachedContent?: string;
+  service_tier?: 'standard' | 'flex' | 'priority';
 };
 
 export type AxAIGoogleGeminiChatResponse = {
@@ -244,6 +245,8 @@ export type AxAIGoogleGeminiChatResponse = {
     thoughtsTokenCount: number;
     /** Number of tokens in the cached content (from explicit caching) */
     cachedContentTokenCount?: number;
+    /** Service tier that actually handled the request. */
+    serviceTier?: 'unspecified' | 'standard' | 'flex' | 'priority';
   };
 };
 
@@ -291,6 +294,8 @@ export type AxAIGoogleGeminiConfig = AxModelConfig & {
   thinkingLevelMapping?: AxAIGoogleGeminiThinkingLevelMapping;
   urlContext?: string;
   responseFormat?: 'json_object';
+  /** Inference service tier used by the Gemini API. */
+  serviceTier?: 'standard' | 'flex' | 'priority';
 };
 
 /**

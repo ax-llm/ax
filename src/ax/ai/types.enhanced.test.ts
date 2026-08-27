@@ -141,6 +141,13 @@ describe('Enhanced AxChatResponse Types', () => {
         serviceTier: 'priority',
       };
 
+      const flexUsage: AxTokenUsage = {
+        promptTokens: 100,
+        completionTokens: 50,
+        totalTokens: 150,
+        serviceTier: 'flex',
+      };
+
       const batchUsage: AxTokenUsage = {
         promptTokens: 100,
         completionTokens: 50,
@@ -149,6 +156,7 @@ describe('Enhanced AxChatResponse Types', () => {
       };
 
       expect(standardUsage.serviceTier).toBe('standard');
+      expect(flexUsage.serviceTier).toBe('flex');
       expect(priorityUsage.serviceTier).toBe('priority');
       expect(batchUsage.serviceTier).toBe('batch');
     });

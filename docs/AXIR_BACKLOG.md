@@ -18,7 +18,13 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-08-26-support-gemini-inference-service-tiers` [axai] Support Gemini inference service tiers
+  - Status: open
+  - Source PR: #609
+  - Source commit: `d753119b2d16ff5b6e51bfdc7cd4d8f048a91242`
+  - TS paths: `src/ax/ai/google-gemini/api.test.ts`, `src/ax/ai/google-gemini/api.ts`, `src/ax/ai/google-gemini/types.ts`, `src/ax/ai/types.enhanced.test.ts`, `src/ax/ai/types.ts`
+  - Impact: TypeScript configures standard, flex, and priority Gemini GenerateContent requests, reports the applied tier in normalized usage, and rejects unsupported Vertex AI and Live API combinations. Generated Python, Java, C++, Go, and Rust providers do not yet expose the same request, response, and validation contract.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

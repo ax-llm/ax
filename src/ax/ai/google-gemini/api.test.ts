@@ -1516,6 +1516,41 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       }
     );
 
+    it('sends the service tier only on the cached generate request', async () => {
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: {
+          model: AxAIGoogleGeminiModel.Gemini25Flash,
+          serviceTier: 'flex',
+        },
+        models: [],
+      });
+      const capture = { calls: [] as Array<{ url: string; body?: any }> };
+      const fetch = createSequencedMockFetch(
+        [cacheCreateResponse, generateResponse],
+        capture
+      );
+      const { registry } = createRegistry();
+
+      ai.setOptions({ fetch });
+
+      await ai.chat(
+        {
+          chatPrompt: [
+            { role: 'system', content: 'Cache this', cache: true },
+            { role: 'user', content: 'hi' },
+          ],
+        },
+        {
+          stream: false,
+          contextCache: { minTokens: 0, registry },
+        }
+      );
+
+      expect(capture.calls[0]?.body).not.toHaveProperty('service_tier');
+      expect(capture.calls[1]?.body?.service_tier).toBe('flex');
+    });
+
     it('caches tools and toolConfig when breakpoint is after-examples', async () => {
       const ai = new AxAIGoogleGemini({
         apiKey: 'key',
@@ -2280,6 +2315,104 @@ describe('AxAIGoogleGemini model key preset merging', () => {
   });
 });
 
+describe('AxAIGoogleGemini inference service tiers', () => {
+  it.each(['standard', 'flex', 'priority'] as const)(
+    'sends and reports the %s inference service tier',
+    async (serviceTier) => {
+      const capture: { lastBody?: any } = {};
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: {
+          model: AxAIGoogleGeminiModel.Gemini25Flash,
+          serviceTier,
+        },
+        models: [],
+      });
+
+      ai.setOptions({
+        fetch: createMockFetch(
+          {
+            candidates: [
+              {
+                content: { parts: [{ text: 'ok' }] },
+                finishReason: 'STOP',
+              },
+            ],
+            usageMetadata: {
+              promptTokenCount: 1,
+              candidatesTokenCount: 1,
+              totalTokenCount: 2,
+              thoughtsTokenCount: 0,
+              serviceTier,
+            },
+          },
+          capture
+        ),
+      });
+
+      const response = await ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'hello' }] },
+        { stream: false }
+      );
+
+      expect(capture.lastBody?.service_tier).toBe(serviceTier);
+      expect(response.modelUsage?.tokens?.serviceTier).toBe(serviceTier);
+    }
+  );
+
+  it('normalizes an unspecified response tier to standard', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+      models: [],
+    });
+
+    ai.setOptions({
+      fetch: createMockFetch({
+        candidates: [
+          {
+            content: { parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 1,
+          candidatesTokenCount: 1,
+          totalTokenCount: 2,
+          thoughtsTokenCount: 0,
+          serviceTier: 'unspecified',
+        },
+      }),
+    });
+
+    const response = await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hello' }] },
+      { stream: false }
+    );
+
+    expect(response.modelUsage?.tokens?.serviceTier).toBe('standard');
+  });
+
+  it.each(['standard', 'flex', 'priority'] as const)(
+    'rejects the %s inference service tier for Vertex AI',
+    (serviceTier) => {
+      expect(
+        () =>
+          new AxAIGoogleGemini({
+            apiKey: async () => 'token',
+            projectId: 'project',
+            region: 'us-central1',
+            config: {
+              model: AxAIGoogleGeminiModel.Gemini25Flash,
+              serviceTier,
+            },
+            models: [],
+          })
+      ).toThrow('not supported by Vertex AI');
+    }
+  );
+});
+
 describe('AxAIGoogleGemini Live audio chat', () => {
   it('recognizes Gemini 3.1 Flash Live as a Live audio model', () => {
     expect(
@@ -2485,6 +2618,24 @@ describe('AxAIGoogleGemini Live audio chat', () => {
         { stream: false }
       )
     ).rejects.toThrow('structured response formats');
+  });
+
+  it('rejects inference service tiers for Live audio', async () => {
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: {
+        ...axAIGoogleGeminiLiveAudioDefaultConfig(),
+        serviceTier: 'flex',
+      },
+      models: [],
+    });
+
+    await expect(
+      ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'say hi' }] },
+        { stream: false }
+      )
+    ).rejects.toThrow('not supported by the Live API');
   });
 
   it('rejects non-PCM input for Live audio', async () => {
