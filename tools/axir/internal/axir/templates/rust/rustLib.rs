@@ -2156,6 +2156,7 @@ impl OpenAICompatibleClient {
         let built = provider_build_realtime_audio_setup(&[
             CoreValue::from(self.profile.as_str()),
             core_value_from_json(&request),
+            core_value_from_json(&self.options),
         ])?;
         Ok(core_value_to_json(&built))
     }
@@ -2531,6 +2532,7 @@ impl AxAIClient for OpenAICompatibleClient {
             CoreValue::from(self.profile.as_str()),
             CoreValue::from(realtime_model.as_str()),
             core_value_from_json(&req),
+            core_value_from_json(&self.options),
         ])?)
         .as_bool()
         .unwrap_or(false)

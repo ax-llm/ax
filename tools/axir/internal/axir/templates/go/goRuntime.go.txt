@@ -2322,7 +2322,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request map[string]Va
 		mustCore(validate_chat_request(req))
 		opts := c.optionsSnapshot()
 		model := coreGet(req, "model", coreGet(opts, "model", nil))
-		if shouldRealtime, _ := mustCore(provider_should_use_realtime(c.Profile, display(model), req)).(bool); shouldRealtime {
+		if shouldRealtime, _ := mustCore(provider_should_use_realtime(c.Profile, display(model), req, mergedOptions)).(bool); shouldRealtime {
 			result, rtErr := c.RealtimeChat(ctx, req, mergedOptions, nil)
 			if rtErr != nil {
 				panic(AxError{Category: "network", Message: rtErr.Error()})
@@ -2817,10 +2817,10 @@ func (c *OpenAICompatibleClient) realtimeWSTarget(model Value, opts map[string]V
 // ScriptedRealtimeTransport to exercise the loop offline without a socket.
 func (c *OpenAICompatibleClient) RealtimeChat(ctx context.Context, request map[string]Value, options map[string]Value, transport RealtimeTransport) (Value, error) {
 	return safeValue(func() Value {
-		opts := c.optionsSnapshot()
+		opts := mergeAIOptions(c.optionsSnapshot(), options)
 		model := coreGet(request, "model", coreGet(opts, "model", nil))
-		setup := mustCore(provider_build_realtime_audio_setup(c.Profile, request, options))
-		inputs := asSlice(mustCore(provider_build_realtime_audio_input(c.Profile, request, options)))
+		setup := mustCore(provider_build_realtime_audio_setup(c.Profile, request, opts))
+		inputs := asSlice(mustCore(provider_build_realtime_audio_input(c.Profile, request, opts)))
 		ownTransport := transport == nil
 		if ownTransport {
 			wsURL, headers := c.realtimeWSTarget(model, opts)

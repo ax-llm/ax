@@ -92,6 +92,16 @@ breakpoints. Give AxGen a stable `promptCacheKey` plus `contextCache`; those
 forward options reach the provider in every language. Cache reads and writes
 are normalized separately for usage and catalog-backed cost estimates.
 
+### Gemini inference service tiers
+
+Gemini GenerateContent supports `standard`, `flex`, and `priority` service
+tiers in every language package. Configure the tier in the Gemini provider
+options; the normalized model usage reports the tier that actually handled the
+request. An `unspecified` provider response becomes `standard`. Ax rejects a
+configured tier for Vertex AI and Gemini Live before transport. The Generation
+example catalog contains a provider-backed Gemini Flex example with exact
+language-native setup and response syntax.
+
 ### Adaptive balancing
 
 `AxBalancer` keeps its existing ordered failover behavior by default. Set `strategy.type` to `adaptive` to rank equivalent providers per chat request using learned reliability, successful latency, a deadline, and estimated cost. Configure `badOutcomeCost` in the same currency or unit as the route cost estimate.

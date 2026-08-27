@@ -2955,7 +2955,7 @@ Value OpenAICompatibleClient::context_cache_chat(Value request, Value options, V
 
 Value OpenAICompatibleClient::do_chat(Value request, Value options) {
   Value realtime_model = Core::coalesce(Core::get(request, "model"), Value(model_));
-  if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request))) {
+  if (Core::truthy(Core::provider_should_use_realtime(profile_, realtime_model, request, options))) {
     return realtime_chat(request, nullptr);
   }
   Value payload = Core::provider_build_chat_request(profile_, request, options);
@@ -3045,7 +3045,7 @@ std::vector<Value> OpenAICompatibleClient::realtime(Value events) {
 }
 
 Value OpenAICompatibleClient::realtime_audio_setup(Value request) {
-  return Core::provider_build_realtime_audio_setup(profile_, request);
+  return Core::provider_build_realtime_audio_setup(profile_, request, options_);
 }
 
 Value OpenAICompatibleClient::realtime_audio_input(Value request) {
@@ -3139,7 +3139,7 @@ bool ScriptedRealtimeTransport::recv(Value& out) {
 
 Value OpenAICompatibleClient::realtime_chat(Value request, RealtimeTransport* transport) {
   std::string model = str(Core::get(request, "model", Value(model_)));
-  Value setup = Core::provider_build_realtime_audio_setup(profile_, request);
+  Value setup = Core::provider_build_realtime_audio_setup(profile_, request, options_);
   Value inputs = Core::provider_build_realtime_audio_input(profile_, request);
   std::unique_ptr<RealtimeTransport> owned;
   if (transport == nullptr) {

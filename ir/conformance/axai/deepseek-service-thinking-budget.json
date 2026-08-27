@@ -29,7 +29,7 @@
         }
       ],
       "model": "deepseek-v4-flash",
-      "reasoning_effort": "high",
+      "reasoning_effort": "medium",
       "thinking": {
         "type": "enabled"
       }

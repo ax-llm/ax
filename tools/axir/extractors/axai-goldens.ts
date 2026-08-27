@@ -2261,7 +2261,7 @@ writeFixture('deepseek-service-thinking-budget', {
       model: deepseekDefaultModel,
       messages: [{ role: 'user', content: 'think' }],
       thinking: { type: 'enabled' },
-      reasoning_effort: 'high',
+      reasoning_effort: 'medium',
     },
   },
 });
@@ -4500,6 +4500,143 @@ writeFixture('gemini-simple-chat', {
       },
     },
   },
+});
+
+for (const serviceTier of ['standard', 'flex', 'priority'] as const) {
+  writeFixture(`gemini-service-tier-${serviceTier}`, {
+    kind: 'ai_chat',
+    provider: 'google-gemini',
+    service_options: { serviceTier },
+    request: {
+      chat_prompt: [{ role: 'user', content: `Use the ${serviceTier} tier.` }],
+      model_config: { stream: false },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          responseId: `gemini_tier_${serviceTier}`,
+          candidates: [
+            {
+              finishReason: 'STOP',
+              content: { parts: [{ text: 'ok' }] },
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 1,
+            candidatesTokenCount: 1,
+            totalTokenCount: 2,
+            serviceTier,
+          },
+        },
+      },
+    ],
+    expected_output: {
+      results: [
+        {
+          index: 0,
+          content: 'ok',
+          function_calls: [],
+          finish_reason: 'stop',
+        },
+      ],
+      remote_id: `gemini_tier_${serviceTier}`,
+      model_usage: {
+        ai: 'google-gemini',
+        model: geminiDefaultModel,
+        tokens: {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2,
+          service_tier: serviceTier,
+        },
+      },
+    },
+    expected_transport_request: {
+      method: 'POST',
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${geminiDefaultModel}:generateContent?key=test-key`,
+      json: { service_tier: serviceTier },
+    },
+  });
+}
+
+writeFixture('gemini-service-tier-unspecified-normalizes-standard', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Use the default tier.' }],
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        responseId: 'gemini_tier_unspecified',
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: { parts: [{ text: 'ok' }] },
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 1,
+          candidatesTokenCount: 1,
+          totalTokenCount: 2,
+          serviceTier: 'unspecified',
+        },
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        content: 'ok',
+        function_calls: [],
+        finish_reason: 'stop',
+      },
+    ],
+    remote_id: 'gemini_tier_unspecified',
+    model_usage: {
+      ai: 'google-gemini',
+      model: geminiDefaultModel,
+      tokens: {
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2,
+        service_tier: 'standard',
+      },
+    },
+  },
+  expected_transport_json_absent: ['service_tier'],
+});
+
+writeFixture('gemini-service-tier-vertex-error', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.1-flash-lite',
+  service_options: {
+    projectId: 'demo-project',
+    region: 'us-central1',
+    serviceTier: 'flex',
+  },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'This combination is invalid.' }],
+    model_config: { stream: false },
+  },
+  expected_error_contains: 'not supported by Vertex AI',
+});
+
+writeFixture('gemini-service-tier-live-error', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: geminiLiveDefaultModel,
+  service_options: { serviceTier: 'flex' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'This combination is invalid.' }],
+    model_config: { stream: false },
+  },
+  expected_error_contains: 'not supported by the Live API',
 });
 
 for (const [fixtureName, model] of [

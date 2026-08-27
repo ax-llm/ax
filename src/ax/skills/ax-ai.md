@@ -136,6 +136,29 @@ Filter with `{ type: 'all' | 'text' | 'embeddings' | 'code' | 'audio' }` or an a
 
 Dynamic providers such as Azure OpenAI deployments are marked with `isDynamic: true` and may have an empty or static-limited model list.
 
+## Gemini Inference Service Tiers
+
+Gemini GenerateContent accepts `standard`, `flex`, and `priority` tiers. The
+applied tier is normalized into `response.modelUsage.tokens.serviceTier`.
+
+```typescript
+import { ai, AxAIGoogleGeminiModel } from '@ax-llm/ax';
+
+const gemini = ai({
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY!,
+  config: {
+    model: AxAIGoogleGeminiModel.Gemini35Flash,
+    serviceTier: 'flex',
+  },
+});
+```
+
+Service tiers apply only to the Gemini GenerateContent API. Ax rejects them for
+Vertex AI and Gemini Live before opening a provider connection. Generated
+packages expose the same option using their native provider-options shape and
+normalize an `unspecified` provider response to `standard`.
+
 ## Routing And Balancing
 
 Choose the primitive by responsibility:

@@ -952,7 +952,7 @@ class ProviderOperationClient(AxBaseAI):
 
     def _chat(self, request: dict[str, Any], options: dict[str, Any]):
         realtime_model = request.get("model") or self.model
-        if provider_should_use_realtime(self.profile, str(realtime_model or ""), request):
+        if provider_should_use_realtime(self.profile, str(realtime_model or ""), request, options):
             return self.realtime_chat(request, options)
         payload = provider_build_chat_request(self.profile, request, options)
         if payload.get("stream"):
@@ -1179,8 +1179,8 @@ class ProviderOperationClient(AxBaseAI):
         for event in events:
             yield provider_normalize_realtime_event(self.profile, event, state, self.name, model or self.model)
 
-    def realtime_audio_setup(self, request: dict[str, Any]):
-        return provider_build_realtime_audio_setup(self.profile, request)
+    def realtime_audio_setup(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        return provider_build_realtime_audio_setup(self.profile, request, self._merged_options(options))
 
     def realtime_audio_input(self, request: dict[str, Any]):
         return provider_build_realtime_audio_input(self.profile, request)
@@ -1191,7 +1191,7 @@ class ProviderOperationClient(AxBaseAI):
         through the shared realtime codec, and return the final response. Pass a
         ScriptedRealtimeTransport to exercise the loop offline without a socket."""
         model = request.get("model") or self.model
-        setup = provider_build_realtime_audio_setup(self.profile, request)
+        setup = provider_build_realtime_audio_setup(self.profile, request, self._merged_options(options))
         inputs = provider_build_realtime_audio_input(self.profile, request)
         own_transport = transport is None
         if transport is None:

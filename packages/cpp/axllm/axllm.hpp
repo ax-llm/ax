@@ -451,8 +451,8 @@ struct Core {
   static Value provider_resolve_operation_descriptor(Value profile, Value operation, Value options);
   static Value _provider_realtime_audio_descriptor(Value profile);
   static Value provider_realtime_ws_url(Value profile, Value model, Value api_key);
-  static Value provider_should_use_realtime(Value profile, Value model, Value request);
-  static Value provider_build_realtime_audio_setup(Value profile, Value request);
+  static Value provider_should_use_realtime(Value profile, Value model, Value request, Value options);
+  static Value provider_build_realtime_audio_setup(Value profile, Value request, Value options);
   static Value provider_build_realtime_audio_input(Value profile, Value request);
   static Value _openai_realtime_compatible_build_setup(Value descriptor, Value request);
   static Value _openai_realtime_compatible_build_input(Value descriptor, Value request);
@@ -509,7 +509,8 @@ struct Core {
   static Value _gemini_normalize_speak_response(Value raw, Value request);
   static Value openai_responses_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
   static Value _gemini_live_bidi_normalize_realtime_event(Value event, Value state, Value ai_name, Value model);
-  static Value _gemini_build_chat_request(Value request);
+  static Value _gemini_service_tier_impl(Value request, Value options, Value vertex, Value live);
+  static Value _gemini_build_chat_request(Value request, Value options, Value is_vertex);
   static Value _gemini_apply_model_config_impl(Value payload, Value model_config, Value server_managed_sampling);
   static Value _gemini_message_impl(Value message);
   static Value _gemini_content_parts_impl(Value content);

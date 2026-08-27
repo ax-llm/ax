@@ -46,7 +46,7 @@ module @ax.ai version "0.1" {
   op ax.ai.record @AxAIServiceOptions {
     attr core_kind = "record"
     tag "src/ax/ai/types.ts"
-    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,thinkingTokenBudget?:string,showThoughts?:bool,sessionId?:string,promptCacheKey?:string,contextCache?:json,usageContext?:AxUsageContext"
+    type fields = "debug?:bool,stream?:bool,functionCallMode?:string,timeout?:i64,retry?:json,useExpensiveModel?:string,thinkingTokenBudget?:string,showThoughts?:bool,serviceTier?:string,sessionId?:string,promptCacheKey?:string,contextCache?:json,usageContext?:AxUsageContext"
   }
 
   op ax.ai.record @AxTokenUsage {
