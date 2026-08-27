@@ -1,0 +1,38 @@
+name: Publish merged release
+
+on:
+  workflow_run:
+    workflows: ['Build and Test']
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: write
+  checks: read
+  contents: write
+  pull-requests: read
+  statuses: read
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-merged-release-${{ github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - name: Configure release tag identity
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - name: Publish merged release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node scripts/release.mjs publish-merged "$RELEASE_SHA"

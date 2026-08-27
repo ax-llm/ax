@@ -10,7 +10,9 @@ import {
   parseRemoteTagTarget,
   publishFetchArguments,
   releaseBranchName,
+  releaseVersionFromSubject,
   resolveReleaseVersion,
+  selectReleaseCommit,
 } from './release.mjs';
 
 const repoRoot = path.resolve(
@@ -48,6 +50,33 @@ describe('protected-main release workflow', () => {
     expect(releaseBranchName('24.0.6')).toBe('codex/release-24-0-6');
   });
 
+  it.each([
+    ['chore: release v24.0.11', '24.0.11'],
+    ['chore: release v24.0.11 (#614)', '24.0.11'],
+    ['fix: release v24.0.11', null],
+    ['chore: release v24.0.11 unexpectedly', null],
+    ['chore: release v24.0.11-rc.1', null],
+  ])('extracts a release version from %j', (subject, expected) => {
+    expect(releaseVersionFromSubject(subject)).toBe(expected);
+  });
+
+  it('resolves a missed historical release commit unambiguously', () => {
+    expect(
+      selectReleaseCommit('24.0.9', [
+        { sha: 'newer', subject: 'chore: release v24.0.10 (#613)' },
+        { sha: 'release', subject: 'chore: release v24.0.9 (#611)' },
+        { sha: 'feature', subject: 'feat: something else' },
+      ])
+    ).toBe('release');
+    expect(() => selectReleaseCommit('24.0.8', [])).toThrow(/not present/);
+    expect(() =>
+      selectReleaseCommit('24.0.9', [
+        { sha: 'one', subject: 'chore: release v24.0.9 (#611)' },
+        { sha: 'two', subject: 'chore: release v24.0.9' },
+      ])
+    ).toThrow(/multiple commits/);
+  });
+
   it('resolves annotated and lightweight remote tags to their release commit', () => {
     expect(
       parseRemoteTagTarget(
@@ -64,7 +93,7 @@ describe('protected-main release workflow', () => {
     expect(parseRemoteTagTarget('', '24.0.6')).toBeNull();
   });
 
-  it('parses only the prepare and publish phases', () => {
+  it('parses only the guarded release phases', () => {
     expect(parseReleaseArguments(['prepare', 'minor'])).toEqual({
       mode: 'prepare',
       value: 'minor',
@@ -73,6 +102,13 @@ describe('protected-main release workflow', () => {
       mode: 'publish',
       value: '24.0.6',
     });
+    expect(parseReleaseArguments(['publish-merged', 'a'.repeat(40)])).toEqual({
+      mode: 'publish-merged',
+      value: 'a'.repeat(40),
+    });
+    expect(() => parseReleaseArguments(['publish-merged'])).toThrow(
+      /requires a SHA/
+    );
     expect(() => parseReleaseArguments(['ship'])).toThrow(/Usage/);
   });
 
@@ -106,6 +142,25 @@ describe('protected-main release workflow', () => {
     expect(manifest.scripts.release).toBe('node scripts/release.mjs prepare');
     expect(manifest.scripts['release:publish']).toBe(
       'node scripts/release.mjs publish'
+    );
+  });
+
+  it('publishes merged release commits after successful main CI', () => {
+    const workflow = readFileSync(
+      path.join(repoRoot, '.github', 'workflows', 'release-publish.yml'),
+      'utf8'
+    );
+    expect(workflow).toContain('workflow_run:');
+    expect(workflow).toContain("workflows: ['Build and Test']");
+    expect(workflow).toContain('branches: [main]');
+    expect(workflow).toContain(
+      "github.event.workflow_run.conclusion == 'success'"
+    );
+    expect(workflow).toContain("github.event.workflow_run.event == 'push'");
+    expect(workflow).toContain('actions: write');
+    expect(workflow).toContain('contents: write');
+    expect(workflow).toContain(
+      'node scripts/release.mjs publish-merged "$RELEASE_SHA"'
     );
   });
 });
