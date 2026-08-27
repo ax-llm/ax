@@ -82,6 +82,106 @@ module @ax.ai version "0.1" {
     type observe = "(AxUsageEvent) -> void"
   }
 
+  op ax.ai.record @AxRateLimitInfo {
+    attr core_kind = "record"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type fields = "operation:string,provider:string,model:string,streaming:bool,previousModelUsage?:AxModelUsage"
+  }
+
+  op ax.ai.interface @AxRequestExecutor {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type execute = "() -> json throws"
+  }
+
+  op ax.ai.interface @AxRateLimiter {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type run = "(AxRequestExecutor, AxRateLimitInfo) -> json throws"
+  }
+
+  op ax.ai.record @AxSpanStart {
+    attr core_kind = "record"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type fields = "name:string,kind:string,attributes?:json"
+  }
+
+  op ax.ai.interface @AxSpan {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type setAttributes = "(json) -> void"
+    type addEvent = "(string, json?) -> void"
+    type recordException = "(string) -> void"
+    type setStatus = "(string, string?) -> void"
+    type end = "() -> void"
+  }
+
+  op ax.ai.interface @AxTracer {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type startSpan = "(AxSpanStart, AxSpan?) -> AxSpan"
+  }
+
+  op ax.ai.record @AxMetricInstrumentOptions {
+    attr core_kind = "record"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type fields = "description?:string,unit?:string"
+  }
+
+  op ax.ai.interface @AxCounter {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type add = "(f64, json?) -> void"
+  }
+
+  op ax.ai.interface @AxHistogram {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type record = "(f64, json?) -> void"
+  }
+
+  op ax.ai.interface @AxGauge {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type record = "(f64, json?) -> void"
+  }
+
+  op ax.ai.interface @AxMeter {
+    attr core_kind = "interface"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type createCounter = "(string, AxMetricInstrumentOptions?) -> AxCounter"
+    type createHistogram = "(string, AxMetricInstrumentOptions?) -> AxHistogram"
+    type createGauge = "(string, AxMetricInstrumentOptions?) -> AxGauge"
+  }
+
+  op ax.ai.record @AxRuntimeHooks {
+    attr core_kind = "record"
+    attr public = true
+    tag "runtime-hooks-host-boundary"
+    type fields = "rateLimiter?:AxRateLimiter,tracer?:AxTracer,meter?:AxMeter"
+  }
+
+  op ax.ai.interface @AxGlobals {
+    attr core_kind = "interface"
+    attr public = true
+    tag "process-global-runtime-hooks"
+    type setRateLimiter = "(AxRateLimiter?) -> void"
+    type setTracer = "(AxTracer?) -> void"
+    type setMeter = "(AxMeter?) -> void"
+    type setUsageObserver = "(AxUsageObserver?) -> void"
+  }
+
   op ax.ai.record @AxAIFeatures {
     attr core_kind = "record"
     tag "src/ax/ai/base.ts"

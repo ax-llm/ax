@@ -10,6 +10,9 @@ import _ "embed"
 //go:embed templates/cpp/cppAdaptiveBalancerNoKey.cpp
 var cppAdaptiveBalancerNoKeyExample string
 
+//go:embed templates/cpp/cppRuntimeHooksNoKey.cpp
+var cppRuntimeHooksNoKeyExample string
+
 //go:embed templates/cpp/cppConformance.cpp
 var cppConformance string
 
@@ -23,6 +26,9 @@ var cppRuntime string
 
 //go:embed templates/go/goAdaptiveBalancerNoKey.go.txt
 var goAdaptiveBalancerNoKeyExample string
+
+//go:embed templates/go/goRuntimeHooksNoKey.go.txt
+var goRuntimeHooksNoKeyExample string
 
 //go:embed templates/go/goACEPlaybookExample.go.txt
 var goACEPlaybookExample string
@@ -109,6 +115,9 @@ var goJavaScriptGojaProfileExample string
 //go:embed templates/java/javaAdaptiveBalancerNoKey.java
 var javaAdaptiveBalancerNoKeyExample string
 
+//go:embed templates/java/javaRuntimeHooksNoKey.java
+var javaRuntimeHooksNoKeyExample string
+
 //go:embed templates/java/javaAiClient.java
 var javaAiClient string
 
@@ -126,6 +135,42 @@ var javaAxAIServiceError string
 
 //go:embed templates/java/javaAxGlobals.java
 var javaAxGlobals string
+
+//go:embed templates/java/javaAxRuntimeHooks.java
+var javaAxRuntimeHooks string
+
+//go:embed templates/java/javaAxRateLimitInfo.java
+var javaAxRateLimitInfo string
+
+//go:embed templates/java/javaAxRequestExecutor.java
+var javaAxRequestExecutor string
+
+//go:embed templates/java/javaAxRateLimiter.java
+var javaAxRateLimiter string
+
+//go:embed templates/java/javaAxSpanStart.java
+var javaAxSpanStart string
+
+//go:embed templates/java/javaAxSpan.java
+var javaAxSpan string
+
+//go:embed templates/java/javaAxTracer.java
+var javaAxTracer string
+
+//go:embed templates/java/javaAxMetricInstrumentOptions.java
+var javaAxMetricInstrumentOptions string
+
+//go:embed templates/java/javaAxCounter.java
+var javaAxCounter string
+
+//go:embed templates/java/javaAxHistogram.java
+var javaAxHistogram string
+
+//go:embed templates/java/javaAxGauge.java
+var javaAxGauge string
+
+//go:embed templates/java/javaAxMeter.java
+var javaAxMeter string
 
 //go:embed templates/java/javaAxUsageEvent.java
 var javaAxUsageEvent string
@@ -411,6 +456,9 @@ var pyodideRuntimePolicyJSON string
 //go:embed templates/python/pyAdaptiveBalancerNoKey.py
 var pyAdaptiveBalancerNoKeyExample string
 
+//go:embed templates/python/pyRuntimeHooksNoKey.py
+var pyRuntimeHooksNoKeyExample string
+
 //go:embed templates/python/pyAI.py
 var pyAI string
 
@@ -518,6 +566,9 @@ var pyRuntimeQuickjs string
 
 //go:embed templates/rust/rustAdaptiveBalancerNoKey.rs
 var rustAdaptiveBalancerNoKeyExample string
+
+//go:embed templates/rust/rustRuntimeHooksNoKey.rs
+var rustRuntimeHooksNoKeyExample string
 
 //go:embed templates/rust/rustAudioResponsesMappingExample.rs
 var rustAudioResponsesMappingExample string

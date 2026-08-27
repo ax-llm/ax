@@ -110,14 +110,16 @@ Global runtime defaults can be set with `axGlobals` and are read live by future 
 
 ```typescript
 import { axGlobals, axCreateDefaultColorLogger } from '@ax-llm/ax';
-import { trace } from '@opentelemetry/api';
+import { metrics, trace } from '@opentelemetry/api';
 
+axGlobals.rateLimiter = async (next, info) => next();
 axGlobals.tracer = trace.getTracer('my-app');
+axGlobals.meter = metrics.getMeter('my-app');
 axGlobals.debug = true;
 axGlobals.logger = axCreateDefaultColorLogger();
 ```
 
-Precedence is: per-call options, then explicit instance/program options, then current `axGlobals`, then built-in defaults. `customLabels` merge in that order, and `abortSignal` values are combined so either global or local cancellation works.
+Runtime hooks resolve as: forward/direct-call hooks, enclosing program defaults, child-program defaults, AI-service hooks, then globals snapshotted at operation start. They are native run-scoped values and never enter AxIR JSON state, cache keys, exported state, traces, or optimizer artifacts. Agent and flow forwards carry them through every internal generator and model call without mutating children or leaking across concurrent runs. Limiter failures propagate; tracer, meter, and usage-observer failures are fail-open. `customLabels` merge by precedence, and `abortSignal` values are combined so either global or local cancellation works.
 
 ## Memory and Context
 

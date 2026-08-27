@@ -135,6 +135,7 @@ func EmitPython(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_openai_api.py":                          pyAxGenOpenAIExample,
 		"examples/vertex_gemini_api.py":                         pyVertexGeminiExample,
 		"examples/provider_mapping_no_key.py":                   pyProviderMappingNoKeyExample,
+		"examples/runtime_hooks_no_key.py":                      pyRuntimeHooksNoKeyExample,
 		"examples/adaptive_balancer_no_key.py":                  pyAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key.py":                    pyProviderStreamNoKeyExample,
 		"examples/runtime_adapter.py":                           pyRuntimeAdapterExample,
@@ -190,6 +191,18 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"dev/axllm/ax/AiClient.java":                                  javaAiClient,
 		"dev/axllm/ax/AxAIService.java":                               javaAxAIService,
 		"dev/axllm/ax/AxGlobals.java":                                 javaAxGlobals,
+		"dev/axllm/ax/AxRuntimeHooks.java":                            javaAxRuntimeHooks,
+		"dev/axllm/ax/AxRateLimitInfo.java":                           javaAxRateLimitInfo,
+		"dev/axllm/ax/AxRequestExecutor.java":                         javaAxRequestExecutor,
+		"dev/axllm/ax/AxRateLimiter.java":                             javaAxRateLimiter,
+		"dev/axllm/ax/AxSpanStart.java":                               javaAxSpanStart,
+		"dev/axllm/ax/AxSpan.java":                                    javaAxSpan,
+		"dev/axllm/ax/AxTracer.java":                                  javaAxTracer,
+		"dev/axllm/ax/AxMetricInstrumentOptions.java":                 javaAxMetricInstrumentOptions,
+		"dev/axllm/ax/AxCounter.java":                                 javaAxCounter,
+		"dev/axllm/ax/AxHistogram.java":                               javaAxHistogram,
+		"dev/axllm/ax/AxGauge.java":                                   javaAxGauge,
+		"dev/axllm/ax/AxMeter.java":                                   javaAxMeter,
 		"dev/axllm/ax/AxUsageEvent.java":                              javaAxUsageEvent,
 		"dev/axllm/ax/AxUsageObserver.java":                           javaAxUsageObserver,
 		"dev/axllm/ax/AxMultiServiceRouter.java":                      javaAxMultiServiceRouter,
@@ -263,6 +276,7 @@ func EmitJava(model AxRuntimeModel, outDir string) error {
 		"examples/AxGenOpenAIExample.java":                            javaAxGenOpenAIExample,
 		"examples/VertexGeminiExample.java":                           javaVertexGeminiExample,
 		"examples/ProviderMappingNoKeyExample.java":                   javaProviderMappingNoKeyExample,
+		"examples/RuntimeHooksNoKeyExample.java":                      javaRuntimeHooksNoKeyExample,
 		"examples/AdaptiveBalancerNoKeyExample.java":                  javaAdaptiveBalancerNoKeyExample,
 		"examples/ProviderStreamNoKeyExample.java":                    javaProviderStreamNoKeyExample,
 		"examples/RuntimeAdapterExample.java":                         javaRuntimeAdapterExample,
@@ -327,6 +341,7 @@ func EmitCpp(model AxRuntimeModel, outDir string) error {
 		"examples/axgen_openai_api.cpp":                         cppAxGenOpenAIExample,
 		"examples/vertex_gemini_api.cpp":                        cppVertexGeminiExample,
 		"examples/provider_mapping_no_key.cpp":                  cppProviderMappingNoKeyExample,
+		"examples/runtime_hooks_no_key.cpp":                     cppRuntimeHooksNoKeyExample,
 		"examples/adaptive_balancer_no_key.cpp":                 cppAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key.cpp":                   cppProviderStreamNoKeyExample,
 		"examples/runtime_adapter.cpp":                          cppRuntimeAdapterExample,
@@ -386,6 +401,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"examples/vertex_gemini_api/main.go":                goVertexGeminiExample,
 		"examples/vertex_gemma_maas_no_key/main.go":         goVertexGemmaMaaSNoKeyExample,
 		"examples/provider_mapping_no_key/main.go":          goProviderMappingNoKeyExample,
+		"examples/runtime_hooks_no_key/main.go":             goRuntimeHooksNoKeyExample,
 		"examples/adaptive_balancer_no_key/main.go":         goAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key/main.go":           goProviderStreamNoKeyExample,
 		"examples/runtime_adapter/main.go":                  goRuntimeAdapterExample,
@@ -432,6 +448,7 @@ func EmitRust(model AxRuntimeModel, outDir string) error {
 		"conformance-coverage.json":                       mustConformanceCoverageManifest(model, "rust"),
 		"examples/signature_schema.rs":                    rustSignatureSchemaExample,
 		"examples/provider_mapping_no_key.rs":             rustProviderMappingNoKeyExample,
+		"examples/runtime_hooks_no_key.rs":                rustRuntimeHooksNoKeyExample,
 		"examples/adaptive_balancer_no_key.rs":            rustAdaptiveBalancerNoKeyExample,
 		"examples/provider_stream_no_key.rs":              rustProviderStreamNoKeyExample,
 		"examples/axgen_scripted_client_tool.rs":          rustAxGenScriptedClientToolExample,
@@ -1004,7 +1021,7 @@ func ValidateAPIReferenceManifest(manifest APIReferenceManifest) error {
 			return fmt.Errorf("api reference missing section %q", id)
 		}
 	}
-	for _, canonical := range []string{"s", "ax", "ai", "AxCredentialRequest", "AxCredentialProvider", "AxUsageContext", "AxUsageEvent", "AxUsageObserver", "set_usage_observer", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
+	for _, canonical := range []string{"s", "ax", "ai", "AxCredentialRequest", "AxCredentialProvider", "AxUsageContext", "AxUsageEvent", "AxUsageObserver", "AxRuntimeHooks", "AxRateLimitInfo", "AxRateLimiter", "AxTracer", "AxMeter", "AxGlobals", "set_usage_observer", "set_rate_limiter", "set_tracer", "set_meter", "agent", "flow", "fn", "AxMCPClient", "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient", "ProcessCodeRuntime", "RuntimeCapabilities", "RuntimeEnvelope", "optimize", "AxBootstrapFewShot", "AxGEPA", "OptimizerEngine"} {
 		if !symbols[canonical] {
 			return fmt.Errorf("api reference missing canonical symbol %q", canonical)
 		}
@@ -1063,6 +1080,15 @@ func apiReferenceSectionsForTarget(target string) []APIReferenceSection {
 				sym("AxUsageEvent", "type", "Normalized token usage and correlation data for one completed chat or embedding operation.", []string{"provider", "model", "tokens", "context", "correlation IDs", "streaming"}, "usage event"),
 				sym("AxUsageObserver", "interface", "Best-effort process-wide callback for normalized usage events.", []string{"fail-open delivery", "synchronous enqueue"}, "usage observer"),
 				sym("set_usage_observer", "function", "Register, replace, or clear the process-wide usage observer.", []string{"observer", "clear"}, "void"),
+				sym("AxRuntimeHooks", "type", "Non-serializable rate limiter, tracer, and meter overrides for one service or program execution.", []string{"rate limiter", "tracer", "meter", "precedence"}, "runtime hooks"),
+				sym("AxRateLimitInfo", "type", "Provider and model metadata supplied to a request-wrapper rate limiter.", []string{"operation", "provider", "model", "streaming", "previous usage"}, "rate-limit context"),
+				sym("AxRateLimiter", "interface", "Request wrapper that can delay, reject, or execute a chat or embedding request.", []string{"next", "metadata", "errors"}, "provider result"),
+				sym("AxTracer", "interface", "Dependency-neutral tracer that creates metadata-only Ax spans.", []string{"start span", "parent span", "fail-open"}, "span"),
+				sym("AxMeter", "interface", "Dependency-neutral meter for Ax counters, histograms, and gauges.", []string{"counter", "histogram", "gauge", "fail-open"}, "instrument"),
+				sym("AxGlobals", "type", "Process-wide live defaults for runtime hooks and usage observation.", []string{"rate limiter", "tracer", "meter", "usage observer"}, "global hooks"),
+				sym("set_rate_limiter", "function", "Register, replace, or clear the process-wide request-wrapper rate limiter.", []string{"limiter", "clear"}, "void"),
+				sym("set_tracer", "function", "Register, replace, or clear the process-wide dependency-neutral tracer.", []string{"tracer", "clear"}, "void"),
+				sym("set_meter", "function", "Register, replace, or clear the process-wide dependency-neutral meter.", []string{"meter", "clear"}, "void"),
 				sym("AxBalancer", "type", "Retry and route requests across multiple provider services, with opt-in adaptive cost, reliability, and deadline routing.", []string{"services", "retry policy", "capability requirements", "adaptive strategy"}, "AI service"),
 				sym("AxBalancerAdaptiveStrategy", "type", "Configure adaptive provider routing without changing the ordered default.", []string{"deadline", "bad outcome cost", "expected tokens", "stable route keys", "slice", "stats store", "routing events"}, "adaptive strategy"),
 				sym("AxBalancerStatsStore", "interface", "Store shared adaptive decision state with atomic observations.", []string{"get", "observe"}, "stats store"),
@@ -1199,8 +1225,16 @@ func apiReferencePublicName(target, canonical string) string {
 		return mapTarget(target, "dict[str, str]", "OpenAICompatibleClient.CredentialRequest", "axllm::AxCredentialRequest", "axllm.AxCredentialRequest", "AxCredentialRequest")
 	case "AxCredentialProvider":
 		return mapTarget(target, "Callable[[dict[str, str]], dict[str, str]]", "OpenAICompatibleClient.CredentialProvider", "axllm::AxCredentialProvider", "axllm.AxCredentialProvider", "AxCredentialProvider")
+	case "AxRuntimeHooks", "AxRateLimitInfo", "AxRateLimiter", "AxTracer", "AxMeter", "AxGlobals":
+		return apiReferenceQualifiedName(target, canonical)
 	case "set_usage_observer":
 		return mapTarget(target, "set_usage_observer", "AxGlobals.setUsageObserver", "axllm::set_usage_observer", "axllm.SetUsageObserver", "set_usage_observer")
+	case "set_rate_limiter":
+		return mapTarget(target, "set_rate_limiter", "AxGlobals.setRateLimiter", "axllm::set_rate_limiter", "axllm.SetRateLimiter", "set_rate_limiter")
+	case "set_tracer":
+		return mapTarget(target, "set_tracer", "AxGlobals.setTracer", "axllm::set_tracer", "axllm.SetTracer", "set_tracer")
+	case "set_meter":
+		return mapTarget(target, "set_meter", "AxGlobals.setMeter", "axllm::set_meter", "axllm.SetMeter", "set_meter")
 	case "update_balancer_route_stats":
 		return mapTarget(target, "update_balancer_route_stats", "AxBalancerAdaptive.updateRouteStats", "axllm::update_balancer_route_stats", "axllm.UpdateBalancerRouteStats", "update_balancer_route_stats")
 	case "sample_balancer_route_health":
@@ -1272,6 +1306,16 @@ func apiReferenceForm(target, canonical, publicName string) string {
 		return mapTarget(target, "AxUsageObserver", "AxUsageObserver", "axllm::AxUsageObserver", "axllm.AxUsageObserver", "AxUsageObserver")
 	case "set_usage_observer":
 		return mapTarget(target, "set_usage_observer(observer)", "AxGlobals.setUsageObserver(observer)", "axllm::set_usage_observer(observer)", "axllm.SetUsageObserver(observer)", "set_usage_observer(observer)")
+	case "AxRuntimeHooks":
+		return mapTarget(target, "AxRuntimeHooks(rate_limiter=None, tracer=None, meter=None)", "new AxRuntimeHooks(rateLimiter, tracer, meter)", "axllm::AxRuntimeHooks", "axllm.AxRuntimeHooks", "AxRuntimeHooks")
+	case "AxRateLimitInfo", "AxRateLimiter", "AxTracer", "AxMeter", "AxGlobals":
+		return publicName
+	case "set_rate_limiter":
+		return mapTarget(target, "set_rate_limiter(limiter)", "AxGlobals.setRateLimiter(limiter)", "axllm::set_rate_limiter(limiter)", "axllm.SetRateLimiter(limiter)", "set_rate_limiter(limiter)")
+	case "set_tracer":
+		return mapTarget(target, "set_tracer(tracer)", "AxGlobals.setTracer(tracer)", "axllm::set_tracer(tracer)", "axllm.SetTracer(tracer)", "set_tracer(tracer)")
+	case "set_meter":
+		return mapTarget(target, "set_meter(meter)", "AxGlobals.setMeter(meter)", "axllm::set_meter(meter)", "axllm.SetMeter(meter)", "set_meter(meter)")
 	case "OpenAICompatibleClient", "OpenAIResponsesClient", "GoogleGeminiClient", "AnthropicClient":
 		return providerClientForm(target, canonical)
 	case "AxBalancer":
@@ -1414,6 +1458,20 @@ func apiReferenceExample(target, canonical string) string {
 			`axllm.SetUsageObserver(func(event axllm.AxUsageEvent) { events = append(events, event) })`,
 			`set_usage_observer(Some(Arc::new(move |event| events.lock().unwrap().push(event))));`,
 		)
+	case "AxRuntimeHooks":
+		return mapTarget(target,
+			`hooks = AxRuntimeHooks(rate_limiter=limiter, tracer=tracer, meter=meter)`,
+			`AxRuntimeHooks hooks = new AxRuntimeHooks(limiter, tracer, meter);`,
+			`axllm::AxRuntimeHooks hooks{limiter, tracer, meter};`,
+			`hooks := axllm.AxRuntimeHooks{RateLimiter: limiter, Tracer: tracer, Meter: meter}`,
+			`let hooks = AxRuntimeHooks::new().rate_limiter(limiter).tracer(tracer).meter(meter);`,
+		)
+	case "set_rate_limiter":
+		return mapTarget(target, `set_rate_limiter(limiter)`, `AxGlobals.setRateLimiter(limiter);`, `axllm::set_rate_limiter(limiter);`, `axllm.SetRateLimiter(limiter)`, `set_rate_limiter(Some(limiter));`)
+	case "set_tracer":
+		return mapTarget(target, `set_tracer(tracer)`, `AxGlobals.setTracer(tracer);`, `axllm::set_tracer(tracer);`, `axllm.SetTracer(tracer)`, `set_tracer(Some(tracer));`)
+	case "set_meter":
+		return mapTarget(target, `set_meter(meter)`, `AxGlobals.setMeter(meter);`, `axllm::set_meter(meter);`, `axllm.SetMeter(meter)`, `set_meter(Some(meter));`)
 	case "agent":
 		return mapTarget(target,
 			`helper = agent("query:string -> answer:string")`,
@@ -1737,6 +1795,7 @@ func BuildConformanceCoverageManifest(model AxRuntimeModel, target string) (Conf
 		{"axai", "ai_stream", "", "transport-boundary"},
 		{"axai", "ai_embed", "", "transport-boundary"},
 		{"axai", "ai_usage_observer", "", "semantic"},
+		{"axai", "ai_runtime_hooks", "", "semantic"},
 		{"axai", "ai_transcribe", "", "transport-boundary"},
 		{"axai", "ai_speak", "", "transport-boundary"},
 		{"axai", "ai_realtime", "", "semantic"},
@@ -2195,6 +2254,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `python examples/signature_schema.py`: signature parsing and JSON schema generation",
 				"- `python examples/axgen_scripted_client_tool.py`: AxGen with a scripted client and tool",
 				"- `python examples/provider_mapping_no_key.py`: provider mapping through a scripted transport",
+				"- `python examples/runtime_hooks_no_key.py`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `python examples/adaptive_balancer_no_key.py`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `python examples/provider_stream_no_key.py`: provider streaming through a scripted SSE transport",
 				"- `python examples/axflow_program_graph.py`: AxFlow program graph",
@@ -2271,6 +2331,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/SignatureSchemaExample.java`: signature parsing and JSON schema generation",
 				"- `examples/AxGenScriptedClientToolExample.java`: AxGen with a scripted client and tool",
 				"- `examples/ProviderMappingNoKeyExample.java`: provider mapping through a scripted transport",
+				"- `examples/RuntimeHooksNoKeyExample.java`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `examples/AdaptiveBalancerNoKeyExample.java`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `examples/ProviderStreamNoKeyExample.java`: provider streaming through a scripted SSE transport",
 				"- `examples/AxFlowProgramGraphExample.java`: AxFlow program graph",
@@ -2342,6 +2403,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `examples/signature_schema.cpp`: signature parsing and JSON schema generation",
 				"- `examples/axgen_scripted_client_tool.cpp`: AxGen with a scripted client and tool",
 				"- `examples/provider_mapping_no_key.cpp`: provider mapping through a scripted transport",
+				"- `examples/runtime_hooks_no_key.cpp`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `examples/adaptive_balancer_no_key.cpp`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `examples/provider_stream_no_key.cpp`: provider streaming through a scripted SSE transport",
 				"- `examples/axflow_program_graph.cpp`: AxFlow program graph",
@@ -2410,6 +2472,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- `go run ./examples/signature_schema`: signature parsing and JSON schema generation",
 				"- `go run ./examples/axgen_scripted_client_tool`: AxGen with a scripted client and tool",
 				"- `go run ./examples/provider_mapping_no_key`: provider mapping through a scripted transport",
+				"- `go run ./examples/runtime_hooks_no_key`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `go run ./examples/vertex_gemma_maas_no_key`: Vertex Gemma MaaS JSON-object, thinking, reasoning replay, and renewable-header mapping through a scripted transport",
 				"- `go run ./examples/adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `go run ./examples/provider_stream_no_key`: provider streaming through a scripted SSE transport",
@@ -2486,6 +2549,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 			NoKeyExamples: readmeLines(
 				"- `cargo run --example signature_schema`: signature parsing and JSON schema generation",
 				"- `cargo run --example provider_mapping_no_key`: provider mapping through a scripted transport",
+				"- `cargo run --example runtime_hooks_no_key`: runtime-hook globals and typed program surfaces through a scripted transport",
 				"- `cargo run --example adaptive_balancer_no_key`: adaptive balancer state, scoring, and stable route keys without a provider key",
 				"- `cargo run --example provider_stream_no_key`: provider streaming through a scripted SSE transport",
 				"- `cargo run --example axgen_scripted_client_tool`: AxGen with a scripted client and tool",

@@ -6,105 +6,105 @@
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for using the generated Ax package, factory functions, package docs, examples, and API reference.",
       "url": "ax-go-llm/SKILL.md",
-      "digest": "sha256:178dc7b38928cb020b7d7efdbf4cf4f2837207891186c1a1a16dc42a41a7fcf6"
+      "digest": "sha256:6d719b8e2c95e20ad2c3e5da49e0ae55f02054400709fa527e5a7ba4a0cfe9a9"
     },
     {
       "name": "ax-go-ai",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for named deployment profiles, generic provider clients, model selection, OpenAI-compatible calls, Responses, Gemini, Anthropic, routers, and balancers.",
       "url": "ax-go-ai/SKILL.md",
-      "digest": "sha256:71dd41d4315d94b23ad0a40b495964eba405a6dca1e4bd8eb7773c33e006e6be"
+      "digest": "sha256:134cdc0c7e837afb9618431239f24f753f3fb50ec1cd4d5c0e7ba8556fa8cf32"
     },
     {
       "name": "ax-go-audio",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for audio input/output, OpenAI Responses audio mapping, realtime event folding, and generated package audio examples.",
       "url": "ax-go-audio/SKILL.md",
-      "digest": "sha256:aad937803a6fa29c899e6649165c89a9e2c159945a55f794c86c95277bfc7863"
+      "digest": "sha256:23ae442416aeff7125b2074903cd202dc7c529a5d6d33e241a98c8145effc6eb"
     },
     {
       "name": "ax-go-signature",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for string signatures, field descriptors, JSON schema output, validation, and typed tool argument shapes.",
       "url": "ax-go-signature/SKILL.md",
-      "digest": "sha256:040063019e694a9cf766564f602a42c9450aa4d5b45086baff95dca2bdcab288"
+      "digest": "sha256:4d63814d5f8392d5a276c30bce9588efca8d319f78db48a29ae3cc58b2b4767c"
     },
     {
       "name": "ax-go-gen",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for AxGen programs, forward calls, indexed multi-sampling, result pickers, streaming, tools, assertions, traces, usage, and output parsing.",
       "url": "ax-go-gen/SKILL.md",
-      "digest": "sha256:0876e2635ae668645341e652d6566e6ba0b0602d8646bb4ed8f4040f9510e2de"
+      "digest": "sha256:be6bb74525005f4c2ce2f214b1f8fbadf673400f6bdef0b00295a703cef2219c"
     },
     {
       "name": "ax-go-flow",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for flows, nodes, program graphs, nested programs, dynamic options, caching, and optimizer components.",
       "url": "ax-go-flow/SKILL.md",
-      "digest": "sha256:82f219db3c917601b79581f9ebf867fd1c3a37dc6cdb81a330fb9fea99ab8446"
+      "digest": "sha256:3cccf45d7065adbade475970f01f2ae25d1897d24e9ec5f637317e6bf4ccebf0"
     },
     {
       "name": "ax-go-agent",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping.",
       "url": "ax-go-agent/SKILL.md",
-      "digest": "sha256:2754aaf24bae25a76799f1520df374373f1fff3af8d259c3b31534f03c6b895b"
+      "digest": "sha256:4de536b4ab8a05f825f884ff28d53c59e28f80f2edd1f026d71babc49ecfd489"
     },
     {
       "name": "ax-go-agent-rlm",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for RLM executor loops, AxCodeRuntime sessions, runtime envelopes, process runtimes, and optional runtime profiles.",
       "url": "ax-go-agent-rlm/SKILL.md",
-      "digest": "sha256:bea41c10968be190ee01b285080e159514d3431e03fa0371ffd9103fc197ee0e"
+      "digest": "sha256:f9c5a9768afddf338a7d3762a6b2f607e01fa0bdee06c463e118a091a68ad66e"
     },
     {
       "name": "ax-go-agent-memory-skills",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking.",
       "url": "ax-go-agent-memory-skills/SKILL.md",
-      "digest": "sha256:10c80d3e299de740f1b60a30b7edace371a527bf39edfce4b23ac7b1d2c8c31c"
+      "digest": "sha256:5aa859880f6652788760871532ca588c6d5d819737b4c891241ff36f2cb133d3"
     },
     {
       "name": "ax-go-agent-observability",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent tracing, centralized and multi-tenant usage accounting, action logs, runtime diagnostics, replay, and production debugging.",
       "url": "ax-go-agent-observability/SKILL.md",
-      "digest": "sha256:70db437b3aa49d17f3838b21548275f66e0b5257ee2e96eac402483aeac72cae"
+      "digest": "sha256:3805edc7697b0df2cc0ab8c7a536468c0625c3db24adc75a42dc7a32069619dd"
     },
     {
       "name": "ax-go-agent-optimize",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA.",
       "url": "ax-go-agent-optimize/SKILL.md",
-      "digest": "sha256:9ab471418245f1b676c677e1c61054cd19632150f02e7b282b1b464f34d4fc0b"
+      "digest": "sha256:71222b84bffa138474ee89a1c9562593be24d63498cccd2c3b5509d18fc306a3"
     },
     {
       "name": "ax-go-agent-context",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for deciding between context maps, trajectory context policy, offline optimization (ACE/GEPA), and memory recall for long-context agents.",
       "url": "ax-go-agent-context/SKILL.md",
-      "digest": "sha256:334101d71c8c45ebcb90cf24dab0c8b27a0a50db4051cd8c79f55d6af773a78c"
+      "digest": "sha256:e44953e96f85607d199d75400c62cb0a587bfddbba65f15227b96289390f21bd"
     },
     {
       "name": "ax-go-gepa",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for GEPA, Pareto tradeoffs, reflection clients, metric budgets, optimizer state, and artifacts.",
       "url": "ax-go-gepa/SKILL.md",
-      "digest": "sha256:3c0ee40716527c3e874d9997652e6dd3c0fb26bb5f58f92907a973eb8d9417d7"
+      "digest": "sha256:0d45ed61ba16d6d041e9ce40abf3cbd7de9bd1fb6f923dfbd6ba7ba728410456"
     },
     {
       "name": "ax-go-refine",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for reward-scored generation, iterative candidate improvement, evaluator feedback, and optimizer-backed refinement patterns.",
       "url": "ax-go-refine/SKILL.md",
-      "digest": "sha256:743e9d37fafbc1aca4f57774e4a5186a75e9d71b88f1ca0f4c1b04e11f80b365"
+      "digest": "sha256:0438dceebff609553c9fa3bb530964114fb23b4bbec7087a2b8e1e124cfe92d9"
     },
     {
       "name": "ax-go-playbook",
       "type": "skill-md",
       "description": "Use when writing Go code with `github.com/ax-llm/ax/packages/go` for the playbook() context-engineering surface, agent-bound verified evolution, run-end learning, online updates, and rendering a playbook into a program.",
       "url": "ax-go-playbook/SKILL.md",
-      "digest": "sha256:b94054496ee21bae573e5fa0f6d1c40a764abf048dfa17d978b686349918cba9"
+      "digest": "sha256:520e82c05b8d0fd9a2446d33024203d860d5bcd5d3f378fd24336c9d9f29faf8"
     }
   ]
 }

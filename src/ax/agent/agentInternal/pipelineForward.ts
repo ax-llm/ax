@@ -1,4 +1,7 @@
+import type { Context, Meter, Tracer } from '@opentelemetry/api';
+import { context, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import type { AxAIService } from '../../ai/types.js';
+import { axGlobals } from '../../dsp/globals.js';
 import type {
   AxChatLogEntry,
   AxGenIn,
@@ -14,7 +17,16 @@ import type {
 } from '../../dsp/types.js';
 import { flow } from '../../flow/flow.js';
 import { axResolveMCPExecutionContext } from '../../mcp/execution.js';
+import {
+  axGetRuntimeHookFrame,
+  axRuntimeHookFrame,
+  axStartSpanFailOpen,
+} from '../../util/telemetry.js';
 import { DEFAULT_RLM_MAX_LLM_CALLS } from '../config.js';
+import {
+  getOrCreateAgentMetricsInstruments,
+  recordAgentMetric,
+} from '../metrics.js';
 import {
   buildContextFieldPromptInlineValue,
   fieldAcceptsStringPreview,
@@ -51,6 +63,80 @@ type PipelineForwardState<IN extends AxGenIn> = {
   ai?: Readonly<AxAIService>;
   forwardOptions?: Readonly<Record<string, unknown>>;
 };
+
+function beginAgentRuntimeScope<T extends Readonly<AxAIService>>(
+  pipeline: AxAgent<any, any>,
+  ai: T,
+  options:
+    | Readonly<AxProgramForwardOptionsWithModels<T>>
+    | Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
+    | undefined
+) {
+  const p = pipeline as any;
+  const inheritedFrame = axGetRuntimeHookFrame(options);
+  const globals =
+    inheritedFrame?.globals ??
+    Object.freeze({
+      rateLimiter: axGlobals.rateLimiter,
+      tracer: axGlobals.tracer,
+      meter: axGlobals.meter,
+    });
+  const agentRateLimiter = options?.rateLimiter ?? p.options?.rateLimiter;
+  const agentTracer: Tracer | undefined = options?.tracer ?? p.options?.tracer;
+  const agentMeter: Meter | undefined = options?.meter ?? p.options?.meter;
+  const effectiveTracer =
+    agentTracer ?? ai.getOptions().tracer ?? globals.tracer;
+  const effectiveMeter = agentMeter ?? ai.getOptions().meter ?? globals.meter;
+  const attributes = {
+    'ax.program.id': pipeline.getId() || 'root',
+    'ax.program.type': 'AxAgent',
+  };
+  const parentContext: Context = options?.traceContext ?? context.active();
+  const span = axStartSpanFailOpen(
+    effectiveTracer,
+    'AxAgent',
+    { kind: SpanKind.INTERNAL, attributes },
+    parentContext
+  );
+  const childContext = span
+    ? trace.setSpan(parentContext, span)
+    : parentContext;
+  const metrics = getOrCreateAgentMetricsInstruments(effectiveMeter);
+  const started = performance.now();
+  let finished = false;
+  recordAgentMetric(metrics?.requests, 1, attributes);
+
+  return {
+    options: {
+      ...(options ?? {}),
+      ...(agentRateLimiter ? { rateLimiter: agentRateLimiter } : {}),
+      ...(agentTracer ? { tracer: agentTracer } : {}),
+      ...(agentMeter ? { meter: agentMeter } : {}),
+      traceContext: childContext,
+      [axRuntimeHookFrame]: { globals },
+    },
+    finish(error?: unknown) {
+      if (finished) return;
+      finished = true;
+      if (error !== undefined) {
+        recordAgentMetric(metrics?.errors, 1, attributes);
+        const normalized =
+          error instanceof Error ? error : new Error(String(error));
+        span?.recordException(normalized);
+        span?.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: normalized.message,
+        });
+      }
+      recordAgentMetric(
+        metrics?.duration,
+        performance.now() - started,
+        attributes
+      );
+      span?.end();
+    },
+  };
+}
 
 function throwOnClarification(executorResult: any, owner: any): void {
   if (executorResult?.type === 'askClarification') {
@@ -773,37 +859,49 @@ export async function forwardPipeline<
   options?: Readonly<AxProgramForwardOptionsWithModels<T>>
 ): Promise<OUT> {
   const p = pipeline as any;
-  const mcpExecutionContext = await axResolveMCPExecutionContext(
-    options ?? {},
-    p.options ?? {}
-  );
-  const runOptions = mcpExecutionContext
-    ? { ...options, _mcpExecutionContext: mcpExecutionContext }
-    : options;
-  await mcpExecutionContext?.restoreContinuationState(p.executor.state?.mcp);
-  const agentValues = await transcribeAgentAudioInputs(
-    p.distillerAi ?? ai,
-    p.fullSignature ?? pipeline.getSignature(),
-    values,
-    runOptions as any
-  );
-  if (typeof p._syncContextMapPrompt === 'function') {
-    p._syncContextMapPrompt();
-  }
-  const sharedSession = beginPipelineSharedSession(p);
+  const runtimeScope = beginAgentRuntimeScope(pipeline, ai, options);
+  let runtimeError: unknown;
   try {
-    return (await p.pipelineFlow.forward(
-      ai,
-      {
-        agentValues,
+    const mcpExecutionContext = await axResolveMCPExecutionContext(
+      runtimeScope.options,
+      p.options ?? {}
+    );
+    const runOptions = mcpExecutionContext
+      ? {
+          ...runtimeScope.options,
+          _mcpExecutionContext: mcpExecutionContext,
+        }
+      : runtimeScope.options;
+    await mcpExecutionContext?.restoreContinuationState(p.executor.state?.mcp);
+    const agentValues = await transcribeAgentAudioInputs(
+      p.distillerAi ?? ai,
+      p.fullSignature ?? pipeline.getSignature(),
+      values,
+      runOptions as any
+    );
+    if (typeof p._syncContextMapPrompt === 'function') {
+      p._syncContextMapPrompt();
+    }
+    const sharedSession = beginPipelineSharedSession(p);
+    try {
+      return (await p.pipelineFlow.forward(
         ai,
-        forwardOptions: runOptions,
-        _sharedSession: sharedSession,
-      },
-      runOptions
-    )) as OUT;
+        {
+          agentValues,
+          ai,
+          forwardOptions: runOptions,
+          _sharedSession: sharedSession,
+        },
+        runOptions
+      )) as OUT;
+    } finally {
+      endPipelineSharedSession(p, sharedSession);
+    }
+  } catch (error) {
+    runtimeError = error;
+    throw error;
   } finally {
-    endPipelineSharedSession(p, sharedSession);
+    runtimeScope.finish(runtimeError);
   }
 }
 
@@ -822,117 +920,130 @@ export async function* streamingForwardPipeline<
   options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
 ): AxGenStreamingOut<OUT> {
   const p = pipeline as any;
-  const mcpExecutionContext = await axResolveMCPExecutionContext(
-    options ?? {},
-    p.options ?? {}
-  );
-  const runOptions = mcpExecutionContext
-    ? { ...options, _mcpExecutionContext: mcpExecutionContext }
-    : options;
-  await mcpExecutionContext?.restoreContinuationState(p.executor.state?.mcp);
-  const valuesForStages = await transcribeAgentAudioInputs(
-    p.distillerAi ?? ai,
-    p.fullSignature ?? pipeline.getSignature(),
-    values,
-    runOptions as any
-  );
-  const contextFieldNames: Set<string> = p.contextFieldNames;
-  // The distiller receives the full input so it can normalize the request
-  // while treating declared contextFields as runtime-only context. The task
-  // stage receives only non-context inputs plus the handoff fields.
-  const { nonCtxValues } = splitValuesByContext(
-    valuesForStages,
-    contextFieldNames
-  );
-
-  const distillerAi = p.distillerAi ?? ai;
-  const executorAi = p.executorAi ?? ai;
-  const responderAi = p.responderAi ?? ai;
-  if (typeof p._syncContextMapPrompt === 'function') {
-    p._syncContextMapPrompt();
-  }
-
-  const sharedSession = beginPipelineSharedSession(p);
+  const runtimeScope = beginAgentRuntimeScope(pipeline, ai, options);
+  let runtimeError: unknown;
   try {
-    const distillerRun = await p.distiller.run(
-      distillerAi,
-      valuesForStages,
-      runOptions
+    const mcpExecutionContext = await axResolveMCPExecutionContext(
+      runtimeScope.options,
+      p.options ?? {}
     );
-    throwOnClarification(distillerRun.executorResult, p.distiller);
+    const runOptions = mcpExecutionContext
+      ? {
+          ...runtimeScope.options,
+          _mcpExecutionContext: mcpExecutionContext,
+        }
+      : runtimeScope.options;
+    await mcpExecutionContext?.restoreContinuationState(p.executor.state?.mcp);
+    const valuesForStages = await transcribeAgentAudioInputs(
+      p.distillerAi ?? ai,
+      p.fullSignature ?? pipeline.getSignature(),
+      values,
+      runOptions as any
+    );
+    const contextFieldNames: Set<string> = p.contextFieldNames;
+    // The distiller receives the full input so it can normalize the request
+    // while treating declared contextFields as runtime-only context. The task
+    // stage receives only non-context inputs plus the handoff fields.
+    const { nonCtxValues } = splitValuesByContext(
+      valuesForStages,
+      contextFieldNames
+    );
 
-    let executorInputs: Record<string, unknown>;
-    let executorRun: any;
-    if (isDirectRespondPayload(distillerRun.executorResult)) {
-      // Direct-respond skip: synthesize the executor run host-side (zero
-      // executor model calls) and stream the responder as usual.
-      executorRun = buildDirectRespondExecutorRun(
-        p,
-        nonCtxValues,
-        distillerRun
-      );
-      applyDirectRespondState(p);
-      executorInputs = {
-        executorRequest: String(distillerRun.executorResult.args?.[0] ?? ''),
-      };
-    } else {
-      executorInputs = buildExecutorHandoffInputs(
-        p,
-        sharedSession,
-        nonCtxValues,
-        distillerRun
-      );
-      executorRun = await p.executor.run(
-        executorAi,
-        executorInputs,
+    const distillerAi = p.distillerAi ?? ai;
+    const executorAi = p.executorAi ?? ai;
+    const responderAi = p.responderAi ?? ai;
+    if (typeof p._syncContextMapPrompt === 'function') {
+      p._syncContextMapPrompt();
+    }
+
+    const sharedSession = beginPipelineSharedSession(p);
+    try {
+      const distillerRun = await p.distiller.run(
+        distillerAi,
+        valuesForStages,
         runOptions
       );
-      throwOnClarification(executorRun.executorResult, p.executor);
-    }
-    const usedMemories = mergeUsedMemoryResults(
-      distillerRun.usedMemories,
-      executorRun.usedMemories ?? []
-    );
-    const usedSkills = mergeUsedSkillResults(
-      distillerRun.usedSkills,
-      executorRun.usedSkills ?? []
-    );
-    notifyUsedMemories(p, runOptions, usedMemories);
-    notifyUsedSkills(p, runOptions, usedSkills);
-    const {
-      executorRequest: _ignoreT,
-      distilledContextSummary: _ignoreC,
-      contextMetadata: _ignoreCM,
-      memories: _ignoreM,
-      ...nonCtxFromExecutor
-    } = executorRun.nonContextValues as Record<string, unknown>;
-    const nonCtxForResponder = finalizeResponderNonContextValues(
-      p,
-      nonCtxFromExecutor,
-      nonCtxValues as Record<string, unknown>
-    );
-    yield* p.responder.streamingForward(responderAi, {
-      nonContextValues: nonCtxForResponder,
-      executorResult: executorRun.executorResult,
-      options: runOptions,
-    });
-    if (typeof p._updateContextMapFromPipelineState === 'function') {
-      await p._updateContextMapFromPipelineState(ai, {
-        agentValues: valuesForStages,
-        executorInputs,
-        distillerResult: distillerRun,
-        executorResult: executorRun,
+      throwOnClarification(distillerRun.executorResult, p.distiller);
+
+      let executorInputs: Record<string, unknown>;
+      let executorRun: any;
+      if (isDirectRespondPayload(distillerRun.executorResult)) {
+        // Direct-respond skip: synthesize the executor run host-side (zero
+        // executor model calls) and stream the responder as usual.
+        executorRun = buildDirectRespondExecutorRun(
+          p,
+          nonCtxValues,
+          distillerRun
+        );
+        applyDirectRespondState(p);
+        executorInputs = {
+          executorRequest: String(distillerRun.executorResult.args?.[0] ?? ''),
+        };
+      } else {
+        executorInputs = buildExecutorHandoffInputs(
+          p,
+          sharedSession,
+          nonCtxValues,
+          distillerRun
+        );
+        executorRun = await p.executor.run(
+          executorAi,
+          executorInputs,
+          runOptions
+        );
+        throwOnClarification(executorRun.executorResult, p.executor);
+      }
+      const usedMemories = mergeUsedMemoryResults(
+        distillerRun.usedMemories,
+        executorRun.usedMemories ?? []
+      );
+      const usedSkills = mergeUsedSkillResults(
+        distillerRun.usedSkills,
+        executorRun.usedSkills ?? []
+      );
+      notifyUsedMemories(p, runOptions, usedMemories);
+      notifyUsedSkills(p, runOptions, usedSkills);
+      const {
+        executorRequest: _ignoreT,
+        distilledContextSummary: _ignoreC,
+        contextMetadata: _ignoreCM,
+        memories: _ignoreM,
+        ...nonCtxFromExecutor
+      } = executorRun.nonContextValues as Record<string, unknown>;
+      const nonCtxForResponder = finalizeResponderNonContextValues(
+        p,
+        nonCtxFromExecutor,
+        nonCtxValues as Record<string, unknown>
+      );
+      yield* p.responder.streamingForward(responderAi, {
+        nonContextValues: nonCtxForResponder,
+        executorResult: executorRun.executorResult,
+        options: runOptions,
       });
+      if (typeof p._updateContextMapFromPipelineState === 'function') {
+        await p._updateContextMapFromPipelineState(ai, {
+          agentValues: valuesForStages,
+          executorInputs,
+          distillerResult: distillerRun,
+          executorResult: executorRun,
+          forwardOptions: runOptions,
+        });
+      }
+      if (typeof p._updatePlaybookFromPipelineState === 'function') {
+        await p._updatePlaybookFromPipelineState({
+          agentValues: valuesForStages,
+          executorInputs,
+          distillerResult: distillerRun,
+          executorResult: executorRun,
+        });
+      }
+    } finally {
+      endPipelineSharedSession(p, sharedSession);
     }
-    if (typeof p._updatePlaybookFromPipelineState === 'function') {
-      await p._updatePlaybookFromPipelineState({
-        agentValues: valuesForStages,
-        executorInputs,
-        distillerResult: distillerRun,
-        executorResult: executorRun,
-      });
-    }
+  } catch (error) {
+    runtimeError = error;
+    throw error;
   } finally {
-    endPipelineSharedSession(p, sharedSession);
+    runtimeScope.finish(runtimeError);
   }
 }

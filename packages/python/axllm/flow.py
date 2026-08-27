@@ -6,7 +6,18 @@ import copy
 import json
 from typing import Any, Callable
 
-from .ai import AIClient
+from .ai import (
+    AIClient,
+    AxMeter,
+    AxRateLimiter,
+    AxRuntimeHooks,
+    AxTracer,
+    _coerce_runtime_hooks,
+    _merge_runtime_hooks,
+    _runtime_hook_scope,
+    _runtime_hooks_from_options,
+    _strip_runtime_hooks,
+)
 from .gen import (
     AxGen,
     ax,
@@ -182,10 +193,11 @@ class AxProgram(ABC):
 
 
 class AxFlow(AxProgram):
-    def __init__(self, options: dict[str, Any] | str | None = None, bindings: dict[str, Any] | None = None):
+    def __init__(self, options: dict[str, Any] | str | None = None, bindings: dict[str, Any] | None = None, hooks: AxRuntimeHooks | None = None):
         if isinstance(options, str):
             normalized = _normalize_mermaid_bindings(bindings)
-            self.options = dict(normalized.get("options") or {})
+            self.runtime_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(normalized.get("options")))
+            self.options = _strip_runtime_hooks(normalized.get("options"))
             self.execution_context = resolve_execution_context(self.options)
             self.state = _flow_from_mermaid(options, normalized)
             self.state["mermaidPercent"] = "%"
@@ -193,12 +205,25 @@ class AxFlow(AxProgram):
             self.state["mermaidCloseBrace"] = "}"
             _hydrate_mermaid_steps(self.state.get("steps") or [], normalized)
             return
-        self.options = dict(options or {})
+        self.runtime_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
+        self.options = _strip_runtime_hooks(options)
         self.execution_context = resolve_execution_context(self.options)
         self.state = _flow_factory(self.options)
         self.state["mermaidPercent"] = "%"
         self.state["mermaidOpenBrace"] = "{"
         self.state["mermaidCloseBrace"] = "}"
+
+    def set_rate_limiter(self, limiter: AxRateLimiter | None):
+        self.runtime_hooks = AxRuntimeHooks(limiter, self.runtime_hooks.tracer, self.runtime_hooks.meter)
+        return self
+
+    def set_tracer(self, tracer: AxTracer | None):
+        self.runtime_hooks = AxRuntimeHooks(self.runtime_hooks.rate_limiter, tracer, self.runtime_hooks.meter)
+        return self
+
+    def set_meter(self, meter: AxMeter | None):
+        self.runtime_hooks = AxRuntimeHooks(self.runtime_hooks.rate_limiter, self.runtime_hooks.tracer, meter)
+        return self
 
     def execute(self, name: str, program, options: dict[str, Any] | None = None):
         opts = dict(options or {})
@@ -343,7 +368,24 @@ class AxFlow(AxProgram):
             raise ValueError("options.engine must implement OptimizerEngine for optimize()")
         return self.optimize_with(engine, dataset or [], opts)
 
-    def forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
+    def forward(
+        self,
+        client: AIClient,
+        values: dict[str, Any],
+        options: dict[str, Any] | None = None,
+        hooks: AxRuntimeHooks | None = None,
+    ):
+        call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
+        with _runtime_hook_scope(
+            call_hooks,
+            self.runtime_hooks,
+            span_name="ax_gen_flow_forward",
+            attributes={"ax.program.id": self.state.get("program_id", "root.flow"), "ax.program.type": "AxFlow"},
+            metric_prefix="ax_gen_flow",
+        ):
+            return self._forward_unscoped(client, values, _strip_runtime_hooks(options))
+
+    def _forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_options = dict(options or {})
         call_context = resolve_execution_context(call_options, self.execution_context)
         if call_context:
@@ -396,8 +438,8 @@ def _hydrate_mermaid_steps(steps, bindings):
             _hydrate_mermaid_steps(nested, bindings)
 
 
-def flow(options: dict[str, Any] | str | None = None, bindings: dict[str, Any] | None = None) -> AxFlow:
-    return AxFlow(options, bindings)
+def flow(options: dict[str, Any] | str | None = None, bindings: dict[str, Any] | None = None, *, hooks: AxRuntimeHooks | None = None) -> AxFlow:
+    return AxFlow(options, bindings, hooks)
 
 
 def _core_map_get(values, key):

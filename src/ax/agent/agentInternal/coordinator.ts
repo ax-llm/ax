@@ -768,7 +768,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     });
 
     try {
-      const result = await this.contextMap.update(ai, { task, trajectory });
+      const forwardOptions = state.forwardOptions ?? {};
+      const result = await this.contextMap.update(ai, {
+        task,
+        trajectory,
+        options: {
+          rateLimiter: forwardOptions.rateLimiter ?? this.options.rateLimiter,
+          tracer: forwardOptions.tracer ?? this.options.tracer,
+          meter: forwardOptions.meter ?? this.options.meter,
+          traceContext: forwardOptions.traceContext,
+          abortSignal: forwardOptions.abortSignal,
+        },
+      });
       this._syncContextMapPrompt();
       if (result.status !== 'skipped' && this.contextMapConfig?.onUpdate) {
         await this.contextMapConfig.onUpdate(result);

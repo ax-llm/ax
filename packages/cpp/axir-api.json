@@ -273,6 +273,138 @@
         },
         {
           "target_name": "cpp",
+          "canonical_name": "AxRuntimeHooks",
+          "public_name": "axllm::AxRuntimeHooks",
+          "kind": "type",
+          "description": "Non-serializable rate limiter, tracer, and meter overrides for one service or program execution.",
+          "form": "axllm::AxRuntimeHooks",
+          "important_options": [
+            "rate limiter",
+            "tracer",
+            "meter",
+            "precedence"
+          ],
+          "returns": "runtime hooks",
+          "example": "axllm::AxRuntimeHooks hooks{limiter, tracer, meter};"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxRateLimitInfo",
+          "public_name": "axllm::AxRateLimitInfo",
+          "kind": "type",
+          "description": "Provider and model metadata supplied to a request-wrapper rate limiter.",
+          "form": "axllm::AxRateLimitInfo",
+          "important_options": [
+            "operation",
+            "provider",
+            "model",
+            "streaming",
+            "previous usage"
+          ],
+          "returns": "rate-limit context"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxRateLimiter",
+          "public_name": "axllm::AxRateLimiter",
+          "kind": "interface",
+          "description": "Request wrapper that can delay, reject, or execute a chat or embedding request.",
+          "form": "axllm::AxRateLimiter",
+          "important_options": [
+            "next",
+            "metadata",
+            "errors"
+          ],
+          "returns": "provider result"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxTracer",
+          "public_name": "axllm::AxTracer",
+          "kind": "interface",
+          "description": "Dependency-neutral tracer that creates metadata-only Ax spans.",
+          "form": "axllm::AxTracer",
+          "important_options": [
+            "start span",
+            "parent span",
+            "fail-open"
+          ],
+          "returns": "span"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxMeter",
+          "public_name": "axllm::AxMeter",
+          "kind": "interface",
+          "description": "Dependency-neutral meter for Ax counters, histograms, and gauges.",
+          "form": "axllm::AxMeter",
+          "important_options": [
+            "counter",
+            "histogram",
+            "gauge",
+            "fail-open"
+          ],
+          "returns": "instrument"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "AxGlobals",
+          "public_name": "axllm::AxGlobals",
+          "kind": "type",
+          "description": "Process-wide live defaults for runtime hooks and usage observation.",
+          "form": "axllm::AxGlobals",
+          "important_options": [
+            "rate limiter",
+            "tracer",
+            "meter",
+            "usage observer"
+          ],
+          "returns": "global hooks"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "set_rate_limiter",
+          "public_name": "axllm::set_rate_limiter",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide request-wrapper rate limiter.",
+          "form": "axllm::set_rate_limiter(limiter)",
+          "important_options": [
+            "limiter",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "axllm::set_rate_limiter(limiter);"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "set_tracer",
+          "public_name": "axllm::set_tracer",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide dependency-neutral tracer.",
+          "form": "axllm::set_tracer(tracer)",
+          "important_options": [
+            "tracer",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "axllm::set_tracer(tracer);"
+        },
+        {
+          "target_name": "cpp",
+          "canonical_name": "set_meter",
+          "public_name": "axllm::set_meter",
+          "kind": "function",
+          "description": "Register, replace, or clear the process-wide dependency-neutral meter.",
+          "form": "axllm::set_meter(meter)",
+          "important_options": [
+            "meter",
+            "clear"
+          ],
+          "returns": "void",
+          "example": "axllm::set_meter(meter);"
+        },
+        {
+          "target_name": "cpp",
           "canonical_name": "AxBalancer",
           "public_name": "axllm::AxBalancer",
           "kind": "type",

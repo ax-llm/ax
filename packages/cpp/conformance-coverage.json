@@ -103,6 +103,12 @@
       },
       {
         "suite": "axai",
+        "kind": "ai_runtime_hooks",
+        "runner": "cpp:axai",
+        "category": "semantic"
+      },
+      {
+        "suite": "axai",
         "kind": "ai_transcribe",
         "runner": "cpp:axai",
         "category": "transport-boundary"

@@ -19,7 +19,7 @@ use std::fmt;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "runtime-quickjs")]
@@ -32,6 +32,401 @@ pub type AxResult<T> = Result<T, AxError>;
 pub type AxUsageContext = Value;
 pub type AxUsageEvent = Value;
 pub type AxUsageObserver = Arc<dyn Fn(AxUsageEvent) + Send + Sync>;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct AxRateLimitInfo {
+    pub operation: String,
+    pub provider: String,
+    pub model: String,
+    pub streaming: bool,
+    pub previous_model_usage: Option<Value>,
+}
+
+pub trait AxRateLimiter: Send + Sync {
+    fn run(
+        &self,
+        next: &mut dyn FnMut() -> AxResult<Value>,
+        info: &AxRateLimitInfo,
+    ) -> AxResult<Value>;
+}
+
+impl<F> AxRateLimiter for F
+where
+    F: Fn(&mut dyn FnMut() -> AxResult<Value>, &AxRateLimitInfo) -> AxResult<Value> + Send + Sync,
+{
+    fn run(
+        &self,
+        next: &mut dyn FnMut() -> AxResult<Value>,
+        info: &AxRateLimitInfo,
+    ) -> AxResult<Value> {
+        self(next, info)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AxSpanStart {
+    pub name: String,
+    pub kind: String,
+    pub attributes: BTreeMap<String, Value>,
+    pub parent: Option<Arc<dyn AxSpan>>,
+}
+
+pub trait AxSpan: Send + Sync + fmt::Debug {
+    fn set_attributes(&self, _attributes: &BTreeMap<String, Value>) {}
+    fn add_event(&self, _name: &str, _attributes: &BTreeMap<String, Value>) {}
+    fn record_exception(&self, _error: &AxError) {}
+    fn set_status(&self, _status: &str, _description: Option<&str>) {}
+    fn end(&self) {}
+}
+
+pub trait AxTracer: Send + Sync {
+    fn start_span(&self, start: AxSpanStart) -> Option<Arc<dyn AxSpan>>;
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AxMetricInstrumentOptions {
+    pub description: Option<String>,
+    pub unit: Option<String>,
+}
+
+pub trait AxCounter: Send + Sync {
+    fn add(&self, value: f64, attributes: &BTreeMap<String, Value>);
+}
+
+pub trait AxHistogram: Send + Sync {
+    fn record(&self, value: f64, attributes: &BTreeMap<String, Value>);
+}
+
+pub trait AxGauge: Send + Sync {
+    fn record(&self, value: f64, attributes: &BTreeMap<String, Value>);
+}
+
+pub trait AxMeter: Send + Sync {
+    fn create_counter(
+        &self,
+        name: &str,
+        options: &AxMetricInstrumentOptions,
+    ) -> Option<Arc<dyn AxCounter>>;
+    fn create_histogram(
+        &self,
+        name: &str,
+        options: &AxMetricInstrumentOptions,
+    ) -> Option<Arc<dyn AxHistogram>>;
+    fn create_gauge(
+        &self,
+        name: &str,
+        options: &AxMetricInstrumentOptions,
+    ) -> Option<Arc<dyn AxGauge>>;
+}
+
+#[derive(Clone, Default)]
+pub struct AxRuntimeHooks {
+    pub rate_limiter: Option<Arc<dyn AxRateLimiter>>,
+    pub tracer: Option<Arc<dyn AxTracer>>,
+    pub meter: Option<Arc<dyn AxMeter>>,
+}
+
+static RUNTIME_HOOK_GLOBALS: OnceLock<Mutex<AxRuntimeHooks>> = OnceLock::new();
+
+pub fn set_rate_limiter(rate_limiter: Option<Arc<dyn AxRateLimiter>>) {
+    if let Ok(mut hooks) = RUNTIME_HOOK_GLOBALS
+        .get_or_init(|| Mutex::new(AxRuntimeHooks::default()))
+        .lock()
+    {
+        hooks.rate_limiter = rate_limiter;
+    }
+}
+
+pub fn set_tracer(tracer: Option<Arc<dyn AxTracer>>) {
+    if let Ok(mut hooks) = RUNTIME_HOOK_GLOBALS
+        .get_or_init(|| Mutex::new(AxRuntimeHooks::default()))
+        .lock()
+    {
+        hooks.tracer = tracer;
+    }
+}
+
+pub fn set_meter(meter: Option<Arc<dyn AxMeter>>) {
+    if let Ok(mut hooks) = RUNTIME_HOOK_GLOBALS
+        .get_or_init(|| Mutex::new(AxRuntimeHooks::default()))
+        .lock()
+    {
+        hooks.meter = meter;
+    }
+}
+
+#[derive(Clone, Default)]
+struct RuntimeHookFrame {
+    hooks: AxRuntimeHooks,
+    span: Option<Arc<dyn AxSpan>>,
+}
+
+thread_local! {
+    static RUNTIME_HOOK_FRAMES: RefCell<Vec<RuntimeHookFrame>> = const { RefCell::new(Vec::new()) };
+}
+
+fn snapshot_runtime_globals() -> AxRuntimeHooks {
+    RUNTIME_HOOK_GLOBALS
+        .get_or_init(|| Mutex::new(AxRuntimeHooks::default()))
+        .lock()
+        .map(|hooks| hooks.clone())
+        .unwrap_or_default()
+}
+
+fn merge_runtime_hooks(
+    explicit: Option<&AxRuntimeHooks>,
+    enclosing: Option<&AxRuntimeHooks>,
+    defaults: Option<&AxRuntimeHooks>,
+) -> AxRuntimeHooks {
+    let inherited = RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow().last().cloned());
+    let globals = if inherited.is_none() {
+        snapshot_runtime_globals()
+    } else {
+        AxRuntimeHooks::default()
+    };
+    let sources = [
+        explicit,
+        enclosing,
+        inherited.as_ref().map(|frame| &frame.hooks),
+        defaults,
+        Some(&globals),
+    ];
+    AxRuntimeHooks {
+        rate_limiter: sources
+            .iter()
+            .find_map(|source| source.and_then(|h| h.rate_limiter.clone())),
+        tracer: sources
+            .iter()
+            .find_map(|source| source.and_then(|h| h.tracer.clone())),
+        meter: sources
+            .iter()
+            .find_map(|source| source.and_then(|h| h.meter.clone())),
+    }
+}
+
+fn current_runtime_hooks() -> Option<AxRuntimeHooks> {
+    RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow().last().map(|frame| frame.hooks.clone()))
+}
+
+fn current_runtime_parent_span() -> Option<Arc<dyn AxSpan>> {
+    RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow().last().and_then(|frame| frame.span.clone()))
+}
+
+fn start_runtime_span(
+    hooks: &AxRuntimeHooks,
+    name: &str,
+    kind: &str,
+    attributes: &BTreeMap<String, Value>,
+) -> Option<Arc<dyn AxSpan>> {
+    hooks.tracer.as_ref().and_then(|tracer| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tracer.start_span(AxSpanStart {
+                name: name.to_string(),
+                kind: kind.to_string(),
+                attributes: attributes.clone(),
+                parent: current_runtime_parent_span(),
+            })
+        }))
+        .ok()
+        .flatten()
+    })
+}
+
+fn finish_runtime_span(span: &Option<Arc<dyn AxSpan>>, error: Option<&AxError>) {
+    if let Some(span) = span {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Some(error) = error {
+                span.record_exception(error);
+                span.set_status("error", Some(&error.message));
+            } else {
+                span.set_status("ok", None);
+            }
+            span.end();
+        }));
+    }
+}
+
+struct RuntimeHookScope {
+    finished: bool,
+}
+
+impl RuntimeHookScope {
+    fn enter(hooks: AxRuntimeHooks, span: Option<Arc<dyn AxSpan>>) -> Self {
+        RUNTIME_HOOK_FRAMES
+            .with(|frames| frames.borrow_mut().push(RuntimeHookFrame { hooks, span }));
+        Self { finished: false }
+    }
+
+    fn finish<T>(&mut self, result: &AxResult<T>) {
+        if self.finished {
+            return;
+        }
+        let frame = RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow_mut().pop());
+        if let Some(frame) = frame {
+            finish_runtime_span(&frame.span, result.as_ref().err());
+        }
+        self.finished = true;
+    }
+}
+
+impl Drop for RuntimeHookScope {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        let frame = RUNTIME_HOOK_FRAMES.with(|frames| frames.borrow_mut().pop());
+        if let Some(frame) = frame {
+            if std::thread::panicking() {
+                let error = AxError::runtime("runtime hook scope panicked");
+                finish_runtime_span(&frame.span, Some(&error));
+            } else {
+                finish_runtime_span(&frame.span, None);
+            }
+        }
+        self.finished = true;
+    }
+}
+
+fn with_runtime_scope<T>(
+    explicit: Option<&AxRuntimeHooks>,
+    defaults: Option<&AxRuntimeHooks>,
+    name: &str,
+    kind: &str,
+    attributes: BTreeMap<String, Value>,
+    operation: impl FnOnce() -> AxResult<T>,
+) -> AxResult<T> {
+    let hooks = merge_runtime_hooks(explicit, None, defaults);
+    let span = start_runtime_span(&hooks, name, kind, &attributes);
+    let started = Instant::now();
+    record_runtime_metrics(&hooks, kind, &attributes, None, None);
+    let mut scope = RuntimeHookScope::enter(hooks, span);
+    let result = operation();
+    let active_hooks = current_runtime_hooks().unwrap_or_default();
+    record_runtime_metrics(
+        &active_hooks,
+        kind,
+        &attributes,
+        Some(started.elapsed().as_secs_f64() * 1000.0),
+        result.as_ref().err(),
+    );
+    scope.finish(&result);
+    result
+}
+
+fn with_runtime_binding<T>(
+    explicit: Option<&AxRuntimeHooks>,
+    defaults: Option<&AxRuntimeHooks>,
+    operation: impl FnOnce() -> AxResult<T>,
+) -> AxResult<T> {
+    let hooks = merge_runtime_hooks(explicit, None, defaults);
+    let mut scope = RuntimeHookScope::enter(hooks, None);
+    let result = operation();
+    scope.finish(&result);
+    result
+}
+
+#[derive(Clone, Default)]
+struct RuntimeMeterInstruments {
+    requests: Option<Arc<dyn AxCounter>>,
+    errors: Option<Arc<dyn AxCounter>>,
+    duration: Option<Arc<dyn AxHistogram>>,
+    active: Option<Arc<dyn AxGauge>>,
+}
+
+struct RuntimeMeterCacheEntry {
+    meter: Weak<dyn AxMeter>,
+    instruments: RuntimeMeterInstruments,
+}
+
+static RUNTIME_METER_CACHE: OnceLock<Mutex<BTreeMap<(usize, String), RuntimeMeterCacheEntry>>> =
+    OnceLock::new();
+
+fn runtime_meter_instruments(meter: &Arc<dyn AxMeter>, namespace: &str) -> RuntimeMeterInstruments {
+    let identity = Arc::as_ptr(meter) as *const () as usize;
+    let key = (identity, namespace.to_string());
+    if let Ok(mut cache) = RUNTIME_METER_CACHE
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+    {
+        let cached = cache.get(&key).and_then(|entry| {
+            entry.meter.upgrade().and_then(|cached_meter| {
+                Arc::ptr_eq(&cached_meter, meter).then(|| entry.instruments.clone())
+            })
+        });
+        if let Some(cached) = cached {
+            return cached;
+        }
+        cache.remove(&key);
+    }
+    let created = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let count_options = AxMetricInstrumentOptions {
+            description: Some("Ax runtime operations".to_string()),
+            unit: Some("{operation}".to_string()),
+        };
+        let duration_options = AxMetricInstrumentOptions {
+            description: Some("Ax runtime operation duration".to_string()),
+            unit: Some("ms".to_string()),
+        };
+        RuntimeMeterInstruments {
+            requests: meter.create_counter(&format!("{namespace}_requests"), &count_options),
+            errors: meter.create_counter(&format!("{namespace}_errors"), &count_options),
+            duration: meter
+                .create_histogram(&format!("{namespace}_duration_ms"), &duration_options),
+            active: meter.create_gauge(
+                &format!("{namespace}_active_requests"),
+                &AxMetricInstrumentOptions::default(),
+            ),
+        }
+    }))
+    .unwrap_or_default();
+    if let Ok(mut cache) = RUNTIME_METER_CACHE
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+    {
+        cache.insert(
+            key,
+            RuntimeMeterCacheEntry {
+                meter: Arc::downgrade(meter),
+                instruments: created.clone(),
+            },
+        );
+    }
+    created
+}
+
+fn record_runtime_metrics(
+    hooks: &AxRuntimeHooks,
+    kind: &str,
+    attributes: &BTreeMap<String, Value>,
+    duration_ms: Option<f64>,
+    error: Option<&AxError>,
+) {
+    let Some(meter) = &hooks.meter else { return };
+    let namespace = if kind == "client" { "ax_llm" } else { "ax_gen" };
+    let instruments = runtime_meter_instruments(meter, namespace);
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if let Some(duration_ms) = duration_ms {
+            if let Some(duration) = &instruments.duration {
+                duration.record(duration_ms, attributes);
+            }
+            if let Some(active) = &instruments.active {
+                active.record(0.0, attributes);
+            }
+            if error.is_some() {
+                if let Some(errors) = &instruments.errors {
+                    errors.add(1.0, attributes);
+                }
+            }
+        } else {
+            if let Some(requests) = &instruments.requests {
+                requests.add(1.0, attributes);
+            }
+            if let Some(active) = &instruments.active {
+                active.record(1.0, attributes);
+            }
+        }
+    }));
+}
 
 static USAGE_OBSERVER: OnceLock<Mutex<Option<AxUsageObserver>>> = OnceLock::new();
 
@@ -95,6 +490,51 @@ fn merge_ai_options(defaults: &Value, overrides: &Value) -> AxResult<Value> {
         merged.insert("usageContext".into(), context);
     }
     Ok(Value::Object(merged))
+}
+
+fn response_model_usage(response: &Value) -> Option<Value> {
+    response
+        .get("model_usage")
+        .or_else(|| response.get("modelUsage"))
+        .or_else(|| response.get("usage"))
+        .cloned()
+        .or_else(|| {
+            response
+                .get("results")
+                .and_then(Value::as_array)
+                .and_then(|results| results.last())
+                .and_then(|result| {
+                    result
+                        .get("model_usage")
+                        .or_else(|| result.get("modelUsage"))
+                        .or_else(|| result.get("usage"))
+                })
+                .cloned()
+        })
+}
+
+fn run_ai_runtime_operation(
+    hooks: AxRuntimeHooks,
+    info: &AxRateLimitInfo,
+    next: &mut dyn FnMut() -> AxResult<Value>,
+) -> AxResult<Value> {
+    let mut attributes = BTreeMap::new();
+    attributes.insert("ax.operation".to_string(), json!(info.operation));
+    attributes.insert("ax.provider".to_string(), json!(info.provider));
+    attributes.insert("ax.model".to_string(), json!(info.model));
+    attributes.insert("ax.streaming".to_string(), json!(info.streaming));
+    let limiter = hooks.rate_limiter.clone();
+    with_runtime_scope(
+        Some(&hooks),
+        None,
+        &format!("ax_llm_{}", info.operation),
+        "client",
+        attributes,
+        || match limiter {
+            Some(limiter) => limiter.run(next, info),
+            None => next(),
+        },
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -912,10 +1352,41 @@ pub trait AxAIClient {
         self.chat(request)
     }
 
+    fn chat_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        options: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        with_runtime_scope(
+            Some(&hooks),
+            None,
+            "ax_llm_chat",
+            "client",
+            BTreeMap::new(),
+            || self.chat_with_options(request, options),
+        )
+    }
+
     fn embed(&mut self, _request: Value) -> AxResult<Value> {
         Err(AxError::runtime(
             "embedding is not supported by this AI client",
         ))
+    }
+
+    fn embed_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        with_runtime_scope(
+            Some(&hooks),
+            None,
+            "ax_llm_embed",
+            "client",
+            BTreeMap::new(),
+            || self.embed(request),
+        )
     }
 
     fn speak(&mut self, _request: Value) -> AxResult<Value> {
@@ -965,6 +1436,21 @@ pub trait AxAIClient {
                 .collect());
         }
         Ok(vec![response])
+    }
+
+    fn stream_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Vec<Value>> {
+        with_runtime_scope(
+            Some(&hooks),
+            None,
+            "ax_llm_chat",
+            "client",
+            BTreeMap::new(),
+            || self.stream(request),
+        )
     }
 }
 
@@ -1041,6 +1527,8 @@ pub struct OpenAICompatibleClient {
     pub credential_provider: Option<Box<dyn AxCredentialProvider>>,
     pub context_cache_registry: Option<Box<dyn AxContextCacheRegistry>>,
     context_cache_entries: BTreeMap<String, Value>,
+    runtime_hooks: AxRuntimeHooks,
+    last_model_usage: Option<Value>,
 }
 
 impl OpenAICompatibleClient {
@@ -1059,6 +1547,8 @@ impl OpenAICompatibleClient {
             credential_provider: None,
             context_cache_registry: None,
             context_cache_entries: BTreeMap::new(),
+            runtime_hooks: AxRuntimeHooks::default(),
+            last_model_usage: None,
         }
     }
 
@@ -1110,6 +1600,23 @@ impl OpenAICompatibleClient {
             json!({})
         };
         self
+    }
+
+    pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
+        self.runtime_hooks = hooks;
+        self
+    }
+
+    pub fn set_rate_limiter(&mut self, rate_limiter: Option<Arc<dyn AxRateLimiter>>) {
+        self.runtime_hooks.rate_limiter = rate_limiter;
+    }
+
+    pub fn set_tracer(&mut self, tracer: Option<Arc<dyn AxTracer>>) {
+        self.runtime_hooks.tracer = tracer;
+    }
+
+    pub fn set_meter(&mut self, meter: Option<Arc<dyn AxMeter>>) {
+        self.runtime_hooks.meter = meter;
     }
 
     fn prepare_chat_request(&self, request: &Value) -> AxResult<Value> {
@@ -1835,80 +2342,97 @@ impl OpenAICompatibleClient {
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
-        // python: AxBaseAI.embed validation + ProviderOperationClient._embed
-        // (provider_build_embed_request -> transport -> provider_normalize_embed_response)
-        let texts = request
-            .get("texts")
-            .or_else(|| request.get("input"))
-            .cloned()
-            .unwrap_or(Value::Null);
-        if !texts
-            .as_array()
-            .map(|items| !items.is_empty())
-            .unwrap_or(false)
-        {
-            return Err(AxError {
-                category: "ai_service".to_string(),
-                error_type: Some("AxAIServiceResponseError".to_string()),
-                message: "Embed texts is empty".to_string(),
-                status: None,
-                code: None,
-                retryable: false,
-                response_body: None,
-            });
-        }
-        let embed_model = string_at(&request, "embed_model")
-            .or_else(|| string_at(&request, "embedModel"))
-            .unwrap_or_else(|| self.embed_model.clone());
-        if embed_model.is_empty() {
-            return Err(AxError {
-                category: "ai_service".to_string(),
-                error_type: Some("AxAIServiceResponseError".to_string()),
-                message: "Embed model not set".to_string(),
-                status: None,
-                code: None,
-                retryable: false,
-                response_body: None,
-            });
-        }
-        let mut req = if request.is_object() {
-            request.clone()
-        } else {
-            json!({})
+        let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
+        let info = AxRateLimitInfo {
+            operation: "embed".to_string(),
+            provider: self.profile.clone(),
+            model: string_at(&request, "embed_model")
+                .or_else(|| string_at(&request, "embedModel"))
+                .unwrap_or_else(|| self.embed_model.clone()),
+            streaming: false,
+            previous_model_usage: self.last_model_usage.clone(),
         };
-        req["texts"] = texts;
-        req["embed_model"] = json!(embed_model.clone());
-        let profile = self.profile.clone();
-        if profile == "openai-compatible" {
-            let _ = build_embed_request(&[
-                CoreValue::Null,
+        let mut next = || -> AxResult<Value> {
+            // python: AxBaseAI.embed validation + ProviderOperationClient._embed
+            // (provider_build_embed_request -> transport -> provider_normalize_embed_response)
+            let texts = request
+                .get("texts")
+                .or_else(|| request.get("input"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            if !texts
+                .as_array()
+                .map(|items| !items.is_empty())
+                .unwrap_or(false)
+            {
+                return Err(AxError {
+                    category: "ai_service".to_string(),
+                    error_type: Some("AxAIServiceResponseError".to_string()),
+                    message: "Embed texts is empty".to_string(),
+                    status: None,
+                    code: None,
+                    retryable: false,
+                    response_body: None,
+                });
+            }
+            let embed_model = string_at(&request, "embed_model")
+                .or_else(|| string_at(&request, "embedModel"))
+                .unwrap_or_else(|| self.embed_model.clone());
+            if embed_model.is_empty() {
+                return Err(AxError {
+                    category: "ai_service".to_string(),
+                    error_type: Some("AxAIServiceResponseError".to_string()),
+                    message: "Embed model not set".to_string(),
+                    status: None,
+                    code: None,
+                    retryable: false,
+                    response_body: None,
+                });
+            }
+            let mut req = if request.is_object() {
+                request.clone()
+            } else {
+                json!({})
+            };
+            req["texts"] = texts;
+            req["embed_model"] = json!(embed_model.clone());
+            let profile = self.profile.clone();
+            if profile == "openai-compatible" {
+                let _ = build_embed_request(&[
+                    CoreValue::Null,
+                    core_value_from_json(&req),
+                    CoreValue::Null,
+                ])?;
+            }
+            let payload = core_value_to_json(&provider_build_embed_request(&[
+                CoreValue::from(profile.as_str()),
                 core_value_from_json(&req),
-                CoreValue::Null,
+                core_value_from_json(&self.options),
+            ])?);
+            let model = string_at(&req, "embed_model")
+                .or_else(|| string_at(&payload, "model"))
+                .unwrap_or_else(|| self.embed_model.clone());
+            let call = self.provider_transport_request("embed", &payload, &model, false)?;
+            let raw = self.dispatch_transport_request(call)?;
+            let body = normalize_passthrough_response(raw)?;
+            if profile == "openai-compatible" {
+                let _ = normalize_embed_response(&[core_value_from_json(&body)])?;
+            }
+            let normalized = provider_normalize_embed_response(&[
+                CoreValue::from(profile.as_str()),
+                core_value_from_json(&body),
+                provider_ai_display_name(&profile),
+                CoreValue::from(model.as_str()),
             ])?;
+            let response = core_value_to_json(&normalized);
+            emit_usage_event("embed", &response, &self.options, false);
+            Ok(response)
+        };
+        let result = run_ai_runtime_operation(hooks, &info, &mut next);
+        if let Ok(response) = &result {
+            self.last_model_usage = response_model_usage(response);
         }
-        let payload = core_value_to_json(&provider_build_embed_request(&[
-            CoreValue::from(profile.as_str()),
-            core_value_from_json(&req),
-            core_value_from_json(&self.options),
-        ])?);
-        let model = string_at(&req, "embed_model")
-            .or_else(|| string_at(&payload, "model"))
-            .unwrap_or_else(|| self.embed_model.clone());
-        let call = self.provider_transport_request("embed", &payload, &model, false)?;
-        let raw = self.dispatch_transport_request(call)?;
-        let body = normalize_passthrough_response(raw)?;
-        if profile == "openai-compatible" {
-            let _ = normalize_embed_response(&[core_value_from_json(&body)])?;
-        }
-        let normalized = provider_normalize_embed_response(&[
-            CoreValue::from(profile.as_str()),
-            core_value_from_json(&body),
-            provider_ai_display_name(&profile),
-            CoreValue::from(model.as_str()),
-        ])?;
-        let response = core_value_to_json(&normalized);
-        emit_usage_event("embed", &response, &self.options, false);
-        Ok(response)
+        result
     }
 
     pub fn transcribe(&mut self, request: Value) -> AxResult<Value> {
@@ -2383,134 +2907,199 @@ impl AxAIClient for OpenAICompatibleClient {
         self.options = previous;
         response
     }
+    fn chat_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        options: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        let defaults = self.runtime_hooks.clone();
+        with_runtime_binding(Some(&hooks), Some(&defaults), || {
+            self.chat_with_options(request, options)
+        })
+    }
+    fn embed_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        let defaults = self.runtime_hooks.clone();
+        with_runtime_binding(Some(&hooks), Some(&defaults), || self.embed(request))
+    }
+    fn stream_with_runtime_hooks(
+        &mut self,
+        request: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Vec<Value>> {
+        let defaults = self.runtime_hooks.clone();
+        with_runtime_binding(Some(&hooks), Some(&defaults), || self.stream(request))
+    }
     fn chat(&mut self, request: Value) -> AxResult<Value> {
-        let req = self.prepare_chat_request(&request)?;
-        // python: AxBaseAI.chat validates the coerced request up front.
-        validate_chat_request(&[core_value_from_json(&req)])?;
-        let realtime_model = req
-            .get("model")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .unwrap_or_else(|| self.model.clone());
-        if core_value_to_json(&provider_should_use_realtime(&[
-            CoreValue::from(self.profile.as_str()),
-            CoreValue::from(realtime_model.as_str()),
-            core_value_from_json(&req),
-        ])?)
-        .as_bool()
-        .unwrap_or(false)
-        {
-            let response = self.realtime_chat(req, None);
+        let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
+        let info = AxRateLimitInfo {
+            operation: "chat".to_string(),
+            provider: self.profile.clone(),
+            model: string_at(&request, "model").unwrap_or_else(|| self.model.clone()),
+            streaming: false,
+            previous_model_usage: self.last_model_usage.clone(),
+        };
+        let mut next = || -> AxResult<Value> {
+            let req = self.prepare_chat_request(&request)?;
+            // python: AxBaseAI.chat validates the coerced request up front.
+            validate_chat_request(&[core_value_from_json(&req)])?;
+            let realtime_model = req
+                .get("model")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+                .unwrap_or_else(|| self.model.clone());
+            if core_value_to_json(&provider_should_use_realtime(&[
+                CoreValue::from(self.profile.as_str()),
+                CoreValue::from(realtime_model.as_str()),
+                core_value_from_json(&req),
+            ])?)
+            .as_bool()
+            .unwrap_or(false)
+            {
+                let response = self.realtime_chat(req, None);
+                if let Ok(value) = &response {
+                    emit_usage_event("chat", value, &self.options, false);
+                }
+                return response;
+            }
+            if self.profile == "openai-compatible" {
+                let _ = build_chat_request(&[
+                    CoreValue::Null,
+                    core_value_from_json(&req),
+                    CoreValue::Null,
+                ])?;
+            }
+            let payload = core_value_to_json(&provider_build_chat_request(&[
+                CoreValue::from(self.profile.as_str()),
+                core_value_from_json(&req),
+                core_value_from_json(&self.options),
+            ])?);
+            let model = req
+                .get("model")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+                .or_else(|| {
+                    payload
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string)
+                })
+                .unwrap_or_else(|| self.model.clone());
+            let call = self.provider_transport_request("chat", &payload, &model, false)?;
+            let raw = match self.context_cache_chat(&req, &payload, &model, &call)? {
+                Some(value) => value,
+                None => self.dispatch_transport_request(call)?,
+            };
+            let profile = self.profile.clone();
+            let response = normalize_openai_response(&profile, &model, raw);
             if let Ok(value) = &response {
                 emit_usage_event("chat", value, &self.options, false);
             }
-            return response;
-        }
-        if self.profile == "openai-compatible" {
-            let _ = build_chat_request(&[
-                CoreValue::Null,
-                core_value_from_json(&req),
-                CoreValue::Null,
-            ])?;
-        }
-        let payload = core_value_to_json(&provider_build_chat_request(&[
-            CoreValue::from(self.profile.as_str()),
-            core_value_from_json(&req),
-            core_value_from_json(&self.options),
-        ])?);
-        let model = req
-            .get("model")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .or_else(|| {
-                payload
-                    .get("model")
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string)
-            })
-            .unwrap_or_else(|| self.model.clone());
-        let call = self.provider_transport_request("chat", &payload, &model, false)?;
-        let raw = match self.context_cache_chat(&req, &payload, &model, &call)? {
-            Some(value) => value,
-            None => self.dispatch_transport_request(call)?,
+            response
         };
-        let profile = self.profile.clone();
-        let response = normalize_openai_response(&profile, &model, raw);
-        if let Ok(value) = &response {
-            emit_usage_event("chat", value, &self.options, false);
+        let result = run_ai_runtime_operation(hooks, &info, &mut next);
+        if let Ok(response) = &result {
+            self.last_model_usage = response_model_usage(response);
         }
-        response
+        result
     }
 
     fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
-        let mut req = self.prepare_chat_request(&request)?;
-        let mut model_config = req
-            .get("model_config")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        model_config["stream"] = json!(true);
-        req["model_config"] = model_config;
-        let payload = core_value_to_json(&provider_build_chat_request(&[
-            CoreValue::from(self.profile.as_str()),
-            core_value_from_json(&req),
-            core_value_from_json(&self.options),
-        ])?);
-        let model = req
-            .get("model")
-            .and_then(Value::as_str)
-            .unwrap_or(self.model.as_str())
-            .to_string();
-        let cfg = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(
-            &self.options,
-        )])?);
-        let max_retries = cfg.get("max_retries").and_then(Value::as_i64).unwrap_or(3);
-        let initial_delay = cfg
-            .get("initial_delay_ms")
-            .and_then(Value::as_f64)
-            .unwrap_or(1000.0);
-        let max_delay = cfg
-            .get("max_delay_ms")
-            .and_then(Value::as_f64)
-            .unwrap_or(60000.0);
-        let backoff = cfg
-            .get("backoff_factor")
-            .and_then(Value::as_f64)
-            .unwrap_or(2.0);
-        let mut attempt: i64 = 0;
-        loop {
-            let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
-            let response = self.dispatch_transport_request(call.clone())?;
-            let events = extract_stream_events(response)?;
-            // Pre-content streaming retry: peek the first raw SSE event before any stateful
-            // normalize runs (so peeking has no side effects); if the provider classifies it as a
-            // retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
-            // re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
-            if let Some(first) = events.first() {
-                let status = provider_classify_stream_error_status(&[
-                    CoreValue::from(self.profile.as_str()),
-                    core_value_from_json(first),
-                ])?;
-                if !status.is_null()
-                    && core_truthy(&is_retryable_status(&[status.clone()])?)
-                    && attempt < max_retries
-                {
-                    attempt += 1;
-                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    if delay > 0.0 {
-                        std::thread::sleep(std::time::Duration::from_millis(delay as u64));
-                    }
-                    continue;
-                }
-            }
-            let response = normalize_stream_events(&self.profile, &model, &events)?;
-            emit_usage_event(
-                "chat",
-                &json!({"results": response.clone()}),
+        let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
+        let info = AxRateLimitInfo {
+            operation: "chat".to_string(),
+            provider: self.profile.clone(),
+            model: string_at(&request, "model").unwrap_or_else(|| self.model.clone()),
+            streaming: true,
+            previous_model_usage: self.last_model_usage.clone(),
+        };
+        let mut stream_next = || -> AxResult<Vec<Value>> {
+            let mut req = self.prepare_chat_request(&request)?;
+            let mut model_config = req
+                .get("model_config")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            model_config["stream"] = json!(true);
+            req["model_config"] = model_config;
+            let payload = core_value_to_json(&provider_build_chat_request(&[
+                CoreValue::from(self.profile.as_str()),
+                core_value_from_json(&req),
+                core_value_from_json(&self.options),
+            ])?);
+            let model = req
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or(self.model.as_str())
+                .to_string();
+            let cfg = core_value_to_json(&resolve_stream_retry(&[core_value_from_json(
                 &self.options,
-                true,
-            );
-            return Ok(response);
+            )])?);
+            let max_retries = cfg.get("max_retries").and_then(Value::as_i64).unwrap_or(3);
+            let initial_delay = cfg
+                .get("initial_delay_ms")
+                .and_then(Value::as_f64)
+                .unwrap_or(1000.0);
+            let max_delay = cfg
+                .get("max_delay_ms")
+                .and_then(Value::as_f64)
+                .unwrap_or(60000.0);
+            let backoff = cfg
+                .get("backoff_factor")
+                .and_then(Value::as_f64)
+                .unwrap_or(2.0);
+            let mut attempt: i64 = 0;
+            loop {
+                let call =
+                    self.provider_transport_request("stream_chat", &payload, &model, true)?;
+                let response = self.dispatch_transport_request(call.clone())?;
+                let events = extract_stream_events(response)?;
+                // Pre-content streaming retry: peek the first raw SSE event before any stateful
+                // normalize runs (so peeking has no side effects); if the provider classifies it as a
+                // retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
+                // re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
+                if let Some(first) = events.first() {
+                    let status = provider_classify_stream_error_status(&[
+                        CoreValue::from(self.profile.as_str()),
+                        core_value_from_json(first),
+                    ])?;
+                    if !status.is_null()
+                        && core_truthy(&is_retryable_status(&[status.clone()])?)
+                        && attempt < max_retries
+                    {
+                        attempt += 1;
+                        let delay =
+                            (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
+                        if delay > 0.0 {
+                            std::thread::sleep(std::time::Duration::from_millis(delay as u64));
+                        }
+                        continue;
+                    }
+                }
+                let response = normalize_stream_events(&self.profile, &model, &events)?;
+                emit_usage_event(
+                    "chat",
+                    &json!({"results": response.clone()}),
+                    &self.options,
+                    true,
+                );
+                return Ok(response);
+            }
+        };
+        let mut next = || stream_next().map(Value::Array);
+        let result = run_ai_runtime_operation(hooks, &info, &mut next).and_then(|value| {
+            value
+                .as_array()
+                .cloned()
+                .ok_or_else(|| AxError::runtime("rate limiter returned a non-array stream result"))
+        });
+        if let Ok(results) = &result {
+            self.last_model_usage = response_model_usage(&json!({"results": results}));
         }
+        result
     }
 }
 
@@ -2583,6 +3172,14 @@ pub fn ai(provider: &str, options: Value) -> AxResult<OpenAICompatibleClient> {
             .cloned()
             .unwrap_or_else(|| json!({})),
     ))
+}
+
+pub fn ai_with_runtime_hooks(
+    provider: &str,
+    options: Value,
+    hooks: AxRuntimeHooks,
+) -> AxResult<OpenAICompatibleClient> {
+    ai(provider, options).map(|service| service.with_runtime_hooks(hooks))
 }
 
 struct ProviderDefaults {
@@ -2765,12 +3362,16 @@ pub struct Tool {
 
 impl Tool {
     pub fn call(&self, args: Value) -> AxResult<Value> {
-        validate_fields(&[
-            core_tool_args_fields(&self.args)?,
-            core_value_from_json(&args),
-            CoreValue::from_string(format!("tool.{}.args", self.name)),
-        ])?;
-        (self.handler)(args)
+        let mut attributes = BTreeMap::new();
+        attributes.insert("ax.tool.name".to_string(), json!(self.name));
+        with_runtime_scope(None, None, "ax_gen_tool", "tool", attributes, || {
+            validate_fields(&[
+                core_tool_args_fields(&self.args)?,
+                core_value_from_json(&args),
+                CoreValue::from_string(format!("tool.{}.args", self.name)),
+            ])?;
+            (self.handler)(args)
+        })
     }
 }
 
@@ -2837,10 +3438,15 @@ pub struct AxGen {
     pub traces: Vec<Value>,
     pub chat_log: Vec<Value>,
     pub result_picker: Option<AxResultPicker>,
+    runtime_hooks: AxRuntimeHooks,
 }
 
 pub fn ax(spec: &str) -> AxResult<AxGen> {
     AxGen::new(spec)
+}
+
+pub fn ax_with_runtime_hooks(spec: &str, hooks: AxRuntimeHooks) -> AxResult<AxGen> {
+    AxGen::new(spec).map(|program| program.with_runtime_hooks(hooks))
 }
 
 impl AxGen {
@@ -2861,6 +3467,7 @@ impl AxGen {
             traces: Vec::new(),
             chat_log: Vec::new(),
             result_picker: None,
+            runtime_hooks: AxRuntimeHooks::default(),
         })
     }
 
@@ -2919,6 +3526,26 @@ impl AxGen {
         self
     }
 
+    pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
+        self.runtime_hooks = hooks;
+        self
+    }
+
+    pub fn set_rate_limiter(&mut self, rate_limiter: Option<Arc<dyn AxRateLimiter>>) -> &mut Self {
+        self.runtime_hooks.rate_limiter = rate_limiter;
+        self
+    }
+
+    pub fn set_tracer(&mut self, tracer: Option<Arc<dyn AxTracer>>) -> &mut Self {
+        self.runtime_hooks.tracer = tracer;
+        self
+    }
+
+    pub fn set_meter(&mut self, meter: Option<Arc<dyn AxMeter>>) -> &mut Self {
+        self.runtime_hooks.meter = meter;
+        self
+    }
+
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
         self.forward_with_options(client, input, Value::Null)
     }
@@ -2929,42 +3556,66 @@ impl AxGen {
         input: Value,
         options: Value,
     ) -> AxResult<Value> {
-        if options.get("mcpInheritance").and_then(Value::as_str) == Some("none")
-            && self.execution_context.is_some()
-        {
-            let mut detached = self.clone();
-            detached.execution_context = None;
-            detached.tools = detached.base_tools.clone();
-            detached.chat_log.clear();
-            detached.function_call_traces.clear();
-            detached.traces.clear();
-            let result = detached.forward_with_options(client, input, json!({}))?;
-            self.chat_log.extend(detached.chat_log);
-            self.function_call_traces
-                .extend(detached.function_call_traces);
-            self.traces.extend(detached.traces);
-            return Ok(result);
-        }
-        let state = core_gen_state(self)?;
-        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
-            if method == "transcribe" {
-                client.transcribe(request)
-            } else if method == "features" {
-                Ok(client.get_features(request.as_str()))
-            } else {
-                client.chat_with_options(request, options)
-            }
-        };
-        let result = with_core_client(&mut chat, || {
-            _forward_impl(&[
-                state.clone(),
-                CoreValue::Null,
-                core_value_from_json(&input),
-                core_value_from_json(&options),
-            ])
-        });
-        core_gen_writeback(self, &state);
-        Ok(core_value_to_json(&result?))
+        let defaults = self.runtime_hooks.clone();
+        let mut attributes = BTreeMap::new();
+        attributes.insert("ax.program.kind".to_string(), json!("AxGen"));
+        with_runtime_scope(
+            None,
+            Some(&defaults),
+            "ax_gen_forward",
+            "gen",
+            attributes,
+            || {
+                if options.get("mcpInheritance").and_then(Value::as_str) == Some("none")
+                    && self.execution_context.is_some()
+                {
+                    let mut detached = self.clone();
+                    detached.execution_context = None;
+                    detached.tools = detached.base_tools.clone();
+                    detached.chat_log.clear();
+                    detached.function_call_traces.clear();
+                    detached.traces.clear();
+                    let result = detached.forward_with_options(client, input, json!({}))?;
+                    self.chat_log.extend(detached.chat_log);
+                    self.function_call_traces
+                        .extend(detached.function_call_traces);
+                    self.traces.extend(detached.traces);
+                    return Ok(result);
+                }
+                let state = core_gen_state(self)?;
+                let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+                    if method == "transcribe" {
+                        client.transcribe(request)
+                    } else if method == "features" {
+                        Ok(client.get_features(request.as_str()))
+                    } else {
+                        client.chat_with_options(request, options)
+                    }
+                };
+                let result = with_core_client(&mut chat, || {
+                    _forward_impl(&[
+                        state.clone(),
+                        CoreValue::Null,
+                        core_value_from_json(&input),
+                        core_value_from_json(&options),
+                    ])
+                });
+                core_gen_writeback(self, &state);
+                Ok(core_value_to_json(&result?))
+            },
+        )
+    }
+
+    pub fn forward_with_hooks<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        with_runtime_binding(Some(&hooks), None, || {
+            self.forward_with_options(client, input, options)
+        })
     }
 
     pub fn get_traces(&self) -> &[Value] {
@@ -3511,6 +4162,7 @@ pub struct AxAgent {
     playbook_instruction_base: String,
     citations_observer: Option<Box<dyn FnMut(Value)>>,
     playbook_observer: Option<Box<dyn FnMut(Value)>>,
+    runtime_hooks: AxRuntimeHooks,
 }
 
 pub fn agent(spec: &str) -> AxResult<AxAgent> {
@@ -3519,6 +4171,14 @@ pub fn agent(spec: &str) -> AxResult<AxAgent> {
 
 pub fn agent_with_options(spec: &str, options: Value) -> AxResult<AxAgent> {
     agent_with_core_options(spec, core_value_from_json(&options))
+}
+
+pub fn agent_with_runtime_hooks(
+    spec: &str,
+    options: Value,
+    hooks: AxRuntimeHooks,
+) -> AxResult<AxAgent> {
+    agent_with_options(spec, options).map(|program| program.with_runtime_hooks(hooks))
 }
 
 static AX_AGENT_OBSERVER_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -3753,15 +4413,38 @@ pub(crate) fn agent_with_core_options(spec: &str, options: CoreValue) -> AxResul
             .to_string(),
         citations_observer: None,
         playbook_observer: None,
+        runtime_hooks: AxRuntimeHooks::default(),
     })
 }
 
 impl AxAgent {
     pub fn set_signature(&mut self, spec: &str) -> AxResult<&mut Self> {
         let options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
-        let rebuilt = agent_with_core_options(spec, options)?;
+        let hooks = self.runtime_hooks.clone();
+        let mut rebuilt = agent_with_core_options(spec, options)?;
+        rebuilt.runtime_hooks = hooks;
         *self = rebuilt;
         Ok(self)
+    }
+
+    pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
+        self.runtime_hooks = hooks;
+        self
+    }
+
+    pub fn set_rate_limiter(&mut self, rate_limiter: Option<Arc<dyn AxRateLimiter>>) -> &mut Self {
+        self.runtime_hooks.rate_limiter = rate_limiter;
+        self
+    }
+
+    pub fn set_tracer(&mut self, tracer: Option<Arc<dyn AxTracer>>) -> &mut Self {
+        self.runtime_hooks.tracer = tracer;
+        self
+    }
+
+    pub fn set_meter(&mut self, meter: Option<Arc<dyn AxMeter>>) -> &mut Self {
+        self.runtime_hooks.meter = meter;
+        self
     }
 
     fn set_executor_instruction(&mut self, instruction: &str) {
@@ -3803,61 +4486,90 @@ impl AxAgent {
         input: Value,
         options: Value,
     ) -> AxResult<Value> {
-        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
-            if method == "transcribe" {
-                client.transcribe(request)
-            } else if method == "features" {
-                Ok(client.get_features(request.as_str()))
-            } else {
-                client.chat_with_options(request, options)
-            }
-        };
-        // Wire the built-in llmQuery primitive onto the runtime carried in
-        // agent options (the same host the actor loop will create sessions on),
-        // mirroring the Go/Python wrappers. The closure rebuilds a focused
-        // sub-gen per call and runs it through _agent_run_llm_query; it uses the
-        // thread-local client bound by with_core_client below (CoreValue::Null
-        // here resolves to that binding), so it captures only Send + Sync data.
-        let state_options = core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
-        let runtime_host = core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null);
-        if let CoreValue::Host(host) = &runtime_host {
-            let llm_query_signature = self.llm_query_signature.clone();
-            let llm_query_instruction = self.llm_query_instruction.clone();
-            let callable: AxHostCallable = Arc::new(move |params: Value| -> AxResult<Value> {
-                let signature = s(&llm_query_signature)?;
-                let sub_gen = agent_stage_gen(
-                    signature,
-                    json!({"validation_retries": 1, "id": "rlm.llmquery", "instruction": llm_query_instruction.clone()}),
-                );
-                let result = _agent_run_llm_query(&[
-                    sub_gen,
-                    CoreValue::Null,
-                    core_value_from_json(&params),
-                ])?;
-                Ok(core_value_to_json(&result))
-            });
-            host.register_runtime_callable("llmQuery", callable);
-        }
-        let result = with_core_client(&mut chat, || {
-            _agent_forward(&[
-                self.state.clone(),
-                self.distiller.clone(),
-                self.executor.clone(),
-                self.responder.clone(),
-                CoreValue::Null,
-                core_value_from_json(&input),
-                core_value_from_json(&options),
-            ])
-        })?;
-        drop(chat);
-        let output = core_value_to_json(&result);
-        let last_citations = self.state_json("last_citations");
-        if let Some(observer) = self.citations_observer.as_mut() {
-            let _ =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| observer(last_citations)));
-        }
-        self.learn_playbook_failures(client, &output);
-        Ok(output)
+        let defaults = self.runtime_hooks.clone();
+        let mut attributes = BTreeMap::new();
+        attributes.insert("ax.program.kind".to_string(), json!("AxAgent"));
+        with_runtime_scope(
+            None,
+            Some(&defaults),
+            "ax_gen_agent_forward",
+            "agent",
+            attributes,
+            || {
+                let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+                    if method == "transcribe" {
+                        client.transcribe(request)
+                    } else if method == "features" {
+                        Ok(client.get_features(request.as_str()))
+                    } else {
+                        client.chat_with_options(request, options)
+                    }
+                };
+                // Wire the built-in llmQuery primitive onto the runtime carried in
+                // agent options (the same host the actor loop will create sessions on),
+                // mirroring the Go/Python wrappers. The closure rebuilds a focused
+                // sub-gen per call and runs it through _agent_run_llm_query; it uses the
+                // thread-local client bound by with_core_client below (CoreValue::Null
+                // here resolves to that binding), so it captures only Send + Sync data.
+                let state_options =
+                    core_get(&self.state, &CoreValue::from("options"), CoreValue::Null);
+                let runtime_host =
+                    core_get(&state_options, &CoreValue::from("runtime"), CoreValue::Null);
+                if let CoreValue::Host(host) = &runtime_host {
+                    let llm_query_signature = self.llm_query_signature.clone();
+                    let llm_query_instruction = self.llm_query_instruction.clone();
+                    let callable: AxHostCallable = Arc::new(
+                        move |params: Value| -> AxResult<Value> {
+                            let signature = s(&llm_query_signature)?;
+                            let sub_gen = agent_stage_gen(
+                                signature,
+                                json!({"validation_retries": 1, "id": "rlm.llmquery", "instruction": llm_query_instruction.clone()}),
+                            );
+                            let result = _agent_run_llm_query(&[
+                                sub_gen,
+                                CoreValue::Null,
+                                core_value_from_json(&params),
+                            ])?;
+                            Ok(core_value_to_json(&result))
+                        },
+                    );
+                    host.register_runtime_callable("llmQuery", callable);
+                }
+                let result = with_core_client(&mut chat, || {
+                    _agent_forward(&[
+                        self.state.clone(),
+                        self.distiller.clone(),
+                        self.executor.clone(),
+                        self.responder.clone(),
+                        CoreValue::Null,
+                        core_value_from_json(&input),
+                        core_value_from_json(&options),
+                    ])
+                })?;
+                drop(chat);
+                let output = core_value_to_json(&result);
+                let last_citations = self.state_json("last_citations");
+                if let Some(observer) = self.citations_observer.as_mut() {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        observer(last_citations)
+                    }));
+                }
+                self.learn_playbook_failures(client, &output);
+                Ok(output)
+            },
+        )
+    }
+
+    pub fn forward_with_hooks<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        with_runtime_binding(Some(&hooks), None, || {
+            self.forward_with_options(client, input, options)
+        })
     }
 
     pub fn set_citations_observer<F>(&mut self, observer: F) -> &mut Self
@@ -4654,6 +5366,7 @@ impl AxProgram for AxAgent {
 pub struct AxFlow {
     state: CoreValue,
     execution_context: Option<AxExecutionContext>,
+    runtime_hooks: AxRuntimeHooks,
 }
 
 pub fn flow(source: &str) -> AxFlow {
@@ -4681,7 +5394,12 @@ pub fn flow(source: &str) -> AxFlow {
     AxFlow {
         state,
         execution_context: None,
+        runtime_hooks: AxRuntimeHooks::default(),
     }
+}
+
+pub fn flow_with_runtime_hooks(source: &str, hooks: AxRuntimeHooks) -> AxFlow {
+    flow(source).with_runtime_hooks(hooks)
 }
 
 pub fn flow_with_bindings(source: &str, bindings: Value) -> AxFlow {
@@ -4710,7 +5428,16 @@ pub fn flow_with_bindings(source: &str, bindings: Value) -> AxFlow {
     AxFlow {
         state,
         execution_context: None,
+        runtime_hooks: AxRuntimeHooks::default(),
     }
+}
+
+pub fn flow_with_bindings_and_runtime_hooks(
+    source: &str,
+    bindings: Value,
+    hooks: AxRuntimeHooks,
+) -> AxFlow {
+    flow_with_bindings(source, bindings).with_runtime_hooks(hooks)
 }
 
 fn hydrate_mermaid_steps(steps: &CoreValue, bindings: &CoreValue) -> AxResult<CoreValue> {
@@ -4759,11 +5486,31 @@ pub fn flow_with_execution_context(id: &str, context: AxExecutionContext) -> AxF
 }
 
 impl AxFlow {
+    pub fn with_runtime_hooks(mut self, hooks: AxRuntimeHooks) -> Self {
+        self.runtime_hooks = hooks;
+        self
+    }
+
+    pub fn set_rate_limiter(&mut self, rate_limiter: Option<Arc<dyn AxRateLimiter>>) -> &mut Self {
+        self.runtime_hooks.rate_limiter = rate_limiter;
+        self
+    }
+
+    pub fn set_tracer(&mut self, tracer: Option<Arc<dyn AxTracer>>) -> &mut Self {
+        self.runtime_hooks.tracer = tracer;
+        self
+    }
+
+    pub fn set_meter(&mut self, meter: Option<Arc<dyn AxMeter>>) -> &mut Self {
+        self.runtime_hooks.meter = meter;
+        self
+    }
+
     pub fn to_string_with_options(&self, options: &Value) -> AxResult<String> {
         Ok(_flow_to_mermaid(&[self.state.clone(), core_value_from_json(options)])?.text())
     }
 
-    pub fn execute(self, name: &str, mut program: AxGen) -> Self {
+    pub fn execute(self, name: &str, program: AxGen) -> Self {
         self.execute_with_options(name, program, &Value::Null)
     }
 
@@ -4805,24 +5552,57 @@ impl AxFlow {
     }
 
     pub fn forward<C: AxAIClient>(&mut self, client: &mut C, input: Value) -> AxResult<Value> {
-        let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
-            if method == "transcribe" {
-                client.transcribe(request)
-            } else if method == "features" {
-                Ok(client.get_features(request.as_str()))
-            } else {
-                client.chat_with_options(request, options)
-            }
-        };
-        let result = with_core_client(&mut chat, || {
-            _flow_forward(&[
-                self.state.clone(),
-                CoreValue::Null,
-                core_value_from_json(&input),
-                CoreValue::Null,
-            ])
-        })?;
-        Ok(core_value_to_json(&result))
+        self.forward_with_options(client, input, Value::Null)
+    }
+
+    pub fn forward_with_options<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+    ) -> AxResult<Value> {
+        let defaults = self.runtime_hooks.clone();
+        let mut attributes = BTreeMap::new();
+        attributes.insert("ax.program.kind".to_string(), json!("AxFlow"));
+        with_runtime_scope(
+            None,
+            Some(&defaults),
+            "ax_gen_flow_forward",
+            "flow",
+            attributes,
+            || {
+                let mut chat = |method: &str, request: Value, options: Value| -> AxResult<Value> {
+                    if method == "transcribe" {
+                        client.transcribe(request)
+                    } else if method == "features" {
+                        Ok(client.get_features(request.as_str()))
+                    } else {
+                        client.chat_with_options(request, options)
+                    }
+                };
+                let result = with_core_client(&mut chat, || {
+                    _flow_forward(&[
+                        self.state.clone(),
+                        CoreValue::Null,
+                        core_value_from_json(&input),
+                        core_value_from_json(&options),
+                    ])
+                })?;
+                Ok(core_value_to_json(&result))
+            },
+        )
+    }
+
+    pub fn forward_with_hooks<C: AxAIClient>(
+        &mut self,
+        client: &mut C,
+        input: Value,
+        options: Value,
+        hooks: AxRuntimeHooks,
+    ) -> AxResult<Value> {
+        with_runtime_binding(Some(&hooks), None, || {
+            self.forward_with_options(client, input, options)
+        })
     }
 
     pub fn get_plan(&self) -> Value {
@@ -8812,6 +9592,7 @@ pub fn run_conformance_fixture(fixture: Value) -> AxResult<()> {
         "ai_stream" => run_ai_stream_fixture(&fixture)?,
         "ai_embed" => run_ai_embed_fixture(&fixture)?,
         "ai_usage_observer" => run_ai_usage_observer_fixture(&fixture)?,
+        "ai_runtime_hooks" => run_ai_runtime_hooks_fixture(&fixture)?,
         "ai_credential_wrapper" => run_ai_credential_wrapper_fixture(&fixture)?,
         "ai_transcribe" => run_ai_transcribe_fixture(&fixture)?,
         "ai_speak" => run_ai_speak_fixture(&fixture)?,
@@ -14343,6 +15124,7 @@ fn conformance_build_flow_step(step: &Value, fixture: &Value) -> AxResult<CoreVa
                     FlowHost::new(AxFlow {
                         state: nested_state,
                         execution_context: None,
+                        runtime_hooks: AxRuntimeHooks::default(),
                     })
                 }
                 "agent" => {
@@ -16246,6 +17028,7 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
         traces: Vec::new(),
         chat_log: Vec::new(),
         result_picker: None,
+        runtime_hooks: AxRuntimeHooks::default(),
     };
     if let Some(sample_count) = fixture
         .get("options")
@@ -16512,6 +17295,176 @@ fn run_ai_usage_observer_fixture(fixture: &Value) -> AxResult<()> {
         return Err(AxError::new(
             "fixture",
             "cleared usage observer received an event",
+        ));
+    }
+    Ok(())
+}
+
+struct ConformanceFailingTracer;
+impl AxTracer for ConformanceFailingTracer {
+    fn start_span(&self, _start: AxSpanStart) -> Option<Arc<dyn AxSpan>> {
+        panic!("tracer failure")
+    }
+}
+struct ConformanceFailingMeter;
+impl AxMeter for ConformanceFailingMeter {
+    fn create_counter(
+        &self,
+        _name: &str,
+        _options: &AxMetricInstrumentOptions,
+    ) -> Option<Arc<dyn AxCounter>> {
+        panic!("meter failure")
+    }
+    fn create_histogram(
+        &self,
+        _name: &str,
+        _options: &AxMetricInstrumentOptions,
+    ) -> Option<Arc<dyn AxHistogram>> {
+        panic!("meter failure")
+    }
+    fn create_gauge(
+        &self,
+        _name: &str,
+        _options: &AxMetricInstrumentOptions,
+    ) -> Option<Arc<dyn AxGauge>> {
+        panic!("meter failure")
+    }
+}
+
+fn run_ai_runtime_hooks_fixture(fixture: &Value) -> AxResult<()> {
+    let (mut client, requests, _credential_requests) = fixture_client(fixture)?;
+    let request = fixture.get("request").cloned().unwrap_or_else(|| json!({}));
+    let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+    let limiter = |label: &'static str| -> Arc<dyn AxRateLimiter> {
+        let captured = Arc::clone(&calls);
+        Arc::new(
+            move |next: &mut dyn FnMut() -> AxResult<Value>, info: &AxRateLimitInfo| {
+                if info.operation != "chat"
+                    || info.provider.is_empty()
+                    || info.model.is_empty()
+                    || info.streaming
+                {
+                    return Err(AxError::new("fixture", "invalid rate limit info"));
+                }
+                captured.lock().unwrap().push(label.to_string());
+                next()
+            },
+        )
+    };
+    set_rate_limiter(Some(limiter("global")));
+    let result = (|| -> AxResult<()> {
+        client.chat(request.clone())?;
+        client.set_rate_limiter(Some(limiter("service")));
+        client.chat(request.clone())?;
+        client.chat_with_runtime_hooks(
+            request.clone(),
+            json!({}),
+            AxRuntimeHooks {
+                rate_limiter: Some(limiter("call")),
+                tracer: None,
+                meter: None,
+            },
+        )?;
+        client.set_rate_limiter(None);
+        set_tracer(Some(Arc::new(ConformanceFailingTracer)));
+        set_meter(Some(Arc::new(ConformanceFailingMeter)));
+        client.chat(request.clone())?;
+        let rejected: Arc<dyn AxRateLimiter> = Arc::new(
+            |_next: &mut dyn FnMut() -> AxResult<Value>, _info: &AxRateLimitInfo| {
+                Err(AxError::new("fixture", "limited"))
+            },
+        );
+        let error = client
+            .chat_with_runtime_hooks(
+                request.clone(),
+                json!({}),
+                AxRuntimeHooks {
+                    rate_limiter: Some(rejected),
+                    tracer: None,
+                    meter: None,
+                },
+            )
+            .expect_err("limiter rejection did not propagate");
+        if !error.message.contains("limited") {
+            return Err(error);
+        }
+        set_rate_limiter(None);
+        set_tracer(None);
+        set_meter(None);
+        client.chat(request)?;
+        Ok(())
+    })();
+    client.set_rate_limiter(None);
+    set_rate_limiter(None);
+    set_tracer(None);
+    set_meter(None);
+    result?;
+
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let isolated = |label: &'static str| {
+        let barrier = Arc::clone(&barrier);
+        std::thread::spawn(move || -> AxResult<bool> {
+            let local: Arc<dyn AxRateLimiter> = Arc::new(
+                move |next: &mut dyn FnMut() -> AxResult<Value>, _info: &AxRateLimitInfo| {
+                    let _ = next()?;
+                    Ok(json!(label))
+                },
+            );
+            let hooks = AxRuntimeHooks {
+                rate_limiter: Some(Arc::clone(&local)),
+                tracer: None,
+                meter: None,
+            };
+            with_runtime_binding(Some(&hooks), None, || {
+                barrier.wait();
+                let active = current_runtime_hooks().unwrap_or_default();
+                let active_limiter = active
+                    .rate_limiter
+                    .ok_or_else(|| AxError::new("fixture", "missing thread-local limiter"))?;
+                let mut next = || Ok(json!("next"));
+                Ok(active_limiter.run(
+                    &mut next,
+                    &AxRateLimitInfo {
+                        operation: "chat".to_string(),
+                        provider: "scripted".to_string(),
+                        model: "scripted-chat".to_string(),
+                        streaming: false,
+                        previous_model_usage: None,
+                    },
+                )? == json!(label))
+            })
+        })
+    };
+    let first = isolated("thread-a");
+    let second = isolated("thread-b");
+    let first_ok = first
+        .join()
+        .map_err(|_| AxError::new("fixture", "runtime hook thread panicked"))??;
+    let second_ok = second
+        .join()
+        .map_err(|_| AxError::new("fixture", "runtime hook thread panicked"))??;
+    if !first_ok || !second_ok || current_runtime_hooks().is_some() {
+        return Err(AxError::new(
+            "fixture",
+            "runtime hook thread isolation failed",
+        ));
+    }
+
+    expect_json_equal(
+        "runtime hook limiter order",
+        &json!(*calls.lock().unwrap()),
+        fixture
+            .get("expected_limiter_order")
+            .unwrap_or(&Value::Null),
+    )?;
+    let expected = fixture
+        .get("expected_transport_request_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    if requests.lock().unwrap().len() != expected {
+        return Err(AxError::new(
+            "fixture",
+            "runtime hook request count mismatch",
         ));
     }
     Ok(())
@@ -22792,6 +23745,7 @@ fn agent_stage_gen(signature: AxSignature, options: Value) -> CoreValue {
         traces: Vec::new(),
         chat_log: Vec::new(),
         result_picker: None,
+        runtime_hooks: AxRuntimeHooks::default(),
     })
 }
 
@@ -27600,6 +28554,110 @@ fn _openai_build_chat_request_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
+fn _openai_apply_cache_breakpoint_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_apply_cache_breakpoint_impl");
+    let mut v_message = core_arg(args, 0);
+    let mut v_breakpoint = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_content_is_list = CoreValue::Null;
+    let mut v_content_is_string = CoreValue::Null;
+    let mut v_content_length = CoreValue::Null;
+    let mut v_content_part = CoreValue::Null;
+    let mut v_copy_seed = CoreValue::Null;
+    let mut v_has_content = CoreValue::Null;
+    let mut v_has_parts = CoreValue::Null;
+    let mut v_is_last_part = CoreValue::Null;
+    let mut v_last_part_index = CoreValue::Null;
+    let mut v_message_copy = CoreValue::Null;
+    let mut v_message_seed = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_part_copy = CoreValue::Null;
+    let mut v_part_count = CoreValue::Null;
+    let mut v_part_index = CoreValue::Null;
+    let mut v_part_seed = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
+    core_set(&v_out, CoreValue::from("marked"), CoreValue::Bool(false))?;
+    v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::Null);
+    v_content_is_string = core_type_is(&v_content, CoreValue::from("string"));
+    if core_truthy(&v_content_is_string) {
+        v_content_length = core_len(&[v_content.clone()])?;
+        v_has_content = core_gt(&[v_content_length.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_has_content) {
+            v_breakpoint = CoreValue::new_map();
+            core_set(
+                &v_breakpoint,
+                CoreValue::from("mode"),
+                CoreValue::from("explicit"),
+            )?;
+            v_part = CoreValue::new_map();
+            core_set(&v_part, CoreValue::from("type"), CoreValue::from("text"))?;
+            core_set(&v_part, CoreValue::from("text"), v_content.clone())?;
+            core_set(
+                &v_part,
+                CoreValue::from("prompt_cache_breakpoint"),
+                v_breakpoint.clone(),
+            )?;
+            v_parts = CoreValue::new_list();
+            core_append(&v_parts, v_part.clone())?;
+            v_copy_seed = CoreValue::new_map();
+            v_message_copy = core_map_merge(&[v_message.clone(), v_copy_seed.clone()])?;
+            core_set(&v_message_copy, CoreValue::from("content"), v_parts.clone())?;
+            core_set(&v_out, CoreValue::from("message"), v_message_copy.clone())?;
+            core_set(&v_out, CoreValue::from("marked"), CoreValue::Bool(true))?;
+        }
+        return Ok(v_out.clone());
+    }
+    v_content_is_list = core_type_is(&v_content, CoreValue::from("list"));
+    if core_truthy(&v_content_is_list) {
+        v_part_count = core_len(&[v_content.clone()])?;
+        v_has_parts = core_gt(&[v_part_count.clone(), CoreValue::Num(0f64)])?;
+        if core_truthy(&v_has_parts) {
+            v_last_part_index = core_add(&[v_part_count.clone(), CoreValue::Num(-1f64)])?;
+            v_part_index = CoreValue::Num(0f64);
+            v_parts = CoreValue::new_list();
+            for v_content_part in core_iter(&v_content)? {
+                let mut v_content_part = v_content_part;
+                v_is_last_part = core_eq(&[v_part_index.clone(), v_last_part_index.clone()])?;
+                if core_truthy(&v_is_last_part) {
+                    v_part_seed = CoreValue::new_map();
+                    v_part_copy = core_map_merge(&[v_content_part.clone(), v_part_seed.clone()])?;
+                    v_breakpoint = CoreValue::new_map();
+                    core_set(
+                        &v_breakpoint,
+                        CoreValue::from("mode"),
+                        CoreValue::from("explicit"),
+                    )?;
+                    core_set(
+                        &v_part_copy,
+                        CoreValue::from("prompt_cache_breakpoint"),
+                        v_breakpoint.clone(),
+                    )?;
+                    core_append(&v_parts, v_part_copy.clone())?;
+                } else {
+                    core_append(&v_parts, v_content_part.clone())?;
+                }
+                v_part_index = core_add(&[v_part_index.clone(), CoreValue::Num(1f64)])?;
+            }
+            v_message_seed = CoreValue::new_map();
+            v_message_copy = core_map_merge(&[v_message.clone(), v_message_seed.clone()])?;
+            core_set(&v_message_copy, CoreValue::from("content"), v_parts.clone())?;
+            core_set(&v_out, CoreValue::from("message"), v_message_copy.clone())?;
+            core_set(&v_out, CoreValue::from("marked"), CoreValue::Bool(true))?;
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn merge_model_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("merge_model_config");
     let mut v_base = core_arg(args, 0);
@@ -27707,253 +28765,6 @@ fn merge_model_config(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         }
     }
     return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("validate_chat_request");
-    let mut v_request = core_arg(args, 0);
-    let mut v_bad_assistant = CoreValue::Null;
-    let mut v_bad_prompt = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
-    let mut v_empty_function_calls = CoreValue::Null;
-    let mut v_error = CoreValue::Null;
-    let mut v_function_calls = CoreValue::Null;
-    let mut v_function_calls_snake = CoreValue::Null;
-    let mut v_has_assistant_payload = CoreValue::Null;
-    let mut v_has_calls = CoreValue::Null;
-    let mut v_has_content = CoreValue::Null;
-    let mut v_has_realtime = CoreValue::Null;
-    let mut v_has_thought = CoreValue::Null;
-    let mut v_invalid_role = CoreValue::Null;
-    let mut v_is_assistant = CoreValue::Null;
-    let mut v_is_function = CoreValue::Null;
-    let mut v_is_system = CoreValue::Null;
-    let mut v_is_user = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_message_text = CoreValue::Null;
-    let mut v_missing_assistant_payload = CoreValue::Null;
-    let mut v_prompt = CoreValue::Null;
-    let mut v_prompt_empty = CoreValue::Null;
-    let mut v_prompt_is_list = CoreValue::Null;
-    let mut v_prompt_len = CoreValue::Null;
-    let mut v_prompt_not_list = CoreValue::Null;
-    let mut v_realtime = CoreValue::Null;
-    let mut v_role = CoreValue::Null;
-    let mut v_thought = CoreValue::Null;
-    let mut v_valid_left = CoreValue::Null;
-    let mut v_valid_right = CoreValue::Null;
-    let mut v_valid_role = CoreValue::Null;
-    v_realtime = core_get(&v_request, &CoreValue::from("realtime"), CoreValue::Null);
-    v_has_realtime = core_truthy_value(&[v_realtime.clone()])?;
-    if core_truthy(&v_has_realtime) {
-        v_error = core_ai_error_unsupported(&[CoreValue::from(
-            "OpenAI-compatible beta does not support realtime requests",
-        )])?;
-        return Err(core_as_error(&v_error));
-    }
-    v_prompt = core_get(&v_request, &CoreValue::from("chat_prompt"), CoreValue::Null);
-    v_prompt_is_list = core_type_is(&v_prompt, CoreValue::from("list"));
-    v_prompt_len = core_len(&[v_prompt.clone()])?;
-    v_prompt_empty = core_eq(&[v_prompt_len.clone(), CoreValue::Num(0f64)])?;
-    v_prompt_not_list = core_not(&[v_prompt_is_list.clone()])?;
-    v_bad_prompt = core_or(&[v_prompt_not_list.clone(), v_prompt_empty.clone()])?;
-    if core_truthy(&v_bad_prompt) {
-        v_error = core_ai_error_response(&[CoreValue::from("Chat prompt is empty")])?;
-        return Err(core_as_error(&v_error));
-    }
-    for v_message in core_iter(&v_prompt)? {
-        let mut v_message = v_message;
-        v_role = core_get(&v_message, &CoreValue::from("role"), CoreValue::Null);
-        v_is_system = core_eq(&[v_role.clone(), CoreValue::from("system")])?;
-        v_is_user = core_eq(&[v_role.clone(), CoreValue::from("user")])?;
-        v_is_assistant = core_eq(&[v_role.clone(), CoreValue::from("assistant")])?;
-        v_is_function = core_eq(&[v_role.clone(), CoreValue::from("function")])?;
-        v_valid_left = core_or(&[v_is_system.clone(), v_is_user.clone()])?;
-        v_valid_right = core_or(&[v_is_assistant.clone(), v_is_function.clone()])?;
-        v_valid_role = core_or(&[v_valid_left.clone(), v_valid_right.clone()])?;
-        v_invalid_role = core_not(&[v_valid_role.clone()])?;
-        if core_truthy(&v_invalid_role) {
-            v_message_text = core_string_format(&[
-                CoreValue::from("Invalid chat message role: {}"),
-                v_role.clone(),
-            ])?;
-            v_error = core_ai_error_response(&[v_message_text.clone()])?;
-            return Err(core_as_error(&v_error));
-        }
-        v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::Null);
-        v_empty_function_calls = CoreValue::new_list();
-        v_function_calls_snake = core_get(
-            &v_message,
-            &CoreValue::from("function_calls"),
-            v_empty_function_calls.clone(),
-        );
-        v_function_calls = core_get(
-            &v_message,
-            &CoreValue::from("functionCalls"),
-            v_function_calls_snake.clone(),
-        );
-        v_thought = core_get(&v_message, &CoreValue::from("thought"), CoreValue::Null);
-        v_has_content = core_truthy_value(&[v_content.clone()])?;
-        v_has_calls = core_truthy_value(&[v_function_calls.clone()])?;
-        v_has_thought = core_truthy_value(&[v_thought.clone()])?;
-        v_has_assistant_payload = core_or(&[v_has_content.clone(), v_has_calls.clone()])?;
-        v_has_assistant_payload =
-            core_or(&[v_has_assistant_payload.clone(), v_has_thought.clone()])?;
-        v_missing_assistant_payload = core_not(&[v_has_assistant_payload.clone()])?;
-        v_bad_assistant = core_and(&[v_is_assistant.clone(), v_missing_assistant_payload.clone()])?;
-        if core_truthy(&v_bad_assistant) {
-            v_error = core_ai_error_response(&[CoreValue::from(
-                "Assistant content is required when no tool calls are provided",
-            )])?;
-            return Err(core_as_error(&v_error));
-        }
-    }
-    return Ok(CoreValue::Null);
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_apply_cache_breakpoint_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_apply_cache_breakpoint_impl");
-    let mut v_message = core_arg(args, 0);
-    let mut v_breakpoint = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
-    let mut v_content_is_list = CoreValue::Null;
-    let mut v_content_is_string = CoreValue::Null;
-    let mut v_content_length = CoreValue::Null;
-    let mut v_content_part = CoreValue::Null;
-    let mut v_copy_seed = CoreValue::Null;
-    let mut v_has_content = CoreValue::Null;
-    let mut v_has_parts = CoreValue::Null;
-    let mut v_is_last_part = CoreValue::Null;
-    let mut v_last_part_index = CoreValue::Null;
-    let mut v_message_copy = CoreValue::Null;
-    let mut v_message_seed = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_part = CoreValue::Null;
-    let mut v_part_copy = CoreValue::Null;
-    let mut v_part_count = CoreValue::Null;
-    let mut v_part_index = CoreValue::Null;
-    let mut v_part_seed = CoreValue::Null;
-    let mut v_parts = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("message"), v_message.clone())?;
-    core_set(&v_out, CoreValue::from("marked"), CoreValue::Bool(false))?;
-    v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::Null);
-    v_content_is_string = core_type_is(&v_content, CoreValue::from("string"));
-    if core_truthy(&v_content_is_string) {
-        v_content_length = core_len(&[v_content.clone()])?;
-        v_has_content = core_gt(&[v_content_length.clone(), CoreValue::Num(0f64)])?;
-        if core_truthy(&v_has_content) {
-            v_breakpoint = CoreValue::new_map();
-            core_set(
-                &v_breakpoint,
-                CoreValue::from("mode"),
-                CoreValue::from("explicit"),
-            )?;
-            v_part = CoreValue::new_map();
-            core_set(&v_part, CoreValue::from("type"), CoreValue::from("text"))?;
-            core_set(&v_part, CoreValue::from("text"), v_content.clone())?;
-            core_set(
-                &v_part,
-                CoreValue::from("prompt_cache_breakpoint"),
-                v_breakpoint.clone(),
-            )?;
-            v_parts = CoreValue::new_list();
-            core_append(&v_parts, v_part.clone())?;
-            v_copy_seed = CoreValue::new_map();
-            v_message_copy = core_map_merge(&[v_message.clone(), v_copy_seed.clone()])?;
-            core_set(&v_message_copy, CoreValue::from("content"), v_parts.clone())?;
-            core_set(&v_out, CoreValue::from("message"), v_message_copy.clone())?;
-            core_set(&v_out, CoreValue::from("marked"), CoreValue::Bool(true))?;
-        }
-        return Ok(v_out.clone());
-    }
-    v_content_is_list = core_type_is(&v_content, CoreValue::from("list"));
-    if core_truthy(&v_content_is_list) {
-        v_part_count = core_len(&[v_content.clone()])?;
-        v_has_parts = core_gt(&[v_part_count.clone(), CoreValue::Num(0f64)])?;
-        if core_truthy(&v_has_parts) {
-            v_last_part_index = core_add(&[v_part_count.clone(), CoreValue::Num(-1f64)])?;
-            v_part_index = CoreValue::Num(0f64);
-            v_parts = CoreValue::new_list();
-            for v_content_part in core_iter(&v_content)? {
-                let mut v_content_part = v_content_part;
-                v_is_last_part = core_eq(&[v_part_index.clone(), v_last_part_index.clone()])?;
-                if core_truthy(&v_is_last_part) {
-                    v_part_seed = CoreValue::new_map();
-                    v_part_copy = core_map_merge(&[v_content_part.clone(), v_part_seed.clone()])?;
-                    v_breakpoint = CoreValue::new_map();
-                    core_set(
-                        &v_breakpoint,
-                        CoreValue::from("mode"),
-                        CoreValue::from("explicit"),
-                    )?;
-                    core_set(
-                        &v_part_copy,
-                        CoreValue::from("prompt_cache_breakpoint"),
-                        v_breakpoint.clone(),
-                    )?;
-                    core_append(&v_parts, v_part_copy.clone())?;
-                } else {
-                    core_append(&v_parts, v_content_part.clone())?;
-                }
-                v_part_index = core_add(&[v_part_index.clone(), CoreValue::Num(1f64)])?;
-            }
-            v_message_seed = CoreValue::new_map();
-            v_message_copy = core_map_merge(&[v_message.clone(), v_message_seed.clone()])?;
-            core_set(&v_message_copy, CoreValue::from("content"), v_parts.clone())?;
-            core_set(&v_out, CoreValue::from("message"), v_message_copy.clone())?;
-            core_set(&v_out, CoreValue::from("marked"), CoreValue::Bool(true))?;
-        }
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("build_chat_request");
-    let mut v_service = core_arg(args, 0);
-    let mut v_request = core_arg(args, 1);
-    let mut v_options = core_arg(args, 2);
-    let mut v_payload = CoreValue::Null;
-    validate_chat_request(&[v_request.clone()])?;
-    v_payload =
-        openai_build_chat_request(&[v_request.clone(), v_options.clone(), CoreValue::Bool(true)])?;
-    return Ok(v_payload.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("normalize_chat_response");
-    let mut v_raw = core_arg(args, 0);
-    let mut v_response = CoreValue::Null;
-    v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
-    return Ok(v_response.clone());
 }
 
 #[allow(
@@ -28116,6 +28927,232 @@ fn _openai_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     unreachable_code,
     clippy::all
 )]
+fn validate_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("validate_chat_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_bad_assistant = CoreValue::Null;
+    let mut v_bad_prompt = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_empty_function_calls = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_function_calls = CoreValue::Null;
+    let mut v_function_calls_snake = CoreValue::Null;
+    let mut v_has_assistant_payload = CoreValue::Null;
+    let mut v_has_calls = CoreValue::Null;
+    let mut v_has_content = CoreValue::Null;
+    let mut v_has_realtime = CoreValue::Null;
+    let mut v_has_thought = CoreValue::Null;
+    let mut v_invalid_role = CoreValue::Null;
+    let mut v_is_assistant = CoreValue::Null;
+    let mut v_is_function = CoreValue::Null;
+    let mut v_is_system = CoreValue::Null;
+    let mut v_is_user = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_message_text = CoreValue::Null;
+    let mut v_missing_assistant_payload = CoreValue::Null;
+    let mut v_prompt = CoreValue::Null;
+    let mut v_prompt_empty = CoreValue::Null;
+    let mut v_prompt_is_list = CoreValue::Null;
+    let mut v_prompt_len = CoreValue::Null;
+    let mut v_prompt_not_list = CoreValue::Null;
+    let mut v_realtime = CoreValue::Null;
+    let mut v_role = CoreValue::Null;
+    let mut v_thought = CoreValue::Null;
+    let mut v_valid_left = CoreValue::Null;
+    let mut v_valid_right = CoreValue::Null;
+    let mut v_valid_role = CoreValue::Null;
+    v_realtime = core_get(&v_request, &CoreValue::from("realtime"), CoreValue::Null);
+    v_has_realtime = core_truthy_value(&[v_realtime.clone()])?;
+    if core_truthy(&v_has_realtime) {
+        v_error = core_ai_error_unsupported(&[CoreValue::from(
+            "OpenAI-compatible beta does not support realtime requests",
+        )])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_prompt = core_get(&v_request, &CoreValue::from("chat_prompt"), CoreValue::Null);
+    v_prompt_is_list = core_type_is(&v_prompt, CoreValue::from("list"));
+    v_prompt_len = core_len(&[v_prompt.clone()])?;
+    v_prompt_empty = core_eq(&[v_prompt_len.clone(), CoreValue::Num(0f64)])?;
+    v_prompt_not_list = core_not(&[v_prompt_is_list.clone()])?;
+    v_bad_prompt = core_or(&[v_prompt_not_list.clone(), v_prompt_empty.clone()])?;
+    if core_truthy(&v_bad_prompt) {
+        v_error = core_ai_error_response(&[CoreValue::from("Chat prompt is empty")])?;
+        return Err(core_as_error(&v_error));
+    }
+    for v_message in core_iter(&v_prompt)? {
+        let mut v_message = v_message;
+        v_role = core_get(&v_message, &CoreValue::from("role"), CoreValue::Null);
+        v_is_system = core_eq(&[v_role.clone(), CoreValue::from("system")])?;
+        v_is_user = core_eq(&[v_role.clone(), CoreValue::from("user")])?;
+        v_is_assistant = core_eq(&[v_role.clone(), CoreValue::from("assistant")])?;
+        v_is_function = core_eq(&[v_role.clone(), CoreValue::from("function")])?;
+        v_valid_left = core_or(&[v_is_system.clone(), v_is_user.clone()])?;
+        v_valid_right = core_or(&[v_is_assistant.clone(), v_is_function.clone()])?;
+        v_valid_role = core_or(&[v_valid_left.clone(), v_valid_right.clone()])?;
+        v_invalid_role = core_not(&[v_valid_role.clone()])?;
+        if core_truthy(&v_invalid_role) {
+            v_message_text = core_string_format(&[
+                CoreValue::from("Invalid chat message role: {}"),
+                v_role.clone(),
+            ])?;
+            v_error = core_ai_error_response(&[v_message_text.clone()])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::Null);
+        v_empty_function_calls = CoreValue::new_list();
+        v_function_calls_snake = core_get(
+            &v_message,
+            &CoreValue::from("function_calls"),
+            v_empty_function_calls.clone(),
+        );
+        v_function_calls = core_get(
+            &v_message,
+            &CoreValue::from("functionCalls"),
+            v_function_calls_snake.clone(),
+        );
+        v_thought = core_get(&v_message, &CoreValue::from("thought"), CoreValue::Null);
+        v_has_content = core_truthy_value(&[v_content.clone()])?;
+        v_has_calls = core_truthy_value(&[v_function_calls.clone()])?;
+        v_has_thought = core_truthy_value(&[v_thought.clone()])?;
+        v_has_assistant_payload = core_or(&[v_has_content.clone(), v_has_calls.clone()])?;
+        v_has_assistant_payload =
+            core_or(&[v_has_assistant_payload.clone(), v_has_thought.clone()])?;
+        v_missing_assistant_payload = core_not(&[v_has_assistant_payload.clone()])?;
+        v_bad_assistant = core_and(&[v_is_assistant.clone(), v_missing_assistant_payload.clone()])?;
+        if core_truthy(&v_bad_assistant) {
+            v_error = core_ai_error_response(&[CoreValue::from(
+                "Assistant content is required when no tool calls are provided",
+            )])?;
+            return Err(core_as_error(&v_error));
+        }
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn openai_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_reasoning_effort");
+    let mut v_model = core_arg(args, 0);
+    let mut v_budget = core_arg(args, 1);
+    let mut v_is_gpt56 = CoreValue::Null;
+    let mut v_is_gpt56_alias = CoreValue::Null;
+    let mut v_is_gpt56_suffix = CoreValue::Null;
+    let mut v_is_highest = CoreValue::Null;
+    let mut v_is_low = CoreValue::Null;
+    let mut v_is_medium = CoreValue::Null;
+    let mut v_is_minimal = CoreValue::Null;
+    let mut v_is_none = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    v_is_gpt56_alias = core_eq(&[v_model.clone(), CoreValue::from("gpt-5.6")])?;
+    v_is_gpt56_suffix = core_string_starts_with(&[v_model.clone(), CoreValue::from("gpt-5.6-")])?;
+    v_is_gpt56 = core_or(&[v_is_gpt56_alias.clone(), v_is_gpt56_suffix.clone()])?;
+    v_is_none = core_eq(&[v_budget.clone(), CoreValue::from("none")])?;
+    if core_truthy(&v_is_none) {
+        if core_truthy(&v_is_gpt56) {
+            return Ok(CoreValue::from("none"));
+        }
+        v_none = core_none(&[])?;
+        return Ok(v_none.clone());
+    }
+    v_is_minimal = core_eq(&[v_budget.clone(), CoreValue::from("minimal")])?;
+    v_is_low = core_eq(&[v_budget.clone(), CoreValue::from("low")])?;
+    v_is_medium = core_eq(&[v_budget.clone(), CoreValue::from("medium")])?;
+    v_is_highest = core_eq(&[v_budget.clone(), CoreValue::from("highest")])?;
+    if core_truthy(&v_is_gpt56) {
+        if core_truthy(&v_is_minimal) {
+            return Ok(CoreValue::from("low"));
+        }
+        if core_truthy(&v_is_low) {
+            return Ok(CoreValue::from("low"));
+        }
+        if core_truthy(&v_is_medium) {
+            return Ok(CoreValue::from("medium"));
+        }
+        if core_truthy(&v_is_highest) {
+            return Ok(CoreValue::from("max"));
+        }
+        return Ok(CoreValue::from("high"));
+    }
+    if core_truthy(&v_is_minimal) {
+        return Ok(CoreValue::from("minimal"));
+    }
+    if core_truthy(&v_is_low) {
+        return Ok(CoreValue::from("medium"));
+    }
+    if core_truthy(&v_is_highest) {
+        return Ok(CoreValue::from("xhigh"));
+    }
+    return Ok(CoreValue::from("high"));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("build_chat_request");
+    let mut v_service = core_arg(args, 0);
+    let mut v_request = core_arg(args, 1);
+    let mut v_options = core_arg(args, 2);
+    let mut v_payload = CoreValue::Null;
+    validate_chat_request(&[v_request.clone()])?;
+    v_payload =
+        openai_build_chat_request(&[v_request.clone(), v_options.clone(), CoreValue::Bool(true)])?;
+    return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn openai_chat_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_chat_reasoning_effort");
+    let mut v_model = core_arg(args, 0);
+    let mut v_budget = core_arg(args, 1);
+    let mut v_effort = CoreValue::Null;
+    let mut v_is_max = CoreValue::Null;
+    v_effort = openai_reasoning_effort(&[v_model.clone(), v_budget.clone()])?;
+    v_is_max = core_eq(&[v_effort.clone(), CoreValue::from("max")])?;
+    if core_truthy(&v_is_max) {
+        return Ok(CoreValue::from("xhigh"));
+    }
+    return Ok(v_effort.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn normalize_chat_response(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("normalize_chat_response");
+    let mut v_raw = core_arg(args, 0);
+    let mut v_response = CoreValue::Null;
+    v_response = openai_normalize_chat_response(&[v_raw.clone()])?;
+    return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("normalize_stream_delta");
     let mut v_raw = core_arg(args, 0);
@@ -28123,6 +29160,29 @@ fn normalize_stream_delta(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_response = CoreValue::Null;
     v_response = openai_normalize_stream_delta(&[v_raw.clone(), v_state.clone()])?;
     return Ok(v_response.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_copy_config_key_impl");
+    let mut v_payload = core_arg(args, 0);
+    let mut v_model_config = core_arg(args, 1);
+    let mut v_source = core_arg(args, 2);
+    let mut v_target = core_arg(args, 3);
+    let mut v_has_source = CoreValue::Null;
+    let mut v_value = CoreValue::Null;
+    v_has_source = core_map_contains(&[v_model_config.clone(), v_source.clone()])?;
+    if core_truthy(&v_has_source) {
+        v_value = core_get(&v_model_config, &v_source.clone(), CoreValue::Null);
+        core_set(&v_payload, v_target.clone(), v_value.clone())?;
+    }
+    return Ok(CoreValue::Null);
 }
 
 #[allow(
@@ -28140,6 +29200,221 @@ fn build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     let mut v_payload = CoreValue::Null;
     v_payload = openai_build_embed_request(&[v_request.clone()])?;
     return Ok(v_payload.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_message_impl");
+    let mut v_message = core_arg(args, 0);
+    let mut v_reasoning_content_mode = core_arg(args, 1);
+    let mut v_reasoning_details_mode = core_arg(args, 2);
+    let mut v_assistant_content = CoreValue::Null;
+    let mut v_call = CoreValue::Null;
+    let mut v_calls = CoreValue::Null;
+    let mut v_calls_snake = CoreValue::Null;
+    let mut v_content = CoreValue::Null;
+    let mut v_content_is_list = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_detail = CoreValue::Null;
+    let mut v_details = CoreValue::Null;
+    let mut v_empty_calls = CoreValue::Null;
+    let mut v_empty_thought_blocks = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_function_id = CoreValue::Null;
+    let mut v_function_id_snake = CoreValue::Null;
+    let mut v_has_assistant_content = CoreValue::Null;
+    let mut v_has_calls = CoreValue::Null;
+    let mut v_has_details = CoreValue::Null;
+    let mut v_has_details_mode = CoreValue::Null;
+    let mut v_has_name = CoreValue::Null;
+    let mut v_has_reasoning_mode = CoreValue::Null;
+    let mut v_has_thought = CoreValue::Null;
+    let mut v_has_thought_blocks = CoreValue::Null;
+    let mut v_include_details = CoreValue::Null;
+    let mut v_include_thought = CoreValue::Null;
+    let mut v_is_assistant = CoreValue::Null;
+    let mut v_is_function = CoreValue::Null;
+    let mut v_is_no_details = CoreValue::Null;
+    let mut v_is_no_reasoning = CoreValue::Null;
+    let mut v_is_system = CoreValue::Null;
+    let mut v_is_user = CoreValue::Null;
+    let mut v_message_text = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parse_error = CoreValue::Null;
+    let mut v_part = CoreValue::Null;
+    let mut v_parts = CoreValue::Null;
+    let mut v_provider_call = CoreValue::Null;
+    let mut v_provider_part = CoreValue::Null;
+    let mut v_reasoning_message_content = CoreValue::Null;
+    let mut v_result = CoreValue::Null;
+    let mut v_role = CoreValue::Null;
+    let mut v_thought = CoreValue::Null;
+    let mut v_thought_block = CoreValue::Null;
+    let mut v_thought_blocks = CoreValue::Null;
+    let mut v_thought_blocks_snake = CoreValue::Null;
+    let mut v_tool_calls = CoreValue::Null;
+    v_role = core_get(&v_message, &CoreValue::from("role"), CoreValue::Null);
+    v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::from(""));
+    v_is_no_reasoning = core_eq(&[v_reasoning_content_mode.clone(), CoreValue::from("none")])?;
+    v_has_reasoning_mode = core_not(&[v_is_no_reasoning.clone()])?;
+    v_is_system = core_eq(&[v_role.clone(), CoreValue::from("system")])?;
+    if core_truthy(&v_is_system) {
+        v_out = CoreValue::new_map();
+        core_set(&v_out, CoreValue::from("role"), CoreValue::from("system"))?;
+        core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_is_user = core_eq(&[v_role.clone(), CoreValue::from("user")])?;
+    if core_truthy(&v_is_user) {
+        v_content_is_list = core_type_is(&v_content, CoreValue::from("list"));
+        if core_truthy(&v_content_is_list) {
+            v_parts = CoreValue::new_list();
+            for v_part in core_iter(&v_content)? {
+                let mut v_part = v_part;
+                v_provider_part = _openai_content_part_impl(&[v_part.clone()])?;
+                core_append(&v_parts, v_provider_part.clone())?;
+            }
+            v_content = v_parts.clone();
+        }
+        v_out = CoreValue::new_map();
+        core_set(&v_out, CoreValue::from("role"), CoreValue::from("user"))?;
+        core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
+        v_name = core_get(&v_message, &CoreValue::from("name"), CoreValue::Null);
+        v_has_name = core_truthy_value(&[v_name.clone()])?;
+        if core_truthy(&v_has_name) {
+            core_set(&v_out, CoreValue::from("name"), v_name.clone())?;
+        }
+        return Ok(v_out.clone());
+    }
+    v_is_assistant = core_eq(&[v_role.clone(), CoreValue::from("assistant")])?;
+    if core_truthy(&v_is_assistant) {
+        v_thought = core_get(&v_message, &CoreValue::from("thought"), CoreValue::Null);
+        v_has_thought = core_truthy_value(&[v_thought.clone()])?;
+        v_include_thought = core_and(&[v_has_reasoning_mode.clone(), v_has_thought.clone()])?;
+        v_empty_calls = CoreValue::new_list();
+        v_calls_snake = core_get(
+            &v_message,
+            &CoreValue::from("function_calls"),
+            v_empty_calls.clone(),
+        );
+        v_calls = core_get(
+            &v_message,
+            &CoreValue::from("functionCalls"),
+            v_calls_snake.clone(),
+        );
+        v_has_calls = core_truthy_value(&[v_calls.clone()])?;
+        v_out = CoreValue::new_map();
+        core_set(
+            &v_out,
+            CoreValue::from("role"),
+            CoreValue::from("assistant"),
+        )?;
+        if core_truthy(&v_include_thought) {
+            core_set(&v_out, v_reasoning_content_mode.clone(), v_thought.clone())?;
+        }
+        v_is_no_details = core_eq(&[v_reasoning_details_mode.clone(), CoreValue::from("none")])?;
+        v_has_details_mode = core_not(&[v_is_no_details.clone()])?;
+        v_empty_thought_blocks = CoreValue::new_list();
+        v_thought_blocks_snake = core_get(
+            &v_message,
+            &CoreValue::from("thought_blocks"),
+            v_empty_thought_blocks.clone(),
+        );
+        v_thought_blocks = core_get(
+            &v_message,
+            &CoreValue::from("thoughtBlocks"),
+            v_thought_blocks_snake.clone(),
+        );
+        v_has_thought_blocks = core_truthy_value(&[v_thought_blocks.clone()])?;
+        v_include_details = core_and(&[v_has_details_mode.clone(), v_has_thought_blocks.clone()])?;
+        if core_truthy(&v_include_details) {
+            v_details = CoreValue::new_list();
+            for v_thought_block in core_iter(&v_thought_blocks)? {
+                let mut v_thought_block = v_thought_block;
+                v_data = core_get(&v_thought_block, &CoreValue::from("data"), CoreValue::Null);
+                let __core_try: Result<CoreFlow, AxError> = (|| {
+                    v_detail = core_json_parse(&[v_data.clone()])?;
+                    core_append(&v_details, v_detail.clone())?;
+                    Ok(CoreFlow::Normal)
+                })();
+                match __core_try {
+                    Ok(CoreFlow::Normal) => {}
+                    Ok(CoreFlow::Return(value)) => return Ok(value),
+                    Ok(CoreFlow::Break) => break,
+                    Ok(CoreFlow::Continue) => continue,
+                    Err(__core_caught) => {
+                        v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                    }
+                }
+            }
+            v_has_details = core_truthy_value(&[v_details.clone()])?;
+            if core_truthy(&v_has_details) {
+                core_set(&v_out, v_reasoning_details_mode.clone(), v_details.clone())?;
+            }
+        }
+        if core_truthy(&v_has_calls) {
+            v_assistant_content =
+                core_get(&v_message, &CoreValue::from("content"), CoreValue::Null);
+            v_has_assistant_content = core_is_not_none(&[v_assistant_content.clone()])?;
+            if core_truthy(&v_has_reasoning_mode) {
+                v_reasoning_message_content =
+                    core_get(&v_message, &CoreValue::from("content"), CoreValue::from(""));
+                core_set(
+                    &v_out,
+                    CoreValue::from("content"),
+                    v_reasoning_message_content.clone(),
+                )?;
+            } else {
+                if core_truthy(&v_has_assistant_content) {
+                    core_set(
+                        &v_out,
+                        CoreValue::from("content"),
+                        v_assistant_content.clone(),
+                    )?;
+                }
+            }
+            v_tool_calls = CoreValue::new_list();
+            for v_call in core_iter(&v_calls)? {
+                let mut v_call = v_call;
+                v_provider_call = _openai_tool_call_to_provider_impl(&[v_call.clone()])?;
+                core_append(&v_tool_calls, v_provider_call.clone())?;
+            }
+            core_set(&v_out, CoreValue::from("tool_calls"), v_tool_calls.clone())?;
+        } else {
+            core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
+        }
+        return Ok(v_out.clone());
+    }
+    v_is_function = core_eq(&[v_role.clone(), CoreValue::from("function")])?;
+    if core_truthy(&v_is_function) {
+        v_out = CoreValue::new_map();
+        v_result = core_get(&v_message, &CoreValue::from("result"), CoreValue::from(""));
+        v_function_id_snake =
+            core_get(&v_message, &CoreValue::from("function_id"), CoreValue::Null);
+        v_function_id = core_get(
+            &v_message,
+            &CoreValue::from("functionId"),
+            v_function_id_snake.clone(),
+        );
+        core_set(&v_out, CoreValue::from("role"), CoreValue::from("tool"))?;
+        core_set(&v_out, CoreValue::from("content"), v_result.clone())?;
+        core_set(
+            &v_out,
+            CoreValue::from("tool_call_id"),
+            v_function_id.clone(),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_message_text = core_string_format(&[CoreValue::from("Invalid role: {}"), v_role.clone()])?;
+    v_error = core_ai_error_response(&[v_message_text.clone()])?;
+    return Err(core_as_error(&v_error));
 }
 
 #[allow(
@@ -28445,327 +29720,6 @@ fn normalize_token_usage(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
-fn openai_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_reasoning_effort");
-    let mut v_model = core_arg(args, 0);
-    let mut v_budget = core_arg(args, 1);
-    let mut v_is_gpt56 = CoreValue::Null;
-    let mut v_is_gpt56_alias = CoreValue::Null;
-    let mut v_is_gpt56_suffix = CoreValue::Null;
-    let mut v_is_highest = CoreValue::Null;
-    let mut v_is_low = CoreValue::Null;
-    let mut v_is_medium = CoreValue::Null;
-    let mut v_is_minimal = CoreValue::Null;
-    let mut v_is_none = CoreValue::Null;
-    let mut v_none = CoreValue::Null;
-    v_is_gpt56_alias = core_eq(&[v_model.clone(), CoreValue::from("gpt-5.6")])?;
-    v_is_gpt56_suffix = core_string_starts_with(&[v_model.clone(), CoreValue::from("gpt-5.6-")])?;
-    v_is_gpt56 = core_or(&[v_is_gpt56_alias.clone(), v_is_gpt56_suffix.clone()])?;
-    v_is_none = core_eq(&[v_budget.clone(), CoreValue::from("none")])?;
-    if core_truthy(&v_is_none) {
-        if core_truthy(&v_is_gpt56) {
-            return Ok(CoreValue::from("none"));
-        }
-        v_none = core_none(&[])?;
-        return Ok(v_none.clone());
-    }
-    v_is_minimal = core_eq(&[v_budget.clone(), CoreValue::from("minimal")])?;
-    v_is_low = core_eq(&[v_budget.clone(), CoreValue::from("low")])?;
-    v_is_medium = core_eq(&[v_budget.clone(), CoreValue::from("medium")])?;
-    v_is_highest = core_eq(&[v_budget.clone(), CoreValue::from("highest")])?;
-    if core_truthy(&v_is_gpt56) {
-        if core_truthy(&v_is_minimal) {
-            return Ok(CoreValue::from("low"));
-        }
-        if core_truthy(&v_is_low) {
-            return Ok(CoreValue::from("low"));
-        }
-        if core_truthy(&v_is_medium) {
-            return Ok(CoreValue::from("medium"));
-        }
-        if core_truthy(&v_is_highest) {
-            return Ok(CoreValue::from("max"));
-        }
-        return Ok(CoreValue::from("high"));
-    }
-    if core_truthy(&v_is_minimal) {
-        return Ok(CoreValue::from("minimal"));
-    }
-    if core_truthy(&v_is_low) {
-        return Ok(CoreValue::from("medium"));
-    }
-    if core_truthy(&v_is_highest) {
-        return Ok(CoreValue::from("xhigh"));
-    }
-    return Ok(CoreValue::from("high"));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn openai_chat_reasoning_effort(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_chat_reasoning_effort");
-    let mut v_model = core_arg(args, 0);
-    let mut v_budget = core_arg(args, 1);
-    let mut v_effort = CoreValue::Null;
-    let mut v_is_max = CoreValue::Null;
-    v_effort = openai_reasoning_effort(&[v_model.clone(), v_budget.clone()])?;
-    v_is_max = core_eq(&[v_effort.clone(), CoreValue::from("max")])?;
-    if core_truthy(&v_is_max) {
-        return Ok(CoreValue::from("xhigh"));
-    }
-    return Ok(v_effort.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_copy_config_key_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_copy_config_key_impl");
-    let mut v_payload = core_arg(args, 0);
-    let mut v_model_config = core_arg(args, 1);
-    let mut v_source = core_arg(args, 2);
-    let mut v_target = core_arg(args, 3);
-    let mut v_has_source = CoreValue::Null;
-    let mut v_value = CoreValue::Null;
-    v_has_source = core_map_contains(&[v_model_config.clone(), v_source.clone()])?;
-    if core_truthy(&v_has_source) {
-        v_value = core_get(&v_model_config, &v_source.clone(), CoreValue::Null);
-        core_set(&v_payload, v_target.clone(), v_value.clone())?;
-    }
-    return Ok(CoreValue::Null);
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_message_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_message_impl");
-    let mut v_message = core_arg(args, 0);
-    let mut v_reasoning_content_mode = core_arg(args, 1);
-    let mut v_reasoning_details_mode = core_arg(args, 2);
-    let mut v_assistant_content = CoreValue::Null;
-    let mut v_call = CoreValue::Null;
-    let mut v_calls = CoreValue::Null;
-    let mut v_calls_snake = CoreValue::Null;
-    let mut v_content = CoreValue::Null;
-    let mut v_content_is_list = CoreValue::Null;
-    let mut v_data = CoreValue::Null;
-    let mut v_detail = CoreValue::Null;
-    let mut v_details = CoreValue::Null;
-    let mut v_empty_calls = CoreValue::Null;
-    let mut v_empty_thought_blocks = CoreValue::Null;
-    let mut v_error = CoreValue::Null;
-    let mut v_function_id = CoreValue::Null;
-    let mut v_function_id_snake = CoreValue::Null;
-    let mut v_has_assistant_content = CoreValue::Null;
-    let mut v_has_calls = CoreValue::Null;
-    let mut v_has_details = CoreValue::Null;
-    let mut v_has_details_mode = CoreValue::Null;
-    let mut v_has_name = CoreValue::Null;
-    let mut v_has_reasoning_mode = CoreValue::Null;
-    let mut v_has_thought = CoreValue::Null;
-    let mut v_has_thought_blocks = CoreValue::Null;
-    let mut v_include_details = CoreValue::Null;
-    let mut v_include_thought = CoreValue::Null;
-    let mut v_is_assistant = CoreValue::Null;
-    let mut v_is_function = CoreValue::Null;
-    let mut v_is_no_details = CoreValue::Null;
-    let mut v_is_no_reasoning = CoreValue::Null;
-    let mut v_is_system = CoreValue::Null;
-    let mut v_is_user = CoreValue::Null;
-    let mut v_message_text = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_parse_error = CoreValue::Null;
-    let mut v_part = CoreValue::Null;
-    let mut v_parts = CoreValue::Null;
-    let mut v_provider_call = CoreValue::Null;
-    let mut v_provider_part = CoreValue::Null;
-    let mut v_reasoning_message_content = CoreValue::Null;
-    let mut v_result = CoreValue::Null;
-    let mut v_role = CoreValue::Null;
-    let mut v_thought = CoreValue::Null;
-    let mut v_thought_block = CoreValue::Null;
-    let mut v_thought_blocks = CoreValue::Null;
-    let mut v_thought_blocks_snake = CoreValue::Null;
-    let mut v_tool_calls = CoreValue::Null;
-    v_role = core_get(&v_message, &CoreValue::from("role"), CoreValue::Null);
-    v_content = core_get(&v_message, &CoreValue::from("content"), CoreValue::from(""));
-    v_is_no_reasoning = core_eq(&[v_reasoning_content_mode.clone(), CoreValue::from("none")])?;
-    v_has_reasoning_mode = core_not(&[v_is_no_reasoning.clone()])?;
-    v_is_system = core_eq(&[v_role.clone(), CoreValue::from("system")])?;
-    if core_truthy(&v_is_system) {
-        v_out = CoreValue::new_map();
-        core_set(&v_out, CoreValue::from("role"), CoreValue::from("system"))?;
-        core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
-        return Ok(v_out.clone());
-    }
-    v_is_user = core_eq(&[v_role.clone(), CoreValue::from("user")])?;
-    if core_truthy(&v_is_user) {
-        v_content_is_list = core_type_is(&v_content, CoreValue::from("list"));
-        if core_truthy(&v_content_is_list) {
-            v_parts = CoreValue::new_list();
-            for v_part in core_iter(&v_content)? {
-                let mut v_part = v_part;
-                v_provider_part = _openai_content_part_impl(&[v_part.clone()])?;
-                core_append(&v_parts, v_provider_part.clone())?;
-            }
-            v_content = v_parts.clone();
-        }
-        v_out = CoreValue::new_map();
-        core_set(&v_out, CoreValue::from("role"), CoreValue::from("user"))?;
-        core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
-        v_name = core_get(&v_message, &CoreValue::from("name"), CoreValue::Null);
-        v_has_name = core_truthy_value(&[v_name.clone()])?;
-        if core_truthy(&v_has_name) {
-            core_set(&v_out, CoreValue::from("name"), v_name.clone())?;
-        }
-        return Ok(v_out.clone());
-    }
-    v_is_assistant = core_eq(&[v_role.clone(), CoreValue::from("assistant")])?;
-    if core_truthy(&v_is_assistant) {
-        v_thought = core_get(&v_message, &CoreValue::from("thought"), CoreValue::Null);
-        v_has_thought = core_truthy_value(&[v_thought.clone()])?;
-        v_include_thought = core_and(&[v_has_reasoning_mode.clone(), v_has_thought.clone()])?;
-        v_empty_calls = CoreValue::new_list();
-        v_calls_snake = core_get(
-            &v_message,
-            &CoreValue::from("function_calls"),
-            v_empty_calls.clone(),
-        );
-        v_calls = core_get(
-            &v_message,
-            &CoreValue::from("functionCalls"),
-            v_calls_snake.clone(),
-        );
-        v_has_calls = core_truthy_value(&[v_calls.clone()])?;
-        v_out = CoreValue::new_map();
-        core_set(
-            &v_out,
-            CoreValue::from("role"),
-            CoreValue::from("assistant"),
-        )?;
-        if core_truthy(&v_include_thought) {
-            core_set(&v_out, v_reasoning_content_mode.clone(), v_thought.clone())?;
-        }
-        v_is_no_details = core_eq(&[v_reasoning_details_mode.clone(), CoreValue::from("none")])?;
-        v_has_details_mode = core_not(&[v_is_no_details.clone()])?;
-        v_empty_thought_blocks = CoreValue::new_list();
-        v_thought_blocks_snake = core_get(
-            &v_message,
-            &CoreValue::from("thought_blocks"),
-            v_empty_thought_blocks.clone(),
-        );
-        v_thought_blocks = core_get(
-            &v_message,
-            &CoreValue::from("thoughtBlocks"),
-            v_thought_blocks_snake.clone(),
-        );
-        v_has_thought_blocks = core_truthy_value(&[v_thought_blocks.clone()])?;
-        v_include_details = core_and(&[v_has_details_mode.clone(), v_has_thought_blocks.clone()])?;
-        if core_truthy(&v_include_details) {
-            v_details = CoreValue::new_list();
-            for v_thought_block in core_iter(&v_thought_blocks)? {
-                let mut v_thought_block = v_thought_block;
-                v_data = core_get(&v_thought_block, &CoreValue::from("data"), CoreValue::Null);
-                let __core_try: Result<CoreFlow, AxError> = (|| {
-                    v_detail = core_json_parse(&[v_data.clone()])?;
-                    core_append(&v_details, v_detail.clone())?;
-                    Ok(CoreFlow::Normal)
-                })();
-                match __core_try {
-                    Ok(CoreFlow::Normal) => {}
-                    Ok(CoreFlow::Return(value)) => return Ok(value),
-                    Ok(CoreFlow::Break) => break,
-                    Ok(CoreFlow::Continue) => continue,
-                    Err(__core_caught) => {
-                        v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-                    }
-                }
-            }
-            v_has_details = core_truthy_value(&[v_details.clone()])?;
-            if core_truthy(&v_has_details) {
-                core_set(&v_out, v_reasoning_details_mode.clone(), v_details.clone())?;
-            }
-        }
-        if core_truthy(&v_has_calls) {
-            v_assistant_content =
-                core_get(&v_message, &CoreValue::from("content"), CoreValue::Null);
-            v_has_assistant_content = core_is_not_none(&[v_assistant_content.clone()])?;
-            if core_truthy(&v_has_reasoning_mode) {
-                v_reasoning_message_content =
-                    core_get(&v_message, &CoreValue::from("content"), CoreValue::from(""));
-                core_set(
-                    &v_out,
-                    CoreValue::from("content"),
-                    v_reasoning_message_content.clone(),
-                )?;
-            } else {
-                if core_truthy(&v_has_assistant_content) {
-                    core_set(
-                        &v_out,
-                        CoreValue::from("content"),
-                        v_assistant_content.clone(),
-                    )?;
-                }
-            }
-            v_tool_calls = CoreValue::new_list();
-            for v_call in core_iter(&v_calls)? {
-                let mut v_call = v_call;
-                v_provider_call = _openai_tool_call_to_provider_impl(&[v_call.clone()])?;
-                core_append(&v_tool_calls, v_provider_call.clone())?;
-            }
-            core_set(&v_out, CoreValue::from("tool_calls"), v_tool_calls.clone())?;
-        } else {
-            core_set(&v_out, CoreValue::from("content"), v_content.clone())?;
-        }
-        return Ok(v_out.clone());
-    }
-    v_is_function = core_eq(&[v_role.clone(), CoreValue::from("function")])?;
-    if core_truthy(&v_is_function) {
-        v_out = CoreValue::new_map();
-        v_result = core_get(&v_message, &CoreValue::from("result"), CoreValue::from(""));
-        v_function_id_snake =
-            core_get(&v_message, &CoreValue::from("function_id"), CoreValue::Null);
-        v_function_id = core_get(
-            &v_message,
-            &CoreValue::from("functionId"),
-            v_function_id_snake.clone(),
-        );
-        core_set(&v_out, CoreValue::from("role"), CoreValue::from("tool"))?;
-        core_set(&v_out, CoreValue::from("content"), v_result.clone())?;
-        core_set(
-            &v_out,
-            CoreValue::from("tool_call_id"),
-            v_function_id.clone(),
-        )?;
-        return Ok(v_out.clone());
-    }
-    v_message_text = core_string_format(&[CoreValue::from("Invalid role: {}"), v_role.clone()])?;
-    v_error = core_ai_error_response(&[v_message_text.clone()])?;
-    return Err(core_as_error(&v_error));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
 fn merge_usage_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("merge_usage_context");
     let mut v_defaults = core_arg(args, 0);
@@ -28792,6 +29746,128 @@ fn merge_usage_context(args: &[CoreValue]) -> Result<CoreValue, AxError> {
         )?;
     }
     return Ok(v_merged.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_content_part_impl");
+    let mut v_part = core_arg(args, 0);
+    let mut v_audio_alt = CoreValue::Null;
+    let mut v_audio_error = CoreValue::Null;
+    let mut v_audio_message = CoreValue::Null;
+    let mut v_data = CoreValue::Null;
+    let mut v_details = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_format = CoreValue::Null;
+    let mut v_format_ok = CoreValue::Null;
+    let mut v_image = CoreValue::Null;
+    let mut v_image_raw = CoreValue::Null;
+    let mut v_image_url = CoreValue::Null;
+    let mut v_image_value = CoreValue::Null;
+    let mut v_input_audio = CoreValue::Null;
+    let mut v_is_audio = CoreValue::Null;
+    let mut v_is_data_url = CoreValue::Null;
+    let mut v_is_image = CoreValue::Null;
+    let mut v_is_mp3 = CoreValue::Null;
+    let mut v_is_text = CoreValue::Null;
+    let mut v_is_wav = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_mime = CoreValue::Null;
+    let mut v_mime_raw = CoreValue::Null;
+    let mut v_mime_snake = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_text = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    let mut v_url = CoreValue::Null;
+    v_type = core_get(&v_part, &CoreValue::from("type"), CoreValue::Null);
+    v_is_text = core_eq(&[v_type.clone(), CoreValue::from("text")])?;
+    if core_truthy(&v_is_text) {
+        v_text = core_get(&v_part, &CoreValue::from("text"), CoreValue::from(""));
+        v_out = CoreValue::new_map();
+        core_set(&v_out, CoreValue::from("type"), CoreValue::from("text"))?;
+        core_set(&v_out, CoreValue::from("text"), v_text.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_is_image = core_eq(&[v_type.clone(), CoreValue::from("image")])?;
+    if core_truthy(&v_is_image) {
+        v_mime_snake = core_get(&v_part, &CoreValue::from("mime_type"), CoreValue::Null);
+        v_mime_raw = core_get(&v_part, &CoreValue::from("mimeType"), v_mime_snake.clone());
+        v_mime = core_coalesce(&[v_mime_raw.clone(), CoreValue::from("image/png")])?;
+        v_image_value = core_get(&v_part, &CoreValue::from("image"), CoreValue::Null);
+        v_image_raw = core_get(&v_part, &CoreValue::from("data"), v_image_value.clone());
+        v_image = core_coalesce(&[v_image_raw.clone(), CoreValue::from("")])?;
+        v_is_data_url = core_string_starts_with(&[v_image.clone(), CoreValue::from("data:")])?;
+        v_url = CoreValue::from("");
+        if core_truthy(&v_is_data_url) {
+            v_url = v_image.clone();
+        } else {
+            v_url = core_string_format(&[
+                CoreValue::from("data:{};base64,{}"),
+                v_mime.clone(),
+                v_image.clone(),
+            ])?;
+        }
+        v_details = core_get(
+            &v_part,
+            &CoreValue::from("details"),
+            CoreValue::from("auto"),
+        );
+        v_image_url = CoreValue::new_map();
+        core_set(&v_image_url, CoreValue::from("url"), v_url.clone())?;
+        core_set(&v_image_url, CoreValue::from("detail"), v_details.clone())?;
+        v_out = CoreValue::new_map();
+        core_set(
+            &v_out,
+            CoreValue::from("type"),
+            CoreValue::from("image_url"),
+        )?;
+        core_set(&v_out, CoreValue::from("image_url"), v_image_url.clone())?;
+        return Ok(v_out.clone());
+    }
+    v_is_audio = core_eq(&[v_type.clone(), CoreValue::from("audio")])?;
+    if core_truthy(&v_is_audio) {
+        v_audio_alt = core_get(&v_part, &CoreValue::from("audio"), CoreValue::Null);
+        v_data = core_get(&v_part, &CoreValue::from("data"), v_audio_alt.clone());
+        v_format = core_get(&v_part, &CoreValue::from("format"), CoreValue::Null);
+        v_is_wav = core_eq(&[v_format.clone(), CoreValue::from("wav")])?;
+        v_is_mp3 = core_eq(&[v_format.clone(), CoreValue::from("mp3")])?;
+        v_format_ok = core_or(&[v_is_wav.clone(), v_is_mp3.clone()])?;
+        if core_truthy(&v_format_ok) {
+            v_out = CoreValue::new_map();
+            core_set(
+                &v_out,
+                CoreValue::from("type"),
+                CoreValue::from("input_audio"),
+            )?;
+            v_input_audio = CoreValue::new_map();
+            core_set(&v_input_audio, CoreValue::from("data"), v_data.clone())?;
+            core_set(&v_input_audio, CoreValue::from("format"), v_format.clone())?;
+            core_set(
+                &v_out,
+                CoreValue::from("input_audio"),
+                v_input_audio.clone(),
+            )?;
+            return Ok(v_out.clone());
+        }
+        v_audio_message = core_string_format(&[
+            CoreValue::from("OpenAI audio chat input supports only wav and mp3 audio, received {}"),
+            v_format.clone(),
+        ])?;
+        v_audio_error = core_ai_error_unsupported(&[v_audio_message.clone()])?;
+        return Err(core_as_error(&v_audio_error));
+    }
+    v_message = core_string_format(&[
+        CoreValue::from("OpenAI-compatible beta does not support content part type: {}"),
+        v_type.clone(),
+    ])?;
+    v_error = core_ai_error_unsupported(&[v_message.clone()])?;
+    return Err(core_as_error(&v_error));
 }
 
 #[allow(
@@ -28979,6 +30055,44 @@ fn build_usage_event(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     unreachable_code,
     clippy::all
 )]
+fn _openai_tool_call_to_provider_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_tool_call_to_provider_impl");
+    let mut v_call = core_arg(args, 0);
+    let mut v_fn = CoreValue::Null;
+    let mut v_function = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_params_is_string = CoreValue::Null;
+    let mut v_params_json = CoreValue::Null;
+    v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+    v_params = core_get(&v_fn, &CoreValue::from("params"), CoreValue::Null);
+    v_params_is_string = core_type_is(&v_params, CoreValue::from("string"));
+    if core_truthy(&v_params_is_string) {
+    } else {
+        v_params_json = core_json_stringify(&[v_params.clone()])?;
+        v_params = v_params_json.clone();
+    }
+    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+    v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+    v_function = CoreValue::new_map();
+    core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
+    core_set(&v_function, CoreValue::from("arguments"), v_params.clone())?;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
+    core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
+    core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("_ai_model_usage_impl");
     let mut v_ai_name = core_arg(args, 0);
@@ -29000,6 +30114,46 @@ fn _ai_model_usage_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_out, CoreValue::from("ai"), v_ai_name.clone())?;
     core_set(&v_out, CoreValue::from("model"), v_model.clone())?;
     core_set(&v_out, CoreValue::from("tokens"), v_tokens.clone())?;
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_tool_spec_impl");
+    let mut v_fn = core_arg(args, 0);
+    let mut v_description = CoreValue::Null;
+    let mut v_function = CoreValue::Null;
+    let mut v_has_parameters = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_parameters = CoreValue::Null;
+    v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+    v_description = core_get(&v_fn, &CoreValue::from("description"), CoreValue::from(""));
+    v_parameters = core_get(&v_fn, &CoreValue::from("parameters"), CoreValue::Null);
+    v_function = CoreValue::new_map();
+    core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
+    core_set(
+        &v_function,
+        CoreValue::from("description"),
+        v_description.clone(),
+    )?;
+    v_has_parameters = core_truthy_value(&[v_parameters.clone()])?;
+    if core_truthy(&v_has_parameters) {
+        core_set(
+            &v_function,
+            CoreValue::from("parameters"),
+            v_parameters.clone(),
+        )?;
+    }
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
+    core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
     return Ok(v_out.clone());
 }
 
@@ -29091,119 +30245,37 @@ fn _chat_result_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn _openai_content_part_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_content_part_impl");
-    let mut v_part = core_arg(args, 0);
-    let mut v_audio_alt = CoreValue::Null;
-    let mut v_audio_error = CoreValue::Null;
-    let mut v_audio_message = CoreValue::Null;
-    let mut v_data = CoreValue::Null;
-    let mut v_details = CoreValue::Null;
-    let mut v_error = CoreValue::Null;
-    let mut v_format = CoreValue::Null;
-    let mut v_format_ok = CoreValue::Null;
-    let mut v_image = CoreValue::Null;
-    let mut v_image_raw = CoreValue::Null;
-    let mut v_image_url = CoreValue::Null;
-    let mut v_image_value = CoreValue::Null;
-    let mut v_input_audio = CoreValue::Null;
-    let mut v_is_audio = CoreValue::Null;
-    let mut v_is_data_url = CoreValue::Null;
-    let mut v_is_image = CoreValue::Null;
-    let mut v_is_mp3 = CoreValue::Null;
-    let mut v_is_text = CoreValue::Null;
-    let mut v_is_wav = CoreValue::Null;
-    let mut v_message = CoreValue::Null;
-    let mut v_mime = CoreValue::Null;
-    let mut v_mime_raw = CoreValue::Null;
-    let mut v_mime_snake = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_text = CoreValue::Null;
-    let mut v_type = CoreValue::Null;
-    let mut v_url = CoreValue::Null;
-    v_type = core_get(&v_part, &CoreValue::from("type"), CoreValue::Null);
-    v_is_text = core_eq(&[v_type.clone(), CoreValue::from("text")])?;
-    if core_truthy(&v_is_text) {
-        v_text = core_get(&v_part, &CoreValue::from("text"), CoreValue::from(""));
-        v_out = CoreValue::new_map();
-        core_set(&v_out, CoreValue::from("type"), CoreValue::from("text"))?;
-        core_set(&v_out, CoreValue::from("text"), v_text.clone())?;
-        return Ok(v_out.clone());
-    }
-    v_is_image = core_eq(&[v_type.clone(), CoreValue::from("image")])?;
-    if core_truthy(&v_is_image) {
-        v_mime_snake = core_get(&v_part, &CoreValue::from("mime_type"), CoreValue::Null);
-        v_mime_raw = core_get(&v_part, &CoreValue::from("mimeType"), v_mime_snake.clone());
-        v_mime = core_coalesce(&[v_mime_raw.clone(), CoreValue::from("image/png")])?;
-        v_image_value = core_get(&v_part, &CoreValue::from("image"), CoreValue::Null);
-        v_image_raw = core_get(&v_part, &CoreValue::from("data"), v_image_value.clone());
-        v_image = core_coalesce(&[v_image_raw.clone(), CoreValue::from("")])?;
-        v_is_data_url = core_string_starts_with(&[v_image.clone(), CoreValue::from("data:")])?;
-        v_url = CoreValue::from("");
-        if core_truthy(&v_is_data_url) {
-            v_url = v_image.clone();
-        } else {
-            v_url = core_string_format(&[
-                CoreValue::from("data:{};base64,{}"),
-                v_mime.clone(),
-                v_image.clone(),
-            ])?;
-        }
-        v_details = core_get(
-            &v_part,
-            &CoreValue::from("details"),
-            CoreValue::from("auto"),
-        );
-        v_image_url = CoreValue::new_map();
-        core_set(&v_image_url, CoreValue::from("url"), v_url.clone())?;
-        core_set(&v_image_url, CoreValue::from("detail"), v_details.clone())?;
-        v_out = CoreValue::new_map();
+fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("openai_build_embed_request");
+    let mut v_request = core_arg(args, 0);
+    let mut v_dimensions = CoreValue::Null;
+    let mut v_embed_model_snake = CoreValue::Null;
+    let mut v_empty_texts = CoreValue::Null;
+    let mut v_has_dimensions = CoreValue::Null;
+    let mut v_model = CoreValue::Null;
+    let mut v_payload = CoreValue::Null;
+    let mut v_texts = CoreValue::Null;
+    v_embed_model_snake = core_get(&v_request, &CoreValue::from("embed_model"), CoreValue::Null);
+    v_model = core_get(
+        &v_request,
+        &CoreValue::from("embedModel"),
+        v_embed_model_snake.clone(),
+    );
+    v_empty_texts = CoreValue::new_list();
+    v_texts = core_get(&v_request, &CoreValue::from("texts"), v_empty_texts.clone());
+    v_payload = CoreValue::new_map();
+    core_set(&v_payload, CoreValue::from("model"), v_model.clone())?;
+    core_set(&v_payload, CoreValue::from("input"), v_texts.clone())?;
+    v_dimensions = core_get(&v_request, &CoreValue::from("dimensions"), CoreValue::Null);
+    v_has_dimensions = core_truthy_value(&[v_dimensions.clone()])?;
+    if core_truthy(&v_has_dimensions) {
         core_set(
-            &v_out,
-            CoreValue::from("type"),
-            CoreValue::from("image_url"),
+            &v_payload,
+            CoreValue::from("dimensions"),
+            v_dimensions.clone(),
         )?;
-        core_set(&v_out, CoreValue::from("image_url"), v_image_url.clone())?;
-        return Ok(v_out.clone());
     }
-    v_is_audio = core_eq(&[v_type.clone(), CoreValue::from("audio")])?;
-    if core_truthy(&v_is_audio) {
-        v_audio_alt = core_get(&v_part, &CoreValue::from("audio"), CoreValue::Null);
-        v_data = core_get(&v_part, &CoreValue::from("data"), v_audio_alt.clone());
-        v_format = core_get(&v_part, &CoreValue::from("format"), CoreValue::Null);
-        v_is_wav = core_eq(&[v_format.clone(), CoreValue::from("wav")])?;
-        v_is_mp3 = core_eq(&[v_format.clone(), CoreValue::from("mp3")])?;
-        v_format_ok = core_or(&[v_is_wav.clone(), v_is_mp3.clone()])?;
-        if core_truthy(&v_format_ok) {
-            v_out = CoreValue::new_map();
-            core_set(
-                &v_out,
-                CoreValue::from("type"),
-                CoreValue::from("input_audio"),
-            )?;
-            v_input_audio = CoreValue::new_map();
-            core_set(&v_input_audio, CoreValue::from("data"), v_data.clone())?;
-            core_set(&v_input_audio, CoreValue::from("format"), v_format.clone())?;
-            core_set(
-                &v_out,
-                CoreValue::from("input_audio"),
-                v_input_audio.clone(),
-            )?;
-            return Ok(v_out.clone());
-        }
-        v_audio_message = core_string_format(&[
-            CoreValue::from("OpenAI audio chat input supports only wav and mp3 audio, received {}"),
-            v_format.clone(),
-        ])?;
-        v_audio_error = core_ai_error_unsupported(&[v_audio_message.clone()])?;
-        return Err(core_as_error(&v_audio_error));
-    }
-    v_message = core_string_format(&[
-        CoreValue::from("OpenAI-compatible beta does not support content part type: {}"),
-        v_type.clone(),
-    ])?;
-    v_error = core_ai_error_unsupported(&[v_message.clone()])?;
-    return Err(core_as_error(&v_error));
+    return Ok(v_payload.clone());
 }
 
 #[allow(
@@ -29289,300 +30361,6 @@ fn chat_response_to_completion(args: &[CoreValue]) -> Result<CoreValue, AxError>
             CoreValue::from("thought_blocks"),
             v_thought_blocks.clone(),
         )?;
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_tool_call_to_provider_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_tool_call_to_provider_impl");
-    let mut v_call = core_arg(args, 0);
-    let mut v_fn = CoreValue::Null;
-    let mut v_function = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    let mut v_params_is_string = CoreValue::Null;
-    let mut v_params_json = CoreValue::Null;
-    v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-    v_params = core_get(&v_fn, &CoreValue::from("params"), CoreValue::Null);
-    v_params_is_string = core_type_is(&v_params, CoreValue::from("string"));
-    if core_truthy(&v_params_is_string) {
-    } else {
-        v_params_json = core_json_stringify(&[v_params.clone()])?;
-        v_params = v_params_json.clone();
-    }
-    v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-    v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-    v_function = CoreValue::new_map();
-    core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
-    core_set(&v_function, CoreValue::from("arguments"), v_params.clone())?;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("id"), v_id.clone())?;
-    core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
-    core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn ai_context_cache_rejection(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("ai_context_cache_rejection");
-    let mut v_status = core_arg(args, 0);
-    let mut v_body_json = core_arg(args, 1);
-    let mut v_body_lower = CoreValue::Null;
-    let mut v_body_text = CoreValue::Null;
-    let mut v_cache_rejection = CoreValue::Null;
-    let mut v_expired = CoreValue::Null;
-    let mut v_has_cache = CoreValue::Null;
-    let mut v_invalid = CoreValue::Null;
-    let mut v_invalid_cache = CoreValue::Null;
-    let mut v_invalid_left = CoreValue::Null;
-    let mut v_invalid_reason = CoreValue::Null;
-    let mut v_invalid_right = CoreValue::Null;
-    let mut v_is_400 = CoreValue::Null;
-    let mut v_is_404 = CoreValue::Null;
-    let mut v_missing = CoreValue::Null;
-    let mut v_names_cache = CoreValue::Null;
-    let mut v_names_compact = CoreValue::Null;
-    let mut v_names_left = CoreValue::Null;
-    let mut v_names_resource = CoreValue::Null;
-    let mut v_names_spaced = CoreValue::Null;
-    let mut v_not_found = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_status_400_max = CoreValue::Null;
-    let mut v_status_400_min = CoreValue::Null;
-    let mut v_status_404_max = CoreValue::Null;
-    let mut v_status_404_min = CoreValue::Null;
-    let mut v_valid_status = CoreValue::Null;
-    v_status_400_min = core_gte(&[v_status.clone(), CoreValue::Num(400f64)])?;
-    v_status_400_max = core_lte(&[v_status.clone(), CoreValue::Num(400f64)])?;
-    v_is_400 = core_and(&[v_status_400_min.clone(), v_status_400_max.clone()])?;
-    v_status_404_min = core_gte(&[v_status.clone(), CoreValue::Num(404f64)])?;
-    v_status_404_max = core_lte(&[v_status.clone(), CoreValue::Num(404f64)])?;
-    v_is_404 = core_and(&[v_status_404_min.clone(), v_status_404_max.clone()])?;
-    v_valid_status = core_or(&[v_is_400.clone(), v_is_404.clone()])?;
-    v_body_text = core_json_stringify(&[v_body_json.clone()])?;
-    v_body_lower = core_string_lower(&[v_body_text.clone()])?;
-    v_names_compact = core_contains(&[v_body_lower.clone(), CoreValue::from("cachedcontent")])?;
-    v_names_spaced = core_contains(&[v_body_lower.clone(), CoreValue::from("cached content")])?;
-    v_names_resource = core_contains(&[v_body_lower.clone(), CoreValue::from("cachedcontents/")])?;
-    v_names_left = core_or(&[v_names_compact.clone(), v_names_spaced.clone()])?;
-    v_names_cache = core_or(&[v_names_left.clone(), v_names_resource.clone()])?;
-    v_has_cache = core_contains(&[v_body_lower.clone(), CoreValue::from("cache")])?;
-    v_expired = core_contains(&[v_body_lower.clone(), CoreValue::from("expired")])?;
-    v_not_found = core_contains(&[v_body_lower.clone(), CoreValue::from("not found")])?;
-    v_missing = core_contains(&[v_body_lower.clone(), CoreValue::from("does not exist")])?;
-    v_invalid = core_contains(&[v_body_lower.clone(), CoreValue::from("invalid")])?;
-    v_invalid_left = core_or(&[v_expired.clone(), v_not_found.clone()])?;
-    v_invalid_right = core_or(&[v_missing.clone(), v_invalid.clone()])?;
-    v_invalid_reason = core_or(&[v_invalid_left.clone(), v_invalid_right.clone()])?;
-    v_invalid_cache = core_and(&[v_has_cache.clone(), v_invalid_reason.clone()])?;
-    v_cache_rejection = core_or(&[v_names_cache.clone(), v_invalid_cache.clone()])?;
-    v_out = core_and(&[v_valid_status.clone(), v_cache_rejection.clone()])?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_tool_spec_impl");
-    let mut v_fn = core_arg(args, 0);
-    let mut v_description = CoreValue::Null;
-    let mut v_function = CoreValue::Null;
-    let mut v_has_parameters = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_parameters = CoreValue::Null;
-    v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-    v_description = core_get(&v_fn, &CoreValue::from("description"), CoreValue::from(""));
-    v_parameters = core_get(&v_fn, &CoreValue::from("parameters"), CoreValue::Null);
-    v_function = CoreValue::new_map();
-    core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
-    core_set(
-        &v_function,
-        CoreValue::from("description"),
-        v_description.clone(),
-    )?;
-    v_has_parameters = core_truthy_value(&[v_parameters.clone()])?;
-    if core_truthy(&v_has_parameters) {
-        core_set(
-            &v_function,
-            CoreValue::from("parameters"),
-            v_parameters.clone(),
-        )?;
-    }
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("type"), CoreValue::from("function"))?;
-    core_set(&v_out, CoreValue::from("function"), v_function.clone())?;
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn ai_context_cache_expiry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("ai_context_cache_expiry");
-    let mut v_provider_expire_time = core_arg(args, 0);
-    let mut v_now = core_arg(args, 1);
-    let mut v_future = CoreValue::Null;
-    let mut v_is_number = CoreValue::Null;
-    v_is_number = core_type_is(&v_provider_expire_time, CoreValue::from("number"));
-    if core_truthy(&v_is_number) {
-        v_future = core_gt(&[v_provider_expire_time.clone(), v_now.clone()])?;
-        if core_truthy(&v_future) {
-            return Ok(v_provider_expire_time.clone());
-        }
-    }
-    return Ok(CoreValue::Num(0f64));
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn openai_build_embed_request(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("openai_build_embed_request");
-    let mut v_request = core_arg(args, 0);
-    let mut v_dimensions = CoreValue::Null;
-    let mut v_embed_model_snake = CoreValue::Null;
-    let mut v_empty_texts = CoreValue::Null;
-    let mut v_has_dimensions = CoreValue::Null;
-    let mut v_model = CoreValue::Null;
-    let mut v_payload = CoreValue::Null;
-    let mut v_texts = CoreValue::Null;
-    v_embed_model_snake = core_get(&v_request, &CoreValue::from("embed_model"), CoreValue::Null);
-    v_model = core_get(
-        &v_request,
-        &CoreValue::from("embedModel"),
-        v_embed_model_snake.clone(),
-    );
-    v_empty_texts = CoreValue::new_list();
-    v_texts = core_get(&v_request, &CoreValue::from("texts"), v_empty_texts.clone());
-    v_payload = CoreValue::new_map();
-    core_set(&v_payload, CoreValue::from("model"), v_model.clone())?;
-    core_set(&v_payload, CoreValue::from("input"), v_texts.clone())?;
-    v_dimensions = core_get(&v_request, &CoreValue::from("dimensions"), CoreValue::Null);
-    v_has_dimensions = core_truthy_value(&[v_dimensions.clone()])?;
-    if core_truthy(&v_has_dimensions) {
-        core_set(
-            &v_payload,
-            CoreValue::from("dimensions"),
-            v_dimensions.clone(),
-        )?;
-    }
-    return Ok(v_payload.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn ai_context_cache_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("ai_context_cache_plan");
-    let mut v_configured = core_arg(args, 0);
-    let mut v_supported = core_arg(args, 1);
-    let mut v_explicit_name = core_arg(args, 2);
-    let mut v_existing = core_arg(args, 3);
-    let mut v_now = core_arg(args, 4);
-    let mut v_refresh_window_ms = core_arg(args, 5);
-    let mut v_create_eligible = core_arg(args, 6);
-    let mut v_cache_name = CoreValue::Null;
-    let mut v_cache_name_length = CoreValue::Null;
-    let mut v_disabled = CoreValue::Null;
-    let mut v_enabled = CoreValue::Null;
-    let mut v_existing_object = CoreValue::Null;
-    let mut v_expires_at = CoreValue::Null;
-    let mut v_explicit_length = CoreValue::Null;
-    let mut v_future = CoreValue::Null;
-    let mut v_has_explicit = CoreValue::Null;
-    let mut v_has_name = CoreValue::Null;
-    let mut v_needs_refresh = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_refresh_at = CoreValue::Null;
-    let mut v_valid = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    core_set(&v_out, CoreValue::from("action"), CoreValue::from("none"))?;
-    core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(false))?;
-    v_enabled = core_and(&[v_configured.clone(), v_supported.clone()])?;
-    v_disabled = core_not(&[v_enabled.clone()])?;
-    if core_truthy(&v_disabled) {
-        return Ok(v_out.clone());
-    }
-    v_explicit_length = core_len(&[v_explicit_name.clone()])?;
-    v_has_explicit = core_gt(&[v_explicit_length.clone(), CoreValue::Num(0f64)])?;
-    if core_truthy(&v_has_explicit) {
-        core_set(&v_out, CoreValue::from("action"), CoreValue::from("use"))?;
-        core_set(
-            &v_out,
-            CoreValue::from("cacheName"),
-            v_explicit_name.clone(),
-        )?;
-        return Ok(v_out.clone());
-    }
-    v_existing_object = core_type_is(&v_existing, CoreValue::from("object"));
-    if core_truthy(&v_existing_object) {
-        v_cache_name = core_get(
-            &v_existing,
-            &CoreValue::from("cacheName"),
-            CoreValue::from(""),
-        );
-        v_expires_at = core_get(
-            &v_existing,
-            &CoreValue::from("expiresAt"),
-            CoreValue::Num(0f64),
-        );
-        v_cache_name_length = core_len(&[v_cache_name.clone()])?;
-        v_has_name = core_gt(&[v_cache_name_length.clone(), CoreValue::Num(0f64)])?;
-        v_future = core_gt(&[v_expires_at.clone(), v_now.clone()])?;
-        v_valid = core_and(&[v_has_name.clone(), v_future.clone()])?;
-        if core_truthy(&v_valid) {
-            v_refresh_at = core_add(&[v_now.clone(), v_refresh_window_ms.clone()])?;
-            v_needs_refresh = core_lt(&[v_expires_at.clone(), v_refresh_at.clone()])?;
-            core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(true))?;
-            core_set(&v_out, CoreValue::from("cacheName"), v_cache_name.clone())?;
-            if core_truthy(&v_needs_refresh) {
-                core_set(
-                    &v_out,
-                    CoreValue::from("action"),
-                    CoreValue::from("refresh"),
-                )?;
-            } else {
-                core_set(&v_out, CoreValue::from("action"), CoreValue::from("use"))?;
-            }
-            return Ok(v_out.clone());
-        }
-    }
-    if core_truthy(&v_create_eligible) {
-        core_set(&v_out, CoreValue::from("action"), CoreValue::from("create"))?;
-        core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(true))?;
     }
     return Ok(v_out.clone());
 }
@@ -29707,64 +30485,60 @@ fn _openai_normalize_chat_response_impl(args: &[CoreValue]) -> Result<CoreValue,
     unreachable_code,
     clippy::all
 )]
-fn ai_context_cache_recovery(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("ai_context_cache_recovery");
-    let mut v_current_entry = core_arg(args, 0);
-    let mut v_cache_name = core_arg(args, 1);
-    let mut v_external_registry = core_arg(args, 2);
-    let mut v_current_name = CoreValue::Null;
-    let mut v_empty = CoreValue::Null;
-    let mut v_entry_object = CoreValue::Null;
-    let mut v_matches = CoreValue::Null;
+fn ai_context_cache_rejection(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_context_cache_rejection");
+    let mut v_status = core_arg(args, 0);
+    let mut v_body_json = core_arg(args, 1);
+    let mut v_body_lower = CoreValue::Null;
+    let mut v_body_text = CoreValue::Null;
+    let mut v_cache_rejection = CoreValue::Null;
+    let mut v_expired = CoreValue::Null;
+    let mut v_has_cache = CoreValue::Null;
+    let mut v_invalid = CoreValue::Null;
+    let mut v_invalid_cache = CoreValue::Null;
+    let mut v_invalid_left = CoreValue::Null;
+    let mut v_invalid_reason = CoreValue::Null;
+    let mut v_invalid_right = CoreValue::Null;
+    let mut v_is_400 = CoreValue::Null;
+    let mut v_is_404 = CoreValue::Null;
+    let mut v_missing = CoreValue::Null;
+    let mut v_names_cache = CoreValue::Null;
+    let mut v_names_compact = CoreValue::Null;
+    let mut v_names_left = CoreValue::Null;
+    let mut v_names_resource = CoreValue::Null;
+    let mut v_names_spaced = CoreValue::Null;
+    let mut v_not_found = CoreValue::Null;
     let mut v_out = CoreValue::Null;
-    let mut v_tombstone = CoreValue::Null;
-    v_out = CoreValue::new_map();
-    core_set(
-        &v_out,
-        CoreValue::from("invalidated"),
-        CoreValue::Bool(false),
-    )?;
-    core_set(
-        &v_out,
-        CoreValue::from("deleteInMemory"),
-        CoreValue::Bool(false),
-    )?;
-    v_entry_object = core_type_is(&v_current_entry, CoreValue::from("object"));
-    if core_truthy(&v_entry_object) {
-        v_current_name = core_get(
-            &v_current_entry,
-            &CoreValue::from("cacheName"),
-            CoreValue::from(""),
-        );
-        v_matches = core_eq(&[v_current_name.clone(), v_cache_name.clone()])?;
-        if core_truthy(&v_matches) {
-            core_set(
-                &v_out,
-                CoreValue::from("invalidated"),
-                CoreValue::Bool(true),
-            )?;
-            if core_truthy(&v_external_registry) {
-                v_empty = CoreValue::new_map();
-                v_tombstone = core_map_merge(&[v_current_entry.clone(), v_empty.clone()])?;
-                core_set(
-                    &v_tombstone,
-                    CoreValue::from("expiresAt"),
-                    CoreValue::Num(0f64),
-                )?;
-                core_set(
-                    &v_out,
-                    CoreValue::from("externalEntry"),
-                    v_tombstone.clone(),
-                )?;
-            } else {
-                core_set(
-                    &v_out,
-                    CoreValue::from("deleteInMemory"),
-                    CoreValue::Bool(true),
-                )?;
-            }
-        }
-    }
+    let mut v_status_400_max = CoreValue::Null;
+    let mut v_status_400_min = CoreValue::Null;
+    let mut v_status_404_max = CoreValue::Null;
+    let mut v_status_404_min = CoreValue::Null;
+    let mut v_valid_status = CoreValue::Null;
+    v_status_400_min = core_gte(&[v_status.clone(), CoreValue::Num(400f64)])?;
+    v_status_400_max = core_lte(&[v_status.clone(), CoreValue::Num(400f64)])?;
+    v_is_400 = core_and(&[v_status_400_min.clone(), v_status_400_max.clone()])?;
+    v_status_404_min = core_gte(&[v_status.clone(), CoreValue::Num(404f64)])?;
+    v_status_404_max = core_lte(&[v_status.clone(), CoreValue::Num(404f64)])?;
+    v_is_404 = core_and(&[v_status_404_min.clone(), v_status_404_max.clone()])?;
+    v_valid_status = core_or(&[v_is_400.clone(), v_is_404.clone()])?;
+    v_body_text = core_json_stringify(&[v_body_json.clone()])?;
+    v_body_lower = core_string_lower(&[v_body_text.clone()])?;
+    v_names_compact = core_contains(&[v_body_lower.clone(), CoreValue::from("cachedcontent")])?;
+    v_names_spaced = core_contains(&[v_body_lower.clone(), CoreValue::from("cached content")])?;
+    v_names_resource = core_contains(&[v_body_lower.clone(), CoreValue::from("cachedcontents/")])?;
+    v_names_left = core_or(&[v_names_compact.clone(), v_names_spaced.clone()])?;
+    v_names_cache = core_or(&[v_names_left.clone(), v_names_resource.clone()])?;
+    v_has_cache = core_contains(&[v_body_lower.clone(), CoreValue::from("cache")])?;
+    v_expired = core_contains(&[v_body_lower.clone(), CoreValue::from("expired")])?;
+    v_not_found = core_contains(&[v_body_lower.clone(), CoreValue::from("not found")])?;
+    v_missing = core_contains(&[v_body_lower.clone(), CoreValue::from("does not exist")])?;
+    v_invalid = core_contains(&[v_body_lower.clone(), CoreValue::from("invalid")])?;
+    v_invalid_left = core_or(&[v_expired.clone(), v_not_found.clone()])?;
+    v_invalid_right = core_or(&[v_missing.clone(), v_invalid.clone()])?;
+    v_invalid_reason = core_or(&[v_invalid_left.clone(), v_invalid_right.clone()])?;
+    v_invalid_cache = core_and(&[v_has_cache.clone(), v_invalid_reason.clone()])?;
+    v_cache_rejection = core_or(&[v_names_cache.clone(), v_invalid_cache.clone()])?;
+    v_out = core_and(&[v_valid_status.clone(), v_cache_rejection.clone()])?;
     return Ok(v_out.clone());
 }
 
@@ -29954,6 +30728,290 @@ fn _openai_normalize_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxErro
     unreachable_code,
     clippy::all
 )]
+fn ai_context_cache_expiry(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_context_cache_expiry");
+    let mut v_provider_expire_time = core_arg(args, 0);
+    let mut v_now = core_arg(args, 1);
+    let mut v_future = CoreValue::Null;
+    let mut v_is_number = CoreValue::Null;
+    v_is_number = core_type_is(&v_provider_expire_time, CoreValue::from("number"));
+    if core_truthy(&v_is_number) {
+        v_future = core_gt(&[v_provider_expire_time.clone(), v_now.clone()])?;
+        if core_truthy(&v_future) {
+            return Ok(v_provider_expire_time.clone());
+        }
+    }
+    return Ok(CoreValue::Num(0f64));
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn ai_context_cache_plan(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_context_cache_plan");
+    let mut v_configured = core_arg(args, 0);
+    let mut v_supported = core_arg(args, 1);
+    let mut v_explicit_name = core_arg(args, 2);
+    let mut v_existing = core_arg(args, 3);
+    let mut v_now = core_arg(args, 4);
+    let mut v_refresh_window_ms = core_arg(args, 5);
+    let mut v_create_eligible = core_arg(args, 6);
+    let mut v_cache_name = CoreValue::Null;
+    let mut v_cache_name_length = CoreValue::Null;
+    let mut v_disabled = CoreValue::Null;
+    let mut v_enabled = CoreValue::Null;
+    let mut v_existing_object = CoreValue::Null;
+    let mut v_expires_at = CoreValue::Null;
+    let mut v_explicit_length = CoreValue::Null;
+    let mut v_future = CoreValue::Null;
+    let mut v_has_explicit = CoreValue::Null;
+    let mut v_has_name = CoreValue::Null;
+    let mut v_needs_refresh = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_refresh_at = CoreValue::Null;
+    let mut v_valid = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(&v_out, CoreValue::from("action"), CoreValue::from("none"))?;
+    core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(false))?;
+    v_enabled = core_and(&[v_configured.clone(), v_supported.clone()])?;
+    v_disabled = core_not(&[v_enabled.clone()])?;
+    if core_truthy(&v_disabled) {
+        return Ok(v_out.clone());
+    }
+    v_explicit_length = core_len(&[v_explicit_name.clone()])?;
+    v_has_explicit = core_gt(&[v_explicit_length.clone(), CoreValue::Num(0f64)])?;
+    if core_truthy(&v_has_explicit) {
+        core_set(&v_out, CoreValue::from("action"), CoreValue::from("use"))?;
+        core_set(
+            &v_out,
+            CoreValue::from("cacheName"),
+            v_explicit_name.clone(),
+        )?;
+        return Ok(v_out.clone());
+    }
+    v_existing_object = core_type_is(&v_existing, CoreValue::from("object"));
+    if core_truthy(&v_existing_object) {
+        v_cache_name = core_get(
+            &v_existing,
+            &CoreValue::from("cacheName"),
+            CoreValue::from(""),
+        );
+        v_expires_at = core_get(
+            &v_existing,
+            &CoreValue::from("expiresAt"),
+            CoreValue::Num(0f64),
+        );
+        v_cache_name_length = core_len(&[v_cache_name.clone()])?;
+        v_has_name = core_gt(&[v_cache_name_length.clone(), CoreValue::Num(0f64)])?;
+        v_future = core_gt(&[v_expires_at.clone(), v_now.clone()])?;
+        v_valid = core_and(&[v_has_name.clone(), v_future.clone()])?;
+        if core_truthy(&v_valid) {
+            v_refresh_at = core_add(&[v_now.clone(), v_refresh_window_ms.clone()])?;
+            v_needs_refresh = core_lt(&[v_expires_at.clone(), v_refresh_at.clone()])?;
+            core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(true))?;
+            core_set(&v_out, CoreValue::from("cacheName"), v_cache_name.clone())?;
+            if core_truthy(&v_needs_refresh) {
+                core_set(
+                    &v_out,
+                    CoreValue::from("action"),
+                    CoreValue::from("refresh"),
+                )?;
+            } else {
+                core_set(&v_out, CoreValue::from("action"), CoreValue::from("use"))?;
+            }
+            return Ok(v_out.clone());
+        }
+    }
+    if core_truthy(&v_create_eligible) {
+        core_set(&v_out, CoreValue::from("action"), CoreValue::from("create"))?;
+        core_set(&v_out, CoreValue::from("managed"), CoreValue::Bool(true))?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_normalize_tool_calls_impl");
+    let mut v_calls = core_arg(args, 0);
+    let mut v_call = CoreValue::Null;
+    let mut v_fn = CoreValue::Null;
+    let mut v_function = CoreValue::Null;
+    let mut v_id = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_normalized = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_params = CoreValue::Null;
+    let mut v_params_is_string = CoreValue::Null;
+    let mut v_parse_error = CoreValue::Null;
+    let mut v_parsed_params = CoreValue::Null;
+    v_out = CoreValue::new_list();
+    for v_call in core_iter(&v_calls)? {
+        let mut v_call = v_call;
+        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
+        v_params = core_get(&v_fn, &CoreValue::from("arguments"), CoreValue::Null);
+        v_params_is_string = core_type_is(&v_params, CoreValue::from("string"));
+        if core_truthy(&v_params_is_string) {
+            let __core_try: Result<CoreFlow, AxError> = (|| {
+                v_parsed_params = core_json_parse(&[v_params.clone()])?;
+                v_params = v_parsed_params.clone();
+                Ok(CoreFlow::Normal)
+            })();
+            match __core_try {
+                Ok(CoreFlow::Normal) => {}
+                Ok(CoreFlow::Return(value)) => return Ok(value),
+                Ok(CoreFlow::Break) => break,
+                Ok(CoreFlow::Continue) => continue,
+                Err(__core_caught) => {
+                    v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
+                }
+            }
+        }
+        v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
+        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
+        v_function = CoreValue::new_map();
+        core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
+        core_set(&v_function, CoreValue::from("params"), v_params.clone())?;
+        v_normalized = CoreValue::new_map();
+        core_set(&v_normalized, CoreValue::from("id"), v_id.clone())?;
+        core_set(
+            &v_normalized,
+            CoreValue::from("type"),
+            CoreValue::from("function"),
+        )?;
+        core_set(
+            &v_normalized,
+            CoreValue::from("function"),
+            v_function.clone(),
+        )?;
+        core_append(&v_out, v_normalized.clone())?;
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn ai_context_cache_recovery(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("ai_context_cache_recovery");
+    let mut v_current_entry = core_arg(args, 0);
+    let mut v_cache_name = core_arg(args, 1);
+    let mut v_external_registry = core_arg(args, 2);
+    let mut v_current_name = CoreValue::Null;
+    let mut v_empty = CoreValue::Null;
+    let mut v_entry_object = CoreValue::Null;
+    let mut v_matches = CoreValue::Null;
+    let mut v_out = CoreValue::Null;
+    let mut v_tombstone = CoreValue::Null;
+    v_out = CoreValue::new_map();
+    core_set(
+        &v_out,
+        CoreValue::from("invalidated"),
+        CoreValue::Bool(false),
+    )?;
+    core_set(
+        &v_out,
+        CoreValue::from("deleteInMemory"),
+        CoreValue::Bool(false),
+    )?;
+    v_entry_object = core_type_is(&v_current_entry, CoreValue::from("object"));
+    if core_truthy(&v_entry_object) {
+        v_current_name = core_get(
+            &v_current_entry,
+            &CoreValue::from("cacheName"),
+            CoreValue::from(""),
+        );
+        v_matches = core_eq(&[v_current_name.clone(), v_cache_name.clone()])?;
+        if core_truthy(&v_matches) {
+            core_set(
+                &v_out,
+                CoreValue::from("invalidated"),
+                CoreValue::Bool(true),
+            )?;
+            if core_truthy(&v_external_registry) {
+                v_empty = CoreValue::new_map();
+                v_tombstone = core_map_merge(&[v_current_entry.clone(), v_empty.clone()])?;
+                core_set(
+                    &v_tombstone,
+                    CoreValue::from("expiresAt"),
+                    CoreValue::Num(0f64),
+                )?;
+                core_set(
+                    &v_out,
+                    CoreValue::from("externalEntry"),
+                    v_tombstone.clone(),
+                )?;
+            } else {
+                core_set(
+                    &v_out,
+                    CoreValue::from("deleteInMemory"),
+                    CoreValue::Bool(true),
+                )?;
+            }
+        }
+    }
+    return Ok(v_out.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_finish_reason_impl");
+    let mut v_value = core_arg(args, 0);
+    let mut v_is_call = CoreValue::Null;
+    let mut v_is_content_filter = CoreValue::Null;
+    let mut v_is_function_call = CoreValue::Null;
+    let mut v_is_length = CoreValue::Null;
+    let mut v_is_stop = CoreValue::Null;
+    let mut v_is_tool_calls = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    v_is_stop = core_eq(&[v_value.clone(), CoreValue::from("stop")])?;
+    if core_truthy(&v_is_stop) {
+        return Ok(CoreValue::from("stop"));
+    }
+    v_is_length = core_eq(&[v_value.clone(), CoreValue::from("length")])?;
+    if core_truthy(&v_is_length) {
+        return Ok(CoreValue::from("length"));
+    }
+    v_is_content_filter = core_eq(&[v_value.clone(), CoreValue::from("content_filter")])?;
+    if core_truthy(&v_is_content_filter) {
+        return Ok(CoreValue::from("error"));
+    }
+    v_is_tool_calls = core_eq(&[v_value.clone(), CoreValue::from("tool_calls")])?;
+    v_is_function_call = core_eq(&[v_value.clone(), CoreValue::from("function_call")])?;
+    v_is_call = core_or(&[v_is_tool_calls.clone(), v_is_function_call.clone()])?;
+    if core_truthy(&v_is_call) {
+        return Ok(CoreValue::from("function_call"));
+    }
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
 fn ai_gemini_cache_ops(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     axir_coverage_mark("ai_gemini_cache_ops");
     let mut v_cache_name = core_arg(args, 0);
@@ -30133,110 +31191,6 @@ fn ai_gemini_cache_ops(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     core_set(&v_out, CoreValue::from("update"), v_update.clone())?;
     core_set(&v_out, CoreValue::from("delete"), v_delete_op.clone())?;
     return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_normalize_tool_calls_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_normalize_tool_calls_impl");
-    let mut v_calls = core_arg(args, 0);
-    let mut v_call = CoreValue::Null;
-    let mut v_fn = CoreValue::Null;
-    let mut v_function = CoreValue::Null;
-    let mut v_id = CoreValue::Null;
-    let mut v_name = CoreValue::Null;
-    let mut v_normalized = CoreValue::Null;
-    let mut v_out = CoreValue::Null;
-    let mut v_params = CoreValue::Null;
-    let mut v_params_is_string = CoreValue::Null;
-    let mut v_parse_error = CoreValue::Null;
-    let mut v_parsed_params = CoreValue::Null;
-    v_out = CoreValue::new_list();
-    for v_call in core_iter(&v_calls)? {
-        let mut v_call = v_call;
-        v_fn = core_get(&v_call, &CoreValue::from("function"), CoreValue::Null);
-        v_params = core_get(&v_fn, &CoreValue::from("arguments"), CoreValue::Null);
-        v_params_is_string = core_type_is(&v_params, CoreValue::from("string"));
-        if core_truthy(&v_params_is_string) {
-            let __core_try: Result<CoreFlow, AxError> = (|| {
-                v_parsed_params = core_json_parse(&[v_params.clone()])?;
-                v_params = v_parsed_params.clone();
-                Ok(CoreFlow::Normal)
-            })();
-            match __core_try {
-                Ok(CoreFlow::Normal) => {}
-                Ok(CoreFlow::Return(value)) => return Ok(value),
-                Ok(CoreFlow::Break) => break,
-                Ok(CoreFlow::Continue) => continue,
-                Err(__core_caught) => {
-                    v_parse_error = CoreValue::Error(std::rc::Rc::new(__core_caught));
-                }
-            }
-        }
-        v_id = core_get(&v_call, &CoreValue::from("id"), CoreValue::Null);
-        v_name = core_get(&v_fn, &CoreValue::from("name"), CoreValue::Null);
-        v_function = CoreValue::new_map();
-        core_set(&v_function, CoreValue::from("name"), v_name.clone())?;
-        core_set(&v_function, CoreValue::from("params"), v_params.clone())?;
-        v_normalized = CoreValue::new_map();
-        core_set(&v_normalized, CoreValue::from("id"), v_id.clone())?;
-        core_set(
-            &v_normalized,
-            CoreValue::from("type"),
-            CoreValue::from("function"),
-        )?;
-        core_set(
-            &v_normalized,
-            CoreValue::from("function"),
-            v_function.clone(),
-        )?;
-        core_append(&v_out, v_normalized.clone())?;
-    }
-    return Ok(v_out.clone());
-}
-
-#[allow(
-    unused_variables,
-    unused_assignments,
-    unused_mut,
-    unreachable_code,
-    clippy::all
-)]
-fn _openai_finish_reason_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_openai_finish_reason_impl");
-    let mut v_value = core_arg(args, 0);
-    let mut v_is_call = CoreValue::Null;
-    let mut v_is_content_filter = CoreValue::Null;
-    let mut v_is_function_call = CoreValue::Null;
-    let mut v_is_length = CoreValue::Null;
-    let mut v_is_stop = CoreValue::Null;
-    let mut v_is_tool_calls = CoreValue::Null;
-    let mut v_none = CoreValue::Null;
-    v_is_stop = core_eq(&[v_value.clone(), CoreValue::from("stop")])?;
-    if core_truthy(&v_is_stop) {
-        return Ok(CoreValue::from("stop"));
-    }
-    v_is_length = core_eq(&[v_value.clone(), CoreValue::from("length")])?;
-    if core_truthy(&v_is_length) {
-        return Ok(CoreValue::from("length"));
-    }
-    v_is_content_filter = core_eq(&[v_value.clone(), CoreValue::from("content_filter")])?;
-    if core_truthy(&v_is_content_filter) {
-        return Ok(CoreValue::from("error"));
-    }
-    v_is_tool_calls = core_eq(&[v_value.clone(), CoreValue::from("tool_calls")])?;
-    v_is_function_call = core_eq(&[v_value.clone(), CoreValue::from("function_call")])?;
-    v_is_call = core_or(&[v_is_tool_calls.clone(), v_is_function_call.clone()])?;
-    if core_truthy(&v_is_call) {
-        return Ok(CoreValue::from("function_call"));
-    }
-    v_none = core_none(&[])?;
-    return Ok(v_none.clone());
 }
 
 #[allow(

@@ -8,7 +8,19 @@ import re
 import time
 from typing import Any
 
-from .ai import AIClient, chat_response_to_completion
+from .ai import (
+    AIClient,
+    AxMeter,
+    AxRateLimiter,
+    AxRuntimeHooks,
+    AxTracer,
+    _coerce_runtime_hooks,
+    _merge_runtime_hooks,
+    _runtime_hook_scope,
+    _runtime_hooks_from_options,
+    _strip_runtime_hooks,
+    chat_response_to_completion,
+)
 from .prompt import AxPromptTemplate
 from .schema import AxValidationError, strip_internal, validate_fields, validate_output
 from .signature import AxSignature
@@ -163,9 +175,10 @@ def _ax_memory_response_meaningful(response) -> bool:
 
 
 class AxGen:
-    def __init__(self, signature, options: dict[str, Any] | None = None):
+    def __init__(self, signature, options: dict[str, Any] | None = None, hooks: AxRuntimeHooks | None = None):
         self.signature = signature if isinstance(signature, AxSignature) else AxSignature(signature)
-        self.options = options or {}
+        self.runtime_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
+        self.options = _strip_runtime_hooks(options)
         self._base_functions = list(self.options.get("functions") or [])
         self.execution_context = resolve_execution_context(self.options)
         self.functions = self._base_functions + (self.execution_context.native_tools() if self.execution_context else [])
@@ -189,6 +202,18 @@ class AxGen:
         )
         if self.instruction:
             self.prompt_template.set_instruction(self.instruction)
+
+    def set_rate_limiter(self, limiter: AxRateLimiter | None):
+        self.runtime_hooks = AxRuntimeHooks(limiter, self.runtime_hooks.tracer, self.runtime_hooks.meter)
+        return self
+
+    def set_tracer(self, tracer: AxTracer | None):
+        self.runtime_hooks = AxRuntimeHooks(self.runtime_hooks.rate_limiter, tracer, self.runtime_hooks.meter)
+        return self
+
+    def set_meter(self, meter: AxMeter | None):
+        self.runtime_hooks = AxRuntimeHooks(self.runtime_hooks.rate_limiter, self.runtime_hooks.tracer, meter)
+        return self
 
     def set_examples(self, examples):
         self.examples = list(examples or [])
@@ -405,7 +430,23 @@ class AxGen:
     def get_function_call_traces(self):
         return list(self.function_call_traces)
 
-    def forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
+    def forward(
+        self,
+        client: AIClient,
+        values: dict[str, Any],
+        options: dict[str, Any] | None = None,
+        hooks: AxRuntimeHooks | None = None,
+    ):
+        call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
+        with _runtime_hook_scope(
+            call_hooks,
+            self.runtime_hooks,
+            span_name="ax_gen_forward",
+            attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen"},
+        ):
+            return self._forward_unscoped(client, values, _strip_runtime_hooks(options))
+
+    def _forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_context = resolve_execution_context(options, self.execution_context)
         if call_context is self.execution_context:
             return _forward_impl(self, client, values, options)
@@ -422,14 +463,30 @@ class AxGen:
             call_gen.prompt_template.set_instruction(self.instruction)
         return _forward_impl(call_gen, client, values, options)
 
-    def streaming_forward(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
+    def streaming_forward(
+        self,
+        client: AIClient,
+        values: dict[str, Any],
+        options: dict[str, Any] | None = None,
+        hooks: AxRuntimeHooks | None = None,
+    ):
+        call_hooks = _merge_runtime_hooks(_coerce_runtime_hooks(hooks), _runtime_hooks_from_options(options))
+        with _runtime_hook_scope(
+            call_hooks,
+            self.runtime_hooks,
+            span_name="ax_gen_forward",
+            attributes={"ax.program.id": self.program_id, "ax.program.type": "AxGen", "ax.streaming": True},
+        ):
+            yield from self._streaming_forward_unscoped(client, values, _strip_runtime_hooks(options))
+
+    def _streaming_forward_unscoped(self, client: AIClient, values: dict[str, Any], options: dict[str, Any] | None = None):
         call_context = resolve_execution_context(options, self.execution_context)
         if call_context is not self.execution_context:
             call_gen = copy.copy(self)
             call_gen.execution_context = call_context
             call_gen.functions = self._base_functions + (call_context.native_tools() if call_context else [])
             call_gen.prompt_template = AxPromptTemplate(self.signature, functions=call_gen.functions)
-            yield from call_gen.streaming_forward(client, values, {**(options or {}), "executionContext": call_context})
+            yield from call_gen._streaming_forward_unscoped(client, values, {**(options or {}), "executionContext": call_context})
             return
         validate_fields(self.signature.get_input_fields(), values, "input")
         stream_options = {**self.options, **(options or {}), "stream": True}
@@ -461,13 +518,14 @@ def ax(
     *,
     sample_count: int | None = None,
     result_picker=None,
+    hooks: AxRuntimeHooks | None = None,
 ) -> AxGen:
     normalized = dict(options or {})
     if sample_count is not None:
         normalized["sample_count"] = int(sample_count)
     if result_picker is not None:
         normalized["result_picker"] = result_picker
-    return AxGen(signature, normalized)
+    return AxGen(signature, normalized, hooks=hooks)
 
 
 def _core_not(value): return not value
@@ -702,7 +760,15 @@ def _core_validation_error(message):
 
 
 def _core_tool_invoke(fn, params):
-    return fn.call(params or {})
+    name = str(getattr(fn, "name", "") or "tool")
+    with _runtime_hook_scope(
+        None,
+        None,
+        span_name="ax_gen_tool",
+        attributes={"ax.tool.name": name},
+        metric_prefix="ax_gen_tool",
+    ):
+        return fn.call(params or {})
 
 
 def _core_stream_event_content_parts(event) -> list[str]:

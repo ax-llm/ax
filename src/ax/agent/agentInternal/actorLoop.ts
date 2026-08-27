@@ -319,7 +319,7 @@ export async function runActorLoop<IN extends AxGenIn>(
     ? runtimeContext.effectiveContextConfig.stateInspection.contextThreshold
     : undefined;
   const summaryForwardOptions = buildInternalSummaryRequestOptions(
-    options,
+    actorMergedOptions,
     debug,
     effectiveAbortSignal
   );

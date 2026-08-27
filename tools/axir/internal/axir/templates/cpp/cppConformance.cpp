@@ -8,7 +8,9 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <condition_variable>
 #include <fstream>
+#include <future>
 #include <iostream>
 
 using namespace axllm;
@@ -2221,6 +2223,99 @@ static void run_ai_usage_observer(Value fixture) {
   set_usage_observer({});
 }
 
+static void run_ai_runtime_hooks(Value fixture) {
+  struct FailingTracer final : AxTracer {
+    std::shared_ptr<AxSpan> start_span(const AxSpanStart&) override { throw std::runtime_error("tracer failure"); }
+  };
+  struct FailingMeter final : AxMeter {
+    std::shared_ptr<AxCounter> create_counter(std::string, AxMetricInstrumentOptions) override { throw std::runtime_error("meter failure"); }
+    std::shared_ptr<AxHistogram> create_histogram(std::string, AxMetricInstrumentOptions) override { throw std::runtime_error("meter failure"); }
+    std::shared_ptr<AxGauge> create_gauge(std::string, AxMetricInstrumentOptions) override { throw std::runtime_error("meter failure"); }
+  };
+  ClientFixture cf(fixture);
+  Value request = Core::get(fixture, "request", Value::object());
+  std::vector<std::string> calls;
+  auto limiter = [&calls](std::string label) -> AxRateLimiter {
+    return [&calls, label = std::move(label)](AxRequestExecutor next, const AxRateLimitInfo& info) {
+      if (info.operation != "chat" || info.provider.empty() || info.model.empty() || info.streaming) throw AxError("fixture", "invalid rate limit info");
+      calls.push_back(label);
+      return next();
+    };
+  };
+  set_rate_limiter(limiter("global"));
+  try {
+    cf.client->chat(request);
+    cf.client->set_rate_limiter(limiter("service"));
+    cf.client->chat(request);
+    cf.client->chat(request, Value::object(), AxRuntimeHooks{limiter("call"), {}, {}});
+    cf.client->set_rate_limiter({});
+    set_tracer(std::make_shared<FailingTracer>());
+    set_meter(std::make_shared<FailingMeter>());
+    cf.client->chat(request);
+    try {
+      cf.client->chat(request, Value::object(), AxRuntimeHooks{
+        [](AxRequestExecutor, const AxRateLimitInfo&) -> Value { throw std::runtime_error("limited"); }, {}, {}});
+      throw AxError("fixture", "limiter rejection did not propagate");
+    } catch (const std::runtime_error& error) {
+      if (std::string(error.what()).find("limited") == std::string::npos) throw;
+    }
+    set_rate_limiter({}); set_tracer({}); set_meter({});
+    cf.client->chat(request);
+  } catch (...) {
+    cf.client->set_rate_limiter({});
+    set_rate_limiter({}); set_tracer({}); set_meter({});
+    throw;
+  }
+  cf.client->set_rate_limiter({});
+  set_rate_limiter({}); set_tracer({}); set_meter({});
+
+  std::mutex isolation_mutex;
+  std::condition_variable isolation_ready;
+  int active_limiters = 0;
+  bool overlap_observed = false;
+  auto isolated = [&isolation_mutex, &isolation_ready, &active_limiters,
+                   &overlap_observed](std::string label) {
+    ConformanceScriptedAI client(Value(Array{
+        object({{"content", "{\"answer\":\"first\"}"}}),
+        object({{"content", "{\"answer\":\"second\"}"}}),
+    }));
+    AxGen gen(Core::parse_signature(Value("question:string -> answer:string")));
+    int limiter_calls = 0;
+    AxRateLimiter local = [&isolation_mutex, &isolation_ready, &active_limiters,
+                           &overlap_observed, &limiter_calls,
+                           label = std::move(label)](
+                              AxRequestExecutor next, const AxRateLimitInfo&) {
+      (void)label;
+      ++limiter_calls;
+      bool overlapped = false;
+      {
+        std::unique_lock<std::mutex> lock(isolation_mutex);
+        ++active_limiters;
+        if (active_limiters == 2) overlap_observed = true;
+        isolation_ready.notify_all();
+        overlapped = isolation_ready.wait_for(
+            lock, std::chrono::seconds(5), [&overlap_observed] {
+              return overlap_observed;
+            });
+        --active_limiters;
+      }
+      if (!overlapped) throw AxError("fixture", "runtime hook forwards did not overlap");
+      return next();
+    };
+    gen.forward(client, object({{"question", "first"}}), Value::object(), AxRuntimeHooks{local, {}, {}});
+    gen.forward(client, object({{"question", "second"}}));
+    return limiter_calls == 1;
+  };
+  auto first = std::async(std::launch::async, isolated, "thread-a");
+  auto second = std::async(std::launch::async, isolated, "thread-b");
+  if (!first.get() || !second.get()) throw AxError("fixture", "runtime hook thread isolation failed");
+
+  Value actual = Value::array();
+  for (const auto& call : calls) Core::append(actual, call);
+  assert_equal(actual, Core::get(fixture, "expected_limiter_order"), "runtime hook limiter order");
+  assert_equal(static_cast<double>(cf.transport.requests.size()), Core::get(fixture, "expected_transport_request_count"), "runtime hook request count");
+}
+
 static void run_ai_error(Value fixture) {
   ClientFixture cf(fixture);
   try {
@@ -2899,6 +2994,8 @@ static void run(Value fixture) {
     run_ai_stream(fixture);
   } else if (kind == "ai_usage_observer") {
     run_ai_usage_observer(fixture);
+  } else if (kind == "ai_runtime_hooks") {
+    run_ai_runtime_hooks(fixture);
   } else if (kind == "ai_credential_wrapper") {
     run_ai_credential_wrapper(fixture);
   } else if (kind == "ai_error") {

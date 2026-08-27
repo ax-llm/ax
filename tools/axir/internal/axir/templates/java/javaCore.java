@@ -593,7 +593,20 @@ final class Core {
   static Object retrySleep(Object attempt) { return null; }
   static Object toolInvoke(Object fn, Object params) {
     if (!(fn instanceof Tool tool)) throw new RuntimeException("unknown tool");
-    return tool.call(asMap(params));
+    AxGlobals.Scope scope = AxGlobals.openScope(
+        AxRuntimeHooks.empty(),
+        AxRuntimeHooks.empty(),
+        "ax_gen_tool",
+        "ax_gen_tool",
+        Map.of("ax.tool.name", tool.name));
+    try {
+      return tool.call(asMap(params));
+    } catch (RuntimeException | Error error) {
+      scope.fail(error);
+      throw error;
+    } finally {
+      scope.close();
+    }
   }
 
   static Map<String, Object> legacyResponseToChatResponse(Map<String, Object> raw) {

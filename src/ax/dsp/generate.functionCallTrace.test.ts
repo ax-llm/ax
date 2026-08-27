@@ -277,7 +277,8 @@ describe('AxGen onFunctionCall hook', () => {
 
     expect(tracer.startSpan).toHaveBeenCalledWith(
       'AxGen',
-      expect.objectContaining({ kind: 1 })
+      expect.objectContaining({ kind: 1 }),
+      expect.anything()
     );
     expect(tracer.startActiveSpan).toHaveBeenCalledWith(
       'Tool: lookup_user',

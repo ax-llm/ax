@@ -25,6 +25,7 @@ export interface AxFlowOptions
   batchSize?: number;
   logger?: import('./logger.js').AxFlowLoggerFunction;
   debug?: boolean;
+  rateLimiter?: AxProgramForwardOptions<string>['rateLimiter'];
   tracer?: Tracer;
   meter?: Meter;
 }

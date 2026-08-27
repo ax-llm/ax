@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AxMockAIService } from '../ai/mock/api.js';
-import type { AxChatResponse } from '../ai/types.js';
+import type { AxAIServiceOptions, AxChatResponse } from '../ai/types.js';
 import {
   AX_HOST_SNIPPET_MARKER,
   AX_INPUTS_PATCH_GLOBAL,
@@ -210,6 +210,112 @@ const makeCaseCAgent = () =>
     runtime: makeFinalRuntime(),
     maxTurns: 3,
   });
+
+describe('runtime hook propagation', () => {
+  it('passes forward hooks to distiller, executor, and responder calls', async () => {
+    const seen: AxAIServiceOptions[] = [];
+    const spans: Array<{ name: string; end: ReturnType<typeof vi.fn> }> = [];
+    const metricNames: string[] = [];
+    const rateLimiter = async <T>(next: () => Promise<T>) => next();
+    const tracer = {
+      startSpan: (name: string) => {
+        const end = vi.fn();
+        spans.push({ name, end });
+        return {
+          addEvent() {},
+          end,
+          isRecording: () => true,
+          recordException() {},
+          setAttribute() {},
+          setAttributes() {},
+          setStatus() {},
+          spanContext: () => ({
+            traceId: '0'.repeat(32),
+            spanId: '0'.repeat(16),
+            traceFlags: 0,
+          }),
+        };
+      },
+    } as any;
+    const instrument = { add() {}, record() {} };
+    const meter = {
+      createCounter: (name: string) => {
+        metricNames.push(name);
+        return instrument;
+      },
+      createHistogram: (name: string) => {
+        metricNames.push(name);
+        return instrument;
+      },
+      createGauge: (name: string) => {
+        metricNames.push(name);
+        return instrument;
+      },
+    } as any;
+    const mockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req, options): Promise<AxChatResponse> => {
+        seen.push(options ?? {});
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+        if (systemPrompt.includes('You (`distiller`)')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done", {})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+        if (systemPrompt.includes('You (`executor`)')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done", {"answer":"ok"})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+        return {
+          results: [{ index: 0, content: 'Answer: ok', finishReason: 'stop' }],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    await makeCaseCAgent().forward(
+      mockAI,
+      { query: 'what?' },
+      { rateLimiter, tracer, meter }
+    );
+
+    expect(seen.length).toBeGreaterThanOrEqual(3);
+    expect(
+      seen.map((options) => ({
+        rateLimiter: options.rateLimiter === rateLimiter,
+        tracer: options.tracer === tracer,
+        meter: options.meter === meter,
+      }))
+    ).toEqual(
+      seen.map(() => ({ rateLimiter: true, tracer: true, meter: true }))
+    );
+    const agentSpan = spans.find((span) => span.name === 'AxAgent');
+    expect(agentSpan).toBeDefined();
+    expect(agentSpan?.end).toHaveBeenCalledTimes(1);
+    expect(metricNames).toEqual(
+      expect.arrayContaining([
+        'ax_gen_agent_requests_total',
+        'ax_gen_agent_errors_total',
+        'ax_gen_agent_duration_ms',
+      ])
+    );
+  });
+});
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 

@@ -96,9 +96,10 @@ export interface AxGenMetricsInstruments {
   memoryUpdateLatencyHistogram?: Histogram;
 }
 
-// Singleton instance for metrics instruments
+// Instruments are cached by meter identity so concurrent runs using different
+// exporters never swap a process-wide singleton out from under one another.
+let genMetricsByMeter = new WeakMap<Meter, AxGenMetricsInstruments>();
 let globalGenMetricsInstruments: AxGenMetricsInstruments | undefined;
-let globalGenMetricsMeter: Meter | undefined;
 
 // Function to get or create metrics instruments (singleton pattern)
 export const getOrCreateGenMetricsInstruments = (
@@ -106,23 +107,43 @@ export const getOrCreateGenMetricsInstruments = (
 ): AxGenMetricsInstruments | undefined => {
   // Try to use provided meter or fall back to global
   const activeMeter = meter ?? axGlobals.meter;
-  if (!activeMeter) {
-    return globalGenMetricsInstruments;
-  }
+  if (!activeMeter) return undefined;
 
-  if (!globalGenMetricsInstruments || globalGenMetricsMeter !== activeMeter) {
-    globalGenMetricsInstruments = createGenMetricsInstruments(activeMeter);
-    globalGenMetricsMeter = activeMeter;
+  let instruments = genMetricsByMeter.get(activeMeter);
+  if (!instruments) {
+    try {
+      instruments = createGenMetricsInstruments(activeMeter);
+    } catch {
+      return undefined;
+    }
+    genMetricsByMeter.set(activeMeter, instruments);
   }
-
-  return globalGenMetricsInstruments;
+  if (activeMeter === axGlobals.meter) {
+    globalGenMetricsInstruments = instruments;
+  }
+  return instruments;
 };
 
 // Function to reset the singleton (useful for testing)
 export const resetGenMetricsInstruments = (): void => {
   globalGenMetricsInstruments = undefined;
-  globalGenMetricsMeter = undefined;
+  genMetricsByMeter = new WeakMap<Meter, AxGenMetricsInstruments>();
 };
+
+const failOpenInstrument = <T extends object>(instrument: T): T =>
+  new Proxy(instrument, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]) => {
+        try {
+          return Reflect.apply(value, target, args);
+        } catch {
+          return undefined;
+        }
+      };
+    },
+  });
 
 // Health check for metrics system
 export const axCheckMetricsHealth = (): {
@@ -148,7 +169,7 @@ export const axCheckMetricsHealth = (): {
 export const createGenMetricsInstruments = (
   meter: Meter
 ): AxGenMetricsInstruments => {
-  return {
+  const instruments: AxGenMetricsInstruments = {
     // Generation flow metrics
     // Note: Histogram buckets should be configured at the exporter level
     // Recommended buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000] ms
@@ -373,6 +394,12 @@ export const createGenMetricsInstruments = (
       }
     ),
   };
+  return Object.fromEntries(
+    Object.entries(instruments).map(([name, instrument]) => [
+      name,
+      failOpenInstrument(instrument),
+    ])
+  ) as AxGenMetricsInstruments;
 };
 
 // Global metrics configuration

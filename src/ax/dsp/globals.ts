@@ -1,6 +1,10 @@
 import type { Meter, Tracer } from '@opentelemetry/api';
 
-import type { AxLoggerFunction, AxUsageObserver } from '../ai/types.js';
+import type {
+  AxLoggerFunction,
+  AxRateLimiterFunction,
+  AxUsageObserver,
+} from '../ai/types.js';
 import type { AxOptimizerLoggerFunction } from './optimizerTypes.js';
 import type { AxGenOut } from './types.js';
 
@@ -10,6 +14,7 @@ export const axGlobals = {
   signatureStrict: true, // Controls reservedNames enforcement in signature parsing/validation
   tracer: undefined as Tracer | undefined, // Global OpenTelemetry tracer for all AI operations
   meter: undefined as Meter | undefined, // Global OpenTelemetry meter for metrics collection
+  rateLimiter: undefined as AxRateLimiterFunction | undefined, // Global request wrapper for chat and embedding operations
   logger: undefined as AxLoggerFunction | undefined, // Global logger for all AI operations
   optimizerLogger: undefined as AxOptimizerLoggerFunction | undefined, // Global optimizer logger for all optimizer operations
   debug: undefined as boolean | undefined, // Global debug setting for all AI operations

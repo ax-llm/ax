@@ -162,8 +162,7 @@ export class AxMockAIService<TModelKey>
 
   async chat(
     req: Readonly<AxChatRequest<unknown>>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options?: Readonly<AxAIServiceOptions>
+    options?: Readonly<AxAIServiceOptions>
   ) {
     if (this.config.latencyMs) {
       await new Promise((resolve) =>
@@ -178,7 +177,7 @@ export class AxMockAIService<TModelKey>
     this.updateMetrics('chat');
 
     if (typeof this.config.chatResponse === 'function') {
-      return await this.config.chatResponse(req);
+      return await this.config.chatResponse(req, options);
     }
 
     return (

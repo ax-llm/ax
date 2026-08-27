@@ -28,15 +28,19 @@ OpenTelemetry and debug defaults come from the shared Ax runtime surface:
 
 ```typescript
 import { axGlobals, axCreateDefaultColorLogger } from '@ax-llm/ax';
-import { trace } from '@opentelemetry/api';
+import { metrics, trace } from '@opentelemetry/api';
 
+axGlobals.rateLimiter = async (next, info) => next();
 axGlobals.tracer = trace.getTracer('agent-app');
+axGlobals.meter = metrics.getMeter('agent-app');
 axGlobals.debug = true;
 axGlobals.logger = axCreateDefaultColorLogger();
 axGlobals.onUsage = (event) => usageQueue.enqueue(event);
 ```
 
-These globals are live defaults for future AI, AxGen, AxFlow, and agent-internal model calls. Per-call or explicitly configured options still override `axGlobals`. Use AxAgent callbacks below when the caller needs structured agent-turn events rather than OpenTelemetry spans or debug logs.
+Each agent run snapshots these globals. A forward-scoped `rateLimiter`, `tracer`, or `meter` overrides agent defaults, child-generator defaults, service hooks, and globals for that invocation. Ax carries it through the distiller, executor, responder, repeated actor turns, citation repair, built-in `llmQuery`, context-map work, checkpoint/tombstone summaries, and other direct internal model calls without mutating child programs or leaking across concurrent runs.
+
+The limiter wraps model execution and its failures propagate. Tracer, meter, and usage-observer failures are fail-open. Runtime-hook spans contain metadata only—never prompts, outputs, tool arguments, or tool results—and preserve agent → internal AxGen → provider/tool parentage. External meter instruments do not replace or derive from balancer-local `getMetrics()` snapshots. Use AxAgent callbacks below when the caller needs structured agent-turn events rather than spans or metrics.
 
 ## Centralized Usage Observer
 
