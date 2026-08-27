@@ -373,6 +373,7 @@ func EmitGo(model AxRuntimeModel, outDir string) error {
 		"go.sum":                            goSum,
 		"axllm.go":                          renderPackageTemplate(core, version),
 		"mcp.go":                            goMCP,
+		"errors_test.go":                    goErrorBoundaryTest,
 		"runtime/goja/goja.go":              goGojaRuntime,
 		"runtime/goja/goja_test.go":         goGojaRuntimeTest,
 		"axir-capabilities.json":            mustCapabilityManifest(model, "go"),
@@ -2402,6 +2403,7 @@ func packageReadmeConfigForTarget(target string, network string) packageReadmeCo
 				"- Base package uses the Go standard library for HTTP/process boundaries",
 				"- Optional JavaScript actor execution lives in `runtime/goja` and is opt-in by import",
 				"- An `AIClient` decorator must forward the optional `GetFeatures(model) map[string]Value` method when the wrapped client implements it; otherwise AxGen uses permissive fallback capabilities",
+				"- Failures carry an `AxError` envelope: `ax.AsAxError(err)` or `errors.As(err, &ax.AxError{})` reaches the provider `Status` and `Code`, and `ax.IsRetryable(err)` reports transient failures; `Error()` renders the message alone, so never classify on its wording",
 				"- Network support: "+network,
 			),
 			NoKeyExamples: readmeLines(
