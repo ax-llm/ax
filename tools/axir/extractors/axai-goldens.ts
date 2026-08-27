@@ -4866,6 +4866,64 @@ writeFixture('gemini-embeddings-output-dimensionality', {
   },
 });
 
+// The Go runtime handed embed/transcribe/speak responses straight to the
+// normalizer without the status check chat performs, so a 4xx/5xx body -- which
+// carries no results -- normalized to an empty success. A depleted-credits 429
+// reached the caller as "no embeddings" with no error at all.
+writeFixture('gemini-embed-rate-limit-surfaces-error', {
+  kind: 'ai_error',
+  method: 'embed',
+  provider: 'google-gemini',
+  embed_model: geminiDefaultEmbedModel,
+  request: { texts: ['one'] },
+  transport_responses: [
+    {
+      status: 429,
+      json: {
+        error: {
+          message: 'Your prepayment credits are depleted',
+          status: 'RESOURCE_EXHAUSTED',
+        },
+      },
+    },
+  ],
+  expected_error_contains: 'prepayment credits are depleted',
+  expected_status: 429,
+});
+
+writeFixture('openai-transcribe-error-surfaces-error', {
+  kind: 'ai_error',
+  method: 'transcribe',
+  request: {
+    audio: 'base64-audio',
+    format: 'json',
+    language: 'en',
+    model: 'whisper-1',
+  },
+  transport_responses: [
+    {
+      status: 500,
+      json: { error: { message: 'transcription backend unavailable' } },
+    },
+  ],
+  expected_error_contains: 'transcription backend unavailable',
+  expected_status: 500,
+});
+
+writeFixture('openai-speak-error-surfaces-error', {
+  kind: 'ai_error',
+  method: 'speak',
+  request: { format: 'mp3', text: 'hello', voice: 'alloy' },
+  transport_responses: [
+    {
+      status: 503,
+      json: { error: { message: 'voice synthesis unavailable' } },
+    },
+  ],
+  expected_error_contains: 'voice synthesis unavailable',
+  expected_status: 503,
+});
+
 writeFixture('context-cache-rejection', {
   kind: 'ai_context_cache',
   operation: 'rejection',

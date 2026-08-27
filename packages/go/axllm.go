@@ -53298,7 +53298,7 @@ func (c *OpenAICompatibleClient) Embed(ctx context.Context, request map[string]V
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
 		}
-		return mustCore(provider_normalize_embed_response(c.Profile, coreGet(raw, "json", raw), c.Name, model))
+		return mustCore(provider_normalize_embed_response(c.Profile, normalizeTransportPayload(raw), c.Name, model))
 	})
 	if err == nil {
 		emitUsageEvent("embed", response, mergedOptions, false)
@@ -53484,7 +53484,7 @@ func (c *OpenAICompatibleClient) Transcribe(ctx context.Context, request map[str
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
 		}
-		return mustCore(provider_normalize_transcribe_response(c.Profile, coreGet(raw, "json", raw)))
+		return mustCore(provider_normalize_transcribe_response(c.Profile, normalizeTransportPayload(raw)))
 	})
 }
 func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]Value, options map[string]Value) (Value, error) {
@@ -53494,7 +53494,7 @@ func (c *OpenAICompatibleClient) Speak(ctx context.Context, request map[string]V
 		if err != nil {
 			panic(AxError{Category: "network", Message: err.Error()})
 		}
-		return mustCore(provider_normalize_speak_response(c.Profile, coreGet(raw, "json", raw), request))
+		return mustCore(provider_normalize_speak_response(c.Profile, normalizeTransportPayload(raw), request))
 	})
 }
 func (c *OpenAICompatibleClient) RealtimeAudioSetup(request map[string]Value, options map[string]Value) Value {

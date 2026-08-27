@@ -1,0 +1,23 @@
+{
+  "embed_model": "gemini-embedding-2",
+  "expected_error_contains": "prepayment credits are depleted",
+  "expected_status": 429,
+  "kind": "ai_error",
+  "method": "embed",
+  "name": "gemini-embed-rate-limit-surfaces-error",
+  "provider": "google-gemini",
+  "request": {
+    "texts": ["one"]
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "error": {
+          "message": "Your prepayment credits are depleted",
+          "status": "RESOURCE_EXHAUSTED"
+        }
+      },
+      "status": 429
+    }
+  ]
+}
