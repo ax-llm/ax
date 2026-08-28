@@ -624,5 +624,45 @@ describe('apiCall', () => {
         collectStream(`data: {"index":0}\n\ndata: {"index":1}\n\n${sentinel}`)
       ).resolves.toEqual([{ index: 0 }, { index: 1 }]);
     });
+
+    // The SSE spec allows \r\n line endings, and the Node SSEParser path in
+    // this same file normalizes them. Without normalization here the event
+    // boundary is never found, the buffer grows for the whole response, and
+    // only the last data: line of that one giant event survives.
+    it('splits events on \\r\\n\\r\\n boundaries', async () => {
+      stubBrowserGlobals();
+
+      await expect(
+        collectStream('data: {"index":0}\r\n\r\ndata: {"index":1}\r\n\r\n')
+      ).resolves.toEqual([{ index: 0 }, { index: 1 }]);
+    });
+
+    // The spec concatenates repeated data: fields with \n, which is how the
+    // Node SSEParser path already behaves.
+    it('concatenates multi-line data fields', async () => {
+      stubBrowserGlobals();
+
+      await expect(
+        collectStream('data: {"index":\ndata: 0}\n\n')
+      ).resolves.toEqual([{ index: 0 }]);
+    });
+
+    // The space after the colon is optional in the SSE spec, and the Node
+    // SSEParser path accepts either form.
+    it('accepts data fields with no space after the colon', async () => {
+      stubBrowserGlobals();
+
+      await expect(
+        collectStream('data:{"index":0}\n\ndata:{"index":1}\n\n')
+      ).resolves.toEqual([{ index: 0 }, { index: 1 }]);
+    });
+
+    it('stops at a [DONE] sentinel sent with \\r\\n line endings', async () => {
+      stubBrowserGlobals();
+
+      await expect(
+        collectStream('data: {"index":0}\r\n\r\ndata: [DONE]\r\n\r\n')
+      ).resolves.toEqual([{ index: 0 }]);
+    });
   });
 });
