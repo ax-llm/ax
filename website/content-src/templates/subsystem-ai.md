@@ -94,6 +94,20 @@ breakpoints. Give AxGen a stable `promptCacheKey` plus `contextCache`; those
 forward options reach the provider in every language. Cache reads and writes
 are normalized separately for usage and catalog-backed cost estimates.
 
+### Gemini thinking levels
+
+Ax resolves the effective Gemini model before translating a logical thinking
+level. Gemini 3 requests send `thinkingLevel`, clamped to the levels supported
+by the selected model family; Gemini 2.5 and older requests send a numeric
+`thinkingBudget`. Numeric budgets fail locally for Gemini 3, and logical `none`
+always hides returned thoughts even when the model must retain its minimum
+thinking level.
+
+The native `google-gemini`, `gemini`, and `google_gemini` deployment profile
+names share this behavior, including native Gemini configured for Vertex with a
+project and region. The separate OpenAI-compatible `vertex-ai` profile remains
+profile-owned and does not gain native Gemini request fields from its model ID.
+
 ### Gemini inference service tiers
 
 Gemini GenerateContent supports `standard`, `flex`, and `priority` service

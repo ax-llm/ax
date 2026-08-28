@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { ai as createAI } from '../wrap.js';
 import {
   AxAIGoogleGemini,
   axAIGoogleGeminiDefaultConfig,
@@ -694,7 +695,328 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     expect(reqBody.generationConfig.thinkingConfig.includeThoughts).toBe(false);
   });
 
-  it('maps thinkingTokenBudget to thinkingLevel for Gemini 3 Pro (low/high only)', async () => {
+  it.each([
+    {
+      model: AxAIGoogleGeminiModel.Gemini35Flash,
+      requested: 'highest' as const,
+      expectedLevel: 'high',
+    },
+    {
+      model: AxAIGoogleGeminiModel.Gemini37Flash,
+      requested: 'minimal' as const,
+      expectedLevel: 'low',
+    },
+    {
+      model: AxAIGoogleGeminiModel.Gemini31Pro,
+      requested: 'medium' as const,
+      expectedLevel: 'medium',
+    },
+    {
+      model: AxAIGoogleGeminiModel.Gemini31FlashImage,
+      requested: 'medium' as const,
+      expectedLevel: 'high',
+    },
+    {
+      model: 'gemini-3-pro-preview',
+      requested: 'medium' as const,
+      expectedLevel: 'high',
+    },
+  ])(
+    'maps $model $requested to the supported Gemini 3 level',
+    async ({ model, requested, expectedLevel }) => {
+      const capture: { lastBody?: any } = {};
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: { model: model as AxAIGoogleGeminiModel },
+        models: [],
+        options: {
+          fetch: createMockFetch(
+            {
+              candidates: [
+                {
+                  content: { parts: [{ text: 'ok' }] },
+                  finishReason: 'STOP',
+                },
+              ],
+            },
+            capture
+          ),
+        },
+      });
+
+      await ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'hi' }] },
+        { thinkingTokenBudget: requested, showThoughts: true, stream: false }
+      );
+
+      expect(capture.lastBody?.generationConfig?.thinkingConfig).toEqual({
+        thinkingLevel: expectedLevel,
+        includeThoughts: true,
+      });
+    }
+  );
+
+  it.each([
+    {
+      model: AxAIGoogleGeminiModel.Gemini25Flash,
+      requested: 'high' as const,
+      expectedBudget: 10_000,
+      expectedThoughts: true,
+    },
+    {
+      model: AxAIGoogleGeminiModel.Gemini25Flash,
+      requested: 'none' as const,
+      expectedBudget: 0,
+      expectedThoughts: false,
+    },
+    {
+      model: AxAIGoogleGeminiModel.Gemini25Pro,
+      requested: 'none' as const,
+      expectedBudget: 200,
+      expectedThoughts: false,
+    },
+  ])(
+    'maps $model $requested to numeric budget $expectedBudget',
+    async ({ model, requested, expectedBudget, expectedThoughts }) => {
+      const capture: { lastBody?: any } = {};
+      const ai = new AxAIGoogleGemini({
+        apiKey: 'key',
+        config: { model },
+        models: [],
+        options: {
+          fetch: createMockFetch(
+            {
+              candidates: [
+                {
+                  content: { parts: [{ text: 'ok' }] },
+                  finishReason: 'STOP',
+                },
+              ],
+            },
+            capture
+          ),
+        },
+      });
+
+      await ai.chat(
+        { chatPrompt: [{ role: 'user', content: 'hi' }] },
+        { thinkingTokenBudget: requested, showThoughts: true, stream: false }
+      );
+
+      expect(capture.lastBody?.generationConfig?.thinkingConfig).toEqual({
+        thinkingBudget: expectedBudget,
+        includeThoughts: expectedThoughts,
+      });
+    }
+  );
+
+  it('clamps custom level mappings to the selected model family', async () => {
+    const capture: { lastBody?: any } = {};
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: {
+        model: AxAIGoogleGeminiModel.Gemini37Flash,
+        thinkingLevelMapping: { minimal: 'minimal' },
+      },
+      models: [],
+      options: {
+        fetch: createMockFetch(
+          {
+            candidates: [
+              {
+                content: { parts: [{ text: 'ok' }] },
+                finishReason: 'STOP',
+              },
+            ],
+          },
+          capture
+        ),
+      },
+    });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { thinkingTokenBudget: 'minimal', stream: false }
+    );
+
+    expect(
+      capture.lastBody?.generationConfig?.thinkingConfig?.thinkingLevel
+    ).toBe('low');
+  });
+
+  it('resolves named model presets before selecting level or budget fields', async () => {
+    const capture: { lastBody?: any } = {};
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+      models: [
+        {
+          key: 'modern',
+          model: AxAIGoogleGeminiModel.Gemini37Flash,
+          description: 'Gemini 3 preset',
+          thinkingTokenBudget: 'minimal',
+          showThoughts: true,
+        },
+        {
+          key: 'legacy',
+          model: AxAIGoogleGeminiModel.Gemini25Flash,
+          description: 'Gemini 2.5 preset',
+          thinkingTokenBudget: 'high',
+          showThoughts: true,
+        },
+      ],
+      options: {
+        fetch: createMockFetch(
+          {
+            candidates: [
+              {
+                content: { parts: [{ text: 'ok' }] },
+                finishReason: 'STOP',
+              },
+            ],
+          },
+          capture
+        ),
+      },
+    });
+
+    await ai.chat(
+      { model: 'modern', chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+    expect(capture.lastBody?.generationConfig?.thinkingConfig).toEqual({
+      thinkingLevel: 'low',
+      includeThoughts: true,
+    });
+
+    await ai.chat(
+      { model: 'legacy', chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { stream: false }
+    );
+    expect(capture.lastBody?.generationConfig?.thinkingConfig).toEqual({
+      thinkingBudget: 10_000,
+      includeThoughts: true,
+    });
+
+    await ai.chat(
+      { model: 'modern', chatPrompt: [{ role: 'user', content: 'hi' }] },
+      {
+        thinkingTokenBudget: 'high',
+        showThoughts: false,
+        stream: false,
+      }
+    );
+    expect(capture.lastBody?.generationConfig?.thinkingConfig).toEqual({
+      thinkingLevel: 'high',
+      includeThoughts: false,
+    });
+  });
+
+  it('rejects numeric thinking budgets in Gemini 3 named model presets', () => {
+    expect(
+      () =>
+        new AxAIGoogleGemini({
+          apiKey: 'key',
+          config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+          models: [
+            {
+              key: 'modern',
+              model: AxAIGoogleGeminiModel.Gemini35Flash,
+              description: 'Gemini 3 preset',
+              config: { thinking: { thinkingTokenBudget: 1000 } },
+            },
+          ],
+        })
+    ).toThrow(/do not support numeric thinkingTokenBudget/);
+  });
+
+  it.each(['google-gemini', 'gemini', 'google_gemini'])(
+    'uses native Gemini thinking for the %s deployment profile name',
+    async (profile) => {
+      const capture: { lastBody?: any } = {};
+      const service = createAI({
+        name: profile,
+        apiKey: 'key',
+        config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
+      } as any);
+      service.setOptions({
+        fetch: createMockFetch(
+          {
+            candidates: [
+              {
+                content: { parts: [{ text: 'ok' }] },
+                finishReason: 'STOP',
+              },
+            ],
+          },
+          capture
+        ),
+      });
+
+      await service.chat(
+        { chatPrompt: [{ role: 'user', content: 'hi' }] },
+        { thinkingTokenBudget: 'high', stream: false }
+      );
+
+      expect(capture.lastBody?.generationConfig?.thinkingConfig).toEqual({
+        thinkingLevel: 'high',
+      });
+    }
+  );
+
+  it('uses native Gemini thinking when the google-gemini profile targets Vertex', async () => {
+    const capture: { lastBody?: any } = {};
+    const service = createAI({
+      name: 'google-gemini',
+      apiKey: async () => 'vertex-token',
+      projectId: 'demo-project',
+      region: 'us-central1',
+      config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
+    });
+    service.setOptions({
+      fetch: createMockFetch(
+        {
+          candidates: [
+            {
+              content: { parts: [{ text: 'ok' }] },
+              finishReason: 'STOP',
+            },
+          ],
+        },
+        capture
+      ),
+    });
+
+    await service.chat(
+      { chatPrompt: [{ role: 'user', content: 'hi' }] },
+      { thinkingTokenBudget: 'high', stream: false }
+    );
+
+    expect(capture.lastBody?.generationConfig?.thinkingConfig).toEqual({
+      thinkingLevel: 'high',
+    });
+  });
+
+  it('does not apply native Gemini thinking to the OpenAI-compatible vertex-ai profile', async () => {
+    const fetch = vi.fn();
+    const service = createAI({
+      name: 'vertex-ai',
+      apiKey: 'token',
+      apiURL: 'https://vertex.example.test/v1',
+      config: { model: AxAIGoogleGeminiModel.Gemini35Flash },
+      options: { fetch },
+    });
+
+    await expect(
+      service.chat(
+        { chatPrompt: [{ role: 'user', content: 'hi' }] },
+        { thinkingTokenBudget: 'high', stream: false }
+      )
+    ).rejects.toThrow(/Thinking is not verified for profile vertex-ai/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('preserves medium thinking for Gemini 3.1 Pro', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
       config: { model: AxAIGoogleGeminiModel.Gemini3Pro },
@@ -716,8 +1038,6 @@ describe('AxAIGoogleGemini model key preset merging', () => {
 
     ai.setOptions({ fetch });
 
-    // 'medium' maps to 'high' for Gemini 3 Pro (which only supports low/high)
-    // Note: maxTokens cannot be set with thinkingLevel, so we don't set it
     await ai.chat(
       {
         chatPrompt: [{ role: 'user', content: 'hi' }],
@@ -727,8 +1047,9 @@ describe('AxAIGoogleGemini model key preset merging', () => {
 
     const reqBody = capture.lastBody;
     expect(reqBody?.generationConfig?.thinkingConfig).toBeDefined();
-    // medium level maps to 'high' for Gemini 3 Pro
-    expect(reqBody.generationConfig.thinkingConfig.thinkingLevel).toBe('high');
+    expect(reqBody.generationConfig.thinkingConfig.thinkingLevel).toBe(
+      'medium'
+    );
     expect(
       reqBody.generationConfig.thinkingConfig.thinkingBudget
     ).toBeUndefined();
@@ -822,9 +1143,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     ).toThrow(/do not support numeric thinkingTokenBudget/);
   });
 
-  it('maps thinkingTokenBudget none to minimal for Gemini 3+ (includeThoughts controlled by showThoughts)', async () => {
-    // Gemini 3+ models cannot fully disable thinking - 'minimal' is the lowest level
-    // When 'none' is specified, we map to 'minimal'. includeThoughts is controlled separately by showThoughts option.
+  it('maps thinkingTokenBudget none to the minimum and always hides thoughts', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',
       config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
@@ -856,14 +1175,12 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     );
 
     const reqBody = capture.lastBody;
-    // thinkingConfig should have thinkingLevel='minimal'
-    // includeThoughts should NOT be automatically set - it's controlled by showThoughts option
     expect(reqBody?.generationConfig?.thinkingConfig?.thinkingLevel).toBe(
       'minimal'
     );
-    expect(
-      reqBody?.generationConfig?.thinkingConfig?.includeThoughts
-    ).toBeUndefined();
+    expect(reqBody?.generationConfig?.thinkingConfig?.includeThoughts).toBe(
+      false
+    );
   });
 
   it('allows thinkingTokenBudget none to disable thinking for Gemini 2.5', async () => {
@@ -2432,6 +2749,52 @@ describe('AxAIGoogleGemini Live audio chat', () => {
     expect(config.audio?.output?.includeTranscript).toBe(true);
     expect(config.audio?.live?.turnTimeoutMs).toBe(30_000);
   });
+
+  it.each([
+    {
+      model: AxAIGoogleGeminiModel.Gemini31FlashLive,
+      expected: { thinkingLevel: 'high', includeThoughts: true },
+    },
+    {
+      model: AxAIGoogleGeminiModel.Gemini25FlashNativeAudio,
+      expected: { thinkingBudget: 10_000, includeThoughts: true },
+    },
+  ])(
+    'uses model-aware thinking in Live setup for $model',
+    async ({ model, expected }) => {
+      const restore = installFakeGeminiLiveWebSocket([
+        { serverContent: { turnComplete: true } },
+      ]);
+
+      try {
+        const ai = new AxAIGoogleGemini({
+          apiKey: 'key',
+          config: {
+            ...axAIGoogleGeminiLiveAudioDefaultConfig(),
+            model,
+          },
+          models: [],
+        });
+
+        await ai.chat(
+          {
+            chatPrompt: [{ role: 'user', content: 'answer aloud' }],
+          },
+          {
+            thinkingTokenBudget: 'high',
+            showThoughts: true,
+            stream: false,
+          }
+        );
+
+        const socket = FakeGeminiLiveWebSocket.instances[0];
+        const setup = JSON.parse(socket?.sent[0] ?? '{}');
+        expect(setup.setup.generationConfig.thinkingConfig).toEqual(expected);
+      } finally {
+        restore();
+      }
+    }
+  );
 
   it('aggregates a bounded one-turn WebSocket audio response', async () => {
     const restore = installFakeGeminiLiveWebSocket([

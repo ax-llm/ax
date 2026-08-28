@@ -10,7 +10,7 @@
     }
   },
   "kind": "ai_chat",
-  "model": "gemini-3.5-flash",
+  "model": "gemini-2.5-flash",
   "name": "gemini-thinking-config-reaches-the-request",
   "provider": "google-gemini",
   "request": {

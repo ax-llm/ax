@@ -3676,6 +3676,126 @@ writeFixture('grok-realtime-audio-session-and-events', {
   ],
 });
 
+for (const { fixtureName, model, expectedThinkingConfig } of [
+  {
+    fixtureName: 'gemini-31-live-thinking-level',
+    model: 'gemini-3.1-flash-live-preview',
+    expectedThinkingConfig: {
+      thinkingLevel: 'high',
+      includeThoughts: true,
+    },
+  },
+  {
+    fixtureName: 'gemini-25-live-thinking-budget',
+    model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+    expectedThinkingConfig: {
+      thinkingBudget: 10000,
+      includeThoughts: true,
+    },
+  },
+] as const) {
+  writeFixture(fixtureName, {
+    kind: 'ai_realtime',
+    provider: 'google-gemini',
+    model,
+    request: {
+      model,
+      chat_prompt: [{ role: 'user', content: 'Answer with audio.' }],
+      model_config: {
+        thinkingTokenBudget: 'high',
+        showThoughts: true,
+      },
+      audio: { output: { voice: 'Kore', transcript: true } },
+    },
+    expected_setup: {
+      setup: {
+        model: `models/${model}`,
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+          },
+          thinkingConfig: expectedThinkingConfig,
+        },
+        outputAudioTranscription: {},
+      },
+    },
+  });
+}
+
+for (const profile of ['gemini', 'google_gemini'] as const) {
+  const model = 'gemini-3.1-flash-live-preview';
+  writeFixture(
+    `gemini-live-thinking-profile-alias-${profile.replace('_', '-')}`,
+    {
+      kind: 'ai_realtime',
+      provider: profile,
+      model,
+      request: {
+        model,
+        chat_prompt: [{ role: 'user', content: 'Answer with audio.' }],
+        model_config: { thinkingTokenBudget: 'high' },
+        audio: { output: { voice: 'Kore', transcript: true } },
+      },
+      expected_setup: {
+        setup: {
+          model: `models/${model}`,
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+            },
+            thinkingConfig: { thinkingLevel: 'high' },
+          },
+          outputAudioTranscription: {},
+        },
+      },
+    }
+  );
+}
+
+writeFixture('gemini-live-thinking-native-vertex-path', {
+  kind: 'ai_realtime',
+  provider: 'google-gemini',
+  model: 'gemini-3.1-flash-live-preview',
+  service_options: { projectId: 'demo-project', region: 'us-central1' },
+  request: {
+    model: 'gemini-3.1-flash-live-preview',
+    chat_prompt: [{ role: 'user', content: 'Answer with audio.' }],
+    model_config: { thinkingTokenBudget: 'high' },
+    audio: { output: { voice: 'Kore', transcript: true } },
+  },
+  expected_setup: {
+    setup: {
+      model: 'models/gemini-3.1-flash-live-preview',
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+        },
+        thinkingConfig: { thinkingLevel: 'high' },
+      },
+      outputAudioTranscription: {},
+    },
+  },
+});
+
+writeFixture('gemini-3-live-numeric-thinking-budget-rejected', {
+  kind: 'ai_realtime',
+  provider: 'google-gemini',
+  model: 'gemini-3.1-flash-live-preview',
+  request: {
+    model: 'gemini-3.1-flash-live-preview',
+    chat_prompt: [{ role: 'user', content: 'Answer with audio.' }],
+    model_config: { thinkingTokenBudget: 2048 },
+    audio: { output: { voice: 'Kore' } },
+  },
+  // The realtime conformance runner invokes setup when this assertion is
+  // present; the resolver must fail before the placeholder can be compared.
+  expected_setup: {},
+  expected_error_contains: 'does not support numeric thinkingTokenBudget',
+});
+
 writeFixture('gemini-live-realtime-audio-session-and-events', {
   kind: 'ai_realtime',
   provider: 'google-gemini',
@@ -5111,7 +5231,7 @@ writeFixture('gemini-thinking-level-routes-away-from-the-budget', {
 writeFixture('gemini-thinking-config-reaches-the-request', {
   kind: 'ai_chat',
   provider: 'google-gemini',
-  model: 'gemini-3.5-flash',
+  model: 'gemini-2.5-flash',
   request: {
     chat_prompt: [{ role: 'user', content: 'think about this' }],
     model_config: {
@@ -5137,6 +5257,328 @@ writeFixture('gemini-thinking-config-reaches-the-request', {
       },
     },
   },
+});
+
+for (const {
+  fixtureName,
+  model,
+  requested,
+  expectedLevel,
+  expectedThoughts,
+} of [
+  {
+    fixtureName: 'gemini-37-minimal-clamps-to-low',
+    model: 'gemini-3.7-flash',
+    requested: 'minimal',
+    expectedLevel: 'low',
+    expectedThoughts: true,
+  },
+  {
+    fixtureName: 'gemini-37-none-clamps-to-low-and-hides-thoughts',
+    model: 'gemini-3.7-flash',
+    requested: 'none',
+    expectedLevel: 'low',
+    expectedThoughts: false,
+  },
+  {
+    fixtureName: 'gemini-31-pro-preserves-medium',
+    model: 'gemini-3.1-pro-preview',
+    requested: 'medium',
+    expectedLevel: 'medium',
+    expectedThoughts: true,
+  },
+  {
+    fixtureName: 'gemini-31-image-medium-clamps-to-high',
+    model: 'gemini-3.1-flash-image-preview',
+    requested: 'medium',
+    expectedLevel: 'high',
+    expectedThoughts: true,
+  },
+  {
+    fixtureName: 'gemini-legacy-3-pro-medium-clamps-to-high',
+    model: 'gemini-3-pro-preview',
+    requested: 'medium',
+    expectedLevel: 'high',
+    expectedThoughts: true,
+  },
+] as const) {
+  writeFixture(fixtureName, {
+    kind: 'ai_chat',
+    provider: 'google-gemini',
+    model,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'think about this' }],
+      model_config: {
+        stream: false,
+        thinkingTokenBudget: requested,
+        showThoughts: true,
+      },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          candidates: [
+            { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+          ],
+        },
+      },
+    ],
+    expected_transport_request: {
+      json: {
+        generationConfig: {
+          thinkingConfig: {
+            thinkingLevel: expectedLevel,
+            includeThoughts: expectedThoughts,
+          },
+        },
+      },
+    },
+    expected_transport_json_absent: [
+      'generationConfig.thinkingConfig.thinkingBudget',
+    ],
+  });
+}
+
+for (const {
+  fixtureName,
+  model,
+  requested,
+  expectedBudget,
+  expectedThoughts,
+} of [
+  {
+    fixtureName: 'gemini-25-flash-high-uses-numeric-budget',
+    model: 'gemini-2.5-flash',
+    requested: 'high',
+    expectedBudget: 10000,
+    expectedThoughts: true,
+  },
+  {
+    fixtureName: 'gemini-25-flash-none-disables-thinking',
+    model: 'gemini-2.5-flash',
+    requested: 'none',
+    expectedBudget: 0,
+    expectedThoughts: false,
+  },
+  {
+    fixtureName: 'gemini-25-pro-none-clamps-to-minimum-budget',
+    model: 'gemini-2.5-pro',
+    requested: 'none',
+    expectedBudget: 200,
+    expectedThoughts: false,
+  },
+] as const) {
+  writeFixture(fixtureName, {
+    kind: 'ai_chat',
+    provider: 'google-gemini',
+    model,
+    request: {
+      chat_prompt: [{ role: 'user', content: 'think about this' }],
+      model_config: {
+        stream: false,
+        thinkingTokenBudget: requested,
+        showThoughts: true,
+      },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          candidates: [
+            { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+          ],
+        },
+      },
+    ],
+    expected_transport_request: {
+      json: {
+        generationConfig: {
+          thinkingConfig: {
+            thinkingBudget: expectedBudget,
+            includeThoughts: expectedThoughts,
+          },
+        },
+      },
+    },
+    expected_transport_json_absent: [
+      'generationConfig.thinkingConfig.thinkingLevel',
+    ],
+  });
+}
+
+writeFixture('gemini-37-custom-level-mapping-is-clamped', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.7-flash',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'think about this' }],
+    model_config: {
+      stream: false,
+      thinkingTokenBudget: 'high',
+      thinkingLevelMapping: { high: 'minimal' },
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+        ],
+      },
+    },
+  ],
+  expected_transport_request: {
+    json: {
+      generationConfig: { thinkingConfig: { thinkingLevel: 'low' } },
+    },
+  },
+  expected_transport_json_absent: [
+    'generationConfig.thinkingConfig.thinkingBudget',
+  ],
+});
+
+writeFixture('gemini-25-custom-budget-rung-is-preserved', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-2.5-flash',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'think about this' }],
+    model_config: {
+      stream: false,
+      thinkingTokenBudget: 'high',
+      thinkingTokenBudgetLevels: { high: 12345 },
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+        ],
+      },
+    },
+  ],
+  expected_transport_request: {
+    json: {
+      generationConfig: { thinkingConfig: { thinkingBudget: 12345 } },
+    },
+  },
+  expected_transport_json_absent: [
+    'generationConfig.thinkingConfig.thinkingLevel',
+  ],
+});
+
+for (const { fixtureName, value, expectedError } of [
+  {
+    fixtureName: 'gemini-3-numeric-thinking-budget-rejected',
+    value: 2048,
+    expectedError: 'does not support numeric thinkingTokenBudget',
+  },
+  {
+    fixtureName: 'gemini-3-unknown-thinking-level-rejected',
+    value: 'extreme',
+    expectedError: 'unsupported Gemini thinkingTokenBudget level',
+  },
+] as const) {
+  writeFixture(fixtureName, {
+    kind: 'ai_chat',
+    provider: 'google-gemini',
+    model: 'gemini-3.5-flash',
+    request: {
+      chat_prompt: [{ role: 'user', content: 'think about this' }],
+      model_config: { stream: false, thinkingTokenBudget: value },
+    },
+    expected_error_contains: expectedError,
+  });
+}
+
+for (const profile of ['gemini', 'google_gemini'] as const) {
+  writeFixture(`gemini-thinking-profile-alias-${profile.replace('_', '-')}`, {
+    kind: 'ai_chat',
+    provider: profile,
+    model: 'gemini-3.5-flash',
+    request: {
+      chat_prompt: [{ role: 'user', content: 'think hard' }],
+      model_config: { stream: false, thinkingTokenBudget: 'high' },
+    },
+    transport_responses: [
+      {
+        status: 200,
+        json: {
+          candidates: [
+            { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+          ],
+        },
+      },
+    ],
+    expected_transport_request: {
+      json: {
+        generationConfig: { thinkingConfig: { thinkingLevel: 'high' } },
+      },
+    },
+  });
+}
+
+writeFixture('gemini-thinking-native-vertex-path', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.5-flash',
+  service_options: { projectId: 'demo-project', region: 'us-central1' },
+  request: {
+    chat_prompt: [{ role: 'user', content: 'think hard' }],
+    model_config: { stream: false, thinkingTokenBudget: 'high' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+        ],
+      },
+    },
+  ],
+  expected_transport_request: {
+    json: {
+      generationConfig: { thinkingConfig: { thinkingLevel: 'high' } },
+    },
+  },
+});
+
+writeFixture('vertex-openai-gemini-model-does-not-inherit-native-thinking', {
+  kind: 'ai_chat',
+  provider: 'vertex-ai',
+  model: 'gemini-3.5-flash',
+  base_url: 'https://vertex.example.test/v1',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'think hard' }],
+    model_config: { stream: false, thinkingTokenBudget: 'high' },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    },
+  ],
+  expected_transport_json_absent: [
+    'generationConfig',
+    'thinkingConfig',
+    'thinkingLevel',
+    'thinking_level',
+    'thinkingBudget',
+    'thinking_budget',
+  ],
 });
 
 writeFixture('context-cache-rejection', {

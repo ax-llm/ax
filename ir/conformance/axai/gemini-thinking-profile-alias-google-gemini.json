@@ -1,0 +1,46 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "generationConfig": {
+        "thinkingConfig": {
+          "thinkingLevel": "high"
+        }
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "gemini-3.5-flash",
+  "name": "gemini-thinking-profile-alias-google-gemini",
+  "provider": "google_gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "think hard",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "high"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

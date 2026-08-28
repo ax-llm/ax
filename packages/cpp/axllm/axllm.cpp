@@ -7293,6 +7293,9 @@ Value Core::_gemini_live_bidi_build_setup(Value descriptor, Value request) {
   Core::set(voice_config, Value("prebuiltVoiceConfig"), prebuilt_voice);
   Core::set(speech_config, Value("voiceConfig"), voice_config);
   Core::set(generation_config, Value("speechConfig"), speech_config);
+  Value empty_model_config = Value::object();
+  Value model_config = Core::get(request, Value("model_config"), empty_model_config);
+  Core::_gemini_apply_thinking_config_impl(generation_config, request_model, model_config);
   Core::set(setup, Value("generationConfig"), generation_config);
   Value include_transcript = Core::get(request_output_audio, Value("transcript"), Value(true));
   if (Core::truthy(include_transcript)) {
@@ -9426,7 +9429,7 @@ Value Core::_gemini_build_chat_request(Value request, Value options, Value is_ve
   Core::set(generation_config, Value("responseMimeType"), Value("text/plain"));
   Value empty_model_config = Value::object();
   Value model_config = Core::get(request, Value("model_config"), empty_model_config);
-  Core::_gemini_apply_model_config_impl(generation_config, model_config, server_managed_sampling);
+  Core::_gemini_apply_model_config_impl(generation_config, model, model_config, server_managed_sampling);
   Value response_format = Core::get(request, Value("response_format"), Value());
   Value has_response_format = Core::truthy_value(response_format);
   if (Core::truthy(has_response_format)) {
@@ -9476,7 +9479,222 @@ Value Core::_gemini_build_chat_request(Value request, Value options, Value is_ve
   return payload;
 }
 
-Value Core::_gemini_apply_model_config_impl(Value payload, Value model_config, Value server_managed_sampling) {
+Value Core::_gemini_clamp_thinking_level_impl(Value model, Value level) {
+  axir_coverage_mark("_gemini_clamp_thinking_level_impl");
+  Value is_minimal = Core::eq(level, Value("minimal"));
+  Value is_low = Core::eq(level, Value("low"));
+  Value is_medium = Core::eq(level, Value("medium"));
+  Value is_high = Core::eq(level, Value("high"));
+  Value is_minimal_or_low = Core::or_(is_minimal, is_low);
+  Value is_medium_or_high = Core::or_(is_medium, is_high);
+  Value is_supported_level = Core::or_(is_minimal_or_low, is_medium_or_high);
+  if (Core::truthy(is_supported_level)) {
+    // empty
+  }
+  if (!Core::truthy(is_supported_level)) {
+    Value message = Core::string_format(Value("unsupported Gemini thinking level: {}"), level);
+    Value error = Core::ai_error_unsupported(message);
+    throw Core::as_error(error);
+  }
+  Value is_gemini3 = Core::contains(model, Value("gemini-3"));
+  Value is_image_name = Core::contains(model, Value("-image"));
+  Value is_image = Core::and_(is_gemini3, is_image_name);
+  if (Core::truthy(is_image)) {
+    if (Core::truthy(is_minimal_or_low)) {
+      return Value("minimal");
+    }
+    return Value("high");
+  }
+  Value is_legacy_pro_name = Core::contains(model, Value("gemini-3-pro"));
+  Value is_legacy_pro = Core::and_(is_gemini3, is_legacy_pro_name);
+  if (Core::truthy(is_legacy_pro)) {
+    if (Core::truthy(is_minimal_or_low)) {
+      return Value("low");
+    }
+    return Value("high");
+  }
+  Value is_37_flash = Core::contains(model, Value("gemini-3.7-flash"));
+  Value is_31_pro = Core::contains(model, Value("gemini-3.1-pro"));
+  Value no_minimal_name = Core::or_(is_37_flash, is_31_pro);
+  Value no_minimal = Core::and_(is_gemini3, no_minimal_name);
+  Value clamp_minimal = Core::and_(no_minimal, is_minimal);
+  if (Core::truthy(clamp_minimal)) {
+    return Value("low");
+  }
+  return level;
+}
+
+Value Core::_gemini_apply_thinking_config_impl(Value payload, Value model, Value model_config) {
+  axir_coverage_mark("_gemini_apply_thinking_config_impl");
+  Value thinking_config = Value::object();
+  Value has_thinking = Value(false);
+  Value budget_is_none = Value(false);
+  Value is_gemini3 = Core::contains(model, Value("gemini-3"));
+  Value is_25_pro = Core::contains(model, Value("gemini-2.5-pro"));
+  Value empty_level_mapping = Value::object();
+  Value level_mapping_snake = Core::get(model_config, Value("thinking_level_mapping"), empty_level_mapping);
+  Value level_mapping = Core::get(model_config, Value("thinkingLevelMapping"), level_mapping_snake);
+  Value empty_budget_levels = Value::object();
+  Value budget_levels_snake = Core::get(model_config, Value("thinking_token_budget_levels"), empty_budget_levels);
+  Value budget_levels = Core::get(model_config, Value("thinkingTokenBudgetLevels"), budget_levels_snake);
+  Value minimum_budget = Core::get(budget_levels, Value("minimal"), Value(200));
+  Value low_budget = Core::get(budget_levels, Value("low"), Value(800));
+  Value medium_budget = Core::get(budget_levels, Value("medium"), Value(5000));
+  Value high_budget = Core::get(budget_levels, Value("high"), Value(10000));
+  Value highest_budget = Core::get(budget_levels, Value("highest"), Value(24500));
+  Value budget_snake = Core::get(model_config, Value("thinking_token_budget"), Value());
+  Value budget = Core::get(model_config, Value("thinkingTokenBudget"), budget_snake);
+  Value has_budget = Core::is_not_none(budget);
+  if (Core::truthy(has_budget)) {
+    Value budget_is_number = Core::type_is(budget, Value("number"));
+    Value budget_is_string = Core::type_is(budget, Value("string"));
+    if (Core::truthy(is_gemini3)) {
+      if (Core::truthy(budget_is_number)) {
+        Value message = Core::string_format(Value("Gemini 3 model {} does not support numeric thinkingTokenBudget"), model);
+        Value error = Core::ai_error_unsupported(message);
+        throw Core::as_error(error);
+      }
+      if (Core::truthy(budget_is_string)) {
+        // empty
+      }
+      if (!Core::truthy(budget_is_string)) {
+        Value error = Core::ai_error_unsupported(Value("Gemini thinkingTokenBudget must be a number or logical level"));
+        throw Core::as_error(error);
+      }
+      Value level = Value("");
+      Value is_none = Core::eq(budget, Value("none"));
+      if (Core::truthy(is_none)) {
+        level = Value("minimal");
+        budget_is_none = Value(true);
+      }
+      Value is_minimal = Core::eq(budget, Value("minimal"));
+      if (Core::truthy(is_minimal)) {
+        level = Value("minimal");
+      }
+      Value is_low = Core::eq(budget, Value("low"));
+      if (Core::truthy(is_low)) {
+        level = Value("low");
+      }
+      Value is_medium = Core::eq(budget, Value("medium"));
+      if (Core::truthy(is_medium)) {
+        level = Value("medium");
+      }
+      Value is_high = Core::eq(budget, Value("high"));
+      if (Core::truthy(is_high)) {
+        level = Value("high");
+      }
+      Value is_highest = Core::eq(budget, Value("highest"));
+      if (Core::truthy(is_highest)) {
+        level = Value("high");
+      }
+      Value unknown_level = Core::eq(level, Value(""));
+      if (Core::truthy(unknown_level)) {
+        Value message = Core::string_format(Value("unsupported Gemini thinkingTokenBudget level: {}"), budget);
+        Value error = Core::ai_error_unsupported(message);
+        throw Core::as_error(error);
+      }
+      Value mapping_key = budget;
+      if (Core::truthy(is_none)) {
+        mapping_key = Value("minimal");
+      }
+      Value mapped_level = Core::get(level_mapping, mapping_key, level);
+      Value clamped_level = Core::_gemini_clamp_thinking_level_impl(model, mapped_level);
+      Core::set(thinking_config, Value("thinkingLevel"), clamped_level);
+    }
+    if (!Core::truthy(is_gemini3)) {
+      if (Core::truthy(budget_is_number)) {
+        Value numeric_budget = budget;
+        Value is_zero = Core::eq(budget, Value(0));
+        Value clamp_pro_zero = Core::and_(is_25_pro, is_zero);
+        if (Core::truthy(clamp_pro_zero)) {
+          numeric_budget = minimum_budget;
+        }
+        Core::set(thinking_config, Value("thinkingBudget"), numeric_budget);
+      }
+      if (!Core::truthy(budget_is_number)) {
+        if (Core::truthy(budget_is_string)) {
+          // empty
+        }
+        if (!Core::truthy(budget_is_string)) {
+          Value error = Core::ai_error_unsupported(Value("Gemini thinkingTokenBudget must be a number or logical level"));
+          throw Core::as_error(error);
+        }
+        Value numeric_budget = Value(-1);
+        Value is_none = Core::eq(budget, Value("none"));
+        if (Core::truthy(is_none)) {
+          numeric_budget = Value(0);
+          if (Core::truthy(is_25_pro)) {
+            numeric_budget = minimum_budget;
+          }
+          budget_is_none = Value(true);
+        }
+        Value is_minimal = Core::eq(budget, Value("minimal"));
+        if (Core::truthy(is_minimal)) {
+          numeric_budget = minimum_budget;
+        }
+        Value is_low = Core::eq(budget, Value("low"));
+        if (Core::truthy(is_low)) {
+          numeric_budget = low_budget;
+        }
+        Value is_medium = Core::eq(budget, Value("medium"));
+        if (Core::truthy(is_medium)) {
+          numeric_budget = medium_budget;
+        }
+        Value is_high = Core::eq(budget, Value("high"));
+        if (Core::truthy(is_high)) {
+          numeric_budget = high_budget;
+        }
+        Value is_highest = Core::eq(budget, Value("highest"));
+        if (Core::truthy(is_highest)) {
+          numeric_budget = highest_budget;
+        }
+        Value unknown_level = Core::eq(numeric_budget, Value(-1));
+        if (Core::truthy(unknown_level)) {
+          Value message = Core::string_format(Value("unsupported Gemini thinkingTokenBudget level: {}"), budget);
+          Value error = Core::ai_error_unsupported(message);
+          throw Core::as_error(error);
+        }
+        Core::set(thinking_config, Value("thinkingBudget"), numeric_budget);
+      }
+    }
+    has_thinking = Value(true);
+  }
+  Value level_snake = Core::get(model_config, Value("thinking_level"), Value());
+  Value explicit_level = Core::get(model_config, Value("thinkingLevel"), level_snake);
+  Value has_explicit_level = Core::is_not_none(explicit_level);
+  Value use_explicit_level = Core::and_(is_gemini3, has_explicit_level);
+  if (Core::truthy(use_explicit_level)) {
+    Value level_is_string = Core::type_is(explicit_level, Value("string"));
+    if (Core::truthy(level_is_string)) {
+      // empty
+    }
+    if (!Core::truthy(level_is_string)) {
+      Value error = Core::ai_error_unsupported(Value("Gemini thinkingLevel must be a logical level"));
+      throw Core::as_error(error);
+    }
+    Value clamped_level = Core::_gemini_clamp_thinking_level_impl(model, explicit_level);
+    Core::map_delete(thinking_config, Value("thinkingBudget"));
+    Core::set(thinking_config, Value("thinkingLevel"), clamped_level);
+    has_thinking = Value(true);
+  }
+  Value show_snake = Core::get(model_config, Value("show_thoughts"), Value());
+  Value show_thoughts = Core::get(model_config, Value("showThoughts"), show_snake);
+  Value has_show = Core::is_not_none(show_thoughts);
+  if (Core::truthy(has_show)) {
+    Core::set(thinking_config, Value("includeThoughts"), show_thoughts);
+    has_thinking = Value(true);
+  }
+  if (Core::truthy(budget_is_none)) {
+    Core::set(thinking_config, Value("includeThoughts"), Value(false));
+    has_thinking = Value(true);
+  }
+  if (Core::truthy(has_thinking)) {
+    Core::set(payload, Value("thinkingConfig"), thinking_config);
+  }
+  return Value();
+}
+
+Value Core::_gemini_apply_model_config_impl(Value payload, Value model, Value model_config, Value server_managed_sampling) {
   axir_coverage_mark("_gemini_apply_model_config_impl");
   Core::_openai_copy_config_key_impl(payload, model_config, Value("maxTokens"), Value("maxOutputTokens"));
   Core::_openai_copy_config_key_impl(payload, model_config, Value("max_tokens"), Value("maxOutputTokens"));
@@ -9493,56 +9711,7 @@ Value Core::_gemini_apply_model_config_impl(Value payload, Value model_config, V
   Core::_openai_copy_config_key_impl(payload, model_config, Value("n"), Value("candidateCount"));
   Core::_openai_copy_config_key_impl(payload, model_config, Value("stopSequences"), Value("stopSequences"));
   Core::_openai_copy_config_key_impl(payload, model_config, Value("stop_sequences"), Value("stopSequences"));
-  Value thinking_config = Value::object();
-  Value has_thinking = Value(false);
-  Value budget_snake = Core::get(model_config, Value("thinking_token_budget"), Value());
-  Value budget = Core::get(model_config, Value("thinkingTokenBudget"), budget_snake);
-  Value has_budget = Core::is_not_none(budget);
-  if (Core::truthy(has_budget)) {
-    Value level = Value("");
-    Value is_none = Core::eq(budget, Value("none"));
-    if (Core::truthy(is_none)) {
-      level = Value("minimal");
-    }
-    Value is_minimal = Core::eq(budget, Value("minimal"));
-    if (Core::truthy(is_minimal)) {
-      level = Value("minimal");
-    }
-    Value is_low = Core::eq(budget, Value("low"));
-    if (Core::truthy(is_low)) {
-      level = Value("low");
-    }
-    Value is_medium = Core::eq(budget, Value("medium"));
-    if (Core::truthy(is_medium)) {
-      level = Value("medium");
-    }
-    Value is_high = Core::eq(budget, Value("high"));
-    if (Core::truthy(is_high)) {
-      level = Value("high");
-    }
-    Value is_highest = Core::eq(budget, Value("highest"));
-    if (Core::truthy(is_highest)) {
-      level = Value("high");
-    }
-    Value named_level = Core::eq(level, Value(""));
-    if (Core::truthy(named_level)) {
-      Core::set(thinking_config, Value("thinkingBudget"), budget);
-    }
-    if (!Core::truthy(named_level)) {
-      Core::set(thinking_config, Value("thinkingLevel"), level);
-    }
-    has_thinking = Value(true);
-  }
-  Value show_snake = Core::get(model_config, Value("show_thoughts"), Value());
-  Value show_thoughts = Core::get(model_config, Value("showThoughts"), show_snake);
-  Value has_show = Core::is_not_none(show_thoughts);
-  if (Core::truthy(has_show)) {
-    Core::set(thinking_config, Value("includeThoughts"), show_thoughts);
-    has_thinking = Value(true);
-  }
-  if (Core::truthy(has_thinking)) {
-    Core::set(payload, Value("thinkingConfig"), thinking_config);
-  }
+  Core::_gemini_apply_thinking_config_impl(payload, model, model_config);
   return Value();
 }
 

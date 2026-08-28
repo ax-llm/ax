@@ -1,0 +1,51 @@
+{
+  "expected_transport_json_absent": [
+    "generationConfig.thinkingConfig.thinkingBudget"
+  ],
+  "expected_transport_request": {
+    "json": {
+      "generationConfig": {
+        "thinkingConfig": {
+          "includeThoughts": true,
+          "thinkingLevel": "low"
+        }
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "gemini-3.7-flash",
+  "name": "gemini-37-minimal-clamps-to-low",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "think about this",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "showThoughts": true,
+      "stream": false,
+      "thinkingTokenBudget": "minimal"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

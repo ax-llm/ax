@@ -321,7 +321,10 @@ console.log(result.thought);
 
 Rules:
 
-- `thinkingTokenBudget` can be `'low'`, `'medium'`, `'high'`, or a number.
+- `thinkingTokenBudget` accepts `'none'`, `'minimal'`, `'low'`, `'medium'`,
+  `'high'`, or `'highest'`. Provider-specific numeric configuration is only for
+  models such as Gemini 2.5 that expose a numeric thinking budget; Gemini 3 uses
+  model-aware thinking levels instead.
 - Set `showThoughts: true` to include the model's reasoning in `result.thought`.
 
 ## Structured Outputs

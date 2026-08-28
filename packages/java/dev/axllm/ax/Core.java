@@ -6224,6 +6224,9 @@ final class Core {
     Core.set(voice_config, "prebuiltVoiceConfig", prebuilt_voice);
     Core.set(speech_config, "voiceConfig", voice_config);
     Core.set(generation_config, "speechConfig", speech_config);
+    Object empty_model_config = new java.util.LinkedHashMap<String, Object>();
+    Object model_config = Core.get(request, "model_config", empty_model_config);
+    Core._gemini_apply_thinking_config_impl(generation_config, request_model, model_config);
     Core.set(setup, "generationConfig", generation_config);
     Object include_transcript = Core.get(request_output_audio, "transcript", Boolean.TRUE);
     if (Core.truthy(include_transcript)) {
@@ -8356,7 +8359,7 @@ final class Core {
     Core.set(generation_config, "responseMimeType", "text/plain");
     Object empty_model_config = new java.util.LinkedHashMap<String, Object>();
     Object model_config = Core.get(request, "model_config", empty_model_config);
-    Core._gemini_apply_model_config_impl(generation_config, model_config, server_managed_sampling);
+    Core._gemini_apply_model_config_impl(generation_config, model, model_config, server_managed_sampling);
     Object response_format = Core.get(request, "response_format", null);
     Object has_response_format = Core.truthyValue(response_format);
     if (Core.truthy(has_response_format)) {
@@ -8406,7 +8409,222 @@ final class Core {
     return payload;
   }
 
-  static Object _gemini_apply_model_config_impl(Object payload, Object model_config, Object server_managed_sampling) {
+  static Object _gemini_clamp_thinking_level_impl(Object model, Object level) {
+    axirCoverageMark("_gemini_clamp_thinking_level_impl");
+    Object is_minimal = Core.eq(level, "minimal");
+    Object is_low = Core.eq(level, "low");
+    Object is_medium = Core.eq(level, "medium");
+    Object is_high = Core.eq(level, "high");
+    Object is_minimal_or_low = Core.or(is_minimal, is_low);
+    Object is_medium_or_high = Core.or(is_medium, is_high);
+    Object is_supported_level = Core.or(is_minimal_or_low, is_medium_or_high);
+    if (Core.truthy(is_supported_level)) {
+      // empty
+    }
+    if (!Core.truthy(is_supported_level)) {
+      Object message = Core.stringFormat("unsupported Gemini thinking level: {}", level);
+      Object error = Core.aiErrorUnsupported(message);
+      throw Core.asRuntime(error);
+    }
+    Object is_gemini3 = Core.contains(model, "gemini-3");
+    Object is_image_name = Core.contains(model, "-image");
+    Object is_image = Core.and(is_gemini3, is_image_name);
+    if (Core.truthy(is_image)) {
+      if (Core.truthy(is_minimal_or_low)) {
+        return "minimal";
+      }
+      return "high";
+    }
+    Object is_legacy_pro_name = Core.contains(model, "gemini-3-pro");
+    Object is_legacy_pro = Core.and(is_gemini3, is_legacy_pro_name);
+    if (Core.truthy(is_legacy_pro)) {
+      if (Core.truthy(is_minimal_or_low)) {
+        return "low";
+      }
+      return "high";
+    }
+    Object is_37_flash = Core.contains(model, "gemini-3.7-flash");
+    Object is_31_pro = Core.contains(model, "gemini-3.1-pro");
+    Object no_minimal_name = Core.or(is_37_flash, is_31_pro);
+    Object no_minimal = Core.and(is_gemini3, no_minimal_name);
+    Object clamp_minimal = Core.and(no_minimal, is_minimal);
+    if (Core.truthy(clamp_minimal)) {
+      return "low";
+    }
+    return level;
+  }
+
+  static Object _gemini_apply_thinking_config_impl(Object payload, Object model, Object model_config) {
+    axirCoverageMark("_gemini_apply_thinking_config_impl");
+    Object thinking_config = new java.util.LinkedHashMap<String, Object>();
+    Object has_thinking = Boolean.FALSE;
+    Object budget_is_none = Boolean.FALSE;
+    Object is_gemini3 = Core.contains(model, "gemini-3");
+    Object is_25_pro = Core.contains(model, "gemini-2.5-pro");
+    Object empty_level_mapping = new java.util.LinkedHashMap<String, Object>();
+    Object level_mapping_snake = Core.get(model_config, "thinking_level_mapping", empty_level_mapping);
+    Object level_mapping = Core.get(model_config, "thinkingLevelMapping", level_mapping_snake);
+    Object empty_budget_levels = new java.util.LinkedHashMap<String, Object>();
+    Object budget_levels_snake = Core.get(model_config, "thinking_token_budget_levels", empty_budget_levels);
+    Object budget_levels = Core.get(model_config, "thinkingTokenBudgetLevels", budget_levels_snake);
+    Object minimum_budget = Core.get(budget_levels, "minimal", 200);
+    Object low_budget = Core.get(budget_levels, "low", 800);
+    Object medium_budget = Core.get(budget_levels, "medium", 5000);
+    Object high_budget = Core.get(budget_levels, "high", 10000);
+    Object highest_budget = Core.get(budget_levels, "highest", 24500);
+    Object budget_snake = Core.get(model_config, "thinking_token_budget", null);
+    Object budget = Core.get(model_config, "thinkingTokenBudget", budget_snake);
+    Object has_budget = Core.isNotNone(budget);
+    if (Core.truthy(has_budget)) {
+      Object budget_is_number = Core.typeIs(budget, "number");
+      Object budget_is_string = Core.typeIs(budget, "string");
+      if (Core.truthy(is_gemini3)) {
+        if (Core.truthy(budget_is_number)) {
+          Object message = Core.stringFormat("Gemini 3 model {} does not support numeric thinkingTokenBudget", model);
+          Object error = Core.aiErrorUnsupported(message);
+          throw Core.asRuntime(error);
+        }
+        if (Core.truthy(budget_is_string)) {
+          // empty
+        }
+        if (!Core.truthy(budget_is_string)) {
+          Object error = Core.aiErrorUnsupported("Gemini thinkingTokenBudget must be a number or logical level");
+          throw Core.asRuntime(error);
+        }
+        Object level = "";
+        Object is_none = Core.eq(budget, "none");
+        if (Core.truthy(is_none)) {
+          level = "minimal";
+          budget_is_none = Boolean.TRUE;
+        }
+        Object is_minimal = Core.eq(budget, "minimal");
+        if (Core.truthy(is_minimal)) {
+          level = "minimal";
+        }
+        Object is_low = Core.eq(budget, "low");
+        if (Core.truthy(is_low)) {
+          level = "low";
+        }
+        Object is_medium = Core.eq(budget, "medium");
+        if (Core.truthy(is_medium)) {
+          level = "medium";
+        }
+        Object is_high = Core.eq(budget, "high");
+        if (Core.truthy(is_high)) {
+          level = "high";
+        }
+        Object is_highest = Core.eq(budget, "highest");
+        if (Core.truthy(is_highest)) {
+          level = "high";
+        }
+        Object unknown_level = Core.eq(level, "");
+        if (Core.truthy(unknown_level)) {
+          Object message = Core.stringFormat("unsupported Gemini thinkingTokenBudget level: {}", budget);
+          Object error = Core.aiErrorUnsupported(message);
+          throw Core.asRuntime(error);
+        }
+        Object mapping_key = budget;
+        if (Core.truthy(is_none)) {
+          mapping_key = "minimal";
+        }
+        Object mapped_level = Core.get(level_mapping, mapping_key, level);
+        Object clamped_level = Core._gemini_clamp_thinking_level_impl(model, mapped_level);
+        Core.set(thinking_config, "thinkingLevel", clamped_level);
+      }
+      if (!Core.truthy(is_gemini3)) {
+        if (Core.truthy(budget_is_number)) {
+          Object numeric_budget = budget;
+          Object is_zero = Core.eq(budget, 0);
+          Object clamp_pro_zero = Core.and(is_25_pro, is_zero);
+          if (Core.truthy(clamp_pro_zero)) {
+            numeric_budget = minimum_budget;
+          }
+          Core.set(thinking_config, "thinkingBudget", numeric_budget);
+        }
+        if (!Core.truthy(budget_is_number)) {
+          if (Core.truthy(budget_is_string)) {
+            // empty
+          }
+          if (!Core.truthy(budget_is_string)) {
+            Object error = Core.aiErrorUnsupported("Gemini thinkingTokenBudget must be a number or logical level");
+            throw Core.asRuntime(error);
+          }
+          Object numeric_budget = -1;
+          Object is_none = Core.eq(budget, "none");
+          if (Core.truthy(is_none)) {
+            numeric_budget = 0;
+            if (Core.truthy(is_25_pro)) {
+              numeric_budget = minimum_budget;
+            }
+            budget_is_none = Boolean.TRUE;
+          }
+          Object is_minimal = Core.eq(budget, "minimal");
+          if (Core.truthy(is_minimal)) {
+            numeric_budget = minimum_budget;
+          }
+          Object is_low = Core.eq(budget, "low");
+          if (Core.truthy(is_low)) {
+            numeric_budget = low_budget;
+          }
+          Object is_medium = Core.eq(budget, "medium");
+          if (Core.truthy(is_medium)) {
+            numeric_budget = medium_budget;
+          }
+          Object is_high = Core.eq(budget, "high");
+          if (Core.truthy(is_high)) {
+            numeric_budget = high_budget;
+          }
+          Object is_highest = Core.eq(budget, "highest");
+          if (Core.truthy(is_highest)) {
+            numeric_budget = highest_budget;
+          }
+          Object unknown_level = Core.eq(numeric_budget, -1);
+          if (Core.truthy(unknown_level)) {
+            Object message = Core.stringFormat("unsupported Gemini thinkingTokenBudget level: {}", budget);
+            Object error = Core.aiErrorUnsupported(message);
+            throw Core.asRuntime(error);
+          }
+          Core.set(thinking_config, "thinkingBudget", numeric_budget);
+        }
+      }
+      has_thinking = Boolean.TRUE;
+    }
+    Object level_snake = Core.get(model_config, "thinking_level", null);
+    Object explicit_level = Core.get(model_config, "thinkingLevel", level_snake);
+    Object has_explicit_level = Core.isNotNone(explicit_level);
+    Object use_explicit_level = Core.and(is_gemini3, has_explicit_level);
+    if (Core.truthy(use_explicit_level)) {
+      Object level_is_string = Core.typeIs(explicit_level, "string");
+      if (Core.truthy(level_is_string)) {
+        // empty
+      }
+      if (!Core.truthy(level_is_string)) {
+        Object error = Core.aiErrorUnsupported("Gemini thinkingLevel must be a logical level");
+        throw Core.asRuntime(error);
+      }
+      Object clamped_level = Core._gemini_clamp_thinking_level_impl(model, explicit_level);
+      Core.mapDelete(thinking_config, "thinkingBudget");
+      Core.set(thinking_config, "thinkingLevel", clamped_level);
+      has_thinking = Boolean.TRUE;
+    }
+    Object show_snake = Core.get(model_config, "show_thoughts", null);
+    Object show_thoughts = Core.get(model_config, "showThoughts", show_snake);
+    Object has_show = Core.isNotNone(show_thoughts);
+    if (Core.truthy(has_show)) {
+      Core.set(thinking_config, "includeThoughts", show_thoughts);
+      has_thinking = Boolean.TRUE;
+    }
+    if (Core.truthy(budget_is_none)) {
+      Core.set(thinking_config, "includeThoughts", Boolean.FALSE);
+      has_thinking = Boolean.TRUE;
+    }
+    if (Core.truthy(has_thinking)) {
+      Core.set(payload, "thinkingConfig", thinking_config);
+    }
+    return null;
+  }
+
+  static Object _gemini_apply_model_config_impl(Object payload, Object model, Object model_config, Object server_managed_sampling) {
     axirCoverageMark("_gemini_apply_model_config_impl");
     Core._openai_copy_config_key_impl(payload, model_config, "maxTokens", "maxOutputTokens");
     Core._openai_copy_config_key_impl(payload, model_config, "max_tokens", "maxOutputTokens");
@@ -8423,56 +8641,7 @@ final class Core {
     Core._openai_copy_config_key_impl(payload, model_config, "n", "candidateCount");
     Core._openai_copy_config_key_impl(payload, model_config, "stopSequences", "stopSequences");
     Core._openai_copy_config_key_impl(payload, model_config, "stop_sequences", "stopSequences");
-    Object thinking_config = new java.util.LinkedHashMap<String, Object>();
-    Object has_thinking = Boolean.FALSE;
-    Object budget_snake = Core.get(model_config, "thinking_token_budget", null);
-    Object budget = Core.get(model_config, "thinkingTokenBudget", budget_snake);
-    Object has_budget = Core.isNotNone(budget);
-    if (Core.truthy(has_budget)) {
-      Object level = "";
-      Object is_none = Core.eq(budget, "none");
-      if (Core.truthy(is_none)) {
-        level = "minimal";
-      }
-      Object is_minimal = Core.eq(budget, "minimal");
-      if (Core.truthy(is_minimal)) {
-        level = "minimal";
-      }
-      Object is_low = Core.eq(budget, "low");
-      if (Core.truthy(is_low)) {
-        level = "low";
-      }
-      Object is_medium = Core.eq(budget, "medium");
-      if (Core.truthy(is_medium)) {
-        level = "medium";
-      }
-      Object is_high = Core.eq(budget, "high");
-      if (Core.truthy(is_high)) {
-        level = "high";
-      }
-      Object is_highest = Core.eq(budget, "highest");
-      if (Core.truthy(is_highest)) {
-        level = "high";
-      }
-      Object named_level = Core.eq(level, "");
-      if (Core.truthy(named_level)) {
-        Core.set(thinking_config, "thinkingBudget", budget);
-      }
-      if (!Core.truthy(named_level)) {
-        Core.set(thinking_config, "thinkingLevel", level);
-      }
-      has_thinking = Boolean.TRUE;
-    }
-    Object show_snake = Core.get(model_config, "show_thoughts", null);
-    Object show_thoughts = Core.get(model_config, "showThoughts", show_snake);
-    Object has_show = Core.isNotNone(show_thoughts);
-    if (Core.truthy(has_show)) {
-      Core.set(thinking_config, "includeThoughts", show_thoughts);
-      has_thinking = Boolean.TRUE;
-    }
-    if (Core.truthy(has_thinking)) {
-      Core.set(payload, "thinkingConfig", thinking_config);
-    }
+    Core._gemini_apply_thinking_config_impl(payload, model, model_config);
     return null;
   }
 

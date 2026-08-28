@@ -12608,6 +12608,7 @@ func _gemini_live_bidi_build_setup(args ...Value) (Value, error) {
 	var v_audio_descriptor Value
 	var v_default_model Value
 	var v_default_voice Value
+	var v_empty_model_config Value
 	var v_error Value
 	var v_generation_config Value
 	var v_has_instructions Value
@@ -12616,6 +12617,7 @@ func _gemini_live_bidi_build_setup(args ...Value) (Value, error) {
 	var v_instructions Value
 	var v_modalities Value
 	var v_model Value
+	var v_model_config Value
 	var v_model_prefix Value
 	var v_out Value
 	var v_output_audio_descriptor Value
@@ -12640,6 +12642,7 @@ func _gemini_live_bidi_build_setup(args ...Value) (Value, error) {
 	_ = v_audio_descriptor
 	_ = v_default_model
 	_ = v_default_voice
+	_ = v_empty_model_config
 	_ = v_error
 	_ = v_generation_config
 	_ = v_has_instructions
@@ -12648,6 +12651,7 @@ func _gemini_live_bidi_build_setup(args ...Value) (Value, error) {
 	_ = v_instructions
 	_ = v_modalities
 	_ = v_model
+	_ = v_model_config
 	_ = v_model_prefix
 	_ = v_out
 	_ = v_output_audio_descriptor
@@ -12701,6 +12705,9 @@ func _gemini_live_bidi_build_setup(args ...Value) (Value, error) {
 	if err := coreSet(v_voice_config, "prebuiltVoiceConfig", v_prebuilt_voice); err != nil { return nil, err }
 	if err := coreSet(v_speech_config, "voiceConfig", v_voice_config); err != nil { return nil, err }
 	if err := coreSet(v_generation_config, "speechConfig", v_speech_config); err != nil { return nil, err }
+	v_empty_model_config = Object()
+	v_model_config = coreGet(v_request, "model_config", v_empty_model_config)
+	if _, err := _gemini_apply_thinking_config_impl(v_generation_config, v_request_model, v_model_config); err != nil { return nil, err }
 	if err := coreSet(v_setup, "generationConfig", v_generation_config); err != nil { return nil, err }
 	v_include_transcript = coreGet(v_request_output_audio, "transcript", true)
 	if coreTruthy(v_include_transcript) {
@@ -17240,7 +17247,7 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 	if err := coreSet(v_generation_config, "responseMimeType", "text/plain"); err != nil { return nil, err }
 	v_empty_model_config = Object()
 	v_model_config = coreGet(v_request, "model_config", v_empty_model_config)
-	if _, err := _gemini_apply_model_config_impl(v_generation_config, v_model_config, v_server_managed_sampling); err != nil { return nil, err }
+	if _, err := _gemini_apply_model_config_impl(v_generation_config, v_model, v_model_config, v_server_managed_sampling); err != nil { return nil, err }
 	v_response_format = coreGet(v_request, "response_format", nil)
 	v_has_response_format = _core_truthy(v_response_format)
 	if coreTruthy(v_has_response_format) {
@@ -17299,51 +17306,430 @@ func _gemini_build_chat_request(args ...Value) (Value, error) {
 	return v_payload, nil
 }
 
-func _gemini_apply_model_config_impl(args ...Value) (Value, error) {
-	axirCoverageMark("_gemini_apply_model_config_impl")
+func _gemini_clamp_thinking_level_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_clamp_thinking_level_impl")
+	var v_model Value
+	var v_level Value
+	var v_clamp_minimal Value
+	var v_error Value
+	var v_is_31_pro Value
+	var v_is_37_flash Value
+	var v_is_gemini3 Value
+	var v_is_high Value
+	var v_is_image Value
+	var v_is_image_name Value
+	var v_is_legacy_pro Value
+	var v_is_legacy_pro_name Value
+	var v_is_low Value
+	var v_is_medium Value
+	var v_is_medium_or_high Value
+	var v_is_minimal Value
+	var v_is_minimal_or_low Value
+	var v_is_supported_level Value
+	var v_message Value
+	var v_no_minimal Value
+	var v_no_minimal_name Value
+	if len(args) > 0 { v_model = args[0] }
+	_ = v_model
+	if len(args) > 1 { v_level = args[1] }
+	_ = v_level
+	_ = v_clamp_minimal
+	_ = v_error
+	_ = v_is_31_pro
+	_ = v_is_37_flash
+	_ = v_is_gemini3
+	_ = v_is_high
+	_ = v_is_image
+	_ = v_is_image_name
+	_ = v_is_legacy_pro
+	_ = v_is_legacy_pro_name
+	_ = v_is_low
+	_ = v_is_medium
+	_ = v_is_medium_or_high
+	_ = v_is_minimal
+	_ = v_is_minimal_or_low
+	_ = v_is_supported_level
+	_ = v_message
+	_ = v_no_minimal
+	_ = v_no_minimal_name
+	v_is_minimal = _core_eq(v_level, "minimal")
+	v_is_low = _core_eq(v_level, "low")
+	v_is_medium = _core_eq(v_level, "medium")
+	v_is_high = _core_eq(v_level, "high")
+	v_is_minimal_or_low = _core_or(v_is_minimal, v_is_low)
+	v_is_medium_or_high = _core_or(v_is_medium, v_is_high)
+	v_is_supported_level = _core_or(v_is_minimal_or_low, v_is_medium_or_high)
+	if coreTruthy(v_is_supported_level) {
+	// empty
+	} else {
+		v_message = _core_string_format("unsupported Gemini thinking level: {}", v_level)
+		v_error = _core_ai_error_unsupported(v_message)
+		return nil, asAxError(v_error)
+	}
+	v_is_gemini3 = _core_contains(v_model, "gemini-3")
+	v_is_image_name = _core_contains(v_model, "-image")
+	v_is_image = _core_and(v_is_gemini3, v_is_image_name)
+	if coreTruthy(v_is_image) {
+		if coreTruthy(v_is_minimal_or_low) {
+			return "minimal", nil
+		} else {
+		// empty
+		}
+		return "high", nil
+	} else {
+	// empty
+	}
+	v_is_legacy_pro_name = _core_contains(v_model, "gemini-3-pro")
+	v_is_legacy_pro = _core_and(v_is_gemini3, v_is_legacy_pro_name)
+	if coreTruthy(v_is_legacy_pro) {
+		if coreTruthy(v_is_minimal_or_low) {
+			return "low", nil
+		} else {
+		// empty
+		}
+		return "high", nil
+	} else {
+	// empty
+	}
+	v_is_37_flash = _core_contains(v_model, "gemini-3.7-flash")
+	v_is_31_pro = _core_contains(v_model, "gemini-3.1-pro")
+	v_no_minimal_name = _core_or(v_is_37_flash, v_is_31_pro)
+	v_no_minimal = _core_and(v_is_gemini3, v_no_minimal_name)
+	v_clamp_minimal = _core_and(v_no_minimal, v_is_minimal)
+	if coreTruthy(v_clamp_minimal) {
+		return "low", nil
+	} else {
+	// empty
+	}
+	return v_level, nil
+}
+
+func _gemini_apply_thinking_config_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_apply_thinking_config_impl")
 	var v_payload Value
+	var v_model Value
 	var v_model_config Value
-	var v_server_managed_sampling Value
 	var v_budget Value
+	var v_budget_is_none Value
+	var v_budget_is_number Value
+	var v_budget_is_string Value
+	var v_budget_levels Value
+	var v_budget_levels_snake Value
 	var v_budget_snake Value
-	var v_client_managed_sampling Value
+	var v_clamp_pro_zero Value
+	var v_clamped_level Value
+	var v_empty_budget_levels Value
+	var v_empty_level_mapping Value
+	var v_error Value
+	var v_explicit_level Value
 	var v_has_budget Value
+	var v_has_explicit_level Value
 	var v_has_show Value
 	var v_has_thinking Value
+	var v_high_budget Value
+	var v_highest_budget Value
+	var v_is_25_pro Value
+	var v_is_gemini3 Value
 	var v_is_high Value
 	var v_is_highest Value
 	var v_is_low Value
 	var v_is_medium Value
 	var v_is_minimal Value
 	var v_is_none Value
+	var v_is_zero Value
 	var v_level Value
-	var v_named_level Value
+	var v_level_is_string Value
+	var v_level_mapping Value
+	var v_level_mapping_snake Value
+	var v_level_snake Value
+	var v_low_budget Value
+	var v_mapped_level Value
+	var v_mapping_key Value
+	var v_medium_budget Value
+	var v_message Value
+	var v_minimum_budget Value
+	var v_numeric_budget Value
 	var v_show_snake Value
 	var v_show_thoughts Value
 	var v_thinking_config Value
+	var v_unknown_level Value
+	var v_use_explicit_level Value
 	if len(args) > 0 { v_payload = args[0] }
 	_ = v_payload
-	if len(args) > 1 { v_model_config = args[1] }
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_model_config = args[2] }
 	_ = v_model_config
-	if len(args) > 2 { v_server_managed_sampling = args[2] }
-	_ = v_server_managed_sampling
 	_ = v_budget
+	_ = v_budget_is_none
+	_ = v_budget_is_number
+	_ = v_budget_is_string
+	_ = v_budget_levels
+	_ = v_budget_levels_snake
 	_ = v_budget_snake
-	_ = v_client_managed_sampling
+	_ = v_clamp_pro_zero
+	_ = v_clamped_level
+	_ = v_empty_budget_levels
+	_ = v_empty_level_mapping
+	_ = v_error
+	_ = v_explicit_level
 	_ = v_has_budget
+	_ = v_has_explicit_level
 	_ = v_has_show
 	_ = v_has_thinking
+	_ = v_high_budget
+	_ = v_highest_budget
+	_ = v_is_25_pro
+	_ = v_is_gemini3
 	_ = v_is_high
 	_ = v_is_highest
 	_ = v_is_low
 	_ = v_is_medium
 	_ = v_is_minimal
 	_ = v_is_none
+	_ = v_is_zero
 	_ = v_level
-	_ = v_named_level
+	_ = v_level_is_string
+	_ = v_level_mapping
+	_ = v_level_mapping_snake
+	_ = v_level_snake
+	_ = v_low_budget
+	_ = v_mapped_level
+	_ = v_mapping_key
+	_ = v_medium_budget
+	_ = v_message
+	_ = v_minimum_budget
+	_ = v_numeric_budget
 	_ = v_show_snake
 	_ = v_show_thoughts
 	_ = v_thinking_config
+	_ = v_unknown_level
+	_ = v_use_explicit_level
+	v_thinking_config = Object()
+	v_has_thinking = false
+	v_budget_is_none = false
+	v_is_gemini3 = _core_contains(v_model, "gemini-3")
+	v_is_25_pro = _core_contains(v_model, "gemini-2.5-pro")
+	v_empty_level_mapping = Object()
+	v_level_mapping_snake = coreGet(v_model_config, "thinking_level_mapping", v_empty_level_mapping)
+	v_level_mapping = coreGet(v_model_config, "thinkingLevelMapping", v_level_mapping_snake)
+	v_empty_budget_levels = Object()
+	v_budget_levels_snake = coreGet(v_model_config, "thinking_token_budget_levels", v_empty_budget_levels)
+	v_budget_levels = coreGet(v_model_config, "thinkingTokenBudgetLevels", v_budget_levels_snake)
+	v_minimum_budget = coreGet(v_budget_levels, "minimal", 200)
+	v_low_budget = coreGet(v_budget_levels, "low", 800)
+	v_medium_budget = coreGet(v_budget_levels, "medium", 5000)
+	v_high_budget = coreGet(v_budget_levels, "high", 10000)
+	v_highest_budget = coreGet(v_budget_levels, "highest", 24500)
+	v_budget_snake = coreGet(v_model_config, "thinking_token_budget", nil)
+	v_budget = coreGet(v_model_config, "thinkingTokenBudget", v_budget_snake)
+	v_has_budget = _core_is_not_none(v_budget)
+	if coreTruthy(v_has_budget) {
+		v_budget_is_number = coreTypeIs(v_budget, "number")
+		v_budget_is_string = coreTypeIs(v_budget, "string")
+		if coreTruthy(v_is_gemini3) {
+			if coreTruthy(v_budget_is_number) {
+				v_message = _core_string_format("Gemini 3 model {} does not support numeric thinkingTokenBudget", v_model)
+				v_error = _core_ai_error_unsupported(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			if coreTruthy(v_budget_is_string) {
+			// empty
+			} else {
+				v_error = _core_ai_error_unsupported("Gemini thinkingTokenBudget must be a number or logical level")
+				return nil, asAxError(v_error)
+			}
+			v_level = ""
+			v_is_none = _core_eq(v_budget, "none")
+			if coreTruthy(v_is_none) {
+				v_level = "minimal"
+				v_budget_is_none = true
+			} else {
+			// empty
+			}
+			v_is_minimal = _core_eq(v_budget, "minimal")
+			if coreTruthy(v_is_minimal) {
+				v_level = "minimal"
+			} else {
+			// empty
+			}
+			v_is_low = _core_eq(v_budget, "low")
+			if coreTruthy(v_is_low) {
+				v_level = "low"
+			} else {
+			// empty
+			}
+			v_is_medium = _core_eq(v_budget, "medium")
+			if coreTruthy(v_is_medium) {
+				v_level = "medium"
+			} else {
+			// empty
+			}
+			v_is_high = _core_eq(v_budget, "high")
+			if coreTruthy(v_is_high) {
+				v_level = "high"
+			} else {
+			// empty
+			}
+			v_is_highest = _core_eq(v_budget, "highest")
+			if coreTruthy(v_is_highest) {
+				v_level = "high"
+			} else {
+			// empty
+			}
+			v_unknown_level = _core_eq(v_level, "")
+			if coreTruthy(v_unknown_level) {
+				v_message = _core_string_format("unsupported Gemini thinkingTokenBudget level: {}", v_budget)
+				v_error = _core_ai_error_unsupported(v_message)
+				return nil, asAxError(v_error)
+			} else {
+			// empty
+			}
+			v_mapping_key = v_budget
+			if coreTruthy(v_is_none) {
+				v_mapping_key = "minimal"
+			} else {
+			// empty
+			}
+			v_mapped_level = coreGet(v_level_mapping, v_mapping_key, v_level)
+			{ v, err := _gemini_clamp_thinking_level_impl(v_model, v_mapped_level); if err != nil { return nil, err }; v_clamped_level = v }
+			if err := coreSet(v_thinking_config, "thinkingLevel", v_clamped_level); err != nil { return nil, err }
+		} else {
+			if coreTruthy(v_budget_is_number) {
+				v_numeric_budget = v_budget
+				v_is_zero = _core_eq(v_budget, 0)
+				v_clamp_pro_zero = _core_and(v_is_25_pro, v_is_zero)
+				if coreTruthy(v_clamp_pro_zero) {
+					v_numeric_budget = v_minimum_budget
+				} else {
+				// empty
+				}
+				if err := coreSet(v_thinking_config, "thinkingBudget", v_numeric_budget); err != nil { return nil, err }
+			} else {
+				if coreTruthy(v_budget_is_string) {
+				// empty
+				} else {
+					v_error = _core_ai_error_unsupported("Gemini thinkingTokenBudget must be a number or logical level")
+					return nil, asAxError(v_error)
+				}
+				v_numeric_budget = -1
+				v_is_none = _core_eq(v_budget, "none")
+				if coreTruthy(v_is_none) {
+					v_numeric_budget = 0
+					if coreTruthy(v_is_25_pro) {
+						v_numeric_budget = v_minimum_budget
+					} else {
+					// empty
+					}
+					v_budget_is_none = true
+				} else {
+				// empty
+				}
+				v_is_minimal = _core_eq(v_budget, "minimal")
+				if coreTruthy(v_is_minimal) {
+					v_numeric_budget = v_minimum_budget
+				} else {
+				// empty
+				}
+				v_is_low = _core_eq(v_budget, "low")
+				if coreTruthy(v_is_low) {
+					v_numeric_budget = v_low_budget
+				} else {
+				// empty
+				}
+				v_is_medium = _core_eq(v_budget, "medium")
+				if coreTruthy(v_is_medium) {
+					v_numeric_budget = v_medium_budget
+				} else {
+				// empty
+				}
+				v_is_high = _core_eq(v_budget, "high")
+				if coreTruthy(v_is_high) {
+					v_numeric_budget = v_high_budget
+				} else {
+				// empty
+				}
+				v_is_highest = _core_eq(v_budget, "highest")
+				if coreTruthy(v_is_highest) {
+					v_numeric_budget = v_highest_budget
+				} else {
+				// empty
+				}
+				v_unknown_level = _core_eq(v_numeric_budget, -1)
+				if coreTruthy(v_unknown_level) {
+					v_message = _core_string_format("unsupported Gemini thinkingTokenBudget level: {}", v_budget)
+					v_error = _core_ai_error_unsupported(v_message)
+					return nil, asAxError(v_error)
+				} else {
+				// empty
+				}
+				if err := coreSet(v_thinking_config, "thinkingBudget", v_numeric_budget); err != nil { return nil, err }
+			}
+		}
+		v_has_thinking = true
+	} else {
+	// empty
+	}
+	v_level_snake = coreGet(v_model_config, "thinking_level", nil)
+	v_explicit_level = coreGet(v_model_config, "thinkingLevel", v_level_snake)
+	v_has_explicit_level = _core_is_not_none(v_explicit_level)
+	v_use_explicit_level = _core_and(v_is_gemini3, v_has_explicit_level)
+	if coreTruthy(v_use_explicit_level) {
+		v_level_is_string = coreTypeIs(v_explicit_level, "string")
+		if coreTruthy(v_level_is_string) {
+		// empty
+		} else {
+			v_error = _core_ai_error_unsupported("Gemini thinkingLevel must be a logical level")
+			return nil, asAxError(v_error)
+		}
+		{ v, err := _gemini_clamp_thinking_level_impl(v_model, v_explicit_level); if err != nil { return nil, err }; v_clamped_level = v }
+		_core_map_delete(v_thinking_config, "thinkingBudget")
+		if err := coreSet(v_thinking_config, "thinkingLevel", v_clamped_level); err != nil { return nil, err }
+		v_has_thinking = true
+	} else {
+	// empty
+	}
+	v_show_snake = coreGet(v_model_config, "show_thoughts", nil)
+	v_show_thoughts = coreGet(v_model_config, "showThoughts", v_show_snake)
+	v_has_show = _core_is_not_none(v_show_thoughts)
+	if coreTruthy(v_has_show) {
+		if err := coreSet(v_thinking_config, "includeThoughts", v_show_thoughts); err != nil { return nil, err }
+		v_has_thinking = true
+	} else {
+	// empty
+	}
+	if coreTruthy(v_budget_is_none) {
+		if err := coreSet(v_thinking_config, "includeThoughts", false); err != nil { return nil, err }
+		v_has_thinking = true
+	} else {
+	// empty
+	}
+	if coreTruthy(v_has_thinking) {
+		if err := coreSet(v_payload, "thinkingConfig", v_thinking_config); err != nil { return nil, err }
+	} else {
+	// empty
+	}
+	return nil, nil
+}
+
+func _gemini_apply_model_config_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_gemini_apply_model_config_impl")
+	var v_payload Value
+	var v_model Value
+	var v_model_config Value
+	var v_server_managed_sampling Value
+	var v_client_managed_sampling Value
+	if len(args) > 0 { v_payload = args[0] }
+	_ = v_payload
+	if len(args) > 1 { v_model = args[1] }
+	_ = v_model
+	if len(args) > 2 { v_model_config = args[2] }
+	_ = v_model_config
+	if len(args) > 3 { v_server_managed_sampling = args[3] }
+	_ = v_server_managed_sampling
+	_ = v_client_managed_sampling
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "maxTokens", "maxOutputTokens"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "max_tokens", "maxOutputTokens"); err != nil { return nil, err }
 	v_client_managed_sampling = _core_not(v_server_managed_sampling)
@@ -17361,73 +17747,7 @@ func _gemini_apply_model_config_impl(args ...Value) (Value, error) {
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "n", "candidateCount"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "stopSequences", "stopSequences"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "stop_sequences", "stopSequences"); err != nil { return nil, err }
-	v_thinking_config = Object()
-	v_has_thinking = false
-	v_budget_snake = coreGet(v_model_config, "thinking_token_budget", nil)
-	v_budget = coreGet(v_model_config, "thinkingTokenBudget", v_budget_snake)
-	v_has_budget = _core_is_not_none(v_budget)
-	if coreTruthy(v_has_budget) {
-		v_level = ""
-		v_is_none = _core_eq(v_budget, "none")
-		if coreTruthy(v_is_none) {
-			v_level = "minimal"
-		} else {
-		// empty
-		}
-		v_is_minimal = _core_eq(v_budget, "minimal")
-		if coreTruthy(v_is_minimal) {
-			v_level = "minimal"
-		} else {
-		// empty
-		}
-		v_is_low = _core_eq(v_budget, "low")
-		if coreTruthy(v_is_low) {
-			v_level = "low"
-		} else {
-		// empty
-		}
-		v_is_medium = _core_eq(v_budget, "medium")
-		if coreTruthy(v_is_medium) {
-			v_level = "medium"
-		} else {
-		// empty
-		}
-		v_is_high = _core_eq(v_budget, "high")
-		if coreTruthy(v_is_high) {
-			v_level = "high"
-		} else {
-		// empty
-		}
-		v_is_highest = _core_eq(v_budget, "highest")
-		if coreTruthy(v_is_highest) {
-			v_level = "high"
-		} else {
-		// empty
-		}
-		v_named_level = _core_eq(v_level, "")
-		if coreTruthy(v_named_level) {
-			if err := coreSet(v_thinking_config, "thinkingBudget", v_budget); err != nil { return nil, err }
-		} else {
-			if err := coreSet(v_thinking_config, "thinkingLevel", v_level); err != nil { return nil, err }
-		}
-		v_has_thinking = true
-	} else {
-	// empty
-	}
-	v_show_snake = coreGet(v_model_config, "show_thoughts", nil)
-	v_show_thoughts = coreGet(v_model_config, "showThoughts", v_show_snake)
-	v_has_show = _core_is_not_none(v_show_thoughts)
-	if coreTruthy(v_has_show) {
-		if err := coreSet(v_thinking_config, "includeThoughts", v_show_thoughts); err != nil { return nil, err }
-		v_has_thinking = true
-	} else {
-	// empty
-	}
-	if coreTruthy(v_has_thinking) {
-		if err := coreSet(v_payload, "thinkingConfig", v_thinking_config); err != nil { return nil, err }
-	} else {
-	// empty
-	}
+	if _, err := _gemini_apply_thinking_config_impl(v_payload, v_model, v_model_config); err != nil { return nil, err }
 	return nil, nil
 }
 

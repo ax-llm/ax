@@ -401,14 +401,26 @@ console.log(res.results[0]?.content);
 
 ### Budget Levels
 
-| Level | Anthropic (tokens) | Gemini (tokens) |
-|---|---|---|
-| `'none'` | disabled | minimal |
-| `'minimal'` | 1,024 | 200 |
-| `'low'` | 5,000 | 800 |
-| `'medium'` | 10,000 | 5,000 |
-| `'high'` | 20,000 | 10,000 |
-| `'highest'` | 32,000 | 24,500 |
+| Level | Anthropic (tokens) | Gemini 2.5 (tokens) | Gemini 3 level |
+|---|---|---|---|
+| `'none'` | disabled | 0 on Flash/Lite; minimum on Pro | lowest supported, thoughts hidden |
+| `'minimal'` | 1,024 | 200 | `minimal`, or `low` when `minimal` is unsupported |
+| `'low'` | 5,000 | 800 | `low` |
+| `'medium'` | 10,000 | 5,000 | `medium`, or the nearest image/legacy level |
+| `'high'` | 20,000 | 10,000 | `high` |
+| `'highest'` | 32,000 | 24,500 | `high` |
+
+Gemini 3 uses `thinkingLevel`; Gemini 2.5 and older models use numeric
+`thinkingBudget`. Ax selects the wire field after resolving a named model
+preset to its real model. Gemini 3.7 Flash and Gemini 3.1 Pro clamp `minimal`
+to `low`; image and legacy Gemini 3 models clamp to their documented two-level
+sets. Numeric Gemini 3 budgets fail locally. `none` always hides returned
+thoughts, even when the model must still perform its minimum amount of thinking.
+
+The native `google-gemini` deployment profile and its aliases use these Gemini
+rules, including when configured for Vertex with `projectId` and `region`. The
+separate OpenAI-compatible `vertex-ai` profile keeps its own request rules and
+does not inherit native Gemini fields from a Gemini-looking model ID.
 
 For GPT-5.6, these map to `none`, `low`, `low`, `medium`, `high`, and a top rung
 that depends on the API surface: `xhigh` on Chat Completions, which rejects

@@ -1,0 +1,25 @@
+{
+  "expected_error_contains": "does not support numeric thinkingTokenBudget",
+  "expected_setup": {},
+  "kind": "ai_realtime",
+  "model": "gemini-3.1-flash-live-preview",
+  "name": "gemini-3-live-numeric-thinking-budget-rejected",
+  "provider": "google-gemini",
+  "request": {
+    "audio": {
+      "output": {
+        "voice": "Kore"
+      }
+    },
+    "chat_prompt": [
+      {
+        "content": "Answer with audio.",
+        "role": "user"
+      }
+    ],
+    "model": "gemini-3.1-flash-live-preview",
+    "model_config": {
+      "thinkingTokenBudget": 2048
+    }
+  }
+}
