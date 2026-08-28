@@ -1,5 +1,24 @@
 # Changelog
 
+## [24.0.12](https://github.com/ax-llm/ax/compare/24.0.10...24.0.11) (2026-08-28)
+
+### Bug Fixes
+
+* **gemini:** send the thinking config the port never built ([#620](https://github.com/ax-llm/ax/issues/620)) ([08d396d](https://github.com/ax-llm/ax/commit/08d396d9d290122a35d75a976cfba79514b9b49e))
+* **java:** allow slower Maven Central publishes ([#619](https://github.com/ax-llm/ax/issues/619)) ([671dceb](https://github.com/ax-llm/ax/commit/671dceb740bc9bf0bf55513b790fa48d93fe4a28))
+
+## [24.0.11](https://github.com/ax-llm/ax/compare/24.0.10...24.0.11) (2026-08-27)
+
+### Features
+
+* **axir:** add portable runtime hooks ([#617](https://github.com/ax-llm/ax/issues/617)) ([33ff4a0](https://github.com/ax-llm/ax/commit/33ff4a0639d44cd5979002ba52d880eb8029ad99))
+
+### Bug Fixes
+
+* **deepseek:** preserve medium reasoning effort ([#616](https://github.com/ax-llm/ax/issues/616)) ([5f478be](https://github.com/ax-llm/ax/commit/5f478bef38e78b9296ed0ea94733417ed1a7827a))
+* **go:** surface HTTP errors from embed, transcribe and speak ([#615](https://github.com/ax-llm/ax/issues/615)) ([c4851c8](https://github.com/ax-llm/ax/commit/c4851c898e71321aea7b4b4d45c628439dcdb62e))
+* **release:** publish merged releases automatically ([#614](https://github.com/ax-llm/ax/issues/614)) ([9879cc1](https://github.com/ax-llm/ax/commit/9879cc13123eb1248144ca21f894631de4fd774d))
+
 ## [24.0.11](https://github.com/ax-llm/ax/compare/24.0.9...24.0.10) (2026-08-27)
 
 ### Features
