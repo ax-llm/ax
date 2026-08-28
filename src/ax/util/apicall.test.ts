@@ -568,13 +568,26 @@ describe('apiCall', () => {
       vi.unstubAllGlobals();
     });
 
-    const sseResponse = (events: string): Response =>
-      new Response(events, {
+    const sseResponse = (events: string | string[]): Response => {
+      const body = Array.isArray(events)
+        ? new ReadableStream<Uint8Array>({
+            start(controller) {
+              const encoder = new TextEncoder();
+              for (const event of events) {
+                controller.enqueue(encoder.encode(event));
+              }
+              controller.close();
+            },
+          })
+        : events;
+
+      return new Response(body, {
         status: 200,
         headers: { 'content-type': 'text/event-stream' },
       });
+    };
 
-    const collectStream = async (events: string) => {
+    const collectStream = async (events: string | string[]) => {
       const mockFetch = vi.fn().mockResolvedValue(sseResponse(events));
 
       const stream = (await apiCall<{ test: string }, { index: number }>(
@@ -634,6 +647,28 @@ describe('apiCall', () => {
 
       await expect(
         collectStream('data: {"index":0}\r\n\r\ndata: {"index":1}\r\n\r\n')
+      ).resolves.toEqual([{ index: 0 }, { index: 1 }]);
+    });
+
+    it('keeps CRLF boundaries whole when split across chunks', async () => {
+      stubBrowserGlobals();
+
+      await expect(
+        collectStream([
+          'data: {"index":0}\r',
+          '\n\r',
+          '\ndata: {"index":1}\r',
+          '\n\r',
+          '\n',
+        ])
+      ).resolves.toEqual([{ index: 0 }, { index: 1 }]);
+    });
+
+    it('splits events on bare \\r boundaries', async () => {
+      stubBrowserGlobals();
+
+      await expect(
+        collectStream('data: {"index":0}\r\rdata: {"index":1}\r')
       ).resolves.toEqual([{ index: 0 }, { index: 1 }]);
     });
 
