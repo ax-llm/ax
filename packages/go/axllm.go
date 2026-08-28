@@ -17310,6 +17310,14 @@ func _gemini_apply_model_config_impl(args ...Value) (Value, error) {
 	var v_has_budget Value
 	var v_has_show Value
 	var v_has_thinking Value
+	var v_is_high Value
+	var v_is_highest Value
+	var v_is_low Value
+	var v_is_medium Value
+	var v_is_minimal Value
+	var v_is_none Value
+	var v_level Value
+	var v_named_level Value
 	var v_show_snake Value
 	var v_show_thoughts Value
 	var v_thinking_config Value
@@ -17325,6 +17333,14 @@ func _gemini_apply_model_config_impl(args ...Value) (Value, error) {
 	_ = v_has_budget
 	_ = v_has_show
 	_ = v_has_thinking
+	_ = v_is_high
+	_ = v_is_highest
+	_ = v_is_low
+	_ = v_is_medium
+	_ = v_is_minimal
+	_ = v_is_none
+	_ = v_level
+	_ = v_named_level
 	_ = v_show_snake
 	_ = v_show_thoughts
 	_ = v_thinking_config
@@ -17351,7 +17367,49 @@ func _gemini_apply_model_config_impl(args ...Value) (Value, error) {
 	v_budget = coreGet(v_model_config, "thinkingTokenBudget", v_budget_snake)
 	v_has_budget = _core_is_not_none(v_budget)
 	if coreTruthy(v_has_budget) {
-		if err := coreSet(v_thinking_config, "thinkingBudget", v_budget); err != nil { return nil, err }
+		v_level = ""
+		v_is_none = _core_eq(v_budget, "none")
+		if coreTruthy(v_is_none) {
+			v_level = "minimal"
+		} else {
+		// empty
+		}
+		v_is_minimal = _core_eq(v_budget, "minimal")
+		if coreTruthy(v_is_minimal) {
+			v_level = "minimal"
+		} else {
+		// empty
+		}
+		v_is_low = _core_eq(v_budget, "low")
+		if coreTruthy(v_is_low) {
+			v_level = "low"
+		} else {
+		// empty
+		}
+		v_is_medium = _core_eq(v_budget, "medium")
+		if coreTruthy(v_is_medium) {
+			v_level = "medium"
+		} else {
+		// empty
+		}
+		v_is_high = _core_eq(v_budget, "high")
+		if coreTruthy(v_is_high) {
+			v_level = "high"
+		} else {
+		// empty
+		}
+		v_is_highest = _core_eq(v_budget, "highest")
+		if coreTruthy(v_is_highest) {
+			v_level = "high"
+		} else {
+		// empty
+		}
+		v_named_level = _core_eq(v_level, "")
+		if coreTruthy(v_named_level) {
+			if err := coreSet(v_thinking_config, "thinkingBudget", v_budget); err != nil { return nil, err }
+		} else {
+			if err := coreSet(v_thinking_config, "thinkingLevel", v_level); err != nil { return nil, err }
+		}
 		v_has_thinking = true
 	} else {
 	// empty

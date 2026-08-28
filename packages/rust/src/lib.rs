@@ -40841,6 +40841,14 @@ fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     let mut v_has_budget = CoreValue::Null;
     let mut v_has_show = CoreValue::Null;
     let mut v_has_thinking = CoreValue::Null;
+    let mut v_is_high = CoreValue::Null;
+    let mut v_is_highest = CoreValue::Null;
+    let mut v_is_low = CoreValue::Null;
+    let mut v_is_medium = CoreValue::Null;
+    let mut v_is_minimal = CoreValue::Null;
+    let mut v_is_none = CoreValue::Null;
+    let mut v_level = CoreValue::Null;
+    let mut v_named_level = CoreValue::Null;
     let mut v_show_snake = CoreValue::Null;
     let mut v_show_thoughts = CoreValue::Null;
     let mut v_thinking_config = CoreValue::Null;
@@ -40933,11 +40941,45 @@ fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     );
     v_has_budget = core_is_not_none(&[v_budget.clone()])?;
     if core_truthy(&v_has_budget) {
-        core_set(
-            &v_thinking_config,
-            CoreValue::from("thinkingBudget"),
-            v_budget.clone(),
-        )?;
+        v_level = CoreValue::from("");
+        v_is_none = core_eq(&[v_budget.clone(), CoreValue::from("none")])?;
+        if core_truthy(&v_is_none) {
+            v_level = CoreValue::from("minimal");
+        }
+        v_is_minimal = core_eq(&[v_budget.clone(), CoreValue::from("minimal")])?;
+        if core_truthy(&v_is_minimal) {
+            v_level = CoreValue::from("minimal");
+        }
+        v_is_low = core_eq(&[v_budget.clone(), CoreValue::from("low")])?;
+        if core_truthy(&v_is_low) {
+            v_level = CoreValue::from("low");
+        }
+        v_is_medium = core_eq(&[v_budget.clone(), CoreValue::from("medium")])?;
+        if core_truthy(&v_is_medium) {
+            v_level = CoreValue::from("medium");
+        }
+        v_is_high = core_eq(&[v_budget.clone(), CoreValue::from("high")])?;
+        if core_truthy(&v_is_high) {
+            v_level = CoreValue::from("high");
+        }
+        v_is_highest = core_eq(&[v_budget.clone(), CoreValue::from("highest")])?;
+        if core_truthy(&v_is_highest) {
+            v_level = CoreValue::from("high");
+        }
+        v_named_level = core_eq(&[v_level.clone(), CoreValue::from("")])?;
+        if core_truthy(&v_named_level) {
+            core_set(
+                &v_thinking_config,
+                CoreValue::from("thinkingBudget"),
+                v_budget.clone(),
+            )?;
+        } else {
+            core_set(
+                &v_thinking_config,
+                CoreValue::from("thinkingLevel"),
+                v_level.clone(),
+            )?;
+        }
         v_has_thinking = CoreValue::Bool(true);
     }
     v_show_snake = core_get(

@@ -9499,7 +9499,38 @@ Value Core::_gemini_apply_model_config_impl(Value payload, Value model_config, V
   Value budget = Core::get(model_config, Value("thinkingTokenBudget"), budget_snake);
   Value has_budget = Core::is_not_none(budget);
   if (Core::truthy(has_budget)) {
-    Core::set(thinking_config, Value("thinkingBudget"), budget);
+    Value level = Value("");
+    Value is_none = Core::eq(budget, Value("none"));
+    if (Core::truthy(is_none)) {
+      level = Value("minimal");
+    }
+    Value is_minimal = Core::eq(budget, Value("minimal"));
+    if (Core::truthy(is_minimal)) {
+      level = Value("minimal");
+    }
+    Value is_low = Core::eq(budget, Value("low"));
+    if (Core::truthy(is_low)) {
+      level = Value("low");
+    }
+    Value is_medium = Core::eq(budget, Value("medium"));
+    if (Core::truthy(is_medium)) {
+      level = Value("medium");
+    }
+    Value is_high = Core::eq(budget, Value("high"));
+    if (Core::truthy(is_high)) {
+      level = Value("high");
+    }
+    Value is_highest = Core::eq(budget, Value("highest"));
+    if (Core::truthy(is_highest)) {
+      level = Value("high");
+    }
+    Value named_level = Core::eq(level, Value(""));
+    if (Core::truthy(named_level)) {
+      Core::set(thinking_config, Value("thinkingBudget"), budget);
+    }
+    if (!Core::truthy(named_level)) {
+      Core::set(thinking_config, Value("thinkingLevel"), level);
+    }
     has_thinking = Value(true);
   }
   Value show_snake = Core::get(model_config, Value("show_thoughts"), Value());

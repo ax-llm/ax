@@ -8429,7 +8429,38 @@ final class Core {
     Object budget = Core.get(model_config, "thinkingTokenBudget", budget_snake);
     Object has_budget = Core.isNotNone(budget);
     if (Core.truthy(has_budget)) {
-      Core.set(thinking_config, "thinkingBudget", budget);
+      Object level = "";
+      Object is_none = Core.eq(budget, "none");
+      if (Core.truthy(is_none)) {
+        level = "minimal";
+      }
+      Object is_minimal = Core.eq(budget, "minimal");
+      if (Core.truthy(is_minimal)) {
+        level = "minimal";
+      }
+      Object is_low = Core.eq(budget, "low");
+      if (Core.truthy(is_low)) {
+        level = "low";
+      }
+      Object is_medium = Core.eq(budget, "medium");
+      if (Core.truthy(is_medium)) {
+        level = "medium";
+      }
+      Object is_high = Core.eq(budget, "high");
+      if (Core.truthy(is_high)) {
+        level = "high";
+      }
+      Object is_highest = Core.eq(budget, "highest");
+      if (Core.truthy(is_highest)) {
+        level = "high";
+      }
+      Object named_level = Core.eq(level, "");
+      if (Core.truthy(named_level)) {
+        Core.set(thinking_config, "thinkingBudget", budget);
+      }
+      if (!Core.truthy(named_level)) {
+        Core.set(thinking_config, "thinkingLevel", level);
+      }
       has_thinking = Boolean.TRUE;
     }
     Object show_snake = Core.get(model_config, "show_thoughts", null);

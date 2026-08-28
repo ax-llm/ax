@@ -7924,7 +7924,42 @@ def _gemini_apply_model_config_impl(payload: Any, model_config: Any, server_mana
     budget = _core_get(model_config, "thinkingTokenBudget", budget_snake)
     has_budget = _core_is_not_none(budget)
     if has_budget:
-        thinking_config["thinkingBudget"] = budget
+        level = ""
+        is_none = _core_eq(budget, "none")
+        if is_none:
+            level = "minimal"
+        else:
+            pass
+        is_minimal = _core_eq(budget, "minimal")
+        if is_minimal:
+            level = "minimal"
+        else:
+            pass
+        is_low = _core_eq(budget, "low")
+        if is_low:
+            level = "low"
+        else:
+            pass
+        is_medium = _core_eq(budget, "medium")
+        if is_medium:
+            level = "medium"
+        else:
+            pass
+        is_high = _core_eq(budget, "high")
+        if is_high:
+            level = "high"
+        else:
+            pass
+        is_highest = _core_eq(budget, "highest")
+        if is_highest:
+            level = "high"
+        else:
+            pass
+        named_level = _core_eq(level, "")
+        if named_level:
+            thinking_config["thinkingBudget"] = budget
+        else:
+            thinking_config["thinkingLevel"] = level
         has_thinking = True
     else:
         pass

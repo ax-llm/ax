@@ -5398,7 +5398,47 @@ module @ax.provider version "0.1" {
       %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
       %has_budget = core.call intrinsic.is_not_none(%budget)
       core.if %has_budget {
-        core.set %thinking_config["thinkingBudget"] = %budget
+        // thinkingTokenBudget carries either a token count or an effort level,
+        // and Gemini takes them in different fields: thinkingBudget is an int32
+        // and rejects a level outright, while thinkingLevel is what the Gemini 3
+        // family documents. Forwarding a level as the budget produced a hard 400
+        // — "Invalid value at thinking_config.thinking_budget (TYPE_INT32)" — so
+        // a caller asking for high-effort reasoning broke every request instead
+        // of getting it. TypeScript routes the same two shapes the same way
+        // (src/ax/ai/google-gemini/api.ts:1043 and :1065), including its two
+        // remappings: Gemini 3 cannot disable thinking, so none becomes minimal,
+        // and highest is spelled high.
+        %level = core.let ""
+        %is_none = core.call intrinsic.eq(%budget, "none")
+        core.if %is_none {
+          %level = core.let "minimal"
+        }
+        %is_minimal = core.call intrinsic.eq(%budget, "minimal")
+        core.if %is_minimal {
+          %level = core.let "minimal"
+        }
+        %is_low = core.call intrinsic.eq(%budget, "low")
+        core.if %is_low {
+          %level = core.let "low"
+        }
+        %is_medium = core.call intrinsic.eq(%budget, "medium")
+        core.if %is_medium {
+          %level = core.let "medium"
+        }
+        %is_high = core.call intrinsic.eq(%budget, "high")
+        core.if %is_high {
+          %level = core.let "high"
+        }
+        %is_highest = core.call intrinsic.eq(%budget, "highest")
+        core.if %is_highest {
+          %level = core.let "high"
+        }
+        %named_level = core.call intrinsic.eq(%level, "")
+        core.if %named_level {
+          core.set %thinking_config["thinkingBudget"] = %budget
+        } else {
+          core.set %thinking_config["thinkingLevel"] = %level
+        }
         %has_thinking = core.let true
       }
       %show_snake = core.get %model_config["show_thoughts"]

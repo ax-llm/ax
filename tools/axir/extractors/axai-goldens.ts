@@ -5072,6 +5072,42 @@ writeFixture('openai-speak-error-surfaces-error', {
 // reasoning text back got a chat log with no thought in it. TypeScript maps both
 // (src/ax/ai/google-gemini/api.ts:1043 and :1148); the port dropped them between
 // merge_model_config, which accepts them, and the request, which never read them.
+// An effort level is not a token count. Gemini's thinkingBudget is an int32 and
+// rejects a level with a hard 400, while thinkingLevel is what the Gemini 3
+// family documents — so a caller asking for high-effort reasoning broke every
+// request rather than getting it. none becomes minimal because Gemini 3 cannot
+// disable thinking, and highest is spelled high.
+writeFixture('gemini-thinking-level-routes-away-from-the-budget', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.5-flash',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'think hard' }],
+    model_config: {
+      stream: false,
+      thinkingTokenBudget: 'highest',
+      showThoughts: true,
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+        ],
+      },
+    },
+  ],
+  expected_transport_request: {
+    json: {
+      generationConfig: {
+        thinkingConfig: { thinkingLevel: 'high', includeThoughts: true },
+      },
+    },
+  },
+});
+
 writeFixture('gemini-thinking-config-reaches-the-request', {
   kind: 'ai_chat',
   provider: 'google-gemini',
