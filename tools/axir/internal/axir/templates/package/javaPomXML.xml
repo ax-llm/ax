@@ -146,6 +146,8 @@
               <publishingServerId>central</publishingServerId>
               <autoPublish>true</autoPublish>
               <waitUntil>published</waitUntil>
+              <!-- Central can exceed the plugin's 30-minute default under load. -->
+              <waitMaxTime>7200</waitMaxTime>
             </configuration>
           </plugin>
         </plugins>
