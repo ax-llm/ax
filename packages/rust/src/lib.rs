@@ -40835,7 +40835,15 @@ fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
     let mut v_payload = core_arg(args, 0);
     let mut v_model_config = core_arg(args, 1);
     let mut v_server_managed_sampling = core_arg(args, 2);
+    let mut v_budget = CoreValue::Null;
+    let mut v_budget_snake = CoreValue::Null;
     let mut v_client_managed_sampling = CoreValue::Null;
+    let mut v_has_budget = CoreValue::Null;
+    let mut v_has_show = CoreValue::Null;
+    let mut v_has_thinking = CoreValue::Null;
+    let mut v_show_snake = CoreValue::Null;
+    let mut v_show_thoughts = CoreValue::Null;
+    let mut v_thinking_config = CoreValue::Null;
     _openai_copy_config_key_impl(&[
         v_payload.clone(),
         v_model_config.clone(),
@@ -40911,6 +40919,53 @@ fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
         CoreValue::from("stop_sequences"),
         CoreValue::from("stopSequences"),
     ])?;
+    v_thinking_config = CoreValue::new_map();
+    v_has_thinking = CoreValue::Bool(false);
+    v_budget_snake = core_get(
+        &v_model_config,
+        &CoreValue::from("thinking_token_budget"),
+        CoreValue::Null,
+    );
+    v_budget = core_get(
+        &v_model_config,
+        &CoreValue::from("thinkingTokenBudget"),
+        v_budget_snake.clone(),
+    );
+    v_has_budget = core_is_not_none(&[v_budget.clone()])?;
+    if core_truthy(&v_has_budget) {
+        core_set(
+            &v_thinking_config,
+            CoreValue::from("thinkingBudget"),
+            v_budget.clone(),
+        )?;
+        v_has_thinking = CoreValue::Bool(true);
+    }
+    v_show_snake = core_get(
+        &v_model_config,
+        &CoreValue::from("show_thoughts"),
+        CoreValue::Null,
+    );
+    v_show_thoughts = core_get(
+        &v_model_config,
+        &CoreValue::from("showThoughts"),
+        v_show_snake.clone(),
+    );
+    v_has_show = core_is_not_none(&[v_show_thoughts.clone()])?;
+    if core_truthy(&v_has_show) {
+        core_set(
+            &v_thinking_config,
+            CoreValue::from("includeThoughts"),
+            v_show_thoughts.clone(),
+        )?;
+        v_has_thinking = CoreValue::Bool(true);
+    }
+    if core_truthy(&v_has_thinking) {
+        core_set(
+            &v_payload,
+            CoreValue::from("thinkingConfig"),
+            v_thinking_config.clone(),
+        )?;
+    }
     return Ok(CoreValue::Null);
 }
 

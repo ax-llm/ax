@@ -5067,6 +5067,42 @@ writeFixture('openai-speak-error-surfaces-error', {
   expected_status: 503,
 });
 
+// The ported Gemini path built no thinkingConfig at all, so a caller that set a
+// thinking budget got a model that did not think, and one that asked for the
+// reasoning text back got a chat log with no thought in it. TypeScript maps both
+// (src/ax/ai/google-gemini/api.ts:1043 and :1148); the port dropped them between
+// merge_model_config, which accepts them, and the request, which never read them.
+writeFixture('gemini-thinking-config-reaches-the-request', {
+  kind: 'ai_chat',
+  provider: 'google-gemini',
+  model: 'gemini-3.5-flash',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'think about this' }],
+    model_config: {
+      stream: false,
+      thinkingTokenBudget: 2048,
+      showThoughts: true,
+    },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        candidates: [
+          { content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' },
+        ],
+      },
+    },
+  ],
+  expected_transport_request: {
+    json: {
+      generationConfig: {
+        thinkingConfig: { thinkingBudget: 2048, includeThoughts: true },
+      },
+    },
+  },
+});
+
 writeFixture('context-cache-rejection', {
   kind: 'ai_context_cache',
   operation: 'rejection',

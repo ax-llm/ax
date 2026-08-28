@@ -8423,6 +8423,25 @@ final class Core {
     Core._openai_copy_config_key_impl(payload, model_config, "n", "candidateCount");
     Core._openai_copy_config_key_impl(payload, model_config, "stopSequences", "stopSequences");
     Core._openai_copy_config_key_impl(payload, model_config, "stop_sequences", "stopSequences");
+    Object thinking_config = new java.util.LinkedHashMap<String, Object>();
+    Object has_thinking = Boolean.FALSE;
+    Object budget_snake = Core.get(model_config, "thinking_token_budget", null);
+    Object budget = Core.get(model_config, "thinkingTokenBudget", budget_snake);
+    Object has_budget = Core.isNotNone(budget);
+    if (Core.truthy(has_budget)) {
+      Core.set(thinking_config, "thinkingBudget", budget);
+      has_thinking = Boolean.TRUE;
+    }
+    Object show_snake = Core.get(model_config, "show_thoughts", null);
+    Object show_thoughts = Core.get(model_config, "showThoughts", show_snake);
+    Object has_show = Core.isNotNone(show_thoughts);
+    if (Core.truthy(has_show)) {
+      Core.set(thinking_config, "includeThoughts", show_thoughts);
+      has_thinking = Boolean.TRUE;
+    }
+    if (Core.truthy(has_thinking)) {
+      Core.set(payload, "thinkingConfig", thinking_config);
+    }
     return null;
   }
 
