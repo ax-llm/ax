@@ -1,0 +1,48 @@
+{
+  "expected_transport_request": {
+    "json": {
+      "generationConfig": {
+        "thinkingConfig": {
+          "includeThoughts": true,
+          "thinkingBudget": 2048
+        }
+      }
+    }
+  },
+  "kind": "ai_chat",
+  "model": "gemini-3.5-flash",
+  "name": "gemini-thinking-config-reaches-the-request",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "think about this",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "showThoughts": true,
+      "stream": false,
+      "thinkingTokenBudget": 2048
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "ok"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

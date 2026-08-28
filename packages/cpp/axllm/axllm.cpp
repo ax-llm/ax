@@ -9493,6 +9493,25 @@ Value Core::_gemini_apply_model_config_impl(Value payload, Value model_config, V
   Core::_openai_copy_config_key_impl(payload, model_config, Value("n"), Value("candidateCount"));
   Core::_openai_copy_config_key_impl(payload, model_config, Value("stopSequences"), Value("stopSequences"));
   Core::_openai_copy_config_key_impl(payload, model_config, Value("stop_sequences"), Value("stopSequences"));
+  Value thinking_config = Value::object();
+  Value has_thinking = Value(false);
+  Value budget_snake = Core::get(model_config, Value("thinking_token_budget"), Value());
+  Value budget = Core::get(model_config, Value("thinkingTokenBudget"), budget_snake);
+  Value has_budget = Core::is_not_none(budget);
+  if (Core::truthy(has_budget)) {
+    Core::set(thinking_config, Value("thinkingBudget"), budget);
+    has_thinking = Value(true);
+  }
+  Value show_snake = Core::get(model_config, Value("show_thoughts"), Value());
+  Value show_thoughts = Core::get(model_config, Value("showThoughts"), show_snake);
+  Value has_show = Core::is_not_none(show_thoughts);
+  if (Core::truthy(has_show)) {
+    Core::set(thinking_config, Value("includeThoughts"), show_thoughts);
+    has_thinking = Value(true);
+  }
+  if (Core::truthy(has_thinking)) {
+    Core::set(payload, Value("thinkingConfig"), thinking_config);
+  }
   return Value();
 }
 

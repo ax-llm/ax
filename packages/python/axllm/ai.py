@@ -7918,6 +7918,28 @@ def _gemini_apply_model_config_impl(payload: Any, model_config: Any, server_mana
     _openai_copy_config_key_impl(payload, model_config, "n", "candidateCount")
     _openai_copy_config_key_impl(payload, model_config, "stopSequences", "stopSequences")
     _openai_copy_config_key_impl(payload, model_config, "stop_sequences", "stopSequences")
+    thinking_config = {}
+    has_thinking = False
+    budget_snake = _core_get(model_config, "thinking_token_budget", None)
+    budget = _core_get(model_config, "thinkingTokenBudget", budget_snake)
+    has_budget = _core_is_not_none(budget)
+    if has_budget:
+        thinking_config["thinkingBudget"] = budget
+        has_thinking = True
+    else:
+        pass
+    show_snake = _core_get(model_config, "show_thoughts", None)
+    show_thoughts = _core_get(model_config, "showThoughts", show_snake)
+    has_show = _core_is_not_none(show_thoughts)
+    if has_show:
+        thinking_config["includeThoughts"] = show_thoughts
+        has_thinking = True
+    else:
+        pass
+    if has_thinking:
+        payload["thinkingConfig"] = thinking_config
+    else:
+        pass
     return None
 
 

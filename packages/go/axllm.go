@@ -17304,14 +17304,30 @@ func _gemini_apply_model_config_impl(args ...Value) (Value, error) {
 	var v_payload Value
 	var v_model_config Value
 	var v_server_managed_sampling Value
+	var v_budget Value
+	var v_budget_snake Value
 	var v_client_managed_sampling Value
+	var v_has_budget Value
+	var v_has_show Value
+	var v_has_thinking Value
+	var v_show_snake Value
+	var v_show_thoughts Value
+	var v_thinking_config Value
 	if len(args) > 0 { v_payload = args[0] }
 	_ = v_payload
 	if len(args) > 1 { v_model_config = args[1] }
 	_ = v_model_config
 	if len(args) > 2 { v_server_managed_sampling = args[2] }
 	_ = v_server_managed_sampling
+	_ = v_budget
+	_ = v_budget_snake
 	_ = v_client_managed_sampling
+	_ = v_has_budget
+	_ = v_has_show
+	_ = v_has_thinking
+	_ = v_show_snake
+	_ = v_show_thoughts
+	_ = v_thinking_config
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "maxTokens", "maxOutputTokens"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "max_tokens", "maxOutputTokens"); err != nil { return nil, err }
 	v_client_managed_sampling = _core_not(v_server_managed_sampling)
@@ -17329,6 +17345,31 @@ func _gemini_apply_model_config_impl(args ...Value) (Value, error) {
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "n", "candidateCount"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "stopSequences", "stopSequences"); err != nil { return nil, err }
 	if _, err := _openai_copy_config_key_impl(v_payload, v_model_config, "stop_sequences", "stopSequences"); err != nil { return nil, err }
+	v_thinking_config = Object()
+	v_has_thinking = false
+	v_budget_snake = coreGet(v_model_config, "thinking_token_budget", nil)
+	v_budget = coreGet(v_model_config, "thinkingTokenBudget", v_budget_snake)
+	v_has_budget = _core_is_not_none(v_budget)
+	if coreTruthy(v_has_budget) {
+		if err := coreSet(v_thinking_config, "thinkingBudget", v_budget); err != nil { return nil, err }
+		v_has_thinking = true
+	} else {
+	// empty
+	}
+	v_show_snake = coreGet(v_model_config, "show_thoughts", nil)
+	v_show_thoughts = coreGet(v_model_config, "showThoughts", v_show_snake)
+	v_has_show = _core_is_not_none(v_show_thoughts)
+	if coreTruthy(v_has_show) {
+		if err := coreSet(v_thinking_config, "includeThoughts", v_show_thoughts); err != nil { return nil, err }
+		v_has_thinking = true
+	} else {
+	// empty
+	}
+	if coreTruthy(v_has_thinking) {
+		if err := coreSet(v_payload, "thinkingConfig", v_thinking_config); err != nil { return nil, err }
+	} else {
+	// empty
+	}
 	return nil, nil
 }
 

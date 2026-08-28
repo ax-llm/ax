@@ -5392,6 +5392,25 @@ module @ax.provider version "0.1" {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "n", "candidateCount")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stopSequences", "stopSequences")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stop_sequences", "stopSequences")
+      %thinking_config = core.map
+      %has_thinking = core.let false
+      %budget_snake = core.get %model_config["thinking_token_budget"]
+      %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
+      %has_budget = core.call intrinsic.is_not_none(%budget)
+      core.if %has_budget {
+        core.set %thinking_config["thinkingBudget"] = %budget
+        %has_thinking = core.let true
+      }
+      %show_snake = core.get %model_config["show_thoughts"]
+      %show_thoughts = core.get %model_config["showThoughts"] default %show_snake
+      %has_show = core.call intrinsic.is_not_none(%show_thoughts)
+      core.if %has_show {
+        core.set %thinking_config["includeThoughts"] = %show_thoughts
+        %has_thinking = core.let true
+      }
+      core.if %has_thinking {
+        core.set %payload["thinkingConfig"] = %thinking_config
+      }
       core.return
     }
   }
