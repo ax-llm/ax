@@ -1,7 +1,7 @@
 ---
 name: "ax-python-agent-memory-skills"
 description: "Use when writing Python code with `axllm` for agent memory, recall callbacks, dynamic skill discovery, loaded-skill state, and used-skill tracking."
-version: "24.0.10"
+version: "24.0.12"
 ---
 # AxAgent Memory And Skills For Python
 

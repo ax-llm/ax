@@ -1,0 +1,19 @@
+{
+  "expected_error_contains": "does not support numeric thinkingTokenBudget",
+  "kind": "ai_chat",
+  "model": "gemini-3.5-flash",
+  "name": "gemini-3-numeric-thinking-budget-rejected",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "think about this",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": 2048
+    }
+  }
+}

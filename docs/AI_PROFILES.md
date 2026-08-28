@@ -130,6 +130,13 @@ models and maps it to the strongest effort documented by that deployment:
 | `cerebras` | GPT-OSS 120B; Gemma 4 31B | `high` | Rejected for GPT-OSS; supported for Gemma |
 | `deepinfra` | DeepSeek R1 family | `high` | Supported |
 
+The native `google-gemini` profile and its `gemini` / `google_gemini` aliases
+resolve the effective model before mapping an explicit logical budget. Gemini 3
+uses model-supported `thinkingLevel` values, while Gemini 2.5 uses numeric
+`thinkingBudget`; `none` always hides thoughts and clamps to the model's minimum
+when thinking cannot be disabled. The OpenAI-compatible `vertex-ai` profile
+does not inherit this native request shape from Gemini-looking model IDs.
+
 An explicitly unsupported level fails before the request. Hugging Face Router
 stays conservative because its `:fastest`, `:cheapest`, and `:preferred`
 policies can choose different underlying providers for the same model ID; use

@@ -267,8 +267,8 @@ export type AxAIGoogleGeminiThinkingTokenBudgetLevels = {
 };
 
 /**
- * Maps thinkingTokenBudget string levels to Gemini 3+ thinkingLevel values.
- * 'none' is handled separately (disables thinking or maps to 'minimal' for Gemini 3+).
+ * Maps thinkingTokenBudget string levels to Gemini 3 thinkingLevel values.
+ * The mapped result is clamped to the levels supported by the resolved model.
  */
 export type AxAIGoogleGeminiThinkingLevelMapping = {
   minimal?: AxAIGoogleGeminiThinkingLevel;

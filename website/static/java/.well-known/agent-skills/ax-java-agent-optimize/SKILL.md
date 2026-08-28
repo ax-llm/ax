@@ -1,7 +1,7 @@
 ---
 name: "ax-java-agent-optimize"
 description: "Use when writing Java code with `dev.axllm:ax` for agent optimization, verified agent-playbook evolution, evaluators, judges, optimizer artifacts, BootstrapFewShot, and GEPA."
-version: "24.0.10"
+version: "24.0.12"
 ---
 # AxAgent Optimize For Java
 

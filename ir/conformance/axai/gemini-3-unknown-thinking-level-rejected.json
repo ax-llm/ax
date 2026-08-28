@@ -1,0 +1,19 @@
+{
+  "expected_error_contains": "unsupported Gemini thinkingTokenBudget level",
+  "kind": "ai_chat",
+  "model": "gemini-3.5-flash",
+  "name": "gemini-3-unknown-thinking-level-rejected",
+  "provider": "google-gemini",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "think about this",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "extreme"
+    }
+  }
+}

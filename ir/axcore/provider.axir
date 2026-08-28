@@ -2923,6 +2923,9 @@ module @ax.provider version "0.1" {
       core.set %voice_config["prebuiltVoiceConfig"] = %prebuilt_voice
       core.set %speech_config["voiceConfig"] = %voice_config
       core.set %generation_config["speechConfig"] = %speech_config
+      %empty_model_config = core.map
+      %model_config = core.get %request["model_config"] default %empty_model_config
+      core.call @gemini_apply_thinking_config_impl(%generation_config, %request_model, %model_config)
       core.set %setup["generationConfig"] = %generation_config
       %include_transcript = core.get %request_output_audio["transcript"] default true
       core.if %include_transcript {
@@ -5367,7 +5370,7 @@ module @ax.provider version "0.1" {
       core.set %generation_config["responseMimeType"] = "text/plain"
       %empty_model_config = core.map
       %model_config = core.get %request["model_config"] default %empty_model_config
-      core.call @gemini_apply_model_config_impl(%generation_config, %model_config, %server_managed_sampling)
+      core.call @gemini_apply_model_config_impl(%generation_config, %model, %model_config, %server_managed_sampling)
       %response_format = core.get %request["response_format"]
       %has_response_format = core.call intrinsic.truthy(%response_format)
       core.if %has_response_format {
@@ -5417,13 +5420,238 @@ module @ax.provider version "0.1" {
     }
   }
 
+  op ax.provider.semantic @gemini_clamp_thinking_level_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "gemini-thinking-level-model-clamp"
+    type signature = "(string, string) -> string throws"
+    body @entry(%model: string, %level: string) {
+      %is_minimal = core.call intrinsic.eq(%level, "minimal")
+      %is_low = core.call intrinsic.eq(%level, "low")
+      %is_medium = core.call intrinsic.eq(%level, "medium")
+      %is_high = core.call intrinsic.eq(%level, "high")
+      %is_minimal_or_low = core.call intrinsic.or(%is_minimal, %is_low)
+      %is_medium_or_high = core.call intrinsic.or(%is_medium, %is_high)
+      %is_supported_level = core.call intrinsic.or(%is_minimal_or_low, %is_medium_or_high)
+      core.if %is_supported_level {
+      } else {
+        %message = core.call intrinsic.string.format("unsupported Gemini thinking level: {}", %level)
+        %error = core.call intrinsic.ai.error.unsupported(%message)
+        core.raise %error
+      }
+
+      %is_gemini3 = core.call intrinsic.contains(%model, "gemini-3")
+      %is_image_name = core.call intrinsic.contains(%model, "-image")
+      %is_image = core.call intrinsic.and(%is_gemini3, %is_image_name)
+      core.if %is_image {
+        core.if %is_minimal_or_low {
+          core.return "minimal"
+        }
+        core.return "high"
+      }
+
+      %is_legacy_pro_name = core.call intrinsic.contains(%model, "gemini-3-pro")
+      %is_legacy_pro = core.call intrinsic.and(%is_gemini3, %is_legacy_pro_name)
+      core.if %is_legacy_pro {
+        core.if %is_minimal_or_low {
+          core.return "low"
+        }
+        core.return "high"
+      }
+
+      %is_37_flash = core.call intrinsic.contains(%model, "gemini-3.7-flash")
+      %is_31_pro = core.call intrinsic.contains(%model, "gemini-3.1-pro")
+      %no_minimal_name = core.call intrinsic.or(%is_37_flash, %is_31_pro)
+      %no_minimal = core.call intrinsic.and(%is_gemini3, %no_minimal_name)
+      %clamp_minimal = core.call intrinsic.and(%no_minimal, %is_minimal)
+      core.if %clamp_minimal {
+        core.return "low"
+      }
+      core.return %level
+    }
+  }
+
+  op ax.provider.semantic @gemini_apply_thinking_config_impl {
+    attr core_kind = "func"
+    attr effect = "throws"
+    attr emit_module = "ai"
+    attr private = true
+    tag "gemini-thinking-config-model-aware"
+    type signature = "(json, string, json) -> void throws"
+    body @entry(%payload: json, %model: string, %model_config: json) {
+      %thinking_config = core.map
+      %has_thinking = core.let false
+      %budget_is_none = core.let false
+      %is_gemini3 = core.call intrinsic.contains(%model, "gemini-3")
+      %is_25_pro = core.call intrinsic.contains(%model, "gemini-2.5-pro")
+      %empty_level_mapping = core.map
+      %level_mapping_snake = core.get %model_config["thinking_level_mapping"] default %empty_level_mapping
+      %level_mapping = core.get %model_config["thinkingLevelMapping"] default %level_mapping_snake
+      %empty_budget_levels = core.map
+      %budget_levels_snake = core.get %model_config["thinking_token_budget_levels"] default %empty_budget_levels
+      %budget_levels = core.get %model_config["thinkingTokenBudgetLevels"] default %budget_levels_snake
+      %minimum_budget = core.get %budget_levels["minimal"] default 200
+      %low_budget = core.get %budget_levels["low"] default 800
+      %medium_budget = core.get %budget_levels["medium"] default 5000
+      %high_budget = core.get %budget_levels["high"] default 10000
+      %highest_budget = core.get %budget_levels["highest"] default 24500
+      %budget_snake = core.get %model_config["thinking_token_budget"]
+      %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
+      %has_budget = core.call intrinsic.is_not_none(%budget)
+      core.if %has_budget {
+        %budget_is_number = core.type_is %budget type "number"
+        %budget_is_string = core.type_is %budget type "string"
+        core.if %is_gemini3 {
+          core.if %budget_is_number {
+            %message = core.call intrinsic.string.format("Gemini 3 model {} does not support numeric thinkingTokenBudget", %model)
+            %error = core.call intrinsic.ai.error.unsupported(%message)
+            core.raise %error
+          }
+          core.if %budget_is_string {
+          } else {
+            %error = core.call intrinsic.ai.error.unsupported("Gemini thinkingTokenBudget must be a number or logical level")
+            core.raise %error
+          }
+          %level = core.let ""
+          %is_none = core.call intrinsic.eq(%budget, "none")
+          core.if %is_none {
+            %level = core.let "minimal"
+            %budget_is_none = core.let true
+          }
+          %is_minimal = core.call intrinsic.eq(%budget, "minimal")
+          core.if %is_minimal {
+            %level = core.let "minimal"
+          }
+          %is_low = core.call intrinsic.eq(%budget, "low")
+          core.if %is_low {
+            %level = core.let "low"
+          }
+          %is_medium = core.call intrinsic.eq(%budget, "medium")
+          core.if %is_medium {
+            %level = core.let "medium"
+          }
+          %is_high = core.call intrinsic.eq(%budget, "high")
+          core.if %is_high {
+            %level = core.let "high"
+          }
+          %is_highest = core.call intrinsic.eq(%budget, "highest")
+          core.if %is_highest {
+            %level = core.let "high"
+          }
+          %unknown_level = core.call intrinsic.eq(%level, "")
+          core.if %unknown_level {
+            %message = core.call intrinsic.string.format("unsupported Gemini thinkingTokenBudget level: {}", %budget)
+            %error = core.call intrinsic.ai.error.unsupported(%message)
+            core.raise %error
+          }
+          %mapping_key = core.let %budget
+          core.if %is_none {
+            %mapping_key = core.let "minimal"
+          }
+          %mapped_level = core.get %level_mapping[%mapping_key] default %level
+          %clamped_level = core.call @gemini_clamp_thinking_level_impl(%model, %mapped_level)
+          core.set %thinking_config["thinkingLevel"] = %clamped_level
+        } else {
+          core.if %budget_is_number {
+            %numeric_budget = core.let %budget
+            %is_zero = core.call intrinsic.eq(%budget, 0)
+            %clamp_pro_zero = core.call intrinsic.and(%is_25_pro, %is_zero)
+            core.if %clamp_pro_zero {
+              %numeric_budget = core.let %minimum_budget
+            }
+            core.set %thinking_config["thinkingBudget"] = %numeric_budget
+          } else {
+            core.if %budget_is_string {
+            } else {
+              %error = core.call intrinsic.ai.error.unsupported("Gemini thinkingTokenBudget must be a number or logical level")
+              core.raise %error
+            }
+            %numeric_budget = core.let -1
+            %is_none = core.call intrinsic.eq(%budget, "none")
+            core.if %is_none {
+              %numeric_budget = core.let 0
+              core.if %is_25_pro {
+                %numeric_budget = core.let %minimum_budget
+              }
+              %budget_is_none = core.let true
+            }
+            %is_minimal = core.call intrinsic.eq(%budget, "minimal")
+            core.if %is_minimal {
+              %numeric_budget = core.let %minimum_budget
+            }
+            %is_low = core.call intrinsic.eq(%budget, "low")
+            core.if %is_low {
+              %numeric_budget = core.let %low_budget
+            }
+            %is_medium = core.call intrinsic.eq(%budget, "medium")
+            core.if %is_medium {
+              %numeric_budget = core.let %medium_budget
+            }
+            %is_high = core.call intrinsic.eq(%budget, "high")
+            core.if %is_high {
+              %numeric_budget = core.let %high_budget
+            }
+            %is_highest = core.call intrinsic.eq(%budget, "highest")
+            core.if %is_highest {
+              %numeric_budget = core.let %highest_budget
+            }
+            %unknown_level = core.call intrinsic.eq(%numeric_budget, -1)
+            core.if %unknown_level {
+              %message = core.call intrinsic.string.format("unsupported Gemini thinkingTokenBudget level: {}", %budget)
+              %error = core.call intrinsic.ai.error.unsupported(%message)
+              core.raise %error
+            }
+            core.set %thinking_config["thinkingBudget"] = %numeric_budget
+          }
+        }
+        %has_thinking = core.let true
+      }
+
+      %level_snake = core.get %model_config["thinking_level"]
+      %explicit_level = core.get %model_config["thinkingLevel"] default %level_snake
+      %has_explicit_level = core.call intrinsic.is_not_none(%explicit_level)
+      %use_explicit_level = core.call intrinsic.and(%is_gemini3, %has_explicit_level)
+      core.if %use_explicit_level {
+        %level_is_string = core.type_is %explicit_level type "string"
+        core.if %level_is_string {
+        } else {
+          %error = core.call intrinsic.ai.error.unsupported("Gemini thinkingLevel must be a logical level")
+          core.raise %error
+        }
+        %clamped_level = core.call @gemini_clamp_thinking_level_impl(%model, %explicit_level)
+        core.call intrinsic.map.delete(%thinking_config, "thinkingBudget")
+        core.set %thinking_config["thinkingLevel"] = %clamped_level
+        %has_thinking = core.let true
+      }
+
+      %show_snake = core.get %model_config["show_thoughts"]
+      %show_thoughts = core.get %model_config["showThoughts"] default %show_snake
+      %has_show = core.call intrinsic.is_not_none(%show_thoughts)
+      core.if %has_show {
+        core.set %thinking_config["includeThoughts"] = %show_thoughts
+        %has_thinking = core.let true
+      }
+      core.if %budget_is_none {
+        core.set %thinking_config["includeThoughts"] = false
+        %has_thinking = core.let true
+      }
+      core.if %has_thinking {
+        core.set %payload["thinkingConfig"] = %thinking_config
+      }
+      core.return
+    }
+  }
+
   op ax.provider.semantic @gemini_apply_model_config_impl {
     attr core_kind = "func"
+    attr effect = "throws"
     attr emit_module = "ai"
     attr private = true
     tag "gemini-model-config-core-helper"
-    type signature = "(json, json, bool) -> void"
-    body @entry(%payload: json, %model_config: json, %server_managed_sampling: bool) {
+    type signature = "(json, string, json, bool) -> void throws"
+    body @entry(%payload: json, %model: string, %model_config: json, %server_managed_sampling: bool) {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "maxTokens", "maxOutputTokens")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "max_tokens", "maxOutputTokens")
       %client_managed_sampling = core.call intrinsic.not(%server_managed_sampling)
@@ -5439,25 +5667,7 @@ module @ax.provider version "0.1" {
       core.call @openai_copy_config_key_impl(%payload, %model_config, "n", "candidateCount")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stopSequences", "stopSequences")
       core.call @openai_copy_config_key_impl(%payload, %model_config, "stop_sequences", "stopSequences")
-      %thinking_config = core.map
-      %has_thinking = core.let false
-      %budget_snake = core.get %model_config["thinking_token_budget"]
-      %budget = core.get %model_config["thinkingTokenBudget"] default %budget_snake
-      %has_budget = core.call intrinsic.is_not_none(%budget)
-      core.if %has_budget {
-        core.set %thinking_config["thinkingBudget"] = %budget
-        %has_thinking = core.let true
-      }
-      %show_snake = core.get %model_config["show_thoughts"]
-      %show_thoughts = core.get %model_config["showThoughts"] default %show_snake
-      %has_show = core.call intrinsic.is_not_none(%show_thoughts)
-      core.if %has_show {
-        core.set %thinking_config["includeThoughts"] = %show_thoughts
-        %has_thinking = core.let true
-      }
-      core.if %has_thinking {
-        core.set %payload["thinkingConfig"] = %thinking_config
-      }
+      core.call @gemini_apply_thinking_config_impl(%payload, %model, %model_config)
       core.return
     }
   }

@@ -35515,6 +35515,7 @@ fn _gemini_live_bidi_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_audio_descriptor = CoreValue::Null;
     let mut v_default_model = CoreValue::Null;
     let mut v_default_voice = CoreValue::Null;
+    let mut v_empty_model_config = CoreValue::Null;
     let mut v_error = CoreValue::Null;
     let mut v_generation_config = CoreValue::Null;
     let mut v_has_instructions = CoreValue::Null;
@@ -35523,6 +35524,7 @@ fn _gemini_live_bidi_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxErro
     let mut v_instructions = CoreValue::Null;
     let mut v_modalities = CoreValue::Null;
     let mut v_model = CoreValue::Null;
+    let mut v_model_config = CoreValue::Null;
     let mut v_model_prefix = CoreValue::Null;
     let mut v_out = CoreValue::Null;
     let mut v_output_audio_descriptor = CoreValue::Null;
@@ -35623,6 +35625,17 @@ fn _gemini_live_bidi_build_setup(args: &[CoreValue]) -> Result<CoreValue, AxErro
         CoreValue::from("speechConfig"),
         v_speech_config.clone(),
     )?;
+    v_empty_model_config = CoreValue::new_map();
+    v_model_config = core_get(
+        &v_request,
+        &CoreValue::from("model_config"),
+        v_empty_model_config.clone(),
+    );
+    _gemini_apply_thinking_config_impl(&[
+        v_generation_config.clone(),
+        v_request_model.clone(),
+        v_model_config.clone(),
+    ])?;
     core_set(
         &v_setup,
         CoreValue::from("generationConfig"),
@@ -40792,6 +40805,7 @@ fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     );
     _gemini_apply_model_config_impl(&[
         v_generation_config.clone(),
+        v_model.clone(),
         v_model_config.clone(),
         v_server_managed_sampling.clone(),
     ])?;
@@ -40904,20 +40918,411 @@ fn _gemini_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, AxError> 
     unreachable_code,
     clippy::all
 )]
-fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
-    axir_coverage_mark("_gemini_apply_model_config_impl");
+fn _gemini_clamp_thinking_level_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_clamp_thinking_level_impl");
+    let mut v_model = core_arg(args, 0);
+    let mut v_level = core_arg(args, 1);
+    let mut v_clamp_minimal = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_is_31_pro = CoreValue::Null;
+    let mut v_is_37_flash = CoreValue::Null;
+    let mut v_is_gemini3 = CoreValue::Null;
+    let mut v_is_high = CoreValue::Null;
+    let mut v_is_image = CoreValue::Null;
+    let mut v_is_image_name = CoreValue::Null;
+    let mut v_is_legacy_pro = CoreValue::Null;
+    let mut v_is_legacy_pro_name = CoreValue::Null;
+    let mut v_is_low = CoreValue::Null;
+    let mut v_is_medium = CoreValue::Null;
+    let mut v_is_medium_or_high = CoreValue::Null;
+    let mut v_is_minimal = CoreValue::Null;
+    let mut v_is_minimal_or_low = CoreValue::Null;
+    let mut v_is_supported_level = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_no_minimal = CoreValue::Null;
+    let mut v_no_minimal_name = CoreValue::Null;
+    v_is_minimal = core_eq(&[v_level.clone(), CoreValue::from("minimal")])?;
+    v_is_low = core_eq(&[v_level.clone(), CoreValue::from("low")])?;
+    v_is_medium = core_eq(&[v_level.clone(), CoreValue::from("medium")])?;
+    v_is_high = core_eq(&[v_level.clone(), CoreValue::from("high")])?;
+    v_is_minimal_or_low = core_or(&[v_is_minimal.clone(), v_is_low.clone()])?;
+    v_is_medium_or_high = core_or(&[v_is_medium.clone(), v_is_high.clone()])?;
+    v_is_supported_level = core_or(&[v_is_minimal_or_low.clone(), v_is_medium_or_high.clone()])?;
+    if core_truthy(&v_is_supported_level) {
+    } else {
+        v_message = core_string_format(&[
+            CoreValue::from("unsupported Gemini thinking level: {}"),
+            v_level.clone(),
+        ])?;
+        v_error = core_ai_error_unsupported(&[v_message.clone()])?;
+        return Err(core_as_error(&v_error));
+    }
+    v_is_gemini3 = core_contains(&[v_model.clone(), CoreValue::from("gemini-3")])?;
+    v_is_image_name = core_contains(&[v_model.clone(), CoreValue::from("-image")])?;
+    v_is_image = core_and(&[v_is_gemini3.clone(), v_is_image_name.clone()])?;
+    if core_truthy(&v_is_image) {
+        if core_truthy(&v_is_minimal_or_low) {
+            return Ok(CoreValue::from("minimal"));
+        }
+        return Ok(CoreValue::from("high"));
+    }
+    v_is_legacy_pro_name = core_contains(&[v_model.clone(), CoreValue::from("gemini-3-pro")])?;
+    v_is_legacy_pro = core_and(&[v_is_gemini3.clone(), v_is_legacy_pro_name.clone()])?;
+    if core_truthy(&v_is_legacy_pro) {
+        if core_truthy(&v_is_minimal_or_low) {
+            return Ok(CoreValue::from("low"));
+        }
+        return Ok(CoreValue::from("high"));
+    }
+    v_is_37_flash = core_contains(&[v_model.clone(), CoreValue::from("gemini-3.7-flash")])?;
+    v_is_31_pro = core_contains(&[v_model.clone(), CoreValue::from("gemini-3.1-pro")])?;
+    v_no_minimal_name = core_or(&[v_is_37_flash.clone(), v_is_31_pro.clone()])?;
+    v_no_minimal = core_and(&[v_is_gemini3.clone(), v_no_minimal_name.clone()])?;
+    v_clamp_minimal = core_and(&[v_no_minimal.clone(), v_is_minimal.clone()])?;
+    if core_truthy(&v_clamp_minimal) {
+        return Ok(CoreValue::from("low"));
+    }
+    return Ok(v_level.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _gemini_apply_thinking_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_apply_thinking_config_impl");
     let mut v_payload = core_arg(args, 0);
-    let mut v_model_config = core_arg(args, 1);
-    let mut v_server_managed_sampling = core_arg(args, 2);
+    let mut v_model = core_arg(args, 1);
+    let mut v_model_config = core_arg(args, 2);
     let mut v_budget = CoreValue::Null;
+    let mut v_budget_is_none = CoreValue::Null;
+    let mut v_budget_is_number = CoreValue::Null;
+    let mut v_budget_is_string = CoreValue::Null;
+    let mut v_budget_levels = CoreValue::Null;
+    let mut v_budget_levels_snake = CoreValue::Null;
     let mut v_budget_snake = CoreValue::Null;
-    let mut v_client_managed_sampling = CoreValue::Null;
+    let mut v_clamp_pro_zero = CoreValue::Null;
+    let mut v_clamped_level = CoreValue::Null;
+    let mut v_empty_budget_levels = CoreValue::Null;
+    let mut v_empty_level_mapping = CoreValue::Null;
+    let mut v_error = CoreValue::Null;
+    let mut v_explicit_level = CoreValue::Null;
     let mut v_has_budget = CoreValue::Null;
+    let mut v_has_explicit_level = CoreValue::Null;
     let mut v_has_show = CoreValue::Null;
     let mut v_has_thinking = CoreValue::Null;
+    let mut v_high_budget = CoreValue::Null;
+    let mut v_highest_budget = CoreValue::Null;
+    let mut v_is_25_pro = CoreValue::Null;
+    let mut v_is_gemini3 = CoreValue::Null;
+    let mut v_is_high = CoreValue::Null;
+    let mut v_is_highest = CoreValue::Null;
+    let mut v_is_low = CoreValue::Null;
+    let mut v_is_medium = CoreValue::Null;
+    let mut v_is_minimal = CoreValue::Null;
+    let mut v_is_none = CoreValue::Null;
+    let mut v_is_zero = CoreValue::Null;
+    let mut v_level = CoreValue::Null;
+    let mut v_level_is_string = CoreValue::Null;
+    let mut v_level_mapping = CoreValue::Null;
+    let mut v_level_mapping_snake = CoreValue::Null;
+    let mut v_level_snake = CoreValue::Null;
+    let mut v_low_budget = CoreValue::Null;
+    let mut v_mapped_level = CoreValue::Null;
+    let mut v_mapping_key = CoreValue::Null;
+    let mut v_medium_budget = CoreValue::Null;
+    let mut v_message = CoreValue::Null;
+    let mut v_minimum_budget = CoreValue::Null;
+    let mut v_numeric_budget = CoreValue::Null;
     let mut v_show_snake = CoreValue::Null;
     let mut v_show_thoughts = CoreValue::Null;
     let mut v_thinking_config = CoreValue::Null;
+    let mut v_unknown_level = CoreValue::Null;
+    let mut v_use_explicit_level = CoreValue::Null;
+    v_thinking_config = CoreValue::new_map();
+    v_has_thinking = CoreValue::Bool(false);
+    v_budget_is_none = CoreValue::Bool(false);
+    v_is_gemini3 = core_contains(&[v_model.clone(), CoreValue::from("gemini-3")])?;
+    v_is_25_pro = core_contains(&[v_model.clone(), CoreValue::from("gemini-2.5-pro")])?;
+    v_empty_level_mapping = CoreValue::new_map();
+    v_level_mapping_snake = core_get(
+        &v_model_config,
+        &CoreValue::from("thinking_level_mapping"),
+        v_empty_level_mapping.clone(),
+    );
+    v_level_mapping = core_get(
+        &v_model_config,
+        &CoreValue::from("thinkingLevelMapping"),
+        v_level_mapping_snake.clone(),
+    );
+    v_empty_budget_levels = CoreValue::new_map();
+    v_budget_levels_snake = core_get(
+        &v_model_config,
+        &CoreValue::from("thinking_token_budget_levels"),
+        v_empty_budget_levels.clone(),
+    );
+    v_budget_levels = core_get(
+        &v_model_config,
+        &CoreValue::from("thinkingTokenBudgetLevels"),
+        v_budget_levels_snake.clone(),
+    );
+    v_minimum_budget = core_get(
+        &v_budget_levels,
+        &CoreValue::from("minimal"),
+        CoreValue::Num(200f64),
+    );
+    v_low_budget = core_get(
+        &v_budget_levels,
+        &CoreValue::from("low"),
+        CoreValue::Num(800f64),
+    );
+    v_medium_budget = core_get(
+        &v_budget_levels,
+        &CoreValue::from("medium"),
+        CoreValue::Num(5000f64),
+    );
+    v_high_budget = core_get(
+        &v_budget_levels,
+        &CoreValue::from("high"),
+        CoreValue::Num(10000f64),
+    );
+    v_highest_budget = core_get(
+        &v_budget_levels,
+        &CoreValue::from("highest"),
+        CoreValue::Num(24500f64),
+    );
+    v_budget_snake = core_get(
+        &v_model_config,
+        &CoreValue::from("thinking_token_budget"),
+        CoreValue::Null,
+    );
+    v_budget = core_get(
+        &v_model_config,
+        &CoreValue::from("thinkingTokenBudget"),
+        v_budget_snake.clone(),
+    );
+    v_has_budget = core_is_not_none(&[v_budget.clone()])?;
+    if core_truthy(&v_has_budget) {
+        v_budget_is_number = core_type_is(&v_budget, CoreValue::from("number"));
+        v_budget_is_string = core_type_is(&v_budget, CoreValue::from("string"));
+        if core_truthy(&v_is_gemini3) {
+            if core_truthy(&v_budget_is_number) {
+                v_message = core_string_format(&[
+                    CoreValue::from(
+                        "Gemini 3 model {} does not support numeric thinkingTokenBudget",
+                    ),
+                    v_model.clone(),
+                ])?;
+                v_error = core_ai_error_unsupported(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            if core_truthy(&v_budget_is_string) {
+            } else {
+                v_error = core_ai_error_unsupported(&[CoreValue::from(
+                    "Gemini thinkingTokenBudget must be a number or logical level",
+                )])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_level = CoreValue::from("");
+            v_is_none = core_eq(&[v_budget.clone(), CoreValue::from("none")])?;
+            if core_truthy(&v_is_none) {
+                v_level = CoreValue::from("minimal");
+                v_budget_is_none = CoreValue::Bool(true);
+            }
+            v_is_minimal = core_eq(&[v_budget.clone(), CoreValue::from("minimal")])?;
+            if core_truthy(&v_is_minimal) {
+                v_level = CoreValue::from("minimal");
+            }
+            v_is_low = core_eq(&[v_budget.clone(), CoreValue::from("low")])?;
+            if core_truthy(&v_is_low) {
+                v_level = CoreValue::from("low");
+            }
+            v_is_medium = core_eq(&[v_budget.clone(), CoreValue::from("medium")])?;
+            if core_truthy(&v_is_medium) {
+                v_level = CoreValue::from("medium");
+            }
+            v_is_high = core_eq(&[v_budget.clone(), CoreValue::from("high")])?;
+            if core_truthy(&v_is_high) {
+                v_level = CoreValue::from("high");
+            }
+            v_is_highest = core_eq(&[v_budget.clone(), CoreValue::from("highest")])?;
+            if core_truthy(&v_is_highest) {
+                v_level = CoreValue::from("high");
+            }
+            v_unknown_level = core_eq(&[v_level.clone(), CoreValue::from("")])?;
+            if core_truthy(&v_unknown_level) {
+                v_message = core_string_format(&[
+                    CoreValue::from("unsupported Gemini thinkingTokenBudget level: {}"),
+                    v_budget.clone(),
+                ])?;
+                v_error = core_ai_error_unsupported(&[v_message.clone()])?;
+                return Err(core_as_error(&v_error));
+            }
+            v_mapping_key = v_budget.clone();
+            if core_truthy(&v_is_none) {
+                v_mapping_key = CoreValue::from("minimal");
+            }
+            v_mapped_level = core_get(&v_level_mapping, &v_mapping_key.clone(), v_level.clone());
+            v_clamped_level =
+                _gemini_clamp_thinking_level_impl(&[v_model.clone(), v_mapped_level.clone()])?;
+            core_set(
+                &v_thinking_config,
+                CoreValue::from("thinkingLevel"),
+                v_clamped_level.clone(),
+            )?;
+        } else {
+            if core_truthy(&v_budget_is_number) {
+                v_numeric_budget = v_budget.clone();
+                v_is_zero = core_eq(&[v_budget.clone(), CoreValue::Num(0f64)])?;
+                v_clamp_pro_zero = core_and(&[v_is_25_pro.clone(), v_is_zero.clone()])?;
+                if core_truthy(&v_clamp_pro_zero) {
+                    v_numeric_budget = v_minimum_budget.clone();
+                }
+                core_set(
+                    &v_thinking_config,
+                    CoreValue::from("thinkingBudget"),
+                    v_numeric_budget.clone(),
+                )?;
+            } else {
+                if core_truthy(&v_budget_is_string) {
+                } else {
+                    v_error = core_ai_error_unsupported(&[CoreValue::from(
+                        "Gemini thinkingTokenBudget must be a number or logical level",
+                    )])?;
+                    return Err(core_as_error(&v_error));
+                }
+                v_numeric_budget = CoreValue::Num(-1f64);
+                v_is_none = core_eq(&[v_budget.clone(), CoreValue::from("none")])?;
+                if core_truthy(&v_is_none) {
+                    v_numeric_budget = CoreValue::Num(0f64);
+                    if core_truthy(&v_is_25_pro) {
+                        v_numeric_budget = v_minimum_budget.clone();
+                    }
+                    v_budget_is_none = CoreValue::Bool(true);
+                }
+                v_is_minimal = core_eq(&[v_budget.clone(), CoreValue::from("minimal")])?;
+                if core_truthy(&v_is_minimal) {
+                    v_numeric_budget = v_minimum_budget.clone();
+                }
+                v_is_low = core_eq(&[v_budget.clone(), CoreValue::from("low")])?;
+                if core_truthy(&v_is_low) {
+                    v_numeric_budget = v_low_budget.clone();
+                }
+                v_is_medium = core_eq(&[v_budget.clone(), CoreValue::from("medium")])?;
+                if core_truthy(&v_is_medium) {
+                    v_numeric_budget = v_medium_budget.clone();
+                }
+                v_is_high = core_eq(&[v_budget.clone(), CoreValue::from("high")])?;
+                if core_truthy(&v_is_high) {
+                    v_numeric_budget = v_high_budget.clone();
+                }
+                v_is_highest = core_eq(&[v_budget.clone(), CoreValue::from("highest")])?;
+                if core_truthy(&v_is_highest) {
+                    v_numeric_budget = v_highest_budget.clone();
+                }
+                v_unknown_level = core_eq(&[v_numeric_budget.clone(), CoreValue::Num(-1f64)])?;
+                if core_truthy(&v_unknown_level) {
+                    v_message = core_string_format(&[
+                        CoreValue::from("unsupported Gemini thinkingTokenBudget level: {}"),
+                        v_budget.clone(),
+                    ])?;
+                    v_error = core_ai_error_unsupported(&[v_message.clone()])?;
+                    return Err(core_as_error(&v_error));
+                }
+                core_set(
+                    &v_thinking_config,
+                    CoreValue::from("thinkingBudget"),
+                    v_numeric_budget.clone(),
+                )?;
+            }
+        }
+        v_has_thinking = CoreValue::Bool(true);
+    }
+    v_level_snake = core_get(
+        &v_model_config,
+        &CoreValue::from("thinking_level"),
+        CoreValue::Null,
+    );
+    v_explicit_level = core_get(
+        &v_model_config,
+        &CoreValue::from("thinkingLevel"),
+        v_level_snake.clone(),
+    );
+    v_has_explicit_level = core_is_not_none(&[v_explicit_level.clone()])?;
+    v_use_explicit_level = core_and(&[v_is_gemini3.clone(), v_has_explicit_level.clone()])?;
+    if core_truthy(&v_use_explicit_level) {
+        v_level_is_string = core_type_is(&v_explicit_level, CoreValue::from("string"));
+        if core_truthy(&v_level_is_string) {
+        } else {
+            v_error = core_ai_error_unsupported(&[CoreValue::from(
+                "Gemini thinkingLevel must be a logical level",
+            )])?;
+            return Err(core_as_error(&v_error));
+        }
+        v_clamped_level =
+            _gemini_clamp_thinking_level_impl(&[v_model.clone(), v_explicit_level.clone()])?;
+        core_map_delete(&[v_thinking_config.clone(), CoreValue::from("thinkingBudget")])?;
+        core_set(
+            &v_thinking_config,
+            CoreValue::from("thinkingLevel"),
+            v_clamped_level.clone(),
+        )?;
+        v_has_thinking = CoreValue::Bool(true);
+    }
+    v_show_snake = core_get(
+        &v_model_config,
+        &CoreValue::from("show_thoughts"),
+        CoreValue::Null,
+    );
+    v_show_thoughts = core_get(
+        &v_model_config,
+        &CoreValue::from("showThoughts"),
+        v_show_snake.clone(),
+    );
+    v_has_show = core_is_not_none(&[v_show_thoughts.clone()])?;
+    if core_truthy(&v_has_show) {
+        core_set(
+            &v_thinking_config,
+            CoreValue::from("includeThoughts"),
+            v_show_thoughts.clone(),
+        )?;
+        v_has_thinking = CoreValue::Bool(true);
+    }
+    if core_truthy(&v_budget_is_none) {
+        core_set(
+            &v_thinking_config,
+            CoreValue::from("includeThoughts"),
+            CoreValue::Bool(false),
+        )?;
+        v_has_thinking = CoreValue::Bool(true);
+    }
+    if core_truthy(&v_has_thinking) {
+        core_set(
+            &v_payload,
+            CoreValue::from("thinkingConfig"),
+            v_thinking_config.clone(),
+        )?;
+    }
+    return Ok(CoreValue::Null);
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_gemini_apply_model_config_impl");
+    let mut v_payload = core_arg(args, 0);
+    let mut v_model = core_arg(args, 1);
+    let mut v_model_config = core_arg(args, 2);
+    let mut v_server_managed_sampling = core_arg(args, 3);
+    let mut v_client_managed_sampling = CoreValue::Null;
     _openai_copy_config_key_impl(&[
         v_payload.clone(),
         v_model_config.clone(),
@@ -40993,53 +41398,11 @@ fn _gemini_apply_model_config_impl(args: &[CoreValue]) -> Result<CoreValue, AxEr
         CoreValue::from("stop_sequences"),
         CoreValue::from("stopSequences"),
     ])?;
-    v_thinking_config = CoreValue::new_map();
-    v_has_thinking = CoreValue::Bool(false);
-    v_budget_snake = core_get(
-        &v_model_config,
-        &CoreValue::from("thinking_token_budget"),
-        CoreValue::Null,
-    );
-    v_budget = core_get(
-        &v_model_config,
-        &CoreValue::from("thinkingTokenBudget"),
-        v_budget_snake.clone(),
-    );
-    v_has_budget = core_is_not_none(&[v_budget.clone()])?;
-    if core_truthy(&v_has_budget) {
-        core_set(
-            &v_thinking_config,
-            CoreValue::from("thinkingBudget"),
-            v_budget.clone(),
-        )?;
-        v_has_thinking = CoreValue::Bool(true);
-    }
-    v_show_snake = core_get(
-        &v_model_config,
-        &CoreValue::from("show_thoughts"),
-        CoreValue::Null,
-    );
-    v_show_thoughts = core_get(
-        &v_model_config,
-        &CoreValue::from("showThoughts"),
-        v_show_snake.clone(),
-    );
-    v_has_show = core_is_not_none(&[v_show_thoughts.clone()])?;
-    if core_truthy(&v_has_show) {
-        core_set(
-            &v_thinking_config,
-            CoreValue::from("includeThoughts"),
-            v_show_thoughts.clone(),
-        )?;
-        v_has_thinking = CoreValue::Bool(true);
-    }
-    if core_truthy(&v_has_thinking) {
-        core_set(
-            &v_payload,
-            CoreValue::from("thinkingConfig"),
-            v_thinking_config.clone(),
-        )?;
-    }
+    _gemini_apply_thinking_config_impl(&[
+        v_payload.clone(),
+        v_model.clone(),
+        v_model_config.clone(),
+    ])?;
     return Ok(CoreValue::Null);
 }
 
@@ -80781,4 +81144,4 @@ fn mcp_oauth_validate_issuer(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (594 of 594 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (596 of 596 core functions)

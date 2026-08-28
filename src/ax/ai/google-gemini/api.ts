@@ -17,12 +17,6 @@ import { resolveVertexAIHost } from '../vertex.js';
 const isGemini3Model = (model: string): boolean => model.includes('gemini-3');
 
 /**
- * Check if a model is Gemini 3 Pro
- */
-const isGemini3Pro = (model: string): boolean =>
-  model.includes('gemini-3') && model.includes('pro');
-
-/**
  * Gemini 3.7 Flash, 3.6 Flash, and 3.5 Flash-Lite use server-managed
  * sampling and ignore temperature, topP, and topK.
  */
@@ -86,6 +80,163 @@ import {
   type AxAIGoogleVertexBatchEmbedResponse,
   GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS,
 } from './types.js';
+
+type AxGeminiLogicalThinkingLevel =
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'highest';
+
+type AxGemini3ThinkingFamily = 'full' | 'no-minimal' | 'image' | 'legacy-pro';
+
+const axGeminiLogicalThinkingLevels = new Set<AxGeminiLogicalThinkingLevel>([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'highest',
+]);
+
+const getGemini3ThinkingFamily = (
+  model: string
+): AxGemini3ThinkingFamily | undefined => {
+  const normalized = model.toLowerCase();
+  if (!isGemini3Model(normalized)) return undefined;
+  if (normalized.includes('-image')) return 'image';
+  if (normalized.includes('gemini-3-pro')) return 'legacy-pro';
+  if (
+    normalized.includes('gemini-3.7-flash') ||
+    normalized.includes('gemini-3.1-pro')
+  ) {
+    return 'no-minimal';
+  }
+  return 'full';
+};
+
+const clampGemini3ThinkingLevel = (
+  model: string,
+  level: AxAIGoogleGeminiThinkingLevel
+): AxAIGoogleGeminiThinkingLevel => {
+  switch (getGemini3ThinkingFamily(model)) {
+    case 'image':
+      return level === 'minimal' || level === 'low' ? 'minimal' : 'high';
+    case 'legacy-pro':
+      return level === 'minimal' || level === 'low' ? 'low' : 'high';
+    case 'no-minimal':
+      return level === 'minimal' ? 'low' : level;
+    case 'full':
+    case undefined:
+      return level;
+  }
+};
+
+const resolveGeminiThinkingConfig = ({
+  model,
+  direct,
+  logicalLevel,
+  showThoughts,
+  thinkingLevelMapping,
+  thinkingTokenBudgetLevels,
+}: {
+  model: string;
+  direct?: AxAIGoogleGeminiConfig['thinking'];
+  logicalLevel?: AxAIServiceOptions['thinkingTokenBudget'] | number;
+  showThoughts?: boolean;
+  thinkingLevelMapping?: AxAIGoogleGeminiThinkingLevelMapping;
+  thinkingTokenBudgetLevels?: AxAIGoogleGeminiConfig['thinkingTokenBudgetLevels'];
+}): NonNullable<AxAIGoogleGeminiGenerationConfig['thinkingConfig']> => {
+  const thinkingConfig: NonNullable<
+    AxAIGoogleGeminiGenerationConfig['thinkingConfig']
+  > = {};
+  const gemini3Family = getGemini3ThinkingFamily(model);
+
+  if (direct?.thinkingTokenBudget !== undefined) {
+    if (gemini3Family) {
+      throw new Error(
+        `Gemini 3 models (${model}) do not support numeric thinkingTokenBudget. ` +
+          `Use a logical thinkingTokenBudget level or thinkingLevel instead.`
+      );
+    }
+    thinkingConfig.thinkingBudget =
+      model.includes('gemini-2.5-pro') && direct.thinkingTokenBudget === 0
+        ? (thinkingTokenBudgetLevels?.minimal ?? 200)
+        : direct.thinkingTokenBudget;
+  }
+
+  if (direct?.thinkingLevel !== undefined && gemini3Family) {
+    thinkingConfig.thinkingLevel = clampGemini3ThinkingLevel(
+      model,
+      direct.thinkingLevel
+    );
+  }
+
+  if (direct?.includeThoughts !== undefined) {
+    thinkingConfig.includeThoughts = direct.includeThoughts;
+  }
+
+  if (logicalLevel !== undefined) {
+    if (typeof logicalLevel === 'number') {
+      if (gemini3Family) {
+        throw new Error(
+          `Gemini 3 models (${model}) do not support numeric thinkingTokenBudget. ` +
+            `Use a logical thinkingTokenBudget level instead.`
+        );
+      }
+      thinkingConfig.thinkingBudget =
+        model.includes('gemini-2.5-pro') && logicalLevel === 0
+          ? (thinkingTokenBudgetLevels?.minimal ?? 200)
+          : logicalLevel;
+      delete thinkingConfig.thinkingLevel;
+    } else {
+      if (!axGeminiLogicalThinkingLevels.has(logicalLevel)) {
+        throw new Error(
+          `Unsupported Gemini thinkingTokenBudget level '${String(logicalLevel)}'`
+        );
+      }
+
+      if (gemini3Family) {
+        const mappingKey = logicalLevel === 'none' ? 'minimal' : logicalLevel;
+        const defaultLevel =
+          mappingKey === 'highest'
+            ? 'high'
+            : (mappingKey as AxAIGoogleGeminiThinkingLevel);
+        const mappedLevel = thinkingLevelMapping?.[mappingKey] ?? defaultLevel;
+        thinkingConfig.thinkingLevel = clampGemini3ThinkingLevel(
+          model,
+          mappedLevel
+        );
+        delete thinkingConfig.thinkingBudget;
+      } else {
+        const minimum = thinkingTokenBudgetLevels?.minimal ?? 200;
+        const budgets: Record<AxGeminiLogicalThinkingLevel, number> = {
+          none: model.includes('gemini-2.5-pro') ? minimum : 0,
+          minimal: minimum,
+          low: thinkingTokenBudgetLevels?.low ?? 800,
+          medium: thinkingTokenBudgetLevels?.medium ?? 5000,
+          high: thinkingTokenBudgetLevels?.high ?? 10000,
+          highest: thinkingTokenBudgetLevels?.highest ?? 24500,
+        };
+        thinkingConfig.thinkingBudget = budgets[logicalLevel];
+        delete thinkingConfig.thinkingLevel;
+      }
+    }
+  }
+
+  if (showThoughts !== undefined) {
+    thinkingConfig.includeThoughts = showThoughts;
+  }
+  if (logicalLevel === 'none') {
+    thinkingConfig.includeThoughts = false;
+  }
+
+  if (thinkingConfig.thinkingLevel !== undefined) {
+    delete thinkingConfig.thinkingBudget;
+  }
+  return thinkingConfig;
+};
 
 export { axAIGoogleGeminiLiveAudioDefaultConfig } from './live_audio.js';
 
@@ -259,7 +410,7 @@ export const axAIGoogleGeminiDefaultConfig = (): AxAIGoogleGeminiConfig =>
       highest: 24500,
     },
     // Default mapping for Gemini 3+ models (thinkingTokenBudget → thinkingLevel)
-    // Note: 'none' always maps to 'minimal' for Gemini 3+ (which can't disable thinking)
+    // 'none' starts at minimal, is model-clamped, and always hides thoughts.
     thinkingLevelMapping: {
       minimal: 'minimal',
       low: 'low',
@@ -284,7 +435,7 @@ export const axAIGoogleGeminiDefaultCreativeConfig =
         highest: 24500,
       },
       // Default mapping for Gemini 3+ models (thinkingTokenBudget → thinkingLevel)
-      // Note: 'none' always maps to 'minimal' for Gemini 3+ (which can't disable thinking)
+      // 'none' starts at minimal, is model-clamped, and always hides thoughts.
       thinkingLevelMapping: {
         minimal: 'minimal',
         low: 'low',
@@ -356,31 +507,12 @@ class AxAIGoogleGeminiImpl
       throw new Error('Auto truncate is not supported for GoogleGemini');
     }
 
-    // Validate Gemini 3 thinking configuration
-    const model = this.config.model;
-    if (isGemini3Model(model)) {
-      // Gemini 3 models don't support numeric thinkingBudget, only thinkingLevel
-      if (
-        this.config.thinking?.thinkingTokenBudget !== undefined &&
-        typeof this.config.thinking.thinkingTokenBudget === 'number'
-      ) {
-        throw new Error(
-          `Gemini 3 models (${model}) do not support numeric thinkingTokenBudget. ` +
-            `Use thinkingLevel ('low', 'medium', 'high') instead, or pass thinkingTokenBudget as a string level via options.`
-        );
-      }
-
-      // Gemini 3 Pro only supports 'low' and 'high' thinkingLevel
-      if (isGemini3Pro(model) && this.config.thinking?.thinkingLevel) {
-        const level = this.config.thinking.thinkingLevel;
-        if (level !== 'low' && level !== 'high') {
-          throw new Error(
-            `Gemini 3 Pro (${model}) only supports thinkingLevel 'low' or 'high', got '${level}'. ` +
-              `Use 'low' for less thinking or 'high' for more thinking.`
-          );
-        }
-      }
-    }
+    resolveGeminiThinkingConfig({
+      model: this.config.model,
+      direct: this.config.thinking,
+      thinkingLevelMapping: this.config.thinkingLevelMapping,
+      thinkingTokenBudgetLevels: this.config.thinkingTokenBudgetLevels,
+    });
   }
 
   /**
@@ -1032,107 +1164,14 @@ class AxAIGoogleGeminiImpl
 
     const { tools, toolConfig } = this.buildToolState(req, config);
 
-    const thinkingConfig: AxAIGoogleGeminiGenerationConfig['thinkingConfig'] =
-      {};
-
-    if (this.config.thinking?.includeThoughts) {
-      thinkingConfig.includeThoughts = true;
-    }
-
-    if (this.config.thinking?.thinkingTokenBudget) {
-      thinkingConfig.thinkingBudget = this.config.thinking.thinkingTokenBudget;
-    }
-    // thinkingLevel is only supported by Gemini 3+ models
-    // Gemini 2.5 and older models use numeric thinkingBudget instead
-    if (this.config.thinking?.thinkingLevel && isGemini3Model(model)) {
-      thinkingConfig.thinkingLevel = this.config.thinking.thinkingLevel;
-    }
-
-    // Then, override based on prompt-specific config
-    if (config?.thinkingTokenBudget) {
-      //The thinkingBudget must be an integer in the range 0 to 24576
-      const effectiveMappings = this.getEffectiveMappings(model);
-      const levels = effectiveMappings.thinkingTokenBudgetLevels;
-      const isGemini3 = isGemini3Model(model);
-
-      if (isGemini3) {
-        // Gemini 3 uses thinkingLevel instead of numeric thinkingBudget
-        // Gemini 3 Flash: supports minimal, low, medium, high
-        // Gemini 3 Pro: supports only low, high
-        const isPro = isGemini3Pro(model);
-        const mapping = effectiveMappings.thinkingLevelMapping;
-
-        if (config.thinkingTokenBudget === 'none') {
-          // Gemini 3+ cannot disable thinking - 'minimal' is the lowest level
-          // Map 'none' to 'minimal'. Note: includeThoughts is controlled separately by showThoughts option.
-          thinkingConfig.thinkingLevel =
-            mapping?.minimal ?? ('minimal' as AxAIGoogleGeminiThinkingLevel);
-        } else {
-          // Use configurable mapping
-          const levelToMap =
-            config.thinkingTokenBudget as keyof AxAIGoogleGeminiThinkingLevelMapping;
-          let mappedLevel = mapping?.[levelToMap];
-
-          // Fallback to defaults if not configured
-          if (!mappedLevel) {
-            mappedLevel =
-              levelToMap === 'highest'
-                ? 'high'
-                : (levelToMap as AxAIGoogleGeminiThinkingLevel);
-          }
-
-          thinkingConfig.thinkingLevel = mappedLevel;
-        }
-
-        // Pro only supports 'low' and 'high' - validate/adjust
-        if (isPro && thinkingConfig.thinkingLevel) {
-          const level = thinkingConfig.thinkingLevel;
-          if (level !== 'low' && level !== 'high') {
-            // Adjust: minimal -> low, medium -> high
-            thinkingConfig.thinkingLevel = level === 'minimal' ? 'low' : 'high';
-          }
-        }
-      } else {
-        // Non-Gemini 3 models use numeric thinkingBudget
-        switch (config.thinkingTokenBudget) {
-          case 'none':
-            thinkingConfig.thinkingBudget = 0;
-            thinkingConfig.includeThoughts = false;
-            delete thinkingConfig.thinkingLevel;
-            break;
-          case 'minimal':
-            thinkingConfig.thinkingBudget = levels?.minimal ?? 200;
-            break;
-          case 'low':
-            thinkingConfig.thinkingBudget = levels?.low ?? 800;
-            break;
-          case 'medium':
-            thinkingConfig.thinkingBudget = levels?.medium ?? 5000;
-            break;
-          case 'high':
-            thinkingConfig.thinkingBudget = levels?.high ?? 10000;
-            break;
-          case 'highest':
-            thinkingConfig.thinkingBudget = levels?.highest ?? 24500;
-            break;
-        }
-      }
-    }
-
-    // If thinkingLevel is set, remove thinkingBudget as they cannot be used together
-    if (thinkingConfig.thinkingLevel) {
-      delete thinkingConfig.thinkingBudget;
-    }
-
-    // Clean up thinking parameters for incompatible models
-    // thinkingLevel is only supported by Gemini 3+ models
-    if (!isGemini3Model(model)) {
-      delete thinkingConfig.thinkingLevel;
-    }
-    // thinkingBudget is not supported by Gemini 3+ models (which use thinkingLevel instead)
-    if (isGemini3Model(model)) {
-      delete thinkingConfig.thinkingBudget;
-    }
+    const effectiveMappings = this.getEffectiveMappings(model);
+    const thinkingConfig = resolveGeminiThinkingConfig({
+      model,
+      direct: this.config.thinking,
+      logicalLevel: config?.thinkingTokenBudget,
+      showThoughts: config?.showThoughts,
+      ...effectiveMappings,
+    });
 
     // Validate: maxTokens cannot be set when thinkingLevel is used (Gemini limitation)
     const effectiveMaxTokens =
@@ -1143,13 +1182,6 @@ class AxAIGoogleGeminiImpl
           `When thinking is enabled, the model manages output tokens automatically. ` +
           `Remove the maxTokens setting or disable thinking.`
       );
-    }
-
-    if (config?.showThoughts !== undefined) {
-      // Only override includeThoughts if thinkingTokenBudget is not 'none'
-      if (config?.thinkingTokenBudget !== 'none') {
-        thinkingConfig.includeThoughts = config.showThoughts;
-      }
     }
 
     const serverManagedSampling = usesServerManagedSampling(model as string);
@@ -1813,6 +1845,14 @@ class AxAIGoogleGeminiImpl
 
     // Build the generation config using existing logic
     const serverManagedSampling = usesServerManagedSampling(model as string);
+    const effectiveMappings = this.getEffectiveMappings(model);
+    const thinkingConfig = resolveGeminiThinkingConfig({
+      model,
+      direct: this.config.thinking,
+      logicalLevel: options.thinkingTokenBudget,
+      showThoughts: options.showThoughts,
+      ...effectiveMappings,
+    });
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       ...(!serverManagedSampling
@@ -1833,6 +1873,7 @@ class AxAIGoogleGeminiImpl
       stopSequences:
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
+      ...(Object.keys(thinkingConfig).length > 0 ? { thinkingConfig } : {}),
     };
 
     // Gemini 3+ models require a minimum temperature of 1.0
@@ -2397,6 +2438,13 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       // Map exact numeric thinking budget to the closest supported level
       const numericBudget = cfg.thinking?.thinkingTokenBudget;
       if (typeof numericBudget === 'number') {
+        const presetModel = String(anyItem.model ?? Config.model);
+        if (isGemini3Model(presetModel)) {
+          throw new Error(
+            `Gemini 3 models (${presetModel}) do not support numeric thinkingTokenBudget. ` +
+              `Use a logical thinkingTokenBudget level instead.`
+          );
+        }
         const levels = Config.thinkingTokenBudgetLevels;
         const candidates = [
           ['minimal', levels?.minimal ?? 200],

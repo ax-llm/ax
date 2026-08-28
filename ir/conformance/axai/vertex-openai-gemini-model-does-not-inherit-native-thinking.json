@@ -1,0 +1,44 @@
+{
+  "base_url": "https://vertex.example.test/v1",
+  "expected_transport_json_absent": [
+    "generationConfig",
+    "thinkingConfig",
+    "thinkingLevel",
+    "thinking_level",
+    "thinkingBudget",
+    "thinking_budget"
+  ],
+  "kind": "ai_chat",
+  "model": "gemini-3.5-flash",
+  "name": "vertex-openai-gemini-model-does-not-inherit-native-thinking",
+  "provider": "vertex-ai",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "think hard",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false,
+      "thinkingTokenBudget": "high"
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "role": "assistant"
+            }
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

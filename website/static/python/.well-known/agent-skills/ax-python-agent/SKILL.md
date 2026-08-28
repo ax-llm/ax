@@ -1,7 +1,7 @@
 ---
 name: "ax-python-agent"
 description: "Use when writing Python code with `axllm` for agents, child delegation, tools, MCP, citations, persistent playbook learning, stage instructions, runtime state, final typed responses, and direct-respond executor skipping."
-version: "24.0.10"
+version: "24.0.12"
 ---
 # AxAgent For Python
 

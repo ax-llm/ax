@@ -5714,6 +5714,9 @@ def _gemini_live_bidi_build_setup(descriptor: Any, request: Any) -> Any:
     voice_config["prebuiltVoiceConfig"] = prebuilt_voice
     speech_config["voiceConfig"] = voice_config
     generation_config["speechConfig"] = speech_config
+    empty_model_config = {}
+    model_config = _core_get(request, "model_config", empty_model_config)
+    _gemini_apply_thinking_config_impl(generation_config, request_model, model_config)
     setup["generationConfig"] = generation_config
     include_transcript = _core_get(request_output_audio, "transcript", True)
     if include_transcript:
@@ -7897,7 +7900,7 @@ def _gemini_build_chat_request(request: AxChatRequest, options: Any, is_vertex: 
     generation_config["responseMimeType"] = "text/plain"
     empty_model_config = {}
     model_config = _core_get(request, "model_config", empty_model_config)
-    _gemini_apply_model_config_impl(generation_config, model_config, server_managed_sampling)
+    _gemini_apply_model_config_impl(generation_config, model, model_config, server_managed_sampling)
     response_format = _core_get(request, "response_format", None)
     has_response_format = _core_truthy(response_format)
     if has_response_format:
@@ -7949,7 +7952,238 @@ def _gemini_build_chat_request(request: AxChatRequest, options: Any, is_vertex: 
     return payload
 
 
-def _gemini_apply_model_config_impl(payload: Any, model_config: Any, server_managed_sampling: bool) -> None:
+def _gemini_clamp_thinking_level_impl(model: str, level: str) -> str:
+    _core_coverage_mark("_gemini_clamp_thinking_level_impl")
+    is_minimal = _core_eq(level, "minimal")
+    is_low = _core_eq(level, "low")
+    is_medium = _core_eq(level, "medium")
+    is_high = _core_eq(level, "high")
+    is_minimal_or_low = _core_or(is_minimal, is_low)
+    is_medium_or_high = _core_or(is_medium, is_high)
+    is_supported_level = _core_or(is_minimal_or_low, is_medium_or_high)
+    if is_supported_level:
+        pass
+    else:
+        message = _core_string_format("unsupported Gemini thinking level: {}", level)
+        error = _core_ai_error_unsupported(message)
+        raise error
+    is_gemini3 = _core_contains(model, "gemini-3")
+    is_image_name = _core_contains(model, "-image")
+    is_image = _core_and(is_gemini3, is_image_name)
+    if is_image:
+        if is_minimal_or_low:
+            return "minimal"
+        else:
+            pass
+        return "high"
+    else:
+        pass
+    is_legacy_pro_name = _core_contains(model, "gemini-3-pro")
+    is_legacy_pro = _core_and(is_gemini3, is_legacy_pro_name)
+    if is_legacy_pro:
+        if is_minimal_or_low:
+            return "low"
+        else:
+            pass
+        return "high"
+    else:
+        pass
+    is_37_flash = _core_contains(model, "gemini-3.7-flash")
+    is_31_pro = _core_contains(model, "gemini-3.1-pro")
+    no_minimal_name = _core_or(is_37_flash, is_31_pro)
+    no_minimal = _core_and(is_gemini3, no_minimal_name)
+    clamp_minimal = _core_and(no_minimal, is_minimal)
+    if clamp_minimal:
+        return "low"
+    else:
+        pass
+    return level
+
+
+def _gemini_apply_thinking_config_impl(payload: Any, model: str, model_config: Any) -> None:
+    _core_coverage_mark("_gemini_apply_thinking_config_impl")
+    thinking_config = {}
+    has_thinking = False
+    budget_is_none = False
+    is_gemini3 = _core_contains(model, "gemini-3")
+    is_25_pro = _core_contains(model, "gemini-2.5-pro")
+    empty_level_mapping = {}
+    level_mapping_snake = _core_get(model_config, "thinking_level_mapping", empty_level_mapping)
+    level_mapping = _core_get(model_config, "thinkingLevelMapping", level_mapping_snake)
+    empty_budget_levels = {}
+    budget_levels_snake = _core_get(model_config, "thinking_token_budget_levels", empty_budget_levels)
+    budget_levels = _core_get(model_config, "thinkingTokenBudgetLevels", budget_levels_snake)
+    minimum_budget = _core_get(budget_levels, "minimal", 200)
+    low_budget = _core_get(budget_levels, "low", 800)
+    medium_budget = _core_get(budget_levels, "medium", 5000)
+    high_budget = _core_get(budget_levels, "high", 10000)
+    highest_budget = _core_get(budget_levels, "highest", 24500)
+    budget_snake = _core_get(model_config, "thinking_token_budget", None)
+    budget = _core_get(model_config, "thinkingTokenBudget", budget_snake)
+    has_budget = _core_is_not_none(budget)
+    if has_budget:
+        budget_is_number = _core_type_is(budget, "number")
+        budget_is_string = _core_type_is(budget, "string")
+        if is_gemini3:
+            if budget_is_number:
+                message = _core_string_format("Gemini 3 model {} does not support numeric thinkingTokenBudget", model)
+                error = _core_ai_error_unsupported(message)
+                raise error
+            else:
+                pass
+            if budget_is_string:
+                pass
+            else:
+                error = _core_ai_error_unsupported("Gemini thinkingTokenBudget must be a number or logical level")
+                raise error
+            level = ""
+            is_none = _core_eq(budget, "none")
+            if is_none:
+                level = "minimal"
+                budget_is_none = True
+            else:
+                pass
+            is_minimal = _core_eq(budget, "minimal")
+            if is_minimal:
+                level = "minimal"
+            else:
+                pass
+            is_low = _core_eq(budget, "low")
+            if is_low:
+                level = "low"
+            else:
+                pass
+            is_medium = _core_eq(budget, "medium")
+            if is_medium:
+                level = "medium"
+            else:
+                pass
+            is_high = _core_eq(budget, "high")
+            if is_high:
+                level = "high"
+            else:
+                pass
+            is_highest = _core_eq(budget, "highest")
+            if is_highest:
+                level = "high"
+            else:
+                pass
+            unknown_level = _core_eq(level, "")
+            if unknown_level:
+                message = _core_string_format("unsupported Gemini thinkingTokenBudget level: {}", budget)
+                error = _core_ai_error_unsupported(message)
+                raise error
+            else:
+                pass
+            mapping_key = budget
+            if is_none:
+                mapping_key = "minimal"
+            else:
+                pass
+            mapped_level = _core_get(level_mapping, mapping_key, level)
+            clamped_level = _gemini_clamp_thinking_level_impl(model, mapped_level)
+            thinking_config["thinkingLevel"] = clamped_level
+        else:
+            if budget_is_number:
+                numeric_budget = budget
+                is_zero = _core_eq(budget, 0)
+                clamp_pro_zero = _core_and(is_25_pro, is_zero)
+                if clamp_pro_zero:
+                    numeric_budget = minimum_budget
+                else:
+                    pass
+                thinking_config["thinkingBudget"] = numeric_budget
+            else:
+                if budget_is_string:
+                    pass
+                else:
+                    error = _core_ai_error_unsupported("Gemini thinkingTokenBudget must be a number or logical level")
+                    raise error
+                numeric_budget = -1
+                is_none = _core_eq(budget, "none")
+                if is_none:
+                    numeric_budget = 0
+                    if is_25_pro:
+                        numeric_budget = minimum_budget
+                    else:
+                        pass
+                    budget_is_none = True
+                else:
+                    pass
+                is_minimal = _core_eq(budget, "minimal")
+                if is_minimal:
+                    numeric_budget = minimum_budget
+                else:
+                    pass
+                is_low = _core_eq(budget, "low")
+                if is_low:
+                    numeric_budget = low_budget
+                else:
+                    pass
+                is_medium = _core_eq(budget, "medium")
+                if is_medium:
+                    numeric_budget = medium_budget
+                else:
+                    pass
+                is_high = _core_eq(budget, "high")
+                if is_high:
+                    numeric_budget = high_budget
+                else:
+                    pass
+                is_highest = _core_eq(budget, "highest")
+                if is_highest:
+                    numeric_budget = highest_budget
+                else:
+                    pass
+                unknown_level = _core_eq(numeric_budget, -1)
+                if unknown_level:
+                    message = _core_string_format("unsupported Gemini thinkingTokenBudget level: {}", budget)
+                    error = _core_ai_error_unsupported(message)
+                    raise error
+                else:
+                    pass
+                thinking_config["thinkingBudget"] = numeric_budget
+        has_thinking = True
+    else:
+        pass
+    level_snake = _core_get(model_config, "thinking_level", None)
+    explicit_level = _core_get(model_config, "thinkingLevel", level_snake)
+    has_explicit_level = _core_is_not_none(explicit_level)
+    use_explicit_level = _core_and(is_gemini3, has_explicit_level)
+    if use_explicit_level:
+        level_is_string = _core_type_is(explicit_level, "string")
+        if level_is_string:
+            pass
+        else:
+            error = _core_ai_error_unsupported("Gemini thinkingLevel must be a logical level")
+            raise error
+        clamped_level = _gemini_clamp_thinking_level_impl(model, explicit_level)
+        _core_map_delete(thinking_config, "thinkingBudget")
+        thinking_config["thinkingLevel"] = clamped_level
+        has_thinking = True
+    else:
+        pass
+    show_snake = _core_get(model_config, "show_thoughts", None)
+    show_thoughts = _core_get(model_config, "showThoughts", show_snake)
+    has_show = _core_is_not_none(show_thoughts)
+    if has_show:
+        thinking_config["includeThoughts"] = show_thoughts
+        has_thinking = True
+    else:
+        pass
+    if budget_is_none:
+        thinking_config["includeThoughts"] = False
+        has_thinking = True
+    else:
+        pass
+    if has_thinking:
+        payload["thinkingConfig"] = thinking_config
+    else:
+        pass
+    return None
+
+
+def _gemini_apply_model_config_impl(payload: Any, model: str, model_config: Any, server_managed_sampling: bool) -> None:
     _core_coverage_mark("_gemini_apply_model_config_impl")
     _openai_copy_config_key_impl(payload, model_config, "maxTokens", "maxOutputTokens")
     _openai_copy_config_key_impl(payload, model_config, "max_tokens", "maxOutputTokens")
@@ -7967,28 +8201,7 @@ def _gemini_apply_model_config_impl(payload: Any, model_config: Any, server_mana
     _openai_copy_config_key_impl(payload, model_config, "n", "candidateCount")
     _openai_copy_config_key_impl(payload, model_config, "stopSequences", "stopSequences")
     _openai_copy_config_key_impl(payload, model_config, "stop_sequences", "stopSequences")
-    thinking_config = {}
-    has_thinking = False
-    budget_snake = _core_get(model_config, "thinking_token_budget", None)
-    budget = _core_get(model_config, "thinkingTokenBudget", budget_snake)
-    has_budget = _core_is_not_none(budget)
-    if has_budget:
-        thinking_config["thinkingBudget"] = budget
-        has_thinking = True
-    else:
-        pass
-    show_snake = _core_get(model_config, "show_thoughts", None)
-    show_thoughts = _core_get(model_config, "showThoughts", show_snake)
-    has_show = _core_is_not_none(show_thoughts)
-    if has_show:
-        thinking_config["includeThoughts"] = show_thoughts
-        has_thinking = True
-    else:
-        pass
-    if has_thinking:
-        payload["thinkingConfig"] = thinking_config
-    else:
-        pass
+    _gemini_apply_thinking_config_impl(payload, model, model_config)
     return None
 
 
