@@ -1,0 +1,104 @@
+{
+  "expected_output": {
+    "model_usage": null,
+    "remote_id": "resp_forced_tool",
+    "results": [
+      {
+        "content": "",
+        "finish_reason": "function_call",
+        "function_calls": [
+          {
+            "function": {
+              "name": "search",
+              "params": {
+                "query": "Search docs"
+              }
+            },
+            "id": "call_forced",
+            "type": "function"
+          }
+        ],
+        "id": "fc_forced",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_json_absent": ["tool_choice.function"],
+  "expected_transport_request": {
+    "json": {
+      "tool_choice": {
+        "name": "search",
+        "type": "function"
+      },
+      "tools": [
+        {
+          "description": "Search docs",
+          "name": "search",
+          "parameters": {
+            "properties": {
+              "query": {
+                "type": "string"
+              }
+            },
+            "required": ["query"],
+            "type": "object"
+          },
+          "type": "function"
+        }
+      ]
+    }
+  },
+  "kind": "ai_chat",
+  "name": "responses-forced-function-tool-choice",
+  "provider": "openai-responses",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "Search docs",
+        "role": "user"
+      }
+    ],
+    "function_call": {
+      "function": {
+        "name": "search"
+      },
+      "type": "function"
+    },
+    "functions": [
+      {
+        "description": "Search docs",
+        "name": "search",
+        "parameters": {
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": ["query"],
+          "type": "object"
+        }
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "id": "resp_forced_tool",
+        "model": "gpt-5-mini",
+        "output": [
+          {
+            "arguments": "{\"query\":\"Search docs\"}",
+            "call_id": "call_forced",
+            "id": "fc_forced",
+            "name": "search",
+            "type": "function_call"
+          }
+        ]
+      },
+      "status": 200
+    }
+  ]
+}

@@ -38302,6 +38302,7 @@ fn openai_responses_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, 
     let mut v_has_reasoning = CoreValue::Null;
     let mut v_has_response_format = CoreValue::Null;
     let mut v_has_thought = CoreValue::Null;
+    let mut v_has_tool_choice = CoreValue::Null;
     let mut v_include = CoreValue::Null;
     let mut v_input = CoreValue::Null;
     let mut v_instructions = CoreValue::Null;
@@ -38452,16 +38453,20 @@ fn openai_responses_build_chat_request(args: &[CoreValue]) -> Result<CoreValue, 
             core_append(&v_tools, v_tool.clone())?;
         }
         core_set(&v_payload, CoreValue::from("tools"), v_tools.clone())?;
-        v_tool_choice = core_get(
+        v_function_call = core_get(
             &v_request,
             &CoreValue::from("function_call"),
             CoreValue::from("auto"),
         );
-        core_set(
-            &v_payload,
-            CoreValue::from("tool_choice"),
-            v_tool_choice.clone(),
-        )?;
+        v_tool_choice = _openai_responses_tool_choice_impl(&[v_function_call.clone()])?;
+        v_has_tool_choice = core_is_not_none(&[v_tool_choice.clone()])?;
+        if core_truthy(&v_has_tool_choice) {
+            core_set(
+                &v_payload,
+                CoreValue::from("tool_choice"),
+                v_tool_choice.clone(),
+            )?;
+        }
     }
     v_response_format = core_get(
         &v_request,
@@ -38697,6 +38702,75 @@ fn _openai_responses_tool_spec_impl(args: &[CoreValue]) -> Result<CoreValue, AxE
     )?;
     core_set(&v_tool, CoreValue::from("parameters"), v_parameters.clone())?;
     return Ok(v_tool.clone());
+}
+
+#[allow(
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unreachable_code,
+    clippy::all
+)]
+fn _openai_responses_tool_choice_impl(args: &[CoreValue]) -> Result<CoreValue, AxError> {
+    axir_coverage_mark("_openai_responses_tool_choice_impl");
+    let mut v_function_call = core_arg(args, 0);
+    let mut v_choice = CoreValue::Null;
+    let mut v_function = CoreValue::Null;
+    let mut v_function_is_object = CoreValue::Null;
+    let mut v_has_name = CoreValue::Null;
+    let mut v_is_auto = CoreValue::Null;
+    let mut v_is_function_choice = CoreValue::Null;
+    let mut v_is_none = CoreValue::Null;
+    let mut v_is_object = CoreValue::Null;
+    let mut v_is_required = CoreValue::Null;
+    let mut v_name = CoreValue::Null;
+    let mut v_none = CoreValue::Null;
+    let mut v_type = CoreValue::Null;
+    v_is_none = core_eq(&[v_function_call.clone(), CoreValue::from("none")])?;
+    if core_truthy(&v_is_none) {
+        return Ok(v_function_call.clone());
+    }
+    v_is_auto = core_eq(&[v_function_call.clone(), CoreValue::from("auto")])?;
+    if core_truthy(&v_is_auto) {
+        return Ok(v_function_call.clone());
+    }
+    v_is_required = core_eq(&[v_function_call.clone(), CoreValue::from("required")])?;
+    if core_truthy(&v_is_required) {
+        return Ok(v_function_call.clone());
+    }
+    v_is_object = core_type_is(&v_function_call, CoreValue::from("object"));
+    if core_truthy(&v_is_object) {
+        v_type = core_get(
+            &v_function_call,
+            &CoreValue::from("type"),
+            CoreValue::from(""),
+        );
+        v_is_function_choice = core_eq(&[v_type.clone(), CoreValue::from("function")])?;
+        if core_truthy(&v_is_function_choice) {
+            v_function = core_get(
+                &v_function_call,
+                &CoreValue::from("function"),
+                CoreValue::Null,
+            );
+            v_function_is_object = core_type_is(&v_function, CoreValue::from("object"));
+            if core_truthy(&v_function_is_object) {
+                v_name = core_get(&v_function, &CoreValue::from("name"), CoreValue::Null);
+                v_has_name = core_truthy_value(&[v_name.clone()])?;
+                if core_truthy(&v_has_name) {
+                    v_choice = CoreValue::new_map();
+                    core_set(
+                        &v_choice,
+                        CoreValue::from("type"),
+                        CoreValue::from("function"),
+                    )?;
+                    core_set(&v_choice, CoreValue::from("name"), v_name.clone())?;
+                    return Ok(v_choice.clone());
+                }
+            }
+        }
+    }
+    v_none = core_none(&[])?;
+    return Ok(v_none.clone());
 }
 
 #[allow(
@@ -80707,4 +80781,4 @@ fn mcp_oauth_validate_issuer(args: &[CoreValue]) -> Result<CoreValue, AxError> {
     return Ok(v_out.clone());
 }
 
-// END AXIR CORE EMITTED FUNCTIONS (593 of 593 core functions)
+// END AXIR CORE EMITTED FUNCTIONS (594 of 594 core functions)

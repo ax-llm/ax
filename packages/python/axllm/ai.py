@@ -6900,8 +6900,13 @@ def openai_responses_build_chat_request(request: AxChatRequest) -> Any:
             tool = _openai_responses_tool_spec_impl(fn)
             tools.append(tool)
         payload["tools"] = tools
-        tool_choice = _core_get(request, "function_call", "auto")
-        payload["tool_choice"] = tool_choice
+        function_call = _core_get(request, "function_call", "auto")
+        tool_choice = _openai_responses_tool_choice_impl(function_call)
+        has_tool_choice = _core_is_not_none(tool_choice)
+        if has_tool_choice:
+            payload["tool_choice"] = tool_choice
+        else:
+            pass
     else:
         pass
     response_format = _core_get(request, "response_format", None)
@@ -6994,6 +6999,50 @@ def _openai_responses_tool_spec_impl(fn: Any) -> Any:
     tool["description"] = description
     tool["parameters"] = parameters
     return tool
+
+
+def _openai_responses_tool_choice_impl(function_call: Any) -> Any:
+    _core_coverage_mark("_openai_responses_tool_choice_impl")
+    is_none = _core_eq(function_call, "none")
+    if is_none:
+        return function_call
+    else:
+        pass
+    is_auto = _core_eq(function_call, "auto")
+    if is_auto:
+        return function_call
+    else:
+        pass
+    is_required = _core_eq(function_call, "required")
+    if is_required:
+        return function_call
+    else:
+        pass
+    is_object = _core_type_is(function_call, "object")
+    if is_object:
+        type = _core_get(function_call, "type", "")
+        is_function_choice = _core_eq(type, "function")
+        if is_function_choice:
+            function = _core_get(function_call, "function", None)
+            function_is_object = _core_type_is(function, "object")
+            if function_is_object:
+                name = _core_get(function, "name", None)
+                has_name = _core_truthy(name)
+                if has_name:
+                    choice = {}
+                    choice["type"] = "function"
+                    choice["name"] = name
+                    return choice
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass
+    else:
+        pass
+    none = _core_none()
+    return none
 
 
 def _openai_responses_input_item_impl(message: Any) -> Any:
