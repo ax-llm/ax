@@ -86,13 +86,13 @@ describe('SSEParser', () => {
     ).resolves.toEqual({ events: ['\n value  '], dropped: [] });
   });
 
-  it('compares field names literally and ignores unknown colonless fields', async () => {
+  it('compares field names literally and ignores unknown fields without colons', async () => {
     await expect(
       parse([' data: {"ignored":true}\nunknown\n\ndata: {"index":0}\n\n'])
     ).resolves.toEqual({ events: [{ index: 0 }], dropped: [] });
   });
 
-  it('processes a colonless data field as an empty data value', async () => {
+  it('processes a data field without a colon as an empty value', async () => {
     await expect(
       parse(['data\n\n'], { dataParser: (data) => data })
     ).resolves.toEqual({ events: [''], dropped: [] });
