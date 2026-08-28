@@ -3305,6 +3305,85 @@ writeFixture('responses-tool-call', {
   },
 });
 
+writeFixture('responses-forced-function-tool-choice', {
+  kind: 'ai_chat',
+  provider: 'openai-responses',
+  request: {
+    chat_prompt: [{ role: 'user', content: 'Search docs' }],
+    functions: [
+      {
+        name: 'search',
+        description: 'Search docs',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+          required: ['query'],
+        },
+      },
+    ],
+    function_call: {
+      type: 'function',
+      function: { name: 'search' },
+    },
+    model_config: { stream: false },
+  },
+  transport_responses: [
+    {
+      status: 200,
+      json: {
+        id: 'resp_forced_tool',
+        model: responsesDefaultModel,
+        output: [
+          {
+            id: 'fc_forced',
+            type: 'function_call',
+            call_id: 'call_forced',
+            name: 'search',
+            arguments: '{"query":"Search docs"}',
+          },
+        ],
+      },
+    },
+  ],
+  expected_output: {
+    results: [
+      {
+        index: 0,
+        id: 'fc_forced',
+        content: '',
+        function_calls: [
+          {
+            id: 'call_forced',
+            type: 'function',
+            function: { name: 'search', params: { query: 'Search docs' } },
+          },
+        ],
+        finish_reason: 'function_call',
+      },
+    ],
+    remote_id: 'resp_forced_tool',
+    model_usage: null,
+  },
+  expected_transport_request: {
+    json: {
+      tools: [
+        {
+          type: 'function',
+          name: 'search',
+          description: 'Search docs',
+          parameters: {
+            type: 'object',
+            properties: { query: { type: 'string' } },
+            required: ['query'],
+          },
+        },
+      ],
+      tool_choice: { type: 'function', name: 'search' },
+    },
+  },
+  expected_transport_json_absent: ['tool_choice.function'],
+});
+
 writeFixture('responses-streaming-text', {
   kind: 'ai_stream',
   provider: 'openai-responses',

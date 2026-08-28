@@ -42,17 +42,34 @@ export class SSEParser<T = unknown> extends TransformStream<string, T> {
   }
 
   private handleFlush(controller: TransformStreamDefaultController<T>): void {
-    this.processBuffer(controller);
+    this.processBuffer(controller, true);
     if (this.currentEvent.rawData) {
       this.processEvent(controller);
     }
   }
 
-  private processBuffer(controller: TransformStreamDefaultController<T>): void {
+  private processBuffer(
+    controller: TransformStreamDefaultController<T>,
+    isFinal = false
+  ): void {
+    // A \r\n line terminator can straddle a chunk boundary. Normalizing the
+    // buffer while it still ends in \r would turn that half into a \n and
+    // consume it as a line terminator, and the \n arriving in the next chunk
+    // would then read as a blank line -- dispatching the event early and
+    // splitting multi-line data fields in two. Hold a trailing \r back until
+    // the next chunk shows what follows it. At the end of the stream nothing
+    // follows, so the \r is a terminator in its own right.
+    let pendingBuffer = this.buffer;
+    let pendingCarriageReturn = '';
+    if (!isFinal && pendingBuffer.endsWith('\r')) {
+      pendingBuffer = pendingBuffer.slice(0, -1);
+      pendingCarriageReturn = '\r';
+    }
+
     // Normalize newlines to \n
-    const normalizedBuffer = this.buffer.replace(/\r\n|\r/g, '\n');
+    const normalizedBuffer = pendingBuffer.replace(/\r\n|\r/g, '\n');
     const lines = normalizedBuffer.split('\n');
-    this.buffer = lines.pop() || '';
+    this.buffer = (lines.pop() || '') + pendingCarriageReturn;
 
     for (const line of lines) {
       if (line === '') {

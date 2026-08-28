@@ -8500,8 +8500,12 @@ Value Core::openai_responses_build_chat_request(Value request) {
       Core::append(tools, tool);
     }
     Core::set(payload, Value("tools"), tools);
-    Value tool_choice = Core::get(request, Value("function_call"), Value("auto"));
-    Core::set(payload, Value("tool_choice"), tool_choice);
+    Value function_call = Core::get(request, Value("function_call"), Value("auto"));
+    Value tool_choice = Core::_openai_responses_tool_choice_impl(function_call);
+    Value has_tool_choice = Core::is_not_none(tool_choice);
+    if (Core::truthy(has_tool_choice)) {
+      Core::set(payload, Value("tool_choice"), tool_choice);
+    }
   }
   Value response_format = Core::get(request, Value("response_format"), Value());
   Value has_response_format = Core::truthy_value(response_format);
@@ -8591,6 +8595,43 @@ Value Core::_openai_responses_tool_spec_impl(Value fn) {
   Core::set(tool, Value("description"), description);
   Core::set(tool, Value("parameters"), parameters);
   return tool;
+}
+
+Value Core::_openai_responses_tool_choice_impl(Value function_call) {
+  axir_coverage_mark("_openai_responses_tool_choice_impl");
+  Value is_none = Core::eq(function_call, Value("none"));
+  if (Core::truthy(is_none)) {
+    return function_call;
+  }
+  Value is_auto = Core::eq(function_call, Value("auto"));
+  if (Core::truthy(is_auto)) {
+    return function_call;
+  }
+  Value is_required = Core::eq(function_call, Value("required"));
+  if (Core::truthy(is_required)) {
+    return function_call;
+  }
+  Value is_object = Core::type_is(function_call, Value("object"));
+  if (Core::truthy(is_object)) {
+    Value type = Core::get(function_call, Value("type"), Value(""));
+    Value is_function_choice = Core::eq(type, Value("function"));
+    if (Core::truthy(is_function_choice)) {
+      Value function = Core::get(function_call, Value("function"), Value());
+      Value function_is_object = Core::type_is(function, Value("object"));
+      if (Core::truthy(function_is_object)) {
+        Value name = Core::get(function, Value("name"), Value());
+        Value has_name = Core::truthy_value(name);
+        if (Core::truthy(has_name)) {
+          Value choice = Value::object();
+          Core::set(choice, Value("type"), Value("function"));
+          Core::set(choice, Value("name"), name);
+          return choice;
+        }
+      }
+    }
+  }
+  Value none = Core::none();
+  return none;
 }
 
 Value Core::_openai_responses_input_item_impl(Value message) {

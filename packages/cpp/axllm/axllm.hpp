@@ -489,6 +489,7 @@ struct Core {
   static Value openai_responses_build_chat_request(Value request);
   static Value _openai_responses_apply_model_config_impl(Value payload, Value model_config);
   static Value _openai_responses_tool_spec_impl(Value fn);
+  static Value _openai_responses_tool_choice_impl(Value function_call);
   static Value _openai_responses_input_item_impl(Value message);
   static Value _openai_responses_content_parts_impl(Value content, Value role);
   static Value _openai_responses_content_part_impl(Value part, Value role);

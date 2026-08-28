@@ -945,25 +945,56 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
             const decoder = new TextDecoder();
             let buffer = '';
 
+            // The SSE spec allows \r\n and \r line endings; the Node
+            // SSEParser path in this file normalizes them, so this one must
+            // too or a \r\n\r\n frame boundary is never found and the buffer
+            // grows for the whole response. A trailing \r may be the first
+            // half of a \r\n split across chunk boundaries, so hold it back
+            // until the next chunk shows what follows it; at end of stream
+            // nothing follows, so it is a terminator in its own right.
+            const normalizeBuffer = (isFinal: boolean): void => {
+              let pendingCarriageReturn = '';
+              if (!isFinal && buffer.endsWith('\r')) {
+                buffer = buffer.slice(0, -1);
+                pendingCarriageReturn = '\r';
+              }
+              buffer = buffer.replace(/\r\n|\r/g, '\n') + pendingCarriageReturn;
+            };
+
             // Returns true if the caller should stop reading (e.g. saw [DONE]).
             const processEvent = (event: string): boolean => {
               if (!event.trim()) return false;
 
               const lines = event.split('\n');
-              let data = '';
+              const dataLines: string[] = [];
               let eventType = 'message';
 
               for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  data = line.slice(6);
-                } else if (line.startsWith('event: ')) {
-                  eventType = line.slice(7);
+                // Comment line.
+                if (line.startsWith(':')) continue;
+
+                const colonIndex = line.indexOf(':');
+                if (colonIndex === -1) continue;
+
+                const field = line.slice(0, colonIndex);
+                let value = line.slice(colonIndex + 1);
+                // A single space after the colon is part of the delimiter,
+                // and `data:{...}` with no space at all is valid.
+                if (value.startsWith(' ')) value = value.slice(1);
+
+                if (field === 'data') {
+                  // Repeated data fields are one payload joined with \n, the
+                  // same way the Node SSEParser path assembles them.
+                  dataLines.push(value);
+                } else if (field === 'event') {
+                  eventType = value;
                 }
               }
 
+              const data = dataLines.join('\n');
               if (!data) return false;
 
-              if (data === '[DONE]') {
+              if (data.trim() === '[DONE]') {
                 controller.close();
                 return true;
               }
@@ -996,6 +1027,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                 while (true) {
                   const { done, value } = await reader.read();
                   if (done) {
+                    normalizeBuffer(true);
                     // Flush any trailing event that wasn't terminated by \n\n.
                     // Providers are allowed to end the stream without a final
                     // blank line; the Node SSEParser path handles this via
@@ -1014,6 +1046,7 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
                   }
 
                   buffer += decoder.decode(value, { stream: true });
+                  normalizeBuffer(false);
 
                   const events = buffer.split('\n\n');
                   buffer = events.pop() || '';
