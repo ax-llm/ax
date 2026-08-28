@@ -4262,8 +4262,12 @@ module @ax.provider version "0.1" {
           core.append %tools, %tool
         }
         core.set %payload["tools"] = %tools
-        %tool_choice = core.get %request["function_call"] default "auto"
-        core.set %payload["tool_choice"] = %tool_choice
+        %function_call = core.get %request["function_call"] default "auto"
+        %tool_choice = core.call @openai_responses_tool_choice_impl(%function_call)
+        %has_tool_choice = core.call intrinsic.is_not_none(%tool_choice)
+        core.if %has_tool_choice {
+          core.set %payload["tool_choice"] = %tool_choice
+        }
       }
       %response_format = core.get %request["response_format"]
       %has_response_format = core.call intrinsic.truthy(%response_format)
@@ -4363,6 +4367,49 @@ module @ax.provider version "0.1" {
       core.set %tool["description"] = %description
       core.set %tool["parameters"] = %parameters
       core.return %tool
+    }
+  }
+
+  op ax.provider.semantic @openai_responses_tool_choice_impl {
+    attr core_kind = "func"
+    attr emit_module = "ai"
+    attr private = true
+    tag "openai-responses-tool-choice-core-helper"
+    type signature = "(json) -> json"
+    body @entry(%function_call: json) {
+      %is_none = core.call intrinsic.eq(%function_call, "none")
+      core.if %is_none {
+        core.return %function_call
+      }
+      %is_auto = core.call intrinsic.eq(%function_call, "auto")
+      core.if %is_auto {
+        core.return %function_call
+      }
+      %is_required = core.call intrinsic.eq(%function_call, "required")
+      core.if %is_required {
+        core.return %function_call
+      }
+      %is_object = core.type_is %function_call type "object"
+      core.if %is_object {
+        %type = core.get %function_call["type"] default ""
+        %is_function_choice = core.call intrinsic.eq(%type, "function")
+        core.if %is_function_choice {
+          %function = core.get %function_call["function"]
+          %function_is_object = core.type_is %function type "object"
+          core.if %function_is_object {
+            %name = core.get %function["name"]
+            %has_name = core.call intrinsic.truthy(%name)
+            core.if %has_name {
+              %choice = core.map
+              core.set %choice["type"] = "function"
+              core.set %choice["name"] = %name
+              core.return %choice
+            }
+          }
+        }
+      }
+      %none = core.call intrinsic.none()
+      core.return %none
     }
   }
 

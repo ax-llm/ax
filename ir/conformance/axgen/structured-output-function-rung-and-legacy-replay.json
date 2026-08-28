@@ -17,6 +17,12 @@
     }
   ],
   "expected_output": { "answer": "A framework", "confidence": 0.9 },
+  "expected_request": {
+    "function_call": {
+      "type": "function",
+      "function": { "name": "__axOutput" }
+    }
+  },
   "expected_request_contains": [
     "__axOutput",
     "structured_output_rung",

@@ -7428,8 +7428,12 @@ final class Core {
         Core.append(tools, tool);
       }
       Core.set(payload, "tools", tools);
-      Object tool_choice = Core.get(request, "function_call", "auto");
-      Core.set(payload, "tool_choice", tool_choice);
+      Object function_call = Core.get(request, "function_call", "auto");
+      Object tool_choice = Core._openai_responses_tool_choice_impl(function_call);
+      Object has_tool_choice = Core.isNotNone(tool_choice);
+      if (Core.truthy(has_tool_choice)) {
+        Core.set(payload, "tool_choice", tool_choice);
+      }
     }
     Object response_format = Core.get(request, "response_format", null);
     Object has_response_format = Core.truthyValue(response_format);
@@ -7519,6 +7523,43 @@ final class Core {
     Core.set(tool, "description", description);
     Core.set(tool, "parameters", parameters);
     return tool;
+  }
+
+  static Object _openai_responses_tool_choice_impl(Object function_call) {
+    axirCoverageMark("_openai_responses_tool_choice_impl");
+    Object is_none = Core.eq(function_call, "none");
+    if (Core.truthy(is_none)) {
+      return function_call;
+    }
+    Object is_auto = Core.eq(function_call, "auto");
+    if (Core.truthy(is_auto)) {
+      return function_call;
+    }
+    Object is_required = Core.eq(function_call, "required");
+    if (Core.truthy(is_required)) {
+      return function_call;
+    }
+    Object is_object = Core.typeIs(function_call, "object");
+    if (Core.truthy(is_object)) {
+      Object type = Core.get(function_call, "type", "");
+      Object is_function_choice = Core.eq(type, "function");
+      if (Core.truthy(is_function_choice)) {
+        Object function = Core.get(function_call, "function", null);
+        Object function_is_object = Core.typeIs(function, "object");
+        if (Core.truthy(function_is_object)) {
+          Object name = Core.get(function, "name", null);
+          Object has_name = Core.truthyValue(name);
+          if (Core.truthy(has_name)) {
+            Object choice = new java.util.LinkedHashMap<String, Object>();
+            Core.set(choice, "type", "function");
+            Core.set(choice, "name", name);
+            return choice;
+          }
+        }
+      }
+    }
+    Object none = Core.none();
+    return none;
   }
 
   static Object _openai_responses_input_item_impl(Object message) {

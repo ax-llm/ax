@@ -15134,6 +15134,7 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 	var v_has_reasoning Value
 	var v_has_response_format Value
 	var v_has_thought Value
+	var v_has_tool_choice Value
 	var v_include Value
 	var v_input Value
 	var v_instructions Value
@@ -15188,6 +15189,7 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 	_ = v_has_reasoning
 	_ = v_has_response_format
 	_ = v_has_thought
+	_ = v_has_tool_choice
 	_ = v_include
 	_ = v_input
 	_ = v_instructions
@@ -15296,8 +15298,14 @@ func openai_responses_build_chat_request(args ...Value) (Value, error) {
 			v_tools = coreAppend(v_tools, v_tool)
 		}
 		if err := coreSet(v_payload, "tools", v_tools); err != nil { return nil, err }
-		v_tool_choice = coreGet(v_request, "function_call", "auto")
-		if err := coreSet(v_payload, "tool_choice", v_tool_choice); err != nil { return nil, err }
+		v_function_call = coreGet(v_request, "function_call", "auto")
+		{ v, err := _openai_responses_tool_choice_impl(v_function_call); if err != nil { return nil, err }; v_tool_choice = v }
+		v_has_tool_choice = _core_is_not_none(v_tool_choice)
+		if coreTruthy(v_has_tool_choice) {
+			if err := coreSet(v_payload, "tool_choice", v_tool_choice); err != nil { return nil, err }
+		} else {
+		// empty
+		}
 	} else {
 	// empty
 	}
@@ -15436,6 +15444,84 @@ func _openai_responses_tool_spec_impl(args ...Value) (Value, error) {
 	if err := coreSet(v_tool, "description", v_description); err != nil { return nil, err }
 	if err := coreSet(v_tool, "parameters", v_parameters); err != nil { return nil, err }
 	return v_tool, nil
+}
+
+func _openai_responses_tool_choice_impl(args ...Value) (Value, error) {
+	axirCoverageMark("_openai_responses_tool_choice_impl")
+	var v_function_call Value
+	var v_choice Value
+	var v_function Value
+	var v_function_is_object Value
+	var v_has_name Value
+	var v_is_auto Value
+	var v_is_function_choice Value
+	var v_is_none Value
+	var v_is_object Value
+	var v_is_required Value
+	var v_name Value
+	var v_none Value
+	var v_type Value
+	if len(args) > 0 { v_function_call = args[0] }
+	_ = v_function_call
+	_ = v_choice
+	_ = v_function
+	_ = v_function_is_object
+	_ = v_has_name
+	_ = v_is_auto
+	_ = v_is_function_choice
+	_ = v_is_none
+	_ = v_is_object
+	_ = v_is_required
+	_ = v_name
+	_ = v_none
+	_ = v_type
+	v_is_none = _core_eq(v_function_call, "none")
+	if coreTruthy(v_is_none) {
+		return v_function_call, nil
+	} else {
+	// empty
+	}
+	v_is_auto = _core_eq(v_function_call, "auto")
+	if coreTruthy(v_is_auto) {
+		return v_function_call, nil
+	} else {
+	// empty
+	}
+	v_is_required = _core_eq(v_function_call, "required")
+	if coreTruthy(v_is_required) {
+		return v_function_call, nil
+	} else {
+	// empty
+	}
+	v_is_object = coreTypeIs(v_function_call, "object")
+	if coreTruthy(v_is_object) {
+		v_type = coreGet(v_function_call, "type", "")
+		v_is_function_choice = _core_eq(v_type, "function")
+		if coreTruthy(v_is_function_choice) {
+			v_function = coreGet(v_function_call, "function", nil)
+			v_function_is_object = coreTypeIs(v_function, "object")
+			if coreTruthy(v_function_is_object) {
+				v_name = coreGet(v_function, "name", nil)
+				v_has_name = _core_truthy(v_name)
+				if coreTruthy(v_has_name) {
+					v_choice = Object()
+					if err := coreSet(v_choice, "type", "function"); err != nil { return nil, err }
+					if err := coreSet(v_choice, "name", v_name); err != nil { return nil, err }
+					return v_choice, nil
+				} else {
+				// empty
+				}
+			} else {
+			// empty
+			}
+		} else {
+		// empty
+		}
+	} else {
+	// empty
+	}
+	v_none = _core_none()
+	return v_none, nil
 }
 
 func _openai_responses_input_item_impl(args ...Value) (Value, error) {
