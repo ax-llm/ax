@@ -832,6 +832,8 @@ final class Core {
     entry.put("session_id", asMap(response).get("session_id"));
     entry.put("usage", asMap(response).getOrDefault("usage", asMap(response).get("model_usage")));
     entry.put("function_calls", asMap(response).getOrDefault("function_calls", List.of()));
+    entry.put("thought", asMap(response).get("thought"));
+    entry.put("thought_blocks", asMap(response).getOrDefault("thought_blocks", List.of()));
     entry.put("providerMetadata", asMap(request).getOrDefault("provider_metadata", Map.of()));
     asList(get(gen, "chat_log", List.of())).add(entry);
     return null;

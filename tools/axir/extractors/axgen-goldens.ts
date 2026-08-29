@@ -392,6 +392,43 @@ writeFixture('memory-history-and-chat-log', {
   expected_request_count: 1,
 });
 
+writeFixture('thoughts-in-chat-log', {
+  kind: 'forward',
+  signature: 'question:string -> answer:string',
+  input: { question: 'Keep the thought summary?' },
+  responses: [
+    {
+      results: [
+        {
+          index: 0,
+          content: '{"answer":"kept"}',
+          thought: 'I should preserve this summary.',
+          thought_blocks: [
+            {
+              data: 'I should preserve this summary.',
+              encrypted: false,
+            },
+          ],
+        },
+      ],
+      model_usage: { tokens: { total_tokens: 17 } },
+    },
+  ],
+  expected_output: { answer: 'kept' },
+  expected_chat_log_subset: [
+    {
+      thought: 'I should preserve this summary.',
+      thought_blocks: [
+        {
+          data: 'I should preserve this summary.',
+          encrypted: false,
+        },
+      ],
+    },
+  ],
+  expected_request_count: 1,
+});
+
 writeFixture('empty-response-memory-skip', {
   kind: 'forward',
   signature: 'question:string -> answer:string',
