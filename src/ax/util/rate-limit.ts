@@ -38,14 +38,21 @@ export class AxRateLimiterTokenUsage {
 
   private async waitUntilTokensAvailable(tokens: number): Promise<void> {
     this.refillTokens();
-    if (this.currentTokens >= tokens) {
+    // A single request can legitimately ask for more tokens than the bucket can
+    // ever hold (for example a large LLM call against a low per-minute budget).
+    // Waiting for `tokens` in that case would never resolve, since currentTokens
+    // is capped at maxTokens by refillTokens(). Wait for a full bucket instead,
+    // then let currentTokens go negative so the borrowed capacity is repaid on
+    // subsequent refills and the average rate is still honored.
+    const required = Math.min(tokens, this.maxTokens);
+    if (this.currentTokens >= required) {
       this.currentTokens -= tokens;
       return;
     }
     if (this.options?.debug) {
       console.log(
         colorLog.red(
-          `Rate limiter: Waiting for ${tokens - this.currentTokens} tokens`
+          `Rate limiter: Waiting for ${required - this.currentTokens} tokens`
         )
       );
     }
