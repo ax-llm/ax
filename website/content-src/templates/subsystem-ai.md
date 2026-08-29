@@ -130,6 +130,12 @@ Use the native stats-store option for authoritative decision state. The built-in
 
 Adaptive balancing does not inspect prompt meaning or decide which model is best for a task. The application defines acceptable substitutes through shared logical aliases.
 
+### Incremental provider streaming
+
+Generated Python, Java, Go, Rust, and C++ provider clients expose each SSE event as soon as it arrives. Their closeable streaming APIs propagate through provider routers, multi-service routers, and balancers. Retry or failover is allowed only before the first content event; after delivery begins, an upstream failure is surfaced without replaying content or switching providers. Usage and completion telemetry finalize after full consumption, while cancellation closes the HTTP response immediately.
+
+{{aiProviderStreamExample}}
+
 ### Provider clients
 
 {{aiProviderExamples}}

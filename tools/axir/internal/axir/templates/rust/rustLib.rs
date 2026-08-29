@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::error::Error;
 use std::fmt;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -1341,6 +1341,10 @@ pub trait AxAIClient {
         Ok(vec![response])
     }
 
+    fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
+        self.stream(request).map(AxChatStream::from_values)
+    }
+
     fn stream_with_runtime_hooks(
         &mut self,
         request: Value,
@@ -1359,8 +1363,198 @@ pub trait AxAIClient {
 
 pub type AIClient = dyn AxAIClient;
 
+type AxStreamFinish = Box<dyn FnOnce(&[Value], Option<&AxError>, bool)>;
+
+pub struct AxChatStream {
+    inner: Box<dyn Iterator<Item = AxResult<Value>>>,
+    values: Vec<Value>,
+    finish: Option<AxStreamFinish>,
+    finished: bool,
+}
+
+impl AxChatStream {
+    fn new(
+        inner: impl Iterator<Item = AxResult<Value>> + 'static,
+        finish: Option<AxStreamFinish>,
+    ) -> Self {
+        Self { inner: Box::new(inner), values: Vec::new(), finish, finished: false }
+    }
+
+    fn from_values(values: Vec<Value>) -> Self {
+        Self::new(values.into_iter().map(Ok), None)
+    }
+
+    fn complete(&mut self, error: Option<&AxError>, cancelled: bool) {
+        if self.finished { return; }
+        self.finished = true;
+        if let Some(finish) = self.finish.take() { finish(&self.values, error, cancelled); }
+    }
+}
+
+impl Iterator for AxChatStream {
+    type Item = AxResult<Value>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished { return None; }
+        match self.inner.next() {
+            Some(Ok(value)) => { self.values.push(value.clone()); Some(Ok(value)) }
+            Some(Err(error)) => {
+                self.inner = Box::new(std::iter::empty());
+                self.complete(Some(&error), false);
+                Some(Err(error))
+            }
+            None => {
+                self.inner = Box::new(std::iter::empty());
+                self.complete(None, false);
+                None
+            }
+        }
+    }
+}
+
+impl Drop for AxChatStream {
+    fn drop(&mut self) {
+        if !self.finished {
+            let error = AxError {
+                category: "response".into(),
+                error_type: Some("AxAIServiceStreamTerminatedError".into()),
+                message: "stream cancelled".into(),
+                status: None,
+                code: None,
+                retryable: true,
+                response_body: None,
+            };
+            self.complete(Some(&error), true);
+        }
+    }
+}
+
+pub enum AxTransportStream {
+    Buffered(Value),
+    Reader { status: u16, body: Box<dyn Read> },
+}
+
 pub trait AxTransport: Send {
     fn send(&mut self, request: Value) -> AxResult<Value>;
+
+    fn stream(&mut self, request: Value) -> AxResult<AxTransportStream> {
+        self.send(request).map(AxTransportStream::Buffered)
+    }
+}
+
+struct SseJsonStream {
+    reader: BufReader<Box<dyn Read>>,
+    line: Vec<u8>,
+    data_lines: Vec<String>,
+    skip_lf: bool,
+    at_start: bool,
+    done: bool,
+}
+
+impl SseJsonStream {
+    fn new(reader: Box<dyn Read>) -> Self {
+        Self { reader: BufReader::new(reader), line: Vec::new(), data_lines: Vec::new(), skip_lf: false, at_start: true, done: false }
+    }
+
+    fn flush_event(&mut self) -> AxResult<Option<Value>> {
+        if self.data_lines.is_empty() { return Ok(None); }
+        let payload = self.data_lines.join("\n");
+        self.data_lines.clear();
+        if payload.trim() == "[DONE]" { self.done = true; return Ok(None); }
+        serde_json::from_str(&payload).map(Some).map_err(AxError::from)
+    }
+
+    fn process_line(&mut self) -> AxResult<Option<Value>> {
+        let bytes = std::mem::take(&mut self.line);
+        let mut line = String::from_utf8(bytes).map_err(|error| AxError::new("response", format!("invalid UTF-8 in SSE stream: {error}")))?;
+        if self.at_start {
+            self.at_start = false;
+            line = line.strip_prefix('\u{feff}').unwrap_or(&line).to_string();
+        }
+        if line.is_empty() { return self.flush_event(); }
+        if line.starts_with(':') { return Ok(None); }
+        let (field, mut value) = match line.find(':') {
+            Some(index) => (&line[..index], &line[index + 1..]),
+            None => (line.as_str(), ""),
+        };
+        if let Some(stripped) = value.strip_prefix(' ') { value = stripped; }
+        if field == "data" { self.data_lines.push(value.to_string()); }
+        Ok(None)
+    }
+}
+
+impl Iterator for SseJsonStream {
+    type Item = AxResult<Value>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done { return None; }
+        loop {
+            let mut byte = [0u8; 1];
+            match self.reader.read(&mut byte) {
+                Ok(0) => {
+                    let line_result = if self.line.is_empty() { Ok(None) } else { self.process_line() };
+                    match line_result {
+                        Err(error) => { self.done = true; return Some(Err(error)); }
+                        Ok(Some(event)) => { self.done = true; return Some(Ok(event)); }
+                        Ok(None) => {}
+                    }
+                    self.done = true;
+                    return match self.flush_event() { Ok(Some(event)) => Some(Ok(event)), Ok(None) => None, Err(error) => Some(Err(error)) };
+                }
+                Err(error) => {
+                    self.done = true;
+                    return Some(Err(AxError { category: "response".into(), error_type: Some("AxAIServiceStreamTerminatedError".into()), message: error.to_string(), status: None, code: None, retryable: true, response_body: None }));
+                }
+                Ok(_) => {}
+            }
+            let value = byte[0];
+            if self.skip_lf {
+                self.skip_lf = false;
+                if value == b'\n' { continue; }
+            }
+            if value == b'\r' || value == b'\n' {
+                if value == b'\r' { self.skip_lf = true; }
+                match self.process_line() {
+                    Ok(Some(event)) => return Some(Ok(event)),
+                    Ok(None) if self.done => return None,
+                    Ok(None) => continue,
+                    Err(error) => { self.done = true; return Some(Err(error)); }
+                }
+            }
+            self.line.push(value);
+        }
+    }
+}
+
+struct NormalizedProviderStream {
+    raw: Box<dyn Iterator<Item = AxResult<Value>>>,
+    first: Option<Value>,
+    profile: String,
+    model: String,
+    state: CoreValue,
+}
+
+impl Iterator for NormalizedProviderStream {
+    type Item = AxResult<Value>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let raw = match self.first.take() { Some(value) => Ok(value), None => self.raw.next()? };
+            let event = match raw { Ok(value) => value, Err(error) => return Some(Err(error)) };
+            let normalized = provider_normalize_stream_delta(&[
+                CoreValue::from(self.profile.as_str()),
+                core_value_from_json(&event),
+                self.state.clone(),
+                provider_ai_display_name(&self.profile),
+                CoreValue::from(self.model.as_str()),
+            ]);
+            match normalized {
+                Ok(value) if value.is_null() => continue,
+                Ok(value) => return Some(Ok(core_value_to_json(&value))),
+                Err(error) => return Some(Err(error)),
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1675,6 +1869,43 @@ impl OpenAICompatibleClient {
             serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
         };
         normalize_passthrough_response(json!({"status": status, "json": body}))
+    }
+
+    fn transport_stream_iter(stream: AxTransportStream) -> AxResult<Box<dyn Iterator<Item = AxResult<Value>>>> {
+        match stream {
+            AxTransportStream::Buffered(response) => {
+                let events = extract_stream_events(response)?;
+                Ok(Box::new(events.into_iter().map(Ok)))
+            }
+            AxTransportStream::Reader { status, mut body } if status >= 400 => {
+                let mut bytes = Vec::new();
+                body.read_to_end(&mut bytes)?;
+                let payload = serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()));
+                normalize_passthrough_response(json!({"status": status, "json": payload}))?;
+                Err(AxError::new("response", format!("stream request failed with status {status}")))
+            }
+            AxTransportStream::Reader { body, .. } => Ok(Box::new(SseJsonStream::new(body))),
+        }
+    }
+
+    fn dispatch_transport_stream(&mut self, call: Value) -> AxResult<Box<dyn Iterator<Item = AxResult<Value>>>> {
+        if let Some(transport) = self.transport.as_mut() {
+            return Self::transport_stream_iter(transport.stream(call)?);
+        }
+        let url = call.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
+        let method = call.get("method").and_then(Value::as_str).unwrap_or("POST").parse::<reqwest::Method>()
+            .map_err(|error| AxError::new("validation", format!("invalid HTTP method: {error}")))?;
+        let mut builder = HttpClient::builder()
+            .timeout(Duration::from_secs(60))
+            .build()?
+            .request(method, url);
+        if let Some(headers) = call.get("headers").and_then(Value::as_object) {
+            for (key, value) in headers { builder = builder.header(key.as_str(), value.as_str().unwrap_or_default()); }
+        }
+        let body = call.get("json").cloned().unwrap_or_else(|| json!({}));
+        let response = builder.json(&body).send()?;
+        let status = response.status().as_u16();
+        Self::transport_stream_iter(AxTransportStream::Reader { status, body: Box::new(response) })
     }
 
     fn send_json_call(&mut self, call: Value) -> AxResult<Value> {
@@ -2559,7 +2790,7 @@ impl AxAIClient for OpenAICompatibleClient {
         result
     }
 
-    fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
+    fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
         let hooks = merge_runtime_hooks(None, None, Some(&self.runtime_hooks));
         let info = AxRateLimitInfo {
             operation: "chat".to_string(),
@@ -2568,7 +2799,22 @@ impl AxAIClient for OpenAICompatibleClient {
             streaming: true,
             previous_model_usage: self.last_model_usage.clone(),
         };
-        let mut stream_next = || -> AxResult<Vec<Value>> {
+        let mut attributes = BTreeMap::new();
+        attributes.insert("ax.operation".to_string(), json!(info.operation));
+        attributes.insert("ax.provider".to_string(), json!(info.provider));
+        attributes.insert("ax.model".to_string(), json!(info.model));
+        attributes.insert("ax.streaming".to_string(), json!(true));
+        let span = start_runtime_span(&hooks, "ax_llm_chat", "client", &attributes);
+        let started = Instant::now();
+        record_runtime_metrics(&hooks, "client", &attributes, None, None);
+        if let Some(limiter) = hooks.rate_limiter.clone() {
+            let mut next = || Ok(Value::Null);
+            if let Err(error) = limiter.run(&mut next, &info) {
+                record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
+                finish_runtime_span(&span, Some(&error));
+                return Err(error);
+            }
+        }
         let mut req = self.prepare_chat_request(&request)?;
         let mut model_config = req.get("model_config").cloned().unwrap_or_else(|| json!({}));
         model_config["stream"] = json!(true);
@@ -2587,45 +2833,90 @@ impl AxAIClient for OpenAICompatibleClient {
         let mut attempt: i64 = 0;
         loop {
             let call = self.provider_transport_request("stream_chat", &payload, &model, true)?;
-            let response = self.dispatch_transport_request(call.clone())?;
-            let events = extract_stream_events(response)?;
-            // Pre-content streaming retry: peek the first raw SSE event before any stateful
-            // normalize runs (so peeking has no side effects); if the provider classifies it as a
-            // retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
-            // re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
-            if let Some(first) = events.first() {
-                let status = provider_classify_stream_error_status(&[
-                    CoreValue::from(self.profile.as_str()),
-                    core_value_from_json(first),
-                ])?;
-                if !status.is_null()
-                    && core_truthy(&is_retryable_status(&[status.clone()])?)
-                    && attempt < max_retries
-                {
+            let mut raw = match self.dispatch_transport_stream(call) {
+                Ok(value) => value,
+                Err(error) if is_retryable_ai_error(&error) && attempt < max_retries => {
                     attempt += 1;
                     let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
-                    if delay > 0.0 {
-                        std::thread::sleep(std::time::Duration::from_millis(delay as u64));
-                    }
+                    if delay > 0.0 { std::thread::sleep(Duration::from_millis(delay as u64)); }
                     continue;
                 }
+                Err(error) => {
+                    record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
+                    finish_runtime_span(&span, Some(&error));
+                    return Err(error);
+                }
+            };
+            let first = match raw.next() {
+                None => {
+                    let finish_hooks = hooks.clone();
+                    let finish_attributes = attributes.clone();
+                    let finish_span = span.clone();
+                    let finish_options = self.options.clone();
+                    return Ok(AxChatStream::new(std::iter::empty(), Some(Box::new(move |values, error, cancelled| {
+                        if !cancelled && error.is_none() { emit_usage_event("chat", &json!({"results": values}), &finish_options, true); }
+                        record_runtime_metrics(&finish_hooks, "client", &finish_attributes, Some(started.elapsed().as_secs_f64() * 1000.0), error);
+                        finish_runtime_span(&finish_span, error);
+                    }))));
+                }
+                Some(Err(error)) if is_retryable_ai_error(&error) && attempt < max_retries => {
+                    attempt += 1;
+                    let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
+                    if delay > 0.0 { std::thread::sleep(Duration::from_millis(delay as u64)); }
+                    continue;
+                }
+                Some(Err(error)) => {
+                    record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
+                    finish_runtime_span(&span, Some(&error));
+                    return Err(error);
+                }
+                Some(Ok(value)) => value,
+            };
+            let status = provider_classify_stream_error_status(&[
+                CoreValue::from(self.profile.as_str()),
+                core_value_from_json(&first),
+            ])?;
+            if !status.is_null() && core_truthy(&is_retryable_status(&[status.clone()])?) && attempt < max_retries {
+                attempt += 1;
+                let delay = (initial_delay * backoff.powi((attempt - 1) as i32)).min(max_delay);
+                if delay > 0.0 { std::thread::sleep(Duration::from_millis(delay as u64)); }
+                continue;
             }
-            let response = normalize_stream_events(&self.profile, &model, &events)?;
-            emit_usage_event("chat", &json!({"results": response.clone()}), &self.options, true);
-            return Ok(response);
+            let mut normalized = NormalizedProviderStream {
+                raw,
+                first: Some(first),
+                profile: self.profile.clone(),
+                model: model.clone(),
+                state: CoreValue::new_map(),
+            };
+            let first_normalized = match normalized.next() {
+                None => return Ok(AxChatStream::from_values(Vec::new())),
+                Some(Err(error)) => {
+                    record_runtime_metrics(&hooks, "client", &attributes, Some(started.elapsed().as_secs_f64() * 1000.0), Some(&error));
+                    finish_runtime_span(&span, Some(&error));
+                    return Err(error);
+                }
+                Some(Ok(value)) => value,
+            };
+            let finish_hooks = hooks.clone();
+            let finish_attributes = attributes.clone();
+            let finish_span = span.clone();
+            let finish_options = self.options.clone();
+            let events = std::iter::once(Ok(first_normalized)).chain(normalized);
+            return Ok(AxChatStream::new(events, Some(Box::new(move |values, error, cancelled| {
+                if !cancelled && error.is_none() { emit_usage_event("chat", &json!({"results": values}), &finish_options, true); }
+                record_runtime_metrics(&finish_hooks, "client", &finish_attributes, Some(started.elapsed().as_secs_f64() * 1000.0), error);
+                finish_runtime_span(&finish_span, error);
+            }))));
         }
-        };
-        let mut next = || stream_next().map(Value::Array);
-        let result = run_ai_runtime_operation(hooks, &info, &mut next).and_then(|value| {
-            value
-                .as_array()
-                .cloned()
-                .ok_or_else(|| AxError::runtime("rate limiter returned a non-array stream result"))
-        });
-        if let Ok(results) = &result {
-            self.last_model_usage = response_model_usage(&json!({"results": results}));
-        }
-        result
+    }
+
+    fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
+        let mut stream = self.stream_iter(request)?;
+        let mut results = Vec::new();
+        for event in &mut stream { results.push(event?); }
+        self.last_model_usage = response_model_usage(&json!({"results": results}));
+        Ok(results)
     }
 }
 
@@ -6781,8 +7072,65 @@ impl AxBalancer {
         if self.adaptive.is_none(){let candidates=self.candidate_indices(&request)?;for index in candidates.iter().copied(){self.current=index;let id=self.services[index].get_id();while self.service_failures.get(&id).copied().unwrap_or(0)<self.max_retries{match self.services[index].chat(request.clone()){Ok(response)=>{self.service_failures.remove(&id);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{*self.service_failures.entry(id.clone()).or_insert(0)+=1},Err(error)=>return Err(error)}}}return Err(AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",candidates.len())))}let ranked=self.rank(&request)?;let mut last=None;for(attempt,candidate)in ranked.iter().enumerate(){self.current=candidate.index;let mut selected=Self::event_base("selected",&candidate.stats_key);selected.insert("routeKey".into(),json!(candidate.route_key));selected.insert("serviceName".into(),json!(self.services[candidate.index].get_name()));selected.insert("attempt".into(),json!(attempt+1));self.emit(Value::Object(selected));let started=Instant::now();match self.services[candidate.index].chat(request.clone()){Ok(response)=>{self.observe(candidate,AxBalancerStatsObservation{outcome:"success".into(),latency_ms:Some(started.elapsed().as_secs_f64()*1000.0)},false,None,None);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{let reason=adaptive_failure_reason(&error);self.observe(candidate,AxBalancerStatsObservation{outcome:"failure".into(),latency_ms:None},false,Some(reason),error.status);let mut fallback=Self::event_base("fallback",&candidate.stats_key);fallback.insert("fromRouteKey".into(),json!(candidate.route_key));fallback.insert("toRouteKey".into(),ranked.get(attempt+1).map(|value|json!(value.route_key)).unwrap_or(Value::Null));fallback.insert("reason".into(),json!(reason));fallback.insert("status".into(),json!(error.status));self.emit(Value::Object(fallback));last=Some(error)},Err(error)=>return Err(error)}}Err(last.unwrap_or_else(||AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",ranked.len()))))
     }
 
+    pub fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
+        if self.adaptive.is_none() {
+            let candidates = self.candidate_indices(&request)?;
+            let mut last = None;
+            for index in candidates.iter().copied() {
+                self.current = index;
+                let id = self.services[index].get_id();
+                while self.service_failures.get(&id).copied().unwrap_or(0) < self.max_retries {
+                    match self.services[index].stream_iter(request.clone()) {
+                        Ok(stream) => { self.service_failures.remove(&id); return Ok(stream); }
+                        Err(error) if is_retryable_ai_error(&error) => {
+                            *self.service_failures.entry(id.clone()).or_insert(0) += 1;
+                            last = Some(error);
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+            return Err(last.unwrap_or_else(|| AxError::runtime(format!("All candidate services exhausted (tried {} service(s))", candidates.len()))));
+        }
+        let ranked = self.rank(&request)?;
+        let mut last = None;
+        for (attempt, candidate) in ranked.iter().enumerate() {
+            self.current = candidate.index;
+            let mut selected = Self::event_base("selected", &candidate.stats_key);
+            selected.insert("routeKey".into(), json!(candidate.route_key));
+            selected.insert("serviceName".into(), json!(self.services[candidate.index].get_name()));
+            selected.insert("attempt".into(), json!(attempt + 1));
+            self.emit(Value::Object(selected));
+            let started = Instant::now();
+            match self.services[candidate.index].stream_iter(request.clone()) {
+                Ok(stream) => {
+                    // Direct provider stream_iter peeks exactly one normalized event before it
+                    // returns, so elapsed time here is time-to-first-chunk rather than completion.
+                    self.observe(candidate, AxBalancerStatsObservation { outcome: "success".into(), latency_ms: Some(started.elapsed().as_secs_f64() * 1000.0) }, true, None, None);
+                    return Ok(stream);
+                }
+                Err(error) if is_retryable_ai_error(&error) => {
+                    let reason = adaptive_failure_reason(&error);
+                    self.observe(candidate, AxBalancerStatsObservation { outcome: "failure".into(), latency_ms: None }, true, Some(reason), error.status);
+                    let mut fallback = Self::event_base("fallback", &candidate.stats_key);
+                    fallback.insert("fromRouteKey".into(), json!(candidate.route_key));
+                    fallback.insert("toRouteKey".into(), ranked.get(attempt + 1).map(|value| json!(value.route_key)).unwrap_or(Value::Null));
+                    fallback.insert("reason".into(), json!(reason));
+                    fallback.insert("status".into(), json!(error.status));
+                    self.emit(Value::Object(fallback));
+                    last = Some(error);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(last.unwrap_or_else(|| AxError::runtime(format!("All candidate services exhausted (tried {} service(s))", ranked.len()))))
+    }
+
     pub fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
-        if self.adaptive.is_none(){let response=self.chat(request)?;if let Some(results)=response.get("results").and_then(Value::as_array){return Ok(results.iter().map(|result|json!({"results":[result.clone()]})).collect())}return Ok(vec![response])}let ranked=self.rank(&request)?;let mut last=None;for(attempt,candidate)in ranked.iter().enumerate(){self.current=candidate.index;let mut selected=Self::event_base("selected",&candidate.stats_key);selected.insert("routeKey".into(),json!(candidate.route_key));selected.insert("serviceName".into(),json!(self.services[candidate.index].get_name()));selected.insert("attempt".into(),json!(attempt+1));self.emit(Value::Object(selected));let started=Instant::now();match self.services[candidate.index].stream(request.clone()){Ok(response)=>{self.observe(candidate,AxBalancerStatsObservation{outcome:"success".into(),latency_ms:Some(started.elapsed().as_secs_f64()*1000.0)},true,None,None);return Ok(response)},Err(error)if is_retryable_ai_error(&error)=>{let reason=adaptive_failure_reason(&error);self.observe(candidate,AxBalancerStatsObservation{outcome:"failure".into(),latency_ms:None},true,Some(reason),error.status);let mut fallback=Self::event_base("fallback",&candidate.stats_key);fallback.insert("fromRouteKey".into(),json!(candidate.route_key));fallback.insert("toRouteKey".into(),ranked.get(attempt+1).map(|value|json!(value.route_key)).unwrap_or(Value::Null));fallback.insert("reason".into(),json!(reason));fallback.insert("status".into(),json!(error.status));self.emit(Value::Object(fallback));last=Some(error)},Err(error)=>return Err(error)}}Err(last.unwrap_or_else(||AxError::runtime(format!("All candidate services exhausted (tried {} service(s))",ranked.len()))))
+        let mut stream = self.stream_iter(request)?;
+        let mut values = Vec::new();
+        for event in &mut stream { values.push(event?); }
+        Ok(values)
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
@@ -6874,6 +7222,10 @@ impl MultiServiceRouter {
 
     pub fn stream(&mut self, request: Value) -> AxResult<Vec<Value>> {
         self.service_for(&request)?.stream(request)
+    }
+
+    pub fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
+        self.service_for(&request)?.stream_iter(request)
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {
@@ -6975,6 +7327,15 @@ impl ProviderRouter {
             .get_mut(&key)
             .ok_or_else(|| AxError::validation(format!("ProviderRouter provider {key} not found")))?
             .stream(processed_request)
+    }
+
+    pub fn stream_iter(&mut self, request: Value) -> AxResult<AxChatStream> {
+        let key = self.provider_key(&request)?;
+        let processed_request = self.preprocess_request(&key, &request)?;
+        self.providers
+            .get_mut(&key)
+            .ok_or_else(|| AxError::validation(format!("ProviderRouter provider {key} not found")))?
+            .stream_iter(processed_request)
     }
 
     pub fn embed(&mut self, request: Value) -> AxResult<Value> {

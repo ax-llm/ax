@@ -14,7 +14,7 @@
     }
   },
   "kind": "ai_balancer",
-  "name": "balancer-adaptive-buffered-stream-failover",
+  "name": "balancer-adaptive-incremental-stream-failover",
   "operations": [
     {
       "name": "stream",

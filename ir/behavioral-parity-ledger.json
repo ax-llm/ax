@@ -331,8 +331,26 @@
       "state": "VERIFIED IN ALL FIVE LANGUAGES. cache-hit asserts execution is skipped (request count 0) and the cached output returned; cache-miss asserts the output is written. KNOWN MINOR GAPS (not ported, documented here): TS SHA256 cache-key (IR uses json.stable_stringify); streamingForward (TS yields one accumulated result); nodeExtended; multi-source abort-signal merge; finer step-level execution logging."
     },
     {
+      "capability": "ai.stream.incremental_provider_delivery",
+      "summary": "Generated provider transports decode SSE incrementally and expose a closeable target-native event stream through direct providers, provider routers, multi-service routers, and balancers. The decoder preserves UTF-8 across arbitrary byte boundaries, ignores only literal non-data fields, folds multiline data, accepts CRLF/CR/LF and an initial BOM, recognizes [DONE], and accepts a final complete event at EOF. Buffered custom transports remain valid. Retry and failover stop after delivery; cancellation and terminal states close the upstream response; usage and completion telemetry finalize only after full consumption.",
+      "ir_ops": [
+        "@provider_normalize_stream_delta",
+        "@provider_classify_stream_error_status",
+        "@resolve_stream_retry"
+      ],
+      "fixtures": [
+        "axai/anthropic-stream-retry-overloaded.json",
+        "axai/balancer-status-529-stream-failover.json",
+        "axai/balancer-adaptive-incremental-stream-failover.json"
+      ],
+      "gate": "test:axir verify plus generated provider_stream_no_key and stream_http_roundtrip examples (all targets)",
+      "verified_targets": ["go", "rust", "cpp", "python", "java"],
+      "pending_targets": [],
+      "state": "VERIFIED IN ALL FIVE LANGUAGES. Real HTTP examples flush a byte-split BOM/UTF-8/multiline/CRLF event, wait 300 ms, and prove the first event is observable before a final EOF-terminated event. Scripted seam examples prove [DONE], legacy buffering, explicit cancellation/upstream close, one usage event after full consumption, and a post-delivery upstream failure without replay."
+    },
+    {
       "capability": "ai.stream.transient_overload_retry_and_failover",
-      "summary": "A transient Anthropic error event is classified by error.type to its HTTP status (overloaded_error->529, api_error->500, rate_limit_error->429, client errors->4xx, authentication_error->auth, unknown->refusal) in both the non-streaming and streaming parsers. A pre-content streaming transient error (e.g. Anthropic's HTTP-200 overloaded_error SSE event) is retried with the same exponential backoff apiCall applies to a 529 before surfacing; the balancer then fails over on the surfaced retryable status (529 is in every balancer's retryable set). TS peekStreamForFailover + mid-stream failure recording are workarounds for TS's lazy ReadableStream (errors defer past the balancer try/catch); the eager/synchronous ports have no portable equivalent and instead fail over through the chat-routed balancer loop, proven by balancer-status-529-stream-failover.",
+      "summary": "A transient Anthropic error event is classified by error.type to its HTTP status (overloaded_error->529, api_error->500, rate_limit_error->429, client errors->4xx, authentication_error->auth, unknown->refusal) in both the non-streaming and streaming parsers. A pre-content streaming transient error (e.g. Anthropic's HTTP-200 overloaded_error SSE event) is retried with the same exponential backoff apiCall applies to a 529 before surfacing; the balancer then fails over on the surfaced retryable status (529 is in every balancer's retryable set). Generated provider, router, and balancer streams prefetch one event so retry and failover remain legal only before delivery; once a content event is exposed, later failures surface without replay or provider switching.",
       "ir_ops": [
         "@anthropic_map_error_event",
         "@anthropic_error_type_to_status",
@@ -350,7 +368,7 @@
       "gate": "test:axir verify (all targets)",
       "verified_targets": ["go", "rust", "cpp", "python", "java"],
       "pending_targets": [],
-      "state": "VERIFIED IN ALL FIVE LANGUAGES via npm run test:axir. Anthropic error fixtures assert error.type -> error class + HTTP status (overloaded->Status 529, rate_limit->429, api->500, invalid_request->400, authentication->Auth, unknown->Refusal) on both chat and stream paths. anthropic-stream-retry-overloaded proves a first-delta overloaded_error is retried then the next response's content is returned; anthropic-stream-retry-exhausted proves the 529 surfaces once the retry budget is spent; anthropic-stream-error-overloaded opts out of retries (maxRetries:0) to assert the classification in isolation. balancer-status-529-failover and -stream-failover prove the balancer fails over to a healthy backup on a retryable 529 via both chat() and stream(). peekStreamForFailover/mid-stream recording intentionally not ported (TS-lazy-streaming-specific; the ports stream synchronously)."
+      "state": "VERIFIED IN ALL FIVE LANGUAGES via npm run test:axir. Anthropic error fixtures assert error.type -> error class + HTTP status (overloaded->Status 529, rate_limit->429, api->500, invalid_request->400, authentication->Auth, unknown->Refusal) on both chat and stream paths. anthropic-stream-retry-overloaded proves a first-delta overloaded_error is retried then the next response's content is returned; anthropic-stream-retry-exhausted proves the 529 surfaces once the retry budget is spent; anthropic-stream-error-overloaded opts out of retries (maxRetries:0) to assert the classification in isolation. balancer-status-529-failover and -stream-failover prove pre-content failover. Real flushed HTTP roundtrips prove incremental first-event delivery, and generated stream APIs close upstream responses on completion, error, DONE, or consumer cancellation."
     },
     {
       "capability": "agent.pipeline.direct_respond",

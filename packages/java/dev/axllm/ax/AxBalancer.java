@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -434,23 +435,78 @@ public final class AxBalancer implements AxAIService {
     }
   }
 
-  public Iterable<Map<String, Object>> stream(Map<String, Object> request) throws Exception {
-    if (adaptive == null) return AxAIService.super.stream(request);
+  @Override public AxChatStream openStream(Map<String, Object> request) throws Exception {
+    if (adaptive == null) {
+      List<AxAIService> candidates = candidateServices(request);
+      AxAIServiceError last = null;
+      for (AxAIService service : candidates) {
+        currentService = service;
+        while (canRetryService(service)) {
+          AxChatStream stream = null;
+          try {
+            stream = service.openStream(request);
+            Iterator<Map<String, Object>> iterator = stream.iterator();
+            Map<String, Object> first = iterator.hasNext() ? iterator.next() : null;
+            boolean[] firstPending = {first != null};
+            handleSuccess(service);
+            AxChatStream opened = stream;
+            return new AxChatStream(
+              () -> {
+                if (firstPending[0]) { firstPending[0] = false; return first; }
+                return iterator.hasNext() ? iterator.next() : null;
+              },
+              opened
+            );
+          } catch (AxAIServiceError error) {
+            if (stream != null) stream.close();
+            if (!retryable(error)) throw error;
+            last = error;
+            handleFailure(service);
+            Map<String, Object> failure = serviceFailures.get(service.getId());
+            if (Core.asInt(failure.getOrDefault("retries", 0)) >= maxRetries) break;
+          }
+        }
+      }
+      if (last != null) throw last;
+      throw new IllegalArgumentException("All candidate services exhausted (tried " + candidates.size() + " service(s))");
+    }
     List<AdaptiveCandidate> ranked = rankAdaptive(request, Map.of()); AxAIServiceError last = null;
     for (int index = 0; index < ranked.size(); index++) {
       AdaptiveCandidate candidate = ranked.get(index); currentService = candidate.service(); Map<String, Object> selected = eventBase("selected", candidate.statsKey());
       selected.put("routeKey", candidate.routeKey()); selected.put("serviceName", candidate.service().getName()); selected.put("attempt", index + 1); emitRoutingEvent(selected);
       long started = System.nanoTime();
+      AxChatStream stream = null;
       try {
-        List<Map<String, Object>> chunks = new ArrayList<>(); for (Map<String, Object> chunk : candidate.service().stream(request)) chunks.add(chunk);
-        observe(candidate, AxBalancerStatsObservation.success(Math.max(1, (System.nanoTime() - started) / 1_000_000.0)), true, null, null); return chunks;
+        stream = candidate.service().openStream(request);
+        Iterator<Map<String, Object>> iterator = stream.iterator();
+        Map<String, Object> first = iterator.hasNext() ? iterator.next() : null;
+        boolean[] firstPending = {first != null};
+        AxChatStream opened = stream;
+        // Observe latency only after the first normalized event is available (or
+        // the provider completes an empty stream), including legacy lazy seams.
+        observe(candidate, AxBalancerStatsObservation.success(Math.max(1, (System.nanoTime() - started) / 1_000_000.0)), true, null, null);
+        return new AxChatStream(
+          () -> {
+            if (firstPending[0]) { firstPending[0] = false; return first; }
+            return iterator.hasNext() ? iterator.next() : null;
+          },
+          opened,
+          (streamFailure, cancelled) -> {
+            if (streamFailure instanceof AxAIServiceError error) {
+              observe(candidate, AxBalancerStatsObservation.failure(), true, failureReason(error), error.status);
+            }
+          }
+        );
       } catch (AxAIServiceError error) {
+        if (stream != null) stream.close();
         if (!retryable(error)) throw error; last = error; String reason = failureReason(error); observe(candidate, AxBalancerStatsObservation.failure(), true, reason, error.status);
         Map<String, Object> fallback = eventBase("fallback", candidate.statsKey()); fallback.put("fromRouteKey", candidate.routeKey()); fallback.put("toRouteKey", index + 1 < ranked.size() ? ranked.get(index + 1).routeKey() : null); fallback.put("reason", reason); fallback.put("status", error.status); emitRoutingEvent(fallback);
       }
     }
     if (last != null) throw last; throw new IllegalArgumentException("All candidate services exhausted (tried " + ranked.size() + " service(s))");
   }
+
+  @Override public AxChatStream stream(Map<String, Object> request) { return AxChatStream.lazy(() -> openStream(request)); }
 
   public Map<String, Object> embed(Map<String, Object> request) throws Exception { return embed(request, Map.of()); }
 

@@ -113,6 +113,20 @@ Return fresh request headers that override static profile authentication.
 - Returns: `header map or credential error`
 - Important options: chat, stream, embeddings, Responses, audio, retries
 
+### `axllm.AxChatStream`
+
+Incremental, closeable provider event stream. Retry and failover stop once content is delivered.
+
+- Canonical Ax concept: `AxProviderStream`
+- Kind: `type`
+- Form: `client.StreamEvents(ctx, request, options)`
+- Returns: `incremental chat events`
+- Important options: next event, terminal error, consumer cancellation, upstream close
+
+```go
+stream, err := client.StreamEvents(ctx, request, nil)
+```
+
 ### `axllm.OpenAICompatibleClient`
 
 OpenAI-compatible chat, stream, embedding, audio, and realtime provider boundary.

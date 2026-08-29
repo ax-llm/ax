@@ -377,6 +377,92 @@ static std::pair<std::string, std::string> axir_encode_multipart(const Value& pa
   return {body, "multipart/form-data; boundary=" + boundary};
 }
 
+void Transport::stream(Value request, AxTransportStreamHandler handler) {
+  handler(call(std::move(request)));
+}
+
+void HttpTransport::stream(Value request, AxTransportStreamHandler handler) {
+#if !defined(AXLLM_ENABLE_CURL)
+  (void)request;
+  (void)handler;
+  throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport requires libcurl. Build with CMake and AXLLM_ENABLE_CURL=ON, or pass a custom Transport."));
+#else
+  static bool curl_global_initialized = []() { curl_global_init(CURL_GLOBAL_DEFAULT); return true; }();
+  (void)curl_global_initialized;
+  CURL* curl = curl_easy_init();
+  if (curl == nullptr) throw AxError("network", "curl_easy_init failed");
+
+  std::string payload = stringify(Core::get(request, "json", Value::object()));
+  std::string error_body;
+  char error_buffer[CURL_ERROR_SIZE] = {0};
+  struct curl_slist* headers = nullptr;
+  for (const auto& entry : object_ref(Core::get(request, "headers", Value::object()))) {
+    if (entry.first == "__order") continue;
+    std::string header = entry.first + ": " + str(entry.second);
+    headers = curl_slist_append(headers, header.c_str());
+  }
+  std::string method = str(Core::get(request, "method", "POST"));
+  std::string url = str(Core::get(request, "url"));
+  double timeout = num(Core::get(request, "timeout", 0));
+
+  struct StreamContext {
+    CURL* curl = nullptr;
+    AxTransportStreamHandler* handler = nullptr;
+    std::string* error_body = nullptr;
+    bool cancelled = false;
+    std::exception_ptr exception;
+  } context{curl, &handler, &error_body, false, nullptr};
+
+  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+    auto* context = static_cast<StreamContext*>(userdata);
+    size_t count = size * nmemb;
+    long status = 0;
+    curl_easy_getinfo(context->curl, CURLINFO_RESPONSE_CODE, &status);
+    if (status >= 400) { context->error_body->append(ptr, count); return count; }
+    try {
+      if (!(*context->handler)(Value(std::string(ptr, count)))) {
+        context->cancelled = true;
+        return 0;
+      }
+      return count;
+    } catch (...) {
+      context->exception = std::current_exception();
+      return 0;
+    }
+  });
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &context);
+  if (timeout > 0) curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeout * 1000.0));
+  if (method == "POST") curl_easy_setopt(curl, CURLOPT_POST, 1L);
+  else curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload.size()));
+
+  CURLcode rc = curl_easy_perform(curl);
+  long status = 0;
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+  curl_slist_free_all(headers);
+  curl_easy_cleanup(curl);
+  if (context.exception) std::rethrow_exception(context.exception);
+  // Returning false is the transport seam's normal cancellation signal. libcurl
+  // may report it as CURLE_WRITE_ERROR (or another callback-abort code), but the
+  // handler decision is authoritative once callback exceptions are excluded.
+  if (context.cancelled) return;
+  if (rc != CURLE_OK) {
+    std::string message = error_buffer[0] ? error_buffer : curl_easy_strerror(rc);
+    if (rc == CURLE_OPERATION_TIMEDOUT) throw Core::as_error(Core::ai_error_timeout(message, Value(), Value(), Value(), request, false));
+    throw AxError("network", message, "AxAIServiceNetworkError", 0, "", true);
+  }
+  if (status >= 400) {
+    Value body;
+    try { body = Core::json_parse(error_body); } catch (...) { body = Value(error_body); }
+    throw Core::as_error(Core::openai_normalize_error(static_cast<double>(status), body, request));
+  }
+#endif
+}
+
 Value HttpTransport::call(Value request) {
 #if !defined(AXLLM_ENABLE_CURL)
   (void)request;
@@ -2349,6 +2435,9 @@ Value AxAIService::chat(Value request) { return AIClient::chat(std::move(request
 Value AxAIService::chat(Value request, Value) { return chat(std::move(request)); }
 Value AxAIService::chat(Value request, Value options, const AxRuntimeHooks&) { return chat(std::move(request), std::move(options)); }
 std::vector<Value> AxAIService::stream(Value request) { return {chat(std::move(request))}; }
+void AxAIService::stream_each(Value request, AxStreamHandler handler) {
+  for (const auto& event : stream(std::move(request))) if (!handler(event)) break;
+}
 Value AxAIService::embed(Value request, Value) { return embed(std::move(request)); }
 Value AxAIService::embed(Value request, Value options, const AxRuntimeHooks&) { return embed(std::move(request), std::move(options)); }
 Value AxAIService::transcribe(Value request, Value) { return transcribe(std::move(request)); }
@@ -3007,14 +3096,200 @@ Value OpenAICompatibleClient::do_embed(Value request, Value options) {
   return Core::provider_normalize_embed_response(profile_, raw, name_, model);
 }
 
-std::vector<Value> OpenAICompatibleClient::stream(Value request) {
+class IncrementalSSEDecoder {
+ public:
+  explicit IncrementalSSEDecoder(std::function<bool(Value)> handler) : handler_(std::move(handler)) {}
+
+  bool feed(const std::string& chunk) {
+    if (!active_) return false;
+    for (unsigned char byte : chunk) {
+      if (skip_lf_) {
+        skip_lf_ = false;
+        if (byte == '\n') continue;
+      }
+      if (byte == '\r' || byte == '\n') {
+        if (byte == '\r') skip_lf_ = true;
+        if (!process_line()) return false;
+      } else {
+        line_.push_back(static_cast<char>(byte));
+      }
+    }
+    return active_;
+  }
+
+  bool finish() {
+    if (!active_) return false;
+    if (!line_.empty() && !process_line()) return false;
+    return flush_event();
+  }
+
+  bool done_marker() const { return done_marker_; }
+
+ private:
+  bool process_line() {
+    std::string line = std::move(line_);
+    line_.clear();
+    if (at_start_) {
+      at_start_ = false;
+      if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xef && static_cast<unsigned char>(line[1]) == 0xbb && static_cast<unsigned char>(line[2]) == 0xbf) line.erase(0, 3);
+    }
+    if (line.empty()) return flush_event();
+    if (line[0] == ':') return true;
+    auto colon = line.find(':');
+    std::string field = colon == std::string::npos ? line : line.substr(0, colon);
+    std::string value = colon == std::string::npos ? std::string() : line.substr(colon + 1);
+    if (!value.empty() && value[0] == ' ') value.erase(0, 1);
+    if (field == "data") data_lines_.push_back(std::move(value));
+    return true;
+  }
+
+  bool flush_event() {
+    if (data_lines_.empty()) return true;
+    std::string payload;
+    for (size_t i = 0; i < data_lines_.size(); ++i) {
+      if (i > 0) payload.push_back('\n');
+      payload += data_lines_[i];
+    }
+    data_lines_.clear();
+    if (display(Core::string_trim(payload)) == "[DONE]") {
+      done_marker_ = true;
+      active_ = false;
+      return false;
+    }
+    active_ = handler_(parse_json(payload));
+    return active_;
+  }
+
+  std::function<bool(Value)> handler_;
+  std::string line_;
+  std::vector<std::string> data_lines_;
+  bool skip_lf_ = false;
+  bool at_start_ = true;
+  bool active_ = true;
+  bool done_marker_ = false;
+};
+
+static bool stream_error_retryable(const AxError& error) {
+  if (error.type == "AxAIServiceAuthenticationError") return false;
+  if (error.type == "AxAIServiceStatusError") return Core::truthy(Core::is_retryable_status(error.status));
+  return error.retryable || error.category == "network" || error.type == "AxAIServiceNetworkError" || error.type == "AxAIServiceResponseError" || error.type == "AxAIServiceStreamTerminatedError" || error.type == "AxAIServiceTimeoutError";
+}
+
+void OpenAICompatibleClient::stream_each(Value request, AxStreamHandler handler) {
   Value req = Core::coerce_chat_request(std::move(request));
   Value config = Core::merge_model_config(model_config_, Core::get(req, "model_config"), Value(Object{{"stream", true}}));
   Core::set(config, "stream", true);
-  Core::set(req, "model", Core::coalesce(Core::get(req, "model"), model_));
+  Value model = Core::coalesce(Core::get(req, "model"), model_);
+  Core::set(req, "model", model);
   Core::set(req, "model_config", config);
-  Value response = chat(std::move(req), object({{"stream", true}}));
-  return Core::iter(Core::get(response, "results", Value::array()));
+  Core::validate_chat_request(req);
+  last_used_chat_model_ = model;
+  last_used_model_config_ = config;
+  Value merged_options = merge_usage_options(options_, object({{"stream", true}}));
+  AxRuntimeHooks hooks = effective_runtime_hooks({}, *std::atomic_load(&runtime_hooks_));
+  Value attributes = object({{"ax.operation", "chat"}, {"ax.ai", name_}, {"ax.model", display(model)}, {"ax.streaming", true}});
+  std::shared_ptr<AxSpan> parent = runtime_hook_frames.empty() ? nullptr : runtime_hook_frames.back().span;
+  auto span = start_runtime_span(hooks, "ax_llm_chat", "client", attributes, parent);
+  record_runtime_metric(hooks.meter, "counter", "ax_llm_requests_total", 1, attributes);
+  auto started = std::chrono::steady_clock::now();
+  bool cancelled = false;
+  try {
+    AxRequestExecutor next = [&]() {
+      Value payload = Core::provider_build_chat_request(profile_, req, merged_options);
+      Value retry_cfg = Core::resolve_stream_retry(merged_options);
+      int max_retries = static_cast<int>(num(Core::get(retry_cfg, "max_retries", 3)));
+      double initial_delay = num(Core::get(retry_cfg, "initial_delay_ms", 1000));
+      double max_delay = num(Core::get(retry_cfg, "max_delay_ms", 60000));
+      double backoff = num(Core::get(retry_cfg, "backoff_factor", 2));
+      int attempt = 0;
+      while (true) {
+        Value results = Value::array();
+        Value state = Value::object();
+        Value last_usage_response;
+        bool first_event = true;
+        bool received_event = false;
+        bool delivered = false;
+        bool retry_requested = false;
+        Value call = build_request(operation_path("stream_chat", model), payload, true, "json", false, operation_method("stream_chat"));
+        IncrementalSSEDecoder decoder([&](Value event) {
+          received_event = true;
+          if (first_event) {
+            first_event = false;
+            Value status = Core::provider_classify_stream_error_status(profile_, event);
+            if (!status.is_null() && Core::truthy(Core::is_retryable_status(status)) && attempt < max_retries) {
+              retry_requested = true;
+              return false;
+            }
+          }
+          Value normalized = Core::provider_normalize_stream_delta(profile_, event, state, name_, model);
+          Core::append(results, normalized);
+          if (!Core::get(normalized, "model_usage", Core::get(normalized, "modelUsage")).is_null()) last_usage_response = normalized;
+          delivered = true;
+          if (!handler(normalized)) { cancelled = true; return false; }
+          return true;
+        });
+        auto consume = [&](Value chunk) {
+          Value raw = chunk;
+          if (raw.is_object() && has_key(raw, "status")) raw = transport_result(raw, call);
+          if (raw.is_array()) {
+            for (const auto& event : array_ref(raw)) {
+              if (display(event) == "[DONE]") return false;
+              if (!decoder.feed("data: " + stringify(event) + "\n\n")) return false;
+            }
+            return true;
+          }
+          if (raw.is_object()) return decoder.feed("data: " + stringify(raw) + "\n\n");
+          return decoder.feed(display(raw));
+        };
+        try {
+          transport_->stream(call, consume);
+          if (!retry_requested && !cancelled && !decoder.done_marker()) decoder.finish();
+        } catch (const AxError& error) {
+          // Retry transport/open failures before any SSE event. Once a provider
+          // event exists, its normalized error is authoritative unless the
+          // explicit transient-status classifier above requested a retry.
+          if (!received_event && !delivered && stream_error_retryable(error) && attempt < max_retries) retry_requested = true;
+          else if (delivered) throw AxError("response", error.what(), "AxAIServiceStreamTerminatedError", error.status, error.code, true, error.response_body);
+          else throw;
+        }
+        if (retry_requested) {
+          ++attempt;
+          double delay = std::min(initial_delay * std::pow(backoff, attempt - 1), max_delay);
+          if (delay > 0) std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(delay)));
+          continue;
+        }
+        Value response = object({{"results", results}});
+        if (!last_usage_response.is_null()) {
+          Core::set(response, "model_usage", Core::get(last_usage_response, "model_usage", Core::get(last_usage_response, "modelUsage")));
+        }
+        return response;
+      }
+    };
+    Value response = hooks.rate_limiter ? hooks.rate_limiter(next, AxRateLimitInfo{"chat", name_, display(model), true, last_model_usage_}) : next();
+    auto duration = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    if (cancelled) {
+      record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes);
+      record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", duration, attributes);
+      finish_runtime_span(span, true, "stream cancelled");
+      return;
+    }
+    last_model_usage_ = Core::get(response, "model_usage", Core::get(response, "modelUsage"));
+    emit_usage_event("chat", response, merged_options, true);
+    record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", duration, attributes);
+    finish_runtime_span(span, false);
+  } catch (const std::exception& error) {
+    record_runtime_metric(hooks.meter, "counter", "ax_llm_errors_total", 1, attributes);
+    auto duration = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    record_runtime_metric(hooks.meter, "histogram", "ax_llm_request_duration_ms", duration, attributes);
+    finish_runtime_span(span, true, error.what());
+    throw;
+  }
+}
+
+std::vector<Value> OpenAICompatibleClient::stream(Value request) {
+  std::vector<Value> results;
+  stream_each(std::move(request), [&](const Value& event) { results.push_back(event); return true; });
+  return results;
 }
 
 Value OpenAICompatibleClient::transcribe(Value request) {
@@ -3264,6 +3539,12 @@ std::string OpenAICompatibleClient::operation_method(const std::string& operatio
 }
 
 Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
+  Value call = build_request(endpoint, std::move(payload), stream, body_key, binary_response, method);
+  if (transport_ != nullptr) return transport_result(transport_->call(call), call);
+  throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
+}
+
+Value OpenAICompatibleClient::build_request(const std::string& endpoint, Value payload, bool stream, const std::string& body_key, bool binary_response, const std::string& method) {
   Value call = Value::object();
   Core::set(call, "method", method.empty() ? "POST" : method);
   bool absolute = endpoint.rfind("http://", 0) == 0 || endpoint.rfind("https://", 0) == 0;
@@ -3286,8 +3567,7 @@ Value OpenAICompatibleClient::request_json(const std::string& endpoint, Value pa
   if (binary_response) Core::set(call, "binary", Value(true));
   Core::set(call, "timeout", timeout_seconds_);
   if ((api_key_.empty() || api_key_ == "null") && !credential_provider_) throw Core::as_error(Core::ai_error_auth("api_key or credential_provider is required", Value(), Value(), Value(), call));
-  if (transport_ != nullptr) return transport_result(transport_->call(call), call);
-  throw Core::as_error(Core::ai_error_unsupported("C++ HTTP transport is not available; build with AXLLM_ENABLE_CURL=ON or pass a custom Transport"));
+  return call;
 }
 
 std::string OpenAICompatibleClient::operation_path(const std::string& operation) const {
@@ -6429,15 +6709,61 @@ Value AxBalancer::chat(Value request, Value options) {
 }
 
 std::vector<Value> AxBalancer::stream(Value request) {
-  if (!adaptive_) return AxAIService::stream(std::move(request));
+  std::vector<Value> results;
+  stream_each(std::move(request), [&](const Value& event) { results.push_back(event); return true; });
+  return results;
+}
+
+void AxBalancer::stream_each(Value request, AxStreamHandler handler) {
+  if (!adaptive_) {
+    auto candidates = candidate_services(request);
+    std::exception_ptr last;
+    for (auto& service : candidates) {
+      current_service_ = service;
+      while (service_failures_[service->get_id()] < max_retries_) {
+        bool delivered = false;
+        try {
+          service->stream_each(request, [&](const Value& event) { delivered = true; return handler(event); });
+          handle_success(service);
+          return;
+        } catch (const AxError& error) {
+          if (delivered || !retryable(error)) throw;
+          last = std::current_exception();
+          handle_failure(service);
+        }
+      }
+    }
+    if (last) std::rethrow_exception(last);
+    throw AxError("runtime", "All candidate services exhausted (tried " + std::to_string(candidates.size()) + " service(s))");
+  }
   auto ranked = rank_adaptive(request, Value::object()); std::exception_ptr last;
   for (size_t index = 0; index < ranked.size(); ++index) {
     auto& candidate = ranked[index]; current_service_ = candidate.service;
     emit_routing_event(object({{"type", "selected"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"routeKey", candidate.route_key}, {"serviceName", candidate.service->get_name()}, {"attempt", static_cast<double>(index + 1)}}));
     auto started = std::chrono::steady_clock::now();
+    bool delivered = false;
+    bool observed = false;
     try {
-      std::vector<Value> chunks = candidate.service->stream(request); double latency = std::max(1.0, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count()); observe_adaptive(candidate, object({{"outcome", "success"}, {"latencyMs", latency}}), true); return chunks;
+      candidate.service->stream_each(request, [&](const Value& event) {
+        if (!observed) {
+          observed = true;
+          double latency = std::max(1.0, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+          observe_adaptive(candidate, object({{"outcome", "success"}, {"latencyMs", latency}}), true);
+        }
+        delivered = true;
+        return handler(event);
+      });
+      if (!observed) {
+        double latency = std::max(1.0, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+        observe_adaptive(candidate, object({{"outcome", "success"}, {"latencyMs", latency}}), true);
+      }
+      return;
     } catch (const AxError& error) {
+      if (delivered) {
+        std::string reason = error.type == "AxAIServiceStreamTerminatedError" ? "stream-terminated" : "response";
+        observe_adaptive(candidate, object({{"outcome", "failure"}}), true, reason, error.status);
+        throw;
+      }
       if (!retryable(error)) throw; last = std::current_exception(); std::string reason = error.type == "AxAIServiceStatusError" ? "status" : error.type == "AxAIServiceNetworkError" ? "network" : error.type == "AxAIServiceStreamTerminatedError" ? "stream-terminated" : error.type == "AxAIServiceTimeoutError" ? "timeout" : "response"; observe_adaptive(candidate, object({{"outcome", "failure"}}), true, reason, error.status);
       emit_routing_event(object({{"type", "fallback"}, {"namespace", Core::get(candidate.stats_key, "namespace", "")}, {"slice", Core::get(candidate.stats_key, "slice", "")}, {"logicalModel", Core::get(candidate.stats_key, "logicalModel", "")}, {"fromRouteKey", candidate.route_key}, {"toRouteKey", index + 1 < ranked.size() ? Value(ranked[index + 1].route_key) : Value()}, {"reason", reason}, {"status", error.status == 0 ? Value() : Value(error.status)}}));
     }
@@ -6593,6 +6919,24 @@ Value MultiServiceRouter::chat(Value request, Value options) {
   return last_used_service_->chat(req, options);
 }
 
+void MultiServiceRouter::stream_each(Value request, AxStreamHandler handler) {
+  Value model_key = Core::get(request, "model");
+  if (model_key.is_null()) throw AxError("runtime", "Model key must be specified for multi-service");
+  auto it = services_.find(display(model_key));
+  if (it == services_.end()) throw AxError("runtime", "No service found for model key: " + display(model_key));
+  last_used_service_ = it->second.service;
+  Value req(object_ref(request));
+  if (Core::get(req, "model_config").is_null() && !Core::get(req, "modelConfig").is_null()) Core::set(req, "model_config", Core::get(req, "modelConfig"));
+  if (it->second.model.is_null()) Core::map_delete(req, "model");
+  last_used_service_->stream_each(std::move(req), std::move(handler));
+}
+
+std::vector<Value> MultiServiceRouter::stream(Value request) {
+  std::vector<Value> results;
+  stream_each(std::move(request), [&](const Value& event) { results.push_back(event); return true; });
+  return results;
+}
+
 Value MultiServiceRouter::embed(Value request) { return embed(std::move(request), Value::object()); }
 Value MultiServiceRouter::embed(Value request, Value options) {
   Value model_key = Core::get(request, "embedModel", Core::get(request, "embed_model"));
@@ -6698,11 +7042,17 @@ Value ProviderRouter::chat(Value request, Value options) {
 }
 
 std::vector<Value> ProviderRouter::stream(Value request) {
+  std::vector<Value> results;
+  stream_each(std::move(request), [&](const Value& event) { results.push_back(event); return true; });
+  return results;
+}
+
+void ProviderRouter::stream_each(Value request, AxStreamHandler handler) {
   Value rec = get_routing_recommendation(request);
   auto provider = service_for_name(Core::get(rec, "providerName"));
   if (!provider) throw Core::as_error(Core::ai_error_unsupported("No provider selected"));
   Value processed_request = Core::provider_route_preprocess_request(provider->get_features(Value()), request);
-  return provider->stream(std::move(processed_request));
+  provider->stream_each(std::move(processed_request), std::move(handler));
 }
 
 Value ProviderRouter::embed(Value request, Value options) {

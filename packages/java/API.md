@@ -113,6 +113,20 @@ Return fresh request headers that override static profile authentication.
 - Returns: `header map or credential error`
 - Important options: chat, stream, embeddings, Responses, audio, retries
 
+### `AxChatStream`
+
+Incremental, closeable provider event stream. Retry and failover stop once content is delivered.
+
+- Canonical Ax concept: `AxProviderStream`
+- Kind: `type`
+- Form: `client.openStream(request)`
+- Returns: `incremental chat events`
+- Important options: next event, terminal error, consumer cancellation, upstream close
+
+```java
+try (AxChatStream stream = client.openStream(request)) { for (var event : stream) handle(event); }
+```
+
 ### `OpenAICompatibleClient`
 
 OpenAI-compatible chat, stream, embedding, audio, and realtime provider boundary.

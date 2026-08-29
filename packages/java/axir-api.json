@@ -153,6 +153,22 @@
         },
         {
           "target_name": "java",
+          "canonical_name": "AxProviderStream",
+          "public_name": "AxChatStream",
+          "kind": "type",
+          "description": "Incremental, closeable provider event stream. Retry and failover stop once content is delivered.",
+          "form": "client.openStream(request)",
+          "important_options": [
+            "next event",
+            "terminal error",
+            "consumer cancellation",
+            "upstream close"
+          ],
+          "returns": "incremental chat events",
+          "example": "try (AxChatStream stream = client.openStream(request)) { for (var event : stream) handle(event); }"
+        },
+        {
+          "target_name": "java",
           "canonical_name": "OpenAICompatibleClient",
           "public_name": "OpenAICompatibleClient",
           "kind": "type",

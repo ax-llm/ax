@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import base64
+import codecs
 import copy
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -358,6 +359,9 @@ def _usage_observed_stream(
     finally:
         if completed and last_usage_response is not None:
             _emit_usage_event("chat", last_usage_response, options, True)
+        close = getattr(values, "close", None)
+        if callable(close):
+            close()
 
 
 def _invoke_rate_limiter(limiter: AxRateLimiter | None, next_request: Callable[[], Any], info: AxRateLimitInfo) -> Any:
@@ -1139,22 +1143,40 @@ class ProviderOperationClient(AxBaseAI):
             # normalize runs (so peeking has no side effects). If the provider classifies it as
             # a retryable transient status (e.g. Anthropic's HTTP-200 overloaded_error event),
             # re-issue with the same exponential backoff apiCall uses for a 529 before surfacing.
-            raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat")
-            events = _iter_sse_json(raw)
-            first = next(events, sentinel)
+            events = None
+            try:
+                raw = self._request_json(endpoint, payload, stream=True, method=self._operation_method("stream_chat"), operation="stream_chat")
+                events = _iter_sse_json(raw)
+                first = next(events, sentinel)
+            except AxAIServiceError as error:
+                if _is_retryable_ai_error(error) and attempt < max_retries:
+                    attempt += 1
+                    delay = min(initial_delay * (backoff ** (attempt - 1)), max_delay)
+                    if delay > 0:
+                        time.sleep(delay / 1000.0)
+                    continue
+                raise
             if first is not sentinel:
                 status = provider_classify_stream_error_status(self.profile, first)
                 if status is not None and is_retryable_status(status) and attempt < max_retries:
+                    close = getattr(events, "close", None)
+                    if callable(close):
+                        close()
                     attempt += 1
                     delay = min(initial_delay * (backoff ** (attempt - 1)), max_delay)
                     if delay > 0:
                         time.sleep(delay / 1000.0)
                     continue
             state: dict[str, Any] = {}
-            if first is not sentinel:
-                yield provider_normalize_stream_delta(self.profile, first, state, self.name, model)
-                for event in events:
-                    yield provider_normalize_stream_delta(self.profile, event, state, self.name, model)
+            try:
+                if first is not sentinel:
+                    yield provider_normalize_stream_delta(self.profile, first, state, self.name, model)
+                    for event in events:
+                        yield provider_normalize_stream_delta(self.profile, event, state, self.name, model)
+            finally:
+                close = getattr(events, "close", None)
+                if callable(close):
+                    close()
             return
 
     def transcribe(self, request: dict[str, Any], options: dict[str, Any] | None = None):
@@ -1334,13 +1356,29 @@ class ProviderOperationClient(AxBaseAI):
             method=method,
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as res:
+            res = urllib.request.urlopen(req, timeout=self.timeout)
+            if stream:
+                def body_chunks():
+                    try:
+                        read = getattr(res, "read1", res.read)
+                        while True:
+                            chunk = read(8192)
+                            if not chunk:
+                                return
+                            yield chunk
+                    except TimeoutError as exc:
+                        raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
+                    except OSError as exc:
+                        raise AxAIServiceNetworkError(str(exc), request=call, retryable=True) from exc
+                    finally:
+                        res.close()
+                return body_chunks()
+            with res:
                 if binary_response:
                     # Binary operations (e.g. OpenAI /audio/speech returns raw mp3)
                     # must not be UTF-8 decoded; return the bytes as base64.
                     return base64.b64encode(res.read()).decode()
-                body = res.read().decode()
-                return body if stream else json.loads(body)
+                return json.loads(res.read().decode())
         except TimeoutError as exc:
             raise AxAIServiceTimeoutError("OpenAI-compatible request timed out", request=call, retryable=True) from exc
         except urllib.error.HTTPError as exc:
@@ -1546,6 +1584,21 @@ class MultiServiceRouter(AxAIService):
             req.pop("model", None)
             return entry["service"].chat(req, options)
         return entry["service"].chat(req, options)
+
+    def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
+        model_key = request.get("model")
+        if not model_key:
+            raise ValueError("Model key must be specified for multi-service")
+        entry = self.services.get(model_key)
+        if entry is None:
+            raise ValueError(f"No service found for model key: {model_key}")
+        self.last_used_service = entry["service"]
+        req = copy.deepcopy(request)
+        if "modelConfig" in req and "model_config" not in req:
+            req["model_config"] = copy.deepcopy(req["modelConfig"])
+        if "model" not in entry:
+            req.pop("model", None)
+        return entry["service"].stream(req, options)
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         embed_key = request.get("embedModel", request.get("embed_model"))
@@ -2158,9 +2211,81 @@ class AxBalancer(AxAIService):
                 raise
 
     def stream(self, request: dict[str, Any], options: dict[str, Any] | None = None):
-        if self.adaptive is not None:
-            return self._adaptive_invoke("stream", request, options)
-        return super().stream(request, options)
+        def iterate():
+            if self.adaptive is not None:
+                ranked = self._rank_adaptive(request, options)
+                last_error = None
+                for attempt, candidate in enumerate(ranked, 1):
+                    service = candidate["service"]
+                    self.current_service = service
+                    key = candidate["stats_key"]
+                    base = {name: key[name] for name in ("namespace", "slice", "logicalModel")}
+                    self._emit_routing_event({"type": "selected", **base, "routeKey": candidate["route_key"], "serviceName": service.get_name(), "attempt": attempt})
+                    started = time.monotonic()
+                    source = None
+                    try:
+                        source = iter(service.stream(request, options))
+                        first = next(source)
+                    except StopIteration:
+                        self._adaptive_observe(candidate, {"outcome": "success", "latencyMs": max(1.0, (time.monotonic() - started) * 1000)}, streaming=True)
+                        return
+                    except AxAIServiceError as error:
+                        close = getattr(source, "close", None)
+                        if callable(close): close()
+                        if not _is_retryable_ai_error(error): raise
+                        last_error = error
+                        reason = self._failure_reason(error)
+                        status = getattr(error, "status", None)
+                        self._adaptive_observe(candidate, {"outcome": "failure"}, streaming=True, reason=reason, status=status)
+                        next_route = ranked[attempt]["route_key"] if attempt < len(ranked) else None
+                        self._emit_routing_event({"type": "fallback", **base, "fromRouteKey": candidate["route_key"], "toRouteKey": next_route, "reason": reason, "status": status})
+                        continue
+                    self._adaptive_observe(candidate, {"outcome": "success", "latencyMs": max(1.0, (time.monotonic() - started) * 1000)}, streaming=True)
+                    try:
+                        yield first
+                        yield from source
+                    except AxAIServiceError as error:
+                        self._adaptive_observe(candidate, {"outcome": "failure"}, streaming=True, reason=self._failure_reason(error), status=getattr(error, "status", None))
+                        raise
+                    finally:
+                        close = getattr(source, "close", None)
+                        if callable(close): close()
+                    return
+                if last_error is not None: raise last_error
+                raise ValueError(f"All candidate services exhausted (tried {len(ranked)} service(s))")
+
+            candidates = self._candidate_services(request)
+            last_error = None
+            for service in candidates:
+                self.current_service = service
+                while self._can_retry_service(service):
+                    source = None
+                    try:
+                        source = iter(service.stream(request, options))
+                        first = next(source)
+                    except StopIteration:
+                        self._handle_success(service)
+                        return
+                    except AxAIServiceError as error:
+                        close = getattr(source, "close", None)
+                        if callable(close): close()
+                        if not _is_retryable_ai_error(error): raise
+                        last_error = error
+                        self._handle_failure(service, error)
+                        failure = self.service_failures.get(service.get_id(), {})
+                        if int(failure.get("retries", 0)) >= self.max_retries: break
+                        continue
+                    self._handle_success(service)
+                    try:
+                        yield first
+                        yield from source
+                    finally:
+                        close = getattr(source, "close", None)
+                        if callable(close): close()
+                    return
+            if last_error is not None: raise last_error
+            raise ValueError(f"All candidate services exhausted (tried {len(candidates)} service(s))")
+        return iterate()
 
     def embed(self, request: dict[str, Any], options: dict[str, Any] | None = None):
         self._reset()
@@ -2543,43 +2668,98 @@ def _transport_result(result: Any, request: dict[str, Any]):
 
 
 def _iter_sse_json(raw: Any):
-    if isinstance(raw, list):
+    if isinstance(raw, list) and all(isinstance(item, dict) or item == "[DONE]" for item in raw):
         for item in raw:
             if item != "[DONE]":
                 yield item
         return
-    text = raw.decode() if isinstance(raw, bytes) else str(raw)
-    # Mirror src/ax/util/sse.ts: normalize CRLF/CR, then fold the data: lines of
-    # each event (events are blank-line separated) into a single payload before
-    # parsing. A spec-legal SSE event may split one JSON value across several
-    # data: lines, joined with "\n"; parsing each line on its own would choke.
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    buffer = ""
 
-    def flush(payload: str):
-        payload = payload.strip()
-        if not payload or payload == "[DONE]":
+    chunks = [raw] if isinstance(raw, (str, bytes, bytearray)) else raw
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    line = ""
+    data_lines: list[str] = []
+    pending_cr = False
+    at_start = True
+    terminated = False
+
+    def flush_event():
+        nonlocal data_lines, terminated
+        if not data_lines:
+            return None
+        payload = "\n".join(data_lines)
+        data_lines = []
+        if payload.strip() == "[DONE]":
+            terminated = True
             return None
         return json.loads(payload)
 
-    for line in text.split("\n"):
-        if line == "":
-            event = flush(buffer)
-            buffer = ""
+    def process_line(value: str):
+        if value == "":
+            return flush_event()
+        if value.startswith(":"):
+            return None
+        colon = value.find(":")
+        field = value if colon < 0 else value[:colon]
+        field_value = "" if colon < 0 else value[colon + 1:]
+        if field_value.startswith(" "):
+            field_value = field_value[1:]
+        if field == "data":
+            data_lines.append(field_value)
+        return None
+
+    def process_text(text: str):
+        nonlocal line, pending_cr, at_start
+        if at_start and text:
+            at_start = False
+            if text.startswith("\ufeff"):
+                text = text[1:]
+        for char in text:
+            if pending_cr:
+                pending_cr = False
+                event = process_line(line)
+                line = ""
+                if event is not None:
+                    yield event
+                if terminated:
+                    return
+                if char == "\n":
+                    continue
+            if char == "\r":
+                pending_cr = True
+            elif char == "\n":
+                event = process_line(line)
+                line = ""
+                if event is not None:
+                    yield event
+                if terminated:
+                    return
+            else:
+                line += char
+
+    try:
+        for chunk in chunks:
+            if isinstance(chunk, dict):
+                yield chunk
+                continue
+            text = chunk if isinstance(chunk, str) else decoder.decode(bytes(chunk), final=False)
+            yield from process_text(text)
+            if terminated:
+                return
+        yield from process_text(decoder.decode(b"", final=True))
+        if terminated:
+            return
+        if pending_cr:
+            event = process_line(line)
+            line = ""
             if event is not None:
                 yield event
-            continue
-        if line.startswith(":"):
-            continue  # comment line
-        field, sep, value = line.partition(":")
-        if sep:
-            field = field.strip()
-            value = value.strip()
-            if field != "data":
-                continue  # event:/id:/retry: do not contribute to the payload
-        else:
-            value = line.strip()
-        buffer += ("\n" if buffer and not buffer.endswith("\n") else "") + value
-    event = flush(buffer)
-    if event is not None:
-        yield event
+        elif line:
+            # Provider-compatible EOF: accept a final event without a blank line.
+            process_line(line)
+        event = flush_event()
+        if event is not None:
+            yield event
+    finally:
+        close = getattr(raw, "close", None)
+        if callable(close):
+            close()

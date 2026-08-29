@@ -18,7 +18,12 @@ This ledger tracks portable TypeScript behavior that should be migrated into AxI
 
 ## Open
 
-No entries.
+- `axir-2026-08-28-port-true-incremental-provider-streaming` [axai] Port true incremental provider streaming
+  - Status: open
+  - Source commit: `2eb335322230bc3a33ccca9744d55719063c29df`
+  - TS paths: `ir/axcore/ai.axir`
+  - Impact: Generated Python, Java, C++, Go, and Rust provider streams currently buffer complete HTTP response bodies before exposing normalized deltas, preventing time-to-first-token parity, prompt cancellation, and TypeScript-equivalent pre-content versus mid-stream failure behavior.
+  - Suggested AxIR work: Add or update the TS-derived conformance fixture.; Update AxIR/Core or descriptor data to match the portable TS behavior.; Run npm run axir:conformance:check and npm run test:axir.
 
 ## Done
 

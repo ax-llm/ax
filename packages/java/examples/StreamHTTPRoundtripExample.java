@@ -15,19 +15,18 @@ import java.util.*;
 public final class StreamHTTPRoundtripExample {
   public static void main(String[] args) throws Exception {
     // One logical delta whose JSON is split across two data: lines (folded with
-    // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
+    // "\n"), then a single-line delta accepted at EOF without a delimiter.
     String event1a = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":";
-    String event1b = "{\"content\":\"Hello \"}}]}";
+    String event1b = "{\"content\":\"Hello 🌍 \"}}]}";
     String event2 = "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
-    String sseBody =
-        "data: " + event1a + "\r\n"
+    String sseFirst =
+        "\uFEFFdatabase: ignored\r\n"
+            + "data: " + event1a + "\r\n"
             + "data: " + event1b + "\r\n"
-            + "\r\n"
-            + "data: " + event2 + "\r\n"
-            + "\r\n"
-            + "data: [DONE]\r\n"
             + "\r\n";
-    byte[] sseBytes = sseBody.getBytes(StandardCharsets.UTF_8);
+    String sseRest = "data: " + event2;
+    byte[] firstBytes = sseFirst.getBytes(StandardCharsets.UTF_8);
+    byte[] restBytes = sseRest.getBytes(StandardCharsets.UTF_8);
 
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
@@ -35,9 +34,12 @@ public final class StreamHTTPRoundtripExample {
         exchange -> {
           exchange.getRequestBody().readAllBytes();
           exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
-          exchange.sendResponseHeaders(200, sseBytes.length);
+          exchange.sendResponseHeaders(200, firstBytes.length + restBytes.length);
           try (OutputStream os = exchange.getResponseBody()) {
-            os.write(sseBytes);
+            for (byte value : firstBytes) { os.write(value); os.flush(); }
+            try { Thread.sleep(300); } catch (InterruptedException error) { Thread.currentThread().interrupt(); }
+            os.write(restBytes);
+            os.flush();
           }
         });
     server.start();
@@ -48,17 +50,28 @@ public final class StreamHTTPRoundtripExample {
           new OpenAICompatibleClient(
               Map.of("api_key", "test-key", "base_url", "http://127.0.0.1:" + port, "model", "gpt-5.4-mini"));
       List<String> deltas = new ArrayList<>();
-      for (Map<String, Object> event :
-          client.stream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {
+      long started = System.nanoTime();
+      try (AxChatStream stream = client.openStream(Map.of("chat_prompt", List.of(Map.of("role", "user", "content", "stream"))))) {
+        Iterator<Map<String, Object>> iterator = stream.iterator();
+        if (!iterator.hasNext()) throw new RuntimeException("stream ended before first event");
+        Map<String, Object> firstEvent = iterator.next();
+        long ttft = System.nanoTime() - started;
+        List<Map<String, Object>> events = new ArrayList<>();
+        events.add(firstEvent);
+        iterator.forEachRemaining(events::add);
+        long completion = System.nanoTime() - started;
+        if (completion - ttft < 200_000_000L) throw new RuntimeException("first event was not incremental");
+        for (Map<String, Object> event : events) {
         Object results = event.get("results");
         if (results instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> first) {
           Object content = first.get("content");
           if (content instanceof String s && !s.isEmpty()) deltas.add(s);
         }
+        }
       }
-      if (deltas.isEmpty() || !"Hello ".equals(deltas.get(0)))
+      if (deltas.isEmpty() || !"Hello 🌍 ".equals(deltas.get(0)))
         throw new RuntimeException("multi-line data: event was not folded into one JSON value: " + deltas);
-      if (!"Hello world".equals(String.join("", deltas)))
+      if (!"Hello 🌍 world".equals(String.join("", deltas)))
         throw new RuntimeException("bad stream fold: " + deltas);
     } finally {
       server.stop(0);

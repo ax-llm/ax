@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -56,30 +57,33 @@ void drain_request(int fd) {
   }
 }
 
-void write_response(int fd, const std::string& content_type, const std::string& body) {
+void write_response(int fd, const std::string& content_type, const std::string& first, const std::string& rest) {
   std::string out = "HTTP/1.1 200 OK\r\nContent-Type: " + content_type +
-                    "\r\nContent-Length: " + std::to_string(body.size()) +
-                    "\r\nConnection: close\r\n\r\n" + body;
+                    "\r\nContent-Length: " + std::to_string(first.size() + rest.size()) +
+                    "\r\nConnection: close\r\n\r\n";
   size_t off = 0;
   while (off < out.size()) {
     ssize_t n = send(fd, out.data() + off, out.size() - off, 0);
     if (n <= 0) break;
     off += static_cast<size_t>(n);
   }
+  for (char byte : first) send(fd, &byte, 1, 0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  send(fd, rest.data(), rest.size(), 0);
 }
 
 }  // namespace
 
 int main() {
   // One logical delta whose JSON is split across two data: lines (folded with
-  // "\n"), then a single-line delta, then [DONE]. Every line uses CRLF.
+  // "\n"), then a single-line delta accepted at EOF without a delimiter.
   const std::string event1a =
       "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":";
-  const std::string event1b = "{\"content\":\"Hello \"}}]}";
+  const std::string event1b = "{\"content\":\"Hello 🌍 \"}}]}";
   const std::string event2 =
       "{\"id\":\"chatcmpl_stream\",\"model\":\"gpt-5.4-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\"},\"finish_reason\":\"stop\"}]}";
-  const std::string sse_body = "data: " + event1a + "\r\n" + "data: " + event1b + "\r\n" + "\r\n" +
-                               "data: " + event2 + "\r\n" + "\r\n" + "data: [DONE]\r\n" + "\r\n";
+  const std::string sse_first = "\xef\xbb\xbf" "database: ignored\r\n" + std::string("data: ") + event1a + "\r\n" + "data: " + event1b + "\r\n" + "\r\n";
+  const std::string sse_rest = "data: " + event2;
 
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
@@ -108,7 +112,7 @@ int main() {
     int fd = accept(server_fd, nullptr, nullptr);
     if (fd < 0) return;
     drain_request(fd);
-    write_response(fd, "text/event-stream", sse_body);
+    write_response(fd, "text/event-stream", sse_first, sse_rest);
     close(fd);
   });
 
@@ -118,24 +122,28 @@ int main() {
                      {"model", "gpt-5.4-mini"}}),
       nullptr);
   std::vector<std::string> deltas;
-  for (const auto& event : client.stream(axllm::object(
-           {{"chat_prompt",
-             axllm::array({axllm::object({{"role", "user"}, {"content", "stream"}})})}}))) {
+  auto started = std::chrono::steady_clock::now();
+  std::chrono::steady_clock::time_point first_at;
+  client.stream_each(axllm::object({{"chat_prompt", axllm::array({axllm::object({{"role", "user"}, {"content", "stream"}})})}}), [&](const axllm::Value& event) {
+    if (first_at.time_since_epoch().count() == 0) first_at = std::chrono::steady_clock::now();
     std::string content = axllm::display(
         axllm::Core::get(axllm::Core::get(axllm::Core::get(event, "results"), 0), "content", ""));
     if (!content.empty()) deltas.push_back(content);
-  }
+    return true;
+  });
+  auto completed = std::chrono::steady_clock::now();
+  if (completed - first_at < std::chrono::milliseconds(200)) { std::cerr << "first event was not incremental\n"; return 1; }
 
   server.join();
   close(server_fd);
 
-  if (deltas.empty() || deltas.front() != "Hello ") {
+  if (deltas.empty() || deltas.front() != "Hello 🌍 ") {
     std::cerr << "multi-line data: event was not folded into one JSON value\n";
     return 1;
   }
   std::string text;
   for (const auto& d : deltas) text += d;
-  if (text != "Hello world") {
+  if (text != "Hello 🌍 world") {
     std::cerr << "bad stream fold: " << text << "\n";
     return 1;
   }

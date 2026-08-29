@@ -70,9 +70,13 @@ public final class AxProviderRouter {
   }
 
   public Iterable<Map<String, Object>> stream(Map<String, Object> request, Map<String, Object> options) throws Exception {
+    return AxChatStream.lazy(() -> openStream(request));
+  }
+
+  public AxChatStream openStream(Map<String, Object> request) throws Exception {
     AxAIService provider = selectedProvider(request);
     Map<String, Object> processedRequest = Core.asMap(Core.provider_route_preprocess_request(provider.getFeatures(null), request));
-    return provider.stream(processedRequest);
+    return provider.openStream(processedRequest);
   }
 
   public Map<String, Object> embed(Map<String, Object> request, Map<String, Object> options) throws Exception {

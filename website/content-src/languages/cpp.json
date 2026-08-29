@@ -77,6 +77,17 @@
   },
   "snippets": {
     "ai": {
+      "providerStream": {
+        "sourcePath": "src/examples/cpp/generation/provider_stream.cpp",
+        "verified": true,
+        "requiresCredentials": true,
+        "code": [
+          "client.stream_each(request, [&](const axllm::Value& event) {",
+          "  handle(event);",
+          "  return true; // return false to cancel and close the HTTP response",
+          "});"
+        ]
+      },
       "balancer": {
         "sourcePath": "src/examples/cpp/generation/adaptive_balancer.cpp",
         "verified": true,
