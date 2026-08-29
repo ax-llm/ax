@@ -8264,13 +8264,22 @@ func _core_axgen_memory_cleanup_corrections(target Value) Value {
 }
 func _core_axgen_record_chat_log(target Value, values ...Value) Value {
 	log := coreGet(target, "chat_log", Array())
-	entry := Object()
-	for i, value := range values {
-		coreSet(entry, fmt.Sprintf("item%d", i), value)
-	}
-	if len(values) > 0 {
-		coreSet(entry, "providerMetadata", coreGet(values[0], "provider_metadata", Object()))
-	}
+	request := Value(Object())
+	response := Value(Object())
+	if len(values) > 0 { request = values[0] }
+	if len(values) > 1 { response = values[1] }
+	entry := Object(
+		"model", coreGet(request, "model", nil),
+		"messages", coreGet(request, "chat_prompt", Array()),
+		"response", response,
+		"remote_id", coreGet(response, "remote_id", coreGet(response, "id", nil)),
+		"session_id", coreGet(response, "session_id", nil),
+		"usage", coreGet(response, "usage", coreGet(response, "model_usage", nil)),
+		"function_calls", coreGet(response, "function_calls", Array()),
+		"thought", coreGet(response, "thought", nil),
+		"thought_blocks", coreGet(response, "thought_blocks", Array()),
+		"providerMetadata", coreGet(request, "provider_metadata", Object()),
+	)
 	log = coreAppend(log, entry)
 	if g, ok := target.(*AxGen); ok {
 		g.ChatLog = log
@@ -8308,8 +8317,8 @@ func _core_agent_stage_usage(stage Value) Value {
 	case *AxGen:
 		out := Array()
 		for _, entry := range asSlice(s.ChatLog) {
-			response := coreGet(entry, "item1", Object())
-			usage := coreGet(response, "usage", nil)
+			response := coreGet(entry, "response", coreGet(entry, "item1", Object()))
+			usage := coreGet(entry, "usage", coreGet(response, "usage", nil))
 			if usage == nil {
 				usage = coreGet(coreGet(response, "model_usage", Object()), "tokens", nil)
 			}
@@ -9899,6 +9908,9 @@ func runConformanceForward(fixture map[string]Value) {
 		}
 		if expected := coreGet(fixture, "expected_memory_history_subset", nil); expected != nil {
 			assertListSubset(gen.Memory, expected, "memory history")
+		}
+		if expected := coreGet(fixture, "expected_chat_log_subset", nil); expected != nil {
+			assertListSubset(gen.ChatLog, expected, "chat log")
 		}
 	}
 }

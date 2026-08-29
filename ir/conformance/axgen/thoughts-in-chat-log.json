@@ -1,0 +1,45 @@
+{
+  "expected_chat_log_subset": [
+    {
+      "thought": "I should preserve this summary.",
+      "thought_blocks": [
+        {
+          "data": "I should preserve this summary.",
+          "encrypted": false
+        }
+      ]
+    }
+  ],
+  "expected_output": {
+    "answer": "kept"
+  },
+  "expected_request_count": 1,
+  "input": {
+    "question": "Keep the thought summary?"
+  },
+  "kind": "forward",
+  "name": "thoughts-in-chat-log",
+  "responses": [
+    {
+      "model_usage": {
+        "tokens": {
+          "total_tokens": 17
+        }
+      },
+      "results": [
+        {
+          "content": "{\"answer\":\"kept\"}",
+          "index": 0,
+          "thought": "I should preserve this summary.",
+          "thought_blocks": [
+            {
+              "data": "I should preserve this summary.",
+              "encrypted": false
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "signature": "question:string -> answer:string"
+}

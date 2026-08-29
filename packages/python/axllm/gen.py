@@ -1052,6 +1052,8 @@ def _core_axgen_record_chat_log(gen, request, response):
         "session_id": _core_get(response, "session_id"),
         "usage": _core_get(response, "usage", _core_get(response, "model_usage")),
         "function_calls": _core_get(response, "function_calls", []),
+        "thought": _core_get(response, "thought"),
+        "thought_blocks": _core_get(response, "thought_blocks", []),
         "providerMetadata": _core_get(request, "provider_metadata", {}),
     }
     chat_log.append(entry)

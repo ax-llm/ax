@@ -13469,6 +13469,12 @@ fn run_simple_forward_fixture(fixture: &Value) -> AxResult<()> {
     {
         expect_json_list_subset("memory history", &Value::Array(program.memory.clone()), expected)?;
     }
+    if let Some(expected) = fixture
+        .get("expected_chat_log_subset")
+        .and_then(Value::as_array)
+    {
+        expect_json_list_subset("chat log", &Value::Array(program.chat_log.clone()), expected)?;
+    }
     if let Some(expected) = fixture.get("expected_tool_calls").and_then(Value::as_array) {
         let actual = Value::Array(recorded_calls.lock().unwrap().clone());
         expect_json_list_exact_subsets("tool calls", &actual, expected)?;
@@ -18023,6 +18029,18 @@ fn core_axgen_record_chat_log(args: &[CoreValue]) -> Result<CoreValue, AxError> 
             core_get(
                 &response,
                 &CoreValue::from("function_calls"),
+                CoreValue::new_list(),
+            ),
+        ),
+        (
+            "thought",
+            core_get(&response, &CoreValue::from("thought"), CoreValue::Null),
+        ),
+        (
+            "thought_blocks",
+            core_get(
+                &response,
+                &CoreValue::from("thought_blocks"),
                 CoreValue::new_list(),
             ),
         ),
