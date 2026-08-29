@@ -187,8 +187,8 @@
           "client = GoogleGeminiClient(",
           "    api_key=api_key,",
           "    model=os.getenv(\"AX_GEMINI_MODEL\", \"gemini-3.7-flash\"),",
-          "    service_tier=\"flex\",",
-          ")"
+          ")",
+          "out = client.chat(request, {\"service_tier\": \"flex\"})"
         ]
       },
       "vertex": {

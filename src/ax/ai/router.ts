@@ -1,18 +1,18 @@
+import { AxMediaNotSupportedError } from '../util/apicall.js';
+import {
+  axAnalyzeRequestRequirements,
+  axSelectOptimalProvider,
+} from './capabilities.js';
+import {
+  axProcessContentForProvider,
+  type ProcessingOptions,
+} from './processor.js';
 import type {
   AxAIService,
   AxAIServiceOptions,
   AxChatRequest,
   AxChatResponse,
 } from './types.js';
-import {
-  axProcessContentForProvider,
-  type ProcessingOptions,
-} from './processor.js';
-import {
-  axSelectOptimalProvider,
-  axAnalyzeRequestRequirements,
-} from './capabilities.js';
-import { AxMediaNotSupportedError } from '../util/apicall.js';
 
 /**
  * Services for converting unsupported content types to text or optimized formats
@@ -184,7 +184,8 @@ export class AxProviderRouter {
   }> {
     const routingResult = await this.selectProviderWithDegradation(
       request,
-      options.routingOptions || {}
+      options.routingOptions || {},
+      options.serviceTier
     );
 
     const processedRequest = await this.preprocessRequest(
@@ -288,7 +289,8 @@ export class AxProviderRouter {
       requireExactMatch?: boolean;
       allowDegradation?: boolean;
       maxRetries?: number;
-    }
+    },
+    serviceTier?: AxAIServiceOptions['serviceTier']
   ): Promise<AxRoutingResult> {
     const requirements = axAnalyzeRequestRequirements(request);
     const processingApplied: string[] = [];
@@ -296,7 +298,18 @@ export class AxProviderRouter {
     const warnings: string[] = [];
 
     try {
-      const provider = axSelectOptimalProvider(request, this.providers, {
+      const eligibleProviders =
+        serviceTier && serviceTier !== 'auto'
+          ? this.providers.filter((provider) =>
+              provider
+                .getFeatures(request.model as string | undefined)
+                .serviceTiers?.includes(serviceTier)
+            )
+          : this.providers;
+      if (eligibleProviders.length === 0) {
+        throw new Error(`No provider supports service tier ${serviceTier}`);
+      }
+      const provider = axSelectOptimalProvider(request, eligibleProviders, {
         requireExactMatch:
           options.requireExactMatch ?? this.config.capability.requireExactMatch,
         allowDegradation:
@@ -359,6 +372,15 @@ export class AxProviderRouter {
     routing: AxRoutingResult;
   }> {
     for (const fallbackProvider of fallbackProviders) {
+      if (
+        options.serviceTier &&
+        options.serviceTier !== 'auto' &&
+        !fallbackProvider
+          .getFeatures(request.model as string | undefined)
+          .serviceTiers?.includes(options.serviceTier)
+      ) {
+        continue;
+      }
       try {
         const routingResult: AxRoutingResult = {
           provider: fallbackProvider,

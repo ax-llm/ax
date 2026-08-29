@@ -35,16 +35,15 @@ func main() {
 		model = "gemini-3.7-flash"
 	}
 	client := ax.NewAI("google-gemini", map[string]ax.Value{
-		"api_key":      geminiAPIKey(),
-		"model":        model,
-		"service_tier": "flex",
+		"api_key": geminiAPIKey(),
+		"model":   model,
 	})
 	out, err := client.Chat(context.Background(), map[string]ax.Value{
 		"chat_prompt": ax.Array(ax.Object(
 			"role", "user",
 			"content", "Explain in one sentence why batch evaluations save time.",
 		)),
-	}, nil)
+	}, map[string]ax.Value{"service_tier": "flex"})
 	if err != nil {
 		panic(err)
 	}

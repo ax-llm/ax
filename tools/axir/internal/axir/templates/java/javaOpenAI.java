@@ -176,7 +176,8 @@ public class OpenAICompatibleClient extends AxBaseAI {
 
   @Override
   public double getEstimatedCost(Map<String, Object> modelUsage) {
-    return Core.asDouble(Core.provider_estimate_cost(modelUsage == null ? Map.of() : modelUsage));
+    Object modelInfo = options.getOrDefault("modelInfo", options.get("model_info"));
+    return Core.asDouble(Core.provider_estimate_cost(modelUsage == null ? Map.of() : modelUsage, modelInfo));
   }
 
   @Override

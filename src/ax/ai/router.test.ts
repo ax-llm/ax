@@ -120,6 +120,32 @@ const mockImageOnlyProvider = createMockProvider('ImageOnly', {
 });
 
 describe('AxProviderRouter', () => {
+  it('selects only providers that support an explicit service tier', async () => {
+    const standard = createMockProvider('Standard', {
+      ...mockTextOnlyProvider.getFeatures(),
+      serviceTiers: ['standard'],
+    });
+    const priority = createMockProvider('Priority', {
+      ...mockTextOnlyProvider.getFeatures(),
+      serviceTiers: ['priority'],
+    });
+    const router = new AxProviderRouter({
+      providers: { primary: standard, alternatives: [priority] },
+      routing: {
+        preferenceOrder: ['capability'],
+        capability: { requireExactMatch: true, allowDegradation: false },
+      },
+      processing: {},
+    });
+
+    const result = await router.chat(
+      { chatPrompt: [{ role: 'user', content: 'urgent' }] },
+      { serviceTier: 'priority' }
+    );
+
+    expect(result.routing.provider.getName()).toBe('Priority');
+  });
+
   let router: AxProviderRouter;
   let mockImageToText: ReturnType<typeof vi.fn>;
   let mockAudioToText: ReturnType<typeof vi.fn>;

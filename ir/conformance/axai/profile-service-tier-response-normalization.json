@@ -1,0 +1,76 @@
+{
+  "expected_output": {
+    "model_usage": {
+      "ai": "cerebras",
+      "model": "gpt-oss-120b",
+      "tokens": {
+        "completion_tokens": 2,
+        "prompt_tokens": 1,
+        "service_tier": "priority",
+        "total_tokens": 3
+      }
+    },
+    "remote_id": "chatcmpl_cerebras_tier",
+    "results": [
+      {
+        "content": "ok",
+        "finish_reason": "stop",
+        "function_calls": [],
+        "id": "0",
+        "index": 0
+      }
+    ]
+  },
+  "expected_transport_request": {
+    "json": {
+      "service_tier": "priority"
+    },
+    "method": "POST",
+    "url": "https://api.cerebras.ai/v1/chat/completions"
+  },
+  "kind": "ai_chat",
+  "model": "gpt-oss-120b",
+  "name": "profile-service-tier-response-normalization",
+  "provider": "cerebras",
+  "request": {
+    "chat_prompt": [
+      {
+        "content": "use priority",
+        "role": "user"
+      }
+    ],
+    "model_config": {
+      "stream": false
+    }
+  },
+  "service_options": {
+    "serviceTier": "priority"
+  },
+  "transport_responses": [
+    {
+      "json": {
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "ok",
+              "refusal": null,
+              "role": "assistant"
+            }
+          }
+        ],
+        "id": "chatcmpl_cerebras_tier",
+        "model": "gpt-oss-120b",
+        "object": "chat.completion",
+        "service_tier_used": "performance",
+        "usage": {
+          "completion_tokens": 2,
+          "prompt_tokens": 1,
+          "total_tokens": 3
+        }
+      },
+      "status": 200
+    }
+  ]
+}

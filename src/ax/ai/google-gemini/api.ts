@@ -25,6 +25,10 @@ const usesServerManagedSampling = (model: string): boolean =>
   model === 'gemini-3.6-flash' ||
   model === 'gemini-3.5-flash-lite';
 
+import {
+  axNormalizeRequestedServiceTier,
+  axResolveServiceTier,
+} from '../service_tier.js';
 import type {
   AxAICredentialProvider,
   AxAIInputModelList,
@@ -493,6 +497,9 @@ class AxAIGoogleGeminiImpl
     AxAIGoogleGeminiEmbedModel,
     any
   >;
+  private serviceTierSupportFor?: (
+    model: AxAIGoogleGeminiModel
+  ) => readonly import('../types.js').AxServiceTier[];
 
   constructor(
     private config: AxAIGoogleGeminiConfig,
@@ -527,6 +534,50 @@ class AxAIGoogleGeminiImpl
     >
   ): void {
     this.models = models;
+  }
+
+  setServiceTierSupportFor(
+    resolver: (
+      model: AxAIGoogleGeminiModel
+    ) => readonly import('../types.js').AxServiceTier[]
+  ): void {
+    this.serviceTierSupportFor = resolver;
+  }
+
+  private resolveServiceTier(
+    model: AxAIGoogleGeminiModel,
+    options: Readonly<AxAIServiceOptions>,
+    useLiveAudio = false
+  ): AxAIGoogleGeminiChatRequest['service_tier'] {
+    const requested =
+      options.serviceTier ??
+      this.options?.serviceTier ??
+      this.config.serviceTier;
+    const normalized = axNormalizeRequestedServiceTier(requested);
+    const unavailable = useLiveAudio || this.isVertex;
+    if (unavailable && normalized && normalized !== 'auto') {
+      throw new Error(
+        `Gemini inference service tiers are not supported by ${useLiveAudio ? 'the Live API' : 'Vertex AI'}`
+      );
+    }
+    return axResolveServiceTier({
+      requested,
+      supported: unavailable
+        ? []
+        : (this.serviceTierSupportFor?.(model) ?? [
+            'standard',
+            'flex',
+            'priority',
+          ]),
+      mapping: {
+        auto: null,
+        standard: 'standard',
+        flex: 'flex',
+        priority: 'priority',
+      },
+      provider: 'Google Gemini',
+      model,
+    }) as AxAIGoogleGeminiChatRequest['service_tier'];
   }
 
   /**
@@ -930,15 +981,10 @@ class AxAIGoogleGeminiImpl
       this.config.audio,
       req.modelConfig?.audio
     );
+    const serviceTier = this.resolveServiceTier(model, config, useLiveAudio);
 
     if (!req.chatPrompt || req.chatPrompt.length === 0) {
       throw new Error('Chat prompt is empty');
-    }
-
-    if (useLiveAudio && this.config.serviceTier) {
-      throw new Error(
-        'Gemini inference service tiers are not supported by the Live API'
-      );
     }
 
     let apiConfig: AxAPI;
@@ -1256,9 +1302,7 @@ class AxAIGoogleGeminiImpl
       systemInstruction,
       generationConfig,
       safetySettings,
-      ...(this.config.serviceTier
-        ? { service_tier: this.config.serviceTier }
-        : {}),
+      ...(serviceTier ? { service_tier: serviceTier } : {}),
     };
 
     if (useLiveAudio) {
@@ -1814,6 +1858,7 @@ class AxAIGoogleGeminiImpl
     existingCacheName: string
   ): Promise<AxPreparedChatRequest<AxAIGoogleGeminiChatRequest>> => {
     const model = req.model;
+    const serviceTier = this.resolveServiceTier(model, options);
     const stream = req.modelConfig?.stream ?? this.config.stream;
     const { tools, toolConfig, cacheableTools } = this.buildToolState(
       req,
@@ -1894,9 +1939,7 @@ class AxAIGoogleGeminiImpl
       cachedContent: existingCacheName,
       generationConfig,
       safetySettings,
-      ...(this.config.serviceTier
-        ? { service_tier: this.config.serviceTier }
-        : {}),
+      ...(serviceTier ? { service_tier: serviceTier } : {}),
     };
 
     if (!cacheableTools) {
@@ -2253,7 +2296,7 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       ...config,
     };
 
-    if (vertexConfig && Config.serviceTier) {
+    if (vertexConfig && Config.serviceTier && Config.serviceTier !== 'auto') {
       throw new Error(
         'Gemini inference service tiers are not supported by Vertex AI'
       );
@@ -2401,6 +2444,11 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
         },
         thinking: mi?.supported?.thinkingBudget ?? false,
         multiTurn: true,
+        serviceTiers:
+          mi?.supported?.serviceTiers ??
+          (vertexConfig || isLiveAudioModel
+            ? []
+            : (['standard', 'flex', 'priority'] as const)),
       };
     };
 
@@ -2469,6 +2517,9 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       if (cfg.thinking?.includeThoughts !== undefined) {
         out.showThoughts = !!cfg.thinking.includeThoughts;
       }
+      if (cfg.serviceTier !== undefined) {
+        out.serviceTier = cfg.serviceTier;
+      }
 
       // Extract per-model thinkingLevelMapping if provided
       if (cfg.thinkingLevelMapping) {
@@ -2489,6 +2540,9 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
     } else if (models) {
       aiImpl.setModels(models);
     }
+    aiImpl.setServiceTierSupportFor(
+      (model) => supportFor(model).serviceTiers ?? []
+    );
 
     super(aiImpl, {
       name: 'GoogleGeminiAI',

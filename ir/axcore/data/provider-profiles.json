@@ -1,6 +1,64 @@
 {
   "schemaVersion": "provider-profiles-v3",
   "reviewedAt": "2026-08-18",
+  "serviceTierProfiles": {
+    "openai": {
+      "supported": ["standard", "flex", "priority"],
+      "requestMap": {"auto": "auto", "standard": "default", "flex": "flex", "priority": "priority"}
+    },
+    "openai-responses": {
+      "supported": ["standard", "flex", "priority"],
+      "requestMap": {"auto": "auto", "standard": "default", "flex": "flex", "priority": "priority"}
+    },
+    "google-gemini": {
+      "supported": ["standard", "flex", "priority"],
+      "requestMap": {"auto": null, "standard": "standard", "flex": "flex", "priority": "priority"}
+    },
+    "azure-openai": {
+      "supported": ["standard", "priority"],
+      "requestMap": {"auto": "auto", "standard": "default", "flex": "flex", "priority": "priority"}
+    },
+    "azure-foundry": {
+      "supported": ["standard", "priority"],
+      "requestMap": {"auto": "auto", "standard": "default", "flex": "flex", "priority": "priority"}
+    },
+    "amazon-bedrock": {
+      "supported": ["standard", "flex", "priority"],
+      "requestMap": {"auto": null, "standard": "default", "flex": "flex", "priority": "priority"}
+    },
+    "mistral": {
+      "supported": ["standard", "priority"],
+      "requestMap": {"auto": "auto", "standard": "standard_only", "priority": "auto"}
+    },
+    "groq": {
+      "supported": ["standard", "flex", "priority"],
+      "requestMap": {"auto": "auto", "standard": "on_demand", "flex": "flex", "priority": "performance"}
+    },
+    "openrouter": {
+      "supported": ["standard", "flex", "priority"],
+      "requestMap": {"auto": null, "standard": null, "flex": "flex", "priority": "priority"}
+    },
+    "deepinfra": {
+      "supported": ["standard", "priority"],
+      "requestMap": {"auto": null, "standard": null, "priority": "priority"}
+    },
+    "cerebras": {
+      "supported": ["standard", "flex", "priority"],
+      "requestMap": {"auto": "auto", "standard": "default", "flex": "flex", "priority": "priority"}
+    },
+    "grok": {
+      "supported": ["standard", "priority"],
+      "requestMap": {"auto": null, "standard": "default", "priority": "priority"}
+    },
+    "databricks": {
+      "supported": ["standard", "priority"],
+      "requestMap": {"auto": null, "standard": "default", "priority": "priority"}
+    },
+    "fireworks": {
+      "supported": ["standard", "priority"],
+      "requestMap": {"auto": null, "standard": "default", "priority": "priority"}
+    }
+  },
   "profiles": {
     "openai": {
       "id": "openai",
@@ -402,7 +460,8 @@
       },
       "modelRules": [],
       "sources": [
-        "https://ai.google.dev/api/generate-content"
+        "https://ai.google.dev/api/generate-content",
+        "https://ai.google.dev/gemini-api/docs/optimization"
       ],
       "reviewedAt": "2026-08-17"
     },
@@ -526,7 +585,8 @@
       },
       "modelRules": [],
       "sources": [
-        "https://learn.microsoft.com/en-us/azure/ai-services/openai/reference"
+        "https://learn.microsoft.com/en-us/azure/ai-services/openai/reference",
+        "https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing"
       ],
       "reviewedAt": "2026-08-17"
     },
@@ -752,7 +812,8 @@
       },
       "modelRules": [],
       "sources": [
-        "https://docs.mistral.ai/api/"
+        "https://docs.mistral.ai/api/",
+        "https://docs.mistral.ai/inference/priority-tier"
       ],
       "reviewedAt": "2026-08-17"
     },
@@ -1009,7 +1070,8 @@
       ],
       "sources": [
         "https://docs.x.ai/developers/model-capabilities/text/reasoning",
-        "https://docs.x.ai/developers/models/grok-4.5"
+        "https://docs.x.ai/developers/models/grok-4.5",
+        "https://docs.x.ai/developers/advanced-api-usage/priority-processing"
       ],
       "reviewedAt": "2026-08-18"
     },
@@ -1217,7 +1279,8 @@
         }
       ],
       "sources": [
-        "https://openrouter.ai/docs/guides/best-practices/reasoning-tokens"
+        "https://openrouter.ai/docs/guides/best-practices/reasoning-tokens",
+        "https://openrouter.ai/docs/guides/features/service-tiers"
       ],
       "reviewedAt": "2026-08-18"
     },
@@ -1421,7 +1484,8 @@
       },
       "modelRules": [],
       "sources": [
-        "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html"
+        "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html",
+        "https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html"
       ],
       "reviewedAt": "2026-08-17"
     },
@@ -1462,7 +1526,8 @@
       },
       "modelRules": [],
       "sources": [
-        "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat"
+        "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat",
+        "https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing"
       ],
       "reviewedAt": "2026-08-17"
     },
@@ -1590,7 +1655,8 @@
       },
       "modelRules": [],
       "sources": [
-        "https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models"
+        "https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models",
+        "https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode"
       ],
       "reviewedAt": "2026-08-17"
     },
@@ -1724,7 +1790,8 @@
       ],
       "sources": [
         "https://console.groq.com/docs/reasoning",
-        "https://console.groq.com/docs/api-reference"
+        "https://console.groq.com/docs/api-reference",
+        "https://console.groq.com/docs/service-tiers"
       ],
       "reviewedAt": "2026-08-18"
     },
@@ -1818,7 +1885,8 @@
       ],
       "sources": [
         "https://inference-docs.cerebras.ai/capabilities/reasoning",
-        "https://inference-docs.cerebras.ai/api-reference/chat-completions"
+        "https://inference-docs.cerebras.ai/api-reference/chat-completions",
+        "https://inference-docs.cerebras.ai/capabilities/service-tiers"
       ],
       "reviewedAt": "2026-08-18"
     },
@@ -1883,7 +1951,8 @@
       ],
       "sources": [
         "https://docs.deepinfra.com/chat/reasoning",
-        "https://docs.deepinfra.com/api-reference/introduction"
+        "https://docs.deepinfra.com/api-reference/introduction",
+        "https://docs.deepinfra.com/chat/overview"
       ],
       "reviewedAt": "2026-08-18"
     },

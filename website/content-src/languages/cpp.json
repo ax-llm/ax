@@ -171,8 +171,8 @@
           "axllm::GoogleGeminiClient client(axllm::object({",
           "    {\"api_key\", key},",
           "    {\"model\", model == nullptr || std::string(model).empty() ? \"gemini-3.7-flash\" : model},",
-          "    {\"service_tier\", \"flex\"},",
-          "}));"
+          "}));",
+          "axllm::Value out = client.chat(request, axllm::object({{\"service_tier\", \"flex\"}}));"
         ]
       },
       "vertex": {

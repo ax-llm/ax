@@ -297,6 +297,11 @@ export class AxBalancer<
       if (f.functionCot) features.functionCot = true;
       if (f.hasThinkingBudget) features.hasThinkingBudget = true;
       if (f.hasShowThoughts) features.hasShowThoughts = true;
+      if (f.serviceTiers?.length) {
+        features.serviceTiers = Array.from(
+          new Set([...(features.serviceTiers ?? []), ...f.serviceTiers])
+        );
+      }
 
       // Merge media capabilities
       if (f.media.images.supported) features.media.images.supported = true;
@@ -488,7 +493,8 @@ export class AxBalancer<
   }
 
   private getCandidateServices(
-    req: Readonly<AxChatRequest<TModelKey>>
+    req: Readonly<AxChatRequest<TModelKey>>,
+    options?: Readonly<AxAIServiceOptions>
   ): AxAIService<unknown, unknown, TModelKey>[] {
     const requiresStructuredOutputs =
       req.responseFormat?.type === 'json_schema';
@@ -496,8 +502,16 @@ export class AxBalancer<
     const requiresImages = caps?.requiresImages;
     const requiresAudio = caps?.requiresAudio;
     const model = req.model as unknown as string;
+    const requestedTier = options?.serviceTier;
+    const requiresServiceTier =
+      requestedTier !== undefined && requestedTier !== 'auto';
 
-    if (!requiresStructuredOutputs && !requiresImages && !requiresAudio) {
+    if (
+      !requiresStructuredOutputs &&
+      !requiresImages &&
+      !requiresAudio &&
+      !requiresServiceTier
+    ) {
       return this.services;
     }
 
@@ -507,6 +521,12 @@ export class AxBalancer<
         return false;
       if (requiresImages && !features.media.images.supported) return false;
       if (requiresAudio && !features.media.audio.supported) return false;
+      if (
+        requiresServiceTier &&
+        !features.serviceTiers?.includes(requestedTier)
+      ) {
+        return false;
+      }
       return true;
     });
 
@@ -515,6 +535,8 @@ export class AxBalancer<
       if (requiresStructuredOutputs) requirements.push('structured outputs');
       if (requiresImages) requirements.push('images');
       if (requiresAudio) requirements.push('audio');
+      if (requiresServiceTier)
+        requirements.push(`service tier ${requestedTier}`);
 
       throw new Error(
         `No services available that support required capabilities: ${requirements.join(', ')}.`
@@ -945,7 +967,7 @@ export class AxBalancer<
     req: Readonly<AxChatRequest<TModelKey>>,
     options?: Readonly<AxAIServiceOptions>
   ): Promise<AxChatResponse | ReadableStream<AxChatResponse>> {
-    const candidateServices = this.getCandidateServices(req);
+    const candidateServices = this.getCandidateServices(req, options);
     if (this.adaptive) {
       return await this.chatAdaptive(req, options, candidateServices);
     }

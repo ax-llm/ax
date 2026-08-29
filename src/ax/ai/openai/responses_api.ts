@@ -4,6 +4,8 @@ import type {
   AxAPI,
 } from '@ax-llm/ax/index.js';
 import { AxAIRefusalError } from '../../util/apicall.js';
+import type { AxAIFeatures } from '../base.js';
+import { axResolveServiceTier } from '../service_tier.js';
 import type {
   AxAIServiceImpl,
   AxAIServiceOptions,
@@ -86,10 +88,14 @@ export class AxAIOpenAIResponsesImpl<
       AxAIOpenAIResponsesConfig<TModel, TEmbedModel>
     >,
     private readonly streamingUsage: boolean, // If /v1/responses supports include_usage for streams
+    private readonly options?: Readonly<AxAIServiceOptions>,
     private readonly responsesReqUpdater?: ResponsesReqUpdater<
       TModel,
       TResponsesReq
-    >
+    >,
+    private readonly supportFor?:
+      | AxAIFeatures
+      | ((model: TModel) => AxAIFeatures)
   ) {}
 
   getTokenUsage(): Readonly<AxTokenUsage> | undefined {
@@ -350,6 +356,25 @@ export class AxAIOpenAIResponsesImpl<
   ): [Readonly<AxAPI>, Readonly<AxAIOpenAIResponsesRequest<TModel>>] {
     const model = req.model;
     const apiConfig: Readonly<AxAPI> = { name: '/responses' };
+    const features =
+      typeof this.supportFor === 'function'
+        ? this.supportFor(model)
+        : this.supportFor;
+    const serviceTier = axResolveServiceTier({
+      requested:
+        config.serviceTier ??
+        this.options?.serviceTier ??
+        this.config.serviceTier,
+      supported: features?.serviceTiers,
+      mapping: {
+        auto: 'auto',
+        standard: 'default',
+        flex: 'flex',
+        priority: 'priority',
+      },
+      provider: 'OpenAI-compatible Responses',
+      model: String(model),
+    });
 
     let instructionsFromPrompt: string | null = null;
     let systemMessageFoundAndUsed = false;
@@ -462,7 +487,7 @@ export class AxAIOpenAIResponsesImpl<
             },
           }
         : {}),
-      service_tier: this.config.serviceTier,
+      service_tier: serviceTier,
       store: this.config.store,
       text: undefined,
       truncation: undefined,
@@ -543,7 +568,10 @@ export class AxAIOpenAIResponsesImpl<
   ): Readonly<AxChatResponse> {
     const { id, output, usage } = resp;
 
-    this.tokensUsed = axNormalizeOpenAIUsage(usage);
+    this.tokensUsed = axNormalizeOpenAIUsage(
+      usage,
+      resp.service_tier_used ?? resp.service_tier
+    );
 
     const currentResult: Partial<AxChatResponseResult> = {};
 
@@ -1162,7 +1190,10 @@ export class AxAIOpenAIResponsesImpl<
 
       case 'response.completed':
         // Response completion - handle usage
-        this.tokensUsed = axNormalizeOpenAIUsage(event.response.usage);
+        this.tokensUsed = axNormalizeOpenAIUsage(
+          event.response.usage,
+          event.response.service_tier_used ?? event.response.service_tier
+        );
         remoteId = event.response.id;
         baseResult.id = `${event.response.id}_completed`;
         baseResult.finishReason = 'stop';

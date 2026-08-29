@@ -565,6 +565,12 @@ import {
   AxProviderRouter,
   type AxRoutingResult,
 } from './ai/router.js';
+import {
+  type AxServiceTierMap,
+  axNormalizeAppliedServiceTier,
+  axNormalizeRequestedServiceTier,
+  axResolveServiceTier,
+} from './ai/service_tier.js';
 import type {
   AxAgentCompletionProtocol,
   AxAICredentialProvider,
@@ -576,6 +582,7 @@ import type {
   AxAIServiceImpl,
   AxAIServiceMetrics,
   AxAIServiceOptions,
+  AxAppliedServiceTier,
   AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
@@ -603,6 +610,8 @@ import type {
   AxRateLimiterFunction,
   AxRateLimitInfo,
   AxRuntimeHooks,
+  AxServiceTier,
+  AxServiceTierPricing,
   AxStructuredOutputMode,
   AxStructuredOutputRung,
   AxThoughtBlockItem,
@@ -1569,7 +1578,9 @@ export { axModelInfoOpenAI };
 export { axModelInfoOpenAIResponses };
 export { axModelInfoReka };
 export { axModelInfoWebLLM };
+export { axNormalizeAppliedServiceTier };
 export { axNormalizeOpenAIUsage };
+export { axNormalizeRequestedServiceTier };
 export { axNormalizeTranscriptionResponse };
 export { axOpenAIChatAudioDefaults };
 export { axOptimizableValidators };
@@ -1582,6 +1593,7 @@ export { axResolveGrokRealtimeAudioConfig };
 export { axResolveMCPExecutionContext };
 export { axResolveOpenAIChatAudioConfig };
 export { axResolveOpenAIRealtimeAudioConfig };
+export { axResolveServiceTier };
 export { axRuntimeHookFrame };
 export { axRuntimePrimitives };
 export { axScoreProvidersForRequest };
@@ -1940,6 +1952,7 @@ export type { AxAgentUsedSkill };
 export type { AxAgentUsedSkillsCallback };
 export type { AxAgentic };
 export type { AxAnyAgentic };
+export type { AxAppliedServiceTier };
 export type { AxAssertion };
 export type { AxAttempt };
 export type { AxAudioFormat };
@@ -2362,6 +2375,9 @@ export type { AxRuntimePrimitiveStage };
 export type { AxSamplePickerOptions };
 export type { AxSelfTuningConfig };
 export type { AxSerializedOptimizedProgram };
+export type { AxServiceTier };
+export type { AxServiceTierMap };
+export type { AxServiceTierPricing };
 export type { AxSetExamplesOptions };
 export type { AxSharedSessionPhase };
 export type { AxSignatureConfig };

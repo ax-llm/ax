@@ -943,7 +943,8 @@ class ProviderOperationClient(AxBaseAI):
         return False
 
     def get_estimated_cost(self, model_usage: dict[str, Any] | None = None) -> float:
-        return float(provider_estimate_cost(model_usage or {}))
+        model_info = self.options.get("modelInfo", self.options.get("model_info"))
+        return float(provider_estimate_cost(model_usage or {}, model_info))
 
     def get_features(self, model: str | None = None) -> dict[str, Any]:
         return copy.deepcopy(

@@ -2677,6 +2677,77 @@ describe('AxAIGoogleGemini inference service tiers', () => {
     }
   );
 
+  it('lets per-call serviceTier override the instance default', async () => {
+    const capture: { lastBody?: any } = {};
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: {
+        model: AxAIGoogleGeminiModel.Gemini25Flash,
+        serviceTier: 'standard',
+      },
+      models: [],
+    });
+    ai.setOptions({
+      fetch: createMockFetch(
+        {
+          candidates: [
+            {
+              content: { parts: [{ text: 'ok' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 1,
+            candidatesTokenCount: 1,
+            totalTokenCount: 2,
+          },
+        },
+        capture
+      ),
+    });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hello' }] },
+      { stream: false, serviceTier: 'flex' }
+    );
+
+    expect(capture.lastBody?.service_tier).toBe('flex');
+  });
+
+  it('omits auto when the Gemini API has no explicit auto value', async () => {
+    const capture: { lastBody?: any } = {};
+    const ai = new AxAIGoogleGemini({
+      apiKey: 'key',
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+      models: [],
+    });
+    ai.setOptions({
+      fetch: createMockFetch(
+        {
+          candidates: [
+            {
+              content: { parts: [{ text: 'ok' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 1,
+            candidatesTokenCount: 1,
+            totalTokenCount: 2,
+          },
+        },
+        capture
+      ),
+    });
+
+    await ai.chat(
+      { chatPrompt: [{ role: 'user', content: 'hello' }] },
+      { stream: false, serviceTier: 'auto' }
+    );
+
+    expect(capture.lastBody).not.toHaveProperty('service_tier');
+  });
+
   it('normalizes an unspecified response tier to standard', async () => {
     const ai = new AxAIGoogleGemini({
       apiKey: 'key',

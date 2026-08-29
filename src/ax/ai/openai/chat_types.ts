@@ -1,4 +1,4 @@
-import type { AxModelConfig } from '../types.js';
+import type { AxModelConfig, AxServiceTier } from '../types.js';
 
 export enum AxAIOpenAIModel {
   // Non-reasoning models
@@ -94,7 +94,8 @@ export type AxAIOpenAIConfig<TModel, TEmbedModel> = Omit<
   dimensions?: number;
   reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   store?: boolean;
-  serviceTier?: 'auto' | 'default' | 'flex';
+  /** Portable values plus the legacy OpenAI `default` alias. */
+  serviceTier?: AxServiceTier | 'default';
   webSearchOptions?: {
     searchContextSize?: 'low' | 'medium' | 'high';
     userLocation?: {
@@ -120,6 +121,7 @@ export type AxAIOpenAIUsage = {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  service_tier?: string;
   prompt_tokens_details?: {
     cached_tokens?: number;
     /**
@@ -187,11 +189,14 @@ export interface AxAIOpenAIResponseDelta<T> {
     finish_reason?: 'stop' | 'length' | 'content_filter' | 'tool_calls' | null;
   }[];
   usage?: AxAIOpenAIUsage;
+  service_tier?: string;
+  service_tier_used?: string;
   system_fingerprint: string;
 }
 
 export type AxAIOpenAIChatRequest<TModel> = {
   model: TModel;
+  service_tier?: string;
   // `max` is absent on purpose: Chat Completions rejects it even on the models
   // whose Responses endpoint serves it. See effort.ts for the ladders.
   reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -304,6 +309,8 @@ export type AxAIOpenAIChatResponse = {
   object: 'chat.completion';
   created: number;
   model: string;
+  service_tier?: string;
+  service_tier_used?: string;
   choices: {
     index: number;
     message: {

@@ -1,3 +1,4 @@
+import { axNormalizeAppliedServiceTier } from '../service_tier.js';
 import type { AxTokenUsage } from '../types.js';
 
 type OpenAICompatibleUsageDetails = {
@@ -18,6 +19,7 @@ export type OpenAICompatibleUsage = {
   completion_tokens?: number;
   output_tokens?: number;
   total_tokens?: number;
+  service_tier?: string;
   prompt_tokens_details?: OpenAICompatibleUsageDetails;
   input_tokens_details?: OpenAICompatibleUsageDetails;
   completion_tokens_details?: OpenAICompatibleUsageDetails;
@@ -25,7 +27,8 @@ export type OpenAICompatibleUsage = {
 };
 
 export const axNormalizeOpenAIUsage = (
-  usage?: Readonly<OpenAICompatibleUsage> | null
+  usage?: Readonly<OpenAICompatibleUsage> | null,
+  rawServiceTier?: unknown
 ): AxTokenUsage | undefined => {
   if (!usage) {
     return undefined;
@@ -44,6 +47,9 @@ export const axNormalizeOpenAIUsage = (
   const reasoningTokens =
     usage.completion_tokens_details?.reasoning_tokens ??
     usage.output_tokens_details?.reasoning_tokens;
+  const serviceTier = axNormalizeAppliedServiceTier(
+    rawServiceTier ?? usage.service_tier
+  );
 
   return {
     // OpenAI's prompt_tokens includes both the cached and the written tokens.
@@ -56,5 +62,6 @@ export const axNormalizeOpenAIUsage = (
     ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
     ...(cachedTokens > 0 ? { cacheReadTokens: cachedTokens } : {}),
     ...(cacheWriteTokens > 0 ? { cacheCreationTokens: cacheWriteTokens } : {}),
+    ...(serviceTier ? { serviceTier } : {}),
   };
 };

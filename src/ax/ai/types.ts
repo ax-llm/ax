@@ -25,6 +25,24 @@ export type {
   AxTranscriptionResponse,
 } from './audio/types.js';
 
+/** Portable request-level inference service tiers. */
+export type AxServiceTier = 'auto' | 'standard' | 'flex' | 'priority';
+
+/** Normalized service tier that actually handled a request. */
+export type AxAppliedServiceTier = Exclude<AxServiceTier, 'auto'> | 'batch';
+
+/** Per-token pricing overrides for a non-standard service tier. */
+export type AxServiceTierPricing = {
+  promptTokenCostPer1M?: number;
+  completionTokenCostPer1M?: number;
+  cacheReadTokenCostPer1M?: number;
+  cacheWriteTokenCostPer1M?: number;
+  longContextPromptTokenCostPer1M?: number;
+  longContextCompletionTokenCostPer1M?: number;
+  longContextCacheReadTokenCostPer1M?: number;
+  longContextCacheWriteTokenCostPer1M?: number;
+};
+
 export type AxAIInputModelList<TModel, TEmbedModel, TModelKey> =
   (AxAIModelListBase<TModelKey> & {
     isInternal?: boolean;
@@ -33,6 +51,7 @@ export type AxAIInputModelList<TModel, TEmbedModel, TModelKey> =
     /** Optional per-model options applied when this key is used (callers still override) */
     thinkingTokenBudget?: AxAIServiceOptions['thinkingTokenBudget'];
     showThoughts?: AxAIServiceOptions['showThoughts'];
+    serviceTier?: AxAIServiceOptions['serviceTier'];
     stream?: AxAIServiceOptions['stream'];
     debug?: AxAIServiceOptions['debug'];
     useExpensiveModel?: AxAIServiceOptions['useExpensiveModel'];
@@ -71,6 +90,10 @@ export type AxModelInfo = {
   fastCacheReadTokenCostPer1M?: number;
   /** Cache write token cost when a provider speed tier such as Anthropic fast mode is active. */
   fastCacheWriteTokenCostPer1M?: number;
+  /** Token pricing overrides selected from the tier that actually served a request. */
+  serviceTierPricing?: Partial<
+    Record<'flex' | 'priority', AxServiceTierPricing>
+  >;
   aliases?: string[];
   supported?: {
     thinkingBudget?: boolean;
@@ -78,6 +101,8 @@ export type AxModelInfo = {
     structuredOutputs?: boolean;
     /** Ordered, verified structured-output strategies for this exact model. */
     structuredOutputModes?: readonly AxStructuredOutputRung[];
+    /** Portable request tiers verified for this exact model. */
+    serviceTiers?: readonly AxServiceTier[];
   };
   notSupported?: {
     temperature?: boolean;
@@ -128,7 +153,7 @@ export type AxTokenUsage = {
   reasoningTokens?: number; // For O1-style models
   cacheCreationTokens?: number; // Cost of creating cache entries
   cacheReadTokens?: number; // Tokens read from cache (often free)
-  serviceTier?: 'standard' | 'flex' | 'priority' | 'batch'; // Service level used
+  serviceTier?: AxAppliedServiceTier; // Service level used
   speed?: 'standard' | 'fast'; // Provider speed tier used when reported
 };
 
@@ -1098,6 +1123,15 @@ export type AxAIServiceOptions = {
     | 'high'
     | 'highest'
     | 'none';
+
+  /**
+   * Portable inference scheduling policy.
+   *
+   * `auto` delegates to provider routing when supported and otherwise omits
+   * the provider field. Explicit tiers are rejected when the selected
+   * provider/model has not verified them.
+   */
+  serviceTier?: AxServiceTier;
 
   /**
    * Include the model's thinking/reasoning in the output.

@@ -31,6 +31,11 @@ export const axAIProviderProfiles = {
         "native",
         "function",
         "json_object"
+      ],
+      "serviceTiers": [
+        "standard",
+        "flex",
+        "priority"
       ]
     },
     "operations": {
@@ -96,7 +101,15 @@ export const axAIProviderProfiles = {
     "sources": [
       "https://platform.openai.com/docs/api-reference/chat"
     ],
-    "reviewedAt": "2026-08-17"
+    "reviewedAt": "2026-08-17",
+    "request": {
+      "serviceTierMap": {
+        "auto": "auto",
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
+    }
   },
   "openai-compatible": {
     "id": "openai-compatible",
@@ -124,7 +137,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -174,6 +188,11 @@ export const axAIProviderProfiles = {
         "native",
         "function",
         "json_object"
+      ],
+      "serviceTiers": [
+        "standard",
+        "flex",
+        "priority"
       ]
     },
     "operations": {
@@ -239,7 +258,15 @@ export const axAIProviderProfiles = {
     "sources": [
       "https://platform.openai.com/docs/api-reference/responses"
     ],
-    "reviewedAt": "2026-08-17"
+    "reviewedAt": "2026-08-17",
+    "request": {
+      "serviceTierMap": {
+        "auto": "auto",
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
+    }
   },
   "anthropic": {
     "id": "anthropic",
@@ -277,7 +304,8 @@ export const axAIProviderProfiles = {
       },
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -331,6 +359,11 @@ export const axAIProviderProfiles = {
       "structuredOutputModes": [
         "native",
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "flex",
+        "priority"
       ]
     },
     "operations": {
@@ -401,9 +434,18 @@ export const axAIProviderProfiles = {
     },
     "modelRules": [],
     "sources": [
-      "https://ai.google.dev/api/generate-content"
+      "https://ai.google.dev/api/generate-content",
+      "https://ai.google.dev/gemini-api/docs/optimization"
     ],
-    "reviewedAt": "2026-08-17"
+    "reviewedAt": "2026-08-17",
+    "request": {
+      "serviceTierMap": {
+        "auto": null,
+        "standard": "standard",
+        "flex": "flex",
+        "priority": "priority"
+      }
+    }
   },
   "webllm": {
     "id": "webllm",
@@ -429,7 +471,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -473,6 +516,10 @@ export const axAIProviderProfiles = {
       "structuredOutputModes": [
         "native",
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "priority"
       ]
     },
     "operations": {
@@ -525,9 +572,18 @@ export const axAIProviderProfiles = {
     },
     "modelRules": [],
     "sources": [
-      "https://learn.microsoft.com/en-us/azure/ai-services/openai/reference"
+      "https://learn.microsoft.com/en-us/azure/ai-services/openai/reference",
+      "https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing"
     ],
-    "reviewedAt": "2026-08-17"
+    "reviewedAt": "2026-08-17",
+    "request": {
+      "serviceTierMap": {
+        "auto": "auto",
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
+    }
   },
   "deepseek": {
     "id": "deepseek",
@@ -554,7 +610,8 @@ export const axAIProviderProfiles = {
       "structuredOutputModes": [
         "function",
         "json_object"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -669,7 +726,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -723,6 +781,10 @@ export const axAIProviderProfiles = {
       "structuredOutputModes": [
         "native",
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "priority"
       ]
     },
     "operations": {
@@ -747,11 +809,17 @@ export const axAIProviderProfiles = {
       "renameFields": {
         "max_completion_tokens": "max_tokens"
       },
-      "imageURLShape": "object"
+      "imageURLShape": "object",
+      "serviceTierMap": {
+        "auto": "auto",
+        "standard": "standard_only",
+        "priority": "auto"
+      }
     },
     "modelRules": [],
     "sources": [
-      "https://docs.mistral.ai/api/"
+      "https://docs.mistral.ai/api/",
+      "https://docs.mistral.ai/inference/priority-tier"
     ],
     "reviewedAt": "2026-08-17"
   },
@@ -780,7 +848,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -830,6 +899,10 @@ export const axAIProviderProfiles = {
       "structuredOutputModes": [
         "native",
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "priority"
       ]
     },
     "operations": {
@@ -886,7 +959,12 @@ export const axAIProviderProfiles = {
       }
     },
     "request": {
-      "optionDialect": "search-parameters"
+      "optionDialect": "search-parameters",
+      "serviceTierMap": {
+        "auto": null,
+        "standard": "default",
+        "priority": "priority"
+      }
     },
     "modelRules": [
       {
@@ -1008,7 +1086,8 @@ export const axAIProviderProfiles = {
     ],
     "sources": [
       "https://docs.x.ai/developers/model-capabilities/text/reasoning",
-      "https://docs.x.ai/developers/models/grok-4.5"
+      "https://docs.x.ai/developers/models/grok-4.5",
+      "https://docs.x.ai/developers/advanced-api-usage/priority-processing"
     ],
     "reviewedAt": "2026-08-18"
   },
@@ -1036,7 +1115,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -1078,7 +1158,8 @@ export const axAIProviderProfiles = {
         "native",
         "function",
         "json_object"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -1161,6 +1242,11 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "flex",
+        "priority"
       ]
     },
     "operations": {
@@ -1216,9 +1302,18 @@ export const axAIProviderProfiles = {
       }
     ],
     "sources": [
-      "https://openrouter.ai/docs/guides/best-practices/reasoning-tokens"
+      "https://openrouter.ai/docs/guides/best-practices/reasoning-tokens",
+      "https://openrouter.ai/docs/guides/features/service-tiers"
     ],
-    "reviewedAt": "2026-08-18"
+    "reviewedAt": "2026-08-18",
+    "request": {
+      "serviceTierMap": {
+        "auto": null,
+        "standard": null,
+        "flex": "flex",
+        "priority": "priority"
+      }
+    }
   },
   "orcarouter": {
     "id": "orcarouter",
@@ -1244,7 +1339,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -1284,6 +1380,10 @@ export const axAIProviderProfiles = {
       "structuredOutputModes": [
         "native",
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "priority"
       ]
     },
     "operations": {
@@ -1342,7 +1442,14 @@ export const axAIProviderProfiles = {
       "https://docs.fireworks.ai/api-reference/post-chatcompletions",
       "https://docs.fireworks.ai/guides/reasoning"
     ],
-    "reviewedAt": "2026-08-18"
+    "reviewedAt": "2026-08-18",
+    "request": {
+      "serviceTierMap": {
+        "auto": null,
+        "standard": "default",
+        "priority": "priority"
+      }
+    }
   },
   "huggingface-router": {
     "id": "huggingface-router",
@@ -1370,7 +1477,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -1410,6 +1518,11 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "flex",
+        "priority"
       ]
     },
     "operations": {
@@ -1420,9 +1533,18 @@ export const axAIProviderProfiles = {
     },
     "modelRules": [],
     "sources": [
-      "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html"
+      "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html",
+      "https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html"
     ],
-    "reviewedAt": "2026-08-17"
+    "reviewedAt": "2026-08-17",
+    "request": {
+      "serviceTierMap": {
+        "auto": null,
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
+    }
   },
   "azure-foundry": {
     "id": "azure-foundry",
@@ -1451,6 +1573,10 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "priority"
       ]
     },
     "operations": {
@@ -1461,9 +1587,18 @@ export const axAIProviderProfiles = {
     },
     "modelRules": [],
     "sources": [
-      "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat"
+      "https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/chat",
+      "https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/priority-processing"
     ],
-    "reviewedAt": "2026-08-17"
+    "reviewedAt": "2026-08-17",
+    "request": {
+      "serviceTierMap": {
+        "auto": "auto",
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
+    }
   },
   "vertex-ai": {
     "id": "vertex-ai",
@@ -1490,7 +1625,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -1579,6 +1715,10 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "priority"
       ]
     },
     "operations": {
@@ -1589,9 +1729,17 @@ export const axAIProviderProfiles = {
     },
     "modelRules": [],
     "sources": [
-      "https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models"
+      "https://docs.databricks.com/aws/en/machine-learning/model-serving/query-chat-models",
+      "https://docs.databricks.com/aws/en/machine-learning/foundation-model-apis/priority-mode"
     ],
-    "reviewedAt": "2026-08-17"
+    "reviewedAt": "2026-08-17",
+    "request": {
+      "serviceTierMap": {
+        "auto": null,
+        "standard": "default",
+        "priority": "priority"
+      }
+    }
   },
   "baseten": {
     "id": "baseten",
@@ -1618,7 +1766,8 @@ export const axAIProviderProfiles = {
       "structuredOutputModes": [
         "native",
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -1657,6 +1806,11 @@ export const axAIProviderProfiles = {
       "structuredOutputModes": [
         "native",
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "flex",
+        "priority"
       ]
     },
     "operations": {
@@ -1723,9 +1877,18 @@ export const axAIProviderProfiles = {
     ],
     "sources": [
       "https://console.groq.com/docs/reasoning",
-      "https://console.groq.com/docs/api-reference"
+      "https://console.groq.com/docs/api-reference",
+      "https://console.groq.com/docs/service-tiers"
     ],
-    "reviewedAt": "2026-08-18"
+    "reviewedAt": "2026-08-18",
+    "request": {
+      "serviceTierMap": {
+        "auto": "auto",
+        "standard": "on_demand",
+        "flex": "flex",
+        "priority": "performance"
+      }
+    }
   },
   "cerebras": {
     "id": "cerebras",
@@ -1752,6 +1915,11 @@ export const axAIProviderProfiles = {
       "structuredOutputModes": [
         "native",
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "flex",
+        "priority"
       ]
     },
     "operations": {
@@ -1817,9 +1985,18 @@ export const axAIProviderProfiles = {
     ],
     "sources": [
       "https://inference-docs.cerebras.ai/capabilities/reasoning",
-      "https://inference-docs.cerebras.ai/api-reference/chat-completions"
+      "https://inference-docs.cerebras.ai/api-reference/chat-completions",
+      "https://inference-docs.cerebras.ai/capabilities/service-tiers"
     ],
-    "reviewedAt": "2026-08-18"
+    "reviewedAt": "2026-08-18",
+    "request": {
+      "serviceTierMap": {
+        "auto": "auto",
+        "standard": "default",
+        "flex": "flex",
+        "priority": "priority"
+      }
+    }
   },
   "deepinfra": {
     "id": "deepinfra",
@@ -1845,6 +2022,10 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
+      ],
+      "serviceTiers": [
+        "standard",
+        "priority"
       ]
     },
     "operations": {
@@ -1882,9 +2063,17 @@ export const axAIProviderProfiles = {
     ],
     "sources": [
       "https://docs.deepinfra.com/chat/reasoning",
-      "https://docs.deepinfra.com/api-reference/introduction"
+      "https://docs.deepinfra.com/api-reference/introduction",
+      "https://docs.deepinfra.com/chat/overview"
     ],
-    "reviewedAt": "2026-08-18"
+    "reviewedAt": "2026-08-18",
+    "request": {
+      "serviceTierMap": {
+        "auto": null,
+        "standard": null,
+        "priority": "priority"
+      }
+    }
   },
   "sambanova": {
     "id": "sambanova",
@@ -1911,7 +2100,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -1949,7 +2139,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -1988,7 +2179,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2026,7 +2218,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2064,7 +2257,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2103,7 +2297,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2142,7 +2337,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2181,7 +2377,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2219,7 +2416,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2258,7 +2456,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2296,7 +2495,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2335,7 +2535,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2374,7 +2575,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2413,7 +2615,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2451,7 +2654,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2489,7 +2693,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2528,7 +2733,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2567,7 +2773,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2606,7 +2813,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
@@ -2645,7 +2853,8 @@ export const axAIProviderProfiles = {
       "multiTurn": true,
       "structuredOutputModes": [
         "function"
-      ]
+      ],
+      "serviceTiers": []
     },
     "operations": {
       "chat": {
